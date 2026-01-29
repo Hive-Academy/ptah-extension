@@ -55,3 +55,13 @@ export { UserMessageStreamFactory } from './user-message-stream-factory';
 
 // History module (TASK_2025_106)
 export * from './history';
+
+// Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
+export {
+  ANTHROPIC_PROVIDERS,
+  DEFAULT_PROVIDER_ID,
+  getAnthropicProvider,
+  getProviderBaseUrl,
+  type AnthropicProvider,
+  type AnthropicProviderId,
+} from './anthropic-provider-registry';

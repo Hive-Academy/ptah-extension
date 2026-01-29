@@ -66,15 +66,23 @@ export class CommandRpcHandlers {
 
         this.logger.debug('RPC: command:execute called', { command });
 
-        // SECURITY: Only allow ptah.* commands from webview
+        // SECURITY: Only allow whitelisted commands from webview
         // This prevents arbitrary VS Code command execution
-        if (!command.startsWith('ptah.')) {
-          this.logger.warn('RPC: command:execute blocked non-ptah command', {
+        // TASK_2025_129 Batch 3: Added workbench.action.reloadWindow for auth reload
+        const ALLOWED_COMMAND_PREFIXES = ['ptah.'];
+        const ALLOWED_EXACT_COMMANDS = ['workbench.action.reloadWindow'];
+        const isAllowed =
+          ALLOWED_COMMAND_PREFIXES.some((prefix) =>
+            command.startsWith(prefix)
+          ) || ALLOWED_EXACT_COMMANDS.includes(command);
+
+        if (!isAllowed) {
+          this.logger.warn('RPC: command:execute blocked disallowed command', {
             command,
           });
           return {
             success: false,
-            error: `Only ptah.* commands are allowed. Received: ${command}`,
+            error: `Command not allowed from webview. Received: ${command}`,
           };
         }
 

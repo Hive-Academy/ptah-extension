@@ -14,6 +14,7 @@ import { TabManagerService } from '../../services/tab-manager.service';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
+  ClaudeRpcService,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from './autopilot-popover.component';
@@ -184,6 +185,16 @@ import { AgentSelectorComponent } from './agent-selector.component';
             <span>{{ autopilotState.statusText() }}</span>
           </div>
           }
+
+          <!-- Auth Method Badge (TASK_2025_129 Batch 3) -->
+          @if (authMethodLabel()) {
+          <div
+            class="badge badge-ghost badge-sm gap-1 opacity-70"
+            [title]="'Authenticated via ' + authMethodLabel()"
+          >
+            <span>{{ authMethodLabel() }}</span>
+          </div>
+          }
         </div>
 
         <!-- Right: Model Selector and Autopilot Popover -->
@@ -203,10 +214,14 @@ export class ChatInputComponent {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
   readonly autopilotState = inject(AutopilotStateService);
+  private readonly rpcService = inject(ClaudeRpcService);
 
   // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
   readonly commandDiscovery = inject(CommandDiscoveryFacade);
+
+  // Auth method badge (TASK_2025_129 Batch 3)
+  readonly authMethodLabel = signal<string | null>(null);
 
   /**
    * TASK_2025_096 FIX: Use the same streaming indicator as tab spinner.
@@ -665,6 +680,40 @@ export class ChatInputComponent {
   }
 
   /**
+   * Fetch auth method label from backend for badge display (TASK_2025_129 Batch 3)
+   */
+  private async fetchAuthMethodLabel(): Promise<void> {
+    try {
+      const result = await this.rpcService.call('auth:getAuthStatus', {});
+      if (result.isSuccess() && result.data) {
+        const { authMethod, anthropicProviderId, availableProviders } =
+          result.data;
+
+        let label: string;
+        if (authMethod === 'openrouter') {
+          const provider = availableProviders?.find(
+            (p) => p.id === anthropicProviderId
+          );
+          label = provider?.name ?? 'Provider';
+        } else if (authMethod === 'oauth') {
+          label = 'OAuth';
+        } else if (authMethod === 'apiKey') {
+          label = 'API Key';
+        } else {
+          label = 'Auto';
+        }
+
+        this.authMethodLabel.set(label);
+      }
+    } catch (error) {
+      console.error(
+        '[ChatInputComponent] Failed to fetch auth method label:',
+        error
+      );
+    }
+  }
+
+  /**
    * Restore content to input textarea (called by effect when signal changes)
    * FIX #2: Check if input is empty before restoring to prevent overwriting user input
    * @param content - Content to restore to input
@@ -698,6 +747,9 @@ export class ChatInputComponent {
   }
 
   constructor() {
+    // Fetch auth method label for badge display (TASK_2025_129 Batch 3)
+    this.fetchAuthMethodLabel();
+
     // Listen for queue-to-input restoration signal
     // FIX #3: Validate tab ID to ensure content goes to correct tab
     effect(() => {

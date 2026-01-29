@@ -17,7 +17,7 @@
         [disabled]="isSwitchingMethod()"
         [attr.aria-pressed]="authMethod() === 'openrouter'"
       >
-        OpenRouter
+        Provider
       </button>
       <button
         type="button"
@@ -55,16 +55,41 @@
     </div>
     <div class="label py-0.5">
       <span class="label-text-alt text-[10px] opacity-70">
-        Auto-detect: OpenRouter → OAuth → API key (in priority order)
+        Auto-detect: Provider → OAuth → API key (in priority order)
       </span>
     </div>
   </div>
 
-  <!-- OpenRouter API Key Input (TASK_2025_091) -->
+  <!-- Anthropic-Compatible Provider Input (TASK_2025_129 Batch 3) -->
   @if (authMethod() === 'openrouter' || authMethod() === 'auto') {
+  <!-- Provider Selection Dropdown -->
+  @if (availableProviders().length > 0) {
+  <div class="form-control">
+    <div class="label py-1">
+      <span class="label-text text-xs font-medium">Provider</span>
+    </div>
+    <select
+      class="select select-bordered select-sm w-full text-xs"
+      [ngModel]="selectedProviderId()"
+      (ngModelChange)="onProviderChange($event)"
+      name="providerId"
+      aria-label="Select Anthropic-compatible provider"
+    >
+      @for (provider of availableProviders(); track provider.id) {
+      <option [value]="provider.id">
+        {{ provider.name }} - {{ provider.description }}
+      </option>
+      }
+    </select>
+  </div>
+  }
+
+  <!-- Provider API Key Input -->
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="openrouterKey">
-      <span class="label-text text-xs font-medium">OpenRouter API Key</span>
+      <span class="label-text text-xs font-medium">
+        {{ selectedProvider()?.name ?? 'Provider' }} API Key
+      </span>
       @if (isLoadingStatus()) {
       <span
         class="badge badge-ghost badge-xs"
@@ -75,7 +100,7 @@
       } @else if (hasExistingOpenRouterKey()) {
       <span
         class="badge badge-success badge-xs gap-0.5"
-        aria-label="OpenRouter key configured"
+        aria-label="Provider key configured"
       >
         <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
         <span>Configured</span>
@@ -90,15 +115,15 @@
       <div
         class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
       >
-        sk-or-••••••••••••
+        {{ selectedProvider()?.maskedKeyDisplay ?? '••••••••••••' }}
       </div>
       <button
         type="button"
         class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
         (click)="deleteOpenRouterKey()"
         [disabled]="connectionStatus() === 'saving'"
-        title="Remove OpenRouter key"
-        aria-label="Remove OpenRouter key"
+        title="Remove provider key"
+        aria-label="Remove provider key"
       >
         <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
       </button>
@@ -124,23 +149,28 @@
       [(ngModel)]="openrouterKey"
       name="openrouterKey"
       class="input input-bordered input-sm w-full text-xs"
-      placeholder="sk-or-v1-..."
+      [placeholder]="selectedProvider()?.keyPlaceholder ?? 'Enter API key...'"
       [attr.aria-required]="authMethod() === 'openrouter'"
     />
     }
     <div class="label flex-col items-start gap-0.5 py-1">
+      @if (selectedProvider(); as provider) {
       <span class="label-text-alt text-[10px] opacity-70">
-        <strong>🌐 OpenRouter:</strong> Access 200+ models. Get key from
+        <strong>{{ provider.name }}:</strong> {{ provider.description }}.
+        Get key from
         <a
-          href="https://openrouter.ai/keys"
+          [href]="provider.helpUrl"
           target="_blank"
           class="link link-primary font-semibold"
-          >openrouter.ai</a
+          >{{ provider.helpUrl | slice:8 }}</a
         >
       </span>
+      @if (provider.keyPrefix) {
       <span class="label-text-alt text-[10px] opacity-70">
-        Keys start with <code class="text-[10px]">sk-or-</code>
+        Keys start with <code class="text-[10px]">{{ provider.keyPrefix }}</code>
       </span>
+      }
+      }
     </div>
   </div>
   }
@@ -341,7 +371,15 @@
   @if (connectionStatus() === 'success' && successMessage()) {
   <div class="alert alert-success py-2 px-3" role="status" aria-live="polite">
     <lucide-angular [img]="CheckCircleIcon" class="w-4 h-4" />
-    <span class="text-xs">{{ successMessage() }}</span>
+    <span class="text-xs flex-1">{{ successMessage() }}</span>
+    <button
+      type="button"
+      class="btn btn-ghost btn-xs text-success-content"
+      (click)="reloadWindow()"
+      title="Reload window to fully apply changes"
+    >
+      Reload
+    </button>
   </div>
   }
 

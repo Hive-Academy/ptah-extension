@@ -74,9 +74,11 @@ export class SettingsComponent implements OnInit {
   // Auth status signals
   readonly hasOAuthToken = signal(false);
   readonly hasApiKey = signal(false);
-  // TASK_2025_091: OpenRouter key status
+  // TASK_2025_091: Provider key status
   readonly hasOpenRouterKey = signal(false);
   readonly isLoadingAuthStatus = signal(true);
+  // TASK_2025_129 Batch 3: Selected provider ID
+  readonly selectedProviderId = signal('openrouter');
 
   // License status signals
   readonly isPremium = signal(false);
@@ -94,12 +96,25 @@ export class SettingsComponent implements OnInit {
   readonly planDescription = signal<string | null>(null);
   readonly isCommunity = signal(false);
 
+  // User profile signals (TASK_2025_129)
+  readonly userEmail = signal<string | null>(null);
+  readonly userFirstName = signal<string | null>(null);
+  readonly userLastName = signal<string | null>(null);
+
   /**
    * Computed: Whether any auth credential is configured
    * Shows additional settings sections when true
    */
   readonly hasAnyCredential = computed(
     () => this.hasOAuthToken() || this.hasApiKey() || this.hasOpenRouterKey()
+  );
+
+  /**
+   * Computed: Whether OpenRouter is the selected provider and key is configured
+   * Shows OpenRouter model mapping section only for OpenRouter (TASK_2025_129 Batch 3)
+   */
+  readonly showOpenRouterModels = computed(
+    () => this.hasOpenRouterKey() && this.selectedProviderId() === 'openrouter'
   );
 
   /**
@@ -141,6 +156,50 @@ export class SettingsComponent implements OnInit {
   readonly showTrialInfo = computed(
     () => this.trialActive() && this.trialDaysRemaining() !== null
   );
+
+  /**
+   * Computed: User display name (first + last name, or email fallback)
+   * TASK_2025_129
+   */
+  readonly userDisplayName = computed(() => {
+    const first = this.userFirstName();
+    const last = this.userLastName();
+    if (first || last) {
+      return [first, last].filter(Boolean).join(' ');
+    }
+    return this.userEmail();
+  });
+
+  /**
+   * Computed: Whether to show user display name separately from email (TASK_2025_129)
+   */
+  readonly showUserName = computed(() => {
+    const name = this.userDisplayName();
+    return !!name && name !== this.userEmail();
+  });
+
+  /**
+   * Computed: User initials for avatar (e.g., "JD" for John Doe)
+   * (TASK_2025_129)
+   */
+  readonly userInitials = computed(() => {
+    const first = this.userFirstName();
+    const last = this.userLastName();
+    if (first && last) {
+      return `${first[0]}${last[0]}`.toUpperCase();
+    }
+    if (first) {
+      return first[0].toUpperCase();
+    }
+    if (last) {
+      return last[0].toUpperCase();
+    }
+    const email = this.userEmail();
+    if (email && email.length > 0) {
+      return email[0].toUpperCase();
+    }
+    return '?';
+  });
 
   /**
    * Initialize: Fetch auth and license status on component mount
@@ -202,8 +261,10 @@ export class SettingsComponent implements OnInit {
         const data = result.data as AuthGetAuthStatusResponse;
         this.hasOAuthToken.set(data.hasOAuthToken);
         this.hasApiKey.set(data.hasApiKey);
-        // TASK_2025_091: OpenRouter status
+        // TASK_2025_091: Provider key status
         this.hasOpenRouterKey.set(data.hasOpenRouterKey);
+        // TASK_2025_129 Batch 3: Selected provider ID
+        this.selectedProviderId.set(data.anthropicProviderId);
       }
     } catch (error) {
       console.error('[SettingsComponent] Failed to fetch auth status:', error);
@@ -231,6 +292,10 @@ export class SettingsComponent implements OnInit {
         this.isCommunity.set(data.isCommunity);
         this.planName.set(data.plan?.name ?? null);
         this.planDescription.set(data.plan?.description ?? null);
+        // TASK_2025_129: User profile data
+        this.userEmail.set(data.user?.email ?? null);
+        this.userFirstName.set(data.user?.firstName ?? null);
+        this.userLastName.set(data.user?.lastName ?? null);
       }
     } catch (error) {
       console.error(
@@ -240,6 +305,10 @@ export class SettingsComponent implements OnInit {
       // Graceful degradation: assume expired (no access without valid license)
       this.isPremium.set(false);
       this.licenseTier.set('expired');
+      // TASK_2025_129: Reset user signals to prevent stale profile display
+      this.userEmail.set(null);
+      this.userFirstName.set(null);
+      this.userLastName.set(null);
     } finally {
       this.isLoadingLicenseStatus.set(false);
     }

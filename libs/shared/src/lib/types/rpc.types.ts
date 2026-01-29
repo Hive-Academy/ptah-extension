@@ -395,8 +395,10 @@ export interface AuthSaveSettingsParams {
   authMethod: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
   claudeOAuthToken?: string;
   anthropicApiKey?: string;
-  /** OpenRouter API key (takes precedence over OAuth and API key) */
+  /** Provider API key - used for OpenRouter, Moonshot, Z.AI, etc. */
   openrouterApiKey?: string;
+  /** Selected Anthropic-compatible provider ID (TASK_2025_129 Batch 3) */
+  anthropicProviderId?: string;
 }
 
 /** Response from auth:saveSettings RPC method */
@@ -429,6 +431,26 @@ export interface AuthTestConnectionResponse {
 export type AuthGetAuthStatusParams = Record<string, never>;
 
 /**
+ * Anthropic-compatible provider info for UI display (TASK_2025_129 Batch 3)
+ */
+export interface AnthropicProviderInfo {
+  /** Provider identifier */
+  id: string;
+  /** Display name */
+  name: string;
+  /** Short description */
+  description: string;
+  /** URL to obtain API keys */
+  helpUrl: string;
+  /** Expected key prefix (empty if none) */
+  keyPrefix: string;
+  /** Placeholder text for key input */
+  keyPlaceholder: string;
+  /** Masked key display text */
+  maskedKeyDisplay: string;
+}
+
+/**
  * Response from auth:getAuthStatus RPC method
  *
  * SECURITY: This response NEVER contains actual credential values.
@@ -439,10 +461,14 @@ export interface AuthGetAuthStatusResponse {
   hasOAuthToken: boolean;
   /** Whether API key is configured in SecretStorage */
   hasApiKey: boolean;
-  /** Whether OpenRouter API key is configured in SecretStorage */
+  /** Whether provider API key is configured in SecretStorage */
   hasOpenRouterKey: boolean;
   /** Current auth method preference */
   authMethod: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+  /** Currently selected Anthropic-compatible provider ID (TASK_2025_129 Batch 3) */
+  anthropicProviderId: string;
+  /** Available Anthropic-compatible providers (TASK_2025_129 Batch 3) */
+  availableProviders: AnthropicProviderInfo[];
 }
 
 // ============================================================
@@ -591,6 +617,12 @@ export interface LicenseGetStatusResponse {
   };
   /** Reason for invalid license (for context-aware welcome messaging) */
   reason?: 'expired' | 'trial_ended' | 'no_license';
+  /** User profile data (TASK_2025_129) - only present for licensed users */
+  user?: {
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  };
 }
 
 // ============================================================

@@ -2,12 +2,13 @@
  * Authentication Manager - Handles SDK authentication configuration
  *
  * Responsibilities:
- * - OpenRouter, OAuth token and API key detection
+ * - Anthropic-compatible provider (OpenRouter, Moonshot, Z.AI), OAuth token and API key detection
  * - Environment variable setup
  * - Token format validation
- * - Authentication priority logic (OpenRouter > OAuth > API Key)
+ * - Authentication priority logic (Anthropic Provider > OAuth > API Key)
  *
  * TASK_2025_091: Added OpenRouter as highest-priority auth method
+ * TASK_2025_129 Batch 3: Generalized to support multiple Anthropic-compatible providers
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -17,6 +18,11 @@ import {
   TOKENS,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import {
+  getAnthropicProvider,
+  getProviderBaseUrl,
+  DEFAULT_PROVIDER_ID,
+} from './anthropic-provider-registry';
 
 export interface AuthResult {
   configured: boolean;
@@ -50,14 +56,14 @@ export class AuthManager {
     let authConfigured = false;
     const authDetails: string[] = [];
 
-    // TASK_2025_091: Priority 1 - OpenRouter (takes precedence over all other auth)
-    // OpenRouter provides access to 200+ models via unified API
+    // TASK_2025_129 Batch 3: Priority 1 - Anthropic-compatible provider
+    // Supports OpenRouter, Moonshot (Kimi), Z.AI (GLM), and future providers
     if (authMethod === 'openrouter' || authMethod === 'auto') {
-      const openRouterResult = await this.configureOpenRouter();
-      if (openRouterResult.configured) {
+      const providerResult = await this.configureAnthropicProvider();
+      if (providerResult.configured) {
         authConfigured = true;
-        authDetails.push(...openRouterResult.details);
-        // Skip OAuth and API key when OpenRouter is configured
+        authDetails.push(...providerResult.details);
+        // Skip OAuth and API key when provider is configured
         this.logger.info(
           `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
         );
@@ -96,10 +102,10 @@ export class AuthManager {
     // Validate at least one auth method is available
     if (!authConfigured) {
       const errorMsg =
-        'No authentication configured. Set either: (1) OpenRouter API key for multi-model access, (2) OAuth token from "claude setup-token" for Claude Max/Pro subscription, OR (3) API key from console.anthropic.com for pay-per-token billing.';
+        'No authentication configured. Set either: (1) Anthropic-compatible provider key (OpenRouter, Moonshot, Z.AI), (2) OAuth token from "claude setup-token" for Claude Max/Pro subscription, OR (3) API key from console.anthropic.com for pay-per-token billing.';
       this.logger.error(`[AuthManager] ${errorMsg}`);
       this.logger.error(
-        '[AuthManager] Option 1 (OpenRouter): Get from https://openrouter.ai/keys'
+        '[AuthManager] Option 1 (Provider): Configure in Settings > Authentication > Provider tab'
       );
       this.logger.error(
         '[AuthManager] Option 2 (Subscription): Run "claude setup-token" and paste the token'
@@ -203,68 +209,84 @@ export class AuthManager {
   }
 
   /**
-   * Configure OpenRouter authentication (TASK_2025_091)
+   * Configure Anthropic-compatible provider authentication (TASK_2025_129 Batch 3)
    *
-   * OpenRouter provides an "Anthropic Skin" that allows Claude SDK to
-   * communicate directly with OpenRouter using its native protocol.
+   * Supports multiple providers that implement the Anthropic API protocol:
+   * - OpenRouter: Multi-model access (200+ models)
+   * - Moonshot (Kimi): Anthropic-compatible endpoint
+   * - Z.AI (GLM): Anthropic-compatible endpoint
    *
    * Environment variables set:
-   * - ANTHROPIC_BASE_URL: https://openrouter.ai/api
-   * - ANTHROPIC_AUTH_TOKEN: OpenRouter API key
+   * - ANTHROPIC_BASE_URL: Provider's API endpoint (from registry)
+   * - ANTHROPIC_AUTH_TOKEN: Provider's API key
    * - ANTHROPIC_API_KEY: Empty (must be cleared to prevent conflicts)
    *
    * @see https://openrouter.ai/docs/guides/claude-code-integration
+   * @see https://platform.moonshot.ai/docs/guide/agent-support.en-US
+   * @see https://docs.z.ai/devpack/tool/claude
    */
-  private async configureOpenRouter(): Promise<AuthResult> {
-    const openRouterKey = await this.authSecrets.getCredential('openrouterKey');
+  private async configureAnthropicProvider(): Promise<AuthResult> {
+    const providerKey = await this.authSecrets.getCredential('openrouterKey');
     const details: string[] = [];
 
-    if (openRouterKey?.trim()) {
-      const keyPrefix = openRouterKey.substring(0, 10);
-      const keyLength = openRouterKey.length;
-      const isValidFormat = openRouterKey.startsWith('sk-or-');
+    if (providerKey?.trim()) {
+      // Read selected provider from config (default: openrouter for backward compat)
+      const providerId = this.config.getWithDefault<string>(
+        'anthropicProviderId',
+        DEFAULT_PROVIDER_ID
+      );
+      const provider = getAnthropicProvider(providerId);
+      const providerName = provider?.name ?? providerId;
+      const baseUrl = getProviderBaseUrl(providerId);
+
+      const keyLength = providerKey.length;
+      const keyPrefix = providerKey.substring(0, 10);
+
+      // Validate key format if provider has expected prefix
+      const hasExpectedPrefix = provider?.keyPrefix
+        ? providerKey.startsWith(provider.keyPrefix)
+        : true;
 
       this.logger.info(
-        `[AuthManager] Found OpenRouter key in SecretStorage (length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${isValidFormat})`
+        `[AuthManager] Found provider key in SecretStorage (provider: ${providerName}, length: ${keyLength}, prefix: ${keyPrefix}..., valid format: ${hasExpectedPrefix})`
       );
 
-      if (!isValidFormat) {
+      if (!hasExpectedPrefix && provider?.keyPrefix) {
         this.logger.warn(
-          '[AuthManager] WARNING: OpenRouter key does not start with "sk-or-". Expected format: sk-or-v1-...'
+          `[AuthManager] WARNING: Key does not start with "${provider.keyPrefix}". Expected format for ${providerName}.`
         );
         this.logger.warn(
-          '[AuthManager] Get valid OpenRouter keys from: https://openrouter.ai/keys'
+          `[AuthManager] Get valid keys from: ${provider.helpUrl}`
         );
       }
 
-      // CRITICAL: Configure environment for OpenRouter "Anthropic Skin"
-      // This allows Claude SDK to route through OpenRouter
-      process.env['ANTHROPIC_BASE_URL'] = 'https://openrouter.ai/api';
-      process.env['ANTHROPIC_AUTH_TOKEN'] = openRouterKey.trim();
+      // Configure environment for Anthropic-compatible provider
+      process.env['ANTHROPIC_BASE_URL'] = baseUrl;
+      process.env['ANTHROPIC_AUTH_TOKEN'] = providerKey.trim();
 
       // MUST clear API key and OAuth token to prevent conflicts
       process.env['ANTHROPIC_API_KEY'] = '';
       delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
 
       this.logger.info(
-        '[AuthManager] Using OpenRouter API key (routing via openrouter.ai)'
+        `[AuthManager] Using ${providerName} (routing via ${baseUrl})`
       );
       this.logger.info(
-        '[AuthManager] Set ANTHROPIC_BASE_URL=https://openrouter.ai/api'
+        `[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}`
       );
       this.logger.info(
-        '[AuthManager] Cleared ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN to use OpenRouter'
+        '[AuthManager] Cleared ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN'
       );
 
       details.push(
-        `OpenRouter API key (routing via openrouter.ai${
-          !isValidFormat ? ', format may be invalid' : ''
+        `${providerName} API key (routing via ${baseUrl}${
+          !hasExpectedPrefix && provider?.keyPrefix ? ', format may be invalid' : ''
         })`
       );
       return { configured: true, details };
     } else {
       this.logger.debug(
-        '[AuthManager] No OpenRouter key found in SecretStorage'
+        '[AuthManager] No provider key found in SecretStorage'
       );
       return { configured: false, details: [] };
     }

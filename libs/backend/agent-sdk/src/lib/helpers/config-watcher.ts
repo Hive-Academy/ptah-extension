@@ -38,8 +38,9 @@ export class ConfigWatcher {
     // Clear existing watchers
     this.dispose();
 
-    // Watch authMethod in ConfigManager (non-sensitive setting)
-    const watchKeys = ['authMethod'];
+    // Watch auth-related config keys (non-sensitive settings)
+    // TASK_2025_129 Batch 3: Added anthropicProviderId for multi-provider support
+    const watchKeys = ['authMethod', 'anthropicProviderId'];
 
     for (const key of watchKeys) {
       const watcher = this.config.watch(key, async () => {

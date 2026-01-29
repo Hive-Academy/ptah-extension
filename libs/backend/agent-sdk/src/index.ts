@@ -44,5 +44,17 @@ export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';
 
+// Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
+export {
+  ANTHROPIC_PROVIDERS,
+  DEFAULT_PROVIDER_ID,
+  getAnthropicProvider,
+  getProviderBaseUrl,
+} from './lib/helpers/anthropic-provider-registry';
+export type {
+  AnthropicProvider,
+  AnthropicProviderId,
+} from './lib/helpers/anthropic-provider-registry';
+
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

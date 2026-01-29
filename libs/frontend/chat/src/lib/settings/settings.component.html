@@ -79,6 +79,26 @@
           }
         </div>
 
+        <!-- User Profile (TASK_2025_129) -->
+        @if (userEmail()) {
+        <div
+          class="flex items-center gap-2 mb-2 py-1.5 px-2 bg-base-300/30 rounded"
+          aria-label="User profile"
+        >
+          <div
+            class="flex items-center justify-center w-6 h-6 rounded-full
+                   bg-primary/20 text-primary text-xs font-bold shrink-0"
+            aria-hidden="true"
+          >{{ userInitials() }}</div>
+          <div class="min-w-0">
+            @if (showUserName()) {
+            <div class="text-xs font-medium truncate">{{ userDisplayName() }}</div>
+            }
+            <div class="text-xs text-base-content/50 truncate">{{ userEmail() }}</div>
+          </div>
+        </div>
+        }
+
         <!-- Trial info -->
         @if (showTrialInfo()) {
         <div
@@ -198,8 +218,8 @@
       </div>
     </div>
 
-    <!-- OpenRouter Model Mapping Section - Only visible when OpenRouter is configured -->
-    @if (hasOpenRouterKey()) {
+    <!-- OpenRouter Model Mapping Section - Only visible when OpenRouter is the selected provider -->
+    @if (showOpenRouterModels()) {
     <div class="border border-info/30 rounded-md bg-info/5">
       <div class="p-3">
         <div class="flex items-center gap-1.5 mb-2">

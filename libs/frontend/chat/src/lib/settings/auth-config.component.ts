@@ -8,6 +8,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { SlicePipe } from '@angular/common';
 import {
   LucideAngularModule,
   CheckCircle,
@@ -22,6 +23,7 @@ import type {
   AuthSaveSettingsResponse,
   AuthTestConnectionResponse,
   AuthGetAuthStatusResponse,
+  AnthropicProviderInfo,
 } from '@ptah-extension/shared';
 
 /**
@@ -53,7 +55,7 @@ import type {
 @Component({
   selector: 'ptah-auth-config',
   standalone: true,
-  imports: [FormsModule, LucideAngularModule],
+  imports: [FormsModule, SlicePipe, LucideAngularModule],
   templateUrl: './auth-config.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -76,13 +78,17 @@ export class AuthConfigComponent implements OnInit {
   );
   readonly oauthToken = signal('');
   readonly apiKey = signal('');
-  // TASK_2025_091: OpenRouter API key
+  // TASK_2025_091: Provider API key (used for OpenRouter, Moonshot, Z.AI, etc.)
   readonly openrouterKey = signal('');
+
+  // TASK_2025_129 Batch 3: Multi-provider support
+  readonly selectedProviderId = signal('openrouter');
+  readonly availableProviders = signal<AnthropicProviderInfo[]>([]);
 
   // Credential status signals (TASK_2025_076)
   readonly hasExistingOAuthToken = signal(false);
   readonly hasExistingApiKey = signal(false);
-  // TASK_2025_091: OpenRouter status
+  // TASK_2025_091: Provider key status
   readonly hasExistingOpenRouterKey = signal(false);
   readonly isLoadingStatus = signal(true);
 
@@ -101,6 +107,22 @@ export class AuthConfigComponent implements OnInit {
 
   // Method switching state (for loading indicator during auth method change)
   readonly isSwitchingMethod = signal(false);
+
+  /**
+   * Computed: Currently selected provider info (TASK_2025_129 Batch 3)
+   */
+  readonly selectedProvider = computed(() => {
+    const id = this.selectedProviderId();
+    return this.availableProviders().find((p) => p.id === id) ?? null;
+  });
+
+  /**
+   * Computed: Display name of the selected provider tab (TASK_2025_129 Batch 3)
+   */
+  readonly providerTabLabel = computed(() => {
+    const provider = this.selectedProvider();
+    return provider?.name ?? 'Provider';
+  });
 
   /**
    * Computed signal to determine if Save & Test button should be enabled
@@ -160,9 +182,12 @@ export class AuthConfigComponent implements OnInit {
       if (result.isSuccess() && result.data) {
         this.hasExistingOAuthToken.set(result.data.hasOAuthToken);
         this.hasExistingApiKey.set(result.data.hasApiKey);
-        // TASK_2025_091: OpenRouter status
+        // TASK_2025_091: Provider key status
         this.hasExistingOpenRouterKey.set(result.data.hasOpenRouterKey);
         this.authMethod.set(result.data.authMethod);
+        // TASK_2025_129 Batch 3: Multi-provider support
+        this.selectedProviderId.set(result.data.anthropicProviderId);
+        this.availableProviders.set(result.data.availableProviders);
       }
     } catch (error) {
       console.error(
@@ -241,8 +266,10 @@ export class AuthConfigComponent implements OnInit {
         authMethod: method,
         claudeOAuthToken: oauth || undefined,
         anthropicApiKey: apiKeyValue || undefined,
-        // TASK_2025_091: Include OpenRouter key
+        // TASK_2025_091: Include provider key
         openrouterApiKey: openrouterKeyValue || undefined,
+        // TASK_2025_129 Batch 3: Include selected provider
+        anthropicProviderId: this.selectedProviderId(),
       };
 
       const saveResult = await this.rpcService.call(
@@ -388,18 +415,87 @@ export class AuthConfigComponent implements OnInit {
   }
 
   /**
+   * Handle provider selection change (TASK_2025_129 Batch 3)
+   *
+   * When user selects a different Anthropic-compatible provider:
+   * 1. Update local signal for responsive UI
+   * 2. Persist to backend via auth:saveSettings
+   * 3. Trigger SDK re-initialization with new provider base URL
+   */
+  async onProviderChange(providerId: string): Promise<void> {
+    if (this.selectedProviderId() === providerId) {
+      return;
+    }
+
+    this.selectedProviderId.set(providerId);
+    // Reset key input when switching providers
+    this.openrouterKey.set('');
+    this.connectionStatus.set('idle');
+    this.errorMessage.set('');
+    this.successMessage.set('');
+
+    // Persist provider selection to backend
+    try {
+      const saveParams: AuthSaveSettingsParams = {
+        authMethod: this.authMethod(),
+        anthropicProviderId: providerId,
+      };
+
+      const result = await this.rpcService.call(
+        'auth:saveSettings',
+        saveParams
+      );
+
+      if (result.isSuccess()) {
+        const provider = this.availableProviders().find(
+          (p) => p.id === providerId
+        );
+        this.successMessage.set(
+          `Switched to ${provider?.name ?? providerId}`
+        );
+        this.connectionStatus.set('success');
+        this.authStatusChanged.emit();
+      }
+    } catch (error) {
+      console.error(
+        '[AuthConfigComponent] Failed to switch provider:',
+        error
+      );
+    }
+  }
+
+  /**
    * Get human-readable display name for auth method
    */
   private getMethodDisplayName(
     method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'
   ): string {
+    const providerName = this.selectedProvider()?.name ?? 'Provider';
     const displayNames: Record<typeof method, string> = {
-      openrouter: 'OpenRouter',
+      openrouter: providerName,
       oauth: 'OAuth Token',
       apiKey: 'API Key',
       auto: 'Auto-detect',
     };
     return displayNames[method];
+  }
+
+  /**
+   * Reload VS Code window to apply auth changes (TASK_2025_129 Batch 3)
+   *
+   * Triggers a full window reload to ensure:
+   * - SDK re-initializes with new provider/credentials
+   * - All cached auth state is cleared
+   * - Extension host restarts cleanly
+   */
+  async reloadWindow(): Promise<void> {
+    try {
+      await this.rpcService.call('command:execute', {
+        command: 'workbench.action.reloadWindow',
+      });
+    } catch (error) {
+      console.error('[AuthConfigComponent] Failed to reload window:', error);
+    }
   }
 
   /**

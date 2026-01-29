@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_129: Authentication Settings Improvements
 
-**Total Tasks**: 9 | **Batches**: 2 | **Status**: 0/2 complete
+**Total Tasks**: 9 | **Batches**: 2 | **Status**: 2/2 complete
 
 ---
 
@@ -39,12 +39,12 @@
 
 ---
 
-## Batch 1: Remove OpenRouter Pro Gating -- IMPLEMENTED
+## Batch 1: Remove OpenRouter Pro Gating -- COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 3 | **Dependencies**: None
 
-### Task 1.1: Remove openrouter_proxy from feature gate type and array -- IMPLEMENTED
+### Task 1.1: Remove openrouter_proxy from feature gate type and array -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\feature-gate.service.ts`
 **Spec Reference**: implementation-plan.md: Changes 1a, 1b, 1c, 1d
@@ -65,7 +65,7 @@
 
 ---
 
-### Task 1.2: Remove openrouter: from RPC Pro-only method prefixes -- IMPLEMENTED
+### Task 1.2: Remove openrouter: from RPC Pro-only method prefixes -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\messaging\rpc-handler.ts`
 **Spec Reference**: implementation-plan.md: Changes 2a, 2b, 2c, 2d, 2e
@@ -88,7 +88,7 @@
 
 ---
 
-### Task 1.3: Add openrouter_proxy to community plan features -- IMPLEMENTED
+### Task 1.3: Add openrouter_proxy to community plan features -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-license-server\src\config\plans.config.ts`
 **Spec Reference**: implementation-plan.md: Change 3a
@@ -117,12 +117,12 @@
 
 ---
 
-## Batch 2: Add User Profile Display in Settings -- PENDING
+## Batch 2: Add User Profile Display in Settings -- COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 6 | **Dependencies**: Batch 1 complete
 
-### Task 2.1: Add user field to server LicenseVerificationResponse -- PENDING
+### Task 2.1: Add user field to server LicenseVerificationResponse -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-license-server\src\license\services\license.service.ts`
 **Spec Reference**: implementation-plan.md: Changes 1a, 1b (Batch 2 section)
@@ -147,7 +147,7 @@
 
 ---
 
-### Task 2.2: Add user field to extension LicenseStatus interface -- PENDING
+### Task 2.2: Add user field to extension LicenseStatus interface -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\license.service.ts`
 **Spec Reference**: implementation-plan.md: Change 2a (Batch 2 section)
@@ -169,7 +169,7 @@
 
 ---
 
-### Task 2.3: Add user field to LicenseGetStatusResponse RPC type -- PENDING
+### Task 2.3: Add user field to LicenseGetStatusResponse RPC type -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts`
 **Spec Reference**: implementation-plan.md: Change 3a (Batch 2 section)
@@ -185,7 +185,7 @@
 
 ---
 
-### Task 2.4: Forward user data in license RPC handler mapping -- PENDING
+### Task 2.4: Forward user data in license RPC handler mapping -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\license-rpc.handlers.ts`
 **Spec Reference**: implementation-plan.md: Change 4a (Batch 2 section)
@@ -204,7 +204,7 @@
 
 ---
 
-### Task 2.5: Add user profile signals and computed to settings component -- PENDING
+### Task 2.5: Add user profile signals and computed to settings component -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\settings\settings.component.ts`
 **Spec Reference**: implementation-plan.md: Changes 5a, 5b, 5c (Batch 2 section)
@@ -231,7 +231,7 @@
 
 ---
 
-### Task 2.6: Add user profile section to settings HTML template -- PENDING
+### Task 2.6: Add user profile section to settings HTML template -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\settings\settings.component.html`
 **Spec Reference**: implementation-plan.md: Change 6a (Batch 2 section)

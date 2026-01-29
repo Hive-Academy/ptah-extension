@@ -18,7 +18,11 @@ import {
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
+import {
+  SdkAgentAdapter,
+  ANTHROPIC_PROVIDERS,
+  DEFAULT_PROVIDER_ID,
+} from '@ptah-extension/agent-sdk';
 import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
@@ -106,14 +110,39 @@ export class AuthRpcHandlers {
           'oauth' | 'apiKey' | 'openrouter' | 'auto'
         >('authMethod', 'auto');
 
+        // TASK_2025_129 Batch 3: Get selected provider ID
+        const anthropicProviderId = this.configManager.getWithDefault<string>(
+          'anthropicProviderId',
+          DEFAULT_PROVIDER_ID
+        );
+
+        // Map provider registry to frontend-consumable format
+        const availableProviders = ANTHROPIC_PROVIDERS.map((p) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description,
+          helpUrl: p.helpUrl,
+          keyPrefix: p.keyPrefix,
+          keyPlaceholder: p.keyPlaceholder,
+          maskedKeyDisplay: p.maskedKeyDisplay,
+        }));
+
         this.logger.debug('RPC: auth:getAuthStatus result', {
           hasOAuthToken,
           hasApiKey,
           hasOpenRouterKey,
           authMethod,
+          anthropicProviderId,
         });
 
-        return { hasOAuthToken, hasApiKey, hasOpenRouterKey, authMethod };
+        return {
+          hasOAuthToken,
+          hasApiKey,
+          hasOpenRouterKey,
+          authMethod,
+          anthropicProviderId,
+          availableProviders,
+        };
       } catch (error) {
         this.logger.error(
           'RPC: auth:getAuthStatus failed',
@@ -133,6 +162,8 @@ export class AuthRpcHandlers {
       claudeOAuthToken: z.string().optional(),
       anthropicApiKey: z.string().optional(),
       openrouterApiKey: z.string().optional(),
+      // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
+      anthropicProviderId: z.string().optional(),
     });
 
     this.rpcHandler.registerMethod<
@@ -200,7 +231,7 @@ export class AuthRpcHandlers {
           }
         }
 
-        // TASK_2025_091: OpenRouter API key handling
+        // TASK_2025_091: OpenRouter/Provider API key handling
         if (validated.openrouterApiKey !== undefined) {
           if (validated.openrouterApiKey.trim()) {
             await this.authSecretsService.setCredential(
@@ -211,6 +242,14 @@ export class AuthRpcHandlers {
             // Empty string = clear the credential
             await this.authSecretsService.deleteCredential('openrouterKey');
           }
+        }
+
+        // TASK_2025_129 Batch 3: Save selected Anthropic-compatible provider ID
+        if (validated.anthropicProviderId !== undefined) {
+          await this.configManager.set(
+            'anthropicProviderId',
+            validated.anthropicProviderId
+          );
         }
 
         this.logger.info('RPC: auth:saveSettings completed successfully');
