@@ -44,6 +44,14 @@ export class TabManagerService {
   private _saveTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly SAVE_DEBOUNCE_MS = 500;
 
+  /**
+   * Panel-aware localStorage key for tab state persistence.
+   * Sidebar uses 'ptah.tabs' (backward compatible).
+   * Editor panels use 'ptah.tabs.ptah.panel.{uuid}' (namespaced by panelId).
+   * TASK_2025_117: Prevents localStorage collisions between multiple Angular instances.
+   */
+  private readonly storageKey: string;
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
@@ -80,6 +88,13 @@ export class TabManagerService {
   // ============================================================================
 
   constructor() {
+    // TASK_2025_117: Compute panel-aware localStorage key before loading state.
+    // window.ptahConfig is injected by the extension host before Angular bootstraps.
+    // Sidebar gets empty panelId (uses backward-compatible 'ptah.tabs' key).
+    // Editor panels get unique panelId like 'ptah.panel.{uuid}' (namespaced key).
+    const panelId = (window as any).ptahConfig?.panelId;
+    this.storageKey = panelId ? `ptah.tabs.${panelId}` : 'ptah.tabs';
+
     // Load saved tab state on service initialization
     this.loadTabState();
 
@@ -449,7 +464,7 @@ export class TabManagerService {
         version: 1, // For future migration
       };
 
-      localStorage.setItem('ptah.tabs', JSON.stringify(state));
+      localStorage.setItem(this.storageKey, JSON.stringify(state));
     } catch (error) {
       console.warn('[TabManager] Failed to save tab state:', error);
     }
@@ -461,7 +476,7 @@ export class TabManagerService {
    */
   loadTabState(): void {
     try {
-      const stored = localStorage.getItem('ptah.tabs');
+      const stored = localStorage.getItem(this.storageKey);
       if (!stored) {
         return;
       }
