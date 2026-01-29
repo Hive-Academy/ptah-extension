@@ -10,6 +10,8 @@ import {
   Param,
   BadRequestException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
@@ -23,6 +25,7 @@ import {
 } from './services';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailService } from '../../email/services/email.service';
+import { LicenseService } from '../../license/services/license.service';
 import {
   LoginDto,
   SignupDto,
@@ -97,13 +100,8 @@ export class AuthController {
     '/dashboard',
   ];
 
-  /** Valid plan keys for checkout (TASK_2025_121: includes Basic and Pro) */
-  private readonly VALID_PLAN_KEYS = [
-    'basic-monthly',
-    'basic-yearly',
-    'pro-monthly',
-    'pro-yearly',
-  ];
+  /** Valid plan keys for checkout (TASK_2025_128: Pro only, Community is free) */
+  private readonly VALID_PLAN_KEYS = ['pro-monthly', 'pro-yearly'];
 
   constructor(
     private readonly authService: AuthService,
@@ -111,7 +109,9 @@ export class AuthController {
     private readonly magicLinkService: MagicLinkService,
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    @Inject(forwardRef(() => LicenseService))
+    private readonly licenseService: LicenseService
   ) {
     this.isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
@@ -318,8 +318,17 @@ export class AuthController {
       // The service will validate state against server-side storage
       // and use the stored code_verifier for the token exchange
       // Also returns returnUrl and plan if they were stored with the OAuth state
-      const { token, returnUrl, plan } =
-        await this.authService.authenticateWithCode(code, state);
+      const {
+        token,
+        user: authUser,
+        returnUrl,
+        plan,
+      } = await this.authService.authenticateWithCode(code, state);
+
+      // Step 5.1: Auto-generate trial license for OAuth signups (non-blocking)
+      if (authUser?.email) {
+        this.autoGenerateTrialIfNeeded(authUser.email);
+      }
 
       // Step 6: Set JWT in HTTP-only cookie for session management
       res.cookie('ptah_auth', token, {
@@ -550,6 +559,8 @@ export class AuthController {
       return;
     }
 
+    this.autoGenerateTrialIfNeeded(result.email as string);
+
     // Step 3: Generate JWT token using public method
     const jwtPayload = {
       sub: user.id,
@@ -725,6 +736,9 @@ export class AuthController {
       lastName
     );
 
+    // Auto-generate trial license (non-blocking)
+    this.autoGenerateTrialIfNeeded(email);
+
     this.logger.log(
       `User signup initiated for: ${email} (pending verification)`
     );
@@ -773,6 +787,9 @@ export class AuthController {
       userId,
       code
     );
+
+    // Auto-generate trial license if user doesn't have one (non-blocking)
+    this.autoGenerateTrialIfNeeded(user.email);
 
     // Set JWT in HTTP-only cookie
     res.cookie('ptah_auth', token, {
@@ -857,6 +874,56 @@ export class AuthController {
    * → Sets cookie: workos_state=<state>
    * → Redirect to: https://accounts.google.com/o/oauth2/auth?...
    */
+  /**
+   * Auto-generate a 14-day Pro trial license if the user has no active license.
+   *
+   * Non-blocking: errors are logged but do not affect the auth flow.
+   * Idempotent: if user already has a license, this is a no-op.
+   *
+   * @param email - User's email address
+   */
+  private async autoGenerateTrialIfNeeded(email: string): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+        include: {
+          licenses: {
+            where: { status: 'active' },
+            take: 1,
+          },
+        },
+      });
+
+      // If user has an active license, skip trial generation
+      if (user?.licenses && user.licenses.length > 0) {
+        this.logger.debug(
+          `User ${email} already has active license, skipping trial`
+        );
+        return;
+      }
+
+      // Create trial license
+      const { licenseKey, expiresAt } =
+        await this.licenseService.createTrialLicense({ email });
+
+      // Email the license key
+      await this.emailService.sendLicenseKey({
+        email,
+        licenseKey,
+        plan: 'pro',
+        expiresAt,
+      });
+
+      this.logger.log(`Auto-trial created and emailed for: ${email}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(
+        `Failed to auto-generate trial for ${email}: ${message}`
+      );
+      // Non-blocking: auth flow continues regardless
+    }
+  }
+
   @Get('oauth/:provider')
   async oauthLogin(
     @Param('provider') provider: string,

@@ -13,7 +13,6 @@ import { randomBytes } from 'crypto';
  * - 'expired': License expired, revoked, or payment failed
  *
  * Note: Community tier has no trial - it's always free.
- * 'trial_basic' is removed since Community doesn't need trials.
  */
 export type LicenseTier =
   | 'community'
@@ -38,44 +37,24 @@ export interface LicenseVerificationResponse {
 /**
  * Map database plan to tier value with trial support
  *
- * TASK_2025_128: Freemium model conversion with migration compatibility
+ * TASK_2025_128: Freemium model (Community + Pro)
  *
- * Migration compatibility:
- * - 'basic' -> 'community' (legacy paid Basic users become Community)
- * - 'trial_basic' -> 'community' (legacy trial users become Community)
- * - 'community' -> 'community' (new Community tier)
- * - 'pro' -> 'pro' or 'trial_pro' (unchanged)
- *
- * @param dbPlan - Plan value from database ('community' | 'pro' | 'basic' | 'trial_basic' | 'trial_pro')
+ * @param dbPlan - Plan value from database ('community' | 'pro' | 'trial_pro')
  * @param isInTrial - Whether subscription is in trial period
  * @returns LicenseTier value
  */
 function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
   switch (dbPlan) {
-    // Pro plan - supports trial
     case 'pro':
       return isInTrial ? 'trial_pro' : 'pro';
 
-    // Already trial_pro - pass through
     case 'trial_pro':
       return 'trial_pro';
 
-    // Community tier (new freemium model)
     case 'community':
       return 'community';
 
-    // Migration: Legacy 'basic' becomes 'community' (FREE)
-    // These users had paid Basic subscriptions, now get Community for free
-    case 'basic':
-      return 'community';
-
-    // Migration: Legacy 'trial_basic' becomes 'community' (FREE)
-    // These users were trialing Basic, now get Community for free
-    case 'trial_basic':
-      return 'community';
-
     default:
-      // Unknown plan values are treated as expired
       return 'expired';
   }
 }
@@ -91,7 +70,6 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
  * - Detect trial status from subscription.status === 'trialing'
  * - Create new licenses with proper expiration
  * - Generate cryptographically secure license keys
- * - Handle migration from legacy 'basic' and 'trial_basic' database values
  */
 @Injectable()
 export class LicenseService {
@@ -114,7 +92,7 @@ export class LicenseService {
    * - Not found: { valid: false, tier: "expired", reason: "not_found" }
    * - Trial ended: { valid: false, tier: "expired", reason: "trial_ended" }
    *
-   * Migration: Legacy 'basic' and 'trial_basic' database values map to 'community' tier
+   * Plans: 'community' (free) and 'pro' (paid, supports trial)
    */
   async verifyLicense(
     licenseKey: string
@@ -308,6 +286,100 @@ export class LicenseService {
         createdBy: 'admin',
       },
     });
+
+    return { licenseKey, expiresAt };
+  }
+
+  /**
+   * Create a trial license for a new user signup
+   *
+   * Provides a 14-day Pro trial license automatically on signup.
+   * Idempotent: if user already has an active license, returns it.
+   *
+   * Process:
+   * 1. Find or create user by email
+   * 2. Check for existing active license (prevent duplicate trials)
+   * 3. If existing, return it (idempotent)
+   * 4. Generate license key and set 14-day expiration
+   * 5. Create License record with plan: 'pro', createdBy: 'auto_trial_signup'
+   * 6. Create Subscription record with status: 'trialing'
+   *
+   * @param params - Email for trial license creation
+   * @returns The generated license key and expiration date
+   */
+  async createTrialLicense(params: {
+    email: string;
+  }): Promise<{ licenseKey: string; expiresAt: Date }> {
+    const { email } = params;
+    const normalizedEmail = email.toLowerCase();
+
+    // Step 1: Find or create user
+    let user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      user = await this.prisma.user.create({
+        data: { email: normalizedEmail },
+      });
+    }
+
+    // Step 2: Check for existing active license (idempotent)
+    const existingLicense = await this.prisma.license.findFirst({
+      where: {
+        userId: user.id,
+        status: 'active',
+      },
+    });
+
+    if (existingLicense) {
+      this.logger.debug(
+        `User ${normalizedEmail} already has active license: ${existingLicense.id}`
+      );
+      return {
+        licenseKey: existingLicense.licenseKey,
+        expiresAt: existingLicense.expiresAt ?? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+      };
+    }
+
+    // Step 3: Generate license key
+    const licenseKey = this.generateLicenseKey();
+
+    // Step 4: Set 14-day trial expiration
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+
+    // Step 5: Create License record
+    await this.prisma.license.create({
+      data: {
+        userId: user.id,
+        licenseKey,
+        plan: 'pro',
+        status: 'active',
+        expiresAt,
+        createdBy: 'auto_trial_signup',
+      },
+    });
+
+    // Step 6: Create Subscription record with trialing status
+    // Note: paddleSubscriptionId, paddleCustomerId, and priceId use synthetic
+    // values since this trial is created outside Paddle's checkout flow.
+    // These are prefixed with 'trial_' to distinguish from real Paddle data.
+    const syntheticPaddleId = `trial_${user.id}_${Date.now()}`;
+    await this.prisma.subscription.create({
+      data: {
+        userId: user.id,
+        paddleSubscriptionId: syntheticPaddleId,
+        paddleCustomerId: `trial_customer_${user.id}`,
+        priceId: 'auto_trial_pro',
+        status: 'trialing',
+        trialEnd: expiresAt,
+        currentPeriodEnd: expiresAt,
+      },
+    });
+
+    this.logger.log(
+      `Trial license created for ${normalizedEmail}, expires: ${expiresAt.toISOString()}`
+    );
 
     return { licenseKey, expiresAt };
   }

@@ -41,9 +41,8 @@ export class SubscriptionStateService {
   /**
    * Computed: Current plan tier (normalized)
    *
-   * TASK_2025_128: Freemium model conversion
+   * TASK_2025_128: Freemium model (Community + Pro)
    * - Maps trial_pro -> pro
-   * - Maps basic, trial_basic -> community (migration compatibility)
    * - Returns null when data hasn't been fetched yet (loading/unknown state)
    * - Returns 'community' only when explicitly determined (no subscription after auth check)
    *
@@ -62,10 +61,8 @@ export class SubscriptionStateService {
     // Pro tier (including trial)
     if (data.plan.includes('pro')) return 'pro';
 
-    // Community tier (including migrated basic plans)
-    if (data.plan.includes('basic') || data.plan.includes('community')) {
-      return 'community';
-    }
+    // Community tier
+    if (data.plan.includes('community')) return 'community';
 
     // Default to community for unknown plans
     return 'community';

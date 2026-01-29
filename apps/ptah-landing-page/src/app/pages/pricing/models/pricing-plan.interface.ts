@@ -106,7 +106,7 @@ export interface PlanSubscriptionContext {
    * User's current plan tier (null if unknown/loading).
    *
    * TASK_2025_128: Freemium model
-   * - 'community': Free tier (no subscription, or legacy basic migrated)
+   * - 'community': Free tier (no subscription required)
    * - 'pro': Active Pro subscription
    * - null: Unknown/loading state
    */

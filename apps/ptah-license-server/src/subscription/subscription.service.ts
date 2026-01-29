@@ -602,12 +602,6 @@ export class SubscriptionService {
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) return 'expired';
 
-    const basicMonthlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_BASIC_MONTHLY'
-    );
-    const basicYearlyPriceId = this.configService.get<string>(
-      'PADDLE_PRICE_ID_BASIC_YEARLY'
-    );
     const proMonthlyPriceId = this.configService.get<string>(
       'PADDLE_PRICE_ID_PRO_MONTHLY'
     );
@@ -615,14 +609,6 @@ export class SubscriptionService {
       'PADDLE_PRICE_ID_PRO_YEARLY'
     );
 
-    if (priceId === basicMonthlyPriceId || priceId === basicYearlyPriceId) {
-      // TASK_2025_128: Basic plan no longer exists in freemium model.
-      // Legacy Basic price IDs are treated as expired (match paddle.service.ts behavior).
-      this.logger.warn(
-        `Legacy Basic price ID detected: ${priceId}. Basic plan discontinued in freemium model. Returning 'expired'.`
-      );
-      return 'expired';
-    }
     if (priceId === proMonthlyPriceId || priceId === proYearlyPriceId)
       return 'pro';
 
@@ -637,7 +623,6 @@ export class SubscriptionService {
     if (!priceId) return 'monthly';
 
     const yearlyPriceIds = [
-      this.configService.get<string>('PADDLE_PRICE_ID_BASIC_YEARLY'),
       this.configService.get<string>('PADDLE_PRICE_ID_PRO_YEARLY'),
     ].filter(Boolean);
 

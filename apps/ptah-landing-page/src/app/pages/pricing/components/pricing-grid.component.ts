@@ -444,7 +444,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Trigger auto-checkout after returning from login
    * Waits for Paddle to be ready, then opens checkout for the specified plan
    *
-   * TASK_2025_128: Removed basic plan keys - Community is free with no checkout
+   * TASK_2025_128: Only Pro plan keys exist - Community is free with no checkout
    */
   private triggerAutoCheckout(planKey: string): void {
     // Validate plan key - only allow Pro plans (Community is free, no checkout)

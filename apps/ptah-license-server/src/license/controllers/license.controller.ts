@@ -46,7 +46,7 @@ export class LicenseController {
    * Response (invalid license):
    * {
    *   valid: false,
-   *   tier: "basic",
+   *   tier: "expired",
    *   reason: "expired" | "revoked" | "not_found"
    * }
    *
@@ -73,7 +73,7 @@ export class LicenseController {
    *
    * Response (user with license):
    * {
-   *   plan: "basic",
+   *   plan: "pro",
    *   status: "active",
    *   expiresAt: "2026-02-15T00:00:00Z",
    *   daysRemaining: 45,
@@ -165,9 +165,9 @@ export class LicenseController {
 
     // Step 6: Get plan configuration for features
     const planConfig =
-      license.plan === 'basic' || license.plan === 'pro'
+      license.plan === 'community' || license.plan === 'pro'
         ? getPlanConfig(license.plan as PlanName)
-        : PLANS.basic; // Safe fallback for unknown plans
+        : PLANS.community; // Safe fallback for unknown plans
 
     // Step 7: Return complete account details (NEVER include licenseKey)
     return {

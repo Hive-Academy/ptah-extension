@@ -6,7 +6,7 @@
   Visibility Rules:
   - Authentication: Always visible
   - Model Selection & Autopilot: Visible after auth configured
-  - MCP Port & LLM Providers: Premium-only (Pro tier)
+  - MCP Port & LLM Providers: Pro-only (Pro tier)
 
   Follows VS Code UX Guidelines:
   - Icons: 16-20px (was 24px+)
@@ -36,10 +36,10 @@
         @if (isPremium()) {
         <span
           class="badge badge-primary badge-xs gap-1"
-          aria-label="Premium user"
+          aria-label="Pro user"
         >
           <lucide-angular [img]="SparklesIcon" class="w-2.5 h-2.5" />
-          <span>Premium</span>
+          <span>Pro</span>
         </span>
         } @else {
         <span class="badge badge-ghost badge-xs">Free</span>
@@ -47,6 +47,119 @@
       </div>
       }
     </div>
+
+    <!-- License Status Card -->
+    @if (!isLoadingLicenseStatus()) {
+    <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular [img]="ShieldIcon" class="w-4 h-4" />
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            License Status
+          </h2>
+        </div>
+
+        <!-- Tier badge and validity -->
+        <div class="flex items-center gap-2 mb-2">
+          @if (licenseTier() === 'pro') {
+          <span class="badge badge-primary badge-xs gap-1">
+            <lucide-angular [img]="SparklesIcon" class="w-2.5 h-2.5" />
+            <span>Pro</span>
+          </span>
+          } @else if (licenseTier() === 'trial_pro') {
+          <span class="badge badge-primary badge-xs gap-1">
+            <lucide-angular [img]="ClockIcon" class="w-2.5 h-2.5" />
+            <span>Pro Trial</span>
+          </span>
+          } @else if (licenseTier() === 'community') {
+          <span class="badge badge-ghost badge-xs">Community</span>
+          } @else {
+          <span class="badge badge-error badge-xs">Expired</span>
+          }
+          @if (licenseValid()) {
+          <span class="text-xs text-success">Valid</span>
+          } @else {
+          <span class="text-xs text-error">Invalid</span>
+          }
+        </div>
+
+        <!-- Trial info -->
+        @if (showTrialInfo()) {
+        <div class="flex items-center gap-1.5 text-xs text-base-content/70 mb-2">
+          <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
+          <span>Trial: {{ trialDaysRemaining() }} days remaining</span>
+        </div>
+        }
+
+        <!-- Subscription days remaining (paid, non-trial) -->
+        @if (!trialActive() && daysRemaining() !== null && isPremium()) {
+        <div class="flex items-center gap-1.5 text-xs text-base-content/70 mb-2">
+          <lucide-angular [img]="CreditCardIcon" class="w-3 h-3" />
+          <span>{{ daysRemaining() }} days remaining</span>
+        </div>
+        }
+
+        <!-- Plan description -->
+        @if (planDescription()) {
+        <p class="text-xs text-base-content/50 mb-3">{{ planDescription() }}</p>
+        }
+
+        <!-- Context-aware action buttons -->
+        <div class="flex flex-wrap gap-2">
+          @if (isCommunity()) {
+          <!-- Community users -->
+          <button class="btn btn-primary btn-xs gap-1" (click)="openSignup()">
+            <lucide-angular [img]="UserPlusIcon" class="w-3 h-3" />
+            <span>Create Account</span>
+          </button>
+          <button
+            class="btn btn-outline btn-xs gap-1"
+            (click)="enterLicenseKey()"
+          >
+            <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
+            <span>Enter License Key</span>
+          </button>
+          <button class="btn btn-ghost btn-xs gap-1" (click)="openPricing()">
+            <lucide-angular [img]="ExternalLinkIcon" class="w-3 h-3" />
+            <span>View Pricing</span>
+          </button>
+          } @else if (trialActive()) {
+          <!-- Trial users -->
+          <button class="btn btn-primary btn-xs gap-1" (click)="openPricing()">
+            <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+            <span>Upgrade to Pro</span>
+          </button>
+          <button
+            class="btn btn-outline btn-xs gap-1"
+            (click)="enterLicenseKey()"
+          >
+            <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
+            <span>Enter License Key</span>
+          </button>
+          } @else if (isPremium()) {
+          <!-- Pro users -->
+          <button class="btn btn-ghost btn-xs gap-1" (click)="openPricing()">
+            <lucide-angular [img]="ExternalLinkIcon" class="w-3 h-3" />
+            <span>Manage Subscription</span>
+          </button>
+          } @else if (licenseTier() === 'expired') {
+          <!-- Expired users -->
+          <button class="btn btn-primary btn-xs gap-1" (click)="openPricing()">
+            <lucide-angular [img]="CreditCardIcon" class="w-3 h-3" />
+            <span>Renew Subscription</span>
+          </button>
+          <button
+            class="btn btn-outline btn-xs gap-1"
+            (click)="enterLicenseKey()"
+          >
+            <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
+            <span>Enter License Key</span>
+          </button>
+          }
+        </div>
+      </div>
+    </div>
+    }
 
     <!-- Authentication Section - Always Visible -->
     <div class="border border-base-300 rounded-md bg-base-200/50">
@@ -136,7 +249,7 @@
     <!-- Divider with Premium Label -->
     <div class="divider divider-primary text-xs my-2">
       <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-      <span>Premium Features</span>
+      <span>Pro Features</span>
     </div>
 
     <!-- MCP Port Configuration -->
@@ -191,16 +304,16 @@
           <h2
             class="text-xs font-medium uppercase tracking-wide text-base-content/70"
           >
-            Premium Features
+            Pro Features
           </h2>
         </div>
         <p class="text-xs text-base-content/50 mb-3">
           Upgrade to access MCP server configuration and additional LLM
           providers.
         </p>
-        <button class="btn btn-primary btn-xs gap-1.5">
+        <button class="btn btn-primary btn-xs gap-1.5" (click)="openPricing()">
           <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-          <span>Upgrade to Premium</span>
+          <span>Upgrade to Pro</span>
         </button>
       </div>
     </div>

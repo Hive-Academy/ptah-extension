@@ -4,8 +4,7 @@
  * Handles license-related RPC methods: license:getStatus
  *
  * TASK_2025_079: License status exposure for frontend premium feature gating
- * TASK_2025_121: Updated for two-tier paid model (Basic + Pro)
- * TASK_2025_128: Freemium model conversion (Community + Pro)
+ * TASK_2025_128: Freemium model (Community + Pro)
  */
 
 import { injectable, inject } from 'tsyringe';

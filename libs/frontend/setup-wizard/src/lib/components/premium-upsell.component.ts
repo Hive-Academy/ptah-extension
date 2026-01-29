@@ -1,5 +1,5 @@
 /**
- * Premium Upsell Component - Displays premium feature benefits and upgrade CTA.
+ * Premium Upsell Component - Displays Pro feature benefits and upgrade CTA.
  *
  * **Responsibilities**:
  * - Display list of premium features with icons
@@ -52,7 +52,7 @@ import { VSCodeService } from '@ptah-extension/core';
               class="h-4 w-4"
               aria-hidden="true"
             />
-            Premium Feature
+            Pro Feature
           </div>
 
           <!-- Title -->
@@ -62,7 +62,7 @@ import { VSCodeService } from '@ptah-extension/core';
 
           <!-- Description -->
           <p class="text-lg text-base-content/70 mb-8">
-            The Setup Wizard is a premium feature that provides deep project
+            The Setup Wizard is a Pro feature that provides deep project
             analysis, intelligent agent recommendations, and customized rule
             generation tailored to your codebase.
           </p>
@@ -92,7 +92,7 @@ import { VSCodeService } from '@ptah-extension/core';
           <div class="card bg-base-100 shadow-xl mb-8">
             <div class="card-body">
               <h2 class="card-title justify-center mb-4">
-                Premium Features Include:
+                Pro Features Include:
               </h2>
 
               <!-- Features list -->
@@ -116,7 +116,7 @@ import { VSCodeService } from '@ptah-extension/core';
             class="btn btn-primary btn-lg gap-2"
             (click)="onUpgradeClick()"
             [disabled]="isOpeningUrl()"
-            aria-label="Upgrade to Premium"
+            aria-label="Upgrade to Pro"
           >
             @if (isOpeningUrl()) {
             <span class="loading loading-spinner loading-sm"></span>
@@ -126,7 +126,7 @@ import { VSCodeService } from '@ptah-extension/core';
               class="h-5 w-5"
               aria-hidden="true"
             />
-            Upgrade to Premium }
+            Upgrade to Pro }
           </button>
 
           <!-- URL feedback message -->
@@ -143,7 +143,7 @@ import { VSCodeService } from '@ptah-extension/core';
 
           <!-- Additional info -->
           <p class="text-sm text-base-content/50 mt-6">
-            Already have a premium license?
+            Already have a Pro license?
             <button
               class="link link-primary"
               (click)="onRetry()"
@@ -169,7 +169,8 @@ export class PremiumUpsellComponent {
   protected readonly InfoIcon = Info;
 
   /** Upgrade URL for the pricing page */
-  private static readonly UPGRADE_URL = 'https://ptah.dev/pricing';
+  // TODO: restore production URL: https://ptah.dev/pricing
+  private static readonly UPGRADE_URL = 'http://localhost:4200/pricing';
 
   /** Timeout before clearing loading state (assume success) */
   private static readonly LOADING_CLEAR_TIMEOUT_MS = 1000;

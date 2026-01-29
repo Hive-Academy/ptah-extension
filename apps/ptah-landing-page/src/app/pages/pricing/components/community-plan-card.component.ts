@@ -22,7 +22,7 @@ import {
  * - Shows "Current Plan" badge for authenticated Community users
  * - Shows "Included in Pro" badge for Pro users
  *
- * Key differences from BasicPlanCardComponent:
+ * Key differences from Pro plan card:
  * - No Paddle checkout integration
  * - No billing period toggle (always free)
  * - No trial period (free forever)

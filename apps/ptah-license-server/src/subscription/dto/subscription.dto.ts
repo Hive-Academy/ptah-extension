@@ -31,7 +31,7 @@ export class ValidateCheckoutDto {
 export interface SubscriptionDetails {
   id: string;
   status: 'active' | 'trialing' | 'canceled' | 'past_due' | 'paused';
-  plan: 'basic' | 'pro' | string;
+  plan: 'pro' | 'community' | string;
   billingCycle: 'monthly' | 'yearly';
   currentPeriodEnd: string;
   canceledAt?: string;

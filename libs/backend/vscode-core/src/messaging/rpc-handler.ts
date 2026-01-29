@@ -318,7 +318,7 @@ export class RpcHandler {
    * Edge cases handled:
    * - No cached status: LICENSE_REQUIRED (user must restart extension)
    * - Invalid license: LICENSE_REQUIRED (subscription expired)
-   * - Pro-only method with Basic tier: PRO_TIER_REQUIRED
+   * - Pro-only method with Community tier: PRO_TIER_REQUIRED
    * - Exempt methods: Always allowed (needed for login flow)
    *
    * @param method - RPC method name (e.g., 'session:list', 'setup-wizard:start')
@@ -378,7 +378,7 @@ export class RpcHandler {
         };
       }
 
-      // Step 5: Handle edge case - Pro-only method with Basic tier
+      // Step 5: Handle edge case - Pro-only method with Community tier
       // Pro-only methods: setup-status:*, setup-wizard:*, wizard:*, openrouter:*
       if (this.isProOnlyMethod(method)) {
         const isPro = status.tier === 'pro' || status.tier === 'trial_pro';

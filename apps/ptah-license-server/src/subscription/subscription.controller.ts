@@ -57,7 +57,7 @@ export class SubscriptionController {
    *   subscription?: {
    *     id: string,
    *     status: 'active' | 'trialing' | 'canceled' | 'past_due' | 'paused',
-   *     plan: 'basic' | 'pro',
+   *     plan: 'pro' | 'community',
    *     billingCycle: 'monthly' | 'yearly',
    *     currentPeriodEnd: string,
    *     canceledAt?: string,

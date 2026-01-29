@@ -11,8 +11,7 @@ import {
  * Shared utility functions for computing plan card state (badge variant, CTA variant, etc.)
  * Used by CommunityPlanCardComponent and ProPlanCardComponent to eliminate code duplication.
  *
- * TASK_2025_128: Freemium Model Conversion
- * - Renamed 'basic' tier to 'community' (free tier)
+ * TASK_2025_128: Freemium Model
  * - Community: FREE forever, Pro: $5/month or $50/year
  *
  * Evidence: TASK_2025_127 - QA Review Issue #5 - Code Duplication

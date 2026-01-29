@@ -23,7 +23,7 @@ export const environment = {
    * - Community: FREE forever (no Paddle integration)
    * - Pro: $5/month, $50/year (14-day trial)
    *
-   * NOTE: Basic price IDs removed - Community tier is FREE with no checkout.
+   * Only Pro plan has price IDs - Community tier is FREE with no checkout.
    */
   paddle: {
     /** Paddle environment: 'sandbox' for testing, 'production' for live */

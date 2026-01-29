@@ -50,8 +50,6 @@ import {
  * Configuration Required:
  * - PADDLE_API_KEY: Paddle API key (required)
  * - PADDLE_WEBHOOK_SECRET: Webhook signature secret (required)
- * - PADDLE_PRICE_ID_BASIC_MONTHLY: Basic monthly price ID
- * - PADDLE_PRICE_ID_BASIC_YEARLY: Basic yearly price ID
  * - PADDLE_PRICE_ID_PRO_MONTHLY: Pro monthly price ID
  * - PADDLE_PRICE_ID_PRO_YEARLY: Pro yearly price ID
  */

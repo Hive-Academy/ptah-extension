@@ -42,7 +42,7 @@ import {
  * - Shows "Current Plan" badge for active Pro subscribers
  * - Shows "Trial - X days left" for Pro trial users
  * - Shows "Subscription Paused" for paused subscriptions
- * - Shows "Upgrade to Pro" for Basic subscribers
+ * - Shows "Upgrade to Pro" for Community users
  * - CTA is NEVER disabled due to "included" (Pro is highest tier)
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
@@ -522,7 +522,7 @@ export class ProPlanCardComponent {
       return;
     }
 
-    // Actions that open checkout (including 'upgrade' for Basic users)
+    // Actions that open checkout (including 'upgrade' for Community users)
     this.ctaClick.emit(this.activePlan());
   }
 }
