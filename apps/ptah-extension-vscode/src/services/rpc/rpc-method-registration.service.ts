@@ -225,13 +225,20 @@ export class RpcMethodRegistrationService {
   private async sendStatsWithRetry(stats: {
     sessionId: string;
     cost: number;
-    tokens: { input: number; output: number };
+    tokens: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheCreation?: number;
+    };
     duration: number;
     modelUsage?: Array<{
       model: string;
       inputTokens: number;
       outputTokens: number;
       contextWindow: number;
+      costUSD: number;
+      cacheReadInputTokens?: number;
     }>;
   }): Promise<void> {
     try {
@@ -338,12 +345,18 @@ export class RpcMethodRegistrationService {
       // This matches the format expected by streaming-handler.service.ts
       // Include sessionId for frontend to route to correct tab
       // TASK_2025_099: Include agentId for stable summary content lookup
+      // TASK_2025_128 FIX: Include parentToolUseId for tree builder matching.
+      // The toolUseId from the hook IS the parent Task tool's ID - this is what
+      // the subagent hooks provide. Without parentToolUseId, collectTools() in
+      // execution-tree-builder.service.ts can't find this agent_start event and
+      // creates placeholder agents instead, causing duplicates.
       const streamingEvent = {
         id: `agent-start-${agentStartEvent.toolUseId}`,
         eventType: 'agent_start' as const,
         sessionId: agentStartEvent.sessionId, // Parent session for tab routing
         messageId: '',
         toolCallId: agentStartEvent.toolUseId,
+        parentToolUseId: agentStartEvent.toolUseId, // TASK_2025_128: Link to parent Task tool
         agentType: agentStartEvent.agentType,
         agentDescription: agentStartEvent.agentDescription,
         timestamp: agentStartEvent.timestamp,

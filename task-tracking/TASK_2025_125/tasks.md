@@ -48,10 +48,12 @@ import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([{
-      ttl: 60000,
-      limit: 100,
-    }]),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
     // ... existing imports
   ],
   providers: [
@@ -136,8 +138,7 @@ import { timingSafeEqual } from 'crypto';
 // if (apiKey !== validApiKey)
 
 // With constant-time comparison:
-const isValid = apiKey.length === validApiKey.length &&
-  timingSafeEqual(Buffer.from(apiKey), Buffer.from(validApiKey));
+const isValid = apiKey.length === validApiKey.length && timingSafeEqual(Buffer.from(apiKey), Buffer.from(validApiKey));
 
 if (!isValid) {
   throw new UnauthorizedException('Invalid API key');
@@ -161,27 +162,33 @@ if (!isValid) {
 ## Implementation Summary
 
 ### Task 1.1: Add @nestjs/throttler dependency - COMPLETED
+
 - Added `"@nestjs/throttler": "^6.4.0"` to package.json
 
 ### Task 1.2: Configure ThrottlerModule in AppModule - COMPLETED
+
 - Imported ThrottlerModule and ThrottlerGuard
 - Configured global rate limit: 100 requests per minute
 - Applied ThrottlerGuard globally via APP_GUARD
 
 ### Task 1.3: Add rate limiting to verify endpoint - COMPLETED
+
 - Added @Throttle({ default: { limit: 10, ttl: 60000 } }) to POST /verify
 - 10 requests per minute (stricter than global)
 
 ### Task 1.4: Add rate limiting to admin endpoints - COMPLETED
+
 - Added @Throttle({ default: { limit: 30, ttl: 60000 } }) to AdminController
 - 30 requests per minute for all admin endpoints
 
 ### Task 1.5: Fix timing attack in AdminApiKeyGuard - COMPLETED
+
 - Imported crypto.timingSafeEqual
 - Added length check before comparison
 - Replaced direct string comparison with constant-time comparison
 
 ### Bonus: Auth endpoint rate limiting - COMPLETED
+
 - POST /auth/login/email: 5 req/min (brute-force protection)
 - POST /auth/magic-link: 3 req/min (email spam protection)
 - POST /auth/signup: 5 req/min (mass account prevention)

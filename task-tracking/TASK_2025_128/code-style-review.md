@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric          | Value                                |
-| --------------- | ------------------------------------ |
-| Overall Score   | 6/10                                 |
-| Assessment      | NEEDS_REVISION                       |
-| Blocking Issues | 3                                    |
-| Serious Issues  | 7                                    |
-| Minor Issues    | 9                                    |
-| Files Reviewed  | 20 (listed) + 3 (discovered via grep)|
+| Metric          | Value                                 |
+| --------------- | ------------------------------------- |
+| Overall Score   | 6/10                                  |
+| Assessment      | NEEDS_REVISION                        |
+| Blocking Issues | 3                                     |
+| Serious Issues  | 7                                     |
+| Minor Issues    | 9                                     |
+| Files Reviewed  | 20 (listed) + 3 (discovered via grep) |
 
 ---
 
@@ -197,6 +197,7 @@ The incomplete migration is the biggest risk. Files NOT listed in the review sco
 **Issues Found**: 0 blocking, 2 serious, 1 minor
 
 **Analysis**: The core license check at line 255 correctly blocks only `!licenseStatus.valid`. But:
+
 1. `showLicenseRequiredUI` (lines 28-47) is dead code.
 2. The inline RPC handler (lines 162-175) duplicates `license-rpc.handlers.ts` mapping.
 3. Lines 407-408 use stale "BASIC USER" / "Basic tier" terminology.
@@ -229,6 +230,7 @@ The incomplete migration is the biggest risk. Files NOT listed in the review sco
 **Issues Found**: 0 blocking, 2 serious, 1 minor
 
 **Analysis**: Good component structure with `ChangeDetectionStrategy.OnPush`, signal-based inputs, and computed derivations. `aria-hidden="true"` on decorative icons is correct. The `aria-live="polite"` wrapper on badges is a good accessibility touch. However:
+
 1. Missing `aria-label` on the CTA button.
 2. `handleClick` directly calls `window.open()` instead of emitting an output event, breaking the parent-handles-actions pattern used by `ProPlanCardComponent`.
 3. The component imports `computed` but does not import `output` -- suggesting the original output emitter was dropped during implementation.
@@ -307,30 +309,32 @@ The incomplete migration is the biggest risk. Files NOT listed in the review sco
 
 ## Pattern Compliance
 
-| Pattern                      | Status | Concern                                                                 |
-| ---------------------------- | ------ | ----------------------------------------------------------------------- |
-| Signal-based state           | PASS   | All frontend state uses signals correctly                               |
-| Type safety                  | FAIL   | Three duplicate `LicenseTier` definitions; un-migrated files            |
-| DI patterns                  | PASS   | Proper token-based injection throughout                                 |
-| Layer separation             | PASS   | Shared types in shared lib, services in appropriate layers              |
-| OnPush change detection      | PASS   | All new components use OnPush                                           |
-| JSDoc quality                | FAIL   | Stale "Basic" references in several JSDoc blocks                        |
-| DRY principle                | FAIL   | `generateLicenseKey` duplicated; inline RPC handler duplicated          |
-| Accessibility (new component)| FAIL   | Missing aria-label on CTA button in CommunityPlanCardComponent          |
-| Migration completeness       | FAIL   | Multiple files outside scope still use 'basic' in type definitions      |
-| Naming conventions           | PASS   | `isCommunity`, `communityPlan`, `CommunityPlanCardComponent` consistent |
+| Pattern                       | Status | Concern                                                                 |
+| ----------------------------- | ------ | ----------------------------------------------------------------------- |
+| Signal-based state            | PASS   | All frontend state uses signals correctly                               |
+| Type safety                   | FAIL   | Three duplicate `LicenseTier` definitions; un-migrated files            |
+| DI patterns                   | PASS   | Proper token-based injection throughout                                 |
+| Layer separation              | PASS   | Shared types in shared lib, services in appropriate layers              |
+| OnPush change detection       | PASS   | All new components use OnPush                                           |
+| JSDoc quality                 | FAIL   | Stale "Basic" references in several JSDoc blocks                        |
+| DRY principle                 | FAIL   | `generateLicenseKey` duplicated; inline RPC handler duplicated          |
+| Accessibility (new component) | FAIL   | Missing aria-label on CTA button in CommunityPlanCardComponent          |
+| Migration completeness        | FAIL   | Multiple files outside scope still use 'basic' in type definitions      |
+| Naming conventions            | PASS   | `isCommunity`, `communityPlan`, `CommunityPlanCardComponent` consistent |
 
 ---
 
 ## Technical Debt Assessment
 
 **Introduced**:
+
 - Three parallel `LicenseTier` type definitions that must be manually synchronized
 - Inline RPC handler in `main.ts` that duplicates `license-rpc.handlers.ts`
 - `plan-card-state.utils.ts` is now partially dead code (273 lines) with wrong types
 - `currentPlanTier` defaults mask unknown state as community
 
 **Mitigated**:
+
 - Legacy `'basic'` / `'trial_basic'` tier values properly handled via migration mapping in `mapPlanToTier`
 - `BasicPlanCardComponent` deleted (517 lines removed)
 - Clean Community plan card with proper accessibility (aria-hidden, aria-live)

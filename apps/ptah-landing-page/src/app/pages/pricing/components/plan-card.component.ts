@@ -94,7 +94,7 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
             [ngClass]="{
               'bg-gradient-to-r from-amber-300 to-secondary bg-clip-text text-transparent':
                 plan().highlight || plan().tier === 'pro',
-              'text-base-content': plan().tier === 'basic'
+              'text-base-content': plan().tier === 'community'
             }"
           >
             {{ plan().price }}

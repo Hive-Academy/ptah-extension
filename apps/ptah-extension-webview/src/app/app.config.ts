@@ -4,8 +4,9 @@ import {
   provideZoneChangeDetection,
   ErrorHandler,
 } from '@angular/core';
-import { provideMarkdown } from 'ngx-markdown';
+import { provideMarkdown, MARKED_EXTENSIONS } from 'ngx-markdown';
 import { provideVSCodeService } from '@ptah-extension/core';
+import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
 
@@ -57,6 +58,13 @@ export const appConfig: ApplicationConfig = {
     // This ensures message listener is set up BEFORE any components render
     provideVSCodeService(),
     // Markdown rendering for chat messages (required for ngx-markdown)
-    provideMarkdown(),
+    // Includes custom extensions for callout cards and collapsible code blocks
+    provideMarkdown({
+      markedExtensions: getMarkedExtensions().map((ext) => ({
+        provide: MARKED_EXTENSIONS,
+        useValue: ext,
+        multi: true,
+      })),
+    }),
   ],
 };

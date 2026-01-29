@@ -77,7 +77,9 @@ export function computeBadgeVariant(
     if (days <= 0) {
       return 'trial-ending';
     }
-    return days <= TRIAL_WARNING_THRESHOLD_DAYS ? 'trial-ending' : 'trial-active';
+    return days <= TRIAL_WARNING_THRESHOLD_DAYS
+      ? 'trial-ending'
+      : 'trial-active';
   }
 
   // Canceled subscription (still in grace period)

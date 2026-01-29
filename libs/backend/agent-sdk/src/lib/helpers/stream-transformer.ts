@@ -52,6 +52,10 @@ export interface ResultModelUsage {
   outputTokens: number;
   /** Total context window size for this model */
   contextWindow: number;
+  /** Per-model cost in USD from SDK */
+  costUSD: number;
+  /** Cache read input tokens for this model (needed for accurate context % calculation) */
+  cacheReadInputTokens: number;
 }
 
 /**
@@ -189,8 +193,14 @@ export class StreamTransformer {
   transform(
     config: StreamTransformConfig
   ): AsyncIterable<FlatStreamEventUnion> {
-    const { sdkQuery, sessionId, onSessionIdResolved, onResultStats, tabId } =
-      config;
+    const {
+      sdkQuery,
+      sessionId,
+      initialModel,
+      onSessionIdResolved,
+      onResultStats,
+      tabId,
+    } = config;
 
     // Capture references for use in generator
     const logger = this.logger;
@@ -268,6 +278,18 @@ export class StreamTransformer {
                       inputTokens: usage.inputTokens,
                       outputTokens: usage.outputTokens,
                       contextWindow: usage.contextWindow,
+                      costUSD: usage.costUSD ?? 0,
+                      cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
+                    });
+                  }
+                  // Sort so the user's selected model appears first (primary model).
+                  // The SDK may report usage for multiple models (e.g., internal routing),
+                  // but the frontend uses modelUsage[0] as the display model.
+                  if (initialModel && modelUsageList.length > 1) {
+                    modelUsageList.sort((a, b) => {
+                      const aMatch = a.model === initialModel ? 1 : 0;
+                      const bMatch = b.model === initialModel ? 1 : 0;
+                      return bMatch - aMatch;
                     });
                   }
                 }

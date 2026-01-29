@@ -432,11 +432,13 @@ export class ConversationService {
 
       // Call RPC to CONTINUE existing chat (uses --resume flag)
       // Both sessionId (for SDK) and tabId (for event routing) are required
+      // Pass sessionModel so resumed sessions use the original model (not current config)
       const result = await this.claudeRpcService.call('chat:continue', {
         prompt: content,
         sessionId: sessionId as SessionId,
         tabId: activeTabId, // For event routing
         workspacePath,
+        model: activeTab?.sessionModel ?? undefined,
       });
 
       if (!result.success) {

@@ -1,6 +1,6 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, of, catchError, tap, map, switchMap } from 'rxjs';
+import { computed, inject, Injectable, signal } from '@angular/core';
+import { catchError, Observable, of, switchMap, tap } from 'rxjs';
 import { LicenseData } from '../pages/profile/models/license-data.interface';
 import { AuthService } from './auth.service';
 

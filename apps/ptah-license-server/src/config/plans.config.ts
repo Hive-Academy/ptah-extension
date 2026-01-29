@@ -22,6 +22,7 @@ export const PLANS = {
       'sdk_access',
       'real_time_streaming',
       'basic_workspace_context',
+      'openrouter_proxy', // TASK_2025_129: Available to all users
     ],
     expiresAfterDays: null, // Never expires - FREE forever
     monthlyPrice: 0, // FREE

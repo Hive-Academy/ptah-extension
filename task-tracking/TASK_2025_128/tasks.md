@@ -18,11 +18,11 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| PricingPlan interface has `tier: 'basic' | 'pro'` - needs update | MEDIUM | Task 4.1 updates interface first |
-| PlanSubscriptionContext type has `'basic' | 'pro' | null` | MEDIUM | Task 4.1 updates all related types |
-| ctaAction type is only `'checkout'` - Community needs `'download'` | LOW | Task 4.1 adds new action type |
+| Risk                                                               | Severity              | Mitigation                    |
+| ------------------------------------------------------------------ | --------------------- | ----------------------------- | -------------------------------- | ---------------------------------- |
+| PricingPlan interface has `tier: 'basic'                           | 'pro'` - needs update | MEDIUM                        | Task 4.1 updates interface first |
+| PlanSubscriptionContext type has `'basic'                          | 'pro'                 | null`                         | MEDIUM                           | Task 4.1 updates all related types |
+| ctaAction type is only `'checkout'` - Community needs `'download'` | LOW                   | Task 4.1 adds new action type |
 
 ### Edge Cases to Handle
 
@@ -48,18 +48,21 @@
 **Pattern to Follow**: Current type definition at lines 552-598
 
 **Quality Requirements**:
+
 - Replace `'basic' | 'trial_basic'` with `'community'` in LicenseTier union
 - Rename `isBasic` to `isCommunity` in LicenseGetStatusResponse
 - Update JSDoc comments to reflect freemium model semantics
 - Maintain backward compatibility note in comments for 'expired' tier
 
 **Implementation Details**:
+
 - LicenseTier: `'community' | 'pro' | 'trial_pro' | 'expired'`
 - Remove 'trial_basic' (Community has no trial - it's always free)
 - Add `isCommunity: boolean` to replace `isBasic: boolean`
 - Update documentation comment for TASK_2025_128
 
 **Acceptance Criteria**:
+
 - [x] LicenseTier type has exactly 4 values: community, pro, trial_pro, expired
 - [x] LicenseGetStatusResponse has `isCommunity` field (not `isBasic`)
 - [x] TypeScript compilation succeeds (expect errors in downstream files - that's expected)
@@ -68,6 +71,7 @@
 ---
 
 **Batch 1 Verification**:
+
 - File exists at path: `libs/shared/src/lib/types/rpc.types.ts`
 - Build: `npx nx build shared` (may have errors - downstream files not yet updated)
 - This batch MUST complete before Batches 2, 3, 4, 5
@@ -90,12 +94,14 @@
 **Pattern to Follow**: Current PLANS object at lines 14-49
 
 **Quality Requirements**:
+
 - Replace `basic` plan with `community` plan
 - Set `monthlyPrice: 0` and `yearlyPrice: 0` for community
 - Set `expiresAfterDays: null` (never expires)
 - Keep `pro` plan unchanged except rename feature `all_basic_features` to `all_community_features`
 
 **Implementation Details**:
+
 ```typescript
 community: {
   name: 'Community',
@@ -110,6 +116,7 @@ community: {
 ```
 
 **Acceptance Criteria**:
+
 - [x] PLANS object has 'community' key (not 'basic')
 - [x] Community plan has `monthlyPrice: 0` and `yearlyPrice: 0`
 - [x] Pro plan features array has 'all_community_features' (not 'all_basic_features')
@@ -125,16 +132,19 @@ community: {
 **Pattern to Follow**: Current implementation at lines 16-61
 
 **Quality Requirements**:
+
 - Update LicenseTier type to match shared types
 - Add migration compatibility for 'basic' and 'trial_basic' database values
 - Map all legacy basic values to 'community'
 
 **Implementation Details**:
+
 - LicenseTier: `'community' | 'pro' | 'trial_pro' | 'expired'`
 - mapPlanToTier: 'basic' -> 'community', 'trial_basic' -> 'community'
 - Keep 'pro' and 'trial_pro' mappings unchanged
 
 **Acceptance Criteria**:
+
 - [x] LicenseTier has 4 values: community, pro, trial_pro, expired
 - [x] mapPlanToTier('basic', false) returns 'community'
 - [x] mapPlanToTier('trial_basic', true) returns 'community'
@@ -150,16 +160,19 @@ community: {
 **Pattern to Follow**: Current implementation at lines 799-845
 
 **Quality Requirements**:
+
 - Only map Pro price IDs to 'pro' plan
 - Handle legacy Basic price IDs gracefully (log warning, return 'expired')
 - Add clear migration comment explaining why Basic IDs are ignored
 
 **Implementation Details**:
+
 - Remove Basic price ID mapping (Community is free, no Paddle)
 - Keep Pro price ID mappings unchanged
 - Legacy Basic price IDs: log warning and return 'expired'
 
 **Acceptance Criteria**:
+
 - [x] Only Pro monthly and yearly price IDs map to 'pro'
 - [x] Legacy Basic price IDs trigger warning log and return 'expired'
 - [x] Unknown price IDs return 'expired' with warning
@@ -168,6 +181,7 @@ community: {
 ---
 
 **Batch 2 Verification**:
+
 - [x] Build passes: `npx nx build ptah-license-server`
 - [x] All files modified at specified paths
 - [x] Migration compatibility for legacy 'basic' values
@@ -190,16 +204,18 @@ community: {
 **Pattern to Follow**: Current implementation at lines 50-55 and 210-222
 
 **Quality Requirements**:
+
 - Update LicenseTierValue type to match shared types
 - Change no-license-key handling: return `valid: true, tier: 'community'`
 - Update clearLicenseKey to return community status (not expired)
 
 **Critical Change - No License Key Handling (lines 210-222)**:
+
 ```typescript
 if (!licenseKey) {
   const communityStatus: LicenseStatus = {
-    valid: true,           // CHANGED from false
-    tier: 'community',     // CHANGED from 'expired'
+    valid: true, // CHANGED from false
+    tier: 'community', // CHANGED from 'expired'
     // No reason field - Community is valid state
   };
   this.updateCache(communityStatus);
@@ -208,14 +224,16 @@ if (!licenseKey) {
 ```
 
 **Critical Change - clearLicenseKey (lines 386-394)**:
+
 ```typescript
 const communityStatus: LicenseStatus = {
-  valid: true,           // CHANGED from false
-  tier: 'community',     // CHANGED from 'expired'
+  valid: true, // CHANGED from false
+  tier: 'community', // CHANGED from 'expired'
 };
 ```
 
 **Acceptance Criteria**:
+
 - [x] LicenseTierValue has 4 values: community, pro, trial_pro, expired
 - [x] verifyLicense() with no license key returns `{valid: true, tier: 'community'}`
 - [x] clearLicenseKey() sets cache to `{valid: true, tier: 'community'}`
@@ -231,16 +249,19 @@ const communityStatus: LicenseStatus = {
 **Pattern to Follow**: Current implementation at lines 251-269
 
 **Quality Requirements**:
+
 - Existing logic is correct - Community users have `valid: true` and bypass blocking
 - Add clarifying comment about freemium model
 - Update log message to reflect new model
 
 **Implementation Details**:
+
 - The blocking check `if (!licenseStatus.valid)` remains unchanged
 - Community users have `valid: true` so they automatically bypass
 - Only users with `valid: false` (expired/revoked) are blocked
 
 **Acceptance Criteria**:
+
 - [x] Blocking logic unchanged (only blocks `valid: false`)
 - [x] Comments updated to explain freemium model
 - [x] Log message reflects tier correctly
@@ -255,11 +276,13 @@ const communityStatus: LicenseStatus = {
 **Pattern to Follow**: Current implementation at lines 129-181
 
 **Quality Requirements**:
+
 - Replace `isBasic` with `isCommunity` in response
 - Update tier detection logic to use 'community' instead of 'basic'
 - Maintain reason field mapping unchanged
 
 **Implementation Details**:
+
 ```typescript
 const isPremium = status.tier === 'pro' || status.tier === 'trial_pro';
 const isCommunity = status.tier === 'community';
@@ -273,6 +296,7 @@ return {
 ```
 
 **Acceptance Criteria**:
+
 - [x] Response includes `isCommunity` field (not `isBasic`)
 - [x] `isCommunity` is true only when tier is 'community'
 - [x] `isPremium` logic unchanged (pro or trial_pro)
@@ -288,11 +312,13 @@ return {
 **Pattern to Follow**: Current implementation at lines 192-248
 
 **Quality Requirements**:
+
 - Replace `isBasicTier()` with `isCommunityTier()`
 - Update `isTrialActive()` to only check for 'trial_pro'
 - Update JSDoc comments
 
 **Implementation Details**:
+
 ```typescript
 async isCommunityTier(): Promise<boolean> {
   const status = await this.getLicenseStatus();
@@ -306,6 +332,7 @@ async isTrialActive(): Promise<boolean> {
 ```
 
 **Acceptance Criteria**:
+
 - [x] Method `isCommunityTier()` exists (replaces `isBasicTier()`)
 - [x] `isBasicTier()` method removed or deprecated
 - [x] `isTrialActive()` only checks for 'trial_pro' (not 'trial_basic')
@@ -321,16 +348,19 @@ async isTrialActive(): Promise<boolean> {
 **Pattern to Follow**: Current implementation at lines 121-181
 
 **Quality Requirements**:
+
 - Update removeLicenseKey message to mention "Community tier"
 - Update checkLicenseStatus to show correct tier names
 - No user-facing references to "Basic" tier
 
 **Implementation Details**:
+
 - removeLicenseKey: "You will be downgraded to the Community tier. Core features will remain available."
 - checkLicenseStatus: Display "Community (Free)" for community tier
 - Show "Never" for expires and "Unlimited" for days remaining for Community
 
 **Acceptance Criteria**:
+
 - [x] removeLicenseKey warning mentions "Community tier"
 - [x] checkLicenseStatus shows "Community (Free)" for community users
 - [x] No "Premium features will be disabled" messaging (misleading for freemium)
@@ -339,6 +369,7 @@ async isTrialActive(): Promise<boolean> {
 ---
 
 **Batch 3 Verification**:
+
 - [x] Build passes: `npx nx build ptah-extension-vscode`
 - [x] Build passes: `npx nx build vscode-core`
 - [x] All 5 files modified at specified paths
@@ -362,20 +393,23 @@ async isTrialActive(): Promise<boolean> {
 **Pattern to Follow**: Current interface at lines 1-222
 
 **Quality Requirements**:
+
 - Update `tier` type from `'basic' | 'pro'` to `'community' | 'pro'`
 - Add `'download'` to ctaAction type for Community (opens VS Code marketplace)
 - Update PlanSubscriptionContext.currentPlanTier type
 
 **Implementation Details**:
+
 ```typescript
-tier: 'community' | 'pro';  // Line 14
-ctaAction: 'checkout' | 'download';  // Add download for free tier
+tier: 'community' | 'pro'; // Line 14
+ctaAction: 'checkout' | 'download'; // Add download for free tier
 
 // PlanSubscriptionContext (line 97)
 currentPlanTier: 'community' | 'pro' | null;
 ```
 
 **Acceptance Criteria**:
+
 - [x] PricingPlan.tier is `'community' | 'pro'`
 - [x] PricingPlan.ctaAction includes `'download'` option
 - [x] PlanSubscriptionContext.currentPlanTier is `'community' | 'pro' | null`
@@ -391,6 +425,7 @@ currentPlanTier: 'community' | 'pro' | null;
 **Pattern to Follow**: `basic-plan-card.component.ts` structure (to be deleted)
 
 **Quality Requirements**:
+
 - Create new component for free Community tier display
 - No checkout integration (it's free!)
 - CTA: "Install Free" button opens VS Code marketplace
@@ -399,12 +434,14 @@ currentPlanTier: 'community' | 'pro' | null;
 - Handle isProUser to show "Included in Pro" badge
 
 **Implementation Details**:
+
 - Copy structure from basic-plan-card.component.ts
 - Remove all Paddle/checkout logic
 - CTA click: `window.open('https://marketplace.visualstudio.com/items?itemName=ptah.ptah-extension', '_blank')`
 - Badge variants: "Free Forever" (default), "Current Plan", "Included in Pro"
 
 **Acceptance Criteria**:
+
 - [x] Component renders Community plan with "Free forever" pricing
 - [x] CTA button says "Install Free" and opens VS Code marketplace
 - [x] Pro users see "Included in Pro" badge and disabled button
@@ -421,12 +458,14 @@ currentPlanTier: 'community' | 'pro' | null;
 **Pattern to Follow**: Current implementation at lines 325-448
 
 **Quality Requirements**:
+
 - Replace BasicPlanCardComponent import with CommunityPlanCardComponent
 - Replace basicMonthlyPlan/basicYearlyPlan with single communityPlan
 - Update template to use community-plan-card
 - Keep Pro plan cards unchanged
 
 **Implementation Details**:
+
 - Remove: `import { BasicPlanCardComponent }`
 - Add: `import { CommunityPlanCardComponent }`
 - Replace basicMonthlyPlan and basicYearlyPlan with single communityPlan
@@ -449,6 +488,7 @@ public readonly communityPlan: PricingPlan = {
 ```
 
 **Acceptance Criteria**:
+
 - [x] Imports CommunityPlanCardComponent (not BasicPlanCardComponent)
 - [x] Template renders `<ptah-community-plan-card>` (not basic)
 - [x] communityPlan has `ctaAction: 'download'`
@@ -464,10 +504,12 @@ public readonly communityPlan: PricingPlan = {
 **Action**: DELETE
 
 **Quality Requirements**:
+
 - Remove entire file (517 lines)
 - Ensure no remaining imports reference this component
 
 **Acceptance Criteria**:
+
 - [x] File deleted from filesystem
 - [x] No compilation errors from missing import
 - [x] pricing-grid.component.ts uses CommunityPlanCardComponent instead
@@ -482,11 +524,13 @@ public readonly communityPlan: PricingPlan = {
 **Pattern to Follow**: Current implementation at lines 50-58
 
 **Quality Requirements**:
+
 - Update return type from `'basic' | 'pro' | null` to `'community' | 'pro' | null`
 - No subscription = Community (free tier), not null
 - Map 'basic' and 'trial_basic' to 'community' for migration
 
 **Implementation Details**:
+
 ```typescript
 public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
   const data = this._licenseData();
@@ -500,6 +544,7 @@ public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
 ```
 
 **Acceptance Criteria**:
+
 - [x] Return type is `'community' | 'pro' | null`
 - [x] No subscription returns 'community' (not null)
 - [x] 'basic' and 'trial_basic' map to 'community'
@@ -511,16 +556,19 @@ public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
 
 **Status**: COMPLETE
 **Files**:
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.ts`
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.production.ts`
-**Spec Reference**: implementation-plan.md:1044-1080
+  **Spec Reference**: implementation-plan.md:1044-1080
 
 **Quality Requirements**:
+
 - Remove `basicPriceIdMonthly` and `basicPriceIdYearly` properties
 - Keep Pro price IDs unchanged
 - Add comment explaining Community is free (no Paddle)
 
 **Implementation Details**:
+
 ```typescript
 paddle: {
   environment: 'sandbox' as const,
@@ -533,6 +581,7 @@ paddle: {
 ```
 
 **Acceptance Criteria**:
+
 - [x] No `basicPriceIdMonthly` property in either environment file
 - [x] No `basicPriceIdYearly` property in either environment file
 - [x] Pro price IDs unchanged
@@ -548,17 +597,20 @@ paddle: {
 **Pattern to Follow**: Current interface at line 47
 
 **Quality Requirements**:
+
 - Update `plan` field type to include 'community'
 - Remove 'trial_basic' (Community has no trial)
 - Add migration note in comment
 
 **Implementation Details**:
+
 ```typescript
 // Line 47
 plan: 'community' | 'pro' | 'trial_pro';
 ```
 
 **Acceptance Criteria**:
+
 - [x] LicenseData.plan type is `'community' | 'pro' | 'trial_pro'`
 - [x] No 'basic' or 'trial_basic' in type
 - [x] JSDoc comment explains Community is free tier
@@ -566,6 +618,7 @@ plan: 'community' | 'pro' | 'trial_pro';
 ---
 
 **Batch 4 Verification**:
+
 - [x] Build passes: `npx nx build ptah-landing-page`
 - [x] All files modified/created/deleted at specified paths
 - [x] No remaining references to BasicPlanCardComponent in active code
@@ -589,6 +642,7 @@ plan: 'community' | 'pro' | 'trial_pro';
 **Pattern to Follow**: Current implementation at lines 135-160
 
 **Quality Requirements**:
+
 - Minimal changes - Community users bypass this component entirely
 - This component only shows for `valid: false` (expired/revoked)
 - Optionally enhance messaging to mention Community fallback option
@@ -597,6 +651,7 @@ plan: 'community' | 'pro' | 'trial_pro';
 The welcome component is shown via `handleLicenseBlocking` in main.ts, which only triggers when `licenseStatus.valid === false`. Since Community users have `valid: true`, they never see this component.
 
 Optional enhancement to getSubheadline:
+
 ```typescript
 case 'expired':
   return "Renew your subscription to continue using Ptah's premium features, or downgrade to Community (free).";
@@ -605,6 +660,7 @@ case 'trial_ended':
 ```
 
 **Acceptance Criteria**:
+
 - [x] No blocking changes to existing logic
 - [x] Optional: Messaging mentions Community as free fallback option
 - [x] Component continues to work for expired/revoked license users
@@ -612,6 +668,7 @@ case 'trial_ended':
 ---
 
 **Batch 5 Verification**:
+
 - [x] Build passes: `npx nx build chat`
 - [x] Welcome component still renders for expired license users
 - [x] Messaging mentions Community (free) as fallback for expired/trial_ended
@@ -632,6 +689,7 @@ Batch 1 (Type System) ─────┬─────> Batch 2 (License Server
 ```
 
 **Parallelization**: After Batch 1 completes, Batches 2-5 can theoretically run in parallel since they only depend on Batch 1. However, for safer verification:
+
 - Run Batch 2 and Batch 3 sequentially (both backend)
 - Run Batch 4 after Batch 3 (frontend depends on backend types)
 - Run Batch 5 last (minimal changes)
@@ -641,6 +699,7 @@ Batch 1 (Type System) ─────┬─────> Batch 2 (License Server
 ## Final Verification Checklist
 
 After all batches complete:
+
 - [x] `npx nx build shared` passes
 - [x] `npx nx build chat` passes
 - [x] `npx nx build ptah-landing-page` passes

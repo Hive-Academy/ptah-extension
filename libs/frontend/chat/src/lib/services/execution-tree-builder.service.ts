@@ -452,21 +452,70 @@ export class ExecutionTreeBuilderService {
       return true;
     }) as ToolStartEvent[];
 
+    // TASK_2025_128 FIX: Track used agentIds to prevent duplicate agent nodes.
+    // When multiple tool_start events exist for the same logical agent (different
+    // toolCallId formats), the agentType fallback matching could find the same
+    // agent_start multiple times. Track used agentIds to prevent this.
+    const usedAgentIds = new Set<string>();
+
     for (const toolStart of toolStarts) {
       // TASK_2025_095: For Task tools that spawn agents, show agent directly instead of Task wrapper
       // This prevents the duplication: Task tool → Agent → tools
       // User should see only: Agent → tools
       if (toolStart.isTaskTool || toolStart.toolName === 'Task') {
         // Check if this Task tool has an agent child
-        const agentStarts = [...state.events.values()].filter(
+        // TASK_2025_128 FIX: The parentToolUseId matching often fails because:
+        // - Hook-based agent_start uses UUID format for parentToolUseId
+        // - SDK tool_start uses toolu_* format for toolCallId
+        // These IDs refer to the SAME tool but use different formats.
+        let agentStarts = [...state.events.values()].filter(
           (e) =>
             e.eventType === 'agent_start' &&
             e.parentToolUseId === toolStart.toolCallId
         ) as AgentStartEvent[];
 
+        // TASK_2025_128 FIX: Fallback - match by agentType when ID matching fails.
+        // Extract agentType from tool input and find matching agent_start.
+        // This handles the UUID vs toolu_* format mismatch.
+        if (agentStarts.length === 0) {
+          const inputKey = `${toolStart.toolCallId}-input`;
+          const inputString = state.toolInputAccumulators.get(inputKey) || '';
+          const typeMatch = inputString.match(
+            /"subagent_type"\s*:\s*"([^"]+)"/
+          );
+
+          if (typeMatch) {
+            const agentType = typeMatch[1];
+            agentStarts = [...state.events.values()].filter(
+              (e) =>
+                e.eventType === 'agent_start' &&
+                (e as AgentStartEvent).agentType === agentType
+            ) as AgentStartEvent[];
+          }
+        }
+
         if (agentStarts.length > 0) {
           // Build agent nodes directly (skip the Task tool wrapper)
           for (const agentStart of agentStarts) {
+            // TASK_2025_128 FIX: Skip if we already built a node for this agentId OR agentType.
+            // This prevents duplicates when multiple tool_start events match
+            // the same agent_start via agentType fallback.
+            // Also deduplicate by agentType when agentId is unavailable (SDK events).
+            if (agentStart.agentId && usedAgentIds.has(agentStart.agentId)) {
+              continue;
+            }
+            // TASK_2025_128 FIX: Also deduplicate by agentType for SDK events without agentId.
+            // Hook sends agentId, SDK complete does NOT. Without this check, both create nodes.
+            const agentTypeKey = `type:${agentStart.agentType}`;
+            if (!agentStart.agentId && usedAgentIds.has(agentTypeKey)) {
+              continue;
+            }
+            if (agentStart.agentId) {
+              usedAgentIds.add(agentStart.agentId);
+            }
+            // Also track by agentType to prevent SDK agent_start from creating duplicate
+            usedAgentIds.add(agentTypeKey);
+
             const agentNode = this.buildAgentNode(
               agentStart,
               toolStart.toolCallId,
@@ -493,6 +542,23 @@ export class ExecutionTreeBuilderService {
             // Try to extract agent info from accumulated tool input
             const inputKey = `${toolStart.toolCallId}-input`;
             const inputString = state.toolInputAccumulators.get(inputKey) || '';
+
+            // TASK_2025_128 FIX: Extract agentType early to check for duplicates.
+            // If we already built/placeholder'd an agent with this agentType, skip.
+            const earlyTypeMatch = inputString.match(
+              /"subagent_type"\s*:\s*"([^"]+)"/
+            );
+            if (earlyTypeMatch) {
+              const earlyAgentType = earlyTypeMatch[1];
+              // Check if we already processed this agentType (from agent_start or placeholder)
+              // Check both placeholder key AND type key (used by agent_start events)
+              if (
+                usedAgentIds.has(`placeholder:${earlyAgentType}`) ||
+                usedAgentIds.has(`type:${earlyAgentType}`)
+              ) {
+                continue; // Skip - agent already exists from agent_start or placeholder
+              }
+            }
 
             // Extract agent type and description from partial JSON
             // The JSON may be incomplete, so we use regex to extract fields
@@ -608,6 +674,13 @@ export class ExecutionTreeBuilderService {
               agentId: placeholderAgentId, // TASK_2025_099: From hook if available
               // summaryContent no longer needed on node - it's now a child text node
             });
+
+            // TASK_2025_128 FIX: Mark this agentType as used to prevent duplicates.
+            // Add both placeholder key and type key so:
+            // - Other placeholders are skipped (via placeholder: key)
+            // - SDK agent_start events are skipped (via type: key)
+            usedAgentIds.add(`placeholder:${agentType}`);
+            usedAgentIds.add(`type:${agentType}`);
 
             tools.push(placeholderAgent);
             continue; // Skip building the Task tool node

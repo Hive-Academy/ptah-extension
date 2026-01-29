@@ -300,7 +300,30 @@ export class StreamingHandlerService {
         }
 
         case 'agent_start': {
-          const existingAgentStart =
+          // TASK_2025_126_FIX: Use agentId for deduplication (stable across hook and complete)
+          // Hook sends UUID-format toolCallId, complete sends toolu_* format - they don't match!
+          // agentId (e.g., "adcecb2") is stable and present in both sources.
+          const existingByAgentId =
+            this.deduplication.replaceAgentStartByAgentId(
+              state,
+              event.agentId,
+              event.source
+            );
+
+          if (existingByAgentId) {
+            console.log(
+              '[StreamingHandler] Skipping duplicate agent_start (by agentId):',
+              {
+                agentId: event.agentId,
+                toolCallId: event.toolCallId,
+                source: event.source,
+              }
+            );
+            return null;
+          }
+
+          // Fallback: Also check by toolCallId for events without agentId
+          const existingByToolCallId =
             this.deduplication.replaceStreamEventIfNeeded(
               state,
               event.toolCallId,
@@ -308,7 +331,14 @@ export class StreamingHandlerService {
               event.source
             );
 
-          if (existingAgentStart) {
+          if (existingByToolCallId) {
+            console.log(
+              '[StreamingHandler] Skipping duplicate agent_start (by toolCallId):',
+              {
+                toolCallId: event.toolCallId,
+                source: event.source,
+              }
+            );
             return null;
           }
 
@@ -333,6 +363,7 @@ export class StreamingHandlerService {
             eventType: event.eventType,
             eventSource: event.source,
             toolCallId: event.toolCallId,
+            agentId: event.agentId,
             agentType: event.agentType,
           });
 

@@ -210,9 +210,11 @@ export class SubscriptionDbService {
    * Find user by ID
    * Returns user with email and paddleCustomerId for checkout
    */
-  async findUserById(
-    userId: string
-  ): Promise<{ id: string; email: string; paddleCustomerId: string | null } | null> {
+  async findUserById(userId: string): Promise<{
+    id: string;
+    email: string;
+    paddleCustomerId: string | null;
+  } | null> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {

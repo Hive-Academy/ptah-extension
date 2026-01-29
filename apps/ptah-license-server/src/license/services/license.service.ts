@@ -14,11 +14,7 @@ import { randomBytes } from 'crypto';
  *
  * Note: Community tier has no trial - it's always free.
  */
-export type LicenseTier =
-  | 'community'
-  | 'pro'
-  | 'trial_pro'
-  | 'expired';
+export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
 
 /**
  * License verification response structure
@@ -338,7 +334,9 @@ export class LicenseService {
       );
       return {
         licenseKey: existingLicense.licenseKey,
-        expiresAt: existingLicense.expiresAt ?? new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        expiresAt:
+          existingLicense.expiresAt ??
+          new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
       };
     }
 

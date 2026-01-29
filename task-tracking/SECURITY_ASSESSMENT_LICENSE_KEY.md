@@ -39,14 +39,15 @@ private generateLicenseKey(): string {
 
 ### 1.3 Entropy Analysis
 
-| Metric | Value | Assessment |
-|--------|-------|------------|
-| Random Bytes | 32 bytes | EXCELLENT |
-| Entropy | 256 bits | EXCELLENT |
-| Key Space | 2^256 possible keys | EXCELLENT |
-| Source | Node.js `crypto.randomBytes()` | EXCELLENT (CSPRNG) |
+| Metric       | Value                          | Assessment         |
+| ------------ | ------------------------------ | ------------------ |
+| Random Bytes | 32 bytes                       | EXCELLENT          |
+| Entropy      | 256 bits                       | EXCELLENT          |
+| Key Space    | 2^256 possible keys            | EXCELLENT          |
+| Source       | Node.js `crypto.randomBytes()` | EXCELLENT (CSPRNG) |
 
 **Analysis**:
+
 - Uses Node.js `crypto.randomBytes()` which is a cryptographically secure pseudorandom number generator (CSPRNG)
 - 256-bit entropy is the gold standard for cryptographic keys
 - The key space (2^256) exceeds the total number of atoms in the observable universe (~10^80 or ~2^266)
@@ -112,6 +113,7 @@ licenseKey!: string;
 ```
 
 **Assessment**:
+
 - Strict regex validation prevents malformed keys
 - Only lowercase hex characters allowed
 - Exact length enforcement (73 characters total)
@@ -123,31 +125,31 @@ licenseKey!: string;
 
 ### 3.1 Cryptographic Strength - EXCELLENT
 
-| Feature | Implementation | Rating |
-|---------|---------------|--------|
-| Random Number Generation | `crypto.randomBytes(32)` | 10/10 |
-| Entropy | 256 bits | 10/10 |
-| Key Format | Prefixed, hex-encoded | 9/10 |
-| Key Storage (Server) | PostgreSQL with unique index | 9/10 |
-| Key Storage (Client) | VS Code SecretStorage (encrypted) | 9/10 |
+| Feature                  | Implementation                    | Rating |
+| ------------------------ | --------------------------------- | ------ |
+| Random Number Generation | `crypto.randomBytes(32)`          | 10/10  |
+| Entropy                  | 256 bits                          | 10/10  |
+| Key Format               | Prefixed, hex-encoded             | 9/10   |
+| Key Storage (Server)     | PostgreSQL with unique index      | 9/10   |
+| Key Storage (Client)     | VS Code SecretStorage (encrypted) | 9/10   |
 
 ### 3.2 Server-Side Validation - GOOD
 
-| Feature | Implementation | Rating |
-|---------|---------------|--------|
-| Database Lookup | Exact match, indexed | 9/10 |
-| Status Verification | Multi-field validation | 9/10 |
-| Expiration Handling | Timestamp comparison | 9/10 |
-| Response Security | Never returns licenseKey in API | 10/10 |
+| Feature             | Implementation                  | Rating |
+| ------------------- | ------------------------------- | ------ |
+| Database Lookup     | Exact match, indexed            | 9/10   |
+| Status Verification | Multi-field validation          | 9/10   |
+| Expiration Handling | Timestamp comparison            | 9/10   |
+| Response Security   | Never returns licenseKey in API | 10/10  |
 
 ### 3.3 Client-Side Security - GOOD
 
-| Feature | Implementation | Rating |
-|---------|---------------|--------|
-| Key Storage | VS Code SecretStorage (encrypted) | 9/10 |
-| Key Transmission | HTTPS POST body | 8/10 |
-| Cache Management | 1-hour TTL with offline grace | 8/10 |
-| Logging | Key prefix only (never full key) | 9/10 |
+| Feature          | Implementation                    | Rating |
+| ---------------- | --------------------------------- | ------ |
+| Key Storage      | VS Code SecretStorage (encrypted) | 9/10   |
+| Key Transmission | HTTPS POST body                   | 8/10   |
+| Cache Management | 1-hour TTL with offline grace     | 8/10   |
+| Logging          | Key prefix only (never full key)  | 9/10   |
 
 ### 3.4 Database Security - EXCELLENT
 
@@ -172,6 +174,7 @@ licenseKey String @unique @map("license_key")
 **Issue**: The `/api/v1/licenses/verify` endpoint has NO rate limiting implemented.
 
 **Current Code Analysis**:
+
 ```typescript
 // main.ts - No ThrottlerModule or rate limiting middleware
 async function bootstrap() {
@@ -182,6 +185,7 @@ async function bootstrap() {
 ```
 
 **Risk Assessment**:
+
 - Theoretical brute-force attempts can be made at server capacity
 - DoS potential through verification endpoint flooding
 - No protection against credential stuffing (if keys were leaked)
@@ -189,6 +193,7 @@ async function bootstrap() {
 **Severity**: MEDIUM (mitigated by 256-bit entropy)
 
 **Recommendation**: Implement NestJS ThrottlerModule:
+
 ```typescript
 // Recommended: 10 requests per minute per IP for verify endpoint
 @Throttle({ default: { limit: 10, ttl: 60000 } })
@@ -205,12 +210,14 @@ async verify(@Body() dto: VerifyLicenseDto) { ... }
 ```typescript
 // Comment says: "constant-time comparison to prevent timing attacks"
 // Actual implementation:
-if (apiKey !== validApiKey) {  // NOT constant-time!
+if (apiKey !== validApiKey) {
+  // NOT constant-time!
   throw new UnauthorizedException('Invalid API key');
 }
 ```
 
 **Risk Assessment**:
+
 - Timing attacks could theoretically leak API key character-by-character
 - Only affects admin endpoints (not license verification)
 - Requires precise timing measurements (microsecond resolution)
@@ -218,12 +225,10 @@ if (apiKey !== validApiKey) {  // NOT constant-time!
 **Severity**: LOW (admin endpoint, requires sophisticated attack)
 
 **Recommendation**: Use `crypto.timingSafeEqual()`:
+
 ```typescript
 import { timingSafeEqual } from 'crypto';
-const isValid = timingSafeEqual(
-  Buffer.from(apiKey),
-  Buffer.from(validApiKey)
-);
+const isValid = timingSafeEqual(Buffer.from(apiKey), Buffer.from(validApiKey));
 ```
 
 ### 4.3 LOW: No Key Rotation Mechanism
@@ -231,6 +236,7 @@ const isValid = timingSafeEqual(
 **Issue**: No built-in mechanism to rotate compromised keys or force re-authentication.
 
 **Current Behavior**:
+
 - Once a license key is created, it remains valid until manually revoked
 - No API endpoint for users to regenerate their key
 - No automated key rotation on suspicious activity
@@ -248,6 +254,7 @@ private static readonly GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 ```
 
 **Assessment**:
+
 - Allows offline usage for 7 days without verification
 - Could be exploited by blocking network access intentionally
 - Grace period only applies to previously valid licenses
@@ -259,23 +266,23 @@ private static readonly GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 ### 5.1 License Key Entropy Comparison
 
-| Product/Service | Key Entropy | Ptah Comparison |
-|-----------------|-------------|-----------------|
-| Windows Product Keys | ~80-100 bits | Ptah is 2.5x stronger |
-| Stripe API Keys | ~128-192 bits | Ptah is 1.3-2x stronger |
-| AWS Access Keys | ~160 bits | Ptah is 1.6x stronger |
-| Ptah License Keys | **256 bits** | Industry-leading |
+| Product/Service      | Key Entropy   | Ptah Comparison         |
+| -------------------- | ------------- | ----------------------- |
+| Windows Product Keys | ~80-100 bits  | Ptah is 2.5x stronger   |
+| Stripe API Keys      | ~128-192 bits | Ptah is 1.3-2x stronger |
+| AWS Access Keys      | ~160 bits     | Ptah is 1.6x stronger   |
+| Ptah License Keys    | **256 bits**  | Industry-leading        |
 
 ### 5.2 Security Feature Comparison
 
-| Feature | Ptah | Industry Best Practice | Gap |
-|---------|------|------------------------|-----|
-| Key Entropy | 256-bit | 128-256 bit | None |
-| Server Validation | Database lookup | Database lookup | None |
-| Client Storage | Encrypted SecretStorage | Encrypted storage | None |
-| Rate Limiting | None | Required | **GAP** |
-| Key Rotation | Manual only | Automated/On-demand | Minor gap |
-| HMAC Signing | None | Optional | Design choice |
+| Feature           | Ptah                    | Industry Best Practice | Gap           |
+| ----------------- | ----------------------- | ---------------------- | ------------- |
+| Key Entropy       | 256-bit                 | 128-256 bit            | None          |
+| Server Validation | Database lookup         | Database lookup        | None          |
+| Client Storage    | Encrypted SecretStorage | Encrypted storage      | None          |
+| Rate Limiting     | None                    | Required               | **GAP**       |
+| Key Rotation      | Manual only             | Automated/On-demand    | Minor gap     |
+| HMAC Signing      | None                    | Optional               | Design choice |
 
 ---
 
@@ -286,6 +293,7 @@ private static readonly GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 **Scenario**: Attacker generates random keys hoping to find a valid one.
 
 **Analysis**:
+
 ```
 P(success per attempt) = (active licenses) / (2^256)
 
@@ -305,6 +313,7 @@ Time = 10^71 / 10^9 = 10^62 seconds = 3.17 x 10^54 years
 **Scenario**: Attacker uses distributed IPs to bypass rate limiting (if implemented).
 
 **Analysis**:
+
 - Even with 1 million IPs making 1000 requests/second each:
   - 10^9 attempts per second
   - Still requires 10^62 seconds
@@ -316,10 +325,12 @@ Time = 10^71 / 10^9 = 10^62 seconds = 3.17 x 10^54 years
 **Scenario**: Attacker gains read access to database.
 
 **Risk**:
+
 - All license keys exposed
 - Users' emails exposed
 
 **Mitigation Recommendations**:
+
 1. Consider hashing license keys (like passwords)
 2. Store only hash, verify by computing hash of submitted key
 3. Trade-off: Loses ability to email key to user (one-time display only)
@@ -329,6 +340,7 @@ Time = 10^71 / 10^9 = 10^62 seconds = 3.17 x 10^54 years
 **Scenario**: Man-in-the-middle attack on verification request.
 
 **Current Protection**:
+
 - HTTPS required (production server URL: `https://api.ptah.dev`)
 - License key transmitted in POST body (not URL)
 
@@ -348,6 +360,7 @@ Time = 10^71 / 10^9 = 10^62 seconds = 3.17 x 10^54 years
 ### 7.2 High Priority (Implement Soon)
 
 2. **Fix Timing Attack in Admin Guard**
+
    - Replace string comparison with `crypto.timingSafeEqual()`
 
 3. **Add Request Logging for Security Monitoring**
@@ -358,10 +371,12 @@ Time = 10^71 / 10^9 = 10^62 seconds = 3.17 x 10^54 years
 ### 7.3 Medium Priority (Consider for Future)
 
 4. **Implement Key Rotation API**
+
    - Allow users to regenerate license key
    - Automatically revoke old key
 
 5. **Add Anomaly Detection**
+
    - Flag unusual verification patterns
    - Alert on multiple failed attempts from same IP
 
@@ -383,22 +398,22 @@ Time = 10^71 / 10^9 = 10^62 seconds = 3.17 x 10^54 years
 
 ### Strengths Matrix
 
-| Category | Rating | Notes |
-|----------|--------|-------|
-| Key Generation | 10/10 | Industry-leading 256-bit entropy |
-| Key Format | 9/10 | Clear prefix, strict validation |
-| Server Validation | 8/10 | Complete multi-check validation |
-| Client Security | 8/10 | Encrypted storage, secure transmission |
-| Database Security | 9/10 | Indexed, unique constraint |
+| Category          | Rating | Notes                                  |
+| ----------------- | ------ | -------------------------------------- |
+| Key Generation    | 10/10  | Industry-leading 256-bit entropy       |
+| Key Format        | 9/10   | Clear prefix, strict validation        |
+| Server Validation | 8/10   | Complete multi-check validation        |
+| Client Security   | 8/10   | Encrypted storage, secure transmission |
+| Database Security | 9/10   | Indexed, unique constraint             |
 
 ### Gaps Matrix
 
-| Gap | Severity | Effort to Fix | Priority |
-|-----|----------|---------------|----------|
-| No rate limiting | Medium | Low | Critical |
-| Timing attack in admin | Low | Trivial | High |
-| No key rotation | Low | Medium | Medium |
-| Plaintext key storage | Informational | High | Low |
+| Gap                    | Severity      | Effort to Fix | Priority |
+| ---------------------- | ------------- | ------------- | -------- |
+| No rate limiting       | Medium        | Low           | Critical |
+| Timing attack in admin | Low           | Trivial       | High     |
+| No key rotation        | Low           | Medium        | Medium   |
+| Plaintext key storage  | Informational | High          | Low      |
 
 ### Final Verdict
 
@@ -413,21 +428,27 @@ The 256-bit entropy makes brute-force attacks mathematically impossible. The pri
 ## Appendix A: Code References
 
 ### Key Generation
+
 - `D:\projects\ptah-extension\apps\ptah-license-server\src\license\services\license.service.ts` (lines 300-303)
 
 ### Key Validation
+
 - `D:\projects\ptah-extension\apps\ptah-license-server\src\license\services\license.service.ts` (lines 96-220)
 
 ### Input Validation DTO
+
 - `D:\projects\ptah-extension\apps\ptah-license-server\src\license\dto\verify-license.dto.ts` (lines 1-15)
 
 ### License Controller
+
 - `D:\projects\ptah-extension\apps\ptah-license-server\src\license\controllers\license.controller.ts` (lines 51-54)
 
 ### Client-Side Verification
+
 - `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\license.service.ts` (lines 191-333)
 
 ### Database Schema
+
 - `D:\projects\ptah-extension\apps\ptah-license-server\prisma\schema.prisma` (lines 56-74)
 
 ---

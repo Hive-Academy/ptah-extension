@@ -65,7 +65,8 @@ import { NgClass } from '@angular/common';
         'bg-warning/10': isInterrupted(),
         'border-warning': isInterrupted(),
         'ring-1': isInterrupted(),
-        'ring-warning/30': isInterrupted()
+        'ring-warning/30': isInterrupted(),
+        'streaming-border-glow': isStreaming()
       }"
       [style.border-left-color]="isInterrupted() ? null : agentColor()"
     >
@@ -176,6 +177,31 @@ import { NgClass } from '@angular/common';
       }
     </div>
   `,
+  styles: [
+    `
+      :host ::ng-deep .streaming-border-glow {
+        animation: agent-border-glow 2s ease-in-out infinite;
+      }
+      @keyframes agent-border-glow {
+        0%,
+        100% {
+          box-shadow: 0 0 6px 1px oklch(var(--in) / 0.2);
+          border-color: oklch(var(--in) / 0.4);
+        }
+        50% {
+          box-shadow: 0 0 2px 0 oklch(var(--in) / 0.05);
+          border-color: oklch(var(--in) / 0.15);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        :host ::ng-deep .streaming-border-glow {
+          animation: none;
+          box-shadow: 0 0 4px 1px oklch(var(--in) / 0.15);
+          border-color: oklch(var(--in) / 0.3);
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InlineAgentBubbleComponent {

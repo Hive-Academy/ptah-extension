@@ -57,31 +57,35 @@
 
 ### Libraries Discovered
 
-| Library/File | Purpose | Key Exports |
-|--------------|---------|-------------|
-| `@ptah-extension/shared` | Foundation types | `LicenseTier`, `LicenseGetStatusResponse` |
-| `@ptah-extension/vscode-core` | Infrastructure | `LicenseService`, `FeatureGateService`, `TOKENS` |
-| `ptah-license-server` | Backend API | `PLANS`, `LicenseTier`, `mapPlanToTier` |
-| `ptah-landing-page` | Marketing site | `SubscriptionStateService`, pricing components |
+| Library/File                  | Purpose          | Key Exports                                      |
+| ----------------------------- | ---------------- | ------------------------------------------------ |
+| `@ptah-extension/shared`      | Foundation types | `LicenseTier`, `LicenseGetStatusResponse`        |
+| `@ptah-extension/vscode-core` | Infrastructure   | `LicenseService`, `FeatureGateService`, `TOKENS` |
+| `ptah-license-server`         | Backend API      | `PLANS`, `LicenseTier`, `mapPlanToTier`          |
+| `ptah-landing-page`           | Marketing site   | `SubscriptionStateService`, pricing components   |
 
 ### Patterns Identified
 
 **Pattern 1: License Tier Type System**
+
 - **Evidence**: `libs/shared/src/lib/types/rpc.types.ts:562-567`
 - **Current**: `'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired'`
 - **Target**: `'community' | 'pro' | 'trial_pro' | 'expired'`
 
 **Pattern 2: License Verification Logic**
+
 - **Evidence**: `libs/backend/vscode-core/src/services/license.service.ts:210-222`
 - **Current**: No license key = `{ valid: false, tier: 'expired' }`
 - **Target**: No license key = `{ valid: true, tier: 'community' }`
 
 **Pattern 3: RPC Response Mapping**
+
 - **Evidence**: `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts:129-181`
 - **Current**: Returns `isBasic` and `isPremium` flags
 - **Target**: Returns `isCommunity` and `isPremium` flags
 
 **Pattern 4: Landing Page Tier Display**
+
 - **Evidence**: `apps/ptah-landing-page/src/app/services/subscription-state.service.ts:50-58`
 - **Current**: Returns `'basic' | 'pro' | null`
 - **Target**: Returns `'community' | 'pro' | null`
@@ -95,23 +99,19 @@
 ### File 1.1: `libs/shared/src/lib/types/rpc.types.ts`
 
 **Current Implementation** (Lines 552-598):
+
 ```typescript
-export type LicenseTier =
-  | 'basic'
-  | 'pro'
-  | 'trial_basic'
-  | 'trial_pro'
-  | 'expired';
+export type LicenseTier = 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired';
 
 export interface LicenseGetStatusResponse {
   valid: boolean;
   tier: LicenseTier;
   isPremium: boolean;
-  isBasic: boolean;  // TO REMOVE
+  isBasic: boolean; // TO REMOVE
   daysRemaining: number | null;
   trialActive: boolean;
   trialDaysRemaining: number | null;
-  plan?: { name: string; description: string; features: string[]; };
+  plan?: { name: string; description: string; features: string[] };
   reason?: 'expired' | 'trial_ended' | 'no_license';
 }
 ```
@@ -130,10 +130,10 @@ export interface LicenseGetStatusResponse {
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTier =
-  | 'community'   // FREE - always valid
+  | 'community' // FREE - always valid
   | 'pro'
   | 'trial_pro'
-  | 'expired';    // Only for revoked/failed payment
+  | 'expired'; // Only for revoked/failed payment
 
 // Line 575-598: UPDATE LicenseGetStatusResponse
 export interface LicenseGetStatusResponse {
@@ -144,7 +144,7 @@ export interface LicenseGetStatusResponse {
   /** Whether the user has premium features enabled (Pro tier) */
   isPremium: boolean;
   /** Whether the user has Community tier (convenience flag) */
-  isCommunity: boolean;  // RENAMED from isBasic
+  isCommunity: boolean; // RENAMED from isBasic
   /** Days remaining before subscription expires (null if not applicable) */
   daysRemaining: number | null;
   /** Whether user is currently in trial period */
@@ -163,6 +163,7 @@ export interface LicenseGetStatusResponse {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts` (MODIFY)
 
 ---
@@ -174,6 +175,7 @@ export interface LicenseGetStatusResponse {
 ### File 2.1: `apps/ptah-license-server/src/config/plans.config.ts`
 
 **Current Implementation** (Lines 14-49):
+
 ```typescript
 export const PLANS = {
   basic: {
@@ -209,15 +211,8 @@ export const PLANS = {
 export const PLANS = {
   community: {
     name: 'Community',
-    features: [
-      'basic_cli_wrapper',
-      'session_history',
-      'permission_management',
-      'sdk_access',
-      'real_time_streaming',
-      'basic_workspace_context',
-    ],
-    expiresAfterDays: null,  // Never expires
+    features: ['basic_cli_wrapper', 'session_history', 'permission_management', 'sdk_access', 'real_time_streaming', 'basic_workspace_context'],
+    expiresAfterDays: null, // Never expires
     monthlyPrice: 0,
     yearlyPrice: 0,
     isPremium: false,
@@ -226,7 +221,7 @@ export const PLANS = {
   pro: {
     name: 'Pro',
     features: [
-      'all_community_features',  // RENAMED from all_basic_features
+      'all_community_features', // RENAMED from all_basic_features
       'mcp_server',
       'workspace_intelligence',
       'openrouter_proxy',
@@ -235,7 +230,7 @@ export const PLANS = {
       'cost_tracking',
       'priority_support',
     ],
-    expiresAfterDays: null,  // Subscription-based
+    expiresAfterDays: null, // Subscription-based
     monthlyPrice: 5,
     yearlyPrice: 50,
     isPremium: true,
@@ -244,22 +239,19 @@ export const PLANS = {
 } as const;
 
 // Line 54: UPDATE PlanName type
-export type PlanName = keyof typeof PLANS;  // 'community' | 'pro'
+export type PlanName = keyof typeof PLANS; // 'community' | 'pro'
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-license-server\src\config\plans.config.ts` (REWRITE)
 
 ### File 2.2: `apps/ptah-license-server/src/license/services/license.service.ts`
 
 **Current Implementation** (Lines 16-61):
+
 ```typescript
-export type LicenseTier =
-  | 'basic'
-  | 'pro'
-  | 'trial_basic'
-  | 'trial_pro'
-  | 'expired';
+export type LicenseTier = 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired';
 
 function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
   switch (dbPlan) {
@@ -286,7 +278,7 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
  * - 'expired': License expired, revoked, or payment failed
  */
 export type LicenseTier =
-  | 'community'   // FREE - always valid
+  | 'community' // FREE - always valid
   | 'pro'
   | 'trial_pro'
   | 'expired';
@@ -307,8 +299,8 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
       return isInTrial ? 'trial_pro' : 'pro';
 
     case 'community':
-    case 'basic':        // Migration compatibility
-    case 'trial_basic':  // Migration compatibility
+    case 'basic': // Migration compatibility
+    case 'trial_basic': // Migration compatibility
       return 'community';
 
     case 'trial_pro':
@@ -321,11 +313,13 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-license-server\src\license\services\license.service.ts` (MODIFY)
 
 ### File 2.3: `apps/ptah-license-server/src/paddle/paddle.service.ts`
 
 **Current Implementation** (Lines 799-845):
+
 ```typescript
 private mapPriceIdToPlan(priceId: string | undefined): string {
   // Maps to 'basic' or 'pro'
@@ -395,6 +389,7 @@ private mapPriceIdToPlan(priceId: string | undefined): string {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-license-server\src\paddle\paddle.service.ts` (MODIFY)
 
 ---
@@ -406,13 +401,9 @@ private mapPriceIdToPlan(priceId: string | undefined): string {
 ### File 3.1: `libs/backend/vscode-core/src/services/license.service.ts`
 
 **Current Implementation** (Lines 50-55, 210-222):
+
 ```typescript
-export type LicenseTierValue =
-  | 'basic'
-  | 'pro'
-  | 'trial_basic'
-  | 'trial_pro'
-  | 'expired';
+export type LicenseTierValue = 'basic' | 'pro' | 'trial_basic' | 'trial_pro' | 'expired';
 
 // Line 210-222
 if (!licenseKey) {
@@ -478,11 +469,13 @@ async clearLicenseKey(): Promise<void> {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\license.service.ts` (MODIFY)
 
 ### File 3.2: `apps/ptah-extension-vscode/src/main.ts`
 
 **Current Implementation** (Lines 251-264):
+
 ```typescript
 if (!licenseStatus.valid) {
   // BLOCK EXTENSION - License is invalid
@@ -499,30 +492,26 @@ if (!licenseStatus.valid) {
 // users with explicitly expired/revoked licenses (payment failures)
 if (!licenseStatus.valid) {
   // BLOCK EXTENSION - Only for revoked/payment-failed licenses
-  console.log(
-    `[Activate] BLOCKED: License invalid (reason: ${
-      licenseStatus.reason || 'unknown'
-    })`
-  );
+  console.log(`[Activate] BLOCKED: License invalid (reason: ${licenseStatus.reason || 'unknown'})`);
 
   await handleLicenseBlocking(context, licenseService, licenseStatus);
   return;
 }
 
 // Community and Pro users both reach here
-console.log(
-  `[Activate] Step 2: License verified (tier: ${licenseStatus.tier})`
-);
+console.log(`[Activate] Step 2: License verified (tier: ${licenseStatus.tier})`);
 ```
 
 **Note**: The `handleLicenseBlocking` function (Lines 97-222) should only be triggered for `expired` tier, not for Community users. Since Community users have `valid: true`, they bypass this block automatically.
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\main.ts` (MODIFY - minimal change)
 
 ### File 3.3: `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts`
 
 **Current Implementation** (Lines 129-181):
+
 ```typescript
 private mapLicenseStatusToResponse(status: LicenseStatus): LicenseGetStatusResponse {
   const isPremium = status.tier === 'pro' || status.tier === 'trial_pro';
@@ -600,11 +589,13 @@ private mapLicenseStatusToResponse(
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\license-rpc.handlers.ts` (MODIFY)
 
 ### File 3.4: `libs/backend/vscode-core/src/services/feature-gate.service.ts`
 
 **Current Implementation** (Lines 192-238):
+
 ```typescript
 async isBasicTier(): Promise<boolean> {
   const status = await this.getLicenseStatus();
@@ -651,11 +642,13 @@ async isTrialActive(): Promise<boolean> {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\feature-gate.service.ts` (MODIFY)
 
 ### File 3.5: `apps/ptah-extension-vscode/src/commands/license-commands.ts`
 
 **Current Implementation** (Lines 121-141):
+
 ```typescript
 async removeLicenseKey(): Promise<void> {
   const confirm = await vscode.window.showWarningMessage(
@@ -731,6 +724,7 @@ async checkLicenseStatus(): Promise<void> {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\commands\license-commands.ts` (MODIFY)
 
 ---
@@ -742,6 +736,7 @@ async checkLicenseStatus(): Promise<void> {
 ### File 4.1: `apps/ptah-landing-page/src/app/pages/pricing/models/pricing-plan.interface.ts`
 
 **Current Implementation** (Line 14):
+
 ```typescript
 tier: 'basic' | 'pro';
 ```
@@ -755,11 +750,13 @@ tier: 'community' | 'pro';
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\models\pricing-plan.interface.ts` (MODIFY)
 
 ### File 4.2: `apps/ptah-landing-page/src/app/pages/pricing/components/pricing-grid.component.ts`
 
 **Current Implementation** (Lines 16-17, 333-428):
+
 ```typescript
 import { BasicPlanCardComponent } from './basic-plan-card.component';
 // ...
@@ -770,6 +767,7 @@ public readonly basicYearlyPlan: PricingPlan = {...};
 **Changes Required**:
 
 This file requires significant changes to:
+
 1. Replace `BasicPlanCardComponent` with `CommunityPlanCardComponent`
 2. Update plan definitions from Basic to Community
 3. Remove checkout CTA from Community (it's free)
@@ -810,6 +808,7 @@ public readonly communityPlan: PricingPlan = {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\pricing-grid.component.ts` (REWRITE)
 
 ### File 4.3: Create `apps/ptah-landing-page/src/app/pages/pricing/components/community-plan-card.component.ts`
@@ -817,13 +816,7 @@ public readonly communityPlan: PricingPlan = {
 **New File**: Create a simplified Community plan card without checkout.
 
 ```typescript
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-  computed,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { LucideAngularModule, Check, Download, Crown } from 'lucide-angular';
 import { PricingPlan, PlanSubscriptionContext } from '../models/pricing-plan.interface';
@@ -851,32 +844,32 @@ import { PricingPlan, PlanSubscriptionContext } from '../models/pricing-plan.int
     >
       <!-- Badge -->
       @if (isCurrentPlan()) {
-        <div
-          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+      <div
+        class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                  bg-success rounded-full
                  text-xs font-bold text-success-content uppercase tracking-wider
                  shadow-lg shadow-success/30 flex items-center gap-1.5"
-        >
-          <lucide-angular [img]="CrownIcon" class="w-3 h-3" />
-          Current Plan
-        </div>
+      >
+        <lucide-angular [img]="CrownIcon" class="w-3 h-3" />
+        Current Plan
+      </div>
       } @else if (isProUser()) {
-        <div
-          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+      <div
+        class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                  bg-base-300 rounded-full
                  text-xs font-bold text-base-content/60 uppercase tracking-wider"
-        >
-          Included in Pro
-        </div>
+      >
+        Included in Pro
+      </div>
       } @else {
-        <div
-          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+      <div
+        class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                  bg-gradient-to-r from-green-500 to-emerald-500 rounded-full
                  text-xs font-bold text-white uppercase tracking-wider
                  shadow-lg shadow-green-500/30"
-        >
-          Free Forever
-        </div>
+      >
+        Free Forever
+      </div>
       }
 
       <!-- Plan Header -->
@@ -893,9 +886,7 @@ import { PricingPlan, PlanSubscriptionContext } from '../models/pricing-plan.int
           <span class="text-5xl lg:text-6xl font-bold text-base-content">
             {{ plan().price }}
           </span>
-          <span class="text-base-content/50 text-sm">
-            / {{ plan().priceSubtext }}
-          </span>
+          <span class="text-base-content/50 text-sm"> / {{ plan().priceSubtext }} </span>
         </div>
       </div>
 
@@ -904,18 +895,13 @@ import { PricingPlan, PlanSubscriptionContext } from '../models/pricing-plan.int
 
       <!-- Features Section -->
       <div class="flex-1">
-        <h4 class="text-xs font-semibold text-base-content/40 uppercase tracking-wider mb-3">
-          Core Features
-        </h4>
+        <h4 class="text-xs font-semibold text-base-content/40 uppercase tracking-wider mb-3">Core Features</h4>
         <ul class="space-y-2.5">
           @for (feature of plan().standoutFeatures; track feature) {
-            <li class="flex items-start gap-2.5">
-              <lucide-angular
-                [img]="CheckIcon"
-                class="flex-shrink-0 w-4 h-4 text-green-400 mt-0.5"
-              />
-              <span class="text-sm text-base-content/80">{{ feature }}</span>
-            </li>
+          <li class="flex items-start gap-2.5">
+            <lucide-angular [img]="CheckIcon" class="flex-shrink-0 w-4 h-4 text-green-400 mt-0.5" />
+            <span class="text-sm text-base-content/80">{{ feature }}</span>
+          </li>
           }
         </ul>
       </div>
@@ -932,10 +918,10 @@ import { PricingPlan, PlanSubscriptionContext } from '../models/pricing-plan.int
         (click)="handleClick()"
       >
         @if (isProUser()) {
-          <span>Included in Your Plan</span>
+        <span>Included in Your Plan</span>
         } @else {
-          <lucide-angular [img]="DownloadIcon" class="w-4 h-4" />
-          <span>{{ plan().ctaText }}</span>
+        <lucide-angular [img]="DownloadIcon" class="w-4 h-4" />
+        <span>{{ plan().ctaText }}</span>
         }
       </button>
     </div>
@@ -973,16 +959,14 @@ export class CommunityPlanCardComponent {
   handleClick(): void {
     if (!this.isProUser()) {
       // Open VS Code marketplace
-      window.open(
-        'https://marketplace.visualstudio.com/items?itemName=ptah.ptah-extension',
-        '_blank'
-      );
+      window.open('https://marketplace.visualstudio.com/items?itemName=ptah.ptah-extension', '_blank');
     }
   }
 }
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\community-plan-card.component.ts` (CREATE)
 
 ### File 4.4: DELETE `apps/ptah-landing-page/src/app/pages/pricing/components/basic-plan-card.component.ts`
@@ -990,11 +974,13 @@ export class CommunityPlanCardComponent {
 **Action**: DELETE entire file (517 lines)
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\basic-plan-card.component.ts` (DELETE)
 
 ### File 4.5: `apps/ptah-landing-page/src/app/services/subscription-state.service.ts`
 
 **Current Implementation** (Lines 50-58):
+
 ```typescript
 public readonly currentPlanTier = computed<'basic' | 'pro' | null>(() => {
   const data = this._licenseData();
@@ -1039,11 +1025,13 @@ public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\services\subscription-state.service.ts` (MODIFY)
 
 ### File 4.6: `apps/ptah-landing-page/src/environments/environment.ts`
 
 **Current Implementation** (Lines 35-42):
+
 ```typescript
 paddle: {
   basicPriceIdMonthly: 'pri_...',
@@ -1076,12 +1064,14 @@ paddle: {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.ts` (MODIFY)
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\environments\environment.production.ts` (MODIFY - same changes)
 
 ### File 4.7: `apps/ptah-landing-page/src/app/pages/profile/models/license-data.interface.ts`
 
 **Current Implementation** (Line 47):
+
 ```typescript
 plan: 'basic' | 'pro' | 'trial_basic' | 'trial_pro';
 ```
@@ -1095,6 +1085,7 @@ plan: 'community' | 'pro' | 'trial_pro';
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\profile\models\license-data.interface.ts` (MODIFY)
 
 ---
@@ -1106,6 +1097,7 @@ plan: 'community' | 'pro' | 'trial_pro';
 ### File 5.1: `libs/frontend/chat/src/lib/components/templates/welcome.component.ts`
 
 **Current Implementation** (Lines 135-160):
+
 ```typescript
 getHeadline(): string {
   const reason = this.licenseReason();
@@ -1127,6 +1119,7 @@ The welcome component is shown to unlicensed users via `handleLicenseBlocking` i
 Therefore, minimal changes are needed - the existing messaging is appropriate for expired users.
 
 **Optional Enhancement** (if desired):
+
 ```typescript
 // Line 135-160: Keep existing implementation
 // The welcome component is only shown to expired/revoked users
@@ -1147,6 +1140,7 @@ getSubheadline(): string {
 ```
 
 **Files Affected**:
+
 - `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\welcome.component.ts` (MODIFY - minimal)
 - `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\welcome.component.html` (MODIFY - if updating messaging)
 
@@ -1155,35 +1149,39 @@ getSubheadline(): string {
 ## Files Affected Summary
 
 ### CREATE (1 file)
-| File | Lines Est. |
-|------|------------|
-| `apps/ptah-landing-page/.../community-plan-card.component.ts` | ~180 |
+
+| File                                                          | Lines Est. |
+| ------------------------------------------------------------- | ---------- |
+| `apps/ptah-landing-page/.../community-plan-card.component.ts` | ~180       |
 
 ### MODIFY (15 files)
-| File | Lines Changed Est. |
-|------|-------------------|
-| `libs/shared/src/lib/types/rpc.types.ts` | ~30 |
-| `apps/ptah-license-server/src/config/plans.config.ts` | ~50 |
-| `apps/ptah-license-server/src/license/services/license.service.ts` | ~40 |
-| `apps/ptah-license-server/src/paddle/paddle.service.ts` | ~60 |
-| `libs/backend/vscode-core/src/services/license.service.ts` | ~50 |
-| `apps/ptah-extension-vscode/src/main.ts` | ~10 |
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts` | ~60 |
-| `libs/backend/vscode-core/src/services/feature-gate.service.ts` | ~30 |
-| `apps/ptah-extension-vscode/src/commands/license-commands.ts` | ~40 |
-| `apps/ptah-landing-page/.../pricing-plan.interface.ts` | ~5 |
-| `apps/ptah-landing-page/.../pricing-grid.component.ts` | ~100 |
-| `apps/ptah-landing-page/.../subscription-state.service.ts` | ~20 |
-| `apps/ptah-landing-page/src/environments/environment.ts` | ~10 |
-| `apps/ptah-landing-page/src/environments/environment.production.ts` | ~10 |
-| `apps/ptah-landing-page/.../license-data.interface.ts` | ~5 |
+
+| File                                                                           | Lines Changed Est. |
+| ------------------------------------------------------------------------------ | ------------------ |
+| `libs/shared/src/lib/types/rpc.types.ts`                                       | ~30                |
+| `apps/ptah-license-server/src/config/plans.config.ts`                          | ~50                |
+| `apps/ptah-license-server/src/license/services/license.service.ts`             | ~40                |
+| `apps/ptah-license-server/src/paddle/paddle.service.ts`                        | ~60                |
+| `libs/backend/vscode-core/src/services/license.service.ts`                     | ~50                |
+| `apps/ptah-extension-vscode/src/main.ts`                                       | ~10                |
+| `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts` | ~60                |
+| `libs/backend/vscode-core/src/services/feature-gate.service.ts`                | ~30                |
+| `apps/ptah-extension-vscode/src/commands/license-commands.ts`                  | ~40                |
+| `apps/ptah-landing-page/.../pricing-plan.interface.ts`                         | ~5                 |
+| `apps/ptah-landing-page/.../pricing-grid.component.ts`                         | ~100               |
+| `apps/ptah-landing-page/.../subscription-state.service.ts`                     | ~20                |
+| `apps/ptah-landing-page/src/environments/environment.ts`                       | ~10                |
+| `apps/ptah-landing-page/src/environments/environment.production.ts`            | ~10                |
+| `apps/ptah-landing-page/.../license-data.interface.ts`                         | ~5                 |
 
 ### DELETE (1 file)
-| File | Lines |
-|------|-------|
-| `apps/ptah-landing-page/.../basic-plan-card.component.ts` | 517 |
+
+| File                                                      | Lines |
+| --------------------------------------------------------- | ----- |
+| `apps/ptah-landing-page/.../basic-plan-card.component.ts` | 517   |
 
 ### Total Estimated Changes
+
 - **Files**: 17 (1 create, 15 modify, 1 delete)
 - **Lines Changed**: ~520
 - **Lines Deleted**: ~517
@@ -1193,6 +1191,7 @@ getSubheadline(): string {
 ## Testing Strategy
 
 ### Phase 1 Verification
+
 ```bash
 # After Phase 1 changes, run TypeScript compilation
 nx run-many --target=build --projects=shared,vscode-core,agent-sdk --parallel=3
@@ -1202,6 +1201,7 @@ nx run-many --target=build --projects=shared,vscode-core,agent-sdk --parallel=3
 ```
 
 ### Phase 2 Verification
+
 ```bash
 # After Phase 2 changes
 nx build ptah-license-server
@@ -1210,6 +1210,7 @@ nx build ptah-license-server
 ```
 
 ### Phase 3 Verification
+
 ```bash
 # After Phase 3 changes
 nx build ptah-extension-vscode
@@ -1221,6 +1222,7 @@ nx build ptah-extension-vscode
 ```
 
 ### Phase 4 Verification
+
 ```bash
 # After Phase 4 changes
 nx build ptah-landing-page
@@ -1233,6 +1235,7 @@ nx build ptah-landing-page
 ```
 
 ### Phase 5 Verification
+
 ```bash
 # After Phase 5 changes
 nx build chat
@@ -1243,6 +1246,7 @@ nx build chat
 ```
 
 ### Full Integration Test
+
 ```bash
 # Run all tests
 nx run-many --target=test --all
@@ -1297,6 +1301,7 @@ git reset --hard <pre-task-commit>
 **Recommended Developer**: backend-developer (primary) + frontend-developer (Phase 4-5)
 
 **Rationale**:
+
 - Phase 1-3: TypeScript backend changes (license service, RPC handlers)
 - Phase 4-5: Angular frontend changes (landing page, chat)
 
@@ -1308,6 +1313,7 @@ git reset --hard <pre-task-commit>
 **Estimated Effort**: 8-12 hours
 
 **Breakdown**:
+
 - Phase 1 (Types): 1 hour
 - Phase 2 (Server): 2 hours
 - Phase 3 (Extension): 3 hours
@@ -1320,16 +1326,19 @@ git reset --hard <pre-task-commit>
 **Before Implementation, Team-Leader Must Ensure Developer Verifies**:
 
 1. **All imports verified from codebase**:
+
    - `LicenseTier` from `@ptah-extension/shared`
    - `LicenseService` from `@ptah-extension/vscode-core`
    - `PLANS` from `apps/ptah-license-server/src/config/plans.config.ts`
 
 2. **All patterns verified from examples**:
+
    - License status mapping: `license-rpc.handlers.ts:129-181`
    - Plan configuration: `plans.config.ts:14-49`
    - Subscription state: `subscription-state.service.ts:50-58`
 
 3. **Library documentation consulted**:
+
    - `libs/shared/CLAUDE.md`
    - `libs/backend/vscode-core/CLAUDE.md`
    - `apps/ptah-landing-page/CLAUDE.md`

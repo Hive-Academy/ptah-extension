@@ -1,6 +1,8 @@
 # Development Tasks - TASK_2025_127
 
-**Total Tasks**: 5 | **Batches**: 3 | **Status**: 3/3 complete
+**Total Tasks**: 5 | **Batches**: 3 | **Status**: COMPLETE
+
+**Final Commit**: c2761b2 - feat(pricing): add subscription-aware pricing with QA fixes (TASK_2025_127)
 
 ---
 
@@ -18,10 +20,10 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| SubscriptionInfo.status is generic string type | LOW | Use type assertion with null checks |
-| Race condition between auth check and API call | LOW | Sequential observable chain handles this |
+| Risk                                           | Severity | Mitigation                               |
+| ---------------------------------------------- | -------- | ---------------------------------------- |
+| SubscriptionInfo.status is generic string type | LOW      | Use type assertion with null checks      |
+| Race condition between auth check and API call | LOW      | Sequential observable chain handles this |
 
 ### Edge Cases to Handle
 
@@ -56,6 +58,7 @@ Create a new signal-based service to fetch and cache subscription state for the 
 **Pattern to Follow**: `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\services\paddle-checkout.service.ts:76-96`
 
 **Quality Requirements**:
+
 - Use signal-based state pattern matching PaddleCheckoutService
 - Private writable signals + public readonly accessors
 - Check authentication before making API call
@@ -64,6 +67,7 @@ Create a new signal-based service to fetch and cache subscription state for the 
 - Include reset() and refresh() methods
 
 **Implementation Details**:
+
 - Imports: `Injectable, signal, computed, inject` from `@angular/core`
 - Imports: `HttpClient` from `@angular/common/http`
 - Imports: `LicenseData` from `../pages/profile/models/license-data.interface`
@@ -72,6 +76,7 @@ Create a new signal-based service to fetch and cache subscription state for the 
 - API endpoint: `GET /api/v1/licenses/me`
 
 **Acceptance Criteria**:
+
 - [ ] Service injectable at root level
 - [ ] Fetches license data only when authenticated
 - [ ] Caches data with `_isFetched` flag to prevent duplicate calls
@@ -96,18 +101,21 @@ Extend the pricing-plan.interface.ts with new types for subscription context, CT
 **Pattern to Follow**: Existing `PricingPlan` interface structure at lines 9-51
 
 **Quality Requirements**:
+
 - Add `PlanSubscriptionContext` interface for subscription state
 - Add `PlanCtaVariant` type union for CTA button states
 - Add `PlanBadgeVariant` type union for badge states
 - All types exported for use in components
 
 **Implementation Details**:
+
 - Add after existing PricingPlan interface (line 52+)
 - PlanSubscriptionContext properties: isAuthenticated, currentPlanTier, isOnTrial, trialDaysRemaining, subscriptionStatus, periodEndDate
 - PlanCtaVariant values: 'start-trial', 'current-plan', 'upgrade', 'downgrade', 'upgrade-now', 'reactivate', 'update-payment', 'included'
 - PlanBadgeVariant values: 'trial', 'current', 'trial-active', 'trial-ending', 'canceling', 'past-due', 'popular', 'included'
 
 **Acceptance Criteria**:
+
 - [ ] PlanSubscriptionContext interface exported with all required properties
 - [ ] PlanCtaVariant type union exported with all variant values
 - [ ] PlanBadgeVariant type union exported with all variant values
@@ -117,6 +125,7 @@ Extend the pricing-plan.interface.ts with new types for subscription context, CT
 ---
 
 **Batch 1 Verification**:
+
 - [x] Both files exist at specified paths
 - [x] Build passes: `npx nx build ptah-landing-page`
 - [x] TypeScript compilation passes
@@ -142,10 +151,12 @@ Extend the pricing-plan.interface.ts with new types for subscription context, CT
 Integrate SubscriptionStateService into PricingGridComponent. Add computed subscription context, pass to child components, and implement manage subscription handler.
 
 **Pattern to Follow**:
+
 - Service injection: `pricing-grid.component.ts:167-171`
 - Computed signals: `paddle-checkout.service.ts:98-101`
 
 **Quality Requirements**:
+
 - Inject SubscriptionStateService
 - Call fetchSubscriptionState() in ngOnInit
 - Create computed subscriptionContext from service signals
@@ -155,6 +166,7 @@ Integrate SubscriptionStateService into PricingGridComponent. Add computed subsc
 - Add manageSubscription output handler
 
 **Implementation Details**:
+
 - Import: `SubscriptionStateService` from `../../../services/subscription-state.service`
 - Import: `PlanSubscriptionContext` from `../models/pricing-plan.interface`
 - Import: `HttpClient` from `@angular/common/http` (for portal session)
@@ -164,6 +176,7 @@ Integrate SubscriptionStateService into PricingGridComponent. Add computed subsc
 - Template updates: add [subscriptionContext], [isLoadingContext], (manageSubscription) to both plan cards
 
 **Acceptance Criteria**:
+
 - [ ] SubscriptionStateService injected and initialized in ngOnInit
 - [ ] Computed subscriptionContext signal created with correct type
 - [ ] isLoadingSubscription signal exposed for template
@@ -177,6 +190,7 @@ Integrate SubscriptionStateService into PricingGridComponent. Add computed subsc
 ---
 
 **Batch 2 Verification**:
+
 - [x] File modified at specified path
 - [x] Build passes: `npx nx build ptah-landing-page`
 - [x] code-logic-reviewer approved
@@ -202,10 +216,12 @@ Integrate SubscriptionStateService into PricingGridComponent. Add computed subsc
 Add subscription-aware UI to BasicPlanCardComponent. Accept subscription context input, compute badge/CTA variants, update template for conditional rendering, and emit manage subscription events.
 
 **Pattern to Follow**:
+
 - Input/output signals: `basic-plan-card.component.ts:183-192`
 - Computed signals: `paddle-checkout.service.ts:98-101`
 
 **Quality Requirements**:
+
 - Add subscriptionContext input signal
 - Add isLoadingContext input signal
 - Add manageSubscription output
@@ -215,6 +231,7 @@ Add subscription-aware UI to BasicPlanCardComponent. Accept subscription context
 - Update handleClick to emit manageSubscription for portal actions
 
 **Implementation Details**:
+
 - Import: `PlanSubscriptionContext, PlanCtaVariant, PlanBadgeVariant` from `../models/pricing-plan.interface`
 - Import: `Settings, Crown` from `lucide-angular` (for icons)
 - Input: `subscriptionContext = input<PlanSubscriptionContext | null>(null)`
@@ -228,6 +245,7 @@ Add subscription-aware UI to BasicPlanCardComponent. Accept subscription context
 - handleClick emits manageSubscription for portal actions, ctaClick for checkout
 
 **Acceptance Criteria**:
+
 - [ ] subscriptionContext input accepts PlanSubscriptionContext | null
 - [ ] isLoadingContext input for loading state
 - [ ] manageSubscription output emits for portal-bound actions
@@ -256,9 +274,11 @@ Add subscription-aware UI to BasicPlanCardComponent. Accept subscription context
 Add subscription-aware UI to ProPlanCardComponent. Same pattern as BasicPlanCardComponent but with Pro-specific logic (no "included" state, "Upgrade to Pro" for Basic subscribers).
 
 **Pattern to Follow**:
+
 - Same as Task 3.1 (BasicPlanCardComponent updates)
 
 **Quality Requirements**:
+
 - Add subscriptionContext input signal
 - Add isLoadingContext input signal
 - Add manageSubscription output
@@ -269,6 +289,7 @@ Add subscription-aware UI to ProPlanCardComponent. Same pattern as BasicPlanCard
 - Update template with conditional CTA styling
 
 **Implementation Details**:
+
 - Import: `PlanSubscriptionContext, PlanCtaVariant, PlanBadgeVariant` from `../models/pricing-plan.interface`
 - Import: `Settings, Crown` from `lucide-angular` (for icons)
 - Input: `subscriptionContext = input<PlanSubscriptionContext | null>(null)`
@@ -281,6 +302,7 @@ Add subscription-aware UI to ProPlanCardComponent. Same pattern as BasicPlanCard
 - Template: CTA button styling matches Pro theme (amber/gradient)
 
 **Acceptance Criteria**:
+
 - [ ] subscriptionContext input accepts PlanSubscriptionContext | null
 - [ ] isLoadingContext input for loading state
 - [ ] manageSubscription output emits for portal-bound actions
@@ -298,6 +320,7 @@ Add subscription-aware UI to ProPlanCardComponent. Same pattern as BasicPlanCard
 ---
 
 **Batch 3 Verification**:
+
 - [x] Both files modified at specified paths
 - [x] Build passes: `npx nx build ptah-landing-page`
 - [x] code-logic-reviewer approved
@@ -309,9 +332,11 @@ Add subscription-aware UI to ProPlanCardComponent. Same pattern as BasicPlanCard
 ## Files Summary
 
 ### CREATE (1 file):
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\services\subscription-state.service.ts`
 
 ### MODIFY (4 files):
+
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\models\pricing-plan.interface.ts`
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\pricing-grid.component.ts`
 - `D:\projects\ptah-extension\apps\ptah-landing-page\src\app\pages\pricing\components\basic-plan-card.component.ts`

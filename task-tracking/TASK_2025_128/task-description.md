@@ -19,15 +19,16 @@ The current two-tier paid licensing model (Basic $3/month + Pro $5/month) implem
 
 Transform from a "pay-to-try" model to a "try-then-pay" model:
 
-| Current State | Target State |
-|---------------|--------------|
-| Basic: $3/mo (14-day trial) | Community: FREE forever |
-| Pro: $5/mo (14-day trial) | Pro: $5/mo or $50/yr |
+| Current State               | Target State                         |
+| --------------------------- | ------------------------------------ |
+| Basic: $3/mo (14-day trial) | Community: FREE forever              |
+| Pro: $5/mo (14-day trial)   | Pro: $5/mo or $50/yr                 |
 | Expired = Extension BLOCKED | Community = Full basic functionality |
 
 ### Project Scope
 
 This conversion impacts 4 major codebases:
+
 - **VS Code Extension**: License verification, feature gating, UI messaging
 - **License Server**: Plan definitions, tier mapping, webhook handlers
 - **Landing Page**: Pricing UI, subscription state, profile display
@@ -52,20 +53,21 @@ This conversion impacts 4 major codebases:
 #### Technical Specifications
 
 **File: `libs/shared/src/lib/types/rpc.types.ts`**
+
 ```typescript
 // REPLACE existing LicenseTier
 export type LicenseTier =
-  | 'community'   // FREE forever - always valid
+  | 'community' // FREE forever - always valid
   | 'pro'
   | 'trial_pro'
-  | 'expired';    // Revoked or payment failed only
+  | 'expired'; // Revoked or payment failed only
 
 // UPDATE LicenseGetStatusResponse
 export interface LicenseGetStatusResponse {
   valid: boolean;
   tier: LicenseTier;
-  isPremium: boolean;     // Pro or trial_pro
-  isCommunity: boolean;   // NEW: Community tier
+  isPremium: boolean; // Pro or trial_pro
+  isCommunity: boolean; // NEW: Community tier
   // REMOVE: isBasic
   expiresAt?: string;
   daysRemaining?: number;
@@ -91,12 +93,13 @@ export interface LicenseGetStatusResponse {
 #### Technical Specifications
 
 **File: `libs/backend/vscode-core/src/services/license.service.ts`**
+
 ```typescript
 // CHANGE: Lines 210-222 - No license key = Community (valid)
 if (!licenseKey) {
   return {
-    valid: true,           // CHANGED from false
-    tier: 'community',     // CHANGED from 'expired'
+    valid: true, // CHANGED from false
+    tier: 'community', // CHANGED from 'expired'
     isPremium: false,
     isCommunity: true,
   };
@@ -104,13 +107,14 @@ if (!licenseKey) {
 
 // ADD to LicenseTierValue type (Line 50-55)
 export type LicenseTierValue =
-  | 'community'  // NEW: Free tier, always valid
+  | 'community' // NEW: Free tier, always valid
   | 'pro'
   | 'trial_pro'
-  | 'expired';   // Only for revoked/explicitly expired
+  | 'expired'; // Only for revoked/explicitly expired
 ```
 
 **File: `apps/ptah-extension-vscode/src/main.ts`**
+
 ```typescript
 // CHANGE: Lines 251-264 - Community tier bypasses blocking
 // Community tier has valid: true, so blocking logic won't trigger
@@ -133,6 +137,7 @@ export type LicenseTierValue =
 #### Technical Specifications
 
 **File: `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts`**
+
 ```typescript
 // CHANGE: Lines 130-143
 const isPremium = status.tier === 'pro' || status.tier === 'trial_pro';
@@ -164,6 +169,7 @@ return {
 #### Technical Specifications
 
 **File: `libs/backend/vscode-core/src/services/feature-gate.service.ts`**
+
 ```typescript
 // REMOVE: isBasicTier() method (Lines 192-238)
 
@@ -191,10 +197,10 @@ async isCommunityTier(): Promise<boolean> {
 #### Technical Specifications
 
 **File: `apps/ptah-extension-vscode/src/commands/license-commands.ts`**
+
 ```typescript
 // CHANGE: Lines 121-141 - Update messaging
-const message = 'Removing your license will downgrade you to the Community tier. ' +
-  'You will retain full access to core features. Continue?';
+const message = 'Removing your license will downgrade you to the Community tier. ' + 'You will retain full access to core features. Continue?';
 ```
 
 ---
@@ -213,19 +219,13 @@ const message = 'Removing your license will downgrade you to the Community tier.
 #### Technical Specifications
 
 **File: `apps/ptah-license-server/src/config/plans.config.ts`**
+
 ```typescript
 export const PLANS = {
   community: {
     name: 'Community',
-    features: [
-      'basic_cli_wrapper',
-      'session_history',
-      'permission_management',
-      'sdk_access',
-      'real_time_streaming',
-      'basic_workspace_context',
-    ],
-    expiresAfterDays: null,  // Never expires
+    features: ['basic_cli_wrapper', 'session_history', 'permission_management', 'sdk_access', 'real_time_streaming', 'basic_workspace_context'],
+    expiresAfterDays: null, // Never expires
     monthlyPrice: 0,
     yearlyPrice: 0,
     isPremium: false,
@@ -234,7 +234,9 @@ export const PLANS = {
   pro: {
     // Keep existing pro plan unchanged
     name: 'Pro',
-    features: [/* existing pro features */],
+    features: [
+      /* existing pro features */
+    ],
     monthlyPrice: 5,
     yearlyPrice: 50,
     isPremium: true,
@@ -260,9 +262,10 @@ export const PLANS = {
 #### Technical Specifications
 
 **File: `apps/ptah-license-server/src/license/services/license.service.ts`**
+
 ```typescript
 export type LicenseTier =
-  | 'community'   // FREE - always valid
+  | 'community' // FREE - always valid
   | 'pro'
   | 'trial_pro'
   | 'expired';
@@ -272,8 +275,8 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
     case 'pro':
       return isInTrial ? 'trial_pro' : 'pro';
     case 'community':
-    case 'basic':        // Migration compatibility
-    case 'trial_basic':  // Migration compatibility
+    case 'basic': // Migration compatibility
+    case 'trial_basic': // Migration compatibility
       return 'community';
     default:
       return 'expired';
@@ -297,6 +300,7 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
 #### Technical Specifications
 
 **File: `apps/ptah-license-server/src/paddle/paddle.service.ts`**
+
 ```typescript
 // CHANGE: Lines 799-845
 private mapPriceIdToPlan(priceId: string | undefined): string {
@@ -330,6 +334,7 @@ private mapPriceIdToPlan(priceId: string | undefined): string {
 #### Technical Specifications
 
 **Files to modify:**
+
 - `apps/ptah-landing-page/src/app/pages/pricing/components/pricing-grid.component.ts`
 - DELETE: `apps/ptah-landing-page/src/app/pages/pricing/components/basic-plan-card.component.ts`
 
@@ -340,13 +345,8 @@ communityPlan = {
   tier: 'community' as const,
   price: 0,
   period: 'forever',
-  features: [
-    'Visual Claude Code interface',
-    'Session history',
-    'Permission management',
-    'Real-time streaming',
-  ],
-  cta: null,  // No CTA needed - already free
+  features: ['Visual Claude Code interface', 'Session history', 'Permission management', 'Real-time streaming'],
+  cta: null, // No CTA needed - already free
 };
 
 // KEEP: Pro plan cards unchanged
@@ -368,6 +368,7 @@ communityPlan = {
 #### Technical Specifications
 
 **File: `apps/ptah-landing-page/src/environments/environment.ts`**
+
 ```typescript
 export const environment = {
   // REMOVE: basicPriceIdMonthly
@@ -394,6 +395,7 @@ export const environment = {
 #### Technical Specifications
 
 **File: `apps/ptah-landing-page/src/app/services/subscription-state.service.ts`**
+
 ```typescript
 public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
   const data = this._licenseData();
@@ -419,6 +421,7 @@ public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
 #### Technical Specifications
 
 **Files to modify:**
+
 - `apps/ptah-landing-page/src/app/pages/profile/components/profile-details.component.ts`
 - `apps/ptah-landing-page/src/app/pages/profile/components/profile-header.component.ts`
 - `apps/ptah-landing-page/src/app/pages/profile/components/profile-features.component.ts`
@@ -439,6 +442,7 @@ public readonly currentPlanTier = computed<'community' | 'pro' | null>(() => {
 #### Technical Specifications
 
 **File: `libs/frontend/chat/src/lib/components/templates/welcome.component.ts`**
+
 ```typescript
 // UPDATE: Lines 135-160 - Context-aware messaging
 getHeadline(): string {
@@ -504,18 +508,18 @@ The following items are explicitly excluded from this task:
 
 ### Internal Dependencies
 
-| Dependency | Description | Impact |
-|------------|-------------|--------|
-| TASK_2025_121 | Two-Tier Paid Model Implementation | Direct reversal of this implementation |
-| TASK_2025_126 | Embedded Welcome Page | Must update for Community tier handling |
-| TASK_2025_127 | Authenticated Pricing Views | Subscription state logic affected |
+| Dependency    | Description                        | Impact                                  |
+| ------------- | ---------------------------------- | --------------------------------------- |
+| TASK_2025_121 | Two-Tier Paid Model Implementation | Direct reversal of this implementation  |
+| TASK_2025_126 | Embedded Welcome Page              | Must update for Community tier handling |
+| TASK_2025_127 | Authenticated Pricing Views        | Subscription state logic affected       |
 
 ### External Dependencies
 
-| Dependency | Description | Impact |
-|------------|-------------|--------|
-| Paddle Dashboard | Product configuration | Basic products need deactivation (manual) |
-| TypeScript Compiler | Type checking | All type changes must compile |
+| Dependency          | Description           | Impact                                    |
+| ------------------- | --------------------- | ----------------------------------------- |
+| Paddle Dashboard    | Product configuration | Basic products need deactivation (manual) |
+| TypeScript Compiler | Type checking         | All type changes must compile             |
 
 ---
 
@@ -523,18 +527,18 @@ The following items are explicitly excluded from this task:
 
 ### Technical Risks
 
-| Risk | Probability | Impact | Mitigation | Contingency |
-|------|-------------|--------|------------|-------------|
-| Type mismatches across 4 codebases | Medium | High | Compile-time TypeScript checks, update shared types first | Incremental rollout per codebase |
-| Paddle webhook receives old Basic price ID | Low | Medium | Keep price ID handlers for 30 days returning 'expired' | Manual license fix via admin API |
-| Feature gate bypass for Pro features | Low | High | Code review, integration testing | Hotfix capability within 24h |
-| UI/UX confusion about tier status | Medium | Medium | Clear messaging, visual indicators | User feedback collection, rapid iteration |
+| Risk                                       | Probability | Impact | Mitigation                                                | Contingency                               |
+| ------------------------------------------ | ----------- | ------ | --------------------------------------------------------- | ----------------------------------------- |
+| Type mismatches across 4 codebases         | Medium      | High   | Compile-time TypeScript checks, update shared types first | Incremental rollout per codebase          |
+| Paddle webhook receives old Basic price ID | Low         | Medium | Keep price ID handlers for 30 days returning 'expired'    | Manual license fix via admin API          |
+| Feature gate bypass for Pro features       | Low         | High   | Code review, integration testing                          | Hotfix capability within 24h              |
+| UI/UX confusion about tier status          | Medium      | Medium | Clear messaging, visual indicators                        | User feedback collection, rapid iteration |
 
 ### Business Risks
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| None - Not live | N/A | N/A | No existing users to migrate |
+| Risk            | Probability | Impact | Mitigation                   |
+| --------------- | ----------- | ------ | ---------------------------- |
+| None - Not live | N/A         | N/A    | No existing users to migrate |
 
 ---
 
@@ -568,15 +572,18 @@ The following items are explicitly excluded from this task:
 ### Recommended Implementation Order
 
 **Phase 1: Type System Foundation**
+
 1. Update `LicenseTier` in `libs/shared/src/lib/types/rpc.types.ts`
 2. Run TypeScript compilation to identify all affected files
 
 **Phase 2: Backend License Server**
+
 1. Update `plans.config.ts` (remove basic, add community)
 2. Update `license.service.ts` tier mapping
 3. Update `paddle.service.ts` price ID mapping
 
 **Phase 3: VS Code Extension**
+
 1. Update `license.service.ts` (community = valid)
 2. Update `license-rpc.handlers.ts` (isCommunity flag)
 3. Update `feature-gate.service.ts` (isCommunityTier method)
@@ -584,6 +591,7 @@ The following items are explicitly excluded from this task:
 5. Update `license-commands.ts` (messaging)
 
 **Phase 4: Landing Page**
+
 1. Delete `basic-plan-card.component.ts`
 2. Update `pricing-grid.component.ts`
 3. Update `subscription-state.service.ts`
@@ -591,18 +599,19 @@ The following items are explicitly excluded from this task:
 5. Update environment configuration
 
 **Phase 5: Frontend Chat**
+
 1. Update `welcome.component.ts` messaging
 
 ### Files Affected Summary
 
-| Codebase | Files | Lines Changed (Est.) |
-|----------|-------|---------------------|
-| Shared Types | 1 | ~30 |
-| VS Code Extension | 5 | ~150 |
-| License Server | 3 | ~80 |
-| Landing Page | 8+ | ~200 |
-| Frontend Chat | 1 | ~20 |
-| **Total** | **18+** | **~480** |
+| Codebase          | Files   | Lines Changed (Est.) |
+| ----------------- | ------- | -------------------- |
+| Shared Types      | 1       | ~30                  |
+| VS Code Extension | 5       | ~150                 |
+| License Server    | 3       | ~80                  |
+| Landing Page      | 8+      | ~200                 |
+| Frontend Chat     | 1       | ~20                  |
+| **Total**         | **18+** | **~480**             |
 
 ---
 

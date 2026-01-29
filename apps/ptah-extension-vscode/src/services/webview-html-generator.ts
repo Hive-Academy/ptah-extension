@@ -33,7 +33,11 @@ export class WebviewHtmlGenerator {
   generateAngularWebviewContent(
     webview: vscode.Webview,
     options?:
-      | { workspaceInfo?: Record<string, unknown>; initialView?: string; isLicensed?: boolean }
+      | {
+          workspaceInfo?: Record<string, unknown>;
+          initialView?: string;
+          isLicensed?: boolean;
+        }
       | Record<string, unknown>
   ): string {
     try {
@@ -43,7 +47,11 @@ export class WebviewHtmlGenerator {
       let isLicensed = true; // Default to licensed for normal activation
 
       if (options) {
-        if ('initialView' in options || 'workspaceInfo' in options || 'isLicensed' in options) {
+        if (
+          'initialView' in options ||
+          'workspaceInfo' in options ||
+          'isLicensed' in options
+        ) {
           // New format with explicit options
           workspaceInfo = (
             options as { workspaceInfo?: Record<string, unknown> }

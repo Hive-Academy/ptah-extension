@@ -1,33 +1,32 @@
+import { NgClass } from '@angular/common';
 import {
-  Component,
   ChangeDetectionStrategy,
+  Component,
+  computed,
   input,
   output,
   signal,
-  computed,
 } from '@angular/core';
-import { NgClass } from '@angular/common';
 import {
-  LucideAngularModule,
-  Check,
   ArrowRight,
-  Settings,
+  Check,
   Crown,
+  LucideAngularModule,
   Pause,
+  Settings,
 } from 'lucide-angular';
-import {
-  PricingPlan,
-  PlanSubscriptionContext,
-  PlanCtaVariant,
-  PlanBadgeVariant,
-  TRIAL_WARNING_THRESHOLD_DAYS,
-} from '../models/pricing-plan.interface';
 import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
 import {
+  PlanBadgeVariant,
+  PlanCtaVariant,
+  PlanSubscriptionContext,
+  PricingPlan,
+} from '../models/pricing-plan.interface';
+import {
   computeBadgeVariant,
-  computeCtaVariant,
-  computeCtaText,
   computeCtaButtonClass,
+  computeCtaText,
+  computeCtaVariant,
   formatTrialDaysText,
   isPortalAction,
 } from '../utils/plan-card-state.utils';
@@ -61,101 +60,93 @@ import {
     >
       <!-- Subscription-Aware Badge with aria-live for accessibility -->
       <div aria-live="polite" aria-atomic="true">
-        @switch (badgeVariant()) {
-          @case ('current') {
-            <div
-              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        @switch (badgeVariant()) { @case ('current') {
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                      bg-success rounded-full
                      text-xs font-bold text-success-content uppercase tracking-wider
                      shadow-lg shadow-success/30 flex items-center gap-1.5"
-            >
-              <lucide-angular
-                [img]="CrownIcon"
-                class="w-3 h-3"
-                aria-hidden="true"
-              />
-              Current Plan
-            </div>
-          }
-          @case ('paused') {
-            <div
-              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        >
+          <lucide-angular
+            [img]="CrownIcon"
+            class="w-3 h-3"
+            aria-hidden="true"
+          />
+          Current Plan
+        </div>
+        } @case ('paused') {
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                      bg-warning rounded-full
                      text-xs font-bold text-warning-content uppercase tracking-wider
                      shadow-lg shadow-warning/30 flex items-center gap-1.5"
-            >
-              <lucide-angular
-                [img]="PauseIcon"
-                class="w-3 h-3"
-                aria-hidden="true"
-              />
-              Subscription Paused
-            </div>
-          }
-          @case ('trial-active') {
-            <div
-              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        >
+          <lucide-angular
+            [img]="PauseIcon"
+            class="w-3 h-3"
+            aria-hidden="true"
+          />
+          Subscription Paused
+        </div>
+        } @case ('trial-active') {
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                      bg-info rounded-full
                      text-xs font-bold text-info-content uppercase tracking-wider
                      shadow-lg shadow-info/30"
-            >
-              Trial - {{ trialDaysDisplay() }}
-            </div>
-          }
-          @case ('trial-ending') {
-            <div
-              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        >
+          Trial - {{ trialDaysDisplay() }}
+        </div>
+        } @case ('trial-ending') {
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                      bg-warning rounded-full
                      text-xs font-bold text-warning-content uppercase tracking-wider
                      shadow-lg shadow-warning/30"
-            >
-              {{ trialEndingDisplay() }}
-            </div>
-          }
-          @case ('canceling') {
-            <div
-              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        >
+          {{ trialEndingDisplay() }}
+        </div>
+        } @case ('canceling') {
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                      bg-warning rounded-full
                      text-xs font-bold text-warning-content uppercase tracking-wider
                      shadow-lg shadow-warning/30"
-            >
-              {{ cancelingDisplay() }}
-            </div>
-          }
-          @case ('past-due') {
-            <div
-              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        >
+          {{ cancelingDisplay() }}
+        </div>
+        } @case ('past-due') {
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                      bg-error rounded-full
                      text-xs font-bold text-error-content uppercase tracking-wider
                      shadow-lg shadow-error/30"
-            >
-              Payment Issue
-            </div>
-          }
-          @default {
-            <!-- Popular Badge (center) for non-subscribed users -->
-            <div
-              class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        >
+          Payment Issue
+        </div>
+        } @default {
+        <!-- Popular Badge (center) for non-subscribed users -->
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                      bg-gradient-to-r from-amber-500 to-secondary rounded-full
                      text-xs font-bold text-base-100 uppercase tracking-wider
                      shadow-lg shadow-amber-500/30"
-            >
-              Most Popular
-            </div>
-          }
-        }
+        >
+          Most Popular
+        </div>
+        } }
       </div>
 
       <!-- Trial Badge on right side (only for non-current-plan states) -->
       @if (showTrialBadge()) {
-        <div
-          class="absolute -top-3 right-4 px-3 py-1
+      <div
+        class="absolute -top-3 right-4 px-3 py-1
                  bg-gradient-to-r from-sky-500 to-cyan-500 rounded-full
                  text-[10px] font-bold text-base-100 uppercase tracking-wider
                  shadow-lg shadow-sky-500/30"
-        >
-          {{ activePlan().trialDays }}-Day Trial
-        </div>
+      >
+        {{ activePlan().trialDays }}-Day Trial
+      </div>
       }
 
       <!-- Plan Header -->
@@ -221,12 +212,12 @@ import {
           </span>
         </div>
         @if (activePlan().savings) {
-          <div
-            class="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold
+        <div
+          class="inline-block mt-2 px-3 py-1 rounded-full text-xs font-semibold
                    bg-success/20 text-success"
-          >
-            {{ activePlan().savings }}
-          </div>
+        >
+          {{ activePlan().savings }}
+        </div>
         }
       </div>
 
@@ -242,13 +233,13 @@ import {
         </h4>
         <ul class="space-y-2.5">
           @for (feature of proFeatures; track feature) {
-            <li class="flex items-start gap-2.5">
-              <lucide-angular
-                [img]="CheckIcon"
-                class="flex-shrink-0 w-4 h-4 text-amber-400 mt-0.5"
-              />
-              <span class="text-sm text-base-content/80">{{ feature }}</span>
-            </li>
+          <li class="flex items-start gap-2.5">
+            <lucide-angular
+              [img]="CheckIcon"
+              class="flex-shrink-0 w-4 h-4 text-amber-400 mt-0.5"
+            />
+            <span class="text-sm text-base-content/80">{{ feature }}</span>
+          </li>
           }
         </ul>
       </div>
@@ -264,32 +255,30 @@ import {
         (click)="handleClick()"
       >
         @if (isLoading() || isLoadingContext()) {
-          <span class="loading loading-spinner loading-sm"></span>
-          <span>Loading...</span>
-        } @else {
-          @if (ctaVariant() === 'current-plan') {
-            <lucide-angular
-              [img]="SettingsIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-          }
-          <span>{{ ctaText() }}</span>
-          @if (ctaVariant() !== 'current-plan') {
-            <lucide-angular
-              [img]="ArrowRightIcon"
-              class="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
-              aria-hidden="true"
-            />
-          }
+        <span class="loading loading-spinner loading-sm"></span>
+        <span>Loading...</span>
+        } @else { @if (ctaVariant() === 'current-plan') {
+        <lucide-angular
+          [img]="SettingsIcon"
+          class="w-4 h-4"
+          aria-hidden="true"
+        />
         }
+        <span>{{ ctaText() }}</span>
+        @if (ctaVariant() !== 'current-plan') {
+        <lucide-angular
+          [img]="ArrowRightIcon"
+          class="w-4 h-4 transition-transform duration-300 group-hover:translate-x-1"
+          aria-hidden="true"
+        />
+        } }
       </button>
 
       <!-- Disabled tooltip -->
       @if (isCtaDisabled() && !isLoading() && !isLoadingContext()) {
-        <p class="text-center text-xs text-base-content/40 mt-2">
-          Checkout temporarily unavailable
-        </p>
+      <p class="text-center text-xs text-base-content/40 mt-2">
+        Checkout temporarily unavailable
+      </p>
       }
     </div>
   `,
@@ -320,8 +309,9 @@ export class ProPlanCardComponent {
   public readonly isLoading = input<boolean>(false);
 
   /** Subscription context from parent (null for unauthenticated users) */
-  public readonly subscriptionContext =
-    input<PlanSubscriptionContext | null>(null);
+  public readonly subscriptionContext = input<PlanSubscriptionContext | null>(
+    null
+  );
 
   /** Whether subscription context is being loaded */
   public readonly isLoadingContext = input<boolean>(false);

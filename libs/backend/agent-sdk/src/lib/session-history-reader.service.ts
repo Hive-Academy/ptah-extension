@@ -96,6 +96,7 @@ export class SessionHistoryReaderService {
         cacheCreation: number;
       };
       messageCount: number;
+      model?: string;
     } | null;
   }> {
     try {
@@ -261,6 +262,7 @@ export class SessionHistoryReaderService {
       cacheCreation: number;
     };
     messageCount: number;
+    model?: string;
   } | null {
     let totalInput = 0;
     let totalOutput = 0;
@@ -268,9 +270,20 @@ export class SessionHistoryReaderService {
     let totalCacheCreation = 0;
     let messageCount = 0;
     let hasAnyUsage = false;
+    let detectedModel: string | undefined;
 
     // Aggregate from main session messages
     for (const msg of mainMessages) {
+      // Detect model from system init message
+      if (
+        !detectedModel &&
+        msg.type === 'system' &&
+        msg['subtype'] === 'init' &&
+        msg['model']
+      ) {
+        detectedModel = String(msg['model']);
+      }
+
       if (msg.usage) {
         hasAnyUsage = true;
         const tokens = extractTokenUsage(msg.usage);
@@ -323,6 +336,7 @@ export class SessionHistoryReaderService {
         cacheCreation: totalCacheCreation,
       },
       messageCount,
+      model: detectedModel,
     };
   }
 }

@@ -173,20 +173,20 @@ export class LicenseCommands {
         status.tier === 'community'
           ? 'Community (Free)'
           : status.tier === 'trial_pro'
-            ? 'Pro (Trial)'
-            : 'Pro';
+          ? 'Pro (Trial)'
+          : 'Pro';
 
       // Community tier: show "Never" expires and "Unlimited" days
       const expiresText = status.expiresAt
         ? new Date(status.expiresAt).toLocaleDateString()
         : status.tier === 'community'
-          ? 'Never'
-          : 'N/A';
+        ? 'Never'
+        : 'N/A';
       const daysText = status.daysRemaining
         ? `${status.daysRemaining} days`
         : status.tier === 'community'
-          ? 'Unlimited'
-          : 'N/A';
+        ? 'Unlimited'
+        : 'N/A';
 
       vscode.window.showInformationMessage(
         `Plan: ${status.plan?.name || tierName}\n` +
@@ -198,8 +198,10 @@ export class LicenseCommands {
       // Only expired/revoked users reach here
       vscode.window.showWarningMessage(
         `License Status: Expired\n` +
-          `Reason: ${status.reason || 'License revoked or payment failed'}\n\n` +
-          'Renew at https://ptah.dev/pricing'
+          `Reason: ${
+            status.reason || 'License revoked or payment failed'
+          }\n\n` +
+          'Renew at http://localhost:4200/pricing' // TODO: restore production URL: https://ptah.dev/pricing
       );
     }
   }
@@ -224,7 +226,19 @@ export class LicenseCommands {
       ),
       vscode.commands.registerCommand('ptah.checkLicenseStatus', () =>
         this.checkLicenseStatus()
-      )
+      ),
+      vscode.commands.registerCommand('ptah.openPricing', () => {
+        // TODO: restore production URL: https://ptah.dev/pricing
+        vscode.env.openExternal(
+          vscode.Uri.parse('http://localhost:4200/pricing')
+        );
+      }),
+      vscode.commands.registerCommand('ptah.openSignup', () => {
+        // TODO: restore production URL: https://ptah.dev/signup
+        vscode.env.openExternal(
+          vscode.Uri.parse('http://localhost:4200/signup')
+        );
+      })
     );
   }
 }

@@ -497,6 +497,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     this.logger.info('[AgentSessionWatcher] Extracted sessionId from file', {
       filename,
       fileSessionId: sessionId,
+      filenameAgentId,
       activeWatches: Array.from(this.activeWatches.entries()).map(
         ([id, w]) => ({
           agentId: id,
@@ -506,61 +507,47 @@ export class AgentSessionWatcherService extends EventEmitter {
       ),
     });
 
-    // TASK_2025_102: SessionId-based matching is ONLY used when:
-    // 1. The filename agentId doesn't match any active watch
-    // 2. AND the watch doesn't already have a file assigned
-    // This prevents incorrectly matching old files from previous agents
-    let matched = false;
-    for (const [agentId, watch] of this.activeWatches) {
-      // TASK_2025_102: SKIP sessionId matching if watch already has a file
-      // The correct file should match by agentId, not sessionId
-      if (watch.agentFilePath) {
-        continue;
-      }
-
-      if (watch.sessionId === sessionId) {
-        // Check if file was created around the time of the agent start
-        // (within MATCH_WINDOW_MS - generous window)
-        const timeDiff = Date.now() - watch.startTime;
-        if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
-          this.logger.info(
-            '[AgentSessionWatcher] MATCHED agent file by sessionId (fallback)',
-            {
-              agentId,
-              filenameAgentId,
-              filename,
-              timeDiff,
-              toolUseId: watch.toolUseId,
-              note: 'This match may be replaced if a better agentId match appears',
-            }
-          );
-          watch.agentFilePath = filePath;
-          this.startTailingFile(agentId, filePath);
-          matched = true;
-          break;
-        }
-      }
-    }
-
-    // If not matched, store as pending (tool might not have been detected yet)
-    if (!matched) {
-      this.pendingAgentFiles.set(filePath, {
-        filePath,
+    // TASK_2025_128 FIX: Completely removed sessionId-based matching.
+    // Previously, sessionId fallback would incorrectly match OLD agent files
+    // to NEW agents when both share the same parent sessionId. This caused
+    // duplicate/wrong content to be emitted.
+    //
+    // Now we ONLY match by agentId (already done above in directMatch check).
+    // If no direct match, store as pending and let matchPendingFiles handle it.
+    this.logger.info(
+      '[AgentSessionWatcher] No direct agentId match, storing as pending',
+      {
+        filenameAgentId,
         sessionId,
-        detectedAt: Date.now(),
-      });
+        note: 'SessionId fallback removed to prevent wrong matches',
+      }
+    );
 
-      // Clean up old pending files after PENDING_CLEANUP_MS
-      const timeoutId = setTimeout(() => {
-        this.pendingAgentFiles.delete(filePath);
-        this.pendingCleanupTimeouts.delete(timeoutId);
-      }, AGENT_WATCHER_CONSTANTS.PENDING_CLEANUP_MS);
-      this.pendingCleanupTimeouts.add(timeoutId);
-    }
+    // Store as pending (the correct watch might start later)
+    this.pendingAgentFiles.set(filePath, {
+      filePath,
+      sessionId,
+      detectedAt: Date.now(),
+    });
+
+    // Clean up old pending files after PENDING_CLEANUP_MS
+    const timeoutId = setTimeout(() => {
+      this.pendingAgentFiles.delete(filePath);
+      this.pendingCleanupTimeouts.delete(timeoutId);
+    }, AGENT_WATCHER_CONSTANTS.PENDING_CLEANUP_MS);
+    this.pendingCleanupTimeouts.add(timeoutId);
   }
 
   /**
    * Scan for existing agent files that may have been created before watching started
+   *
+   * TASK_2025_128 FIX: Only process files that DIRECTLY match active watches by agentId.
+   * Previously, the scan would process ANY recent file and let handleNewAgentFile do
+   * sessionId fallback matching. This caused wrong matches when multiple agents from
+   * the same parent session existed - old agent files would be incorrectly matched
+   * to new agents, causing duplicate/wrong content to be emitted.
+   *
+   * Now we ONLY process files where filename agentId matches an active watch agentId.
    */
   private async scanForExistingAgentFiles(sessionsDir: string): Promise<void> {
     try {
@@ -574,10 +561,26 @@ export class AgentSessionWatcherService extends EventEmitter {
         agentFilesCount: agentFiles.length,
       });
 
+      // TASK_2025_128 FIX: Build set of active watch agentIds for direct matching.
+      // Only process files that directly match by agentId - no sessionId fallback.
+      const activeAgentIds = new Set(this.activeWatches.keys());
+
       // Get file stats to find recently created files
       const now = Date.now();
       let recentCount = 0;
       for (const filename of agentFiles) {
+        // TASK_2025_128 FIX: Extract agentId from filename and check for direct match.
+        // Filename format: agent-{agentId}.jsonl (e.g., agent-aeb6610.jsonl)
+        const filenameAgentId = filename
+          .replace('agent-', '')
+          .replace('.jsonl', '');
+
+        // ONLY process if this file directly matches an active watch by agentId.
+        // This prevents wrong matches via sessionId fallback.
+        if (!activeAgentIds.has(filenameAgentId)) {
+          continue;
+        }
+
         const filePath = path.join(sessionsDir, filename);
         try {
           const stats = await fs.promises.stat(filePath);
@@ -588,6 +591,7 @@ export class AgentSessionWatcherService extends EventEmitter {
             this.logger.info('[AgentSessionWatcher] Found recent agent file', {
               filename,
               ageMs: age,
+              directAgentIdMatch: true,
             });
             await this.handleNewAgentFile(sessionsDir, filename);
           }
@@ -608,18 +612,30 @@ export class AgentSessionWatcherService extends EventEmitter {
 
   /**
    * Match pending agent files to a newly started watch
+   *
+   * TASK_2025_128 FIX: Changed from sessionId matching to agentId matching.
+   * Extract agentId from the pending file's path and match directly.
+   * This prevents wrong matches when multiple agents share the same sessionId.
    */
-  private matchPendingFiles(agentId: string, sessionId: string): void {
+  private matchPendingFiles(agentId: string, _sessionId: string): void {
     const watch = this.activeWatches.get(agentId);
     if (!watch) return;
 
     for (const [filePath, pending] of this.pendingAgentFiles) {
-      if (pending.sessionId === sessionId) {
+      // TASK_2025_128: Extract agentId from filename and match directly
+      // Filename format: .../agent-{agentId}.jsonl
+      const filename = path.basename(filePath);
+      const filenameAgentId = filename
+        .replace('agent-', '')
+        .replace('.jsonl', '');
+
+      // Only match if the filename agentId matches the watch agentId
+      if (filenameAgentId === agentId) {
         const timeDiff = Date.now() - pending.detectedAt;
         if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
-          this.logger.debug(
-            'AgentSessionWatcher: Matched pending file to agent',
-            { agentId, filePath }
+          this.logger.info(
+            'AgentSessionWatcher: Matched pending file to agent by agentId',
+            { agentId, filenameAgentId, filePath }
           );
           watch.agentFilePath = filePath;
           this.pendingAgentFiles.delete(filePath);

@@ -140,6 +140,7 @@ export interface ChatResumeResult {
       cacheCreation: number;
     };
     messageCount: number;
+    model?: string;
   } | null;
   /**
    * Resumable subagents for this session (TASK_2025_103 FIX)
@@ -558,11 +559,7 @@ export type LicenseGetStatusParams = Record<string, never>;
  * - 'trial_pro': Pro plan during 14-day trial
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
-export type LicenseTier =
-  | 'community'
-  | 'pro'
-  | 'trial_pro'
-  | 'expired';
+export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
 
 /**
  * Response from license:getStatus RPC method

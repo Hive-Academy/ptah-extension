@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LicenseService } from './services/license.service';
 import { LicenseController } from './controllers/license.controller';
@@ -21,7 +21,12 @@ import { AuthModule } from '../app/auth/auth.module';
  * - ConfigModule (for admin API key validation)
  */
 @Module({
-  imports: [PrismaModule, EmailModule, ConfigModule, AuthModule],
+  imports: [
+    PrismaModule,
+    EmailModule,
+    ConfigModule,
+    forwardRef(() => AuthModule),
+  ],
   controllers: [LicenseController, AdminController],
   providers: [LicenseService],
   exports: [LicenseService],

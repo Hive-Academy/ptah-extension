@@ -236,10 +236,11 @@ export class SessionLoaderService {
       // TASK_2025_103 FIX: Get resumable subagents for marking interrupted agents
       const resumableSubagents = resumeResult.data?.resumableSubagents;
 
-      // Store preloaded stats for display (old sessions)
+      // Store preloaded stats and session model for display (old sessions)
       if (stats) {
         this.tabManager.updateTab(activeTabId, {
           preloadedStats: stats,
+          sessionModel: stats.model ?? null,
         });
       }
 

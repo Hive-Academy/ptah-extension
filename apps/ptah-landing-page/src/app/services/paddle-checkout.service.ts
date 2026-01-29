@@ -408,12 +408,8 @@ export class PaddleCheckoutService {
    * @returns true if config is valid, false otherwise
    */
   private validateConfig(): boolean {
-    const {
-      environment,
-      token,
-      proPriceIdMonthly,
-      proPriceIdYearly,
-    } = this.paddleConfig;
+    const { environment, token, proPriceIdMonthly, proPriceIdYearly } =
+      this.paddleConfig;
 
     // Check environment is valid
     if (environment !== 'sandbox' && environment !== 'production') {
@@ -455,8 +451,7 @@ export class PaddleCheckoutService {
 
     // TASK_2025_128: Only Pro plan price IDs (Community is free, no Paddle)
     const hasPlaceholders =
-      isPlaceholder(proPriceIdMonthly) ||
-      isPlaceholder(proPriceIdYearly);
+      isPlaceholder(proPriceIdMonthly) || isPlaceholder(proPriceIdYearly);
 
     if (hasPlaceholders) {
       this._error.set(

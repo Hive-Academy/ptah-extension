@@ -123,6 +123,74 @@ export class EventDeduplicationService {
   }
 
   /**
+   * TASK_2025_126_FIX: Deduplicate agent_start events by agentId (stable key).
+   *
+   * The hook and SDK complete message send agent_start events with DIFFERENT toolCallId formats:
+   * - Hook: UUID format (e.g., "b4139c0d-...")
+   * - Complete: Anthropic format (e.g., "toolu_012W...")
+   *
+   * Using toolCallId for deduplication fails because they don't match.
+   * This method uses agentId (stable across both sources) for deduplication.
+   *
+   * @param state - The streaming state to check
+   * @param agentId - The stable agent identifier (e.g., "adcecb2")
+   * @param newSource - The source of the new event
+   * @returns The existing event if it should NOT be replaced, undefined if new event should be stored
+   */
+  replaceAgentStartByAgentId(
+    state: StreamingState,
+    agentId: string | undefined,
+    newSource: EventSource | undefined
+  ): FlatStreamEventUnion | undefined {
+    // If no agentId, can't deduplicate by agentId - fall through to caller
+    if (!agentId) {
+      return undefined;
+    }
+
+    // Find existing agent_start event with same agentId
+    let existingEvent: FlatStreamEventUnion | undefined;
+
+    for (const event of state.events.values()) {
+      if (event.eventType === 'agent_start') {
+        // Type narrowing for agentId access
+        const agentEvent = event as FlatStreamEventUnion & {
+          agentId?: string;
+        };
+        if (agentEvent.agentId === agentId) {
+          existingEvent = event;
+          break;
+        }
+      }
+    }
+
+    if (!existingEvent) {
+      // No existing event with this agentId
+      return undefined;
+    }
+
+    const existingSource = (
+      existingEvent as FlatStreamEventUnion & { source?: EventSource }
+    ).source;
+
+    console.log('[EventDeduplication] Agent_start deduplication by agentId:', {
+      agentId,
+      existingSource,
+      newSource,
+      existingEventId: existingEvent.id,
+      willReplace: this.shouldReplaceEvent(existingSource, newSource),
+    });
+
+    if (this.shouldReplaceEvent(existingSource, newSource)) {
+      // New event has higher priority, remove old event
+      state.events.delete(existingEvent.id);
+      return undefined; // Allow new event to be stored
+    }
+
+    // Existing event has higher priority, skip new event
+    return existingEvent;
+  }
+
+  /**
    * TASK_2025_096: Find existing message_start event for a given messageId.
    * Used to check for duplicates before storing a new message_start event.
    *
@@ -222,7 +290,10 @@ export class EventDeduplicationService {
       const msgEvents = state.eventsByMessage.get(event.messageId) || [];
       const filtered = msgEvents.filter((e) => e.id !== existingMsgStart.id);
       state.eventsByMessage.set(event.messageId, filtered);
-      return { skip: false };
+      // TASK_2025_128 FIX: Return existingEvent so caller knows this is a REPLACEMENT,
+      // not a first occurrence. Without this, caller pushes messageId to messageEventIds
+      // again, causing the same message to appear 2-3 times in the UI.
+      return { skip: false, existingEvent: existingMsgStart };
     }
 
     // Existing has higher priority - skip this event

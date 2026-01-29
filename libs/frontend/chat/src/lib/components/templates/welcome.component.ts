@@ -171,8 +171,13 @@ export class WelcomeComponent implements OnInit {
         command: 'ptah.enterLicenseKey',
       });
     } catch (error) {
-      console.error('[WelcomeComponent] Failed to execute enterLicenseKey:', error);
-      this.errorMessage.set('Failed to open license key input. Please try again.');
+      console.error(
+        '[WelcomeComponent] Failed to execute enterLicenseKey:',
+        error
+      );
+      this.errorMessage.set(
+        'Failed to open license key input. Please try again.'
+      );
     }
   }
 

@@ -47,10 +47,10 @@ interface PersistedLicenseCache {
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTierValue =
-  | 'community'   // FREE tier, always valid
+  | 'community' // FREE tier, always valid
   | 'pro'
   | 'trial_pro'
-  | 'expired';    // Only for revoked/explicitly expired
+  | 'expired'; // Only for revoked/explicitly expired
 
 /**
  * License verification status returned by the server
@@ -213,8 +213,8 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       if (!licenseKey) {
         // TASK_2025_128: No license key = Community tier (FREE, valid)
         const communityStatus: LicenseStatus = {
-          valid: true,           // CHANGED from false - Community is valid
-          tier: 'community',     // CHANGED from 'expired' - Community tier
+          valid: true, // CHANGED from false - Community is valid
+          tier: 'community', // CHANGED from 'expired' - Community tier
           // No reason field - Community is a valid state, not an error
         };
         this.updateCache(communityStatus);
@@ -414,8 +414,8 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
 
     // TASK_2025_128: Downgrade to Community tier (not expired)
     const communityStatus: LicenseStatus = {
-      valid: true,           // CHANGED from false - Community is valid
-      tier: 'community',     // CHANGED from 'expired' - Community tier
+      valid: true, // CHANGED from false - Community is valid
+      tier: 'community', // CHANGED from 'expired' - Community tier
     };
     this.updateCache(communityStatus);
     this.emit('license:updated', communityStatus);

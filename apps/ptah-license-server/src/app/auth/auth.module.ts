@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
@@ -20,6 +20,7 @@ import {
   WorkOSClientProvider,
   WORKOS_CLIENT,
 } from './providers/workos.provider';
+import { LicenseModule } from '../../license/license.module';
 
 /**
  * Authentication Module
@@ -51,6 +52,7 @@ import {
     ConfigModule,
     PrismaModule,
     EmailModule,
+    forwardRef(() => LicenseModule),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {

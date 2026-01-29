@@ -20,49 +20,54 @@ This implementation plan details the architecture for replacing the VS Code moda
 
 ### Libraries Discovered
 
-| Library | Purpose | Key Exports |
-|---------|---------|-------------|
-| `@ptah-extension/core` | Frontend services | `AppStateManager`, `ClaudeRpcService`, `VSCodeService` |
-| `@ptah-extension/chat` | Chat UI components | App shell, settings, templates |
-| `@ptah-extension/shared` | Type definitions | `LicenseGetStatusResponse`, `LicenseTier`, RPC types |
-| `@ptah-extension/vscode-core` | Backend infrastructure | `LicenseService`, `TOKENS` |
+| Library                       | Purpose                | Key Exports                                            |
+| ----------------------------- | ---------------------- | ------------------------------------------------------ |
+| `@ptah-extension/core`        | Frontend services      | `AppStateManager`, `ClaudeRpcService`, `VSCodeService` |
+| `@ptah-extension/chat`        | Chat UI components     | App shell, settings, templates                         |
+| `@ptah-extension/shared`      | Type definitions       | `LicenseGetStatusResponse`, `LicenseTier`, RPC types   |
+| `@ptah-extension/vscode-core` | Backend infrastructure | `LicenseService`, `TOKENS`                             |
 
 ### Patterns Identified
 
 **1. ViewType Navigation Pattern**
+
 - **Evidence**: `libs/frontend/core/src/lib/services/app-state.service.ts:11-17`
 - **Pattern**: Union type with signal-based navigation
 - **Usage**: `@switch (currentView())` in app-shell.component.html
 
 **2. Standalone View Pattern**
+
 - **Evidence**: `libs/frontend/chat/src/lib/components/templates/app-shell.component.html:11-24`
 - **Pattern**: `@case ('setup-wizard')` and `@case ('settings')` render full-width standalone layouts
 - **Key**: No sidebar, no tabs, clean focused UI
 
 **3. License RPC Pattern**
+
 - **Evidence**: `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts:77-114`
 - **Pattern**: `license:getStatus` RPC returns `LicenseGetStatusResponse` with `reason` field
 - **Usage**: `SettingsComponent` (line 143) calls `this.rpcService.call('license:getStatus', {})`
 
 **4. VS Code Command Execution Pattern**
+
 - **Evidence**: `apps/ptah-extension-vscode/src/main.ts:67-79`
 - **Pattern**: Commands registered as `ptah.enterLicenseKey`, `ptah.openPricing`
 - **Usage**: `vscode.commands.executeCommand('ptah.enterLicenseKey')`
 
 **5. WebviewHtmlGenerator Pattern**
+
 - **Evidence**: `apps/ptah-extension-vscode/src/services/webview-html-generator.ts:80-96`
 - **Pattern**: `VALID_VIEWS` array validation, `initialView` option
 - **Key**: Must add 'welcome' to VALID_VIEWS array
 
 ### Integration Points Verified
 
-| Component | Location | Integration Method |
-|-----------|----------|-------------------|
-| ViewType | `app-state.service.ts:11-17` | Add 'welcome' to union |
-| App Shell | `app-shell.component.html:11` | Add `@case ('welcome')` |
-| VALID_VIEWS | `webview-html-generator.ts:81-88` | Add 'welcome' to array |
-| handleLicenseBlocking | `main.ts:88-105` | Replace modal with webview |
-| License RPC | `license-rpc.handlers.ts` | Reuse existing `license:getStatus` |
+| Component             | Location                          | Integration Method                 |
+| --------------------- | --------------------------------- | ---------------------------------- |
+| ViewType              | `app-state.service.ts:11-17`      | Add 'welcome' to union             |
+| App Shell             | `app-shell.component.html:11`     | Add `@case ('welcome')`            |
+| VALID_VIEWS           | `webview-html-generator.ts:81-88` | Add 'welcome' to array             |
+| handleLicenseBlocking | `main.ts:88-105`                  | Replace modal with webview         |
+| License RPC           | `license-rpc.handlers.ts`         | Reuse existing `license:getStatus` |
 
 ---
 
@@ -72,12 +77,14 @@ This implementation plan details the architecture for replacing the VS Code moda
 
 **Chosen Approach**: Standalone View with License-Gate Pattern
 **Rationale**:
+
 1. Matches existing patterns (setup-wizard, settings)
 2. Reuses existing RPC and command infrastructure
 3. No new backend RPC methods required
 4. Clean user experience with focused onboarding
 
 **Evidence**:
+
 - Setup-wizard pattern: `wizard-view.component.ts:59-199`
 - Settings pattern: `settings.component.ts:37-162`
 - License RPC: `license-rpc.handlers.ts:77-114`
@@ -93,22 +100,18 @@ This implementation plan details the architecture for replacing the VS Code moda
 **Pattern**: ViewType Union Extension (verified from `app-state.service.ts:11-17`)
 
 **Files Affected**:
+
 - `libs/frontend/core/src/lib/services/app-state.service.ts` (MODIFY)
 
 **Implementation Pattern**:
+
 ```typescript
 // Source pattern: app-state.service.ts:11-17
-export type ViewType =
-  | 'chat'
-  | 'command-builder'
-  | 'analytics'
-  | 'context-tree'
-  | 'settings'
-  | 'setup-wizard'
-  | 'welcome';  // NEW: Add welcome view
+export type ViewType = 'chat' | 'command-builder' | 'analytics' | 'context-tree' | 'settings' | 'setup-wizard' | 'welcome'; // NEW: Add welcome view
 ```
 
 **Quality Requirements**:
+
 - Must maintain union type semantics
 - All existing navigation must continue working
 - TypeScript must enforce valid view types
@@ -122,21 +125,17 @@ export type ViewType =
 **Pattern**: Standalone View Component (verified from `settings.component.ts`, `wizard-view.component.ts`)
 
 **Files Affected**:
+
 - `libs/frontend/chat/src/lib/components/templates/welcome.component.ts` (CREATE)
 - `libs/frontend/chat/src/lib/components/templates/welcome.component.html` (CREATE)
 
 **Implementation Pattern**:
+
 ```typescript
 // Pattern source: settings.component.ts:37-162
 // Pattern source: wizard-view.component.ts:59-199
 
-import {
-  Component,
-  inject,
-  ChangeDetectionStrategy,
-  signal,
-  OnInit,
-} from '@angular/core';
+import { Component, inject, ChangeDetectionStrategy, signal, OnInit } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
@@ -246,7 +245,7 @@ export class WelcomeComponent implements OnInit {
     const reason = this.licenseReason();
     switch (reason) {
       case 'expired':
-        return 'Renew your subscription to continue using Ptah\'s powerful AI-assisted development features.';
+        return "Renew your subscription to continue using Ptah's powerful AI-assisted development features.";
       case 'trial_ended':
         return 'Subscribe now to unlock the full potential of AI-assisted development.';
       default:
@@ -294,6 +293,7 @@ export class WelcomeComponent implements OnInit {
 ```
 
 **Template Pattern**:
+
 ```html
 <!-- Pattern source: wizard-view.component.ts:70-124 (hero layout) -->
 <!-- Pattern source: settings.component.html (DaisyUI classes) -->
@@ -301,91 +301,65 @@ export class WelcomeComponent implements OnInit {
 <div class="hero min-h-screen bg-base-100">
   <div class="hero-content text-center max-w-2xl">
     <div class="flex flex-col items-center gap-6">
-
       <!-- Ptah Logo -->
-      <img
-        [ngSrc]="ptahIconUri"
-        alt="Ptah"
-        class="w-20 h-20"
-        width="80"
-        height="80"
-        priority
-      />
+      <img [ngSrc]="ptahIconUri" alt="Ptah" class="w-20 h-20" width="80" height="80" priority />
 
       <!-- Headline (context-aware) -->
-      <h1 class="text-4xl font-bold text-base-content">
-        {{ getHeadline() }}
-      </h1>
+      <h1 class="text-4xl font-bold text-base-content">{{ getHeadline() }}</h1>
 
       <!-- Subheadline (context-aware) -->
-      <p class="text-lg text-base-content/70 max-w-lg">
-        {{ getSubheadline() }}
-      </p>
+      <p class="text-lg text-base-content/70 max-w-lg">{{ getSubheadline() }}</p>
 
       <!-- Feature Highlights -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 w-full max-w-xl">
         @for (feature of features; track feature.title) {
-          <div class="card bg-base-200 p-4">
-            <div class="flex items-start gap-3">
-              <lucide-angular [img]="feature.icon" class="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-              <div class="text-left">
-                <h3 class="font-semibold text-sm">{{ feature.title }}</h3>
-                <p class="text-xs text-base-content/60">{{ feature.description }}</p>
-              </div>
+        <div class="card bg-base-200 p-4">
+          <div class="flex items-start gap-3">
+            <lucide-angular [img]="feature.icon" class="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+            <div class="text-left">
+              <h3 class="font-semibold text-sm">{{ feature.title }}</h3>
+              <p class="text-xs text-base-content/60">{{ feature.description }}</p>
             </div>
           </div>
+        </div>
         }
       </div>
 
       <!-- Action Buttons -->
       <div class="flex flex-col sm:flex-row gap-3 mt-6 w-full max-w-sm">
         <!-- Start Trial (Primary) -->
-        <button
-          class="btn btn-secondary btn-lg flex-1 gap-2"
-          (click)="startTrial()"
-          aria-label="Start 14-day free trial"
-        >
+        <button class="btn btn-secondary btn-lg flex-1 gap-2" (click)="startTrial()" aria-label="Start 14-day free trial">
           <lucide-angular [img]="SparklesIcon" class="w-5 h-5" />
           Start 14-Day Trial
         </button>
 
         <!-- Enter License Key (Outline) -->
-        <button
-          class="btn btn-primary btn-lg flex-1 gap-2"
-          (click)="enterLicenseKey()"
-          aria-label="Enter license key"
-        >
+        <button class="btn btn-primary btn-lg flex-1 gap-2" (click)="enterLicenseKey()" aria-label="Enter license key">
           <lucide-angular [img]="KeyIcon" class="w-5 h-5" />
           Enter License Key
         </button>
       </div>
 
       <!-- View Pricing Link -->
-      <button
-        class="btn btn-ghost btn-sm gap-1 text-base-content/60"
-        (click)="viewPricing()"
-        aria-label="View pricing options"
-      >
+      <button class="btn btn-ghost btn-sm gap-1 text-base-content/60" (click)="viewPricing()" aria-label="View pricing options">
         <lucide-angular [img]="ExternalLinkIcon" class="w-4 h-4" />
         View Pricing
       </button>
 
       <!-- Error State -->
       @if (errorMessage()) {
-        <div class="alert alert-warning mt-4 max-w-sm">
-          <span>{{ errorMessage() }}</span>
-          <button class="btn btn-sm btn-ghost" (click)="retryStatus()">
-            Retry
-          </button>
-        </div>
+      <div class="alert alert-warning mt-4 max-w-sm">
+        <span>{{ errorMessage() }}</span>
+        <button class="btn btn-sm btn-ghost" (click)="retryStatus()">Retry</button>
+      </div>
       }
-
     </div>
   </div>
 </div>
 ```
 
 **Quality Requirements**:
+
 - Must render within 100ms of webview initialization
 - Must work with dark, light, and high-contrast themes
 - Must have proper ARIA labels for accessibility
@@ -400,10 +374,12 @@ export class WelcomeComponent implements OnInit {
 **Pattern**: Standalone View Case (verified from `app-shell.component.html:11-24`)
 
 **Files Affected**:
+
 - `libs/frontend/chat/src/lib/components/templates/app-shell.component.html` (MODIFY)
 - `libs/frontend/chat/src/lib/components/templates/app-shell.component.ts` (MODIFY)
 
 **Implementation Pattern**:
+
 ```html
 <!-- Add after @case ('settings') block, before @default -->
 <!-- Pattern source: app-shell.component.html:11-24 -->
@@ -417,6 +393,7 @@ export class WelcomeComponent implements OnInit {
 ```
 
 **TypeScript Import**:
+
 ```typescript
 // Add to imports array in app-shell.component.ts
 import { WelcomeComponent } from './welcome.component';
@@ -429,6 +406,7 @@ imports: [
 ```
 
 **Quality Requirements**:
+
 - Must match setup-wizard and settings layout pattern
 - Must not render sidebar or tab bar
 - Must be full-width, full-height
@@ -442,9 +420,11 @@ imports: [
 **Pattern**: VALID_VIEWS Array (verified from `webview-html-generator.ts:81-88`)
 
 **Files Affected**:
+
 - `apps/ptah-extension-vscode/src/services/webview-html-generator.ts` (MODIFY)
 
 **Implementation Pattern**:
+
 ```typescript
 // Pattern source: webview-html-generator.ts:81-88
 const VALID_VIEWS = [
@@ -454,11 +434,12 @@ const VALID_VIEWS = [
   'context-tree',
   'settings',
   'setup-wizard',
-  'welcome',  // NEW: Add welcome view
+  'welcome', // NEW: Add welcome view
 ];
 ```
 
 **Quality Requirements**:
+
 - Must validate 'welcome' as a valid initialView option
 - Must throw error for invalid views (existing behavior)
 
@@ -471,15 +452,13 @@ const VALID_VIEWS = [
 **Pattern**: Minimal Webview Initialization (design based on existing flow)
 
 **Files Affected**:
+
 - `apps/ptah-extension-vscode/src/main.ts` (MODIFY)
 
 **Current Flow** (lines 88-105):
+
 ```typescript
-async function handleLicenseBlocking(
-  context: vscode.ExtensionContext,
-  licenseService: LicenseService,
-  status: LicenseStatus
-): Promise<void> {
+async function handleLicenseBlocking(context: vscode.ExtensionContext, licenseService: LicenseService, status: LicenseStatus): Promise<void> {
   // Register minimal commands for license management
   registerLicenseOnlyCommands(context, licenseService);
 
@@ -490,12 +469,9 @@ async function handleLicenseBlocking(
 ```
 
 **New Flow**:
+
 ```typescript
-async function handleLicenseBlocking(
-  context: vscode.ExtensionContext,
-  licenseService: LicenseService,
-  status: LicenseStatus
-): Promise<void> {
+async function handleLicenseBlocking(context: vscode.ExtensionContext, licenseService: LicenseService, status: LicenseStatus): Promise<void> {
   // Register minimal commands for license management
   registerLicenseOnlyCommands(context, licenseService);
 
@@ -509,9 +485,7 @@ async function handleLicenseBlocking(
     resolveWebviewView(webviewView: vscode.WebviewView): void {
       webviewView.webview.options = {
         enableScripts: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(context.extensionUri, 'webview', 'browser'),
-        ],
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'webview', 'browser')],
       };
 
       // Generate HTML with welcome view
@@ -520,10 +494,7 @@ async function handleLicenseBlocking(
         path: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
       };
 
-      webviewView.webview.html = htmlGenerator.generateAngularWebviewContent(
-        webviewView.webview,
-        { workspaceInfo, initialView: 'welcome' }
-      );
+      webviewView.webview.html = htmlGenerator.generateAngularWebviewContent(webviewView.webview, { workspaceInfo, initialView: 'welcome' });
     },
   };
 
@@ -542,6 +513,7 @@ async function handleLicenseBlocking(
 ```
 
 **Quality Requirements**:
+
 - Must NOT show blocking modal
 - Must register license commands before webview
 - Must initialize webview with `initialView: 'welcome'`
@@ -565,6 +537,7 @@ The navigation blocking is already handled by the design:
 4. **`canSwitchViews`**: Already exists in AppStateManager but needs enhancement
 
 **Enhancement to AppStateManager** (optional, for defense-in-depth):
+
 ```typescript
 // In app-state.service.ts
 // Add license-aware navigation blocking
@@ -583,6 +556,7 @@ setCurrentView(view: ViewType): void {
 ```
 
 **Quality Requirements**:
+
 - Users must not be able to navigate to 'chat', 'analytics', etc. from welcome
 - Only license activation (which reloads window) should exit welcome
 - No programmatic escape hatches
@@ -596,9 +570,11 @@ setCurrentView(view: ViewType): void {
 **Pattern**: RPC Type Extension (verified from `rpc.types.ts:549-595`)
 
 **Files Affected**:
+
 - `libs/shared/src/lib/types/rpc.types.ts` (MODIFY)
 
 **Implementation Pattern**:
+
 ```typescript
 // Pattern source: rpc.types.ts:574-595
 export interface LicenseGetStatusResponse {
@@ -626,6 +602,7 @@ export interface LicenseGetStatusResponse {
 ```
 
 **Backend Mapping Update** (license-rpc.handlers.ts):
+
 ```typescript
 // In mapLicenseStatusToResponse method
 return {
@@ -635,6 +612,7 @@ return {
 ```
 
 **Quality Requirements**:
+
 - Must be optional field (backward compatible)
 - Must match LicenseStatus.reason values from backend
 
@@ -784,15 +762,18 @@ return {
 **Objective**: Enable 'welcome' as a valid view type
 
 **Tasks**:
+
 1. Add 'welcome' to ViewType union in `app-state.service.ts`
 2. Add 'welcome' to VALID_VIEWS array in `webview-html-generator.ts`
 3. Verify TypeScript compilation passes
 
 **Files**:
+
 - `libs/frontend/core/src/lib/services/app-state.service.ts` (MODIFY)
 - `apps/ptah-extension-vscode/src/services/webview-html-generator.ts` (MODIFY)
 
 **Verification**:
+
 - TypeScript compiles without errors
 - Unit tests pass (if any for ViewType)
 
@@ -803,6 +784,7 @@ return {
 **Objective**: Create the welcome page UI component
 
 **Tasks**:
+
 1. Create `welcome.component.ts` with signal-based state
 2. Create `welcome.component.html` with DaisyUI hero layout
 3. Implement RPC call for license status (context-aware messaging)
@@ -811,11 +793,13 @@ return {
 6. Add component to chat library exports
 
 **Files**:
+
 - `libs/frontend/chat/src/lib/components/templates/welcome.component.ts` (CREATE)
 - `libs/frontend/chat/src/lib/components/templates/welcome.component.html` (CREATE)
 - `libs/frontend/chat/src/index.ts` (MODIFY - add export)
 
 **Verification**:
+
 - Component builds without errors
 - DaisyUI classes render correctly
 - Icons render via lucide-angular
@@ -827,15 +811,18 @@ return {
 **Objective**: Render WelcomeComponent in standalone mode
 
 **Tasks**:
+
 1. Import WelcomeComponent in app-shell.component.ts
 2. Add `@case ('welcome')` block in app-shell.component.html
 3. Verify standalone layout (no sidebar, no tabs)
 
 **Files**:
+
 - `libs/frontend/chat/src/lib/components/templates/app-shell.component.ts` (MODIFY)
 - `libs/frontend/chat/src/lib/components/templates/app-shell.component.html` (MODIFY)
 
 **Verification**:
+
 - Manual test: Set window.initialView = 'welcome' in DevTools
 - Verify full-width layout
 - Verify no sidebar/tabs visible
@@ -847,6 +834,7 @@ return {
 **Objective**: Replace modal with webview for unlicensed users
 
 **Tasks**:
+
 1. Modify `handleLicenseBlocking()` in main.ts
 2. Create minimal webview provider inline
 3. Set `initialView: 'welcome'` in HTML generation
@@ -854,9 +842,11 @@ return {
 5. Ensure license commands are still registered
 
 **Files**:
+
 - `apps/ptah-extension-vscode/src/main.ts` (MODIFY)
 
 **Verification**:
+
 - Start extension with no license key
 - Verify webview appears (not modal)
 - Verify welcome page renders
@@ -870,6 +860,7 @@ return {
 **Objective**: Add license reason field and polish
 
 **Tasks**:
+
 1. Add `reason` field to LicenseGetStatusResponse (optional)
 2. Update license-rpc.handlers.ts to map reason field
 3. Test context-aware messaging (expired, trial_ended, no_license)
@@ -877,10 +868,12 @@ return {
 5. Test all themes (dark, light, high-contrast)
 
 **Files**:
+
 - `libs/shared/src/lib/types/rpc.types.ts` (MODIFY)
 - `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts` (MODIFY)
 
 **Verification**:
+
 - Expired license shows "Your subscription has expired"
 - Trial ended shows "Your trial has ended"
 - No license shows "Welcome to Ptah"
@@ -893,33 +886,33 @@ return {
 
 ### Functional Requirements
 
-| Requirement | Verification Method |
-|-------------|---------------------|
-| Welcome view renders for unlicensed users | Manual test: Remove license key, restart extension |
-| Enter License Key triggers VS Code input | Manual test: Click button, verify password input appears |
-| View Pricing opens external browser | Manual test: Click button, verify browser opens ptah.dev/pricing |
-| Start Trial opens pricing page | Manual test: Click button, verify browser opens |
-| Context-aware messaging | Manual test: Set different license reasons, verify headlines |
-| No navigation escape | Manual test: Try keyboard shortcuts, verify blocked |
+| Requirement                               | Verification Method                                              |
+| ----------------------------------------- | ---------------------------------------------------------------- |
+| Welcome view renders for unlicensed users | Manual test: Remove license key, restart extension               |
+| Enter License Key triggers VS Code input  | Manual test: Click button, verify password input appears         |
+| View Pricing opens external browser       | Manual test: Click button, verify browser opens ptah.dev/pricing |
+| Start Trial opens pricing page            | Manual test: Click button, verify browser opens                  |
+| Context-aware messaging                   | Manual test: Set different license reasons, verify headlines     |
+| No navigation escape                      | Manual test: Try keyboard shortcuts, verify blocked              |
 
 ### Non-Functional Requirements
 
-| Requirement | Target | Verification |
-|-------------|--------|--------------|
-| Component load time | < 100ms | Chrome DevTools performance tab |
-| Bundle size increase | < 15KB | `nx build chat --stats-json` |
-| WCAG 2.1 AA compliance | Pass | aXe DevTools extension |
-| Theme support | 3 themes | Manual visual inspection |
+| Requirement            | Target   | Verification                    |
+| ---------------------- | -------- | ------------------------------- |
+| Component load time    | < 100ms  | Chrome DevTools performance tab |
+| Bundle size increase   | < 15KB   | `nx build chat --stats-json`    |
+| WCAG 2.1 AA compliance | Pass     | aXe DevTools extension          |
+| Theme support          | 3 themes | Manual visual inspection        |
 
 ### Pattern Compliance
 
-| Pattern | Evidence |
-|---------|----------|
+| Pattern                | Evidence                                                   |
+| ---------------------- | ---------------------------------------------------------- |
 | Standalone view layout | Matches setup-wizard, settings in app-shell.component.html |
-| Signal-based state | Uses `signal()`, `computed()`, no BehaviorSubject |
-| DaisyUI styling | Uses hero, btn, card, alert classes |
-| RPC call pattern | Matches settings.component.ts:140-161 |
-| Command execution | Uses postMessage with command type |
+| Signal-based state     | Uses `signal()`, `computed()`, no BehaviorSubject          |
+| DaisyUI styling        | Uses hero, btn, card, alert classes                        |
+| RPC call pattern       | Matches settings.component.ts:140-161                      |
+| Command execution      | Uses postMessage with command type                         |
 
 ---
 
@@ -930,6 +923,7 @@ return {
 **Recommended Developer**: Both (frontend-developer + backend-developer)
 
 **Rationale**:
+
 1. **Frontend Work** (Phases 2, 3): Angular component creation, DaisyUI styling, signal-based state
 2. **Backend Work** (Phases 1, 4, 5): main.ts modification, RPC type updates, webview provider
 
@@ -941,6 +935,7 @@ return {
 **Estimated Effort**: 4-5 hours total
 
 **Breakdown**:
+
 - Phase 1: 30 min (Low complexity - type changes only)
 - Phase 2: 1.5 hours (Medium complexity - new component)
 - Phase 3: 30 min (Low complexity - template changes)
@@ -950,10 +945,12 @@ return {
 ### Files Affected Summary
 
 **CREATE**:
+
 - `libs/frontend/chat/src/lib/components/templates/welcome.component.ts`
 - `libs/frontend/chat/src/lib/components/templates/welcome.component.html`
 
 **MODIFY**:
+
 - `libs/frontend/core/src/lib/services/app-state.service.ts` (add ViewType)
 - `apps/ptah-extension-vscode/src/services/webview-html-generator.ts` (add VALID_VIEWS)
 - `libs/frontend/chat/src/lib/components/templates/app-shell.component.html` (add case)
@@ -968,17 +965,20 @@ return {
 **Before Implementation, Team-Leader Must Ensure Developer Verifies**:
 
 1. **All imports exist in codebase**:
+
    - `ClaudeRpcService` from `@ptah-extension/core` (verified: core/src/index.ts)
    - `VSCodeService` from `@ptah-extension/core` (verified: core/src/index.ts)
    - `LicenseGetStatusResponse` from `@ptah-extension/shared` (verified: rpc.types.ts:574)
    - `LucideAngularModule` from `lucide-angular` (verified: settings.component.ts:9)
 
 2. **All patterns verified from examples**:
+
    - Standalone view layout: `app-shell.component.html:11-24`
    - RPC call pattern: `settings.component.ts:140-161`
    - Signal-based state: `wizard-view.component.ts:141-146`
 
 3. **Library documentation consulted**:
+
    - `libs/frontend/chat/CLAUDE.md`
    - `libs/frontend/core/CLAUDE.md`
    - `libs/shared/CLAUDE.md`
@@ -1005,17 +1005,17 @@ return {
 
 ## Risk Mitigation
 
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Navigation bypass | Low | High | Defense-in-depth: No UI escape + AppStateManager guard |
-| Theme inconsistency | Low | Medium | Use only DaisyUI variables, test all themes |
-| RPC timeout | Low | Medium | Show error state with retry button |
-| Command not registered | Low | High | Verify registerLicenseOnlyCommands runs before webview |
+| Risk                   | Probability | Impact | Mitigation                                             |
+| ---------------------- | ----------- | ------ | ------------------------------------------------------ |
+| Navigation bypass      | Low         | High   | Defense-in-depth: No UI escape + AppStateManager guard |
+| Theme inconsistency    | Low         | Medium | Use only DaisyUI variables, test all themes            |
+| RPC timeout            | Low         | Medium | Show error state with retry button                     |
+| Command not registered | Low         | High   | Verify registerLicenseOnlyCommands runs before webview |
 
 ---
 
 ## Document History
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2026-01-27 | Software Architect | Initial implementation plan |
+| Version | Date       | Author             | Changes                     |
+| ------- | ---------- | ------------------ | --------------------------- |
+| 1.0     | 2026-01-27 | Software Architect | Initial implementation plan |

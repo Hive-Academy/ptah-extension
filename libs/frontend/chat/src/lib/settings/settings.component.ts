@@ -6,7 +6,18 @@ import {
   computed,
   OnInit,
 } from '@angular/core';
-import { LucideAngularModule, ArrowLeft, Sparkles, Lock } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  ArrowLeft,
+  Sparkles,
+  Lock,
+  Shield,
+  Clock,
+  CreditCard,
+  UserPlus,
+  Key,
+  ExternalLink,
+} from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
 import { OpenRouterModelSelectorComponent } from './openrouter-model-selector.component';
 import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
@@ -53,6 +64,12 @@ export class SettingsComponent implements OnInit {
   readonly ArrowLeftIcon = ArrowLeft;
   readonly SparklesIcon = Sparkles;
   readonly LockIcon = Lock;
+  readonly ShieldIcon = Shield;
+  readonly ClockIcon = Clock;
+  readonly CreditCardIcon = CreditCard;
+  readonly UserPlusIcon = UserPlus;
+  readonly KeyIcon = Key;
+  readonly ExternalLinkIcon = ExternalLink;
 
   // Auth status signals
   readonly hasOAuthToken = signal(false);
@@ -67,6 +84,15 @@ export class SettingsComponent implements OnInit {
     'expired'
   );
   readonly isLoadingLicenseStatus = signal(true);
+
+  // License status card signals
+  readonly licenseValid = signal(false);
+  readonly trialActive = signal(false);
+  readonly trialDaysRemaining = signal<number | null>(null);
+  readonly daysRemaining = signal<number | null>(null);
+  readonly planName = signal<string | null>(null);
+  readonly planDescription = signal<string | null>(null);
+  readonly isCommunity = signal(false);
 
   /**
    * Computed: Whether any auth credential is configured
@@ -92,6 +118,31 @@ export class SettingsComponent implements OnInit {
   );
 
   /**
+   * Computed: Display name for the current tier
+   */
+  readonly tierDisplayName = computed(() => {
+    switch (this.licenseTier()) {
+      case 'pro':
+        return 'Pro';
+      case 'trial_pro':
+        return 'Pro Trial';
+      case 'community':
+        return 'Community';
+      case 'expired':
+        return 'Expired';
+      default:
+        return 'Unknown';
+    }
+  });
+
+  /**
+   * Computed: Whether to show trial info section
+   */
+  readonly showTrialInfo = computed(
+    () => this.trialActive() && this.trialDaysRemaining() !== null
+  );
+
+  /**
    * Initialize: Fetch auth and license status on component mount
    */
   async ngOnInit(): Promise<void> {
@@ -110,6 +161,33 @@ export class SettingsComponent implements OnInit {
    */
   async refreshAuthStatus(): Promise<void> {
     await this.fetchAuthStatus();
+  }
+
+  /**
+   * Open signup page in browser
+   */
+  async openSignup(): Promise<void> {
+    await this.rpcService.call('command:execute', {
+      command: 'ptah.openSignup',
+    });
+  }
+
+  /**
+   * Open license key entry dialog
+   */
+  async enterLicenseKey(): Promise<void> {
+    await this.rpcService.call('command:execute', {
+      command: 'ptah.enterLicenseKey',
+    });
+  }
+
+  /**
+   * Open pricing page in browser
+   */
+  async openPricing(): Promise<void> {
+    await this.rpcService.call('command:execute', {
+      command: 'ptah.openPricing',
+    });
   }
 
   /**
@@ -146,6 +224,13 @@ export class SettingsComponent implements OnInit {
         const data = result.data as LicenseGetStatusResponse;
         this.isPremium.set(data.isPremium);
         this.licenseTier.set(data.tier);
+        this.licenseValid.set(data.valid);
+        this.trialActive.set(data.trialActive);
+        this.trialDaysRemaining.set(data.trialDaysRemaining);
+        this.daysRemaining.set(data.daysRemaining);
+        this.isCommunity.set(data.isCommunity);
+        this.planName.set(data.plan?.name ?? null);
+        this.planDescription.set(data.plan?.description ?? null);
       }
     } catch (error) {
       console.error(

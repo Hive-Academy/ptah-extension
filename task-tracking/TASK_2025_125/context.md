@@ -32,12 +32,12 @@ From TASK_2025_124 security assessment:
 
 ### Rate Limiting Configuration
 
-| Endpoint | Limit | Window | Rationale |
-|----------|-------|--------|-----------|
-| Global (default) | 100 req | 1 minute | General protection |
-| `/api/v1/licenses/verify` | 10 req | 1 minute | Stricter for license checks |
-| `/api/v1/admin/*` | 30 req | 1 minute | Admin operations |
-| `/api/v1/auth/*` | 20 req | 1 minute | Auth operations |
+| Endpoint                  | Limit   | Window   | Rationale                   |
+| ------------------------- | ------- | -------- | --------------------------- |
+| Global (default)          | 100 req | 1 minute | General protection          |
+| `/api/v1/licenses/verify` | 10 req  | 1 minute | Stricter for license checks |
+| `/api/v1/admin/*`         | 30 req  | 1 minute | Admin operations            |
+| `/api/v1/auth/*`          | 20 req  | 1 minute | Auth operations             |
 
 ### Secondary Goals (from security assessment)
 

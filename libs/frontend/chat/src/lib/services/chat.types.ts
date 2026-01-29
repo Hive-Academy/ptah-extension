@@ -228,6 +228,25 @@ export interface TabState {
     /** Context usage as percentage (0-100) */
     contextPercent: number;
   } | null;
+
+  /**
+   * Original model from session history (detected from system init message).
+   * Used to pass the correct model when continuing a loaded historical session.
+   */
+  sessionModel?: string | null;
+
+  /**
+   * Full per-model usage breakdown for collapsible display.
+   * Contains all models used in the session with their individual stats.
+   */
+  modelUsageList?: Array<{
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUSD: number;
+    contextWindow: number;
+    cacheReadInputTokens?: number;
+  }> | null;
 }
 
 /**

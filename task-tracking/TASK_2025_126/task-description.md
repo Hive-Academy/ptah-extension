@@ -9,6 +9,7 @@ This document defines requirements for replacing the VS Code modal popup with an
 **Business Value**: Improved user onboarding experience transforms a blocking modal (high friction) into an engaging first-touch experience (low friction). Users can see the extension's quality UI immediately, creating positive brand impression before purchase.
 
 **Technical Context**:
+
 - Current flow: `main.ts` shows VS Code modal -> Extension blocked -> Webview never shown
 - Target flow: Extension activates -> Webview shown with `initialView: 'welcome'` -> License actions embedded in welcome page
 - Architecture: Signal-based navigation via `AppStateManager.setCurrentView()`, NO Angular Router (blocked in VS Code webviews)
@@ -198,27 +199,27 @@ This document defines requirements for replacing the VS Code modal popup with an
 
 ### Backend Integration
 
-| Integration Point | File | Description |
-|-------------------|------|-------------|
-| License Check Flow | `apps/ptah-extension-vscode/src/main.ts` | Modify `handleLicenseBlocking()` to show webview instead of modal |
-| Webview Generator | `apps/ptah-extension-vscode/src/services/webview-html-generator.ts` | Add `'welcome'` to `VALID_VIEWS` array |
-| License Commands | `apps/ptah-extension-vscode/src/commands/license-commands.ts` | No changes needed - reuse existing commands |
-| License RPC | `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts` | No changes needed - reuse `license:getStatus` |
+| Integration Point  | File                                                                           | Description                                                       |
+| ------------------ | ------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| License Check Flow | `apps/ptah-extension-vscode/src/main.ts`                                       | Modify `handleLicenseBlocking()` to show webview instead of modal |
+| Webview Generator  | `apps/ptah-extension-vscode/src/services/webview-html-generator.ts`            | Add `'welcome'` to `VALID_VIEWS` array                            |
+| License Commands   | `apps/ptah-extension-vscode/src/commands/license-commands.ts`                  | No changes needed - reuse existing commands                       |
+| License RPC        | `apps/ptah-extension-vscode/src/services/rpc/handlers/license-rpc.handlers.ts` | No changes needed - reuse `license:getStatus`                     |
 
 ### Frontend Integration
 
-| Integration Point | File | Description |
-|-------------------|------|-------------|
-| ViewType Definition | `libs/frontend/core/src/lib/services/app-state.service.ts` | Add `'welcome'` to ViewType union |
-| App Shell | `libs/frontend/chat/src/lib/components/templates/app-shell.component.html` | Add `@case ('welcome')` block |
-| Welcome Component | `libs/frontend/chat/src/lib/components/templates/welcome.component.ts` | NEW: Create welcome page component |
-| RPC Service | `libs/frontend/core/src/lib/services/claude-rpc.service.ts` | No changes - reuse existing RPC call mechanism |
+| Integration Point   | File                                                                       | Description                                    |
+| ------------------- | -------------------------------------------------------------------------- | ---------------------------------------------- |
+| ViewType Definition | `libs/frontend/core/src/lib/services/app-state.service.ts`                 | Add `'welcome'` to ViewType union              |
+| App Shell           | `libs/frontend/chat/src/lib/components/templates/app-shell.component.html` | Add `@case ('welcome')` block                  |
+| Welcome Component   | `libs/frontend/chat/src/lib/components/templates/welcome.component.ts`     | NEW: Create welcome page component             |
+| RPC Service         | `libs/frontend/core/src/lib/services/claude-rpc.service.ts`                | No changes - reuse existing RPC call mechanism |
 
 ### Shared Types
 
-| Integration Point | File | Description |
-|-------------------|------|-------------|
-| RPC Types | `libs/shared/src/lib/types/rpc.types.ts` | Consider adding `license:enterKey` RPC type if needed (optional - current approach uses VS Code commands) |
+| Integration Point | File                                     | Description                                                                                               |
+| ----------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| RPC Types         | `libs/shared/src/lib/types/rpc.types.ts` | Consider adding `license:enterKey` RPC type if needed (optional - current approach uses VS Code commands) |
 
 ---
 
@@ -227,6 +228,7 @@ This document defines requirements for replacing the VS Code modal popup with an
 ### Design Questions
 
 1. **Feature Highlights**: What specific features should be highlighted on the welcome page? Suggested:
+
    - AI-powered code assistance
    - Multi-agent orchestration
    - VS Code native integration
@@ -254,14 +256,14 @@ This document defines requirements for replacing the VS Code modal popup with an
 
 ### Technical Dependencies
 
-| Dependency | Status | Description |
-|------------|--------|-------------|
-| ViewType system | Exists | `AppStateManager` with signal-based navigation |
-| App Shell routing | Exists | `@switch (currentView())` pattern in app-shell |
-| License RPC | Exists | `license:getStatus` method returns license info |
-| VS Code Commands | Exists | `ptah.enterLicenseKey`, `ptah.openPricing` commands |
-| DaisyUI/Tailwind | Exists | Styling framework for component |
-| Webview HTML Generator | Exists | `initialView` option support |
+| Dependency             | Status | Description                                         |
+| ---------------------- | ------ | --------------------------------------------------- |
+| ViewType system        | Exists | `AppStateManager` with signal-based navigation      |
+| App Shell routing      | Exists | `@switch (currentView())` pattern in app-shell      |
+| License RPC            | Exists | `license:getStatus` method returns license info     |
+| VS Code Commands       | Exists | `ptah.enterLicenseKey`, `ptah.openPricing` commands |
+| DaisyUI/Tailwind       | Exists | Styling framework for component                     |
+| Webview HTML Generator | Exists | `initialView` option support                        |
 
 ---
 
@@ -291,6 +293,6 @@ This document defines requirements for replacing the VS Code modal popup with an
 
 ## Document History
 
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 1.0 | 2026-01-27 | Project Manager | Initial requirements document |
+| Version | Date       | Author          | Changes                       |
+| ------- | ---------- | --------------- | ----------------------------- |
+| 1.0     | 2026-01-27 | Project Manager | Initial requirements document |

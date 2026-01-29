@@ -40,11 +40,6 @@
     "additionalDirectories": ["D:\\projects\\ptah-extension"]
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "browser",
-    "sequential-thinking",
-    "nx-mcp",
-    "angular-cli"
-  ],
+  "enabledMcpjsonServers": ["sequential-thinking", "angular-cli", "daisyui"],
   "outputStyle": "default"
 }

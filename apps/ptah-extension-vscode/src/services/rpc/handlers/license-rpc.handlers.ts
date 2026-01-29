@@ -154,8 +154,7 @@ export class LicenseRpcHandlers {
     const isCommunity = status.tier === 'community';
 
     // Determine trial status from tier (only Pro has trial)
-    const trialActive =
-      status.trialActive ?? status.tier === 'trial_pro';
+    const trialActive = status.trialActive ?? status.tier === 'trial_pro';
 
     // TASK_2025_126: Map reason field for context-aware welcome messaging
     // Backend uses: 'expired' | 'revoked' | 'not_found' | 'trial_ended'
@@ -180,7 +179,7 @@ export class LicenseRpcHandlers {
       valid: status.valid,
       tier: status.tier as LicenseTier,
       isPremium,
-      isCommunity,  // RENAMED from isBasic
+      isCommunity, // RENAMED from isBasic
       daysRemaining: status.daysRemaining ?? null,
       trialActive,
       trialDaysRemaining: status.trialDaysRemaining ?? null,

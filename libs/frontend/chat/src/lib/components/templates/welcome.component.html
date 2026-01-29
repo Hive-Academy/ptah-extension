@@ -5,7 +5,6 @@
 <div class="hero min-h-screen bg-base-100">
   <div class="hero-content text-center max-w-2xl">
     <div class="flex flex-col items-center gap-6">
-
       <!-- Ptah Logo -->
       <img
         [ngSrc]="ptahIconUri"
@@ -29,18 +28,20 @@
       <!-- Feature Highlights Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 w-full max-w-xl">
         @for (feature of features; track feature.title) {
-          <div class="card bg-base-200 p-4">
-            <div class="flex items-start gap-3">
-              <lucide-angular
-                [img]="feature.icon"
-                class="w-5 h-5 text-primary flex-shrink-0 mt-0.5"
-              />
-              <div class="text-left">
-                <h3 class="font-semibold text-sm">{{ feature.title }}</h3>
-                <p class="text-xs text-base-content/60">{{ feature.description }}</p>
-              </div>
+        <div class="card bg-base-200 p-4">
+          <div class="flex items-start gap-3">
+            <lucide-angular
+              [img]="feature.icon"
+              class="w-5 h-5 text-primary flex-shrink-0 mt-0.5"
+            />
+            <div class="text-left">
+              <h3 class="font-semibold text-sm">{{ feature.title }}</h3>
+              <p class="text-xs text-base-content/60">
+                {{ feature.description }}
+              </p>
             </div>
           </div>
+        </div>
         }
       </div>
 
@@ -79,18 +80,17 @@
 
       <!-- Error State (shown when license status fetch fails) -->
       @if (errorMessage()) {
-        <div class="alert alert-warning mt-4 max-w-sm">
-          <span>{{ errorMessage() }}</span>
-          <button
-            class="btn btn-sm btn-ghost"
-            (click)="retryStatus()"
-            aria-label="Retry loading license status"
-          >
-            Retry
-          </button>
-        </div>
+      <div class="alert alert-warning mt-4 max-w-sm">
+        <span>{{ errorMessage() }}</span>
+        <button
+          class="btn btn-sm btn-ghost"
+          (click)="retryStatus()"
+          aria-label="Retry loading license status"
+        >
+          Retry
+        </button>
+      </div>
       }
-
     </div>
   </div>
 </div>

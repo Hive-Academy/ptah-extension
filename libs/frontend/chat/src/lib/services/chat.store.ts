@@ -245,6 +245,14 @@ export class ChatStore {
   );
 
   /**
+   * Full per-model usage breakdown for collapsible display in session stats.
+   * Contains all models used in the session with their individual cost/token stats.
+   */
+  readonly modelUsageList = computed(
+    () => this.tabManager.activeTab()?.modelUsageList ?? null
+  );
+
+  /**
    * Get permission request for a specific tool by its toolCallId
    * Delegates to PermissionHandlerService
    */
@@ -749,31 +757,44 @@ export class ChatStore {
   handleSessionStats(stats: {
     sessionId: string;
     cost: number;
-    tokens: { input: number; output: number };
+    tokens: {
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheCreation?: number;
+    };
     duration: number;
     modelUsage?: Array<{
       model: string;
       inputTokens: number;
       outputTokens: number;
       contextWindow: number;
+      costUSD: number;
+      cacheReadInputTokens?: number;
     }>;
   }): void {
     // TASK_2025_098: Clear compaction state when new message finishes
     // This indicates compaction (if any) has completed successfully
     this.clearCompactionState();
 
+    // Fetch active tab once for use across modelUsage + preloadedStats
+    const activeTab = this.tabManager.activeTab();
+
     // Process modelUsage to update liveModelStats for context display
     if (stats.modelUsage && stats.modelUsage.length > 0) {
-      // Use the first model's data (primary model)
+      // Use the first model's data (primary model - sorted by backend to match user's selection)
       const primaryModel = stats.modelUsage[0];
-      const contextUsed = primaryModel.inputTokens + primaryModel.outputTokens;
+      // Bug 3 fix: Include cacheReadInputTokens in context calculation
+      // Cache read tokens count toward context window usage alongside input and output
+      const contextUsed =
+        primaryModel.inputTokens +
+        (primaryModel.cacheReadInputTokens ?? 0) +
+        primaryModel.outputTokens;
       const contextPercent =
         primaryModel.contextWindow > 0
           ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
           : 0;
 
-      // Find active tab and update liveModelStats
-      const activeTab = this.tabManager.activeTab();
       if (activeTab) {
         this.tabManager.updateTab(activeTab.id, {
           liveModelStats: {
@@ -782,6 +803,7 @@ export class ChatStore {
             contextWindow: primaryModel.contextWindow,
             contextPercent,
           },
+          modelUsageList: stats.modelUsage,
         });
         console.log('[ChatStore] Updated liveModelStats:', {
           model: primaryModel.model,
@@ -790,6 +812,30 @@ export class ChatStore {
           contextPercent,
         });
       }
+    }
+
+    // Bug 2 fix: Accumulate preloadedStats with new turn data
+    // When a loaded historical session gets new messages, the preloadedStats
+    // must be updated so the stats summary shows the combined totals.
+    if (activeTab?.preloadedStats) {
+      this.tabManager.updateTab(activeTab.id, {
+        preloadedStats: {
+          ...activeTab.preloadedStats,
+          totalCost: activeTab.preloadedStats.totalCost + stats.cost,
+          tokens: {
+            input: activeTab.preloadedStats.tokens.input + stats.tokens.input,
+            output:
+              activeTab.preloadedStats.tokens.output + stats.tokens.output,
+            cacheRead:
+              activeTab.preloadedStats.tokens.cacheRead +
+              (stats.tokens.cacheRead ?? 0),
+            cacheCreation:
+              activeTab.preloadedStats.tokens.cacheCreation +
+              (stats.tokens.cacheCreation ?? 0),
+          },
+          messageCount: activeTab.preloadedStats.messageCount + 1,
+        },
+      });
     }
 
     // StreamingHandler finalizes the message and returns queued content info

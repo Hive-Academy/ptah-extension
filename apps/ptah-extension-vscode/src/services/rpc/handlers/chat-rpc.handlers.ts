@@ -308,6 +308,13 @@ IMPORTANT INSTRUCTIONS:
                 sessionId: s.sessionId,
               })),
             });
+
+            // TASK_2025_109 FIX: Remove injected subagents from registry to prevent
+            // re-injection on subsequent messages. The context is a one-shot injection;
+            // once Claude receives the resumption instructions, we don't need to send them again.
+            for (const s of resumableSubagents) {
+              this.subagentRegistry.remove(s.toolCallId);
+            }
           }
 
           // Now send the message to the (now active) session

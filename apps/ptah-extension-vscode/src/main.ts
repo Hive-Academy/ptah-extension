@@ -73,7 +73,14 @@ function registerLicenseOnlyCommands(
       await licenseCommands.checkLicenseStatus();
     }),
     vscode.commands.registerCommand('ptah.openPricing', () => {
-      vscode.env.openExternal(vscode.Uri.parse('https://ptah.dev/pricing'));
+      // TODO: restore production URL: https://ptah.dev/pricing
+      vscode.env.openExternal(
+        vscode.Uri.parse('http://localhost:4200/pricing')
+      );
+    }),
+    vscode.commands.registerCommand('ptah.openSignup', () => {
+      // TODO: restore production URL: https://ptah.dev/signup
+      vscode.env.openExternal(vscode.Uri.parse('http://localhost:4200/signup'));
     })
   );
 }
@@ -103,7 +110,7 @@ async function handleLicenseBlocking(
   registerLicenseOnlyCommands(context, licenseService);
 
   // TASK_2025_126: Show webview with welcome view instead of modal
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+
   const { WebviewHtmlGenerator } = require('./services/webview-html-generator');
   const htmlGenerator = new WebviewHtmlGenerator(context);
 
@@ -165,7 +172,7 @@ async function handleLicenseBlocking(
                 valid: false,
                 tier: status.tier || 'expired',
                 isPremium: false,
-                isCommunity: false,  // RENAMED from isBasic
+                isCommunity: false, // RENAMED from isBasic
                 daysRemaining: null,
                 trialActive: false,
                 trialDaysRemaining: null,
@@ -173,13 +180,23 @@ async function handleLicenseBlocking(
               },
               correlationId,
             };
-            webviewView.webview.postMessage({ type: 'rpc:response', ...response });
+            webviewView.webview.postMessage({
+              type: 'rpc:response',
+              ...response,
+            });
           } else if (method === 'command:execute') {
             // Execute ptah.* commands only (security: same check as CommandRpcHandlers)
             try {
               const command = params?.command;
-              if (command && typeof command === 'string' && command.startsWith('ptah.')) {
-                await vscode.commands.executeCommand(command, ...(params?.args || []));
+              if (
+                command &&
+                typeof command === 'string' &&
+                command.startsWith('ptah.')
+              ) {
+                await vscode.commands.executeCommand(
+                  command,
+                  ...(params?.args || [])
+                );
                 webviewView.webview.postMessage({
                   type: 'rpc:response',
                   success: true,
@@ -190,7 +207,10 @@ async function handleLicenseBlocking(
                 webviewView.webview.postMessage({
                   type: 'rpc:response',
                   success: false,
-                  data: { success: false, error: 'Only ptah.* commands are allowed' },
+                  data: {
+                    success: false,
+                    error: 'Only ptah.* commands are allowed',
+                  },
                   correlationId,
                 });
               }
@@ -218,7 +238,9 @@ async function handleLicenseBlocking(
     })
   );
 
-  console.log('[Activate] Webview registered with welcome view for unlicensed user');
+  console.log(
+    '[Activate] Webview registered with welcome view for unlicensed user'
+  );
   // DO NOT call showLicenseRequiredUI() - webview handles onboarding
 }
 

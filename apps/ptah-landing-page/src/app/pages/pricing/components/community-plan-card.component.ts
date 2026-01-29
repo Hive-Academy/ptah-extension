@@ -41,36 +41,36 @@ import {
       <!-- Badge -->
       <div aria-live="polite" aria-atomic="true">
         @if (isCurrentPlan()) {
-          <div
-            class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                    bg-success rounded-full
                    text-xs font-bold text-success-content uppercase tracking-wider
                    shadow-lg shadow-success/30 flex items-center gap-1.5"
-          >
-            <lucide-angular
-              [img]="CrownIcon"
-              class="w-3 h-3"
-              aria-hidden="true"
-            />
-            Current Plan
-          </div>
+        >
+          <lucide-angular
+            [img]="CrownIcon"
+            class="w-3 h-3"
+            aria-hidden="true"
+          />
+          Current Plan
+        </div>
         } @else if (isProUser()) {
-          <div
-            class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                    bg-base-300 rounded-full
                    text-xs font-bold text-base-content/60 uppercase tracking-wider"
-          >
-            Included in Pro
-          </div>
+        >
+          Included in Pro
+        </div>
         } @else {
-          <div
-            class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+        <div
+          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                    bg-gradient-to-r from-green-500 to-emerald-500 rounded-full
                    text-xs font-bold text-white uppercase tracking-wider
                    shadow-lg shadow-green-500/30"
-          >
-            Free Forever
-          </div>
+        >
+          Free Forever
+        </div>
         }
       </div>
 
@@ -108,14 +108,14 @@ import {
         </h4>
         <ul class="space-y-2.5">
           @for (feature of plan().standoutFeatures; track feature) {
-            <li class="flex items-start gap-2.5">
-              <lucide-angular
-                [img]="CheckIcon"
-                class="flex-shrink-0 w-4 h-4 text-green-400 mt-0.5"
-                aria-hidden="true"
-              />
-              <span class="text-sm text-base-content/80">{{ feature }}</span>
-            </li>
+          <li class="flex items-start gap-2.5">
+            <lucide-angular
+              [img]="CheckIcon"
+              class="flex-shrink-0 w-4 h-4 text-green-400 mt-0.5"
+              aria-hidden="true"
+            />
+            <span class="text-sm text-base-content/80">{{ feature }}</span>
+          </li>
           }
         </ul>
       </div>
@@ -130,14 +130,14 @@ import {
         (click)="handleClick()"
       >
         @if (isProUser()) {
-          <span>Included in Your Plan</span>
+        <span>Included in Your Plan</span>
         } @else {
-          <lucide-angular
-            [img]="DownloadIcon"
-            class="w-4 h-4"
-            aria-hidden="true"
-          />
-          <span>{{ plan().ctaText }}</span>
+        <lucide-angular
+          [img]="DownloadIcon"
+          class="w-4 h-4"
+          aria-hidden="true"
+        />
+        <span>{{ plan().ctaText }}</span>
         }
       </button>
     </div>
@@ -161,8 +161,9 @@ export class CommunityPlanCardComponent {
   public readonly plan = input.required<PricingPlan>();
 
   /** Subscription context from parent (null for unauthenticated users) */
-  public readonly subscriptionContext =
-    input<PlanSubscriptionContext | null>(null);
+  public readonly subscriptionContext = input<PlanSubscriptionContext | null>(
+    null
+  );
 
   /**
    * Computed: Is this the user's current active plan

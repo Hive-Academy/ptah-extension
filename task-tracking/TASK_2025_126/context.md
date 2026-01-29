@@ -15,10 +15,12 @@ Implement embedded welcome page for unlicensed users - Replace the VS Code modal
 ## Affected Areas
 
 1. **Backend (Extension Host)**
+
    - `apps/ptah-extension-vscode/src/main.ts` - License check flow, webview initialization
    - RPC handlers for license operations from webview
 
 2. **Frontend (Webview)**
+
    - `libs/frontend/core/src/lib/services/app-state.service.ts` - Add 'welcome' ViewType
    - `libs/frontend/chat/src/lib/components/templates/app-shell.component.html` - Render welcome view
    - New `WelcomeComponent` - Full-page onboarding UI
@@ -29,6 +31,7 @@ Implement embedded welcome page for unlicensed users - Replace the VS Code modal
 ## Current Behavior
 
 When extension activates with no valid license:
+
 1. `showLicenseRequiredUI()` shows VS Code modal popup with `vscode.window.showWarningMessage()`
 2. Modal has buttons: "Start Trial", "Enter License Key", "View Pricing", "Cancel"
 3. Extension activation is blocked - webview never shown
@@ -36,6 +39,7 @@ When extension activates with no valid license:
 ## Desired Behavior
 
 When extension activates with no valid license:
+
 1. Webview is shown with `initialView: 'welcome'`
 2. Welcome page displays embedded inside the webview:
    - Ptah branding/logo

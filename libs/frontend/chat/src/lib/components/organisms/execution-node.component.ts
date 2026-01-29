@@ -49,15 +49,11 @@ import type {
   template: `
     @switch (node().type) { @case ('text') { @if (isAgentSummaryContent()) {
     <!-- Agent summary with XML-like format (function_calls, thinking, etc.) -->
-    <ptah-agent-summary
-      [content]="node().content || ''"
-      [class.animate-pulse]="isStreaming()"
-    />
+    <ptah-agent-summary [content]="node().content || ''" />
     } @else {
     <!-- Always render markdown for text nodes (live updates like ChatGPT/Claude web) -->
     <div
       class="prose prose-sm prose-invert max-w-none my-2 transition-opacity duration-300"
-      [class.animate-pulse]="isStreaming()"
     >
       <markdown [data]="node().content || ''" />
     </div>

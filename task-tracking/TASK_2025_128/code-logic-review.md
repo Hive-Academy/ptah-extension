@@ -4,15 +4,15 @@
 
 ## Review Summary
 
-| Metric              | Value                                      |
-| ------------------- | ------------------------------------------ |
-| Overall Score       | 5/10                                       |
-| Assessment          | NEEDS_REVISION                             |
-| Critical Issues     | 3                                          |
-| Serious Issues      | 5                                          |
-| Moderate Issues     | 4                                          |
-| Failure Modes Found | 8                                          |
-| Files Reviewed      | 20 (of 21 listed) + 5 additional via grep  |
+| Metric              | Value                                     |
+| ------------------- | ----------------------------------------- |
+| Overall Score       | 5/10                                      |
+| Assessment          | NEEDS_REVISION                            |
+| Critical Issues     | 3                                         |
+| Serious Issues      | 5                                         |
+| Moderate Issues     | 4                                         |
+| Failure Modes Found | 8                                         |
+| Files Reviewed      | 20 (of 21 listed) + 5 additional via grep |
 
 ---
 
@@ -53,14 +53,14 @@ When `subscription.service.ts` handles webhooks for legacy Basic price IDs, it m
 
 ### 4. What happens when dependencies fail?
 
-| Integration                   | Failure Mode                                    | Current Handling                                  | Assessment           |
-| ----------------------------- | ----------------------------------------------- | ------------------------------------------------- | -------------------- |
-| License server network call   | Timeout/unreachable                             | Returns Community tier (no key) or cached (key)   | OK for Community     |
-| License server returns error  | HTTP 500 from /verify                           | Falls through to error handler, returns Community  | OK                   |
-| RPC handler throws            | Unexpected error in mapLicenseStatusToResponse   | Returns expired tier                              | CONCERN: Should return Community for no-key users |
-| Paddle webhook legacy Basic   | Old Basic price ID received                     | Returns 'expired', logs warning                   | OK but confusing     |
-| `subscription.service.ts`     | Still maps Basic price IDs to 'basic'           | Stores 'basic' in DB, not caught                  | CRITICAL: Not updated |
-| `create-license.dto.ts`       | Admin creates license with 'community' plan     | DTO rejects - only allows 'basic' or 'pro'        | CRITICAL: Not updated |
+| Integration                  | Failure Mode                                   | Current Handling                                  | Assessment                                        |
+| ---------------------------- | ---------------------------------------------- | ------------------------------------------------- | ------------------------------------------------- |
+| License server network call  | Timeout/unreachable                            | Returns Community tier (no key) or cached (key)   | OK for Community                                  |
+| License server returns error | HTTP 500 from /verify                          | Falls through to error handler, returns Community | OK                                                |
+| RPC handler throws           | Unexpected error in mapLicenseStatusToResponse | Returns expired tier                              | CONCERN: Should return Community for no-key users |
+| Paddle webhook legacy Basic  | Old Basic price ID received                    | Returns 'expired', logs warning                   | OK but confusing                                  |
+| `subscription.service.ts`    | Still maps Basic price IDs to 'basic'          | Stores 'basic' in DB, not caught                  | CRITICAL: Not updated                             |
+| `create-license.dto.ts`      | Admin creates license with 'community' plan    | DTO rejects - only allows 'basic' or 'pro'        | CRITICAL: Not updated                             |
 
 ### 5. What's missing that the requirements didn't mention?
 
@@ -180,8 +180,7 @@ When `subscription.service.ts` handles webhooks for legacy Basic price IDs, it m
 - **Impact**: New database records created with `plan: 'basic'` instead of 'expired' (as `paddle.service.ts` correctly does)
 - **Evidence**:
   ```typescript
-  if (priceId === basicMonthlyPriceId || priceId === basicYearlyPriceId)
-    return 'basic';
+  if (priceId === basicMonthlyPriceId || priceId === basicYearlyPriceId) return 'basic';
   ```
 - **Fix**: Return 'expired' with a warning log, matching `paddle.service.ts` behavior
 
@@ -331,21 +330,21 @@ User is stuck unless they know to use command palette
 
 ## Requirements Fulfillment
 
-| Requirement | ID | Status | Concern |
-|-------------|-----|--------|---------|
-| Community Tier Type System | R1 | COMPLETE | Shared types correctly define LicenseTier with 'community' |
-| Community User Experience (VSCode) | R2 | PARTIAL | Works for new users; expired Pro users have no Community fallback path |
-| License RPC Handler Updates | R3 | COMPLETE | isCommunity flag correctly computed |
-| Feature Gate Service Updates | R4 | COMPLETE | isCommunityTier() method added, isBasicTier() removed |
-| License Command Messaging | R5 | COMPLETE | Messages updated for Community tier |
-| Plan Configuration (Server) | R6 | COMPLETE | PLANS config has community + pro |
-| Tier Mapping Service | R7 | COMPLETE | mapPlanToTier handles migration from basic/trial_basic |
-| Paddle Webhook Cleanup | R8 | PARTIAL | paddle.service.ts updated; subscription.service.ts NOT updated |
-| Landing Page Pricing Grid | R9 | COMPLETE | Community + Pro cards displayed |
-| Environment Config Cleanup | R10 | COMPLETE | Basic price IDs removed from environment files |
-| Subscription State Service | R11 | COMPLETE | currentPlanTier maps basic -> community |
-| Profile Components | R12 | PARTIAL | license-data.interface updated; profile-header has old 'basic' badge logic |
-| Frontend Chat Welcome | R13 | PARTIAL | Subheadlines mention Community; but welcome page still blocks with no Community action |
+| Requirement                        | ID  | Status   | Concern                                                                                |
+| ---------------------------------- | --- | -------- | -------------------------------------------------------------------------------------- |
+| Community Tier Type System         | R1  | COMPLETE | Shared types correctly define LicenseTier with 'community'                             |
+| Community User Experience (VSCode) | R2  | PARTIAL  | Works for new users; expired Pro users have no Community fallback path                 |
+| License RPC Handler Updates        | R3  | COMPLETE | isCommunity flag correctly computed                                                    |
+| Feature Gate Service Updates       | R4  | COMPLETE | isCommunityTier() method added, isBasicTier() removed                                  |
+| License Command Messaging          | R5  | COMPLETE | Messages updated for Community tier                                                    |
+| Plan Configuration (Server)        | R6  | COMPLETE | PLANS config has community + pro                                                       |
+| Tier Mapping Service               | R7  | COMPLETE | mapPlanToTier handles migration from basic/trial_basic                                 |
+| Paddle Webhook Cleanup             | R8  | PARTIAL  | paddle.service.ts updated; subscription.service.ts NOT updated                         |
+| Landing Page Pricing Grid          | R9  | COMPLETE | Community + Pro cards displayed                                                        |
+| Environment Config Cleanup         | R10 | COMPLETE | Basic price IDs removed from environment files                                         |
+| Subscription State Service         | R11 | COMPLETE | currentPlanTier maps basic -> community                                                |
+| Profile Components                 | R12 | PARTIAL  | license-data.interface updated; profile-header has old 'basic' badge logic             |
+| Frontend Chat Welcome              | R13 | PARTIAL  | Subheadlines mention Community; but welcome page still blocks with no Community action |
 
 ### Implicit Requirements NOT Addressed:
 
@@ -358,36 +357,36 @@ User is stuck unless they know to use command palette
 
 ## Edge Case Analysis
 
-| Edge Case | Handled | How | Concern |
-|-----------|---------|-----|---------|
-| No license key (new user) | YES | Returns Community tier (valid: true) | None |
-| Legacy 'basic' in database | YES | mapPlanToTier returns 'community' | Works |
-| Legacy 'trial_basic' in database | YES | mapPlanToTier returns 'community' | Works |
-| Pro subscription expires | PARTIAL | Returns expired, blocks extension | No auto-fallback to Community |
-| Pro trial ends | YES | Returns expired with reason 'trial_ended' | Same fallback concern |
-| Network failure (no license key) | YES | Returns Community immediately (no network call) | Correct |
-| Network failure (has license key) | YES | Uses offline grace period cache | Correct |
-| Rapid license:getStatus calls | YES | Cached in LicenseService (1-hour TTL) | Correct |
-| Admin creates 'community' license | NO | DTO rejects it | Must update DTO |
-| Paddle webhook with Basic price ID | PARTIAL | paddle.service.ts returns 'expired'; subscription.service.ts returns 'basic' | Inconsistent |
-| User upgrades Community -> Pro | YES | License key stored, verified, full activation | Correct |
-| User downgrades Pro -> Community | PARTIAL | Must manually remove key | No auto-fallback |
+| Edge Case                          | Handled | How                                                                          | Concern                       |
+| ---------------------------------- | ------- | ---------------------------------------------------------------------------- | ----------------------------- |
+| No license key (new user)          | YES     | Returns Community tier (valid: true)                                         | None                          |
+| Legacy 'basic' in database         | YES     | mapPlanToTier returns 'community'                                            | Works                         |
+| Legacy 'trial_basic' in database   | YES     | mapPlanToTier returns 'community'                                            | Works                         |
+| Pro subscription expires           | PARTIAL | Returns expired, blocks extension                                            | No auto-fallback to Community |
+| Pro trial ends                     | YES     | Returns expired with reason 'trial_ended'                                    | Same fallback concern         |
+| Network failure (no license key)   | YES     | Returns Community immediately (no network call)                              | Correct                       |
+| Network failure (has license key)  | YES     | Uses offline grace period cache                                              | Correct                       |
+| Rapid license:getStatus calls      | YES     | Cached in LicenseService (1-hour TTL)                                        | Correct                       |
+| Admin creates 'community' license  | NO      | DTO rejects it                                                               | Must update DTO               |
+| Paddle webhook with Basic price ID | PARTIAL | paddle.service.ts returns 'expired'; subscription.service.ts returns 'basic' | Inconsistent                  |
+| User upgrades Community -> Pro     | YES     | License key stored, verified, full activation                                | Correct                       |
+| User downgrades Pro -> Community   | PARTIAL | Must manually remove key                                                     | No auto-fallback              |
 
 ---
 
 ## Integration Risk Assessment
 
-| Integration | Failure Probability | Impact | Mitigation |
-|-------------|---------------------|--------|------------|
-| LicenseService -> Community (no key) | LOW | HIGH | Returns Community immediately, no network call |
-| LicenseService -> Server verify | MEDIUM | MEDIUM | Offline grace period, fallback to Community |
-| RPC Handler -> Frontend | LOW | MEDIUM | Error fallback returns expired (should be Community for no-key) |
-| Paddle webhook -> paddle.service.ts | LOW | LOW | Correctly maps to 'expired' for Basic IDs |
-| Paddle webhook -> subscription.service.ts | MEDIUM | HIGH | Still maps to 'basic', NOT updated |
-| Admin API -> create-license.dto | MEDIUM | HIGH | Cannot create Community licenses |
-| Auth JWT -> request-user interface | MEDIUM | MEDIUM | Cannot encode 'community' tier |
-| Profile page -> profile-header | LOW | LOW | Falls to default badge class |
-| Pricing utils -> plan-card-state | LOW | MEDIUM | Old 'basic' logic throughout |
+| Integration                               | Failure Probability | Impact | Mitigation                                                      |
+| ----------------------------------------- | ------------------- | ------ | --------------------------------------------------------------- |
+| LicenseService -> Community (no key)      | LOW                 | HIGH   | Returns Community immediately, no network call                  |
+| LicenseService -> Server verify           | MEDIUM              | MEDIUM | Offline grace period, fallback to Community                     |
+| RPC Handler -> Frontend                   | LOW                 | MEDIUM | Error fallback returns expired (should be Community for no-key) |
+| Paddle webhook -> paddle.service.ts       | LOW                 | LOW    | Correctly maps to 'expired' for Basic IDs                       |
+| Paddle webhook -> subscription.service.ts | MEDIUM              | HIGH   | Still maps to 'basic', NOT updated                              |
+| Admin API -> create-license.dto           | MEDIUM              | HIGH   | Cannot create Community licenses                                |
+| Auth JWT -> request-user interface        | MEDIUM              | MEDIUM | Cannot encode 'community' tier                                  |
+| Profile page -> profile-header            | LOW                 | LOW    | Falls to default badge class                                    |
+| Pricing utils -> plan-card-state          | LOW                 | MEDIUM | Old 'basic' logic throughout                                    |
 
 ---
 
@@ -411,6 +410,6 @@ User is stuck unless they know to use command palette
 
 ---
 
-*Review conducted: 2026-01-28*
-*Reviewer: Code Logic Review Agent (Paranoid Production Guardian)*
-*Files reviewed: 25 files across 4 codebases*
+_Review conducted: 2026-01-28_
+_Reviewer: Code Logic Review Agent (Paranoid Production Guardian)_
+_Files reviewed: 25 files across 4 codebases_

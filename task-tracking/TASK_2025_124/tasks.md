@@ -175,6 +175,7 @@
 **Issue**: errorCode generated in RpcHandler but not forwarded to frontend via postMessage
 
 **Fix Applied**:
+
 - Added `errorCode: response.errorCode` to postMessage payload at line 258-264
 
 ---
@@ -185,6 +186,7 @@
 **Issue**: Frontend interface and class did not include errorCode field
 
 **Fixes Applied**:
+
 1. Added `errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED'` to RpcResponse interface
 2. Added `errorCode` parameter to RpcResult class constructor
 3. Added `isLicenseError()` and `isProRequired()` helper methods to RpcResult
@@ -198,6 +200,7 @@
 **Issue**: If getCachedStatus() throws unexpectedly, handleMessage would crash
 
 **Fix Applied**:
+
 - Wrapped validateLicense() internals in try/catch block
 - Returns LICENSE_REQUIRED on exception (fail-closed, not fail-open)
 - Logs error with method name for debugging
@@ -210,6 +213,7 @@
 **Issue**: PRO_ONLY_METHOD_PREFIXES comment didn't explain unmapped Pro features
 
 **Fix Applied**:
+
 - Added comprehensive documentation for Pro feature -> RPC prefix mapping
 - Documented that other Pro features (mcp_server, workspace_intelligence, custom_tools, cost_tracking) are gated via FeatureGateService, not RPC layer
 - Added note for future developers to add prefixes when new Pro features expose RPC endpoints

@@ -5,11 +5,7 @@
   <div class="chat-image avatar">
     <div
       class="w-8 h-8 rounded-full overflow-hidden transition-all duration-300"
-      [class.ring-2]="isStreaming()"
-      [class.ring-info]="isStreaming()"
-      [class.ring-offset-2]="isStreaming()"
-      [class.ring-offset-base-100]="isStreaming()"
-      [class.animate-pulse]="isStreaming()"
+      [class.streaming-avatar-glow]="isStreaming()"
     >
       <img
         [ngSrc]="ptahIconUri"

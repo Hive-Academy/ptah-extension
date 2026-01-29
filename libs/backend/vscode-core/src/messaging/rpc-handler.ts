@@ -69,7 +69,9 @@ const ALLOWED_METHOD_PREFIXES = [
  *
  * Mapping from PRO_ONLY_FEATURES (FeatureGateService) to RPC prefixes:
  * - setup_wizard      -> setup-status:, setup-wizard:, wizard:
- * - openrouter_proxy  -> openrouter:
+ *
+ * Community features with RPC endpoints (available to ALL users):
+ * - openrouter_proxy  -> openrouter: (un-gated in TASK_2025_129)
  *
  * Other Pro features WITHOUT RPC endpoints (gated via FeatureGateService):
  * - mcp_server            -> Backend-only, no RPC (uses MCP protocol)
@@ -84,7 +86,6 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'setup-status:', // setup_wizard feature
   'setup-wizard:', // setup_wizard feature
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
-  'openrouter:', // openrouter_proxy feature
 ] as const;
 
 /**
@@ -126,7 +127,7 @@ export interface RpcLicenseValidationResult {
  *
  * TASK_2025_124: Added license middleware for centralized license validation
  * - All RPC methods (except license:*, auth:*) require valid license
- * - Pro-only methods (setup-*, wizard:*, openrouter:*) require Pro tier
+ * - Pro-only methods (setup-*, wizard:*) require Pro tier
  * - Uses getCachedStatus() only - NO server calls per request
  */
 @injectable()
@@ -379,7 +380,7 @@ export class RpcHandler {
       }
 
       // Step 5: Handle edge case - Pro-only method with Community tier
-      // Pro-only methods: setup-status:*, setup-wizard:*, wizard:*, openrouter:*
+      // Pro-only methods: setup-status:*, setup-wizard:*, wizard:*
       if (this.isProOnlyMethod(method)) {
         const isPro = status.tier === 'pro' || status.tier === 'trial_pro';
         if (!isPro) {
@@ -422,7 +423,9 @@ export class RpcHandler {
    *
    * Pro-only methods are derived from PRO_ONLY_FEATURES in FeatureGateService:
    * - setup_wizard feature: setup-status:*, setup-wizard:*, wizard:*
-   * - openrouter_proxy feature: openrouter:*
+   *
+   * Community methods (TASK_2025_129):
+   * - openrouter:* - Available to all users
    *
    * @param method - RPC method name to check
    * @returns True if method requires Pro tier

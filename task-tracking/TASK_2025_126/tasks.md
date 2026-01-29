@@ -19,11 +19,11 @@
 
 ### Risks Identified
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| `LicenseGetStatusResponse` missing `reason` field | MEDIUM | Add `reason` field in Task 4.1 |
-| VS Code command execution from webview needs RPC | MEDIUM | Add `command:execute` RPC method in Task 4.2 |
-| Navigation bypass from welcome view | LOW | UI has no escape (no sidebar/tabs), defense-in-depth in Task 3.2 |
+| Risk                                              | Severity | Mitigation                                                       |
+| ------------------------------------------------- | -------- | ---------------------------------------------------------------- |
+| `LicenseGetStatusResponse` missing `reason` field | MEDIUM   | Add `reason` field in Task 4.1                                   |
+| VS Code command execution from webview needs RPC  | MEDIUM   | Add `command:execute` RPC method in Task 4.2                     |
+| Navigation bypass from welcome view               | LOW      | UI has no escape (no sidebar/tabs), defense-in-depth in Task 3.2 |
 
 ### Edge Cases to Handle
 
@@ -46,6 +46,7 @@
 **Assigned To**: frontend-developer
 **Dependencies**: None
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\app-state.service.ts`
 
 **Description**: Add 'welcome' to the ViewType union type to enable signal-based navigation to the welcome view. The ViewType union (line 11-17) currently includes 'chat', 'command-builder', 'analytics', 'context-tree', 'settings', and 'setup-wizard'. Add 'welcome' as a new valid view type.
@@ -53,18 +54,13 @@
 **Pattern Reference**: `app-state.service.ts:11-17`
 
 **Implementation Details**:
+
 ```typescript
-export type ViewType =
-  | 'chat'
-  | 'command-builder'
-  | 'analytics'
-  | 'context-tree'
-  | 'settings'
-  | 'setup-wizard'
-  | 'welcome';  // NEW: Add welcome view
+export type ViewType = 'chat' | 'command-builder' | 'analytics' | 'context-tree' | 'settings' | 'setup-wizard' | 'welcome'; // NEW: Add welcome view
 ```
 
 **Acceptance Criteria**:
+
 - [ ] 'welcome' added to ViewType union type
 - [ ] TypeScript compiles without errors
 - [ ] Existing navigation functionality unaffected
@@ -78,6 +74,7 @@ export type ViewType =
 **Assigned To**: backend-developer
 **Dependencies**: None
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\webview-html-generator.ts`
 
 **Description**: Add 'welcome' to the VALID_VIEWS array (line 81-88) to allow the backend to set `initialView: 'welcome'` when generating webview HTML. This enables the license blocking flow to initialize the webview with the welcome view.
@@ -85,6 +82,7 @@ export type ViewType =
 **Pattern Reference**: `webview-html-generator.ts:81-88`
 
 **Implementation Details**:
+
 ```typescript
 const VALID_VIEWS = [
   'chat',
@@ -93,11 +91,12 @@ const VALID_VIEWS = [
   'context-tree',
   'settings',
   'setup-wizard',
-  'welcome',  // NEW: Add welcome view
+  'welcome', // NEW: Add welcome view
 ];
 ```
 
 **Acceptance Criteria**:
+
 - [ ] 'welcome' added to VALID_VIEWS array
 - [ ] `generateAngularWebviewContent` accepts `initialView: 'welcome'` without throwing
 - [ ] TypeScript compiles without errors
@@ -111,6 +110,7 @@ const VALID_VIEWS = [
 **Assigned To**: frontend-developer
 **Dependencies**: TASK-1.1
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\libs\frontend\core\src\lib\services\app-state.service.ts`
 
 **Description**: Verify the `initializeState()` method (line 92-96) correctly handles the 'welcome' view type from `window.initialView`. The current implementation casts `window.initialView` to `ViewType`, which should automatically work after TASK-1.1 is complete. Add logging for debugging.
@@ -118,6 +118,7 @@ const VALID_VIEWS = [
 **Pattern Reference**: `app-state.service.ts:92-96`
 
 **Acceptance Criteria**:
+
 - [ ] `initializeState()` correctly sets 'welcome' as currentView when `window.initialView === 'welcome'`
 - [ ] Console log added for debugging: `[AppStateManager] Initializing with view: ${initialView}`
 
@@ -126,6 +127,7 @@ const VALID_VIEWS = [
 ---
 
 **Batch 1 Verification**:
+
 - [ ] TypeScript compiles: `nx typecheck core && nx build ptah-extension-vscode`
 - [ ] 'welcome' recognized as valid ViewType
 - [ ] 'welcome' recognized as valid initialView
@@ -143,20 +145,24 @@ const VALID_VIEWS = [
 **Assigned To**: frontend-developer
 **Dependencies**: TASK-1.1
 **Files**:
+
 - [CREATE] `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\welcome.component.ts`
 
 **Description**: Create the WelcomeComponent as a standalone Angular component following the settings.component.ts pattern. The component should:
+
 1. Inject ClaudeRpcService and VSCodeService
 2. Use signal-based state management for license status and loading state
 3. Implement ngOnInit to fetch license status via RPC
 4. Implement action methods for license key entry, pricing, and trial
 
 **Pattern References**:
+
 - Component structure: `settings.component.ts:37-162`
 - RPC call pattern: `settings.component.ts:140-161`
 - DaisyUI styling: `wizard-view.component.ts:70-124`
 
 **Implementation Details**:
+
 ```typescript
 @Component({
   selector: 'ptah-welcome',
@@ -202,6 +208,7 @@ export class WelcomeComponent implements OnInit {
 ```
 
 **Acceptance Criteria**:
+
 - [ ] Component created with standalone: true
 - [ ] Signal-based state for licenseReason, isLoadingStatus, errorMessage
 - [ ] ngOnInit calls fetchLicenseStatus()
@@ -222,9 +229,11 @@ export class WelcomeComponent implements OnInit {
 **Assigned To**: frontend-developer
 **Dependencies**: TASK-2.1
 **Files**:
+
 - [CREATE] `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\welcome.component.html`
 
 **Description**: Create the HTML template for WelcomeComponent using DaisyUI hero layout. The template should be a full-page standalone layout with:
+
 1. Ptah logo at top
 2. Context-aware headline and subheadline
 3. Feature highlights in 2x2 grid
@@ -233,10 +242,12 @@ export class WelcomeComponent implements OnInit {
 6. Error state with retry button
 
 **Pattern References**:
+
 - Hero layout: `wizard-view.component.ts:70-124` (inline template pattern)
 - DaisyUI classes: `settings.component.html`
 
 **Implementation Details**:
+
 ```html
 <div class="hero min-h-screen bg-base-100">
   <div class="hero-content text-center max-w-2xl">
@@ -253,15 +264,15 @@ export class WelcomeComponent implements OnInit {
       <!-- Feature Highlights Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 w-full max-w-xl">
         @for (feature of features; track feature.title) {
-          <div class="card bg-base-200 p-4">
-            <div class="flex items-start gap-3">
-              <lucide-angular [img]="feature.icon" class="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-              <div class="text-left">
-                <h3 class="font-semibold text-sm">{{ feature.title }}</h3>
-                <p class="text-xs text-base-content/60">{{ feature.description }}</p>
-              </div>
+        <div class="card bg-base-200 p-4">
+          <div class="flex items-start gap-3">
+            <lucide-angular [img]="feature.icon" class="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+            <div class="text-left">
+              <h3 class="font-semibold text-sm">{{ feature.title }}</h3>
+              <p class="text-xs text-base-content/60">{{ feature.description }}</p>
             </div>
           </div>
+        </div>
         }
       </div>
 
@@ -285,10 +296,10 @@ export class WelcomeComponent implements OnInit {
 
       <!-- Error State -->
       @if (errorMessage()) {
-        <div class="alert alert-warning mt-4 max-w-sm">
-          <span>{{ errorMessage() }}</span>
-          <button class="btn btn-sm btn-ghost" (click)="retryStatus()">Retry</button>
-        </div>
+      <div class="alert alert-warning mt-4 max-w-sm">
+        <span>{{ errorMessage() }}</span>
+        <button class="btn btn-sm btn-ghost" (click)="retryStatus()">Retry</button>
+      </div>
       }
     </div>
   </div>
@@ -296,6 +307,7 @@ export class WelcomeComponent implements OnInit {
 ```
 
 **Acceptance Criteria**:
+
 - [ ] Hero layout with centered content
 - [ ] Ptah logo displayed with ngSrc and priority loading
 - [ ] Headline uses getHeadline() for context-aware text
@@ -316,17 +328,20 @@ export class WelcomeComponent implements OnInit {
 **Assigned To**: frontend-developer
 **Dependencies**: TASK-2.1, TASK-2.2
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\libs\frontend\chat\src\index.ts`
 
 **Description**: Add WelcomeComponent to the public API exports of the chat library so it can be imported by app-shell.component.ts.
 
 **Implementation Details**:
+
 ```typescript
 // Add to existing exports in index.ts
 export { WelcomeComponent } from './lib/components/templates/welcome.component';
 ```
 
 **Acceptance Criteria**:
+
 - [ ] WelcomeComponent exported from `@ptah-extension/chat`
 - [ ] No circular dependency errors
 
@@ -335,6 +350,7 @@ export { WelcomeComponent } from './lib/components/templates/welcome.component';
 ---
 
 **Batch 2 Verification**:
+
 - [ ] All files created with real implementations (no stubs/TODOs)
 - [ ] Build passes: `nx build chat`
 - [ ] code-logic-reviewer approved
@@ -352,6 +368,7 @@ export { WelcomeComponent } from './lib/components/templates/welcome.component';
 **Assigned To**: frontend-developer
 **Dependencies**: TASK-2.3
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\app-shell.component.html`
 
 **Description**: Add a new `@case ('welcome')` block to the app-shell template's @switch directive. The welcome view should render in full-width standalone mode (no sidebar, no tabs) matching the pattern used by 'setup-wizard' and 'settings' views.
@@ -360,6 +377,7 @@ export { WelcomeComponent } from './lib/components/templates/welcome.component';
 
 **Implementation Details**:
 Add after the `@case ('settings')` block (line 20-24), before `@default`:
+
 ```html
 <!-- Welcome: Full-width, standalone layout (no sidebar, no tabs) -->
 @case ('welcome') {
@@ -370,6 +388,7 @@ Add after the `@case ('settings')` block (line 20-24), before `@default`:
 ```
 
 **Acceptance Criteria**:
+
 - [ ] `@case ('welcome')` added to @switch block
 - [ ] Renders `<ptah-welcome />` component
 - [ ] Uses full-width container (`h-full w-full`)
@@ -384,6 +403,7 @@ Add after the `@case ('settings')` block (line 20-24), before `@default`:
 **Assigned To**: frontend-developer
 **Dependencies**: TASK-3.1
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\app-shell.component.ts`
 
 **Description**: Import and add WelcomeComponent to the imports array of AppShellComponent. This allows the template to use `<ptah-welcome />`.
@@ -391,6 +411,7 @@ Add after the `@case ('settings')` block (line 20-24), before `@default`:
 **Pattern Reference**: `app-shell.component.ts:69-87`
 
 **Implementation Details**:
+
 ```typescript
 // Add import at top
 import { WelcomeComponent } from './welcome.component';
@@ -407,6 +428,7 @@ imports: [
 ```
 
 **Acceptance Criteria**:
+
 - [ ] WelcomeComponent imported from relative path
 - [ ] WelcomeComponent added to imports array
 - [ ] No TypeScript errors
@@ -416,6 +438,7 @@ imports: [
 ---
 
 **Batch 3 Verification**:
+
 - [ ] Welcome view renders in standalone mode
 - [ ] No sidebar visible when on welcome view
 - [ ] No tab bar visible when on welcome view
@@ -434,6 +457,7 @@ imports: [
 **Assigned To**: backend-developer
 **Dependencies**: None
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts`
 
 **Description**: Add an optional `reason` field to `LicenseGetStatusResponse` to enable context-aware welcome messaging. The reason field should indicate why the license is invalid (expired, trial_ended, no_license).
@@ -441,6 +465,7 @@ imports: [
 **Pattern Reference**: `rpc.types.ts:574-595`
 
 **Implementation Details**:
+
 ```typescript
 export interface LicenseGetStatusResponse {
   /** Whether the license is valid */
@@ -469,6 +494,7 @@ export interface LicenseGetStatusResponse {
 ```
 
 **Acceptance Criteria**:
+
 - [ ] `reason` field added as optional
 - [ ] Type is `'expired' | 'trial_ended' | 'no_license'`
 - [ ] TypeScript compiles without errors
@@ -482,6 +508,7 @@ export interface LicenseGetStatusResponse {
 **Assigned To**: backend-developer
 **Dependencies**: TASK-4.1
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\license-rpc.handlers.ts`
 
 **Description**: Update `mapLicenseStatusToResponse()` method to include the `reason` field from the internal LicenseStatus. This maps the backend license reason to the RPC response.
@@ -489,6 +516,7 @@ export interface LicenseGetStatusResponse {
 **Pattern Reference**: `license-rpc.handlers.ts:129-161`
 
 **Implementation Details**:
+
 ```typescript
 private mapLicenseStatusToResponse(
   status: LicenseStatus
@@ -517,6 +545,7 @@ private mapLicenseStatusToResponse(
 ```
 
 **Acceptance Criteria**:
+
 - [ ] `reason` field mapped from `status.reason`
 - [ ] Handles undefined reason gracefully
 - [ ] TypeScript compiles without errors
@@ -530,6 +559,7 @@ private mapLicenseStatusToResponse(
 **Assigned To**: backend-developer
 **Dependencies**: None
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts`
 - [CREATE] `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\command-rpc.handlers.ts`
 - [MODIFY] `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc/rpc-method-registration.service.ts`
@@ -539,6 +569,7 @@ private mapLicenseStatusToResponse(
 **Implementation Details**:
 
 1. Add types to `rpc.types.ts`:
+
 ```typescript
 /** Parameters for command:execute RPC method */
 export interface CommandExecuteParams {
@@ -558,31 +589,26 @@ export interface CommandExecuteResponse {
 ```
 
 2. Create `command-rpc.handlers.ts`:
+
 ```typescript
 @injectable()
 export class CommandRpcHandlers {
-  constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler
-  ) {}
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger, @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler) {}
 
   register(): void {
-    this.rpcHandler.registerMethod<CommandExecuteParams, CommandExecuteResponse>(
-      'command:execute',
-      async (params) => {
-        try {
-          // Security: Only allow ptah.* commands from webview
-          if (!params.command.startsWith('ptah.')) {
-            return { success: false, error: 'Only ptah.* commands allowed' };
-          }
-
-          await vscode.commands.executeCommand(params.command, ...(params.args || []));
-          return { success: true };
-        } catch (error) {
-          return { success: false, error: error instanceof Error ? error.message : String(error) };
+    this.rpcHandler.registerMethod<CommandExecuteParams, CommandExecuteResponse>('command:execute', async (params) => {
+      try {
+        // Security: Only allow ptah.* commands from webview
+        if (!params.command.startsWith('ptah.')) {
+          return { success: false, error: 'Only ptah.* commands allowed' };
         }
+
+        await vscode.commands.executeCommand(params.command, ...(params.args || []));
+        return { success: true };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
-    );
+    });
 
     this.logger.debug('Command RPC handlers registered', { methods: ['command:execute'] });
   }
@@ -592,6 +618,7 @@ export class CommandRpcHandlers {
 3. Register in `rpc-method-registration.service.ts`
 
 **Acceptance Criteria**:
+
 - [ ] RPC types defined for command:execute
 - [ ] Handler only allows `ptah.*` commands (security)
 - [ ] Handler registered via RpcMethodRegistrationService
@@ -606,6 +633,7 @@ export class CommandRpcHandlers {
 **Assigned To**: backend-developer
 **Dependencies**: TASK-1.2
 **Files**:
+
 - [MODIFY] `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\main.ts`
 
 **Description**: Modify `handleLicenseBlocking()` function (line 88-105) to show the webview with `initialView: 'welcome'` instead of the blocking modal. This is the core change that replaces the modal with the embedded welcome page.
@@ -613,12 +641,9 @@ export class CommandRpcHandlers {
 **Pattern Reference**: `main.ts:88-105` (current implementation)
 
 **Implementation Details**:
+
 ```typescript
-async function handleLicenseBlocking(
-  context: vscode.ExtensionContext,
-  licenseService: LicenseService,
-  status: LicenseStatus
-): Promise<void> {
+async function handleLicenseBlocking(context: vscode.ExtensionContext, licenseService: LicenseService, status: LicenseStatus): Promise<void> {
   // Register minimal commands for license management
   registerLicenseOnlyCommands(context, licenseService);
 
@@ -631,11 +656,7 @@ async function handleLicenseBlocking(
     resolveWebviewView(webviewView: vscode.WebviewView): void {
       webviewView.webview.options = {
         enableScripts: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(context.extensionUri, 'webview', 'browser'),
-          vscode.Uri.joinPath(context.extensionUri, 'assets'),
-          context.extensionUri,
-        ],
+        localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'webview', 'browser'), vscode.Uri.joinPath(context.extensionUri, 'assets'), context.extensionUri],
       };
 
       // Generate HTML with welcome view
@@ -644,10 +665,7 @@ async function handleLicenseBlocking(
         path: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
       };
 
-      webviewView.webview.html = htmlGenerator.generateAngularWebviewContent(
-        webviewView.webview,
-        { workspaceInfo, initialView: 'welcome' }
-      );
+      webviewView.webview.html = htmlGenerator.generateAngularWebviewContent(webviewView.webview, { workspaceInfo, initialView: 'welcome' });
 
       // Setup minimal message listener for RPC calls (license status, command execution)
       webviewView.webview.onDidReceiveMessage(async (message) => {
@@ -710,6 +728,7 @@ async function handleLicenseBlocking(
 ```
 
 **Acceptance Criteria**:
+
 - [ ] handleLicenseBlocking no longer calls showLicenseRequiredUI()
 - [ ] Webview registered with initialView: 'welcome'
 - [ ] Minimal RPC handler for license:getStatus and command:execute
@@ -721,9 +740,10 @@ async function handleLicenseBlocking(
 ---
 
 **Batch 4 Verification**:
+
 - [ ] Build passes: `nx build ptah-extension-vscode`
 - [ ] License status RPC returns reason field
-- [ ] command:execute RPC works for ptah.* commands
+- [ ] command:execute RPC works for ptah.\* commands
 - [ ] Extension starts with welcome view for unlicensed users
 - [ ] Modal is not shown
 
@@ -738,12 +758,12 @@ async function handleLicenseBlocking(
 
 ## Developer Assignment Summary
 
-| Batch | Developer | Tasks | Est. Time |
-|-------|-----------|-------|-----------|
-| 1 | frontend + backend | 3 | 30 min |
-| 2 | frontend-developer | 3 | 1.5 hours |
-| 3 | frontend-developer | 2 | 30 min |
-| 4 | backend-developer | 4 | 1.5 hours |
+| Batch | Developer          | Tasks | Est. Time |
+| ----- | ------------------ | ----- | --------- |
+| 1     | frontend + backend | 3     | 30 min    |
+| 2     | frontend-developer | 3     | 1.5 hours |
+| 3     | frontend-developer | 2     | 30 min    |
+| 4     | backend-developer  | 4     | 1.5 hours |
 
 **Total Estimated Time**: 4 hours
 

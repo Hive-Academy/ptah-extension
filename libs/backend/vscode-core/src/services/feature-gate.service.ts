@@ -21,15 +21,16 @@ import type { LicenseService, LicenseStatus } from './license.service';
  * These features are NOT available to Community tier users:
  * - mcp_server: Code Execution MCP server
  * - workspace_intelligence: Advanced workspace analysis (13+ project types)
- * - openrouter_proxy: OpenRouter proxy for 200+ models
  * - custom_tools: Custom tool creation and management
  * - setup_wizard: Intelligent setup wizard with agent generation
  * - cost_tracking: Real-time cost tracking and analytics
+ *
+ * Community features (available to ALL users):
+ * - openrouter_proxy: OpenRouter proxy for 200+ models (TASK_2025_129)
  */
 export type ProOnlyFeature =
   | 'mcp_server'
   | 'workspace_intelligence'
-  | 'openrouter_proxy'
   | 'custom_tools'
   | 'setup_wizard'
   | 'cost_tracking';
@@ -59,7 +60,6 @@ export type Feature =
 const PRO_ONLY_FEATURES: readonly ProOnlyFeature[] = [
   'mcp_server',
   'workspace_intelligence',
-  'openrouter_proxy',
   'custom_tools',
   'setup_wizard',
   'cost_tracking',
@@ -203,7 +203,6 @@ export class FeatureGateService {
    * Pro tier includes all Community features plus:
    * - MCP Server
    * - Workspace Intelligence
-   * - OpenRouter Proxy
    * - Custom Tools
    * - Setup Wizard
    * - Cost Tracking
@@ -251,7 +250,7 @@ export class FeatureGateService {
    */
   async isTrialActive(): Promise<boolean> {
     const status = await this.getLicenseStatus();
-    return status.tier === 'trial_pro';  // Only Pro has trial
+    return status.tier === 'trial_pro'; // Only Pro has trial
   }
 
   /**
