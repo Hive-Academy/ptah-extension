@@ -37,7 +37,8 @@ import { WebviewHtmlGenerator } from '../services/webview-html-generator';
 export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
-  private _panel?: vscode.WebviewPanel;
+  private readonly _panels = new Map<string, vscode.WebviewPanel>();
+  private readonly _panelEventQueues = new Map<string, WebviewEventQueue>();
   private htmlGenerator: WebviewHtmlGenerator;
   private fileWatcher?: vscode.FileSystemWatcher;
 
@@ -108,14 +109,12 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   /**
    * Create a full-screen Angular SPA panel
    * Uses shared WebviewMessageHandlerService for unified message handling
+   * TASK_2025_117: Supports multiple independent panels with unique IDs
    */
   public async createPanel(): Promise<void> {
-    if (this._panel) {
-      this._panel.reveal(vscode.ViewColumn.One);
-      return;
-    }
+    const panelId = `ptah.panel.${crypto.randomUUID()}`;
 
-    this._panel = vscode.window.createWebviewPanel(
+    const panel = vscode.window.createWebviewPanel(
       'ptah-angular-spa',
       'Ptah - Claude Code Assistant',
       vscode.ViewColumn.One,
@@ -130,37 +129,69 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       }
     );
 
-    // Register with WebviewManager for message routing
+    // Track in local registry
+    this._panels.set(panelId, panel);
+
+    // Register with WebviewManager for broadcast message routing
+    // Uses existing cast pattern (both WebviewPanel and WebviewView have .webview property)
     this.webviewManager.registerWebviewView(
-      'ptah.panel',
-      this._panel as unknown as vscode.WebviewView
+      panelId,
+      panel as unknown as vscode.WebviewView
     );
 
-    // Setup message handling using shared service (CRITICAL: was missing before!)
+    // Per-panel event queue for readiness gating (manually instantiated, not from DI)
+    const panelEventQueue = new WebviewEventQueue(this.logger as any);
+    this._panelEventQueues.set(panelId, panelEventQueue);
+
+    // Setup message handling using shared service
     this.messageHandler.setupMessageListener(
       {
-        webviewId: 'ptah.panel',
-        webview: this._panel.webview,
+        webviewId: panelId,
+        webview: panel.webview,
         onReady: () => {
-          this.logger.info('Panel webview ready signal received');
+          this.logger.info(`Panel ${panelId} webview ready`);
+          panelEventQueue.markReady();
+          panelEventQueue.flush((event) => panel.webview.postMessage(event));
         },
       },
       this._disposables
     );
 
-    this._panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
-      this._panel.webview,
-      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
+    // Generate HTML with panelId in ptahConfig
+    panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
+      panel.webview,
+      {
+        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>,
+        panelId,
+      }
     );
 
-    // Handle panel disposal
-    this._panel.onDidDispose(
+    // Cleanup on dispose: remove from local Map, dispose event queue
+    // WebviewManager auto-removes via its own onDidDispose listener (registerWebviewView sets this up)
+    panel.onDidDispose(
       () => {
-        this._panel = undefined;
+        this._panels.delete(panelId);
+        panelEventQueue.dispose();
+        this._panelEventQueues.delete(panelId);
+        this.logger.info(
+          `Panel ${panelId} disposed, ${this._panels.size} panels remaining`
+        );
       },
       undefined,
       this._disposables
     );
+
+    this.logger.info(
+      `Panel ${panelId} created, ${this._panels.size} total panels`
+    );
+  }
+
+  /**
+   * Get count of active editor panels
+   * TASK_2025_117: Useful for monitoring and UI decisions
+   */
+  public get panelCount(): number {
+    return this._panels.size;
   }
 
   /**
@@ -200,17 +231,16 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Send message directly to webview (bypasses readiness check)
-   * Internal method used by postMessage and flushEventQueue
+   * Send message directly to sidebar webview (bypasses readiness check)
+   * Internal method used by postMessage and flushEventQueue for SIDEBAR only.
+   * TASK_2025_117: Panel event queues flush directly via their own closure in createPanel().
    */
   private postMessageDirect(message: WebviewMessage): void {
-    if (this._panel?.webview) {
-      this._panel.webview.postMessage(message);
-    } else if (this._view?.webview) {
+    if (this._view?.webview) {
       this._view.webview.postMessage(message);
     } else {
       this.logger.warn(
-        `No active webviews available to send message: ${message.type}`
+        `No sidebar webview available to send message: ${message.type}`
       );
     }
   }
@@ -266,30 +296,47 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Reload webview content (for hot reload during development)
+   * TASK_2025_117: Iterates all panels and sidebar for reload
    */
   private async reloadWebview(): Promise<void> {
-    const webview = this._panel?.webview || this._view?.webview;
-    if (!webview) {
-      this.logger.warn('No webview available to reload.');
-      return;
-    }
+    let reloadedCount = 0;
 
-    // Reset event queue on reload - webview instance changes
+    // Reset sidebar event queue on reload
     this.eventQueue.reset();
 
-    const newHtml = this.htmlGenerator.generateAngularWebviewContent(
-      webview,
-      this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
-    );
-
-    if (this._panel?.webview) {
-      this._panel.webview.html = newHtml;
-      this.logger.info('Panel webview reloaded');
+    // Reload all editor panels
+    for (const [panelId, panel] of this._panels) {
+      if (panel.webview) {
+        const panelEventQueue = this._panelEventQueues.get(panelId);
+        if (panelEventQueue) {
+          panelEventQueue.reset();
+        }
+        const newHtml = this.htmlGenerator.generateAngularWebviewContent(
+          panel.webview,
+          {
+            workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>,
+            panelId,
+          }
+        );
+        panel.webview.html = newHtml;
+        reloadedCount++;
+        this.logger.info(`Panel ${panelId} webview reloaded`);
+      }
     }
 
+    // Reload sidebar
     if (this._view?.webview) {
+      const newHtml = this.htmlGenerator.generateAngularWebviewContent(
+        this._view.webview,
+        this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>
+      );
       this._view.webview.html = newHtml;
-      this.logger.info('View webview reloaded');
+      reloadedCount++;
+      this.logger.info('Sidebar webview reloaded');
+    }
+
+    if (reloadedCount === 0) {
+      this.logger.warn('No webviews available to reload.');
     }
     // NOTE: Hot-reload works by replacing webview.html entirely, no need for refresh signal
   }
@@ -309,12 +356,21 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Dispose of resources
+   * TASK_2025_117: Also disposes all per-panel event queues
    */
   dispose(): void {
     this.logger.info('Disposing Angular Webview Provider...');
 
-    // Clear event queue using service
+    // Clear sidebar event queue using DI-injected service
     this.eventQueue.dispose();
+
+    // Dispose all per-panel event queues
+    for (const [panelId, panelEventQueue] of this._panelEventQueues) {
+      panelEventQueue.dispose();
+      this.logger.info(`Panel ${panelId} event queue disposed`);
+    }
+    this._panelEventQueues.clear();
+    this._panels.clear();
 
     // Dispose file watcher
     if (this.fileWatcher) {

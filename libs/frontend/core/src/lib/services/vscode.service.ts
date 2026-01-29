@@ -13,6 +13,8 @@ export interface WebviewConfig {
   baseUri: string;
   iconUri: string;
   userIconUri: string;
+  /** Unique panel identifier for multi-webview support (TASK_2025_117). Empty string for sidebar. */
+  panelId?: string;
 }
 
 /**
@@ -75,6 +77,7 @@ export class VSCodeService {
     baseUri: '',
     iconUri: '',
     userIconUri: '',
+    panelId: '',
   });
 
   private readonly _isConnected = signal(false);

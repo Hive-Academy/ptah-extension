@@ -12,6 +12,8 @@ export interface WebviewHtmlOptions {
   initialView?: string;
   /** Whether the user has a valid license (default: true for licensed activation) */
   isLicensed?: boolean;
+  /** Unique panel identifier for multi-webview support (TASK_2025_117) */
+  panelId?: string;
 }
 
 /**
@@ -37,6 +39,7 @@ export class WebviewHtmlGenerator {
           workspaceInfo?: Record<string, unknown>;
           initialView?: string;
           isLicensed?: boolean;
+          panelId?: string;
         }
       | Record<string, unknown>
   ): string {
@@ -45,12 +48,14 @@ export class WebviewHtmlGenerator {
       let workspaceInfo: Record<string, unknown> | undefined;
       let initialView: string | undefined;
       let isLicensed = true; // Default to licensed for normal activation
+      let panelId: string | undefined;
 
       if (options) {
         if (
           'initialView' in options ||
           'workspaceInfo' in options ||
-          'isLicensed' in options
+          'isLicensed' in options ||
+          'panelId' in options
         ) {
           // New format with explicit options
           workspaceInfo = (
@@ -58,6 +63,7 @@ export class WebviewHtmlGenerator {
           ).workspaceInfo;
           initialView = (options as { initialView?: string }).initialView;
           isLicensed = (options as { isLicensed?: boolean }).isLicensed ?? true;
+          panelId = (options as { panelId?: string }).panelId;
         } else {
           // Legacy format - treat as workspaceInfo directly
           workspaceInfo = options as Record<string, unknown>;
@@ -68,7 +74,8 @@ export class WebviewHtmlGenerator {
         webview,
         workspaceInfo,
         initialView,
-        isLicensed
+        isLicensed,
+        panelId
       );
       return htmlContent;
     } catch (error) {
@@ -89,7 +96,8 @@ export class WebviewHtmlGenerator {
     webview: vscode.Webview,
     workspaceInfo?: Record<string, unknown>,
     initialView?: string,
-    isLicensed = true
+    isLicensed = true,
+    panelId?: string
   ): string {
     // CRITICAL: Validate initialView to prevent invalid views from crashing navigation
     const VALID_VIEWS = [
@@ -152,7 +160,8 @@ export class WebviewHtmlGenerator {
       workspaceInfo,
       webview,
       initialView,
-      isLicensed
+      isLicensed,
+      panelId
     );
     const themeStyles = this.getThemeStyles();
 
@@ -412,7 +421,8 @@ export class WebviewHtmlGenerator {
     workspaceInfo?: Record<string, unknown>,
     webview?: vscode.Webview,
     initialView?: string,
-    isLicensed = true
+    isLicensed = true,
+    panelId?: string
   ): string {
     // Generate proper webview URIs for assets
     const appDistPath = path.join(
@@ -457,7 +467,8 @@ export class WebviewHtmlGenerator {
         userIconUri: '${userIconUri}',
         initialView: ${
           initialView ? `'${this.escapeJsString(initialView)}'` : 'null'
-        }
+        },
+        panelId: '${this.escapeJsString(panelId || '')}'
       };
 
 
