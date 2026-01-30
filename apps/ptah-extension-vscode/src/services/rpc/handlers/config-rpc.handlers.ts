@@ -15,7 +15,11 @@ import {
   ConfigManager,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
+import {
+  SdkAgentAdapter,
+  OpenRouterModelsService,
+  SDK_TOKENS,
+} from '@ptah-extension/agent-sdk';
 import {
   ClaudeModel,
   PermissionLevel,
@@ -39,7 +43,9 @@ export class ConfigRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
-    @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter
+    @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_OPENROUTER_MODELS)
+    private readonly openRouterModels: OpenRouterModelsService
   ) {}
 
   /**
@@ -276,15 +282,52 @@ export class ConfigRpcHandlers {
           // Fetch models dynamically from SDK
           const sdkModels = await this.sdkAdapter.getSupportedModels();
 
+          // Check if OpenRouter is active and get tier overrides
+          const authMethod = this.configManager.getWithDefault<string>(
+            'authMethod',
+            'auto'
+          );
+          let tierOverrides: {
+            sonnet: string | null;
+            opus: string | null;
+            haiku: string | null;
+          } | null = null;
+          if (authMethod === 'openrouter') {
+            try {
+              tierOverrides = this.openRouterModels.getModelTiers();
+            } catch (e) {
+              this.logger.warn(
+                'Failed to read OpenRouter tier overrides',
+                e instanceof Error ? e : new Error(String(e))
+              );
+            }
+          }
+
           // Transform to frontend format
-          const models = sdkModels.map((m) => ({
-            id: m.value,
-            name: m.displayName,
-            description: m.description,
-            apiName: m.value,
-            isSelected: m.value === savedModel,
-            isRecommended: m.value.includes('sonnet'),
-          }));
+          const models = sdkModels.map((m) => {
+            let providerModelId: string | null = null;
+
+            if (tierOverrides) {
+              const valueLower = m.value.toLowerCase();
+              if (valueLower.includes('sonnet') && tierOverrides.sonnet) {
+                providerModelId = tierOverrides.sonnet;
+              } else if (valueLower.includes('opus') && tierOverrides.opus) {
+                providerModelId = tierOverrides.opus;
+              } else if (valueLower.includes('haiku') && tierOverrides.haiku) {
+                providerModelId = tierOverrides.haiku;
+              }
+            }
+
+            return {
+              id: m.value,
+              name: m.displayName,
+              description: m.description,
+              apiName: m.value,
+              isSelected: m.value === savedModel,
+              isRecommended: m.value.includes('sonnet'),
+              providerModelId,
+            };
+          });
 
           this.logger.debug('RPC: config:models-list fetched from SDK', {
             count: models.length,

@@ -176,9 +176,6 @@ import { AgentSelectorComponent } from './agent-selector.component';
             📷
           </button>
 
-          <!-- Agent Selector - dedicated button for agents -->
-          <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
-
           <!-- Autopilot Mode Badge - shown when enabled -->
           @if (autopilotState.enabled()) {
           <div class="badge badge-warning badge-sm gap-1">
@@ -198,8 +195,11 @@ import { AgentSelectorComponent } from './agent-selector.component';
           }
         </div>
 
-        <!-- Right: Model Selector and Autopilot Popover -->
+        <!-- Right: Agent Selector, Model Selector and Autopilot Popover -->
         <div class="flex items-center gap-2">
+          <!-- Agent Selector - dedicated button for agents -->
+          <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
+
           <!-- Model Selector Component -->
           <ptah-model-selector />
 

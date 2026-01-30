@@ -364,6 +364,7 @@ export interface SdkModelInfo {
   apiName: string; // Same as id (for compatibility)
   isSelected: boolean; // Whether this model is currently selected
   isRecommended?: boolean; // Whether this model is recommended
+  providerModelId?: string | null; // Actual provider model (e.g., 'openai/gpt-5.1-codex-max' when using OpenRouter tier overrides)
 }
 
 /** Response from config:models-list RPC method */

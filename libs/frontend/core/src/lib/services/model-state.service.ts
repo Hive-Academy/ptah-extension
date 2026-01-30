@@ -90,6 +90,9 @@ export class ModelStateService {
     const modelId = this._currentModel();
     const models = this._availableModels();
     const model = models.find((m) => m.id === modelId);
+    if (model?.providerModelId) {
+      return model.providerModelId;
+    }
     return model?.name ?? modelId;
   });
 

@@ -102,6 +102,13 @@ import { SessionId } from '@ptah-extension/shared';
                   </span>
                   }
                 </div>
+                @if (model.providerModelId) {
+                <span
+                  class="text-[11px] mt-0.5 font-mono text-accent"
+                >
+                  {{ model.providerModelId }}
+                </span>
+                }
                 <span class="text-[11px] mt-0.5 text-base-content/60">
                   {{ model.description }}
                 </span>
