@@ -179,9 +179,12 @@ export class WebviewManager {
     });
 
     // Set up visibility change tracking
-    view.onDidChangeVisibility(() => {
-      this.updateWebviewVisibility(viewType, view.visible);
-    });
+    // Guard: WebviewPanel (cast as WebviewView) does NOT have onDidChangeVisibility
+    if (typeof view.onDidChangeVisibility === 'function') {
+      view.onDidChangeVisibility(() => {
+        this.updateWebviewVisibility(viewType, view.visible);
+      });
+    }
 
     // Set up disposal handling
     view.onDidDispose(() => {
@@ -316,27 +319,27 @@ export class WebviewManager {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payload: any
   ): Promise<void> {
-    const panelPromises: Promise<boolean>[] = [];
+    const allPromises: Promise<unknown>[] = [];
 
-    // Send to all panels via existing sendMessage (handles lookup and error logging)
+    // Collect panel send promises (parallel via sendMessage)
     for (const viewType of this.activeWebviews.keys()) {
-      panelPromises.push(this.sendMessage(viewType, type, payload));
+      allPromises.push(this.sendMessage(viewType, type, payload));
     }
 
-    // Send to all sidebar views directly
+    // Collect sidebar view send promises (parallel, not sequential)
     for (const [viewType, view] of this.activeWebviewViews) {
-      try {
-        await view.webview.postMessage({ type, payload });
-      } catch (error) {
-        this.logger.warn(
-          `[WebviewManager] Broadcast failed for view ${viewType}`,
-          error instanceof Error ? error : new Error(String(error))
-        );
-      }
+      allPromises.push(
+        view.webview.postMessage({ type, payload }).catch((error) => {
+          this.logger.warn(
+            `[WebviewManager] Broadcast failed for view ${viewType}`,
+            error instanceof Error ? error : new Error(String(error))
+          );
+        })
+      );
     }
 
-    // Wait for all panel sends to settle (don't throw on individual failures)
-    await Promise.allSettled(panelPromises);
+    // Settle ALL promises in parallel (panels + sidebar views together)
+    await Promise.allSettled(allPromises);
   }
 
   /**

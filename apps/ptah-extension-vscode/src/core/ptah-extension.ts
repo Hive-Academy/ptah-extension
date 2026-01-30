@@ -118,7 +118,18 @@ export class PtahExtension implements vscode.Disposable {
     );
     this.disposables.push(disposable);
 
-    this.logger.info('Webview providers registered');
+    // TASK_2025_117: Register command to open editor panel
+    // This command is declared in package.json and shown in the sidebar title bar
+    const provider = this.angularWebviewProvider;
+    const panelCommand = vscode.commands.registerCommand(
+      'ptah.openFullPanel',
+      () => {
+        provider.createPanel();
+      }
+    );
+    this.disposables.push(panelCommand);
+
+    this.logger.info('Webview providers and panel command registered');
   }
 
   /**

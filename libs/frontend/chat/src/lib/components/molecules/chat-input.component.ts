@@ -7,6 +7,7 @@ import {
   ChangeDetectionStrategy,
   viewChild,
   ElementRef,
+  OnInit,
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap, Square, Clock } from 'lucide-angular';
 import { ChatStore } from '../../services/chat.store';
@@ -210,7 +211,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ChatInputComponent {
+export class ChatInputComponent implements OnInit {
   readonly chatStore = inject(ChatStore);
   readonly tabManager = inject(TabManagerService);
   readonly autopilotState = inject(AutopilotStateService);
@@ -285,6 +286,13 @@ export class ChatInputComponent {
 
   // Computed
   readonly canSend = computed(() => this.currentMessage().trim().length > 0);
+
+  /**
+   * Initialize auth method label fetch on component init (TASK_2025_129 Batch 3)
+   */
+  ngOnInit(): void {
+    this.fetchAuthMethodLabel();
+  }
 
   // Check if there's queued content waiting to be sent
   readonly hasQueuedContent = computed(() => {
@@ -747,9 +755,6 @@ export class ChatInputComponent {
   }
 
   constructor() {
-    // Fetch auth method label for badge display (TASK_2025_129 Batch 3)
-    this.fetchAuthMethodLabel();
-
     // Listen for queue-to-input restoration signal
     // FIX #3: Validate tab ID to ensure content goes to correct tab
     effect(() => {

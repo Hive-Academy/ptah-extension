@@ -432,6 +432,12 @@ export type AuthGetAuthStatusParams = Record<string, never>;
 
 /**
  * Anthropic-compatible provider info for UI display (TASK_2025_129 Batch 3)
+ *
+ * NOTE: This interface mirrors `AnthropicProvider` from `@ptah-extension/agent-sdk`
+ * (libs/backend/agent-sdk/src/lib/helpers/anthropic-provider-registry.ts) minus the
+ * `baseUrl` field (which is backend-only). Any changes to the shared fields in
+ * AnthropicProvider must be reflected here, and vice versa.
+ * The `shared` library cannot import from `agent-sdk` due to dependency direction constraints.
  */
 export interface AnthropicProviderInfo {
   /** Provider identifier */
@@ -633,10 +639,12 @@ export interface LicenseGetStatusResponse {
  * Parameters for command:execute RPC method
  *
  * TASK_2025_126: Allows webview to execute VS Code commands
- * SECURITY: Only ptah.* commands are allowed (enforced by handler)
+ * TASK_2025_129 Batch 3: Extended to allow specific whitelisted commands
+ * SECURITY: Only ptah.* prefix commands and specific whitelisted commands are allowed
+ * (enforced by handler)
  */
 export interface CommandExecuteParams {
-  /** VS Code command ID to execute (must start with 'ptah.') */
+  /** VS Code command ID to execute (must match whitelist: ptah.* prefix or exact match) */
   command: string;
   /** Optional arguments for the command */
   args?: unknown[];

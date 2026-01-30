@@ -3,12 +3,14 @@
  *
  * Handles command-related RPC methods: command:execute
  *
- * TASK_2025_126: Allows webview to execute VS Code commands (ptah.* only)
+ * TASK_2025_126: Allows webview to execute VS Code commands
+ * TASK_2025_129 Batch 3: Added specific whitelisted commands beyond ptah.* prefix
  *
  * Security:
- * - ONLY ptah.* commands are allowed from webview
- * - This prevents arbitrary VS Code command execution
+ * - Commands with the ptah.* prefix are allowed from webview
+ * - Specific whitelisted commands (e.g., workbench.action.reloadWindow) are also allowed
  * - All other commands are rejected with error
+ * - This prevents arbitrary VS Code command execution
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -23,10 +25,11 @@ import * as vscode from 'vscode';
  * RPC handlers for command operations
  *
  * TASK_2025_126: Enables webview to execute VS Code commands
+ * TASK_2025_129 Batch 3: Extended whitelist to include workbench.action.reloadWindow
  *
- * Used by WelcomeComponent to trigger:
- * - ptah.enterLicenseKey: Opens license key input dialog
- * - ptah.openPricing: Opens pricing page in external browser
+ * Allowed commands:
+ * - ptah.* prefix: All extension-specific commands (e.g., ptah.enterLicenseKey, ptah.openPricing)
+ * - workbench.action.reloadWindow: Window reload after auth config changes
  */
 @injectable()
 export class CommandRpcHandlers {
@@ -49,11 +52,13 @@ export class CommandRpcHandlers {
   /**
    * command:execute - Execute a VS Code command from webview
    *
-   * SECURITY: Only allows ptah.* commands to prevent arbitrary command execution.
+   * SECURITY: Only allows whitelisted commands to prevent arbitrary command execution.
+   * Allowed: ptah.* prefix commands and specific exact-match commands.
    * This is a critical security boundary - the webview should NOT be able to
-   * execute arbitrary VS Code commands like workbench.action.* or editor.action.*
+   * execute arbitrary VS Code commands like editor.action.* or workbench.action.*
+   * (except for specifically whitelisted ones like workbench.action.reloadWindow).
    *
-   * @param params.command - Command ID (must start with 'ptah.')
+   * @param params.command - Command ID (must match whitelist)
    * @param params.args - Optional arguments for the command
    */
   private registerCommandExecute(): void {

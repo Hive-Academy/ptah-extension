@@ -48,7 +48,7 @@ export interface AnthropicProvider {
  * 1. Add an entry to this array
  * 2. No other code changes required - the registry drives all behavior
  */
-export const ANTHROPIC_PROVIDERS: readonly AnthropicProvider[] = [
+export const ANTHROPIC_PROVIDERS = [
   {
     id: 'openrouter',
     name: 'OpenRouter',
@@ -79,7 +79,7 @@ export const ANTHROPIC_PROVIDERS: readonly AnthropicProvider[] = [
     keyPlaceholder: 'Enter Z.AI API key...',
     maskedKeyDisplay: '••••••••••••',
   },
-] as const;
+] as const satisfies readonly AnthropicProvider[];
 
 /** Provider IDs as a union type */
 export type AnthropicProviderId = (typeof ANTHROPIC_PROVIDERS)[number]['id'];
@@ -112,5 +112,8 @@ export function getProviderBaseUrl(id: string): string {
   }
   // Fallback to default provider (OpenRouter)
   const defaultProvider = getAnthropicProvider(DEFAULT_PROVIDER_ID);
-  return defaultProvider!.baseUrl;
+  if (!defaultProvider) {
+    throw new Error(`Default provider '${DEFAULT_PROVIDER_ID}' not found in registry`);
+  }
+  return defaultProvider.baseUrl;
 }

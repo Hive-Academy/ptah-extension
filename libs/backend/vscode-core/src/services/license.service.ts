@@ -82,6 +82,12 @@ export interface LicenseStatus {
   trialDaysRemaining?: number;
   /** Reason for invalid status */
   reason?: 'expired' | 'revoked' | 'not_found' | 'trial_ended';
+  /** User profile data from license server (TASK_2025_129) */
+  user?: {
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  };
 }
 
 /**

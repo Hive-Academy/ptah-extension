@@ -282,14 +282,30 @@ export class StreamTransformer {
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
                     });
                   }
-                  // Sort so the user's selected model appears first (primary model).
-                  // The SDK may report usage for multiple models (e.g., internal routing),
-                  // but the frontend uses modelUsage[0] as the display model.
-                  if (initialModel && modelUsageList.length > 1) {
+                  // Sort so the primary model appears first in the array.
+                  // The frontend uses modelUsage[0] as the display model.
+                  // Strategy: match initialModel (fuzzy), then fall back to highest output tokens.
+                  if (modelUsageList.length > 1) {
                     modelUsageList.sort((a, b) => {
-                      const aMatch = a.model === initialModel ? 1 : 0;
-                      const bMatch = b.model === initialModel ? 1 : 0;
-                      return bMatch - aMatch;
+                      // First: try matching against initialModel (fuzzy — extract family name)
+                      if (initialModel) {
+                        const normalizedInit = initialModel.toLowerCase();
+                        const aFuzzy =
+                          a.model === initialModel ||
+                          a.model.toLowerCase().includes(normalizedInit) ||
+                          normalizedInit.includes(a.model.toLowerCase())
+                            ? 1
+                            : 0;
+                        const bFuzzy =
+                          b.model === initialModel ||
+                          b.model.toLowerCase().includes(normalizedInit) ||
+                          normalizedInit.includes(b.model.toLowerCase())
+                            ? 1
+                            : 0;
+                        if (aFuzzy !== bFuzzy) return bFuzzy - aFuzzy;
+                      }
+                      // Fallback: model with most output tokens (did the most work) first
+                      return b.outputTokens - a.outputTokens;
                     });
                   }
                 }

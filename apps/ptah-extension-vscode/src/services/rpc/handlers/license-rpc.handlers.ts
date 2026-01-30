@@ -179,7 +179,7 @@ export class LicenseRpcHandlers {
       valid: status.valid,
       tier: status.tier as LicenseTier,
       isPremium,
-      isCommunity, // RENAMED from isBasic
+      isCommunity,
       daysRemaining: status.daysRemaining ?? null,
       trialActive,
       trialDaysRemaining: status.trialDaysRemaining ?? null,
@@ -191,6 +191,14 @@ export class LicenseRpcHandlers {
           }
         : undefined,
       reason,
+      // TASK_2025_129: Forward user profile data
+      user: status.user
+        ? {
+            email: status.user.email,
+            firstName: status.user.firstName,
+            lastName: status.user.lastName,
+          }
+        : undefined,
     };
   }
 }

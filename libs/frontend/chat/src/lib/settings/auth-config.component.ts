@@ -117,14 +117,6 @@ export class AuthConfigComponent implements OnInit {
   });
 
   /**
-   * Computed: Display name of the selected provider tab (TASK_2025_129 Batch 3)
-   */
-  readonly providerTabLabel = computed(() => {
-    const provider = this.selectedProvider();
-    return provider?.name ?? 'Provider';
-  });
-
-  /**
    * Computed signal to determine if Save & Test button should be enabled
    * Button is enabled when there's a new credential value entered based on auth method
    */
@@ -427,6 +419,10 @@ export class AuthConfigComponent implements OnInit {
       return;
     }
 
+    // Save previous state for rollback on failure
+    const previousProviderId = this.selectedProviderId();
+
+    // Optimistic update
     this.selectedProviderId.set(providerId);
     // Reset key input when switching providers
     this.openrouterKey.set('');
@@ -455,8 +451,23 @@ export class AuthConfigComponent implements OnInit {
         );
         this.connectionStatus.set('success');
         this.authStatusChanged.emit();
+      } else {
+        // Rollback on RPC failure
+        this.selectedProviderId.set(previousProviderId);
+        this.errorMessage.set(
+          result.error || 'Failed to switch provider'
+        );
+        this.connectionStatus.set('error');
       }
     } catch (error) {
+      // Rollback on exception
+      this.selectedProviderId.set(previousProviderId);
+      this.errorMessage.set(
+        error instanceof Error
+          ? error.message
+          : 'Failed to switch provider'
+      );
+      this.connectionStatus.set('error');
       console.error(
         '[AuthConfigComponent] Failed to switch provider:',
         error
@@ -590,7 +601,9 @@ export class AuthConfigComponent implements OnInit {
       );
 
       if (result.isSuccess()) {
-        this.successMessage.set('OpenRouter key removed successfully');
+        this.successMessage.set(
+          `${this.selectedProvider()?.name ?? 'Provider'} key removed successfully`
+        );
         this.connectionStatus.set('success');
         this.openrouterKey.set('');
         await this.fetchAuthStatus();

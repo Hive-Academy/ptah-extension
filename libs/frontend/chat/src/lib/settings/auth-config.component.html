@@ -161,6 +161,7 @@
         <a
           [href]="provider.helpUrl"
           target="_blank"
+          rel="noopener noreferrer"
           class="link link-primary font-semibold"
           >{{ provider.helpUrl | slice:8 }}</a
         >
@@ -332,6 +333,7 @@
         <a
           href="https://console.anthropic.com/settings/keys"
           target="_blank"
+          rel="noopener noreferrer"
           class="link link-primary font-semibold"
           >Anthropic Console</a
         >
@@ -377,6 +379,7 @@
       class="btn btn-ghost btn-xs text-success-content"
       (click)="reloadWindow()"
       title="Reload window to fully apply changes"
+      aria-label="Reload window to apply changes"
     >
       Reload
     </button>
@@ -412,6 +415,7 @@
             <a
               href="https://console.anthropic.com/settings/keys"
               target="_blank"
+              rel="noopener noreferrer"
               class="link link-error font-semibold"
               >console.anthropic.com</a
             >

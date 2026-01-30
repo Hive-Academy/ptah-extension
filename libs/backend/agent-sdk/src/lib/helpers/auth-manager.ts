@@ -155,10 +155,12 @@ export class AuthManager {
         );
       }
 
-      // CRITICAL: When using OAuth token, we must REMOVE ANTHROPIC_API_KEY
+      // CRITICAL: When using OAuth token, we must REMOVE provider and API key env vars
       // The SDK prioritizes API key over OAuth token, so we need to clear it
-      // This forces the SDK to use subscription authentication
+      // Also clear provider routing to prevent stale ANTHROPIC_BASE_URL from a previous provider session
       delete process.env['ANTHROPIC_API_KEY'];
+      delete process.env['ANTHROPIC_BASE_URL'];
+      delete process.env['ANTHROPIC_AUTH_TOKEN'];
 
       // Set the OAuth token
       process.env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken.trim();
@@ -184,8 +186,10 @@ export class AuthManager {
         `[AuthManager] Found OAuth token in environment (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`
       );
 
-      // Remove API key to prioritize OAuth token
+      // Remove API key and provider routing to prioritize OAuth token
       delete process.env['ANTHROPIC_API_KEY'];
+      delete process.env['ANTHROPIC_BASE_URL'];
+      delete process.env['ANTHROPIC_AUTH_TOKEN'];
 
       this.logger.info(
         '[AuthManager] Using OAuth token from environment (subscription mode)'
@@ -318,6 +322,10 @@ export class AuthManager {
           '[AuthManager] Get valid API keys from: https://console.anthropic.com/settings/keys'
         );
       }
+
+      // Clear provider routing to prevent stale ANTHROPIC_BASE_URL from a previous provider session
+      delete process.env['ANTHROPIC_BASE_URL'];
+      delete process.env['ANTHROPIC_AUTH_TOKEN'];
 
       process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
       details.push(

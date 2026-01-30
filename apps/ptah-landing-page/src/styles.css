@@ -37,9 +37,11 @@
   }
 }
 
-/* Smooth Scrolling */
-html {
-  scroll-behavior: smooth;
+/* Smooth Scrolling - handled by Lenis */
+/* NOTE: Do NOT use scroll-behavior: smooth here as it conflicts with Lenis */
+html.lenis,
+html.lenis body {
+  height: auto;
 }
 
 /* Custom Scrollbar Styling */

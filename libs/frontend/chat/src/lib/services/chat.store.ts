@@ -782,8 +782,15 @@ export class ChatStore {
 
     // Process modelUsage to update liveModelStats for context display
     if (stats.modelUsage && stats.modelUsage.length > 0) {
-      // Use the first model's data (primary model - sorted by backend to match user's selection)
-      const primaryModel = stats.modelUsage[0];
+      // Use the model with the highest output tokens (the one that did the most work).
+      // Backend sorts modelUsage[0] to be the primary model, but as a safety net
+      // we also verify by selecting the highest-output model if there are multiple.
+      const primaryModel =
+        stats.modelUsage.length === 1
+          ? stats.modelUsage[0]
+          : stats.modelUsage.reduce((best, current) =>
+              current.outputTokens > best.outputTokens ? current : best
+            );
       // Bug 3 fix: Include cacheReadInputTokens in context calculation
       // Cache read tokens count toward context window usage alongside input and output
       const contextUsed =

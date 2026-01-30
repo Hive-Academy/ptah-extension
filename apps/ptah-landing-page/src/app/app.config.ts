@@ -53,9 +53,10 @@ export const appConfig: ApplicationConfig = {
     }),
     // Lenis smooth scroll for premium scroll experience
     provideLenis({
-      lerp: 0.1, // 10% interpolation per frame - smoother response
-      wheelMultiplier: 1, // Standard wheel sensitivity
-      touchMultiplier: 2, // Better touch responsiveness
+      lerp: 0.075, // 7.5% interpolation - smoother but responsive to fast scrolling
+      duration: 1.2, // Fallback duration for consistent timing (lerp takes priority)
+      wheelMultiplier: 0.8, // Slightly reduced wheel sensitivity to prevent jumping
+      touchMultiplier: 1.5, // Balanced touch responsiveness
       smoothWheel: true, // Smooth wheel scrolling
       useGsapTicker: true, // Sync with GSAP for animations
     }),

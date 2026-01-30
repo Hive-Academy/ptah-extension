@@ -163,7 +163,12 @@ export class AuthRpcHandlers {
       anthropicApiKey: z.string().optional(),
       openrouterApiKey: z.string().optional(),
       // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
-      anthropicProviderId: z.string().optional(),
+      // Validated against known provider IDs from the registry
+      anthropicProviderId: z
+        .enum(
+          ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]]
+        )
+        .optional(),
     });
 
     this.rpcHandler.registerMethod<

@@ -63,7 +63,7 @@ const ALLOWED_METHOD_PREFIXES = [
 ] as const;
 
 /**
- * RPC methods requiring Pro tier subscription (TASK_2025_124)
+ * RPC methods requiring Pro tier subscription (TASK_2025_124, TASK_2025_129)
  *
  * Prefix matching: 'setup-status:' matches 'setup-status:get-status'
  *
@@ -423,9 +423,6 @@ export class RpcHandler {
    *
    * Pro-only methods are derived from PRO_ONLY_FEATURES in FeatureGateService:
    * - setup_wizard feature: setup-status:*, setup-wizard:*, wizard:*
-   *
-   * Community methods (TASK_2025_129):
-   * - openrouter:* - Available to all users
    *
    * @param method - RPC method name to check
    * @returns True if method requires Pro tier

@@ -143,18 +143,25 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     const panelEventQueue = new WebviewEventQueue(this.logger as any);
     this._panelEventQueues.set(panelId, panelEventQueue);
 
+    // Per-panel disposables to avoid stale entries in shared _disposables
+    const panelDisposables: vscode.Disposable[] = [];
+
     // Setup message handling using shared service
     this.messageHandler.setupMessageListener(
       {
         webviewId: panelId,
         webview: panel.webview,
         onReady: () => {
+          if (!this._panels.has(panelId)) {
+            this.logger.warn(`Panel ${panelId} ready signal received after disposal, ignoring`);
+            return;
+          }
           this.logger.info(`Panel ${panelId} webview ready`);
           panelEventQueue.markReady();
           panelEventQueue.flush((event) => panel.webview.postMessage(event));
         },
       },
-      this._disposables
+      panelDisposables
     );
 
     // Generate HTML with panelId in ptahConfig
@@ -166,19 +173,18 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       }
     );
 
-    // Cleanup on dispose: remove from local Map, dispose event queue
+    // Cleanup on dispose: remove from local Map, dispose event queue and per-panel disposables
     // WebviewManager auto-removes via its own onDidDispose listener (registerWebviewView sets this up)
     panel.onDidDispose(
       () => {
         this._panels.delete(panelId);
         panelEventQueue.dispose();
         this._panelEventQueues.delete(panelId);
+        panelDisposables.forEach((d) => d.dispose());
         this.logger.info(
           `Panel ${panelId} disposed, ${this._panels.size} panels remaining`
         );
-      },
-      undefined,
-      this._disposables
+      }
     );
 
     this.logger.info(
@@ -339,15 +345,6 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       this.logger.warn('No webviews available to reload.');
     }
     // NOTE: Hot-reload works by replacing webview.html entirely, no need for refresh signal
-  }
-
-  /**
-   * Register the panel command (DRY principle - extracted method)
-   */
-  private registerPanelCommand(): void {
-    vscode.commands.registerCommand('ptah.openFullPanel', () => {
-      this.createPanel();
-    });
   }
 
   // NOTE: handleWebviewMessage() REMOVED - All message handling now unified via

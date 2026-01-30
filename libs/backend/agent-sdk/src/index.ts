@@ -45,16 +45,17 @@ export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';
 
 // Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
+// Re-exported via helpers barrel (canonical source: helpers/anthropic-provider-registry.ts)
 export {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
   getAnthropicProvider,
   getProviderBaseUrl,
-} from './lib/helpers/anthropic-provider-registry';
+} from './lib/helpers';
 export type {
   AnthropicProvider,
   AnthropicProviderId,
-} from './lib/helpers/anthropic-provider-registry';
+} from './lib/helpers';
 
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

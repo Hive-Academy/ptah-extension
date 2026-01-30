@@ -28,6 +28,12 @@ export interface LicenseVerificationResponse {
   trialActive?: boolean;
   trialDaysRemaining?: number;
   reason?: 'expired' | 'revoked' | 'not_found' | 'trial_ended';
+  /** User profile data, only present for valid licenses (TASK_2025_129) */
+  user?: {
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  };
 }
 
 /**
@@ -214,6 +220,14 @@ export class LicenseService {
       daysRemaining,
       trialActive: isInTrial,
       trialDaysRemaining,
+      // TASK_2025_129: Include user profile data
+      user: license.user
+        ? {
+            email: license.user.email,
+            firstName: license.user.firstName,
+            lastName: license.user.lastName,
+          }
+        : undefined,
     };
   }
 
