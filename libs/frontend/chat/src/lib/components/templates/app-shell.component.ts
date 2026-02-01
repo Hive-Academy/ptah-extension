@@ -1,5 +1,6 @@
 import {
   Component,
+  computed,
   inject,
   signal,
   effect,
@@ -7,7 +8,7 @@ import {
   ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { DatePipe, NgOptimizedImage } from '@angular/common';
+import { NgOptimizedImage } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
@@ -15,10 +16,12 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
+  PanelRight,
   ChevronDown,
   Check,
   X,
   Trash2,
+  MessageSquare,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
@@ -78,7 +81,6 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     TabBarComponent,
     ConfirmationDialogComponent,
     ThemeToggleComponent,
-    DatePipe,
     NgOptimizedImage,
     LucideAngularModule,
     FormsModule,
@@ -112,8 +114,17 @@ export class AppShellComponent {
   readonly XIcon = X;
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
+  readonly PanelRightIcon = PanelRight;
   readonly ChevronDownIcon = ChevronDown;
   readonly Trash2Icon = Trash2;
+  readonly MessageSquareIcon = MessageSquare;
+
+  // Show "Open in Panel" only when in sidebar (panelId is empty/undefined)
+  readonly isInSidebar = computed(() => !this.vscodeService.config().panelId);
+
+  // Rapid-click guard for panel opening
+  private readonly _isOpeningPanel = signal(false);
+  readonly isOpeningPanel = this._isOpeningPanel.asReadonly();
 
   // Ptah icon URI
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -151,6 +162,30 @@ export class AppShellComponent {
    */
   openSettings(): void {
     this.appState.setCurrentView('settings');
+  }
+
+  /**
+   * Open chat in a new editor panel (TASK_2025_117)
+   * Executes the ptah.openFullPanel VS Code command via RPC
+   * Includes rapid-click guard to prevent duplicate panels
+   */
+  async openInPanel(): Promise<void> {
+    if (this._isOpeningPanel()) return;
+
+    this._isOpeningPanel.set(true);
+    try {
+      const result = await this.rpcService.call('command:execute', {
+        command: 'ptah.openFullPanel',
+      });
+      if (!result.isSuccess()) {
+        console.error('[AppShell] Panel command failed:', result.error);
+      }
+    } catch (error) {
+      console.error('[AppShell] Failed to open editor panel:', error);
+    } finally {
+      // Brief cooldown to prevent rapid duplicate panels
+      setTimeout(() => this._isOpeningPanel.set(false), 1500);
+    }
   }
 
   /**
@@ -194,6 +229,54 @@ export class AppShellComponent {
   handleCancelSession(): void {
     this._sessionNamePopoverOpen.set(false);
     this.sessionNameInput.set('');
+  }
+
+  /**
+   * Format timestamp as relative date for sidebar display.
+   * Pure function - no side effects, no dependencies.
+   *
+   * Rules:
+   *   < 1 minute:    "Just now"
+   *   < 1 hour:      "Xm ago"    (e.g., "5m ago")
+   *   < 24 hours:    "Xh ago"    (e.g., "2h ago")
+   *   Yesterday:     "Yesterday"
+   *   Current week:  "Mon", "Tue", etc.
+   *   Current year:  "Jan 15"
+   *   Previous year: "Jan 15, 2025"
+   */
+  formatRelativeDate(date: Date | string): string {
+    const now = new Date();
+    const d = new Date(date);
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHr = Math.floor(diffMs / 3600000);
+
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    if (diffHr < 24) return `${diffHr}h ago`;
+
+    // Check if yesterday
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+
+    // Current week: show day name
+    const diffDays = Math.floor(diffMs / 86400000);
+    if (diffDays < 7) {
+      return d.toLocaleDateString('en-US', { weekday: 'short' });
+    }
+
+    // Current year: "Jan 15"
+    if (d.getFullYear() === now.getFullYear()) {
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    // Previous year: "Jan 15, 2025"
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   }
 
   /**
