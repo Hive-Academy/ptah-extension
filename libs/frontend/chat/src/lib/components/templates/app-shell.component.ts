@@ -244,10 +244,13 @@ export class AppShellComponent {
    *   Current year:  "Jan 15"
    *   Previous year: "Jan 15, 2025"
    */
-  formatRelativeDate(date: Date | string): string {
+  formatRelativeDate(date: Date | string | number): string {
+    if (!date || (typeof date === 'number' && date <= 0)) return '';
     const now = new Date();
     const d = new Date(date);
+    if (isNaN(d.getTime())) return '';
     const diffMs = now.getTime() - d.getTime();
+    if (diffMs < 0) return 'Just now';
     const diffMin = Math.floor(diffMs / 60000);
     const diffHr = Math.floor(diffMs / 3600000);
 

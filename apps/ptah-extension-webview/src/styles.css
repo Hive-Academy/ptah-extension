@@ -1597,6 +1597,16 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
     background-color: oklch(var(--n)); /* Use dark neutral for active */
     color: oklch(var(--nc)); /* Light text on dark background */
   }
+
+  /* Sidebar session list overrides for light theme */
+  .sidebar-item-active {
+    background-color: oklch(var(--b2));
+    border-left-color: oklch(var(--n));
+  }
+
+  .sidebar-item-open-tab {
+    border-left-color: oklch(var(--n) / 0.3);
+  }
 }
 
 /* ============================================================================

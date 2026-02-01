@@ -41,7 +41,9 @@
     [class.overflow-hidden]="!sidebarOpen()"
   >
     <!-- Sidebar header with Ptah icon and new session button -->
-    <div class="p-3 border-b border-base-content/10 flex items-center justify-between">
+    <div
+      class="p-3 border-b border-base-content/10 flex items-center justify-between"
+    >
       <!-- Ptah icon -->
       <img
         [ngSrc]="ptahIconUri"
@@ -71,8 +73,13 @@
         </button>
 
         <!-- Popover content -->
-        <div content class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg">
-          <h3 class="text-sm font-semibold mb-3 text-base-content/90">New Session</h3>
+        <div
+          content
+          class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
+        >
+          <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+            New Session
+          </h3>
 
           <!-- Input field with Enter/ESC keyboard support -->
           <input
@@ -114,14 +121,23 @@
           <button
             type="button"
             class="flex flex-col items-start gap-1 py-2.5 px-3 pr-8 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
-            [class.sidebar-item-active]="session.id === chatStore.currentSession()?.id"
-            [class.sidebar-item-open-tab]="isSessionOpen(session.id) && session.id !== chatStore.currentSession()?.id"
+            [class.sidebar-item-active]="
+              session.id === chatStore.currentSession()?.id
+            "
+            [class.sidebar-item-open-tab]="
+              isSessionOpen(session.id) &&
+              session.id !== chatStore.currentSession()?.id
+            "
+            [attr.aria-current]="session.id === chatStore.currentSession()?.id ? 'true' : null"
             (click)="chatStore.switchSession(session.id)"
           >
             <!-- Session name -->
             <span
               class="font-medium text-sm truncate w-full leading-snug"
-              [class.text-primary]="session.id === chatStore.currentSession()?.id || isSessionOpen(session.id)"
+              [class.text-primary]="
+                session.id === chatStore.currentSession()?.id ||
+                isSessionOpen(session.id)
+              "
               [title]="session.name"
             >
               {{ getSessionDisplayName(session) }}
@@ -132,7 +148,9 @@
             >
               <span>{{ formatRelativeDate(session.lastActivityAt) }}</span>
               @if (session.messageCount > 0) {
-              <span class="text-base-content/40">{{ session.messageCount }} msgs</span>
+              <span class="text-base-content/40"
+                >{{ session.messageCount }} msgs</span
+              >
               }
             </span>
           </button>
@@ -141,17 +159,27 @@
             type="button"
             class="absolute right-1.5 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-square rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-base-content/40 hover:text-error hover:bg-error/10"
             title="Delete session"
-            [attr.aria-label]="'Delete session: ' + getSessionDisplayName(session)"
+            [attr.aria-label]="
+              'Delete session: ' + getSessionDisplayName(session)
+            "
             (click)="deleteSession($event, session)"
           >
             <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
           </button>
         </li>
         } @empty {
-        <li class="flex flex-col items-center justify-center p-6 text-center" role="listitem">
-          <lucide-angular [img]="MessageSquareIcon" class="w-8 h-8 text-base-content/20 mb-2" />
+        <li
+          class="flex flex-col items-center justify-center p-6 text-center"
+          role="presentation"
+        >
+          <lucide-angular
+            [img]="MessageSquareIcon"
+            class="w-8 h-8 text-base-content/20 mb-2"
+          />
           <span class="text-sm text-base-content/40">No sessions yet</span>
-          <span class="text-xs text-base-content/25 mt-1">Create one to get started</span>
+          <span class="text-xs text-base-content/25 mt-1"
+            >Create one to get started</span
+          >
         </li>
         }
       </ul>
@@ -170,7 +198,11 @@
           Loading... } @else {
           <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
           Load More
-          <span class="text-base-content/30">({{ chatStore.totalSessions() - chatStore.sessions().length }})</span>
+          <span class="text-base-content/30"
+            >({{
+              chatStore.totalSessions() - chatStore.sessions().length
+            }})</span
+          >
           }
         </button>
       </div>
