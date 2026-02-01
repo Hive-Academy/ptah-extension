@@ -47,46 +47,46 @@ module.exports = {
     themes: [
       {
         anubis: {
-          // PRIMARY: Lapis Lazuli Blue (Divine guidance, wisdom)
-          primary: '#1e3a8a',
-          'primary-focus': '#1e40af',
-          'primary-content': '#f5f5dc',
+          // PRIMARY: Bright Blue (visible on dark surfaces)
+          primary: '#2563eb',
+          'primary-focus': '#1d4ed8',
+          'primary-content': '#e8e6e1',
 
-          // SECONDARY: Pharaoh's Gold (Eternal accent)
+          // SECONDARY: Pharaoh's Gold (unchanged - brand anchor)
           secondary: '#d4af37',
           'secondary-focus': '#92400e',
-          'secondary-content': '#0a0a0a',
+          'secondary-content': '#131317',
 
-          // ACCENT: Gold Light (Highlights, warnings)
+          // ACCENT: Gold Light (unchanged)
           accent: '#fbbf24',
           'accent-focus': '#d4af37',
-          'accent-content': '#0a0a0a',
+          'accent-content': '#131317',
 
-          // NEUTRAL: Obsidian grays (panels, cards)
-          neutral: '#1a1a1a',
-          'neutral-focus': '#2a2a2a',
+          // NEUTRAL: Blue-tinted dark (distinct from base-200)
+          neutral: '#1e1e26',
+          'neutral-focus': '#2a2a34',
           'neutral-content': '#d1d5db',
 
-          // BASE: Background hierarchy (The Void)
-          'base-100': '#0a0a0a',
-          'base-200': '#1a1a1a',
-          'base-300': '#2a2a2a',
-          'base-content': '#f5f5dc',
+          // BASE: Softened background hierarchy (blue-tinted charcoal)
+          'base-100': '#131317',
+          'base-200': '#1a1a20',
+          'base-300': '#242430',
+          'base-content': '#e8e6e1',
 
-          // SEMANTIC COLORS (God Powers)
+          // SEMANTIC COLORS
           info: '#3b82f6',
-          'info-content': '#f5f5dc',
+          'info-content': '#e8e6e1',
 
-          success: '#228b22',
-          'success-content': '#f5f5dc',
+          success: '#16a34a',
+          'success-content': '#e8e6e1',
 
           warning: '#fbbf24',
-          'warning-content': '#0a0a0a',
+          'warning-content': '#131317',
 
-          error: '#b22222',
-          'error-content': '#f5f5dc',
+          error: '#dc2626',
+          'error-content': '#e8e6e1',
 
-          // DAISYUI CUSTOM PROPERTIES
+          // DAISYUI CUSTOM PROPERTIES (unchanged)
           '--rounded-box': '0.75rem',
           '--rounded-btn': '0.375rem',
           '--rounded-badge': '0.25rem',

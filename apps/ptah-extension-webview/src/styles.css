@@ -64,12 +64,12 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --avatar-size-md: 32px;
 
   /* Glass Morphism (Crystalline Wisdom) */
-  --glass-panel: rgba(42, 42, 42, 0.7);
+  --glass-panel: rgba(36, 36, 48, 0.7);
   --glass-border: rgba(212, 175, 55, 0.2);
   --glass-blur: blur(20px);
 
   /* Divine Gradients (Ancient Egyptian Magic) */
-  --gradient-divine: linear-gradient(135deg, #1e3a8a, #d4af37);
+  --gradient-divine: linear-gradient(135deg, #2563eb, #d4af37);
   --gradient-shadow: linear-gradient(
     180deg,
     rgba(212, 175, 55, 0.2),
@@ -77,17 +77,17 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   );
   --gradient-panel: linear-gradient(
     135deg,
-    rgba(30, 58, 138, 0.1),
+    rgba(37, 99, 235, 0.1),
     rgba(212, 175, 55, 0.05)
   );
 
   /* Agent Color Variables (God Pantheon) */
   --agent-color-anubis: #d4af37; /* Supervisor - Gold */
-  --agent-color-thoth: #1e3a8a; /* Architect - Blue */
-  --agent-color-ptah: #228b22; /* Developer - Green */
-  --agent-color-seshat: #f5f5dc; /* QA - White */
+  --agent-color-thoth: #2563eb; /* Architect - Blue */
+  --agent-color-ptah: #16a34a; /* Developer - Green */
+  --agent-color-seshat: #e8e6e1; /* QA - White */
   --agent-color-maat: #d4af37; /* Reviewer - Gold */
-  --agent-color-khnum: #b22222; /* PM - Red */
+  --agent-color-khnum: #dc2626; /* PM - Red */
 
   /* Sacred Geometry */
   --golden-ratio: 1.618;
@@ -367,7 +367,7 @@ SCROLLBAR STYLING - Anubis Theme
 
 ::-webkit-scrollbar-track {
   /* Fallback for browsers without oklch support */
-  background: rgba(10, 10, 10, 0.6);
+  background: rgba(19, 19, 23, 0.6);
   background: oklch(var(--b1) / 0.6);
 }
 
@@ -465,17 +465,17 @@ Theme-aware CSS custom properties for agent badges
 /* Agent badge colors - Dark theme (default) */
 :root,
 [data-theme='anubis'] {
-  --agent-architect: #1e3a8a;
+  --agent-architect: #2563eb;
   --agent-frontend: #3b82f6;
-  --agent-backend: #228b22;
+  --agent-backend: #16a34a;
   --agent-tester: #8b5cf6;
   --agent-reviewer: #d4af37;
   --agent-leader: #6366f1;
-  --agent-pm: #b22222;
+  --agent-pm: #dc2626;
   --agent-researcher: #06b6d4;
   --agent-supervisor: #d4af37;
-  --agent-badge-text-light: #f5f5dc;
-  --agent-badge-text-dark: #0a0a0a;
+  --agent-badge-text-light: #e8e6e1;
+  --agent-badge-text-dark: #131317;
 }
 
 /* Agent badge colors - Light theme (cupcake-inspired, optimized for warm cream backgrounds) */
@@ -1209,7 +1209,7 @@ UTILITY CLASSES
 }
 
 .text-papyrus {
-  color: #f5f5dc;
+  color: #e8e6e1;
 }
 
 .text-gold {
@@ -1217,7 +1217,7 @@ UTILITY CLASSES
 }
 
 .text-lapis {
-  color: #1e3a8a;
+  color: #2563eb;
 }
 
 /* ============================================================================
@@ -1597,6 +1597,44 @@ Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
     background-color: oklch(var(--n)); /* Use dark neutral for active */
     color: oklch(var(--nc)); /* Light text on dark background */
   }
+}
+
+/* ============================================================================
+SIDEBAR SESSION LIST STYLES - TASK_2025_130
+============================================================================ */
+
+/* Active session in sidebar */
+.sidebar-item-active {
+  background-color: oklch(var(--b3) / 0.7);
+  border-left-color: oklch(var(--p));
+}
+
+/* Session with open tab (but not active) */
+.sidebar-item-open-tab {
+  border-left-color: oklch(var(--p) / 0.3);
+}
+
+/* Sidebar-specific thin scrollbar (only visible on aside hover) */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: oklch(var(--bc) / 0.15);
+  border-radius: 9999px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(var(--bc) / 0.25);
+}
+
+/* Hide scrollbar until sidebar is hovered */
+aside:not(:hover) .sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
 }
 
 /* ============================================================================
