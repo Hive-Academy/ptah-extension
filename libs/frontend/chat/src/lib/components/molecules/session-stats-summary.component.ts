@@ -6,7 +6,10 @@ import {
   signal,
 } from '@angular/core';
 import type { ExecutionChatMessage } from '@ptah-extension/shared';
-import { calculateSessionCostSummary } from '@ptah-extension/shared';
+import {
+  calculateSessionCostSummary,
+  formatModelDisplayName,
+} from '@ptah-extension/shared';
 
 /**
  * Live model stats from current session
@@ -523,46 +526,10 @@ export class SessionStatsSummaryComponent {
 
   /**
    * Format model name for display
+   * Delegates to shared utility for consistent model name formatting across the application.
    * Extracts readable name from full model ID (e.g., "claude-sonnet-4-20250514" -> "Sonnet 4")
    */
   protected formatModelName(modelId: string): string {
-    // Extract model family and version from ID
-    const lowerModel = modelId.toLowerCase();
-
-    if (lowerModel.includes('opus')) {
-      // Handle opus variants
-      if (lowerModel.includes('4.5') || lowerModel.includes('4-5')) {
-        return 'Opus 4.5';
-      }
-      if (lowerModel.includes('4')) {
-        return 'Opus 4';
-      }
-      return 'Opus';
-    }
-
-    if (lowerModel.includes('sonnet')) {
-      // Handle sonnet variants
-      if (lowerModel.includes('4')) {
-        return 'Sonnet 4';
-      }
-      if (lowerModel.includes('3.5') || lowerModel.includes('3-5')) {
-        return 'Sonnet 3.5';
-      }
-      return 'Sonnet';
-    }
-
-    if (lowerModel.includes('haiku')) {
-      // Handle haiku variants
-      if (lowerModel.includes('3.5') || lowerModel.includes('3-5')) {
-        return 'Haiku 3.5';
-      }
-      return 'Haiku';
-    }
-
-    // Fallback: return truncated model ID
-    if (modelId.length > 15) {
-      return modelId.substring(0, 15) + '...';
-    }
-    return modelId;
+    return formatModelDisplayName(modelId);
   }
 }

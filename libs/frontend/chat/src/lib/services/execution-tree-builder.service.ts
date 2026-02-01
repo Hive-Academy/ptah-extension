@@ -661,6 +661,12 @@ export class ExecutionTreeBuilderService {
               finalPlaceholderChildren = [...agentChildren];
             }
 
+            // TASK_2025_132: Aggregate stats from child message events for this placeholder agent
+            const placeholderStats = this.aggregateAgentStats(
+              toolStart.toolCallId,
+              state
+            );
+
             const placeholderAgent = createExecutionNode({
               id: `agent-placeholder-${toolStart.toolCallId}`,
               type: 'agent',
@@ -673,6 +679,8 @@ export class ExecutionTreeBuilderService {
               toolCallId: toolStart.toolCallId,
               agentId: placeholderAgentId, // TASK_2025_099: From hook if available
               // summaryContent no longer needed on node - it's now a child text node
+              ...placeholderStats, // TASK_2025_132: Spread agentModel, tokenUsage, cost, duration
+              model: placeholderStats.agentModel, // TASK_2025_132: Also set model field for consistency
             });
 
             // TASK_2025_128 FIX: Mark this agentType as used to prevent duplicates.
@@ -814,6 +822,9 @@ export class ExecutionTreeBuilderService {
       finalChildren = [...agentChildren];
     }
 
+    // TASK_2025_132: Aggregate stats from child message events for this agent
+    const stats = this.aggregateAgentStats(toolCallId, state);
+
     // Create the AGENT node
     return createExecutionNode({
       id: agentStart.id,
@@ -826,6 +837,8 @@ export class ExecutionTreeBuilderService {
       agentDescription: agentStart.agentDescription,
       toolCallId: agentStart.toolCallId,
       agentId: effectiveAgentId, // TASK_2025_099 FIX: Use effectiveAgentId (from hook if needed)
+      ...stats, // TASK_2025_132: Spread agentModel, tokenUsage, cost, duration
+      model: stats.agentModel, // TASK_2025_132: Also set model field for consistency
     });
   }
 
@@ -907,6 +920,84 @@ export class ExecutionTreeBuilderService {
     }
 
     return result;
+  }
+
+  /**
+   * Aggregate model, token usage, cost, and duration from child message events.
+   * Scans all message_complete events linked to this agent via parentToolUseId.
+   *
+   * TASK_2025_132: Populates agent nodes with aggregated stats from their child messages.
+   *
+   * @param toolCallId - The agent's parent tool call ID
+   * @param state - Current streaming state
+   * @returns Aggregated stats for the agent node
+   */
+  private aggregateAgentStats(
+    toolCallId: string,
+    state: StreamingState
+  ): {
+    agentModel?: string;
+    tokenUsage?: { input: number; output: number };
+    cost?: number;
+    duration?: number;
+  } {
+    let model: string | undefined;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCost = 0;
+    let hasTokenData = false;
+    let earliestStart: number | undefined;
+    let latestEnd: number | undefined;
+
+    for (const event of state.events.values()) {
+      // Only look at events linked to this agent's tool call
+      if (event.parentToolUseId !== toolCallId) continue;
+
+      if (event.eventType === 'message_complete') {
+        const complete = event as MessageCompleteEvent;
+
+        // Capture model from first message_complete that has it
+        if (!model && complete.model) {
+          model = complete.model;
+        }
+
+        // Accumulate token usage
+        if (complete.tokenUsage) {
+          totalInputTokens += complete.tokenUsage.input;
+          totalOutputTokens += complete.tokenUsage.output;
+          hasTokenData = true;
+        }
+
+        // Accumulate cost
+        if (complete.cost) {
+          totalCost += complete.cost;
+        }
+
+        // Track latest timestamp for duration calculation
+        if (!latestEnd || complete.timestamp > latestEnd) {
+          latestEnd = complete.timestamp;
+        }
+      }
+
+      if (event.eventType === 'message_start') {
+        // Track earliest timestamp for duration calculation
+        if (!earliestStart || event.timestamp < earliestStart) {
+          earliestStart = event.timestamp;
+        }
+      }
+    }
+
+    return {
+      agentModel: model,
+      tokenUsage: hasTokenData
+        ? { input: totalInputTokens, output: totalOutputTokens }
+        : undefined,
+      cost: totalCost > 0 ? totalCost : undefined,
+      duration:
+        earliestStart && latestEnd && latestEnd > earliestStart
+          ? latestEnd - earliestStart
+          : undefined,
+    };
   }
 
   /**
@@ -1146,6 +1237,9 @@ export class ExecutionTreeBuilderService {
         finalAgentChildren = [...agentChildren];
       }
 
+      // TASK_2025_132: Aggregate stats from child message events for this agent
+      const toolChildStats = this.aggregateAgentStats(toolCallId, state);
+
       // Create the AGENT node from agent_start event
       // This wraps the nested content in a proper agent bubble
       const agentNode = createExecutionNode({
@@ -1160,6 +1254,8 @@ export class ExecutionTreeBuilderService {
         toolCallId: agentStart.toolCallId,
         agentId: effectiveAgentId, // TASK_2025_099 FIX: Use effectiveAgentId (from hook if needed)
         // summaryContent no longer needed on node - it's now a child text node
+        ...toolChildStats, // TASK_2025_132: Spread agentModel, tokenUsage, cost, duration
+        model: toolChildStats.agentModel, // TASK_2025_132: Also set model field for consistency
       });
 
       children.push(agentNode);

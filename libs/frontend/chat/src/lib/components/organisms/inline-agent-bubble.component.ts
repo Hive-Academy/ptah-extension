@@ -30,6 +30,9 @@ import type {
   PermissionResponse,
 } from '@ptah-extension/shared';
 import { NgClass } from '@angular/common';
+import { formatModelDisplayName } from '@ptah-extension/shared';
+import { TokenBadgeComponent } from '../atoms/token-badge.component';
+import { DurationBadgeComponent } from '../atoms/duration-badge.component';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay
@@ -53,6 +56,8 @@ import { NgClass } from '@angular/common';
     ExecutionNodeComponent,
     TypingCursorComponent,
     CostBadgeComponent,
+    TokenBadgeComponent,
+    DurationBadgeComponent,
     NgClass,
   ],
   template: `
@@ -127,8 +132,6 @@ import { NgClass } from '@angular/common';
         <span class="badge badge-xs badge-ghost text-[9px] flex-shrink-0">
           {{ childStats() }}
         </span>
-        } @if (agentCost() > 0) {
-        <ptah-cost-badge [cost]="agentCost()" />
         }
       </button>
 
@@ -173,6 +176,28 @@ import { NgClass } from '@angular/common';
           No execution data
         </div>
         } }
+      </div>
+      }
+
+      <!-- Agent Stats Footer (shown when stats available and not streaming) -->
+      @if (hasStats() && !isStreaming()) {
+      <div
+        class="flex items-center gap-1.5 px-3 py-1.5 border-t border-base-300/30 text-base-content/60"
+      >
+        @if (modelDisplayName()) {
+        <span
+          class="badge badge-xs badge-outline text-[9px] opacity-70 flex-shrink-0"
+          [title]="node().agentModel || node().model || ''"
+        >
+          {{ modelDisplayName() }}
+        </span>
+        } @if (agentTokenUsage()) {
+        <ptah-token-badge [tokens]="agentTokenUsage()!" />
+        } @if (agentCost() > 0) {
+        <ptah-cost-badge [cost]="agentCost()" />
+        } @if (agentDuration()) {
+        <ptah-duration-badge [durationMs]="agentDuration()!" />
+        }
       </div>
       }
     </div>
@@ -463,6 +488,42 @@ export class InlineAgentBubbleComponent {
    */
   readonly hasChildren = computed(() => {
     return (this.node().children?.length ?? 0) > 0;
+  });
+
+  /**
+   * Computed: human-readable model display name (e.g., "Sonnet 4", "Opus 4.5")
+   * Uses agentModel (preferred) or model field, formatted via shared utility.
+   * Returns null if no model info is available.
+   */
+  readonly modelDisplayName = computed(() => {
+    const model = this.node().agentModel || this.node().model;
+    if (!model) return null;
+    return formatModelDisplayName(model);
+  });
+
+  /**
+   * Computed: aggregated token usage for the agent
+   * Returns null if no token data is available.
+   */
+  readonly agentTokenUsage = computed(() => this.node().tokenUsage ?? null);
+
+  /**
+   * Computed: aggregated duration for the agent in milliseconds
+   * Returns null if no duration data is available.
+   */
+  readonly agentDuration = computed(() => this.node().duration ?? null);
+
+  /**
+   * Computed: whether we have any stats to show in the footer
+   * At least one stat must be available for the footer to render.
+   */
+  readonly hasStats = computed(() => {
+    return !!(
+      this.modelDisplayName() ||
+      this.agentTokenUsage() ||
+      this.agentCost() > 0 ||
+      this.agentDuration()
+    );
   });
 
   // TASK_2025_102: Removed hasSummaryContent and summaryContent computed signals.

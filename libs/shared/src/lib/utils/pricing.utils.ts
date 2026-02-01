@@ -328,3 +328,62 @@ export function getModelPricingDescription(modelId: string): string {
 
   return `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
 }
+
+/**
+ * Format a full model ID to a human-readable display name.
+ *
+ * Maps model identifiers from the API to short readable names:
+ * - "claude-sonnet-4-20250514" -> "Sonnet 4"
+ * - "claude-opus-4-5-20251101" -> "Opus 4.5"
+ * - "claude-haiku-4-5-20251001" -> "Haiku 4.5"
+ * - "gpt-4o-2024-08-06" -> "GPT-4o"
+ * - Unknown models -> truncated ID
+ *
+ * @param modelId - Full model identifier from API
+ * @returns Human-readable model name
+ */
+export function formatModelDisplayName(modelId: string): string {
+  if (!modelId) return 'Unknown';
+
+  const lower = modelId.toLowerCase();
+
+  // Anthropic Claude models
+  if (lower.includes('opus')) {
+    if (lower.includes('4.5') || lower.includes('4-5')) return 'Opus 4.5';
+    if (lower.includes('4')) return 'Opus 4';
+    if (lower.includes('3')) return 'Opus 3';
+    return 'Opus';
+  }
+
+  if (lower.includes('sonnet')) {
+    if (lower.includes('4.5') || lower.includes('4-5')) return 'Sonnet 4.5';
+    if (lower.includes('4')) return 'Sonnet 4';
+    if (lower.includes('3.5') || lower.includes('3-5')) return 'Sonnet 3.5';
+    return 'Sonnet';
+  }
+
+  if (lower.includes('haiku')) {
+    if (lower.includes('4.5') || lower.includes('4-5')) return 'Haiku 4.5';
+    if (lower.includes('3.5') || lower.includes('3-5')) return 'Haiku 3.5';
+    return 'Haiku';
+  }
+
+  // OpenAI models
+  if (lower.includes('gpt-4o-mini')) return 'GPT-4o Mini';
+  if (lower.includes('gpt-4o')) return 'GPT-4o';
+  if (lower.includes('gpt-4-turbo')) return 'GPT-4 Turbo';
+  if (lower.includes('gpt-4')) return 'GPT-4';
+  if (lower.includes('gpt-3.5')) return 'GPT-3.5';
+
+  // Google Gemini models
+  if (lower.includes('gemini-2')) return 'Gemini 2';
+  if (lower.includes('gemini-1.5-pro')) return 'Gemini 1.5 Pro';
+  if (lower.includes('gemini-1.5-flash')) return 'Gemini 1.5 Flash';
+  if (lower.includes('gemini')) return 'Gemini';
+
+  // Fallback: truncate long IDs
+  if (modelId.length > 20) {
+    return modelId.substring(0, 20) + '...';
+  }
+  return modelId;
+}
