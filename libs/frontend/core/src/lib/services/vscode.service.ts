@@ -1,5 +1,6 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, inject } from '@angular/core';
 import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
+import { AppStateManager, ViewType } from './app-state.service';
 
 /**
  * Webview Configuration
@@ -66,6 +67,11 @@ export class VSCodeService {
 
   // ChatStore will be injected lazily to avoid circular dependency
   private chatStore: any = null;
+
+  // AppStateManager for backend-initiated view navigation.
+  // Uses inject() because AppStateManager has no dependency on VSCodeService (no circular risk).
+  // claudeRpcService and chatStore use lazy setters because they depend on VSCodeService.
+  private readonly appStateManager = inject(AppStateManager);
 
   // Signal-based reactive state
   private readonly _config = signal<WebviewConfig>({
@@ -398,6 +404,32 @@ export class VSCodeService {
         } else {
           console.warn(
             '[VSCodeService] session:id-resolved received but ChatStore not registered!'
+          );
+        }
+      }
+
+      // Handle backend-initiated view navigation (e.g., auth onboarding -> settings)
+      // Uses handleViewSwitch() which bypasses canSwitchViews() intentionally,
+      // since the backend is authoritative for navigation commands.
+      if (message.type === MESSAGE_TYPES.SWITCH_VIEW) {
+        const view = message.payload?.view;
+        const validViews: ViewType[] = [
+          'chat',
+          'command-builder',
+          'analytics',
+          'context-tree',
+          'settings',
+          'setup-wizard',
+          'welcome',
+        ];
+        if (view && validViews.includes(view)) {
+          console.log(
+            `[VSCodeService] Backend requested view switch to: ${view}`
+          );
+          this.appStateManager.handleViewSwitch(view as ViewType);
+        } else {
+          console.warn(
+            `[VSCodeService] switchView received with invalid or missing view: ${view}`
           );
         }
       }
