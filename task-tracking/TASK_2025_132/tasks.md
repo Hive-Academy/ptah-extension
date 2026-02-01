@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_132: Subagent Model Info, Token Stats & Pricing Display
 
-**Total Tasks**: 5 | **Batches**: 2 | **Status**: 2/2 complete
+**Total Tasks**: 9 | **Batches**: 3 | **Status**: 3/3 complete
 
 ---
 
@@ -247,3 +247,67 @@ protected formatModelName(modelId: string): string {
 - Footer renders with model badge, token badge, cost badge, duration badge
 - Cost badge no longer appears in agent header
 - `SessionStatsSummaryComponent` still renders model names correctly
+
+---
+
+## Batch 3: Dynamic Pricing from OpenRouter API ✅ COMPLETE
+
+**Developer**: orchestrator (direct)
+**Tasks**: 4 | **Dependencies**: Batch 2 (pricing infrastructure)
+
+### Task 3.1: Extend `ProviderModelInfo` with pricing fields ✅ COMPLETE
+
+**File**: `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts`
+**Action**: MODIFY (add 3 optional pricing fields to interface)
+
+Added `inputCostPerToken?`, `outputCostPerToken?`, `cacheReadCostPerToken?` as optional fields.
+Backwards-compatible - existing code that creates `ProviderModelInfo` without pricing continues to work.
+
+---
+
+### Task 3.2: Extract pricing in `fetchDynamicModels()` and feed into pricing map ✅ COMPLETE
+
+**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\provider-models.service.ts`
+**Action**: MODIFY
+
+- Extended `ModelsApiModel.pricing` interface with `input_cache_read` and `input_cache_write` fields
+- Added `updatePricingMap` import from `@ptah-extension/shared`
+- Updated model transformation to extract `inputCostPerToken`, `outputCostPerToken`, `cacheReadCostPerToken` from API response
+- Added `feedPricingMap()` call after successful model fetch
+
+---
+
+### Task 3.3: Add `prefetchPricing()` method for startup pre-fetch ✅ COMPLETE
+
+**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\provider-models.service.ts`
+**Action**: MODIFY (add 3 new methods)
+
+- `prefetchPricing()` - Public method that fetches OpenRouter models without auth (endpoint is public)
+- `parsePricingField()` - Private helper to parse pricing strings to numbers
+- `feedPricingMap()` - Private helper that creates pricing entries keyed by full ID, stripped ID, and normalized ID (dots→hyphens) for partial matching
+
+Key design: Creates 3 pricing map keys per model to ensure `findModelPricing()` partial matching works:
+
+1. `anthropic/claude-opus-4.5` (full OpenRouter ID)
+2. `claude-opus-4.5` (stripped provider prefix)
+3. `claude-opus-4-5` (normalized dots to hyphens, matches SDK IDs like `claude-opus-4-5-20251101`)
+
+---
+
+### Task 3.4: Wire pricing prefetch into extension startup ✅ COMPLETE
+
+**File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\main.ts`
+**Action**: MODIFY (add Step 7.2 to activation sequence)
+
+Added non-blocking `prefetchPricing()` call at Step 7.2 (after SDK auth init, before session import).
+Fire-and-forget with error catching - won't block startup. Falls back to bundled `DEFAULT_MODEL_PRICING` if fetch fails.
+
+---
+
+**Batch 3 Verification**:
+
+- `npx nx run shared:typecheck` ✅
+- `npx nx run agent-sdk:typecheck` ✅
+- `npx nx run ptah-extension-vscode:typecheck` ✅
+- `npx nx run chat:typecheck` ✅
+- `npx nx lint agent-sdk` ✅ (0 new errors/warnings)

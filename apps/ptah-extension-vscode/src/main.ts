@@ -360,6 +360,30 @@ export async function activate(
       '[Activate] Step 7: SDK authentication initialization complete'
     );
 
+    // Step 7.2: Pre-fetch model pricing from OpenRouter (non-blocking, no auth needed)
+    // OpenRouter's /api/v1/models endpoint is publicly accessible and returns
+    // pricing data for 200+ models. This replaces hardcoded pricing with live data.
+    console.log('[Activate] Step 7.2: Pre-fetching model pricing...');
+    try {
+      const { SDK_TOKENS } = require('@ptah-extension/agent-sdk');
+      const providerModels = DIContainer.getContainer().resolve(
+        SDK_TOKENS.SDK_PROVIDER_MODELS
+      ) as { prefetchPricing: () => Promise<number> };
+      // Fire-and-forget: prefetchPricing handles errors internally
+      providerModels.prefetchPricing();
+    } catch (prefetchError) {
+      // Synchronous errors from require()/resolve() only
+      logger.debug('Pricing pre-fetch setup failed', {
+        error:
+          prefetchError instanceof Error
+            ? prefetchError.message
+            : String(prefetchError),
+      });
+    }
+    console.log(
+      '[Activate] Step 7.2: Pricing pre-fetch initiated (background)'
+    );
+
     // Step 8: Import existing Claude Code sessions (TASK_2025_091)
     console.log('[Activate] Step 8: Importing existing sessions...');
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;

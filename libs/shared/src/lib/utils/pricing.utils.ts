@@ -188,14 +188,18 @@ let modelPricingMap: Record<string, ModelPricing> = {
 };
 
 /**
- * Update the pricing map with new data (called by PricingService after fetch)
+ * Merge new pricing entries into the runtime pricing map.
  *
- * @param newPricing - New pricing data to merge
+ * Uses additive merge: new entries override existing ones, but previously
+ * added dynamic entries from other providers are preserved. The bundled
+ * DEFAULT_MODEL_PRICING is always the base layer (set at initialization).
+ *
+ * @param newPricing - New pricing data to merge into the existing map
  */
 export function updatePricingMap(
   newPricing: Record<string, ModelPricing>
 ): void {
-  modelPricingMap = { ...DEFAULT_MODEL_PRICING, ...newPricing };
+  modelPricingMap = { ...modelPricingMap, ...newPricing };
 }
 
 /**

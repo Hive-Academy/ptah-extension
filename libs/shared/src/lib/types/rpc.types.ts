@@ -364,7 +364,7 @@ export interface SdkModelInfo {
   apiName: string; // Same as id (for compatibility)
   isSelected: boolean; // Whether this model is currently selected
   isRecommended?: boolean; // Whether this model is recommended
-  providerModelId?: string | null; // Actual provider model (e.g., 'openai/gpt-5.1-codex-max' when using OpenRouter tier overrides)
+  providerModelId: string | null; // Actual provider model (e.g., 'openai/gpt-5.1-codex-max' when using OpenRouter tier overrides)
 }
 
 /** Response from config:models-list RPC method */
@@ -455,6 +455,8 @@ export interface AnthropicProviderInfo {
   keyPlaceholder: string;
   /** Masked key display text */
   maskedKeyDisplay: string;
+  /** Whether this provider supports dynamic model listing via API (TASK_2025_132) */
+  hasDynamicModels?: boolean;
 }
 
 /**
@@ -479,15 +481,15 @@ export interface AuthGetAuthStatusResponse {
 }
 
 // ============================================================
-// OpenRouter Model RPC Types (TASK_2025_091 Phase 2)
+// Provider Model RPC Types (TASK_2025_091 Phase 2, generalized TASK_2025_132)
 // ============================================================
 
-/** Model tier for OpenRouter model mapping */
-export type OpenRouterModelTier = 'sonnet' | 'opus' | 'haiku';
+/** Model tier for provider model mapping */
+export type ProviderModelTier = 'sonnet' | 'opus' | 'haiku';
 
-/** OpenRouter model information */
-export interface OpenRouterModelInfo {
-  /** Model ID (e.g., "anthropic/claude-3.5-sonnet") */
+/** Provider model information */
+export interface ProviderModelInfo {
+  /** Model ID (e.g., "anthropic/claude-3.5-sonnet", "kimi-k2") */
   id: string;
   /** Display name (e.g., "Claude 3.5 Sonnet") */
   name: string;
@@ -497,41 +499,58 @@ export interface OpenRouterModelInfo {
   contextLength: number;
   /** Whether the model supports tool use (required for Claude Code) */
   supportsToolUse: boolean;
+  /** Cost per input token in USD (from provider API, e.g. OpenRouter) */
+  inputCostPerToken?: number;
+  /** Cost per output token in USD (from provider API) */
+  outputCostPerToken?: number;
+  /** Cost per cache read token in USD (from provider API) */
+  cacheReadCostPerToken?: number;
+  /** Cost per cache creation/write token in USD (from provider API) */
+  cacheCreationCostPerToken?: number;
 }
 
-/** Parameters for openrouter:listModels RPC method */
-export interface OpenRouterListModelsParams {
+/** Parameters for provider:listModels RPC method */
+export interface ProviderListModelsParams {
   /** Filter to only show models supporting tool use */
   toolUseOnly?: boolean;
+  /** Provider ID to list models for (defaults to active provider) */
+  providerId?: string;
 }
 
-/** Response from openrouter:listModels RPC method */
-export interface OpenRouterListModelsResult {
+/** Response from provider:listModels RPC method */
+export interface ProviderListModelsResult {
   /** Available models */
-  models: OpenRouterModelInfo[];
+  models: ProviderModelInfo[];
   /** Total count before filtering */
   totalCount: number;
+  /** Whether the model list is static (no Refresh needed) */
+  isStatic?: boolean;
 }
 
-/** Parameters for openrouter:setModelTier RPC method */
-export interface OpenRouterSetModelTierParams {
+/** Parameters for provider:setModelTier RPC method */
+export interface ProviderSetModelTierParams {
   /** Which tier to set (sonnet, opus, haiku) */
-  tier: OpenRouterModelTier;
+  tier: ProviderModelTier;
   /** Model ID to use for this tier (e.g., "openai/gpt-5.1-codex-max") */
   modelId: string;
+  /** Provider ID (defaults to active provider) */
+  providerId?: string;
 }
 
-/** Response from openrouter:setModelTier RPC method */
-export interface OpenRouterSetModelTierResult {
+/** Response from provider:setModelTier RPC method */
+export interface ProviderSetModelTierResult {
   success: boolean;
   error?: string;
 }
 
-/** Parameters for openrouter:getModelTiers RPC method */
-export type OpenRouterGetModelTiersParams = Record<string, never>;
+/** Parameters for provider:getModelTiers RPC method */
+export interface ProviderGetModelTiersParams {
+  /** Provider ID (defaults to active provider) */
+  providerId?: string;
+}
 
-/** Response from openrouter:getModelTiers RPC method */
-export interface OpenRouterGetModelTiersResult {
+/** Response from provider:getModelTiers RPC method */
+export interface ProviderGetModelTiersResult {
   /** Model ID mapped to Sonnet tier (null if using default) */
   sonnet: string | null;
   /** Model ID mapped to Opus tier (null if using default) */
@@ -540,17 +559,41 @@ export interface OpenRouterGetModelTiersResult {
   haiku: string | null;
 }
 
-/** Parameters for openrouter:clearModelTier RPC method */
-export interface OpenRouterClearModelTierParams {
+/** Parameters for provider:clearModelTier RPC method */
+export interface ProviderClearModelTierParams {
   /** Which tier to clear (reset to default) */
-  tier: OpenRouterModelTier;
+  tier: ProviderModelTier;
+  /** Provider ID (defaults to active provider) */
+  providerId?: string;
 }
 
-/** Response from openrouter:clearModelTier RPC method */
-export interface OpenRouterClearModelTierResult {
+/** Response from provider:clearModelTier RPC method */
+export interface ProviderClearModelTierResult {
   success: boolean;
   error?: string;
 }
+
+// Backward-compatible type aliases (deprecated - use Provider* variants)
+/** @deprecated Use ProviderModelTier instead */
+export type OpenRouterModelTier = ProviderModelTier;
+/** @deprecated Use ProviderModelInfo instead */
+export type OpenRouterModelInfo = ProviderModelInfo;
+/** @deprecated Use ProviderListModelsParams instead */
+export type OpenRouterListModelsParams = ProviderListModelsParams;
+/** @deprecated Use ProviderListModelsResult instead */
+export type OpenRouterListModelsResult = ProviderListModelsResult;
+/** @deprecated Use ProviderSetModelTierParams instead */
+export type OpenRouterSetModelTierParams = ProviderSetModelTierParams;
+/** @deprecated Use ProviderSetModelTierResult instead */
+export type OpenRouterSetModelTierResult = ProviderSetModelTierResult;
+/** @deprecated Use ProviderGetModelTiersParams instead */
+export type OpenRouterGetModelTiersParams = ProviderGetModelTiersParams;
+/** @deprecated Use ProviderGetModelTiersResult instead */
+export type OpenRouterGetModelTiersResult = ProviderGetModelTiersResult;
+/** @deprecated Use ProviderClearModelTierParams instead */
+export type OpenRouterClearModelTierParams = ProviderClearModelTierParams;
+/** @deprecated Use ProviderClearModelTierResult instead */
+export type OpenRouterClearModelTierResult = ProviderClearModelTierResult;
 
 // ============================================================
 // Setup Status RPC Types
@@ -858,22 +901,22 @@ export interface RpcMethodRegistry {
     result: unknown[];
   };
 
-  // ---- OpenRouter Model Methods (TASK_2025_091 Phase 2) ----
-  'openrouter:listModels': {
-    params: OpenRouterListModelsParams;
-    result: OpenRouterListModelsResult;
+  // ---- Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132) ----
+  'provider:listModels': {
+    params: ProviderListModelsParams;
+    result: ProviderListModelsResult;
   };
-  'openrouter:setModelTier': {
-    params: OpenRouterSetModelTierParams;
-    result: OpenRouterSetModelTierResult;
+  'provider:setModelTier': {
+    params: ProviderSetModelTierParams;
+    result: ProviderSetModelTierResult;
   };
-  'openrouter:getModelTiers': {
-    params: OpenRouterGetModelTiersParams;
-    result: OpenRouterGetModelTiersResult;
+  'provider:getModelTiers': {
+    params: ProviderGetModelTiersParams;
+    result: ProviderGetModelTiersResult;
   };
-  'openrouter:clearModelTier': {
-    params: OpenRouterClearModelTierParams;
-    result: OpenRouterClearModelTierResult;
+  'provider:clearModelTier': {
+    params: ProviderClearModelTierParams;
+    result: ProviderClearModelTierResult;
   };
 
   // ---- Subagent Methods (TASK_2025_103) ----
@@ -953,11 +996,11 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'llm:validateApiKeyFormat',
   'llm:listVsCodeModels',
 
-  // OpenRouter Model Methods (TASK_2025_091 Phase 2)
-  'openrouter:listModels',
-  'openrouter:setModelTier',
-  'openrouter:getModelTiers',
-  'openrouter:clearModelTier',
+  // Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132)
+  'provider:listModels',
+  'provider:setModelTier',
+  'provider:getModelTiers',
+  'provider:clearModelTier',
 
   // Subagent Methods (TASK_2025_103)
   // TASK_2025_109: chat:subagent-resume removed - now uses context injection
