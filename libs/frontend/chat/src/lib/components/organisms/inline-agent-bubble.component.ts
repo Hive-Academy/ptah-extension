@@ -187,7 +187,7 @@ import { DurationBadgeComponent } from '../atoms/duration-badge.component';
         @if (modelDisplayName()) {
         <span
           class="badge badge-xs badge-outline text-[9px] opacity-70 flex-shrink-0"
-          [title]="node().agentModel || node().model || ''"
+          [title]="rawModelId() || ''"
         >
           {{ modelDisplayName() }}
         </span>
@@ -491,12 +491,20 @@ export class InlineAgentBubbleComponent {
   });
 
   /**
+   * Computed: raw model ID from the agent node (e.g., "claude-sonnet-4-20250514")
+   * Used for both display name formatting and tooltip.
+   */
+  readonly rawModelId = computed(
+    () => this.node().agentModel || this.node().model || null
+  );
+
+  /**
    * Computed: human-readable model display name (e.g., "Sonnet 4", "Opus 4.5")
    * Uses agentModel (preferred) or model field, formatted via shared utility.
    * Returns null if no model info is available.
    */
   readonly modelDisplayName = computed(() => {
-    const model = this.node().agentModel || this.node().model;
+    const model = this.rawModelId();
     if (!model) return null;
     return formatModelDisplayName(model);
   });
@@ -522,7 +530,7 @@ export class InlineAgentBubbleComponent {
       this.modelDisplayName() ||
       this.agentTokenUsage() ||
       this.agentCost() > 0 ||
-      this.agentDuration()
+      this.agentDuration() !== null
     );
   });
 

@@ -347,24 +347,37 @@ export function formatModelDisplayName(modelId: string): string {
 
   const lower = modelId.toLowerCase();
 
+  // Strip date suffix (e.g., -20250514) to avoid digit collisions in version matching
+  const withoutDate = lower.replace(/-\d{8}$/, '');
+
   // Anthropic Claude models
-  if (lower.includes('opus')) {
-    if (lower.includes('4.5') || lower.includes('4-5')) return 'Opus 4.5';
-    if (lower.includes('4')) return 'Opus 4';
-    if (lower.includes('3')) return 'Opus 3';
+  if (withoutDate.includes('opus')) {
+    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
+      return 'Opus 4.5';
+    if (withoutDate.includes('opus-4') || withoutDate.includes('opus 4'))
+      return 'Opus 4';
+    if (withoutDate.includes('3-opus') || withoutDate.includes('opus-3'))
+      return 'Opus 3';
     return 'Opus';
   }
 
-  if (lower.includes('sonnet')) {
-    if (lower.includes('4.5') || lower.includes('4-5')) return 'Sonnet 4.5';
-    if (lower.includes('4')) return 'Sonnet 4';
-    if (lower.includes('3.5') || lower.includes('3-5')) return 'Sonnet 3.5';
+  if (withoutDate.includes('sonnet')) {
+    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
+      return 'Sonnet 4.5';
+    if (withoutDate.includes('sonnet-4') || withoutDate.includes('sonnet 4'))
+      return 'Sonnet 4';
+    if (withoutDate.includes('3.5') || withoutDate.includes('3-5'))
+      return 'Sonnet 3.5';
     return 'Sonnet';
   }
 
-  if (lower.includes('haiku')) {
-    if (lower.includes('4.5') || lower.includes('4-5')) return 'Haiku 4.5';
-    if (lower.includes('3.5') || lower.includes('3-5')) return 'Haiku 3.5';
+  if (withoutDate.includes('haiku')) {
+    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
+      return 'Haiku 4.5';
+    if (withoutDate.includes('3.5') || withoutDate.includes('3-5'))
+      return 'Haiku 3.5';
+    if (withoutDate.includes('3-haiku') || withoutDate.includes('haiku-3'))
+      return 'Haiku 3';
     return 'Haiku';
   }
 
@@ -376,14 +389,18 @@ export function formatModelDisplayName(modelId: string): string {
   if (lower.includes('gpt-3.5')) return 'GPT-3.5';
 
   // Google Gemini models
+  if (lower.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
+  if (lower.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
+  if (lower.includes('gemini-2.0-pro')) return 'Gemini 2.0 Pro';
+  if (lower.includes('gemini-2.0-flash')) return 'Gemini 2.0 Flash';
   if (lower.includes('gemini-2')) return 'Gemini 2';
   if (lower.includes('gemini-1.5-pro')) return 'Gemini 1.5 Pro';
   if (lower.includes('gemini-1.5-flash')) return 'Gemini 1.5 Flash';
   if (lower.includes('gemini')) return 'Gemini';
 
   // Fallback: truncate long IDs
-  if (modelId.length > 20) {
-    return modelId.substring(0, 20) + '...';
+  if (modelId.length > 30) {
+    return modelId.substring(0, 30) + '...';
   }
   return modelId;
 }

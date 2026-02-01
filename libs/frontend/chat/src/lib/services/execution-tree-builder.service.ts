@@ -147,6 +147,9 @@ export class ExecutionTreeBuilderService {
     }
 
     // Cache miss - build new tree
+    // TASK_2025_132: Clear per-build aggregation cache to avoid stale stats
+    this.agentStatsCache.clear();
+
     const rootNodes: ExecutionNode[] = [];
 
     // TASK_2025_096 FIX: Filter out nested messages and MERGE consecutive assistant messages.
@@ -923,8 +926,25 @@ export class ExecutionTreeBuilderService {
   }
 
   /**
+   * Per-build-cycle cache for aggregateAgentStats results.
+   * Cleared at the start of each buildTree() call to avoid stale data.
+   * Prevents redundant full-event scans when the same toolCallId is
+   * queried from multiple agent node creation sites within a single build.
+   */
+  private agentStatsCache = new Map<
+    string,
+    {
+      agentModel?: string;
+      tokenUsage?: { input: number; output: number };
+      cost?: number;
+      duration?: number;
+    }
+  >();
+
+  /**
    * Aggregate model, token usage, cost, and duration from child message events.
    * Scans all message_complete events linked to this agent via parentToolUseId.
+   * Results are cached per toolCallId within a single buildTree() cycle.
    *
    * TASK_2025_132: Populates agent nodes with aggregated stats from their child messages.
    *
@@ -941,6 +961,10 @@ export class ExecutionTreeBuilderService {
     cost?: number;
     duration?: number;
   } {
+    // Check per-build cache to avoid redundant scans
+    const cached = this.agentStatsCache.get(toolCallId);
+    if (cached) return cached;
+
     let model: string | undefined;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
@@ -987,10 +1011,16 @@ export class ExecutionTreeBuilderService {
       }
     }
 
-    return {
+    const result = {
       agentModel: model,
+      // Note: MessageCompleteEvent.tokenUsage only carries input/output.
+      // Cache token fields (cacheRead, cacheCreation) are not available
+      // at the per-message event level from the SDK.
       tokenUsage: hasTokenData
-        ? { input: totalInputTokens, output: totalOutputTokens }
+        ? {
+            input: totalInputTokens,
+            output: totalOutputTokens,
+          }
         : undefined,
       cost: totalCost > 0 ? totalCost : undefined,
       duration:
@@ -998,6 +1028,10 @@ export class ExecutionTreeBuilderService {
           ? latestEnd - earliestStart
           : undefined,
     };
+
+    // Cache for subsequent calls within this build cycle
+    this.agentStatsCache.set(toolCallId, result);
+    return result;
   }
 
   /**
