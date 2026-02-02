@@ -153,7 +153,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         webview: panel.webview,
         onReady: () => {
           if (!this._panels.has(panelId)) {
-            this.logger.warn(`Panel ${panelId} ready signal received after disposal, ignoring`);
+            this.logger.warn(
+              `Panel ${panelId} ready signal received after disposal, ignoring`
+            );
             return;
           }
           this.logger.info(`Panel ${panelId} webview ready`);
@@ -168,24 +170,25 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       panel.webview,
       {
-        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>,
+        workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
+          string,
+          unknown
+        >,
         panelId,
       }
     );
 
     // Cleanup on dispose: remove from local Map, dispose event queue and per-panel disposables
     // WebviewManager auto-removes via its own onDidDispose listener (registerWebviewView sets this up)
-    panel.onDidDispose(
-      () => {
-        this._panels.delete(panelId);
-        panelEventQueue.dispose();
-        this._panelEventQueues.delete(panelId);
-        panelDisposables.forEach((d) => d.dispose());
-        this.logger.info(
-          `Panel ${panelId} disposed, ${this._panels.size} panels remaining`
-        );
-      }
-    );
+    panel.onDidDispose(() => {
+      this._panels.delete(panelId);
+      panelEventQueue.dispose();
+      this._panelEventQueues.delete(panelId);
+      panelDisposables.forEach((d) => d.dispose());
+      this.logger.info(
+        `Panel ${panelId} disposed, ${this._panels.size} panels remaining`
+      );
+    });
 
     this.logger.info(
       `Panel ${panelId} created, ${this._panels.size} total panels`
@@ -320,7 +323,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         const newHtml = this.htmlGenerator.generateAngularWebviewContent(
           panel.webview,
           {
-            workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<string, unknown>,
+            workspaceInfo: this.htmlGenerator.buildWorkspaceInfo() as Record<
+              string,
+              unknown
+            >,
             panelId,
           }
         );

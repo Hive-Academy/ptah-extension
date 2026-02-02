@@ -42,7 +42,7 @@ import {
   CompactionHookHandler,
 } from '../helpers';
 import { SDK_TOKENS } from './tokens';
-import { OpenRouterModelsService } from '../openrouter-models.service';
+import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
 
 /**
@@ -181,10 +181,10 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
-  // OpenRouter models service - depends on Logger, ConfigManager (TASK_2025_091 Phase 2)
+  // Provider models service - depends on Logger, ConfigManager (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   container.register(
-    SDK_TOKENS.SDK_OPENROUTER_MODELS,
-    { useClass: OpenRouterModelsService },
+    SDK_TOKENS.SDK_PROVIDER_MODELS,
+    { useClass: ProviderModelsService },
     { lifecycle: Lifecycle.Singleton }
   );
 

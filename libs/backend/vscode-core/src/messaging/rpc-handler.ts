@@ -57,7 +57,6 @@ const ALLOWED_METHOD_PREFIXES = [
   'setup-wizard:',
   'llm:', // TASK_2025_073: LLM provider management (API keys, provider status)
   'license:', // TASK_2025_079: License status for premium feature gating
-  'openrouter:', // TASK_2025_091: OpenRouter model selection
   'wizard:', // TASK_2025_124: Setup wizard deep analysis and agent recommendations
   'command:', // TASK_2025_126: Webview command execution (ptah.* commands only)
 ] as const;

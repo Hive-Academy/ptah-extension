@@ -86,15 +86,20 @@
           aria-label="User profile"
         >
           <div
-            class="flex items-center justify-center w-6 h-6 rounded-full
-                   bg-primary/20 text-primary text-xs font-bold shrink-0"
+            class="flex items-center justify-center w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold shrink-0"
             aria-hidden="true"
-          >{{ userInitials() }}</div>
+          >
+            {{ userInitials() }}
+          </div>
           <div class="min-w-0">
             @if (showUserName()) {
-            <div class="text-xs font-medium truncate">{{ userDisplayName() }}</div>
+            <div class="text-xs font-medium truncate">
+              {{ userDisplayName() }}
+            </div>
             }
-            <div class="text-xs text-base-content/50 truncate">{{ userEmail() }}</div>
+            <div class="text-xs text-base-content/50 truncate">
+              {{ userEmail() }}
+            </div>
           </div>
         </div>
         }
@@ -193,7 +198,19 @@
         <p class="text-xs text-base-content/70 mb-3">
           Configure your authentication method to connect with Claude Code.
         </p>
-        <ptah-auth-config (authStatusChanged)="refreshAuthStatus()" />
+        <ptah-auth-config />
+
+        <!-- Provider Model Mapping - shown when provider auth + key configured (TASK_2025_133) -->
+        @if (showProviderModels()) {
+        <div class="divider my-2 text-[10px] opacity-50">Provider Model Mapping</div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Override default Anthropic model aliases with models from your provider.
+        </p>
+        <ptah-provider-model-selector
+          [providerId]="authState.selectedProviderId()"
+          [hasKey]="authState.hasProviderKey()"
+        />
+        }
       </div>
     </div>
 
@@ -218,25 +235,6 @@
       </div>
     </div>
 
-    <!-- OpenRouter Model Mapping Section - Only visible when OpenRouter is the selected provider -->
-    @if (showOpenRouterModels()) {
-    <div class="border border-info/30 rounded-md bg-info/5">
-      <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <span class="text-sm">🌐</span>
-          <h2 class="text-xs font-medium uppercase tracking-wide">
-            OpenRouter Models
-          </h2>
-        </div>
-        <p class="text-xs text-base-content/70 mb-3">
-          Override default Anthropic models with alternatives from OpenRouter's
-          200+ models.
-        </p>
-        <ptah-openrouter-model-selector />
-      </div>
-    </div>
-    }
-
     <!-- Autopilot Configuration Section -->
     <div class="border border-base-300 rounded-md bg-base-200/50">
       <div class="p-3">
@@ -255,7 +253,7 @@
         </div>
       </div>
     </div>
-    } @else if (!isLoadingAuthStatus()) {
+    } @else if (!authState.isLoading()) {
     <!-- Hint: Configure auth to unlock more settings -->
     <div class="text-center py-4">
       <p class="text-xs text-base-content/50">

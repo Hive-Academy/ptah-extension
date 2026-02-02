@@ -36,8 +36,11 @@ export * from './lib/types/sdk-types/claude-sdk.types';
 // Permission handler exports
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 
-// OpenRouter models service (TASK_2025_091 Phase 2)
-export { OpenRouterModelsService } from './lib/openrouter-models.service';
+// Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
+export { ProviderModelsService } from './lib/provider-models.service';
+
+// @deprecated Use ProviderModelsService instead
+export { ProviderModelsService as OpenRouterModelsService } from './lib/provider-models.service';
 
 // DI registration exports
 export { registerSdkServices } from './lib/di/register';
@@ -55,6 +58,7 @@ export {
 export type {
   AnthropicProvider,
   AnthropicProviderId,
+  ProviderStaticModel,
 } from './lib/helpers';
 
 // Library version

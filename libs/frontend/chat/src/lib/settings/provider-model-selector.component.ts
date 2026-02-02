@@ -3,6 +3,8 @@ import {
   inject,
   signal,
   computed,
+  input,
+  effect,
   TemplateRef,
   viewChild,
   OnInit,
@@ -18,20 +20,20 @@ import {
   RefreshCw,
 } from 'lucide-angular';
 import { NativeAutocompleteComponent } from '@ptah-extension/ui';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
 import type {
-  OpenRouterModelInfo,
-  OpenRouterModelTier,
-  OpenRouterListModelsResult,
-  OpenRouterGetModelTiersResult,
+  ProviderModelInfo,
+  ProviderModelTier,
+  ProviderListModelsResult,
+  ProviderGetModelTiersResult,
 } from '@ptah-extension/shared';
 
 /**
- * OpenRouter Model Tier Configuration
+ * Provider Model Tier Configuration
  * Defines the 3 tiers that can be overridden with alternative models
  */
 interface TierConfig {
-  tier: OpenRouterModelTier;
+  tier: ProviderModelTier;
   label: string;
   description: string;
   envVar: string;
@@ -59,21 +61,22 @@ const TIER_CONFIGS: TierConfig[] = [
 ];
 
 /**
- * OpenRouterModelSelectorComponent - Model tier configuration with autocomplete
+ * ProviderModelSelectorComponent - Model tier configuration with autocomplete
  *
  * Allows users to override the default Anthropic model aliases (Sonnet, Opus, Haiku)
- * with any model available on OpenRouter. Uses autocomplete for searching 200+ models.
+ * with any model available from the active provider. Uses autocomplete for searching.
  *
  * Features:
  * - 3 tier selectors (Sonnet, Opus, Haiku)
  * - Autocomplete search for models
  * - Tool use warning for non-compatible models
  * - Reset to default button per tier
+ * - Hides Refresh button for providers with static model lists
  *
- * TASK_2025_091 Phase 2
+ * TASK_2025_091 Phase 2 (OpenRouter), TASK_2025_132 (generalized to all providers)
  */
 @Component({
-  selector: 'ptah-openrouter-model-selector',
+  selector: 'ptah-provider-model-selector',
   standalone: true,
   imports: [FormsModule, LucideAngularModule, NativeAutocompleteComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -84,9 +87,10 @@ const TIER_CONFIGS: TierConfig[] = [
         <div>
           <h4 class="text-sm font-medium text-base-content">Model Mapping</h4>
           <p class="text-xs text-base-content/60 mt-0.5">
-            Override default Anthropic model aliases with any OpenRouter model
+            Override default Anthropic model aliases with provider models
           </p>
         </div>
+        @if (!isStatic()) {
         <button
           type="button"
           (click)="refreshModels()"
@@ -97,10 +101,18 @@ const TIER_CONFIGS: TierConfig[] = [
           <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
           Refresh
         </button>
+        }
       </div>
 
+      <!-- No Key State -->
+      @if (!hasKey()) {
+      <div class="text-xs text-base-content/50 text-center py-4">
+        Configure your provider API key above to see available models.
+      </div>
+      }
+
       <!-- Loading State -->
-      @if (isLoading() && availableModels().length === 0) {
+      @if (hasKey() && isLoading() && availableModels().length === 0) {
       <div class="flex items-center justify-center gap-2 py-8">
         <span class="loading loading-spinner loading-sm"></span>
         <span class="text-sm text-base-content/60">Loading models...</span>
@@ -108,7 +120,7 @@ const TIER_CONFIGS: TierConfig[] = [
       }
 
       <!-- Error State -->
-      @if (error()) {
+      @if (hasKey() && error()) {
       <div class="alert alert-warning py-2 px-3">
         <lucide-angular [img]="AlertTriangleIcon" class="w-4 h-4" />
         <span class="text-sm">{{ error() }}</span>
@@ -116,7 +128,7 @@ const TIER_CONFIGS: TierConfig[] = [
       }
 
       <!-- Tier Selectors -->
-      @if (availableModels().length > 0 || !isLoading()) {
+      @if (hasKey() && (availableModels().length > 0 || !isLoading())) {
       <div class="space-y-3">
         @for (tierConfig of tierConfigs; track tierConfig.tier) {
         <div class="bg-base-200/50 rounded-lg p-3 border border-base-300/50">
@@ -184,12 +196,15 @@ const TIER_CONFIGS: TierConfig[] = [
                 [placeholder]="
                   'Search ' + availableModels().length + ' models...'
                 "
-                [ngModel]="searchQuery()"
+                [ngModel]="getSearchQuery(tierConfig.tier)"
                 (ngModelChange)="onSearchInput($event, tierConfig.tier)"
                 (focus)="openDropdown(tierConfig.tier)"
                 class="input input-sm input-bordered w-full font-mono text-xs"
               />
             </ptah-native-autocomplete>
+            @if (tierErrors()[tierConfig.tier]; as err) {
+            <div class="text-xs text-error mt-1">{{ err }}</div>
+            }
           </div>
         </div>
         }
@@ -197,7 +212,7 @@ const TIER_CONFIGS: TierConfig[] = [
       }
 
       <!-- Model count footer -->
-      @if (availableModels().length > 0) {
+      @if (hasKey() && availableModels().length > 0) {
       <div class="text-xs text-base-content/50 text-center">
         {{ availableModels().length }} models available •
         {{ toolUseModelsCount() }} support tool use
@@ -231,8 +246,9 @@ const TIER_CONFIGS: TierConfig[] = [
     </ng-template>
   `,
 })
-export class OpenRouterModelSelectorComponent implements OnInit {
+export class ProviderModelSelectorComponent implements OnInit {
   private readonly rpc = inject(ClaudeRpcService);
+  private readonly modelState = inject(ModelStateService);
 
   // Icons
   readonly AlertTriangleIcon = AlertTriangle;
@@ -244,27 +260,47 @@ export class OpenRouterModelSelectorComponent implements OnInit {
   // Tier configurations
   readonly tierConfigs = TIER_CONFIGS;
 
+  // Input: provider ID (optional, defaults to active provider on backend)
+  readonly providerId = input<string | undefined>(undefined);
+
+  // Input: whether the provider has a key configured (guards model loading)
+  readonly hasKey = input<boolean>(false);
+
   // Template ref for autocomplete
   readonly modelSuggestionTemplate = viewChild.required<
-    TemplateRef<{ $implicit: OpenRouterModelInfo }>
+    TemplateRef<{ $implicit: ProviderModelInfo }>
   >('modelSuggestionTemplate');
 
   // State
-  readonly availableModels = signal<OpenRouterModelInfo[]>([]);
+  readonly availableModels = signal<ProviderModelInfo[]>([]);
   readonly isLoading = signal(false);
   readonly error = signal<string | null>(null);
-  readonly searchQuery = signal('');
-  readonly activeTier = signal<OpenRouterModelTier | null>(null);
+  readonly searchQueries = signal<Record<ProviderModelTier, string>>({
+    sonnet: '',
+    opus: '',
+    haiku: '',
+  });
+  readonly activeTier = signal<ProviderModelTier | null>(null);
   readonly isDropdownOpen = signal(false);
+  readonly isStatic = signal(false);
+  readonly tierErrors = signal<Record<ProviderModelTier, string | null>>({
+    sonnet: null,
+    opus: null,
+    haiku: null,
+  });
+
+  // AbortController for cancelling in-flight model/tier loads on provider switch
+  private loadAbortController: AbortController | null = null;
 
   // Current tier mappings
   readonly sonnetModel = signal<string | null>(null);
   readonly opusModel = signal<string | null>(null);
   readonly haikuModel = signal<string | null>(null);
 
-  // Computed: filtered models based on search
+  // Computed: filtered models based on the active tier's search query
   readonly filteredModels = computed(() => {
-    const query = this.searchQuery().toLowerCase().trim();
+    const tier = this.activeTier();
+    const query = tier ? this.searchQueries()[tier].toLowerCase().trim() : '';
     const models = this.availableModels();
 
     if (!query) {
@@ -285,14 +321,49 @@ export class OpenRouterModelSelectorComponent implements OnInit {
     () => this.availableModels().filter((m) => m.supportsToolUse).length
   );
 
+  // Track previous providerId to detect changes (skip initial load handled by ngOnInit)
+  private previousProviderId: string | undefined | null = null;
+  private initialized = false;
+
+  constructor() {
+    // React to providerId and hasKey input changes after initial load
+    effect(() => {
+      const currentId = this.providerId();
+      const keyAvailable = this.hasKey();
+
+      if (!this.initialized) return;
+
+      if (currentId !== this.previousProviderId) {
+        // Provider changed
+        this.previousProviderId = currentId;
+        if (keyAvailable) {
+          this.reloadForProvider();
+        } else {
+          this.clearModelState();
+        }
+      } else if (
+        keyAvailable &&
+        this.availableModels().length === 0 &&
+        !this.isLoading()
+      ) {
+        // Same provider, key just became available, no models loaded yet
+        this.reloadForProvider();
+      }
+    });
+  }
+
   async ngOnInit(): Promise<void> {
-    await Promise.all([this.loadModels(), this.loadTierMappings()]);
+    this.previousProviderId = this.providerId();
+    if (this.hasKey()) {
+      await Promise.all([this.loadModels(), this.loadTierMappings()]);
+    }
+    this.initialized = true;
   }
 
   /**
    * Get current value for a tier
    */
-  getTierValue(tier: OpenRouterModelTier): string | null {
+  getTierValue(tier: ProviderModelTier): string | null {
     switch (tier) {
       case 'sonnet':
         return this.sonnetModel();
@@ -312,10 +383,17 @@ export class OpenRouterModelSelectorComponent implements OnInit {
   }
 
   /**
-   * Handle search input for a tier
+   * Get the search query for a specific tier
    */
-  onSearchInput(query: string, tier: OpenRouterModelTier): void {
-    this.searchQuery.set(query);
+  getSearchQuery(tier: ProviderModelTier): string {
+    return this.searchQueries()[tier];
+  }
+
+  /**
+   * Handle search input for a tier (updates only that tier's query)
+   */
+  onSearchInput(query: string, tier: ProviderModelTier): void {
+    this.searchQueries.update((prev) => ({ ...prev, [tier]: query }));
     this.activeTier.set(tier);
     this.isDropdownOpen.set(true);
   }
@@ -323,7 +401,7 @@ export class OpenRouterModelSelectorComponent implements OnInit {
   /**
    * Open dropdown for a tier
    */
-  openDropdown(tier: OpenRouterModelTier): void {
+  openDropdown(tier: ProviderModelTier): void {
     this.activeTier.set(tier);
     this.isDropdownOpen.set(true);
 
@@ -334,51 +412,81 @@ export class OpenRouterModelSelectorComponent implements OnInit {
   }
 
   /**
-   * Close dropdown
+   * Close dropdown and clear only the active tier's search query
    */
   closeDropdown(): void {
+    const tier = this.activeTier();
+    if (tier) {
+      this.searchQueries.update((prev) => ({ ...prev, [tier]: '' }));
+    }
     this.isDropdownOpen.set(false);
     this.activeTier.set(null);
-    this.searchQuery.set('');
   }
 
   /**
    * Select a model for the active tier
    */
   async selectModel(
-    tier: OpenRouterModelTier,
-    model: OpenRouterModelInfo
+    tier: ProviderModelTier,
+    model: ProviderModelInfo
   ): Promise<void> {
     try {
-      const result = await this.rpc.call('openrouter:setModelTier', {
+      const result = await this.rpc.call('provider:setModelTier', {
         tier,
         modelId: model.id,
+        providerId: this.providerId(),
       });
 
       if (result.isSuccess() && result.data?.success) {
+        // Clear any previous error for this tier
+        this.tierErrors.update((prev) => ({ ...prev, [tier]: null }));
         // Update local state
         this.setTierValue(tier, model.id);
         this.closeDropdown();
+        // Refresh model dropdown to show new provider model IDs
+        this.modelState.refreshModels();
       } else {
-        console.error('[OpenRouterModelSelector] Failed to set tier:', result);
+        this.tierErrors.update((prev) => ({
+          ...prev,
+          [tier]: result.error || 'Failed to set model',
+        }));
       }
     } catch (error) {
-      console.error('[OpenRouterModelSelector] Error setting tier:', error);
+      this.tierErrors.update((prev) => ({
+        ...prev,
+        [tier]: error instanceof Error ? error.message : 'Failed to set model',
+      }));
     }
   }
 
   /**
    * Clear a tier (reset to default)
    */
-  async clearTier(tier: OpenRouterModelTier): Promise<void> {
+  async clearTier(tier: ProviderModelTier): Promise<void> {
     try {
-      const result = await this.rpc.call('openrouter:clearModelTier', { tier });
+      const result = await this.rpc.call('provider:clearModelTier', {
+        tier,
+        providerId: this.providerId(),
+      });
 
       if (result.isSuccess() && result.data?.success) {
+        // Clear any previous error for this tier
+        this.tierErrors.update((prev) => ({ ...prev, [tier]: null }));
         this.setTierValue(tier, null);
+        // Refresh model dropdown to remove cleared provider model IDs
+        this.modelState.refreshModels();
+      } else {
+        this.tierErrors.update((prev) => ({
+          ...prev,
+          [tier]: result.error || 'Failed to clear model',
+        }));
       }
     } catch (error) {
-      console.error('[OpenRouterModelSelector] Error clearing tier:', error);
+      this.tierErrors.update((prev) => ({
+        ...prev,
+        [tier]:
+          error instanceof Error ? error.message : 'Failed to clear model',
+      }));
     }
   }
 
@@ -390,48 +498,103 @@ export class OpenRouterModelSelectorComponent implements OnInit {
   }
 
   /**
-   * Load models from OpenRouter API
+   * Clear model state without loading (used when no key is configured).
    */
-  private async loadModels(): Promise<void> {
+  private clearModelState(): void {
+    this.loadAbortController?.abort();
+    this.availableModels.set([]);
+    this.sonnetModel.set(null);
+    this.opusModel.set(null);
+    this.haikuModel.set(null);
+    this.error.set(null);
+    this.tierErrors.set({ sonnet: null, opus: null, haiku: null });
+    this.closeDropdown();
+  }
+
+  /**
+   * Reload models and tier mappings when the provider changes.
+   * Cancels any in-flight loads from a previous provider switch.
+   */
+  private async reloadForProvider(): Promise<void> {
+    // Cancel any in-flight loads from a previous provider switch
+    this.loadAbortController?.abort();
+    this.loadAbortController = new AbortController();
+    const abortSignal = this.loadAbortController.signal;
+
+    // Clear stale state from the previous provider
+    this.availableModels.set([]);
+    this.sonnetModel.set(null);
+    this.opusModel.set(null);
+    this.haikuModel.set(null);
+    this.error.set(null);
+    this.tierErrors.set({ sonnet: null, opus: null, haiku: null });
+    this.closeDropdown();
+
+    await Promise.all([
+      this.loadModels(abortSignal),
+      this.loadTierMappings(abortSignal),
+    ]);
+  }
+
+  /**
+   * Load models from provider API (or static list).
+   * Accepts an optional AbortSignal to skip state updates if the load was cancelled.
+   */
+  private async loadModels(abortSignal?: AbortSignal): Promise<void> {
     this.isLoading.set(true);
     this.error.set(null);
 
     try {
-      const result = await this.rpc.call('openrouter:listModels', {
+      const result = await this.rpc.call('provider:listModels', {
         toolUseOnly: false,
+        providerId: this.providerId(),
       });
 
+      // If this load was aborted (provider changed mid-flight), discard the result
+      if (abortSignal?.aborted) return;
+
       if (result.isSuccess() && result.data) {
-        const data = result.data as OpenRouterListModelsResult;
+        const data = result.data as ProviderListModelsResult;
         this.availableModels.set(data.models);
+        this.isStatic.set(data.isStatic ?? false);
       } else {
         this.error.set(result.error || 'Failed to load models');
       }
     } catch (error) {
+      if (abortSignal?.aborted) return;
       this.error.set(
         error instanceof Error ? error.message : 'Failed to load models'
       );
     } finally {
-      this.isLoading.set(false);
+      if (!abortSignal?.aborted) {
+        this.isLoading.set(false);
+      }
     }
   }
 
   /**
-   * Load current tier mappings
+   * Load current tier mappings.
+   * Accepts an optional AbortSignal to skip state updates if the load was cancelled.
    */
-  private async loadTierMappings(): Promise<void> {
+  private async loadTierMappings(abortSignal?: AbortSignal): Promise<void> {
     try {
-      const result = await this.rpc.call('openrouter:getModelTiers', {});
+      const result = await this.rpc.call('provider:getModelTiers', {
+        providerId: this.providerId(),
+      });
+
+      // If this load was aborted (provider changed mid-flight), discard the result
+      if (abortSignal?.aborted) return;
 
       if (result.isSuccess() && result.data) {
-        const data = result.data as OpenRouterGetModelTiersResult;
+        const data = result.data as ProviderGetModelTiersResult;
         this.sonnetModel.set(data.sonnet);
         this.opusModel.set(data.opus);
         this.haikuModel.set(data.haiku);
       }
     } catch (error) {
+      if (abortSignal?.aborted) return;
       console.error(
-        '[OpenRouterModelSelector] Error loading tier mappings:',
+        '[ProviderModelSelector] Error loading tier mappings:',
         error
       );
     }
@@ -440,7 +603,7 @@ export class OpenRouterModelSelectorComponent implements OnInit {
   /**
    * Set tier value in local state
    */
-  private setTierValue(tier: OpenRouterModelTier, value: string | null): void {
+  private setTierValue(tier: ProviderModelTier, value: string | null): void {
     switch (tier) {
       case 'sonnet':
         this.sonnetModel.set(value);

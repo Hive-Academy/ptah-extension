@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric              | Value                                |
-| ------------------- | ------------------------------------ |
-| Overall Score       | 7/10                                 |
-| Assessment          | NEEDS_REVISION                       |
-| Critical Issues     | 2                                    |
-| Serious Issues      | 3                                    |
-| Moderate Issues     | 4                                    |
-| Failure Modes Found | 8                                    |
+| Metric              | Value          |
+| ------------------- | -------------- |
+| Overall Score       | 7/10           |
+| Assessment          | NEEDS_REVISION |
+| Critical Issues     | 2              |
+| Serious Issues      | 3              |
+| Moderate Issues     | 4              |
+| Failure Modes Found | 8              |
 
 ---
 
@@ -34,9 +34,11 @@
 **Empty string panelId vs undefined panelId ambiguity.** The sidebar gets `panelId: ''` (empty string) and editor panels get `panelId: 'ptah.panel.{uuid}'`. In `tab-manager.service.ts` (line 96), the check is `panelId ? ... : 'ptah.tabs'`. This works because empty string is falsy. However, `WebviewConfig.panelId` is typed as `string | undefined` (optional), meaning `undefined` also goes to `'ptah.tabs'`. If for any reason a panel's `window.ptahConfig` fails to include `panelId`, it would silently fall back to the sidebar's storage key, causing localStorage collision. This is an edge case but worth noting as a data integrity risk.
 
 **Malformed ptahConfig injection.** In `webview-html-generator.ts` (line 471), `panelId` is injected as:
+
 ```javascript
 panelId: '${this.escapeJsString(panelId || '')}'
 ```
+
 If `panelId` somehow contained a single quote followed by a script tag, `escapeJsString()` should handle it (it escapes single quotes at line 562). This appears safe. However, `panelId` is constructed from `crypto.randomUUID()` which produces hex + hyphens, so XSS risk is negligible. No issue here.
 
 ### 4. What happens when dependencies fail?
@@ -91,7 +93,7 @@ If `panelId` somehow contained a single quote followed by a script tag, `escapeJ
 - **Current Handling**: Panels are parallel via `Promise.allSettled()`. Sidebar views are serial via `await` in a for loop.
 - **Recommendation**: For consistency and performance, collect sidebar view promises and include them in `Promise.allSettled()` instead of awaiting each individually.
 
-### Failure Mode 5: Shared _disposables array across all panels
+### Failure Mode 5: Shared \_disposables array across all panels
 
 - **Trigger**: Multiple panels created, each adding `onDidDispose` subscriptions to `this._disposables` (line 171-182 and line 147-158)
 - **Symptoms**: `AngularWebviewProvider.dispose()` at line 361-384 calls `this._disposables.forEach(d => d.dispose())`. This includes dispose handlers from panels that were already individually disposed. Double-dispose of VS Code disposables is generally safe (no-op) but is not guaranteed by the API contract.
@@ -133,6 +135,7 @@ If `panelId` somehow contained a single quote followed by a script tag, `escapeJ
 - **Scenario**: When broadcasting, sidebar views are awaited one by one in a for-of loop BEFORE `Promise.allSettled(panelPromises)` is called. If a sidebar view's `postMessage` is slow or hangs, ALL panel broadcasts are delayed.
 - **Impact**: Under normal conditions, this adds minimal latency. But if a sidebar view becomes unresponsive (e.g., hidden VS Code sidebar, memory pressure), panel event delivery stalls. During streaming, this causes visible stuttering in all editor panels.
 - **Evidence**:
+
 ```typescript
 // Lines 326-339 in webview-manager.ts
 // Sidebar views awaited SEQUENTIALLY:
@@ -145,7 +148,9 @@ for (const [viewType, view] of this.activeWebviewViews) {
 // Panel promises awaited ONLY AFTER sidebar loop:
 await Promise.allSettled(panelPromises); // DELAYED
 ```
+
 - **Fix**: Collect sidebar view promises into an array and include them in `Promise.allSettled()`:
+
 ```typescript
 const allPromises: Promise<any>[] = [...panelPromises];
 for (const [viewType, view] of this.activeWebviewViews) {
@@ -164,6 +169,7 @@ await Promise.allSettled(allPromises);
 - **Scenario**: Editor panels are registered via `registerWebviewView(panelId, panel as unknown as vscode.WebviewView)`. Inside `registerWebviewView()`, line 182-184 calls `view.onDidChangeVisibility()`. `WebviewPanel` does NOT have this method. `WebviewPanel` has `onDidChangeViewState` instead.
 - **Impact**: Panel visibility tracking silently fails. `webviewMetrics.isVisible` is never updated for panels. If any future logic depends on visibility (e.g., pause broadcasts to hidden panels for performance), it will be broken.
 - **Evidence**:
+
 ```typescript
 // angular-webview.provider.ts:137-139
 this.webviewManager.registerWebviewView(
@@ -172,11 +178,14 @@ this.webviewManager.registerWebviewView(
 );
 
 // webview-manager.ts:182-184
-view.onDidChangeVisibility(() => {  // WebviewPanel does NOT have this!
+view.onDidChangeVisibility(() => {
+  // WebviewPanel does NOT have this!
   this.updateWebviewVisibility(viewType, view.visible);
 });
 ```
+
 - **Fix**: Add a `registerWebviewPanel()` method to `WebviewManager` that correctly handles `WebviewPanel` lifecycle including `onDidChangeViewState`. OR at minimum, add a runtime check:
+
 ```typescript
 if (typeof view.onDidChangeVisibility === 'function') {
   view.onDidChangeVisibility(() => { ... });
@@ -187,7 +196,7 @@ if (typeof view.onDidChangeVisibility === 'function') {
 
 ## Serious Issues
 
-### Issue 3: Shared _disposables array accumulates stale entries
+### Issue 3: Shared \_disposables array accumulates stale entries
 
 - **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\providers\angular-webview.provider.ts`, lines 157, 171-182
 - **Scenario**: Every call to `createPanel()` adds message listener disposables (line 157) and `onDidDispose` subscriptions (line 171-182) to `this._disposables`. When panels dispose individually, their entries remain in the array. The `dispose()` method at line 361-384 iterates ALL entries including stale ones.
@@ -200,6 +209,7 @@ if (typeof view.onDidChangeVisibility === 'function') {
 - **Scenario**: The `onReady` callback captures `panel` and `panelEventQueue` in a closure. If the panel is disposed before the webview sends `WEBVIEW_READY`, the `onReady` callback could still fire (because the message listener was registered before disposal). The flush would try `panel.webview.postMessage(event)` on a disposed panel.
 - **Impact**: Runtime error thrown inside the message handler. Not user-visible but pollutes logs.
 - **Evidence**:
+
 ```typescript
 onReady: () => {
   this.logger.info(`Panel ${panelId} webview ready`);
@@ -207,6 +217,7 @@ onReady: () => {
   panelEventQueue.flush((event) => panel.webview.postMessage(event)); // panel may be disposed
 },
 ```
+
 - **Fix**: Guard with: `if (this._panels.has(panelId)) { panelEventQueue.flush(...); }`
 
 ### Issue 5: No guard against event queue operations on disposed queue
@@ -234,7 +245,7 @@ onReady: () => {
 - **Impact**: LOW -- Each entry is 2-10KB. After months of heavy use, this could reach a few MB. localStorage quota is typically 5-10MB per origin, so extreme usage could theoretically hit the limit.
 - **Fix**: Consider adding cleanup in `AngularWebviewProvider.dispose()` or on extension activation that scans for `ptah.tabs.ptah.panel.*` keys and removes ones that don't correspond to active panels.
 
-### Issue 8: _panelEventQueues Map maintained separately from _panels Map
+### Issue 8: \_panelEventQueues Map maintained separately from \_panels Map
 
 - **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\providers\angular-webview.provider.ts`, lines 40-41
 - **Scenario**: Two separate Maps (`_panels` and `_panelEventQueues`) track panel state. They must be kept in sync manually. In `onDidDispose` (line 172-175), both maps are cleaned up. But if an error occurs between `_panels.delete` (line 173) and `_panelEventQueues.delete` (line 175), the queue map leaks.
@@ -292,6 +303,7 @@ StreamingHandlerService.processStreamEvent() [streaming-handler.service.ts:73]
 ```
 
 ### Gap Points Identified:
+
 1. Panel disposal during broadcast iteration (race between Map read and postMessage)
 2. Sequential sidebar await delays panel delivery
 3. Disposed panel onReady closure captures stale panel reference
@@ -301,23 +313,24 @@ StreamingHandlerService.processStreamEvent() [streaming-handler.service.ts:73]
 
 ## Requirements Fulfillment
 
-| Requirement | Status | Concern |
-|-------------|--------|---------|
-| Sidebar keeps existing webview (`ptah.main`) | COMPLETE | No changes to `resolveWebviewView()` |
-| Editor panels get independent Angular instances | COMPLETE | Each panel creates full webview with own HTML |
-| Unique `panelId` per panel | COMPLETE | `crypto.randomUUID()` generates UUID v4 |
-| Push events broadcast to ALL webviews | COMPLETE | `broadcastMessage()` iterates both maps |
-| Frontend filters by tabId | COMPLETE (no changes needed) | `StreamingHandlerService` already filters |
-| localStorage namespaced by panelId | COMPLETE | `storageKey` computed from panelId |
-| Panel disposal cleans up resources | COMPLETE | `onDidDispose` removes from maps, disposes queue |
-| Backward compatibility for sidebar | COMPLETE | Empty panelId falls back to `'ptah.tabs'` |
-| Per-panel event queues | COMPLETE | Manually instantiated `WebviewEventQueue` per panel |
-| All 9 hardcoded `'ptah.main'` sites replaced | COMPLETE | 5 in rpc-method-registration, 4 in chat-rpc-handlers |
-| Both local WebviewManager interfaces updated | COMPLETE | `broadcastMessage` added to both |
-| `panelId` in `window.ptahConfig` | COMPLETE | Injected via `getVSCodeIntegrationScript()` |
-| `WebviewConfig` interface updated | COMPLETE | `panelId?: string` added with default `''` |
+| Requirement                                     | Status                       | Concern                                              |
+| ----------------------------------------------- | ---------------------------- | ---------------------------------------------------- |
+| Sidebar keeps existing webview (`ptah.main`)    | COMPLETE                     | No changes to `resolveWebviewView()`                 |
+| Editor panels get independent Angular instances | COMPLETE                     | Each panel creates full webview with own HTML        |
+| Unique `panelId` per panel                      | COMPLETE                     | `crypto.randomUUID()` generates UUID v4              |
+| Push events broadcast to ALL webviews           | COMPLETE                     | `broadcastMessage()` iterates both maps              |
+| Frontend filters by tabId                       | COMPLETE (no changes needed) | `StreamingHandlerService` already filters            |
+| localStorage namespaced by panelId              | COMPLETE                     | `storageKey` computed from panelId                   |
+| Panel disposal cleans up resources              | COMPLETE                     | `onDidDispose` removes from maps, disposes queue     |
+| Backward compatibility for sidebar              | COMPLETE                     | Empty panelId falls back to `'ptah.tabs'`            |
+| Per-panel event queues                          | COMPLETE                     | Manually instantiated `WebviewEventQueue` per panel  |
+| All 9 hardcoded `'ptah.main'` sites replaced    | COMPLETE                     | 5 in rpc-method-registration, 4 in chat-rpc-handlers |
+| Both local WebviewManager interfaces updated    | COMPLETE                     | `broadcastMessage` added to both                     |
+| `panelId` in `window.ptahConfig`                | COMPLETE                     | Injected via `getVSCodeIntegrationScript()`          |
+| `WebviewConfig` interface updated               | COMPLETE                     | `panelId?: string` added with default `''`           |
 
 ### Implicit Requirements NOT Addressed:
+
 1. Maximum panel count limit (resource protection)
 2. Panel visibility-based broadcast optimization (skip hidden panels)
 3. localStorage orphan cleanup mechanism
@@ -328,29 +341,29 @@ StreamingHandlerService.processStreamEvent() [streaming-handler.service.ts:73]
 
 ## Edge Case Analysis
 
-| Edge Case | Handled | How | Concern |
-|-----------|---------|-----|---------|
-| Empty panelId for sidebar | YES | Falsy check in TabManagerService (line 96) | None |
-| Panel disposed during streaming | PARTIAL | onDidDispose cleans maps; broadcast may race | Timing gap between dispose and map removal |
-| Multiple panels opened rapidly | YES | Each gets unique UUID, independent queue | Shared _disposables grows |
-| Panel closed before ready signal | PARTIAL | onDidDispose disposes queue | onReady closure may fire after dispose |
-| Network/webview failure during broadcast | YES | Promise.allSettled absorbs failures | Sequential sidebar await blocks panels |
-| ptahConfig not available at constructor | YES | Optional chaining: `ptahConfig?.panelId` | Falls back to sidebar key (wrong for panel) |
-| Disposed WebviewEventQueue receives events | NO | No _disposed flag check | Events queued to dead queue |
-| Very long panelId in localStorage key | YES | UUID is fixed 36 chars | No concern |
-| Panel reload (dev hot reload) | YES | reloadWebview() iterates _panels | Panel event queues reset correctly |
+| Edge Case                                  | Handled | How                                          | Concern                                     |
+| ------------------------------------------ | ------- | -------------------------------------------- | ------------------------------------------- |
+| Empty panelId for sidebar                  | YES     | Falsy check in TabManagerService (line 96)   | None                                        |
+| Panel disposed during streaming            | PARTIAL | onDidDispose cleans maps; broadcast may race | Timing gap between dispose and map removal  |
+| Multiple panels opened rapidly             | YES     | Each gets unique UUID, independent queue     | Shared \_disposables grows                  |
+| Panel closed before ready signal           | PARTIAL | onDidDispose disposes queue                  | onReady closure may fire after dispose      |
+| Network/webview failure during broadcast   | YES     | Promise.allSettled absorbs failures          | Sequential sidebar await blocks panels      |
+| ptahConfig not available at constructor    | YES     | Optional chaining: `ptahConfig?.panelId`     | Falls back to sidebar key (wrong for panel) |
+| Disposed WebviewEventQueue receives events | NO      | No \_disposed flag check                     | Events queued to dead queue                 |
+| Very long panelId in localStorage key      | YES     | UUID is fixed 36 chars                       | No concern                                  |
+| Panel reload (dev hot reload)              | YES     | reloadWebview() iterates \_panels            | Panel event queues reset correctly          |
 
 ---
 
 ## Integration Risk Assessment
 
-| Integration | Failure Probability | Impact | Mitigation |
-|-------------|---------------------|--------|------------|
-| WebviewPanel to WebviewView cast | HIGH (always active) | MEDIUM (broken visibility) | Pre-existing; amplified by multi-panel |
-| broadcastMessage to disposed panel | MEDIUM (during disposal) | LOW (events lost for dead panel) | Promise.allSettled absorbs |
-| Per-panel event queue instantiation | LOW | LOW (logger cast) | `as any` cast works for current Logger |
-| localStorage key computation | LOW | MEDIUM (wrong key = data collision) | ptahConfig injection is synchronous before bootstrap |
-| Frontend tabId filtering | LOW | NONE (pre-existing, verified) | StreamingHandlerService discards unmatched events |
+| Integration                         | Failure Probability      | Impact                              | Mitigation                                           |
+| ----------------------------------- | ------------------------ | ----------------------------------- | ---------------------------------------------------- |
+| WebviewPanel to WebviewView cast    | HIGH (always active)     | MEDIUM (broken visibility)          | Pre-existing; amplified by multi-panel               |
+| broadcastMessage to disposed panel  | MEDIUM (during disposal) | LOW (events lost for dead panel)    | Promise.allSettled absorbs                           |
+| Per-panel event queue instantiation | LOW                      | LOW (logger cast)                   | `as any` cast works for current Logger               |
+| localStorage key computation        | LOW                      | MEDIUM (wrong key = data collision) | ptahConfig injection is synchronous before bootstrap |
+| Frontend tabId filtering            | LOW                      | NONE (pre-existing, verified)       | StreamingHandlerService discards unmatched events    |
 
 ---
 

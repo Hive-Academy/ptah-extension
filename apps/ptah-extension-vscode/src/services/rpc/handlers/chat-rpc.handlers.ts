@@ -499,14 +499,11 @@ IMPORTANT INSTRUCTIONS:
 
         // Include tabId for frontend routing
         // sessionId in event is the real SDK UUID
-        await this.webviewManager.broadcastMessage(
-          MESSAGE_TYPES.CHAT_CHUNK,
-          {
-            tabId, // For frontend tab routing
-            sessionId: event.sessionId, // Real SDK UUID from the event
-            event,
-          }
-        );
+        await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
+          tabId, // For frontend tab routing
+          sessionId: event.sessionId, // Real SDK UUID from the event
+          event,
+        });
 
         // TASK_2025_092: Reset turnCompleteSent when new turn starts (message_start)
         // This ensures multi-turn conversations properly signal completion for each turn
@@ -567,14 +564,11 @@ IMPORTANT INSTRUCTIONS:
       }
 
       // Send error to webview (frontend handles abort vs error display)
-      await this.webviewManager.broadcastMessage(
-        MESSAGE_TYPES.CHAT_ERROR,
-        {
-          tabId,
-          sessionId,
-          error: errorMessage,
-        }
-      );
+      await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_ERROR, {
+        tabId,
+        sessionId,
+        error: errorMessage,
+      });
     }
   }
 }

@@ -33,8 +33,11 @@ export const SDK_TOKENS = {
   // Compaction hook handler (TASK_2025_098)
   SDK_COMPACTION_HOOK_HANDLER: 'SdkCompactionHookHandler',
 
-  // OpenRouter services (TASK_2025_091 Phase 2)
-  SDK_OPENROUTER_MODELS: 'SdkOpenRouterModels',
+  // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
+  SDK_PROVIDER_MODELS: 'SdkProviderModels',
+
+  // @deprecated Use SDK_PROVIDER_MODELS instead
+  SDK_OPENROUTER_MODELS: 'SdkProviderModels',
 
   // Extracted services (TASK_2025_102)
   SDK_MESSAGE_FACTORY: 'SdkMessageFactory',

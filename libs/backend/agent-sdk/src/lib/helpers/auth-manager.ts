@@ -23,6 +23,8 @@ import {
   getProviderBaseUrl,
   DEFAULT_PROVIDER_ID,
 } from './anthropic-provider-registry';
+import { ProviderModelsService } from '../provider-models.service';
+import { SDK_TOKENS } from '../di/tokens';
 
 export interface AuthResult {
   configured: boolean;
@@ -43,7 +45,9 @@ export class AuthManager {
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
-    private authSecrets: IAuthSecretsService
+    private authSecrets: IAuthSecretsService,
+    @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
+    private providerModels: ProviderModelsService
   ) {}
 
   /**
@@ -162,6 +166,9 @@ export class AuthManager {
       delete process.env['ANTHROPIC_BASE_URL'];
       delete process.env['ANTHROPIC_AUTH_TOKEN'];
 
+      // Clear stale tier env vars from previous provider session (TASK_2025_132)
+      this.providerModels.clearAllTierEnvVars();
+
       // Set the OAuth token
       process.env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken.trim();
 
@@ -190,6 +197,9 @@ export class AuthManager {
       delete process.env['ANTHROPIC_API_KEY'];
       delete process.env['ANTHROPIC_BASE_URL'];
       delete process.env['ANTHROPIC_AUTH_TOKEN'];
+
+      // Clear stale tier env vars from previous provider session (TASK_2025_132)
+      this.providerModels.clearAllTierEnvVars();
 
       this.logger.info(
         '[AuthManager] Using OAuth token from environment (subscription mode)'
@@ -230,15 +240,17 @@ export class AuthManager {
    * @see https://docs.z.ai/devpack/tool/claude
    */
   private async configureAnthropicProvider(): Promise<AuthResult> {
-    const providerKey = await this.authSecrets.getCredential('openrouterKey');
+    // Read selected provider from config (default: openrouter for backward compat)
+    const providerId = this.config.getWithDefault<string>(
+      'anthropicProviderId',
+      DEFAULT_PROVIDER_ID
+    );
+
+    // Per-provider key lookup: each provider has its own isolated storage slot
+    const providerKey = await this.authSecrets.getProviderKey(providerId);
     const details: string[] = [];
 
     if (providerKey?.trim()) {
-      // Read selected provider from config (default: openrouter for backward compat)
-      const providerId = this.config.getWithDefault<string>(
-        'anthropicProviderId',
-        DEFAULT_PROVIDER_ID
-      );
       const provider = getAnthropicProvider(providerId);
       const providerName = provider?.name ?? providerId;
       const baseUrl = getProviderBaseUrl(providerId);
@@ -272,26 +284,27 @@ export class AuthManager {
       process.env['ANTHROPIC_API_KEY'] = '';
       delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
 
+      // Apply persisted tier mappings for this provider (TASK_2025_132)
+      this.providerModels.switchActiveProvider(providerId);
+
       this.logger.info(
         `[AuthManager] Using ${providerName} (routing via ${baseUrl})`
       );
-      this.logger.info(
-        `[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}`
-      );
+      this.logger.info(`[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}`);
       this.logger.info(
         '[AuthManager] Cleared ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN'
       );
 
       details.push(
         `${providerName} API key (routing via ${baseUrl}${
-          !hasExpectedPrefix && provider?.keyPrefix ? ', format may be invalid' : ''
+          !hasExpectedPrefix && provider?.keyPrefix
+            ? ', format may be invalid'
+            : ''
         })`
       );
       return { configured: true, details };
     } else {
-      this.logger.debug(
-        '[AuthManager] No provider key found in SecretStorage'
-      );
+      this.logger.debug('[AuthManager] No provider key found in SecretStorage');
       return { configured: false, details: [] };
     }
   }
@@ -326,6 +339,9 @@ export class AuthManager {
       // Clear provider routing to prevent stale ANTHROPIC_BASE_URL from a previous provider session
       delete process.env['ANTHROPIC_BASE_URL'];
       delete process.env['ANTHROPIC_AUTH_TOKEN'];
+
+      // Clear stale tier env vars from previous provider session (TASK_2025_132)
+      this.providerModels.clearAllTierEnvVars();
 
       process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
       details.push(

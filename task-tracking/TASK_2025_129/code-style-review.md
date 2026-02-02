@@ -30,6 +30,7 @@ The `userDisplayName()` computed signal is called **three times** in the templat
 ### 4. What pattern inconsistencies exist?
 
 **Nullability types are inconsistent across the three layers:**
+
 - Server (`LicenseVerificationResponse`): `firstName: string | null` -- explicit null
 - Extension internal (`LicenseStatus`): `firstName?: string` -- optional undefined
 - Frontend RPC type (`LicenseGetStatusResponse`): `firstName?: string` -- optional undefined
@@ -120,11 +121,13 @@ The server uses explicit `null` because Prisma returns `null` for nullable datab
 
 - **Files**: Multiple
 - **Problem**: Task references use two formats:
+
   - Parenthetical: `(TASK_2025_129)` -- used in `rpc.types.ts:594`, `feature-gate.service.ts:29`
   - Dash suffix: `- TASK_2025_129` -- used in `license.service.ts:31` (server)
   - Inline: `TASK_2025_129` -- used in `settings.component.ts:152`
 
   The codebase uses parenthetical format most commonly (e.g., `(TASK_2025_124)`, `(TASK_2025_128)`).
+
 - **Recommendation**: Standardize to parenthetical format `(TASK_2025_129)` for all new JSDoc task references. The dash suffix in `license.service.ts:31` should be: `/** User profile data (only present for valid licenses) (TASK_2025_129) */`.
 
 ---
@@ -140,6 +143,7 @@ The server uses explicit `null` because Prisma returns `null` for nullable datab
 Clean removal of `openrouter_proxy` from `ProOnlyFeature` type, `PRO_ONLY_FEATURES` array, and the `isProTier()` JSDoc. The new "Community features" section in the JSDoc (lines 28-29) is a good addition that documents what was removed and why. The trailing whitespace fix on line 253 (`return status.tier === 'trial_pro'; // Only Pro has trial`) is also acceptable.
 
 **Specific Concerns**:
+
 1. The `Feature` type (line 45-52) does not include `openrouter_proxy` either, so it cannot be checked via `isFeatureEnabled()`. This is correct -- since it is no longer gated, there is no need for a feature check. But this means there is no programmatic way to ask "does this plan include openrouter?" via FeatureGateService. The server-side `plans.config.ts` lists it in the community features array, which is the authoritative source.
 
 ---
@@ -153,6 +157,7 @@ Clean removal of `openrouter_proxy` from `ProOnlyFeature` type, `PRO_ONLY_FEATUR
 Removal of `'openrouter:'` from `PRO_ONLY_METHOD_PREFIXES` is clean. The JSDoc updates are thorough but slightly over-documented (the `isProOnlyMethod` JSDoc now documents what is NOT pro-only, which clutters the method's purpose). The inline comment updates at lines 131 and 383 are consistent.
 
 **Specific Concerns**:
+
 1. (Serious) `isProOnlyMethod()` JSDoc at line 427-428 documents community methods inside a method about Pro-only methods.
 2. (Minor) `PRO_ONLY_METHOD_PREFIXES` JSDoc header at line 66 does not include TASK_2025_129 reference.
 
@@ -179,6 +184,7 @@ Simple, clean addition of `'openrouter_proxy'` to the community plan features ar
 The `user` field addition to `LicenseVerificationResponse` and the return block are structurally correct. The ternary null check on `license.user` (line 224) is appropriate even if theoretically unnecessary. The Prisma query already includes the user object (line 103-114), so the data is available.
 
 **Specific Concerns**:
+
 1. (Blocking) `firstName: string | null` and `lastName: string | null` at lines 34-35 use explicit null, while downstream interfaces use optional `?`. This creates a nullability mismatch across the data pipeline.
 2. (Minor) Comment at line 223 says "defensive null check" which overstates the risk.
 3. (Minor) JSDoc task reference format uses dash suffix `- TASK_2025_129` instead of parenthetical.
@@ -194,6 +200,7 @@ The `user` field addition to `LicenseVerificationResponse` and the return block 
 Addition of the `user` optional field to `LicenseStatus` interface is correct and follows the existing pattern (all fields are optional). The JSDoc `/** User profile data from license server (TASK_2025_129) */` is clear and uses the parenthetical task reference format correctly. No changes to the implementation code were needed since the server response is deserialized via `response.json()` which will include the `user` field automatically.
 
 **Specific Concerns**:
+
 1. (Blocking) Uses `firstName?: string` while the server sends `firstName: string | null`. See blocking issue above.
 
 ---
@@ -219,6 +226,7 @@ Clean addition of the `user` field to `LicenseGetStatusResponse` at lines 594-59
 The `user` forwarding block at lines 194-201 follows the exact same pattern as the `plan` forwarding above it (lines 186-192): conditional object spread with explicit field mapping. The TASK_2025_129 comment at line 194 is clear. The removal of `// RENAMED from isBasic` comment at line 182 (in the unstaged version) is a good cleanup.
 
 **Specific Concerns**:
+
 1. (Serious, shared) This is the ideal place to coerce `null` to `undefined` to fix the nullability mismatch: `firstName: status.user.firstName ?? undefined`. Currently it passes through whatever the runtime value is (could be `null` from JSON deserialization even though the type says `string | undefined`).
 
 ---
@@ -232,6 +240,7 @@ The `user` forwarding block at lines 194-201 follows the exact same pattern as t
 The three user signals (lines 97-100) and two computed signals (lines 154-181) follow the established patterns in this component. The `userDisplayName` computed (lines 154-161) uses `filter(Boolean).join(' ')` which is a clean pattern for handling optional name parts. The `userInitials` computed (lines 167-181) has proper fallback logic: first+last initials -> first initial -> email initial -> '?'. The `fetchLicenseStatus` signal population (lines 272-275) uses the same `?? null` coercion pattern as surrounding lines.
 
 **Specific Concerns**:
+
 1. (Serious) Three individual signals where one structured signal would be more cohesive (see serious issue 4 -- accepted as consistent with existing pattern).
 2. (Minor) `userDisplayName()` is called 3 times in the template. Consider a `showUserName` computed to reduce template complexity.
 
@@ -246,6 +255,7 @@ The three user signals (lines 97-100) and two computed signals (lines 154-181) f
 The user profile section (lines 82-94) is correctly positioned between the tier badge section and the trial info section, which is the logical place for user identity in the license card. The `@if (userEmail())` guard correctly hides the section for Community users without license data. The DaisyUI/Tailwind classes (`bg-base-300/30`, `bg-primary/20`, `text-primary`, `shrink-0`, `min-w-0`, `truncate`) are consistent with the existing design system.
 
 **Specific Concerns**:
+
 1. (Serious) Lines 84 and 86 have long single-line elements with many utility classes, inconsistent with the reformatted lines 98-100 in the same commit.
 2. (Minor) No `aria-label` on the user profile section, unlike the tier badge at line 37.
 3. (Minor) Triple `userDisplayName()` call in template at line 88.
@@ -254,27 +264,29 @@ The user profile section (lines 82-94) is correctly positioned between the tier 
 
 ## Pattern Compliance
 
-| Pattern                     | Status | Concern                                                              |
-| --------------------------- | ------ | -------------------------------------------------------------------- |
-| Signal-based state          | PASS   | Three user signals + two computed follow component pattern           |
-| Type safety                 | FAIL   | Nullability mismatch between server (null) and extension (undefined) |
-| DI patterns                 | PASS   | No new DI required; existing services extended correctly             |
+| Pattern                      | Status | Concern                                                              |
+| ---------------------------- | ------ | -------------------------------------------------------------------- |
+| Signal-based state           | PASS   | Three user signals + two computed follow component pattern           |
+| Type safety                  | FAIL   | Nullability mismatch between server (null) and extension (undefined) |
+| DI patterns                  | PASS   | No new DI required; existing services extended correctly             |
 | Layer separation             | PASS   | Server -> Extension -> Frontend data flow properly layered           |
-| JSDoc consistency           | PASS   | Task references present, descriptions accurate (minor format issue)  |
-| DaisyUI/Tailwind patterns   | PASS   | Classes match existing design system usage                           |
+| JSDoc consistency            | PASS   | Task references present, descriptions accurate (minor format issue)  |
+| DaisyUI/Tailwind patterns    | PASS   | Classes match existing design system usage                           |
 | Angular OnPush compatibility | PASS   | All new state uses signals; no imperative change detection           |
-| Inline type vs shared type  | PASS   | Follows existing inline pattern (though shared type would be better) |
+| Inline type vs shared type   | PASS   | Follows existing inline pattern (though shared type would be better) |
 
 ---
 
 ## Technical Debt Assessment
 
 **Introduced**:
+
 - Nullable type mismatch creates a hidden runtime/compile-time disconnect across 3 layers
 - `user` object shape duplicated in 3 interfaces (same pattern as existing `plan` duplication)
 - Template long lines inconsistent with reformatted sections in same commit
 
 **Mitigated**:
+
 - Stale `// RENAMED from isBasic` comment cleaned up
 - OpenRouter no longer incorrectly gated behind Pro tier
 - Formatting inconsistencies in existing code fixed (trailing spaces, line breaks)

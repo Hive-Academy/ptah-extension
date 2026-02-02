@@ -9,6 +9,7 @@ Each editor panel is a fully independent Angular SPA instance. The sidebar (`pta
 ### Core Principle: Minimal Changes
 
 The existing architecture already supports multi-tab isolation at the frontend level. The backend only needs:
+
 1. A panel registry `Map<panelId, WebviewPanel>` for lifecycle management (create/reveal/dispose)
 2. A broadcast mechanism to send push events to ALL registered webviews instead of just `'ptah.main'`
 3. Unique panel IDs (`ptah.panel.{uuid}`) for each editor panel
@@ -21,6 +22,7 @@ The existing architecture already supports multi-tab isolation at the frontend l
 ### Current Architecture
 
 **AngularWebviewProvider** (`apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts`):
+
 - Manages a single sidebar `WebviewView` (`this._view`) and a single editor panel (`this._panel`)
 - Registers sidebar as `'ptah.main'` with WebviewManager (line 71)
 - Registers panel as `'ptah.panel'` with WebviewManager (line 135)
@@ -28,12 +30,14 @@ The existing architecture already supports multi-tab isolation at the frontend l
 - Uses a single `WebviewEventQueue` for readiness gating
 
 **WebviewManager** (`libs/backend/vscode-core/src/api-wrappers/webview-manager.ts`):
+
 - Two maps: `activeWebviews` (panels) and `activeWebviewViews` (sidebar views)
 - `sendMessage(viewType, type, payload)` sends to ONE specific registered webview
 - `getActiveWebviews()` returns all registered viewType keys
 - Already tracks metrics per webview
 
 **RpcMethodRegistrationService** (`apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts`):
+
 - 5 hardcoded `'ptah.main'` broadcast sites:
   - Line 151: `SESSION_ID_RESOLVED`
   - Line 209: `CHAT_CHUNK` (compaction)
@@ -42,6 +46,7 @@ The existing architecture already supports multi-tab isolation at the frontend l
   - Line 368: `CHAT_CHUNK` (agent-start)
 
 **ChatRpcHandlers** (`apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts`):
+
 - 4 hardcoded `'ptah.main'` broadcast sites:
   - Line 502: `CHAT_CHUNK` (streaming events)
   - Line 524: `CHAT_COMPLETE` (turn completion)
@@ -49,19 +54,23 @@ The existing architecture already supports multi-tab isolation at the frontend l
   - Line 573: `CHAT_ERROR`
 
 **WebviewHtmlGenerator** (`apps/ptah-extension-vscode/src/services/webview-html-generator.ts`):
+
 - `getVSCodeIntegrationScript()` (line 410) injects `window.ptahConfig` with workspace info, theme, URIs
 - Does NOT currently include any panel/webview identifier in ptahConfig
 
 **StreamingHandlerService** (`libs/frontend/chat/src/lib/services/chat-store/streaming-handler.service.ts`):
+
 - `processStreamEvent()` (line 73) routes by `tabId` first, then `sessionId` fallback
 - Already handles multi-tab isolation -- events for the wrong tab are simply not matched
 - Broadcast approach works because unmatched events return `null` (line 123)
 
 **TabManagerService** (`libs/frontend/chat/src/lib/services/tab-manager.service.ts`):
+
 - Uses `localStorage.setItem('ptah.tabs', ...)` (line 452) -- single key, not namespaced
 - All Angular instances sharing localStorage would collide without namespacing
 
 **VSCodeService** (`libs/frontend/core/src/lib/services/vscode.service.ts`):
+
 - Reads `window.ptahConfig` in constructor (line 104)
 - Routes incoming messages (CHAT_CHUNK, CHAT_COMPLETE, etc.) to ChatStore
 - Already handles all push message types -- each Angular instance processes independently
@@ -69,11 +78,13 @@ The existing architecture already supports multi-tab isolation at the frontend l
 ### Verified Frontend Event Filtering
 
 StreamingHandlerService already filters by tabId (line 87-88):
+
 ```typescript
 if (tabId) {
   targetTab = this.tabManager.tabs().find((t) => t.id === tabId);
 }
 ```
+
 If no matching tab is found, event is discarded (line 121-126). This means broadcasting to all webviews is safe -- only the webview with the matching tab processes the event.
 
 ---
@@ -87,6 +98,7 @@ If no matching tab is found, event is discarded (line 121-126). This means broad
 **Pattern**: Extension of existing WebviewManager (verified at `libs/backend/vscode-core/src/api-wrappers/webview-manager.ts`)
 
 **Specification**:
+
 ```typescript
 // Add to WebviewManager class (line ~300)
 async broadcastMessage<T extends StrictMessageType>(
@@ -115,11 +127,13 @@ async broadcastMessage<T extends StrictMessageType>(
 ```
 
 **Quality Requirements**:
+
 - Must not throw if any individual webview fails (use `Promise.allSettled`)
 - Log failures as warnings, not errors (webview may have been disposed between check and send)
 - Must include both panels (`activeWebviews`) and views (`activeWebviewViews`)
 
 **Files Affected**:
+
 - `libs/backend/vscode-core/src/api-wrappers/webview-manager.ts` (MODIFY)
 
 ---
@@ -132,28 +146,30 @@ async broadcastMessage<T extends StrictMessageType>(
 
 **Sites in RpcMethodRegistrationService** (5 sites):
 
-| Line | Event Type | Current | New |
-|------|-----------|---------|-----|
-| 151 | SESSION_ID_RESOLVED | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
-| 209 | CHAT_CHUNK (compaction) | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
-| 248 | SESSION_STATS | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
-| 316 | AGENT_SUMMARY_CHUNK | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
-| 368 | CHAT_CHUNK (agent-start) | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| Line | Event Type               | Current                         | New                     |
+| ---- | ------------------------ | ------------------------------- | ----------------------- |
+| 151  | SESSION_ID_RESOLVED      | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| 209  | CHAT_CHUNK (compaction)  | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| 248  | SESSION_STATS            | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| 316  | AGENT_SUMMARY_CHUNK      | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| 368  | CHAT_CHUNK (agent-start) | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
 
 **Sites in ChatRpcHandlers** (4 sites):
 
-| Line | Event Type | Current | New |
-|------|-----------|---------|-----|
-| 502 | CHAT_CHUNK (streaming) | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
-| 524 | CHAT_COMPLETE | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
-| 537 | CHAT_COMPLETE (fallback) | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
-| 573 | CHAT_ERROR | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| Line | Event Type               | Current                         | New                     |
+| ---- | ------------------------ | ------------------------------- | ----------------------- |
+| 502  | CHAT_CHUNK (streaming)   | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| 524  | CHAT_COMPLETE            | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| 537  | CHAT_COMPLETE (fallback) | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
+| 573  | CHAT_ERROR               | `sendMessage('ptah.main', ...)` | `broadcastMessage(...)` |
 
 **Quality Requirements**:
+
 - The `WebviewManager` interface used locally in both files (line 50-52 in rpc-method-registration.service.ts, line 42-44 in chat-rpc.handlers.ts) must be updated to include `broadcastMessage`
 - No change to payload structure -- events already include `tabId` and `sessionId`
 
 **Files Affected**:
+
 - `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts` (MODIFY)
 - `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts` (MODIFY)
 
@@ -237,6 +253,7 @@ public async createPanel(): Promise<void> {
 ```
 
 **Additional Methods**:
+
 ```typescript
 /** Get count of active panels */
 public get panelCount(): number {
@@ -245,6 +262,7 @@ public get panelCount(): number {
 ```
 
 **Quality Requirements**:
+
 - Each panel gets a unique ID via `crypto.randomUUID()`
 - Each panel has its own event queue (readiness is per-panel)
 - Dispose removes panel from registry AND from WebviewManager
@@ -252,6 +270,7 @@ public get panelCount(): number {
 - The existing `postMessageDirect()` method that sends to `this._panel` OR `this._view` is used for the sidebar's event queue flush only. Panel event queues flush directly via their own closure.
 
 **Files Affected**:
+
 - `apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts` (MODIFY)
 
 ---
@@ -265,16 +284,18 @@ public get panelCount(): number {
 **Specification**:
 
 Add `panelId` to the options interface:
+
 ```typescript
 export interface WebviewHtmlOptions {
   workspaceInfo?: Record<string, unknown>;
   initialView?: string;
   isLicensed?: boolean;
-  panelId?: string;  // NEW: unique panel identifier for multi-webview
+  panelId?: string; // NEW: unique panel identifier for multi-webview
 }
 ```
 
 Inject into `window.ptahConfig`:
+
 ```typescript
 window.ptahConfig = {
   // ...existing fields...
@@ -284,6 +305,7 @@ window.ptahConfig = {
 
 **Frontend Interface Update**:
 Add `panelId` to `WebviewConfig` in VSCodeService:
+
 ```typescript
 export interface WebviewConfig {
   // ...existing fields...
@@ -292,11 +314,13 @@ export interface WebviewConfig {
 ```
 
 **Quality Requirements**:
+
 - Sidebar webview gets `panelId: ''` (empty string / undefined)
 - Editor panels get `panelId: 'ptah.panel.{uuid}'`
 - Frontend reads this value to namespace localStorage
 
 **Files Affected**:
+
 - `apps/ptah-extension-vscode/src/services/webview-html-generator.ts` (MODIFY)
 - `libs/frontend/core/src/lib/services/vscode.service.ts` (MODIFY -- add panelId to WebviewConfig)
 
@@ -337,11 +361,13 @@ loadTabState(): void {
 ```
 
 **Quality Requirements**:
+
 - Sidebar continues using `'ptah.tabs'` (backward compatible)
 - Each editor panel uses `'ptah.tabs.ptah.panel.{uuid}'`
 - Panel localStorage is orphaned on panel close (acceptable -- small data, cleared on next VS Code restart or by user)
 
 **Files Affected**:
+
 - `libs/frontend/chat/src/lib/services/tab-manager.service.ts` (MODIFY)
 
 ---
@@ -380,6 +406,7 @@ Tab lookup by tabId -> only matching tab processes event
 ### RPC Flow (Point-to-Point, No Change)
 
 RPC requests/responses are already per-webview:
+
 ```
 Angular Instance -> webview.postMessage({type: 'rpc:call', ...})
   |
@@ -392,6 +419,7 @@ RpcHandler.handleMessage()
   v
 Response -> same webview.postMessage({type: 'rpc:response', ...})
 ```
+
 No change needed -- RPC responses flow back on the same webview channel they came from.
 
 ### Panel Lifecycle
@@ -430,20 +458,20 @@ panel.onDidDispose()
 
 ### Backend (5 files modified, 0 new files)
 
-| File | Action | Changes |
-|------|--------|---------|
-| `libs/backend/vscode-core/src/api-wrappers/webview-manager.ts` | MODIFY | Add `broadcastMessage()` method (~20 lines) |
-| `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts` | MODIFY | Replace 5x `sendMessage('ptah.main', ...)` with `broadcastMessage(...)`. Update local WebviewManager interface. |
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts` | MODIFY | Replace 4x `sendMessage('ptah.main', ...)` with `broadcastMessage(...)`. Update local WebviewManager interface. |
-| `apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts` | MODIFY | Replace `_panel` with `_panels` Map, generate unique panelId, per-panel event queue, pass panelId to HTML generator |
-| `apps/ptah-extension-vscode/src/services/webview-html-generator.ts` | MODIFY | Add `panelId` to options and inject into `window.ptahConfig` |
+| File                                                                             | Action | Changes                                                                                                             |
+| -------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------- |
+| `libs/backend/vscode-core/src/api-wrappers/webview-manager.ts`                   | MODIFY | Add `broadcastMessage()` method (~20 lines)                                                                         |
+| `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts` | MODIFY | Replace 5x `sendMessage('ptah.main', ...)` with `broadcastMessage(...)`. Update local WebviewManager interface.     |
+| `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts`      | MODIFY | Replace 4x `sendMessage('ptah.main', ...)` with `broadcastMessage(...)`. Update local WebviewManager interface.     |
+| `apps/ptah-extension-vscode/src/providers/angular-webview.provider.ts`           | MODIFY | Replace `_panel` with `_panels` Map, generate unique panelId, per-panel event queue, pass panelId to HTML generator |
+| `apps/ptah-extension-vscode/src/services/webview-html-generator.ts`              | MODIFY | Add `panelId` to options and inject into `window.ptahConfig`                                                        |
 
 ### Frontend (2 files modified, 0 new files)
 
-| File | Action | Changes |
-|------|--------|---------|
-| `libs/frontend/core/src/lib/services/vscode.service.ts` | MODIFY | Add `panelId` to `WebviewConfig` interface |
-| `libs/frontend/chat/src/lib/services/tab-manager.service.ts` | MODIFY | Namespace localStorage key with panelId |
+| File                                                         | Action | Changes                                    |
+| ------------------------------------------------------------ | ------ | ------------------------------------------ |
+| `libs/frontend/core/src/lib/services/vscode.service.ts`      | MODIFY | Add `panelId` to `WebviewConfig` interface |
+| `libs/frontend/chat/src/lib/services/tab-manager.service.ts` | MODIFY | Namespace localStorage key with panelId    |
 
 ### Total: 7 files modified, 0 new files
 
@@ -453,27 +481,27 @@ panel.onDidDispose()
 
 ### Low Risk
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Broadcast overhead (events sent to 2-4 webviews) | Negligible -- events are small JSON payloads (text deltas). Even at 100 events/sec, the overhead of 3 extra postMessage calls is under 1ms | StreamingHandlerService already discards unmatched events in O(1) tab lookup |
-| localStorage orphaning on panel close | Minimal -- each panel's tab state is a few KB. Accumulates slowly. | Could add cleanup on extension deactivate, but not strictly necessary |
-| WebviewEventQueue is currently singleton | Medium -- shared queue between sidebar and panels would cause readiness gating issues | Solution: create per-panel queue instances (not from DI), dispose on panel close |
+| Risk                                             | Impact                                                                                                                                     | Mitigation                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| Broadcast overhead (events sent to 2-4 webviews) | Negligible -- events are small JSON payloads (text deltas). Even at 100 events/sec, the overhead of 3 extra postMessage calls is under 1ms | StreamingHandlerService already discards unmatched events in O(1) tab lookup     |
+| localStorage orphaning on panel close            | Minimal -- each panel's tab state is a few KB. Accumulates slowly.                                                                         | Could add cleanup on extension deactivate, but not strictly necessary            |
+| WebviewEventQueue is currently singleton         | Medium -- shared queue between sidebar and panels would cause readiness gating issues                                                      | Solution: create per-panel queue instances (not from DI), dispose on panel close |
 
 ### Medium Risk
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Panel registration in WebviewManager uses `registerWebviewView()` which expects `WebviewView`, not `WebviewPanel` | Breaking type cast | Current code already does `panel as unknown as vscode.WebviewView` (line 136). Consider adding a `registerWebviewPanel()` method or keeping the cast. |
-| Existing `createPanel()` logic has single-panel guard (`if (this._panel)`) | Must be removed to allow multiple panels | Remove the guard, always create new panel. Optionally add a max panel limit. |
+| Risk                                                                                                              | Impact                                   | Mitigation                                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Panel registration in WebviewManager uses `registerWebviewView()` which expects `WebviewView`, not `WebviewPanel` | Breaking type cast                       | Current code already does `panel as unknown as vscode.WebviewView` (line 136). Consider adding a `registerWebviewPanel()` method or keeping the cast. |
+| Existing `createPanel()` logic has single-panel guard (`if (this._panel)`)                                        | Must be removed to allow multiple panels | Remove the guard, always create new panel. Optionally add a max panel limit.                                                                          |
 
 ### Addressed Non-Risks
 
-| Concern | Why It Is Not a Risk |
-|---------|-------------------|
-| "Events go to wrong tab" | StreamingHandlerService routes by tabId (line 87). Each Angular instance has its own tab set. Events for tabs not in this instance are silently discarded. |
-| "RPC responses go to wrong webview" | RPC responses are sent back on the same `webview.postMessage` channel that received the request. Point-to-point, no broadcast. |
-| "Permission prompts appear in all panels" | Permission requests are sent via `CHAT_CHUNK` with sessionId. StreamingHandlerService routes to matching tab. Only the panel with the correct tab shows the permission. |
-| "Frontend ChatStore/ConversationService need changes" | Zero changes. These services already work with tabId-based isolation. Multiple Angular instances = multiple independent ChatStore instances. |
+| Concern                                               | Why It Is Not a Risk                                                                                                                                                    |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Events go to wrong tab"                              | StreamingHandlerService routes by tabId (line 87). Each Angular instance has its own tab set. Events for tabs not in this instance are silently discarded.              |
+| "RPC responses go to wrong webview"                   | RPC responses are sent back on the same `webview.postMessage` channel that received the request. Point-to-point, no broadcast.                                          |
+| "Permission prompts appear in all panels"             | Permission requests are sent via `CHAT_CHUNK` with sessionId. StreamingHandlerService routes to matching tab. Only the panel with the correct tab shows the permission. |
+| "Frontend ChatStore/ConversationService need changes" | Zero changes. These services already work with tabId-based isolation. Multiple Angular instances = multiple independent ChatStore instances.                            |
 
 ---
 
@@ -486,7 +514,7 @@ panel.onDidDispose()
 
 **Cost per extra postMessage**: ~0.01ms (structured clone of small JSON object)
 **Typical streaming rate**: 10-50 events/second during active generation
-**Worst case overhead**: 50 events/sec * 3 extra calls * 0.01ms = 1.5ms/sec additional CPU
+**Worst case overhead**: 50 events/sec _ 3 extra calls _ 0.01ms = 1.5ms/sec additional CPU
 
 **Verdict**: Negligible. VS Code's webview postMessage is highly optimized.
 
@@ -513,6 +541,7 @@ panel.onDidDispose()
 **Recommended Developer**: Both backend-developer and frontend-developer (or a single full-stack developer)
 
 **Rationale**:
+
 - Backend: WebviewManager.broadcastMessage(), AngularWebviewProvider panel registry, broadcast replacement
 - Frontend: TabManagerService localStorage namespace, VSCodeService WebviewConfig update
 

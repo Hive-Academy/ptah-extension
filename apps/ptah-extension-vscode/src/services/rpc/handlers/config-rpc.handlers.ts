@@ -17,8 +17,9 @@ import {
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   SdkAgentAdapter,
-  OpenRouterModelsService,
+  ProviderModelsService,
   SDK_TOKENS,
+  DEFAULT_PROVIDER_ID,
 } from '@ptah-extension/agent-sdk';
 import {
   ClaudeModel,
@@ -44,8 +45,8 @@ export class ConfigRpcHandlers {
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
     @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
-    @inject(SDK_TOKENS.SDK_OPENROUTER_MODELS)
-    private readonly openRouterModels: OpenRouterModelsService
+    @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
+    private readonly providerModels: ProviderModelsService
   ) {}
 
   /**
@@ -282,22 +283,26 @@ export class ConfigRpcHandlers {
           // Fetch models dynamically from SDK
           const sdkModels = await this.sdkAdapter.getSupportedModels();
 
-          // Check if OpenRouter is active and get tier overrides
+          // Check if an Anthropic-compatible provider is active and get tier overrides
           const authMethod = this.configManager.getWithDefault<string>(
             'authMethod',
             'auto'
           );
-          let tierOverrides: {
-            sonnet: string | null;
-            opus: string | null;
-            haiku: string | null;
-          } | null = null;
+          let tierOverrides: ReturnType<
+            ProviderModelsService['getModelTiers']
+          > | null = null;
           if (authMethod === 'openrouter') {
             try {
-              tierOverrides = this.openRouterModels.getModelTiers();
+              const activeProviderId =
+                this.configManager.getWithDefault<string>(
+                  'anthropicProviderId',
+                  DEFAULT_PROVIDER_ID
+                );
+              tierOverrides =
+                this.providerModels.getModelTiers(activeProviderId);
             } catch (e) {
               this.logger.warn(
-                'Failed to read OpenRouter tier overrides',
+                'Failed to read provider tier overrides',
                 e instanceof Error ? e : new Error(String(e))
               );
             }
@@ -306,10 +311,14 @@ export class ConfigRpcHandlers {
           // Transform to frontend format
           const models = sdkModels.map((m) => {
             let providerModelId: string | null = null;
+            const valueLower = m.value.toLowerCase();
 
             if (tierOverrides) {
-              const valueLower = m.value.toLowerCase();
-              if (valueLower.includes('sonnet') && tierOverrides.sonnet) {
+              // SDK returns 'default' for the sonnet-tier model, so match both
+              if (
+                (valueLower.includes('sonnet') || valueLower === 'default') &&
+                tierOverrides.sonnet
+              ) {
                 providerModelId = tierOverrides.sonnet;
               } else if (valueLower.includes('opus') && tierOverrides.opus) {
                 providerModelId = tierOverrides.opus;
@@ -324,7 +333,8 @@ export class ConfigRpcHandlers {
               description: m.description,
               apiName: m.value,
               isSelected: m.value === savedModel,
-              isRecommended: m.value.includes('sonnet'),
+              isRecommended:
+                valueLower.includes('sonnet') || valueLower === 'default',
               providerModelId,
             };
           });

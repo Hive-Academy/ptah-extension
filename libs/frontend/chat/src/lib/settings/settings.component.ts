@@ -19,12 +19,13 @@ import {
   ExternalLink,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
-import { OpenRouterModelSelectorComponent } from './openrouter-model-selector.component';
-import { AppStateManager, ClaudeRpcService } from '@ptah-extension/core';
-import type {
-  AuthGetAuthStatusResponse,
-  LicenseGetStatusResponse,
-} from '@ptah-extension/shared';
+import { ProviderModelSelectorComponent } from './provider-model-selector.component';
+import {
+  AppStateManager,
+  ClaudeRpcService,
+  AuthStateService,
+} from '@ptah-extension/core';
+import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
 
 /**
  * SettingsComponent - Main settings page container
@@ -50,7 +51,7 @@ import type {
   standalone: true,
   imports: [
     AuthConfigComponent,
-    OpenRouterModelSelectorComponent,
+    ProviderModelSelectorComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -59,6 +60,9 @@ import type {
 export class SettingsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(ClaudeRpcService);
+
+  // TASK_2025_133 Batch 2: Centralized auth state from AuthStateService
+  readonly authState = inject(AuthStateService);
 
   // Lucide icons
   readonly ArrowLeftIcon = ArrowLeft;
@@ -70,15 +74,6 @@ export class SettingsComponent implements OnInit {
   readonly UserPlusIcon = UserPlus;
   readonly KeyIcon = Key;
   readonly ExternalLinkIcon = ExternalLink;
-
-  // Auth status signals
-  readonly hasOAuthToken = signal(false);
-  readonly hasApiKey = signal(false);
-  // TASK_2025_091: Provider key status
-  readonly hasOpenRouterKey = signal(false);
-  readonly isLoadingAuthStatus = signal(true);
-  // TASK_2025_129 Batch 3: Selected provider ID
-  readonly selectedProviderId = signal('openrouter');
 
   // License status signals
   readonly isPremium = signal(false);
@@ -103,25 +98,21 @@ export class SettingsComponent implements OnInit {
 
   /**
    * Computed: Whether any auth credential is configured
-   * Shows additional settings sections when true
+   * Delegates to AuthStateService (TASK_2025_133)
    */
-  readonly hasAnyCredential = computed(
-    () => this.hasOAuthToken() || this.hasApiKey() || this.hasOpenRouterKey()
-  );
+  readonly hasAnyCredential = this.authState.hasAnyCredential;
 
   /**
-   * Computed: Whether OpenRouter is the selected provider and key is configured
-   * Shows OpenRouter model mapping section only for OpenRouter (TASK_2025_129 Batch 3)
+   * Computed: Whether provider model mapping section should be shown
+   * Delegates to AuthStateService which checks authMethod + hasProviderKey (TASK_2025_133)
    */
-  readonly showOpenRouterModels = computed(
-    () => this.hasOpenRouterKey() && this.selectedProviderId() === 'openrouter'
-  );
+  readonly showProviderModels = this.authState.showProviderModels;
 
   /**
    * Computed: Whether the user is fully authenticated (has credential + not loading)
    */
   readonly isAuthenticated = computed(
-    () => !this.isLoadingAuthStatus() && this.hasAnyCredential()
+    () => !this.authState.isLoading() && this.authState.hasAnyCredential()
   );
 
   /**
@@ -202,10 +193,14 @@ export class SettingsComponent implements OnInit {
   });
 
   /**
-   * Initialize: Fetch auth and license status on component mount
+   * Initialize: Load auth and license status on component mount
+   * TASK_2025_133: Auth status now loaded via AuthStateService
    */
   async ngOnInit(): Promise<void> {
-    await Promise.all([this.fetchAuthStatus(), this.fetchLicenseStatus()]);
+    await Promise.all([
+      this.authState.loadAuthStatus(),
+      this.fetchLicenseStatus(),
+    ]);
   }
 
   /**
@@ -213,13 +208,6 @@ export class SettingsComponent implements OnInit {
    */
   backToChat(): void {
     this.appState.setCurrentView('chat');
-  }
-
-  /**
-   * Refresh auth status (called by child components after credential changes)
-   */
-  async refreshAuthStatus(): Promise<void> {
-    await this.fetchAuthStatus();
   }
 
   /**
@@ -247,30 +235,6 @@ export class SettingsComponent implements OnInit {
     await this.rpcService.call('command:execute', {
       command: 'ptah.openPricing',
     });
-  }
-
-  /**
-   * Fetch auth status from backend
-   */
-  private async fetchAuthStatus(): Promise<void> {
-    this.isLoadingAuthStatus.set(true);
-    try {
-      const result = await this.rpcService.call('auth:getAuthStatus', {});
-
-      if (result.isSuccess() && result.data) {
-        const data = result.data as AuthGetAuthStatusResponse;
-        this.hasOAuthToken.set(data.hasOAuthToken);
-        this.hasApiKey.set(data.hasApiKey);
-        // TASK_2025_091: Provider key status
-        this.hasOpenRouterKey.set(data.hasOpenRouterKey);
-        // TASK_2025_129 Batch 3: Selected provider ID
-        this.selectedProviderId.set(data.anthropicProviderId);
-      }
-    } catch (error) {
-      console.error('[SettingsComponent] Failed to fetch auth status:', error);
-    } finally {
-      this.isLoadingAuthStatus.set(false);
-    }
   }
 
   /**

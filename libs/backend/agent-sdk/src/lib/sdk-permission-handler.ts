@@ -5,11 +5,14 @@
  * Implements the SDK permission interface with RPC-based user approval.
  *
  * Key Features:
- * - Auto-approve safe tools (Read, Grep, Glob) - no latency
+ * - Auto-approve safe tools (Read, Grep, Glob, TodoWrite, Task, etc.) - no latency
  * - Emit RPC events for dangerous tools (Write, Edit, Bash, NotebookEdit)
- * - 30-second timeout with auto-deny (fail-safe)
+ * - Prompt for network tools (WebFetch, WebSearch)
+ * - Handle AskUserQuestion with specialized question UI
+ * - 5-minute timeout with auto-deny (fail-safe)
  * - Input sanitization (redact API keys, tokens)
  * - Support parameter modification (user edits before approval)
+ * - Unknown tools prompt user rather than silently denying
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -118,13 +121,43 @@ const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
  * Safe tools that are auto-approved without user prompt
  * These are read-only operations that cannot modify system state
  */
-const SAFE_TOOLS = ['Read', 'Grep', 'Glob'];
+const SAFE_TOOLS = [
+  'Read',
+  'Grep',
+  'Glob',
+  'TodoWrite',
+  'ExitPlanMode',
+  'EnterPlanMode',
+  'KillShell',
+  'TaskStop',
+  'ListMcpResources',
+  'ReadMcpResource',
+  'TaskOutput',
+  'TaskCreate',
+  'TaskUpdate',
+  'TaskList',
+  'TaskGet',
+  'Skill',
+  'ToolSearch',
+];
 
 /**
  * Dangerous tools that require user approval
  * These can modify files, execute code, or perform destructive operations
  */
 const DANGEROUS_TOOLS = ['Write', 'Edit', 'Bash', 'NotebookEdit'];
+
+/**
+ * Network tools that require user approval
+ * These make external network requests
+ */
+const NETWORK_TOOLS = ['WebFetch', 'WebSearch'];
+
+/**
+ * Subagent tools that are auto-approved
+ * The Task tool spawns subagents - auto-approve since the user initiated the session
+ */
+const SUBAGENT_TOOLS = ['Task'];
 
 /**
  * Check if a tool name is an MCP tool (prefixed with "mcp__")
@@ -279,6 +312,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           inputKeys: input ? Object.keys(input) : [],
           isSafe: SAFE_TOOLS.includes(toolName),
           isDangerous: DANGEROUS_TOOLS.includes(toolName),
+          isNetwork: NETWORK_TOOLS.includes(toolName),
+          isSubagent: SUBAGENT_TOOLS.includes(toolName),
           isMcp: isMcpTool(toolName),
         }
       );
@@ -328,6 +363,29 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         );
       }
 
+      // Network tools require user approval (external requests)
+      if (NETWORK_TOOLS.includes(toolName)) {
+        this.logger.info(
+          `[SdkPermissionHandler] Requesting user permission for network tool: ${toolName}`
+        );
+        return await this.requestUserPermission(
+          toolName,
+          input,
+          options.toolUseID
+        );
+      }
+
+      // Subagent tools are auto-approved (user initiated the session)
+      if (SUBAGENT_TOOLS.includes(toolName)) {
+        this.logger.debug(
+          `[SdkPermissionHandler] Auto-approved subagent tool: ${toolName}`
+        );
+        return {
+          behavior: 'allow' as const,
+          updatedInput: input,
+        };
+      }
+
       // MCP tools require user approval (can execute arbitrary code)
       if (isMcpTool(toolName)) {
         this.logger.info(
@@ -340,14 +398,16 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         );
       }
 
-      // Unknown tools default to deny (fail-safe)
+      // Unknown tools: prompt user for approval rather than silently denying
+      // This handles any new tools added in future SDK versions
       this.logger.warn(
-        `[SdkPermissionHandler] Unknown tool denied: ${toolName}`
+        `[SdkPermissionHandler] Unknown tool encountered, requesting user permission: ${toolName}`
       );
-      return {
-        behavior: 'deny' as const,
-        message: `Unknown tool: ${toolName}`,
-      };
+      return await this.requestUserPermission(
+        toolName,
+        input,
+        options.toolUseID
+      );
     };
   }
 
@@ -847,6 +907,26 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           return `Find files matching: ${input.pattern}`;
         }
         return 'Find files';
+      }
+
+      case 'WebFetch': {
+        const url = input['url'];
+        if (typeof url === 'string') {
+          const truncated =
+            url.length > 80 ? `${url.substring(0, 80)}...` : url;
+          return `Fetch web content from: ${truncated}`;
+        }
+        return 'Fetch content from a URL';
+      }
+
+      case 'WebSearch': {
+        const query = input['query'];
+        if (typeof query === 'string') {
+          const truncated =
+            query.length > 80 ? `${query.substring(0, 80)}...` : query;
+          return `Web search: ${truncated}`;
+        }
+        return 'Perform a web search';
       }
 
       default:

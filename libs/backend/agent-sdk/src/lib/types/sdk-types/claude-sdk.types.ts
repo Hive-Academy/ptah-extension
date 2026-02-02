@@ -1,15 +1,15 @@
 /**
  * Claude Agent SDK Type Definitions
  *
- * Copied from @anthropic-ai/claude-agent-sdk@0.1.69 to avoid ESM/CommonJS conflicts.
+ * Copied from @anthropic-ai/claude-agent-sdk to avoid ESM/CommonJS conflicts.
  * These are TYPE-ONLY definitions - no runtime code, not included in production bundle.
  *
- * Source: node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts
- * Last Updated: 2025-12-18
- * SDK Version: 0.1.69
+ * Source: node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts
+ * Last Updated: 2026-02-01
+ * SDK Version: 0.2.25 (installed)
  *
  * MAINTENANCE: Update this file when upgrading the SDK version.
- * Run: diff node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts libs/backend/agent-sdk/src/lib/types/sdk-types/claude-sdk.types.ts
+ * Run: diff node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts libs/backend/agent-sdk/src/lib/types/sdk-types/claude-sdk.types.ts
  */
 
 // =============================================================================
@@ -50,7 +50,84 @@ export interface ModelUsage {
   webSearchRequests: number;
   costUSD: number;
   contextWindow: number;
+  maxOutputTokens: number;
 }
+
+// =============================================================================
+// OUTPUT FORMAT TYPES
+// =============================================================================
+
+/**
+ * Output format type for structured responses
+ */
+export type OutputFormatType = 'json_schema';
+
+/**
+ * Base output format
+ */
+export type BaseOutputFormat = {
+  type: OutputFormatType;
+};
+
+/**
+ * JSON Schema output format for structured responses
+ */
+export type JsonSchemaOutputFormat = {
+  type: 'json_schema';
+  schema: Record<string, unknown>;
+};
+
+/**
+ * Output format union
+ */
+export type OutputFormat = JsonSchemaOutputFormat;
+
+// =============================================================================
+// CONFIGURATION TYPES
+// =============================================================================
+
+/**
+ * API key source
+ */
+export type ApiKeySource = 'user' | 'project' | 'org' | 'temporary';
+
+/**
+ * Configuration scope for settings
+ */
+export type ConfigScope = 'local' | 'user' | 'project';
+
+/**
+ * Allowed beta headers for SDK options
+ */
+export type SdkBeta = 'context-1m-2025-08-07';
+
+/**
+ * Source for loading filesystem-based settings.
+ * - 'user' - Global user settings (~/.claude/settings.json)
+ * - 'project' - Project settings (.claude/settings.json)
+ * - 'local' - Local settings (.claude/settings.local.json)
+ */
+export type SettingSource = 'user' | 'project' | 'local';
+
+/**
+ * Configuration for loading a plugin.
+ */
+export type SdkPluginConfig = {
+  /** Plugin type. Currently only 'local' is supported */
+  type: 'local';
+  /** Absolute or relative path to the plugin directory */
+  path: string;
+};
+
+/**
+ * Exit reason for session termination.
+ */
+export type ExitReason =
+  | 'clear'
+  | 'logout'
+  | 'prompt_input_exit'
+  | 'other'
+  | 'bypass_permissions_disabled';
 
 // =============================================================================
 // ANTHROPIC API MESSAGE TYPES (Inlined from @anthropic-ai/sdk)
@@ -207,6 +284,83 @@ export type RawMessageStreamEvent =
   | MessageStopEvent;
 
 // =============================================================================
+// MCP SERVER CONFIGURATION TYPES
+// =============================================================================
+
+export type McpStdioServerConfig = {
+  type?: 'stdio';
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+};
+
+export type McpSSEServerConfig = {
+  type: 'sse';
+  url: string;
+  headers?: Record<string, string>;
+};
+
+export type McpHttpServerConfig = {
+  type: 'http';
+  url: string;
+  headers?: Record<string, string>;
+};
+
+/**
+ * MCP SDK server configuration
+ */
+export type McpSdkServerConfig = {
+  type: 'sdk';
+  name: string;
+};
+
+/**
+ * MCP Claude AI proxy server configuration
+ */
+export type McpClaudeAIProxyServerConfig = {
+  type: 'claudeai-proxy';
+  url: string;
+  id: string;
+};
+
+/**
+ * MCP server config for process transport (serializable, no live instances)
+ */
+export type McpServerConfigForProcessTransport =
+  | McpStdioServerConfig
+  | McpSSEServerConfig
+  | McpHttpServerConfig
+  | McpSdkServerConfig;
+
+/**
+ * MCP server status configuration (includes proxy config)
+ */
+export type McpServerStatusConfig =
+  | McpServerConfigForProcessTransport
+  | McpClaudeAIProxyServerConfig;
+
+/**
+ * MCP server config union (without McpSdkServerConfigWithInstance for ESM compat)
+ * NOTE: McpSdkServerConfigWithInstance omitted to avoid importing McpServer
+ */
+export type McpServerConfig =
+  | McpStdioServerConfig
+  | McpSSEServerConfig
+  | McpHttpServerConfig;
+
+/**
+ * Result of a setMcpServers operation.
+ */
+export type McpSetServersResult = {
+  /** Names of servers that were added */
+  added: string[];
+  /** Names of servers that were removed */
+  removed: string[];
+  /** Map of server names to error messages for servers that failed to connect */
+  errors: Record<string, string>;
+};
+
+// =============================================================================
 // SDK MESSAGE TYPES
 // =============================================================================
 
@@ -218,12 +372,8 @@ export type PermissionMode =
   | 'acceptEdits'
   | 'bypassPermissions'
   | 'plan'
+  | 'delegate'
   | 'dontAsk';
-
-/**
- * API key source
- */
-export type ApiKeySource = 'user' | 'project' | 'org' | 'temporary';
 
 /**
  * Permission denial record
@@ -293,7 +443,7 @@ export interface SDKResultMessageSuccess {
   subtype: 'success';
   duration_ms: number;
   duration_api_ms: number;
-  is_error: false;
+  is_error: boolean;
   num_turns: number;
   result: string;
   total_cost_usd: number;
@@ -317,7 +467,7 @@ export interface SDKResultMessageError {
     | 'error_max_structured_output_retries';
   duration_ms: number;
   duration_api_ms: number;
-  is_error: true;
+  is_error: boolean;
   num_turns: number;
   total_cost_usd: number;
   usage: NonNullableUsage;
@@ -382,12 +532,46 @@ export interface SDKCompactBoundaryMessage {
 }
 
 /**
+ * SDK Status types
+ */
+export type SDKStatus = 'compacting' | null;
+
+/**
  * SDK Status Message
  */
 export interface SDKStatusMessage {
   type: 'system';
   subtype: 'status';
-  status: 'compacting' | null;
+  status: SDKStatus;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Hook Started Message
+ */
+export interface SDKHookStartedMessage {
+  type: 'system';
+  subtype: 'hook_started';
+  hook_id: string;
+  hook_name: string;
+  hook_event: string;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Hook Progress Message
+ */
+export interface SDKHookProgressMessage {
+  type: 'system';
+  subtype: 'hook_progress';
+  hook_id: string;
+  hook_name: string;
+  hook_event: string;
+  stdout: string;
+  stderr: string;
+  output: string;
   uuid: UUID;
   session_id: string;
 }
@@ -398,11 +582,14 @@ export interface SDKStatusMessage {
 export interface SDKHookResponseMessage {
   type: 'system';
   subtype: 'hook_response';
+  hook_id: string;
   hook_name: string;
   hook_event: string;
+  output: string;
   stdout: string;
   stderr: string;
   exit_code?: number;
+  outcome: 'success' | 'error' | 'cancelled';
   uuid: UUID;
   session_id: string;
 }
@@ -428,6 +615,50 @@ export interface SDKAuthStatusMessage {
   isAuthenticating: boolean;
   output: string[];
   error?: string;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Task Notification Message
+ */
+export interface SDKTaskNotificationMessage {
+  type: 'system';
+  subtype: 'task_notification';
+  task_id: string;
+  status: 'completed' | 'failed' | 'stopped';
+  output_file: string;
+  summary: string;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Files Persisted Event
+ */
+export interface SDKFilesPersistedEvent {
+  type: 'system';
+  subtype: 'files_persisted';
+  files: Array<{
+    filename: string;
+    file_id: string;
+  }>;
+  failed: Array<{
+    filename: string;
+    error: string;
+  }>;
+  processed_at: string;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Tool Use Summary Message
+ */
+export interface SDKToolUseSummaryMessage {
+  type: 'tool_use_summary';
+  summary: string;
+  preceding_tool_use_ids: string[];
   uuid: UUID;
   session_id: string;
 }
@@ -458,9 +689,14 @@ export type SDKMessage =
   | SDKPartialAssistantMessage
   | SDKCompactBoundaryMessage
   | SDKStatusMessage
+  | SDKHookStartedMessage
+  | SDKHookProgressMessage
   | SDKHookResponseMessage
   | SDKToolProgressMessage
-  | SDKAuthStatusMessage;
+  | SDKAuthStatusMessage
+  | SDKTaskNotificationMessage
+  | SDKFilesPersistedEvent
+  | SDKToolUseSummaryMessage;
 
 // =============================================================================
 // TYPE GUARDS - Use these instead of type casts!
@@ -533,6 +769,15 @@ export function isAssistantMessage(
  */
 export function isToolProgress(msg: SDKMessage): msg is SDKToolProgressMessage {
   return msg.type === 'tool_progress';
+}
+
+/**
+ * Check if message is tool use summary
+ */
+export function isToolUseSummary(
+  msg: SDKMessage
+): msg is SDKToolUseSummaryMessage {
+  return msg.type === 'tool_use_summary';
 }
 
 // =============================================================================
@@ -727,7 +972,7 @@ export type PermissionResult =
       /**
        * Updated tool input to use, if any changes are needed.
        */
-      updatedInput: Record<string, unknown>;
+      updatedInput?: Record<string, unknown>;
       /**
        * Permissions updates to be applied as part of accepting this tool use.
        * Typically from the `suggestions` field from the CanUseTool callback.
@@ -760,8 +1005,6 @@ export type PermissionResult =
  *
  * Called by SDK when a tool needs permission to execute.
  * Must return PermissionResult indicating approval/denial.
- *
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:145-171
  */
 export type CanUseTool = (
   toolName: string,
@@ -792,12 +1035,11 @@ export type CanUseTool = (
 ) => Promise<PermissionResult>;
 
 // =============================================================================
-// HOOK SYSTEM TYPES (TASK_2025_099)
+// HOOK SYSTEM TYPES
 // =============================================================================
 
 /**
  * Hook event names (from SDK HOOK_EVENTS constant)
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:172
  */
 export type HookEvent =
   | 'PreToolUse'
@@ -811,11 +1053,11 @@ export type HookEvent =
   | 'SubagentStart'
   | 'SubagentStop'
   | 'PreCompact'
-  | 'PermissionRequest';
+  | 'PermissionRequest'
+  | 'Setup';
 
 /**
  * Async hook output (for hooks that need more time)
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:257-260
  */
 export interface AsyncHookJSONOutput {
   async: true;
@@ -823,8 +1065,69 @@ export interface AsyncHookJSONOutput {
 }
 
 /**
+ * Hook-specific output types
+ */
+export type PreToolUseHookSpecificOutput = {
+  hookEventName: 'PreToolUse';
+  permissionDecision?: 'allow' | 'deny' | 'ask';
+  permissionDecisionReason?: string;
+  updatedInput?: Record<string, unknown>;
+  additionalContext?: string;
+};
+
+export type UserPromptSubmitHookSpecificOutput = {
+  hookEventName: 'UserPromptSubmit';
+  additionalContext?: string;
+};
+
+export type SessionStartHookSpecificOutput = {
+  hookEventName: 'SessionStart';
+  additionalContext?: string;
+};
+
+export type SetupHookSpecificOutput = {
+  hookEventName: 'Setup';
+  additionalContext?: string;
+};
+
+export type SubagentStartHookSpecificOutput = {
+  hookEventName: 'SubagentStart';
+  additionalContext?: string;
+};
+
+export type PostToolUseHookSpecificOutput = {
+  hookEventName: 'PostToolUse';
+  additionalContext?: string;
+  updatedMCPToolOutput?: unknown;
+};
+
+export type PostToolUseFailureHookSpecificOutput = {
+  hookEventName: 'PostToolUseFailure';
+  additionalContext?: string;
+};
+
+export type NotificationHookSpecificOutput = {
+  hookEventName: 'Notification';
+  additionalContext?: string;
+};
+
+export type PermissionRequestHookSpecificOutput = {
+  hookEventName: 'PermissionRequest';
+  decision:
+    | {
+        behavior: 'allow';
+        updatedInput?: Record<string, unknown>;
+        updatedPermissions?: PermissionUpdate[];
+      }
+    | {
+        behavior: 'deny';
+        message?: string;
+        interrupt?: boolean;
+      };
+};
+
+/**
  * Sync hook output (most common case)
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:261-301
  */
 export interface SyncHookJSONOutput {
   continue?: boolean;
@@ -834,58 +1137,24 @@ export interface SyncHookJSONOutput {
   systemMessage?: string;
   reason?: string;
   hookSpecificOutput?:
-    | {
-        hookEventName: 'PreToolUse';
-        permissionDecision?: 'allow' | 'deny' | 'ask';
-        permissionDecisionReason?: string;
-        updatedInput?: Record<string, unknown>;
-      }
-    | {
-        hookEventName: 'UserPromptSubmit';
-        additionalContext?: string;
-      }
-    | {
-        hookEventName: 'SessionStart';
-        additionalContext?: string;
-      }
-    | {
-        hookEventName: 'SubagentStart';
-        additionalContext?: string;
-      }
-    | {
-        hookEventName: 'PostToolUse';
-        additionalContext?: string;
-        updatedMCPToolOutput?: unknown;
-      }
-    | {
-        hookEventName: 'PostToolUseFailure';
-        additionalContext?: string;
-      }
-    | {
-        hookEventName: 'PermissionRequest';
-        decision:
-          | {
-              behavior: 'allow';
-              updatedInput?: Record<string, unknown>;
-              updatedPermissions?: PermissionUpdate[];
-            }
-          | {
-              behavior: 'deny';
-              message?: string;
-              interrupt?: boolean;
-            };
-      };
+    | PreToolUseHookSpecificOutput
+    | UserPromptSubmitHookSpecificOutput
+    | SessionStartHookSpecificOutput
+    | SetupHookSpecificOutput
+    | SubagentStartHookSpecificOutput
+    | PostToolUseHookSpecificOutput
+    | PostToolUseFailureHookSpecificOutput
+    | NotificationHookSpecificOutput
+    | PermissionRequestHookSpecificOutput;
 }
 
 /**
  * Hook JSON output (union of async and sync)
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:302
  */
 export type HookJSONOutput = AsyncHookJSONOutput | SyncHookJSONOutput;
 
 /**
  * Hook callback function signature
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:174-176
  */
 export type HookCallback = (
   input: HookInput,
@@ -895,7 +1164,6 @@ export type HookCallback = (
 
 /**
  * Hook callback matcher configuration
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:177-182
  */
 export interface HookCallbackMatcher {
   /** Optional matcher pattern for filtering */
@@ -908,7 +1176,6 @@ export interface HookCallbackMatcher {
 
 /**
  * Base hook input (common fields for all hooks)
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:183-188
  */
 export interface BaseHookInput {
   session_id: string;
@@ -919,7 +1186,6 @@ export interface BaseHookInput {
 
 /**
  * PreToolUse hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:189-194
  */
 export interface PreToolUseHookInput extends BaseHookInput {
   hook_event_name: 'PreToolUse';
@@ -930,7 +1196,6 @@ export interface PreToolUseHookInput extends BaseHookInput {
 
 /**
  * PermissionRequest hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:195-200
  */
 export interface PermissionRequestHookInput extends BaseHookInput {
   hook_event_name: 'PermissionRequest';
@@ -941,7 +1206,6 @@ export interface PermissionRequestHookInput extends BaseHookInput {
 
 /**
  * PostToolUse hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:201-207
  */
 export interface PostToolUseHookInput extends BaseHookInput {
   hook_event_name: 'PostToolUse';
@@ -953,7 +1217,6 @@ export interface PostToolUseHookInput extends BaseHookInput {
 
 /**
  * PostToolUseFailure hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:208-215
  */
 export interface PostToolUseFailureHookInput extends BaseHookInput {
   hook_event_name: 'PostToolUseFailure';
@@ -966,7 +1229,6 @@ export interface PostToolUseFailureHookInput extends BaseHookInput {
 
 /**
  * Notification hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:216-221
  */
 export interface NotificationHookInput extends BaseHookInput {
   hook_event_name: 'Notification';
@@ -977,7 +1239,6 @@ export interface NotificationHookInput extends BaseHookInput {
 
 /**
  * UserPromptSubmit hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:222-225
  */
 export interface UserPromptSubmitHookInput extends BaseHookInput {
   hook_event_name: 'UserPromptSubmit';
@@ -986,16 +1247,16 @@ export interface UserPromptSubmitHookInput extends BaseHookInput {
 
 /**
  * SessionStart hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:226-229
  */
 export interface SessionStartHookInput extends BaseHookInput {
   hook_event_name: 'SessionStart';
   source: 'startup' | 'resume' | 'clear' | 'compact';
+  agent_type?: string;
+  model?: string;
 }
 
 /**
  * Stop hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:230-233
  */
 export interface StopHookInput extends BaseHookInput {
   hook_event_name: 'Stop';
@@ -1004,7 +1265,6 @@ export interface StopHookInput extends BaseHookInput {
 
 /**
  * SubagentStart hook input - fires when a subagent begins execution
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:234-238
  */
 export interface SubagentStartHookInput extends BaseHookInput {
   hook_event_name: 'SubagentStart';
@@ -1016,7 +1276,6 @@ export interface SubagentStartHookInput extends BaseHookInput {
 
 /**
  * SubagentStop hook input - fires when a subagent completes
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:239-244
  */
 export interface SubagentStopHookInput extends BaseHookInput {
   hook_event_name: 'SubagentStop';
@@ -1029,7 +1288,6 @@ export interface SubagentStopHookInput extends BaseHookInput {
 
 /**
  * PreCompact hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:245-249
  */
 export interface PreCompactHookInput extends BaseHookInput {
   hook_event_name: 'PreCompact';
@@ -1039,16 +1297,22 @@ export interface PreCompactHookInput extends BaseHookInput {
 
 /**
  * SessionEnd hook input
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:252-255
  */
 export interface SessionEndHookInput extends BaseHookInput {
   hook_event_name: 'SessionEnd';
-  reason: string;
+  reason: ExitReason;
+}
+
+/**
+ * Setup hook input
+ */
+export interface SetupHookInput extends BaseHookInput {
+  hook_event_name: 'Setup';
+  trigger: 'init' | 'maintenance';
 }
 
 /**
  * Hook input union - all possible hook input types
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:256
  */
 export type HookInput =
   | PreToolUseHookInput
@@ -1062,10 +1326,11 @@ export type HookInput =
   | SubagentStartHookInput
   | SubagentStopHookInput
   | PreCompactHookInput
-  | PermissionRequestHookInput;
+  | PermissionRequestHookInput
+  | SetupHookInput;
 
 // =============================================================================
-// HOOK TYPE GUARDS (TASK_2025_099)
+// HOOK TYPE GUARDS
 // =============================================================================
 
 /**
@@ -1122,51 +1387,54 @@ export function isSessionEndHook(
   return input.hook_event_name === 'SessionEnd';
 }
 
-// =============================================================================
-// SDK QUERY OPTIONS (from Options type in agentSdkTypes.d.ts)
-// =============================================================================
-
 /**
- * MCP Server configuration types
+ * Check if hook input is Setup
  */
-export type McpStdioServerConfig = {
-  type?: 'stdio';
-  command: string;
-  args?: string[];
-  env?: Record<string, string>;
-};
-
-export type McpSSEServerConfig = {
-  type: 'sse';
-  url: string;
-  headers?: Record<string, string>;
-};
-
-export type McpHttpServerConfig = {
-  type: 'http';
-  url: string;
-  headers?: Record<string, string>;
-};
-
-export type McpServerConfig =
-  | McpStdioServerConfig
-  | McpSSEServerConfig
-  | McpHttpServerConfig;
-
-/**
- * Model information returned by supportedModels()
- */
-export interface ModelInfo {
-  /** Model identifier to use in API calls */
-  value: string;
-  /** Human-readable display name */
-  displayName: string;
-  /** Description of the model's capabilities */
-  description: string;
+export function isSetupHook(input: HookInput): input is SetupHookInput {
+  return input.hook_event_name === 'Setup';
 }
 
+// =============================================================================
+// AGENT DEFINITION
+// =============================================================================
+
 /**
- * Slash command information
+ * MCP server spec for agents - either a string name or a config record
+ */
+export type AgentMcpServerSpec =
+  | string
+  | Record<string, McpServerConfigForProcessTransport>;
+
+/**
+ * Definition for a custom subagent that can be invoked via the Task tool.
+ */
+export type AgentDefinition = {
+  /** Natural language description of when to use this agent */
+  description: string;
+  /** Array of allowed tool names. If omitted, inherits all tools from parent */
+  tools?: string[];
+  /** Array of tool names to explicitly disallow for this agent */
+  disallowedTools?: string[];
+  /** The agent's system prompt */
+  prompt: string;
+  /** Model to use for this agent. If omitted or 'inherit', uses the main model */
+  model?: 'sonnet' | 'opus' | 'haiku' | 'inherit';
+  /** MCP servers for this agent */
+  mcpServers?: AgentMcpServerSpec[];
+  /** Experimental: Critical reminder added to system prompt */
+  criticalSystemReminder_EXPERIMENTAL?: string;
+  /** Array of skill names to preload into the agent context */
+  skills?: string[];
+  /** Maximum number of agentic turns (API round-trips) before stopping */
+  maxTurns?: number;
+};
+
+// =============================================================================
+// ACCOUNT & SERVER STATUS TYPES
+// =============================================================================
+
+/**
+ * Information about an available slash command.
  */
 export interface SlashCommand {
   /** Command name (without the leading slash) */
@@ -1178,14 +1446,86 @@ export interface SlashCommand {
 }
 
 /**
+ * Information about an available model.
+ */
+export interface ModelInfo {
+  /** Model identifier to use in API calls */
+  value: string;
+  /** Human-readable display name */
+  displayName: string;
+  /** Description of the model's capabilities */
+  description: string;
+}
+
+/**
+ * Information about the logged in user's account.
+ */
+export interface AccountInfo {
+  email?: string;
+  organization?: string;
+  subscriptionType?: string;
+  tokenSource?: string;
+  apiKeySource?: string;
+}
+
+/**
+ * Status information for an MCP server connection.
+ */
+export interface McpServerStatus {
+  /** Server name as configured */
+  name: string;
+  /** Current connection status */
+  status: 'connected' | 'failed' | 'needs-auth' | 'pending' | 'disabled';
+  /** Server information (available when connected) */
+  serverInfo?: {
+    name: string;
+    version: string;
+  };
+  /** Error message (available when status is 'failed') */
+  error?: string;
+  /** Server configuration (includes URL for HTTP/SSE servers) */
+  config?: McpServerStatusConfig;
+  /** Configuration scope (e.g., project, user, local, claudeai, managed) */
+  scope?: string;
+  /** Tools provided by this server (available when connected) */
+  tools?: Array<{
+    name: string;
+    description?: string;
+    annotations?: {
+      readOnly?: boolean;
+      destructive?: boolean;
+      openWorld?: boolean;
+    };
+  }>;
+}
+
+/**
+ * Result of a rewindFiles operation.
+ */
+export type RewindFilesResult = {
+  canRewind: boolean;
+  error?: string;
+  filesChanged?: string[];
+  insertions?: number;
+  deletions?: number;
+};
+
+// =============================================================================
+// SDK QUERY OPTIONS (from Options type)
+// =============================================================================
+
+/**
  * SDK Query Options - Configuration for query() function
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:685-1014
  */
 export interface Options {
   /** Controller for cancelling the query */
   abortController?: AbortController;
-  /** Additional directories Claude can access */
+  /** Additional directories Claude can access beyond the current working directory */
   additionalDirectories?: string[];
+  /** Agent name for the main thread */
+  agent?: string;
+  /** Programmatically define custom subagents invocable via the Task tool */
+  agents?: Record<string, AgentDefinition>;
   /** List of tool names that are allowed */
   allowedTools?: string[];
   /** Custom permission handler for controlling tool usage */
@@ -1213,10 +1553,12 @@ export interface Options {
   extraArgs?: Record<string, string | null>;
   /** Fallback model to use if the primary model fails */
   fallbackModel?: string;
-  /** Enable file checkpointing */
+  /** Enable file checkpointing for rewind support */
   enableFileCheckpointing?: boolean;
   /** Fork to a new session ID when resuming */
   forkSession?: boolean;
+  /** Enable beta features */
+  betas?: SdkBeta[];
   /** Hook callbacks for responding to various events */
   hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
   /** When false, disables session persistence to disk */
@@ -1233,6 +1575,8 @@ export interface Options {
   mcpServers?: Record<string, McpServerConfig>;
   /** Claude model to use */
   model?: string;
+  /** Output format configuration for structured responses */
+  outputFormat?: OutputFormat;
   /** Path to the Claude Code executable */
   pathToClaudeCodeExecutable?: string;
   /** Permission mode for the session */
@@ -1241,12 +1585,16 @@ export interface Options {
   allowDangerouslySkipPermissions?: boolean;
   /** MCP tool name to use for permission prompts */
   permissionPromptToolName?: string;
+  /** Load plugins for this session */
+  plugins?: SdkPluginConfig[];
   /** Session ID to resume */
   resume?: string;
   /** When resuming, only resume up to this message UUID */
   resumeSessionAt?: string;
+  /** Sandbox settings for command execution isolation */
+  sandbox?: Record<string, unknown>;
   /** Control which filesystem settings to load */
-  settingSources?: Array<'user' | 'project' | 'local'>;
+  settingSources?: SettingSource[];
   /** Callback for stderr output */
   stderr?: (data: string) => void;
   /** Enforce strict validation of MCP server configurations */
@@ -1259,6 +1607,14 @@ export interface Options {
         preset: 'claude_code';
         append?: string;
       };
+  /** Custom function to spawn the Claude Code process */
+  spawnClaudeCodeProcess?: (options: {
+    command: string;
+    args: string[];
+    cwd?: string;
+    env: Record<string, string | undefined>;
+    signal: AbortSignal;
+  }) => unknown;
 }
 
 // =============================================================================
@@ -1267,7 +1623,6 @@ export interface Options {
 
 /**
  * Query interface - AsyncGenerator with control methods
- * Source: @anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts:514-589
  */
 export interface Query extends AsyncGenerator<SDKMessage, void> {
   /** Interrupt the current query execution */
@@ -1282,8 +1637,27 @@ export interface Query extends AsyncGenerator<SDKMessage, void> {
   supportedCommands(): Promise<SlashCommand[]>;
   /** Get the list of available models */
   supportedModels(): Promise<ModelInfo[]>;
+  /** Get the current status of all configured MCP servers */
+  mcpServerStatus(): Promise<McpServerStatus[]>;
+  /** Get information about the authenticated account */
+  accountInfo(): Promise<AccountInfo>;
+  /** Rewind tracked files to their state at a specific user message */
+  rewindFiles(
+    userMessageId: string,
+    options?: { dryRun?: boolean }
+  ): Promise<RewindFilesResult>;
+  /** Reconnect an MCP server by name */
+  reconnectMcpServer(serverName: string): Promise<void>;
+  /** Enable or disable an MCP server by name */
+  toggleMcpServer(serverName: string, enabled: boolean): Promise<void>;
+  /** Dynamically set the MCP servers for this session */
+  setMcpServers(
+    servers: Record<string, McpServerConfig>
+  ): Promise<McpSetServersResult>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
+  /** Close the query and terminate the underlying process */
+  close(): void;
 }
 
 /**

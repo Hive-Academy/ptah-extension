@@ -64,4 +64,5 @@ export {
   getProviderBaseUrl,
   type AnthropicProvider,
   type AnthropicProviderId,
+  type ProviderStaticModel,
 } from './anthropic-provider-registry';

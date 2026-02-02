@@ -47,7 +47,7 @@ import {
   SetupRpcHandlers,
   LicenseRpcHandlers,
   LlmRpcHandlers as AppLlmRpcHandlers,
-  OpenRouterRpcHandlers,
+  ProviderRpcHandlers,
   SubagentRpcHandlers,
   CommandRpcHandlers, // TASK_2025_126: Webview command execution
 } from '../services/rpc';
@@ -214,10 +214,10 @@ export class DIContainer {
         ),
     });
 
-    // OpenRouterRpcHandlers requires SDK_OPENROUTER_MODELS which is registered in Phase 2.7
+    // ProviderRpcHandlers requires SDK_PROVIDER_MODELS which is registered in Phase 2.7
     // Must be registered after agent-sdk services but resolved lazily
     // Temporarily register as placeholder - will be re-registered after agent-sdk
-    container.registerSingleton(OpenRouterRpcHandlers);
+    container.registerSingleton(ProviderRpcHandlers);
 
     // TASK_2025_103: Subagent RPC handlers for subagent resumption
     container.registerSingleton(SubagentRpcHandlers);
@@ -249,7 +249,7 @@ export class DIContainer {
           c.resolve(SetupRpcHandlers),
           c.resolve(LicenseRpcHandlers),
           c.resolve(AppLlmRpcHandlers),
-          c.resolve(OpenRouterRpcHandlers),
+          c.resolve(ProviderRpcHandlers),
           c.resolve(SubagentRpcHandlers),
           c.resolve(CommandRpcHandlers), // TASK_2025_126
           c // Pass container instance

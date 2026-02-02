@@ -128,7 +128,9 @@
               isSessionOpen(session.id) &&
               session.id !== chatStore.currentSession()?.id
             "
-            [attr.aria-current]="session.id === chatStore.currentSession()?.id ? 'true' : null"
+            [attr.aria-current]="
+              session.id === chatStore.currentSession()?.id ? 'true' : null
+            "
             (click)="chatStore.switchSession(session.id)"
           >
             <!-- Session name -->

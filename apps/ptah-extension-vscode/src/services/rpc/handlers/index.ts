@@ -8,6 +8,7 @@
  * TASK_2025_091: Added OpenRouterRpcHandlers for model selection
  * TASK_2025_103: Added SubagentRpcHandlers for subagent resumption
  * TASK_2025_126: Added CommandRpcHandlers for webview command execution
+ * TASK_2025_132: Renamed OpenRouterRpcHandlers -> ProviderRpcHandlers
  */
 
 export { ChatRpcHandlers } from './chat-rpc.handlers';
@@ -20,6 +21,6 @@ export { AuthRpcHandlers } from './auth-rpc.handlers';
 export { SetupRpcHandlers } from './setup-rpc.handlers';
 export { LicenseRpcHandlers } from './license-rpc.handlers';
 export { LlmRpcHandlers } from './llm-rpc.handlers';
-export { OpenRouterRpcHandlers } from './openrouter-rpc.handlers';
+export { ProviderRpcHandlers } from './provider-rpc.handlers';
 export { SubagentRpcHandlers } from './subagent-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';

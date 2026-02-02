@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric          | Value                                |
-| --------------- | ------------------------------------ |
-| Overall Score   | 6/10                                 |
-| Assessment      | NEEDS_REVISION                       |
-| Blocking Issues | 2                                    |
-| Serious Issues  | 5                                    |
-| Minor Issues    | 6                                    |
-| Files Reviewed  | 7                                    |
+| Metric          | Value          |
+| --------------- | -------------- |
+| Overall Score   | 6/10           |
+| Assessment      | NEEDS_REVISION |
+| Blocking Issues | 2              |
+| Serious Issues  | 5              |
+| Minor Issues    | 6              |
+| Files Reviewed  | 7              |
 
 ## The 5 Critical Questions
 
@@ -131,6 +131,7 @@ The `panelId` field in `WebviewConfig` (vscode.service.ts:17) is typed as `panel
 The `broadcastMessage()` method is well-structured and follows the existing code style. JSDoc comments are thorough and explain the use case clearly. The method correctly uses `Promise.allSettled` for panels. However, the asymmetric handling of panels (concurrent via allSettled) vs. sidebar views (sequential via await in loop) is a style inconsistency. The return type of `void` vs. `sendMessage`'s `boolean` is also an API design concern.
 
 **Specific Concerns**:
+
 1. Lines 327-335: Sequential `await` inside for-loop for sidebar views, while panels use concurrent batch. Should be unified.
 2. Line 314: Return type `Promise<void>` discards all failure information, making caller `.catch()` handlers dead code.
 3. Line 317: `payload: any` -- consistent with existing `sendMessage` but both should ideally use a narrower type.
@@ -146,6 +147,7 @@ The `broadcastMessage()` method is well-structured and follows the existing code
 The migration from `sendMessage('ptah.main', ...)` to `broadcastMessage(...)` is clean and consistent across all 5 call sites. The local `WebviewManager` interface was correctly updated. However, the interface duplication with `chat-rpc.handlers.ts` is the core blocking issue.
 
 **Specific Concerns**:
+
 1. Lines 50-53: Local interface `WebviewManager` is a duplicate of the one in `chat-rpc.handlers.ts:42-45`. These must be consolidated.
 2. Lines 151-161, 209-219: `.catch()` handlers are dead code because `broadcastMessage()` never throws.
 
@@ -160,6 +162,7 @@ The migration from `sendMessage('ptah.main', ...)` to `broadcastMessage(...)` is
 Same migration pattern as `rpc-method-registration.service.ts` -- all 4 call sites cleanly updated from `sendMessage('ptah.main', ...)` to `broadcastMessage(...)`. The code is consistent and readable.
 
 **Specific Concerns**:
+
 1. Lines 42-45: Duplicate local `WebviewManager` interface -- same blocking issue as in `rpc-method-registration.service.ts`.
 2. Lines 502, 523, 535, 570: `.catch()` on `broadcastMessage` calls are dead code (method never throws).
 
@@ -174,6 +177,7 @@ Same migration pattern as `rpc-method-registration.service.ts` -- all 4 call sit
 This is the most complex file in the changeset and it shows. The migration from single `_panel` to `_panels` Map is well-executed conceptually, with proper lifecycle management (creation, tracking, disposal). The per-panel event queue pattern correctly mirrors the sidebar's DI-injected queue. However, the `as any` cast, dead code, and unnecessary `async` keyword detract from code quality.
 
 **Specific Concerns**:
+
 1. Line 143: `new WebviewEventQueue(this.logger as any)` -- blocking issue. `as any` bypasses type safety.
 2. Line 139: `panel as unknown as vscode.WebviewView` -- the double cast is a known risk (documented in task), but still deserves an inline comment explaining the structural compatibility (both have `.webview`).
 3. Line 114: `createPanel()` is `async` but never awaits. Remove `async` keyword.
@@ -191,6 +195,7 @@ This is the most complex file in the changeset and it shows. The migration from 
 The `panelId` plumbing is clean and follows the existing parameter threading pattern through `generateAngularWebviewContent` -> `_getHtmlForWebview` -> `getVSCodeIntegrationScript`. The discriminated union check was correctly updated. The `escapeJsString` sanitization is properly applied to the panelId value.
 
 **Specific Concerns**:
+
 1. Lines 61-66: Repeated `(options as { ... })` casts are verbose. A single typed variable would reduce repetition. This is a pre-existing pattern, not introduced by this task, but the task made it worse by adding a 4th cast.
 
 ---
@@ -204,6 +209,7 @@ The `panelId` plumbing is clean and follows the existing parameter threading pat
 The `panelId` addition to `WebviewConfig` and the default signal value are minimal and correct changes. The JSDoc comment on the interface field is helpful. However, the `optional + empty string default` typing ambiguity is a design concern.
 
 **Specific Concerns**:
+
 1. Line 17 vs. Line 80: `panelId?: string` (optional) but defaults to `''` (empty string). The semantics are muddled.
 
 ---
@@ -217,6 +223,7 @@ The `panelId` addition to `WebviewConfig` and the default signal value are minim
 The localStorage namespacing implementation is straightforward and correct. The `storageKey` property with computed value in the constructor is a clean pattern. Backward compatibility for the sidebar is preserved. However, directly accessing `(window as any).ptahConfig` violates the established pattern of going through `VSCodeService`.
 
 **Specific Concerns**:
+
 1. Line 95: `(window as any).ptahConfig?.panelId` bypasses the `VSCodeService` config pipeline. Inconsistent with codebase patterns.
 2. No logging of the computed `storageKey`, making it harder to debug multi-panel localStorage issues.
 
@@ -224,26 +231,28 @@ The localStorage namespacing implementation is straightforward and correct. The 
 
 ## Pattern Compliance
 
-| Pattern            | Status | Concern                                                                                |
-| ------------------ | ------ | -------------------------------------------------------------------------------------- |
-| Signal-based state | PASS   | No concerns -- signals used correctly where applicable                                 |
-| Type safety        | FAIL   | `as any` cast on Logger, duplicate local interfaces, optional+empty ambiguity          |
-| DI patterns        | FAIL   | Manual `new WebviewEventQueue(...)` outside DI, direct window global access in TabMgr  |
-| Layer separation   | PASS   | Changes respect the layered architecture boundaries                                    |
-| Error handling     | WARN   | `.catch()` handlers on calls that never throw (dead code)                              |
-| Naming conventions | PASS   | `panelId`, `broadcastMessage`, `storageKey` all follow existing conventions            |
-| JSDoc quality      | PASS   | Good JSDoc on `broadcastMessage`, `storageKey`, `panelId` fields                       |
-| Import patterns    | PASS   | No new import violations or circular dependencies introduced                           |
+| Pattern            | Status | Concern                                                                               |
+| ------------------ | ------ | ------------------------------------------------------------------------------------- |
+| Signal-based state | PASS   | No concerns -- signals used correctly where applicable                                |
+| Type safety        | FAIL   | `as any` cast on Logger, duplicate local interfaces, optional+empty ambiguity         |
+| DI patterns        | FAIL   | Manual `new WebviewEventQueue(...)` outside DI, direct window global access in TabMgr |
+| Layer separation   | PASS   | Changes respect the layered architecture boundaries                                   |
+| Error handling     | WARN   | `.catch()` handlers on calls that never throw (dead code)                             |
+| Naming conventions | PASS   | `panelId`, `broadcastMessage`, `storageKey` all follow existing conventions           |
+| JSDoc quality      | PASS   | Good JSDoc on `broadcastMessage`, `storageKey`, `panelId` fields                      |
+| Import patterns    | PASS   | No new import violations or circular dependencies introduced                          |
 
 ## Technical Debt Assessment
 
 **Introduced**:
+
 - Two duplicate local `WebviewManager` interfaces that must be manually synchronized
 - `as any` cast for manual WebviewEventQueue construction outside DI
 - Direct `window` global access in `TabManagerService` instead of using `VSCodeService`
 - Dead `.catch()` handlers across 9 call sites
 
 **Mitigated**:
+
 - Eliminated 9 hardcoded `'ptah.main'` strings across the codebase
 - Replaced single-panel limitation with proper multi-panel registry
 - Added localStorage namespacing to prevent cross-panel data corruption

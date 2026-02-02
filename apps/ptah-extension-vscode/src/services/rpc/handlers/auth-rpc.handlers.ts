@@ -92,7 +92,7 @@ export class AuthRpcHandlers {
     this.rpcHandler.registerMethod<
       AuthGetAuthStatusParams,
       AuthGetAuthStatusResponse
-    >('auth:getAuthStatus', async (_params: AuthGetAuthStatusParams) => {
+    >('auth:getAuthStatus', async (params: AuthGetAuthStatusParams) => {
       try {
         this.logger.debug('RPC: auth:getAuthStatus called');
 
@@ -101,9 +101,6 @@ export class AuthRpcHandlers {
           'oauthToken'
         );
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
-        const hasOpenRouterKey = await this.authSecretsService.hasCredential(
-          'openrouterKey'
-        );
 
         // Get auth method from ConfigManager (non-sensitive)
         const authMethod = this.configManager.getWithDefault<
@@ -116,6 +113,12 @@ export class AuthRpcHandlers {
           DEFAULT_PROVIDER_ID
         );
 
+        // Per-provider key check: use provided ID (for local UI switching) or persisted config
+        const checkProviderId = params.providerId || anthropicProviderId;
+        const hasOpenRouterKey = await this.authSecretsService.hasProviderKey(
+          checkProviderId
+        );
+
         // Map provider registry to frontend-consumable format
         const availableProviders = ANTHROPIC_PROVIDERS.map((p) => ({
           id: p.id,
@@ -125,6 +128,7 @@ export class AuthRpcHandlers {
           keyPrefix: p.keyPrefix,
           keyPlaceholder: p.keyPlaceholder,
           maskedKeyDisplay: p.maskedKeyDisplay,
+          hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
         }));
 
         this.logger.debug('RPC: auth:getAuthStatus result', {
@@ -165,9 +169,7 @@ export class AuthRpcHandlers {
       // TASK_2025_129 Batch 3: Selected Anthropic-compatible provider
       // Validated against known provider IDs from the registry
       anthropicProviderId: z
-        .enum(
-          ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]]
-        )
+        .enum(ANTHROPIC_PROVIDERS.map((p) => p.id) as [string, ...string[]])
         .optional(),
     });
 
@@ -236,16 +238,24 @@ export class AuthRpcHandlers {
           }
         }
 
-        // TASK_2025_091: OpenRouter/Provider API key handling
+        // Per-provider API key handling: store key under the selected provider's slot
+        // This prevents overwriting keys when switching between providers
         if (validated.openrouterApiKey !== undefined) {
+          const targetProviderId =
+            validated.anthropicProviderId ??
+            this.configManager.getWithDefault<string>(
+              'anthropicProviderId',
+              DEFAULT_PROVIDER_ID
+            );
+
           if (validated.openrouterApiKey.trim()) {
-            await this.authSecretsService.setCredential(
-              'openrouterKey',
+            await this.authSecretsService.setProviderKey(
+              targetProviderId,
               validated.openrouterApiKey
             );
           } else {
-            // Empty string = clear the credential
-            await this.authSecretsService.deleteCredential('openrouterKey');
+            // Empty string = clear the provider's key
+            await this.authSecretsService.deleteProviderKey(targetProviderId);
           }
         }
 
@@ -260,21 +270,21 @@ export class AuthRpcHandlers {
         this.logger.info('RPC: auth:saveSettings completed successfully');
         return { success: true };
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : 'Validation failed';
-        this.logger.error('RPC: auth:saveSettings failed', {
-          error: errorMessage,
-        });
-        return {
-          success: false,
-          error: errorMessage,
-        };
+        this.logger.error(
+          'RPC: auth:saveSettings failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        throw error;
       }
     });
   }
 
   /**
    * auth:testConnection - Test connection after settings save
+   *
+   * Uses retry-poll with exponential backoff instead of a fixed delay.
+   * Delays: 200ms, 400ms, 800ms, 1600ms, 3200ms = ~6.2s total max.
+   * Returns as soon as the SDK reports 'available', avoiding unnecessary waits.
    */
   private registerTestConnection(): void {
     this.rpcHandler.registerMethod<
@@ -284,19 +294,46 @@ export class AuthRpcHandlers {
       try {
         this.logger.debug('RPC: auth:testConnection called');
 
-        // Brief delay to allow ConfigManager watcher to trigger re-init
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // Retry-poll: check SDK health with exponential backoff
+        const MAX_RETRIES = 5;
+        const BASE_DELAY_MS = 200;
 
-        const health = this.sdkAdapter.getHealth();
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
 
-        const success = health.status === 'available';
+          const health = this.sdkAdapter.getHealth();
+          if (health.status === 'available') {
+            const result = {
+              success: true,
+              health,
+              errorMessage: undefined,
+            };
+            this.logger.info('RPC: auth:testConnection completed', {
+              result,
+              attempt: attempt + 1,
+            });
+            return result;
+          }
+
+          this.logger.debug(
+            `RPC: auth:testConnection attempt ${attempt + 1}/${MAX_RETRIES}`,
+            { status: health.status, delay }
+          );
+        }
+
+        // Exhausted retries -- return last health check
+        const finalHealth = this.sdkAdapter.getHealth();
         const result = {
-          success,
-          health,
-          errorMessage: health.errorMessage,
+          success: finalHealth.status === 'available',
+          health: finalHealth,
+          errorMessage: finalHealth.errorMessage || 'Connection test timed out',
         };
 
-        this.logger.info('RPC: auth:testConnection completed', { result });
+        this.logger.info(
+          'RPC: auth:testConnection completed (exhausted retries)',
+          { result }
+        );
         return result;
       } catch (error) {
         this.logger.error(

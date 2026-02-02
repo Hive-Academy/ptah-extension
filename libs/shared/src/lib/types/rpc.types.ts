@@ -429,7 +429,10 @@ export interface AuthTestConnectionResponse {
 // ============================================================
 
 /** Parameters for auth:getAuthStatus RPC method */
-export type AuthGetAuthStatusParams = Record<string, never>;
+export interface AuthGetAuthStatusParams {
+  /** Optional provider ID to check key status for (defaults to persisted config value) */
+  providerId?: string;
+}
 
 /**
  * Anthropic-compatible provider info for UI display (TASK_2025_129 Batch 3)

@@ -20,6 +20,22 @@
  */
 
 /**
+ * Static model definition for providers without a dynamic models API
+ */
+export interface ProviderStaticModel {
+  /** Model ID as used in API calls */
+  id: string;
+  /** Human-readable display name */
+  name: string;
+  /** Short description */
+  description: string;
+  /** Maximum context length in tokens */
+  contextLength: number;
+  /** Whether this model supports tool use */
+  supportsToolUse: boolean;
+}
+
+/**
  * Anthropic-compatible provider definition
  */
 export interface AnthropicProvider {
@@ -39,6 +55,10 @@ export interface AnthropicProvider {
   keyPlaceholder: string;
   /** Masked key display (shown when key is configured) */
   maskedKeyDisplay: string;
+  /** URL for /v1/models endpoint (if provider supports dynamic listing) */
+  modelsEndpoint?: string;
+  /** Hardcoded models for providers without a dynamic API */
+  staticModels?: ProviderStaticModel[];
 }
 
 /**
@@ -58,6 +78,7 @@ export const ANTHROPIC_PROVIDERS = [
     description: 'Access 200+ models via unified API',
     keyPlaceholder: 'sk-or-v1-...',
     maskedKeyDisplay: 'sk-or-••••••••••••',
+    modelsEndpoint: 'https://openrouter.ai/api/v1/models',
   },
   {
     id: 'moonshot',
@@ -68,6 +89,7 @@ export const ANTHROPIC_PROVIDERS = [
     description: 'Kimi models via Anthropic-compatible API',
     keyPlaceholder: 'Enter Moonshot API key...',
     maskedKeyDisplay: '••••••••••••',
+    modelsEndpoint: 'https://api.moonshot.ai/v1/models',
   },
   {
     id: 'z-ai',
@@ -78,6 +100,50 @@ export const ANTHROPIC_PROVIDERS = [
     description: 'GLM models via Anthropic-compatible API',
     keyPlaceholder: 'Enter Z.AI API key...',
     maskedKeyDisplay: '••••••••••••',
+    staticModels: [
+      {
+        id: 'glm-4.7',
+        name: 'GLM-4.7',
+        description: 'Flagship model (200K context)',
+        contextLength: 200000,
+        supportsToolUse: true,
+      },
+      {
+        id: 'glm-4.7-flashx',
+        name: 'GLM-4.7 FlashX',
+        description: 'Fast performance (200K context)',
+        contextLength: 200000,
+        supportsToolUse: true,
+      },
+      {
+        id: 'glm-4.7-flash',
+        name: 'GLM-4.7 Flash',
+        description: 'Free/lightweight (200K context)',
+        contextLength: 200000,
+        supportsToolUse: true,
+      },
+      {
+        id: 'glm-4.6',
+        name: 'GLM-4.6',
+        description: 'Unified reasoning (200K context)',
+        contextLength: 200000,
+        supportsToolUse: true,
+      },
+      {
+        id: 'glm-4.5',
+        name: 'GLM-4.5',
+        description: 'Hybrid thinking (128K context)',
+        contextLength: 128000,
+        supportsToolUse: true,
+      },
+      {
+        id: 'glm-4.5-air',
+        name: 'GLM-4.5 Air',
+        description: 'Lightweight MoE (128K context)',
+        contextLength: 128000,
+        supportsToolUse: true,
+      },
+    ],
   },
 ] as const satisfies readonly AnthropicProvider[];
 
@@ -113,7 +179,9 @@ export function getProviderBaseUrl(id: string): string {
   // Fallback to default provider (OpenRouter)
   const defaultProvider = getAnthropicProvider(DEFAULT_PROVIDER_ID);
   if (!defaultProvider) {
-    throw new Error(`Default provider '${DEFAULT_PROVIDER_ID}' not found in registry`);
+    throw new Error(
+      `Default provider '${DEFAULT_PROVIDER_ID}' not found in registry`
+    );
   }
   return defaultProvider.baseUrl;
 }

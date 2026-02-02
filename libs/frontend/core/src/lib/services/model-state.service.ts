@@ -79,21 +79,30 @@ export class ModelStateService {
   readonly availableModels = this._availableModels.asReadonly();
 
   /**
-   * Current model display name for UI rendering
+   * Current model display name for UI rendering (always human-readable)
    * Computed signal that derives from availableModels and currentModel
    *
    * @example
-   * currentModel() === 'sonnet' → 'Sonnet 4.5'
-   * currentModel() === 'opus' → 'Opus 4.5'
+   * currentModel() === 'claude-sonnet-4-20250514' → 'Claude Sonnet 4'
+   * currentModel() === 'claude-opus-4-20250514' → 'Claude Opus 4'
    */
   readonly currentModelDisplay = computed(() => {
     const modelId = this._currentModel();
     const models = this._availableModels();
     const model = models.find((m) => m.id === modelId);
-    if (model?.providerModelId) {
-      return model.providerModelId;
-    }
     return model?.name ?? modelId;
+  });
+
+  /**
+   * Provider model hint for the current model (e.g., 'openai/gpt-5.1-codex-max')
+   * Returns null when no provider override is active.
+   * Used as supplementary info below/beside the friendly display name.
+   */
+  readonly currentModelProviderHint = computed(() => {
+    const modelId = this._currentModel();
+    const models = this._availableModels();
+    const model = models.find((m) => m.id === modelId);
+    return model?.providerModelId ?? null;
   });
 
   /**

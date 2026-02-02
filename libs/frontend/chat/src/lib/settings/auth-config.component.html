@@ -3,52 +3,45 @@
   <div class="form-control">
     <div class="label py-1">
       <span class="label-text text-xs font-medium">Authentication Method</span>
-      @if (isSwitchingMethod()) {
-      <span class="loading loading-spinner loading-xs text-primary"></span>
-      }
     </div>
     <div class="join w-full">
       <button
         type="button"
         class="join-item btn btn-sm flex-1 text-xs font-medium"
-        [class.btn-primary]="authMethod() === 'openrouter'"
-        [class.btn-ghost]="authMethod() !== 'openrouter'"
+        [class.btn-primary]="authState.authMethod() === 'openrouter'"
+        [class.btn-ghost]="authState.authMethod() !== 'openrouter'"
         (click)="onAuthMethodChange('openrouter')"
-        [disabled]="isSwitchingMethod()"
-        [attr.aria-pressed]="authMethod() === 'openrouter'"
+        [attr.aria-pressed]="authState.authMethod() === 'openrouter'"
       >
         Provider
       </button>
       <button
         type="button"
         class="join-item btn btn-sm flex-1 text-xs font-medium"
-        [class.btn-primary]="authMethod() === 'oauth'"
-        [class.btn-ghost]="authMethod() !== 'oauth'"
+        [class.btn-primary]="authState.authMethod() === 'oauth'"
+        [class.btn-ghost]="authState.authMethod() !== 'oauth'"
         (click)="onAuthMethodChange('oauth')"
-        [disabled]="isSwitchingMethod()"
-        [attr.aria-pressed]="authMethod() === 'oauth'"
+        [attr.aria-pressed]="authState.authMethod() === 'oauth'"
       >
         OAuth
       </button>
       <button
         type="button"
         class="join-item btn btn-sm flex-1 text-xs font-medium"
-        [class.btn-primary]="authMethod() === 'apiKey'"
-        [class.btn-ghost]="authMethod() !== 'apiKey'"
+        [class.btn-primary]="authState.authMethod() === 'apiKey'"
+        [class.btn-ghost]="authState.authMethod() !== 'apiKey'"
         (click)="onAuthMethodChange('apiKey')"
-        [disabled]="isSwitchingMethod()"
-        [attr.aria-pressed]="authMethod() === 'apiKey'"
+        [attr.aria-pressed]="authState.authMethod() === 'apiKey'"
       >
         API Key
       </button>
       <button
         type="button"
         class="join-item btn btn-sm flex-1 text-xs font-medium"
-        [class.btn-primary]="authMethod() === 'auto'"
-        [class.btn-ghost]="authMethod() !== 'auto'"
+        [class.btn-primary]="authState.authMethod() === 'auto'"
+        [class.btn-ghost]="authState.authMethod() !== 'auto'"
         (click)="onAuthMethodChange('auto')"
-        [disabled]="isSwitchingMethod()"
-        [attr.aria-pressed]="authMethod() === 'auto'"
+        [attr.aria-pressed]="authState.authMethod() === 'auto'"
       >
         Auto
       </button>
@@ -61,21 +54,21 @@
   </div>
 
   <!-- Anthropic-Compatible Provider Input (TASK_2025_129 Batch 3) -->
-  @if (authMethod() === 'openrouter' || authMethod() === 'auto') {
+  @if (authState.authMethod() === 'openrouter' || authState.authMethod() === 'auto') {
   <!-- Provider Selection Dropdown -->
-  @if (availableProviders().length > 0) {
+  @if (authState.availableProviders().length > 0) {
   <div class="form-control">
     <div class="label py-1">
       <span class="label-text text-xs font-medium">Provider</span>
     </div>
     <select
       class="select select-bordered select-sm w-full text-xs"
-      [ngModel]="selectedProviderId()"
+      [ngModel]="authState.selectedProviderId()"
       (ngModelChange)="onProviderChange($event)"
       name="providerId"
       aria-label="Select Anthropic-compatible provider"
     >
-      @for (provider of availableProviders(); track provider.id) {
+      @for (provider of authState.availableProviders(); track provider.id) {
       <option [value]="provider.id">
         {{ provider.name }} - {{ provider.description }}
       </option>
@@ -86,18 +79,18 @@
 
   <!-- Provider API Key Input -->
   <div class="form-control">
-    <label class="label py-1 justify-start gap-2" for="openrouterKey">
+    <label class="label py-1 justify-start gap-2" for="providerKey">
       <span class="label-text text-xs font-medium">
         {{ selectedProvider()?.name ?? 'Provider' }} API Key
       </span>
-      @if (isLoadingStatus()) {
+      @if (authState.isLoading()) {
       <span
         class="badge badge-ghost badge-xs"
         aria-label="Loading authentication status"
       >
         <span class="loading loading-spinner loading-xs"></span>
       </span>
-      } @else if (hasExistingOpenRouterKey()) {
+      } @else if (authState.hasProviderKey()) {
       <span
         class="badge badge-success badge-xs gap-0.5"
         aria-label="Provider key configured"
@@ -105,12 +98,12 @@
         <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
         <span>Configured</span>
       </span>
-      } @if (authMethod() === 'auto') {
+      } @if (authState.authMethod() === 'auto') {
       <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
     <!-- Show masked value when configured -->
-    @if (hasExistingOpenRouterKey() && !openrouterKey()) {
+    @if (authState.hasProviderKey() && !providerKey()) {
     <div class="flex gap-1.5">
       <div
         class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
@@ -119,76 +112,87 @@
       </div>
       <button
         type="button"
+        class="btn btn-ghost btn-xs text-info"
+        (click)="isReplacingProviderKey.set(true)"
+        [class.hidden]="isReplacingProviderKey()"
+        title="Replace provider key"
+      >
+        Replace
+      </button>
+      <button
+        type="button"
         class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
-        (click)="deleteOpenRouterKey()"
-        [disabled]="connectionStatus() === 'saving'"
+        (click)="deleteProviderKey()"
+        [disabled]="authState.isSaving()"
         title="Remove provider key"
         aria-label="Remove provider key"
       >
         <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
       </button>
     </div>
+    @if (isReplacingProviderKey()) {
     <div class="label py-0.5">
       <span class="label-text-alt text-[10px] opacity-70">
         Enter a new key below to replace the existing one
       </span>
     </div>
     <input
-      id="openrouterKey"
+      id="providerKey"
       type="password"
-      [(ngModel)]="openrouterKey"
-      name="openrouterKey"
+      [(ngModel)]="providerKey"
+      name="providerKey"
       class="input input-bordered input-sm w-full text-xs"
       placeholder="Enter new key to replace..."
-      [attr.aria-required]="authMethod() === 'openrouter'"
+      [attr.aria-required]="authState.authMethod() === 'openrouter'"
     />
+    }
     } @else {
     <input
-      id="openrouterKey"
+      id="providerKey"
       type="password"
-      [(ngModel)]="openrouterKey"
-      name="openrouterKey"
+      [(ngModel)]="providerKey"
+      name="providerKey"
       class="input input-bordered input-sm w-full text-xs"
       [placeholder]="selectedProvider()?.keyPlaceholder ?? 'Enter API key...'"
-      [attr.aria-required]="authMethod() === 'openrouter'"
+      [attr.aria-required]="authState.authMethod() === 'openrouter'"
     />
     }
     <div class="label flex-col items-start gap-0.5 py-1">
       @if (selectedProvider(); as provider) {
       <span class="label-text-alt text-[10px] opacity-70">
-        <strong>{{ provider.name }}:</strong> {{ provider.description }}.
-        Get key from
+        <strong>{{ provider.name }}:</strong> {{ provider.description }}. Get
+        key from
         <a
           [href]="provider.helpUrl"
           target="_blank"
           rel="noopener noreferrer"
           class="link link-primary font-semibold"
-          >{{ provider.helpUrl | slice:8 }}</a
+          >{{ provider.helpUrl | slice : 8 }}</a
         >
       </span>
       @if (provider.keyPrefix) {
       <span class="label-text-alt text-[10px] opacity-70">
-        Keys start with <code class="text-[10px]">{{ provider.keyPrefix }}</code>
+        Keys start with
+        <code class="text-[10px]">{{ provider.keyPrefix }}</code>
       </span>
-      }
-      }
+      } }
     </div>
   </div>
   }
 
   <!-- OAuth Token Input -->
-  @if (authMethod() === 'oauth' || authMethod() === 'auto') {
+  @if (authState.authMethod() === 'oauth' || authState.authMethod() === 'auto') {
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="oauthToken">
       <span class="label-text text-xs font-medium">Claude OAuth Token</span>
-      @if (isLoadingStatus()) {
+      @if (authState.isLoading()) {
       <span
         class="badge badge-ghost badge-xs"
         aria-label="Loading authentication status"
       >
         <span class="loading loading-spinner loading-xs"></span>
       </span>
-      } @else if (hasExistingOAuthToken()) {
+      } @else if (authState.hasOAuthToken()) {
       <span
         class="badge badge-success badge-xs gap-0.5"
         aria-label="OAuth token configured"
@@ -196,12 +200,12 @@
         <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
         <span>Configured</span>
       </span>
-      } @if (authMethod() === 'auto') {
+      } @if (authState.authMethod() === 'auto') {
       <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
     <!-- Show masked value when configured -->
-    @if (hasExistingOAuthToken() && !oauthToken()) {
+    @if (authState.hasOAuthToken() && !oauthToken()) {
     <div class="flex gap-1.5">
       <div
         class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
@@ -210,15 +214,25 @@
       </div>
       <button
         type="button"
+        class="btn btn-ghost btn-xs text-info"
+        (click)="isReplacingOAuth.set(true)"
+        [class.hidden]="isReplacingOAuth()"
+        title="Replace OAuth token"
+      >
+        Replace
+      </button>
+      <button
+        type="button"
         class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
         (click)="deleteOAuthToken()"
-        [disabled]="connectionStatus() === 'saving'"
+        [disabled]="authState.isSaving()"
         title="Remove OAuth token"
         aria-label="Remove OAuth token"
       >
         <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
       </button>
     </div>
+    @if (isReplacingOAuth()) {
     <div class="label py-0.5">
       <span class="label-text-alt text-[10px] opacity-70">
         Enter a new token below to replace the existing one
@@ -231,8 +245,9 @@
       name="oauthToken"
       class="input input-bordered input-sm w-full text-xs"
       placeholder="Enter new token to replace..."
-      [attr.aria-required]="authMethod() === 'oauth'"
+      [attr.aria-required]="authState.authMethod() === 'oauth'"
     />
+    }
     } @else {
     <input
       id="oauthToken"
@@ -241,7 +256,7 @@
       name="oauthToken"
       class="input input-bordered input-sm w-full text-xs"
       placeholder="Enter your OAuth token"
-      [attr.aria-required]="authMethod() === 'oauth'"
+      [attr.aria-required]="authState.authMethod() === 'oauth'"
     />
     }
     <div class="label flex-col items-start gap-0.5 py-1">
@@ -260,18 +275,18 @@
   }
 
   <!-- API Key Input -->
-  @if (authMethod() === 'apiKey' || authMethod() === 'auto') {
+  @if (authState.authMethod() === 'apiKey' || authState.authMethod() === 'auto') {
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="apiKey">
       <span class="label-text text-xs font-medium">Anthropic API Key</span>
-      @if (isLoadingStatus()) {
+      @if (authState.isLoading()) {
       <span
         class="badge badge-ghost badge-xs"
         aria-label="Loading authentication status"
       >
         <span class="loading loading-spinner loading-xs"></span>
       </span>
-      } @else if (hasExistingApiKey()) {
+      } @else if (authState.hasApiKey()) {
       <span
         class="badge badge-success badge-xs gap-0.5"
         aria-label="API key configured"
@@ -279,12 +294,12 @@
         <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
         <span>Configured</span>
       </span>
-      } @if (authMethod() === 'auto') {
+      } @if (authState.authMethod() === 'auto') {
       <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
     <!-- Show masked value when configured -->
-    @if (hasExistingApiKey() && !apiKey()) {
+    @if (authState.hasApiKey() && !apiKey()) {
     <div class="flex gap-1.5">
       <div
         class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
@@ -293,15 +308,25 @@
       </div>
       <button
         type="button"
+        class="btn btn-ghost btn-xs text-info"
+        (click)="isReplacingApiKey.set(true)"
+        [class.hidden]="isReplacingApiKey()"
+        title="Replace API key"
+      >
+        Replace
+      </button>
+      <button
+        type="button"
         class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
         (click)="deleteApiKey()"
-        [disabled]="connectionStatus() === 'saving'"
+        [disabled]="authState.isSaving()"
         title="Remove API key"
         aria-label="Remove API key"
       >
         <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
       </button>
     </div>
+    @if (isReplacingApiKey()) {
     <div class="label py-0.5">
       <span class="label-text-alt text-[10px] opacity-70">
         Enter a new key below to replace the existing one
@@ -314,8 +339,9 @@
       name="apiKey"
       class="input input-bordered input-sm w-full text-xs"
       placeholder="Enter new API key to replace..."
-      [attr.aria-required]="authMethod() === 'apiKey'"
+      [attr.aria-required]="authState.authMethod() === 'apiKey'"
     />
+    }
     } @else {
     <input
       id="apiKey"
@@ -324,7 +350,7 @@
       name="apiKey"
       class="input input-bordered input-sm w-full text-xs"
       placeholder="sk-ant-api03-..."
-      [attr.aria-required]="authMethod() === 'apiKey'"
+      [attr.aria-required]="authState.authMethod() === 'apiKey'"
     />
     }
     <div class="label flex-col items-start gap-0.5 py-1">
@@ -353,14 +379,14 @@
       (click)="saveAndTest()"
       [disabled]="
         !canSaveAndTest() ||
-        connectionStatus() === 'saving' ||
-        connectionStatus() === 'testing'
+        authState.connectionStatus() === 'saving' ||
+        authState.connectionStatus() === 'testing'
       "
     >
-      @if (connectionStatus() === 'saving') {
+      @if (authState.connectionStatus() === 'saving') {
       <lucide-angular [img]="Loader2Icon" class="w-3.5 h-3.5 animate-spin" />
       <span>Saving...</span>
-      } @else if (connectionStatus() === 'testing') {
+      } @else if (authState.connectionStatus() === 'testing') {
       <lucide-angular [img]="Loader2Icon" class="w-3.5 h-3.5 animate-spin" />
       <span>Testing...</span>
       } @else {
@@ -370,10 +396,10 @@
   </div>
 
   <!-- Success Message -->
-  @if (connectionStatus() === 'success' && successMessage()) {
+  @if (authState.connectionStatus() === 'success' && authState.successMessage()) {
   <div class="alert alert-success py-2 px-3" role="status" aria-live="polite">
     <lucide-angular [img]="CheckCircleIcon" class="w-4 h-4" />
-    <span class="text-xs flex-1">{{ successMessage() }}</span>
+    <span class="text-xs flex-1">{{ authState.successMessage() }}</span>
     <button
       type="button"
       class="btn btn-ghost btn-xs text-success-content"
@@ -387,7 +413,7 @@
   }
 
   <!-- Error Message -->
-  @if (connectionStatus() === 'error' && errorMessage()) {
+  @if (authState.connectionStatus() === 'error' && authState.errorMessage()) {
   <div class="alert alert-error py-2 px-3" role="alert" aria-live="assertive">
     <div class="flex flex-col gap-1.5 w-full">
       <div class="flex items-start gap-1.5">
@@ -396,13 +422,13 @@
           class="w-4 h-4 flex-shrink-0 mt-0.5"
         />
         <span class="flex-1 whitespace-pre-wrap break-words text-xs">{{
-          errorMessage()
+          authState.errorMessage()
         }}</span>
       </div>
-      @if (errorMessage().toLowerCase().includes('401') ||
-      errorMessage().toLowerCase().includes('unauthorized') ||
-      errorMessage().toLowerCase().includes('invalid') ||
-      errorMessage().toLowerCase().includes('authentication')) {
+      @if (authState.errorMessage().toLowerCase().includes('401') ||
+      authState.errorMessage().toLowerCase().includes('unauthorized') ||
+      authState.errorMessage().toLowerCase().includes('invalid') ||
+      authState.errorMessage().toLowerCase().includes('authentication')) {
       <div class="text-[10px] border-t border-error-content/20 pt-1.5 mt-0.5">
         <strong>💡 Tips:</strong>
         <ul class="list-disc list-inside mt-0.5 space-y-0.5">
@@ -428,10 +454,10 @@
   }
 
   <!-- Testing In Progress (with success message from save) -->
-  @if (connectionStatus() === 'testing' && successMessage()) {
+  @if (authState.connectionStatus() === 'testing' && authState.successMessage()) {
   <div class="alert alert-info py-2 px-3" role="status" aria-live="polite">
     <lucide-angular [img]="Loader2Icon" class="w-4 h-4 animate-spin" />
-    <span class="text-xs">{{ successMessage() }}</span>
+    <span class="text-xs">{{ authState.successMessage() }}</span>
   </div>
   }
 </form>

@@ -32,13 +32,46 @@ npm run lint:all
 npm run typecheck:all
 ```
 
+### License Server & Database
+
+```bash
+# Start database services (PostgreSQL + Redis)
+npm run docker:db:start
+
+# Run Prisma migrations
+npm run prisma:migrate:dev
+
+# Open Prisma Studio
+npm run prisma:studio
+
+# Start license server
+nx serve ptah-license-server
+```
+
+## Tech Stack
+
+- **Language**: TypeScript 5.8.2 (strict mode)
+- **Extension Runtime**: Node.js, VS Code API 1.103.0
+- **Frontend**: Angular 20.1.0 (zoneless, standalone components), TailwindCSS 3.4, DaisyUI 4.12
+- **Backend**: NestJS 11.0.0, Prisma 7.1.0, PostgreSQL 16, Redis 7
+- **AI/LLM**: Claude Agent SDK 0.2.25, Langchain (Anthropic, OpenAI, Google Gemini, OpenRouter)
+- **DI**: tsyringe 4.10.0 with reflect-metadata
+- **Build**: Nx 21.4/22.1, Webpack 5, esbuild, ng-packagr
+- **Testing**: Jest 30.0.2, jest-preset-angular
+- **Linting**: ESLint 9.8 (flat config), Prettier 2.6, commitlint, husky
+- **Payments**: Paddle 1.6/2.0
+- **Auth**: WorkOS 7.77 (enterprise SSO)
+- **Icons**: Lucide Angular 0.542
+- **Markdown**: ngx-markdown 21.0, prismjs
+- **Animations**: GSAP 3.14, @hive-academy/angular-gsap 1.1
+
 ---
 
 ## WORKSPACE ARCHITECTURE & LIBRARY MAP
 
 ### Overview
 
-The Ptah workspace is organized as an Nx monorepo with **14 projects** (2 apps + 12 libraries) following a strict layered architecture pattern.
+The Ptah workspace is organized as an Nx monorepo with **6 apps + 12 libraries** following a strict layered architecture pattern.
 
 ### Architecture Layers
 
@@ -47,6 +80,8 @@ The Ptah workspace is organized as an Nx monorepo with **14 projects** (2 apps +
 |  Applications Layer                                  |
 |  - ptah-extension-vscode (VS Code extension)        |
 |  - ptah-extension-webview (Angular SPA)             |
+|  - ptah-landing-page (Marketing site)               |
+|  - ptah-license-server (NestJS + Prisma)            |
 +-----------------------------------------------------+
 |  Frontend Feature Libraries                          |
 |  - chat, providers, analytics, dashboard            |
@@ -71,10 +106,14 @@ The Ptah workspace is organized as an Nx monorepo with **14 projects** (2 apps +
 
 Each library has a dedicated `CLAUDE.md` file with architecture details, usage patterns, and integration examples:
 
-#### **Applications** (2)
+#### **Applications** (6)
 
 - **[ptah-extension-vscode](apps/ptah-extension-vscode/CLAUDE.md)** - Main VS Code extension with command handlers, webview providers, and DI orchestration
 - **[ptah-extension-webview](apps/ptah-extension-webview/CLAUDE.md)** - Angular 20+ SPA with signal-based navigation and zoneless change detection
+- **[ptah-landing-page](apps/ptah-landing-page/CLAUDE.md)** - Marketing landing page (Angular) with 3D scenes and GSAP animations
+- **[ptah-license-server](apps/ptah-license-server/CLAUDE.md)** - License management API (NestJS + Prisma + PostgreSQL) with Paddle subscriptions and WorkOS auth
+- **[ptah-license-server-e2e](apps/ptah-license-server-e2e/CLAUDE.md)** - End-to-end tests for the license server
+- **[infra-test](apps/infra-test/CLAUDE.md)** - Infrastructure testing application
 
 #### **Backend Libraries** (7)
 
@@ -178,7 +217,7 @@ For detailed information about any library:
 
 ### Workspace Stats
 
-- **Total Projects**: 12 (2 apps + 10 libraries)
+- **Total Projects**: 18 (6 apps + 12 libraries)
 - **Total Components**: 48+ Angular components
 - **Total Services**: 40+ backend/frontend services
 - **TypeScript Files**: 280+ source files

@@ -100,11 +100,13 @@ User correctly identified that permissions are safe:
 ### Decision: Option B2 - VS Code Native Sidebar + Editor WebviewPanel
 
 The original plan (Option A: In-App CSS Split) was rejected during re-evaluation due to:
+
 1. **Singleton pollution risk**: All Angular services are `providedIn: 'root'` singletons. Threading `tabId` through MessageSenderService, ConversationService, ChatStore, and every future service is fragile.
 2. **Cross-talk risk**: One missed `tabId` parameter = bugs between sessions.
 3. **Separation of concerns**: No true isolation between sessions in the same DOM.
 
 **Chosen approach**: Option B2 - VS Code Native Multi-Webview
+
 - Primary sidebar keeps `ptah.main` webview (existing)
 - "Open in Editor Panel" action creates a `WebviewPanel` in the editor area
 - Each webview is a **fully independent Angular app instance** with its own DI container
@@ -113,6 +115,7 @@ The original plan (Option A: In-App CSS Split) was rejected during re-evaluation
 - ~15-25MB memory overhead per additional panel (acceptable for power-user feature)
 
 ### Key Benefits
+
 - **Perfect session isolation** - physically separate Angular instances
 - **Zero cross-talk risk** - impossible by design
 - **Natural VS Code UX** - users already know editor splits (Ctrl+\)
@@ -120,6 +123,7 @@ The original plan (Option A: In-App CSS Split) was rejected during re-evaluation
 - **No existing code changes** - services work as-is in each isolated instance
 
 ### Coordination Requirements (Extension Host)
+
 - Session list synchronization between views
 - Model selection propagation (global config)
 - License state sharing (passed at HTML generation time)

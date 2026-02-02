@@ -99,7 +99,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
             [value]="currentMessage()"
             (input)="handleInput($event)"
             (keydown)="handleKeyDown($event)"
-            rows="4"
+            rows="2"
             role="combobox"
             [attr.aria-expanded]="showSuggestions()"
             [attr.aria-controls]="getListboxId()"
@@ -165,9 +165,9 @@ import { AgentSelectorComponent } from './agent-selector.component';
       }
 
       <!-- Bottom Controls Row -->
-      <div class="flex items-center justify-between text-sm">
+      <div class="flex items-center justify-between gap-2 text-sm min-w-0">
         <!-- Left: Action Icons with Autopilot Badge -->
-        <div class="flex items-center gap-2 text-base-content/60">
+        <div class="flex items-center gap-2 text-base-content/60 flex-shrink-0">
           <button
             class="btn btn-ghost btn-xs btn-circle"
             title="Add screenshot"
@@ -196,7 +196,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
         </div>
 
         <!-- Right: Agent Selector, Model Selector and Autopilot Popover -->
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 min-w-0">
           <!-- Agent Selector - dedicated button for agents -->
           <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
 

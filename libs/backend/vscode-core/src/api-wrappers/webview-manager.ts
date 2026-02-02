@@ -329,12 +329,14 @@ export class WebviewManager {
     // Collect sidebar view send promises (parallel, not sequential)
     for (const [viewType, view] of this.activeWebviewViews) {
       allPromises.push(
-        view.webview.postMessage({ type, payload }).catch((error) => {
-          this.logger.warn(
-            `[WebviewManager] Broadcast failed for view ${viewType}`,
-            error instanceof Error ? error : new Error(String(error))
-          );
-        })
+        Promise.resolve(view.webview.postMessage({ type, payload })).catch(
+          (error) => {
+            this.logger.warn(
+              `[WebviewManager] Broadcast failed for view ${viewType}`,
+              error instanceof Error ? error : new Error(String(error))
+            );
+          }
+        )
       );
     }
 

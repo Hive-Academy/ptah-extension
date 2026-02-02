@@ -43,7 +43,7 @@ import { AuthRpcHandlers } from './handlers/auth-rpc.handlers';
 import { SetupRpcHandlers } from './handlers/setup-rpc.handlers';
 import { LicenseRpcHandlers } from './handlers/license-rpc.handlers';
 import { LlmRpcHandlers } from './handlers/llm-rpc.handlers';
-import { OpenRouterRpcHandlers } from './handlers/openrouter-rpc.handlers';
+import { ProviderRpcHandlers } from './handlers/provider-rpc.handlers';
 import { SubagentRpcHandlers } from './handlers/subagent-rpc.handlers';
 import { CommandRpcHandlers } from './handlers/command-rpc.handlers';
 
@@ -81,7 +81,7 @@ export class RpcMethodRegistrationService {
     private readonly setupHandlers: SetupRpcHandlers,
     private readonly licenseHandlers: LicenseRpcHandlers,
     private readonly llmHandlers: LlmRpcHandlers,
-    private readonly openRouterHandlers: OpenRouterRpcHandlers,
+    private readonly providerHandlers: ProviderRpcHandlers,
     private readonly subagentHandlers: SubagentRpcHandlers,
     private readonly commandHandlers: CommandRpcHandlers, // TASK_2025_126
     private readonly container: DependencyContainer
@@ -109,7 +109,7 @@ export class RpcMethodRegistrationService {
     this.setupHandlers.register();
     this.licenseHandlers.register();
     this.llmHandlers.register();
-    this.openRouterHandlers.register();
+    this.providerHandlers.register();
     this.subagentHandlers.register();
     this.commandHandlers.register(); // TASK_2025_126
 
@@ -245,16 +245,13 @@ export class RpcMethodRegistrationService {
     try {
       await retryWithBackoff(
         () =>
-          this.webviewManager.broadcastMessage(
-            MESSAGE_TYPES.SESSION_STATS,
-            {
-              sessionId: stats.sessionId,
-              cost: stats.cost,
-              tokens: stats.tokens,
-              duration: stats.duration,
-              modelUsage: stats.modelUsage,
-            }
-          ),
+          this.webviewManager.broadcastMessage(MESSAGE_TYPES.SESSION_STATS, {
+            sessionId: stats.sessionId,
+            cost: stats.cost,
+            tokens: stats.tokens,
+            duration: stats.duration,
+            modelUsage: stats.modelUsage,
+          }),
         {
           retries: 3,
           initialDelay: 1000,

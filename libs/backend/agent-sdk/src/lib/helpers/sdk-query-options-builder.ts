@@ -269,6 +269,15 @@ export class SdkQueryOptionsBuilder {
     const model = sessionConfig.model;
     const cwd = sessionConfig?.projectPath || process.cwd();
 
+    // Log resolved model and tier env vars for debugging (TASK_2025_132)
+    this.logger.info(`[SdkQueryOptionsBuilder] SDK call with model: ${model}`, {
+      model,
+      envSonnet: process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] || 'default',
+      envOpus: process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] || 'default',
+      envHaiku: process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] || 'default',
+      baseUrl: process.env['ANTHROPIC_BASE_URL'] || 'default',
+    });
+
     // Build system prompt configuration
     const systemPrompt = this.buildSystemPrompt(sessionConfig, isPremium);
 

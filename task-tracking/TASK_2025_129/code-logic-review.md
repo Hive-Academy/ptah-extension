@@ -31,11 +31,14 @@
 ### 3. What data makes this produce wrong results?
 
 **Type mismatch across layers for firstName/lastName.** The server-side `LicenseVerificationResponse` at `D:\projects\ptah-extension\apps\ptah-license-server\src\license\services\license.service.ts:33-35` defines:
+
 ```typescript
 firstName: string | null;
 lastName: string | null;
 ```
+
 But the extension-side `LicenseStatus` at `D:\projects\ptah-extension\libs\backend\vscode-core\src\services\license.service.ts:88-89` and the RPC type at `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts:597-598` define:
+
 ```typescript
 firstName?: string;
 lastName?: string;
@@ -128,6 +131,7 @@ The server sends `null` values over the wire. The extension/frontend types say `
 - **Scenario**: The server-side Prisma schema has `firstName String?` which maps to `string | null` in TypeScript. The `LicenseVerificationResponse` correctly types this as `firstName: string | null`. But the extension-side `LicenseStatus` and `LicenseGetStatusResponse` both type it as `firstName?: string` (optional, i.e., `string | undefined`).
 - **Impact**: The JSON wire format sends `null` for missing names. The extension receives `null` but TypeScript claims it's `string | undefined`. Any future code doing strict `=== undefined` checks on these fields will produce false results. This is a cross-layer type contract violation.
 - **Evidence**:
+
   ```typescript
   // Server (license.service.ts:33-35) - CORRECT
   user?: {
@@ -150,6 +154,7 @@ The server sends `null` values over the wire. The extension/frontend types say `
     lastName?: string;         // <-- undefined, but receives null
   };
   ```
+
 - **Fix**: Change extension-side and RPC types to use `firstName: string | null;` and `lastName: string | null;` to match the server. Or use `firstName?: string | null;` if both optional-missing and explicit-null are valid states.
 
 ---
@@ -303,6 +308,7 @@ The server sends `null` values over the wire. The extension/frontend types say `
 ```
 
 ### Gap Points Identified:
+
 1. **Type mismatch** at HTTP deserialization boundary (null vs undefined)
 2. **User data loss** at Community fallback paths in extension LicenseService
 3. **Partial signal reset** in Settings component error handler
@@ -312,22 +318,23 @@ The server sends `null` values over the wire. The extension/frontend types say `
 
 ## Requirements Fulfillment
 
-| Requirement | Status | Concern |
-|-------------|--------|---------|
-| Remove openrouter_proxy from ProOnlyFeature type | COMPLETE | Clean removal, no remaining references in source code |
-| Remove openrouter_proxy from PRO_ONLY_FEATURES array | COMPLETE | Array and type aligned |
-| Remove openrouter: from PRO_ONLY_METHOD_PREFIXES | COMPLETE | openrouter: remains in ALLOWED_METHOD_PREFIXES (correct) |
-| Add openrouter_proxy to community plan features | COMPLETE | Added with task reference comment |
-| User field in LicenseVerificationResponse (server) | COMPLETE | Properly typed with null for firstName/lastName |
-| User field in LicenseStatus (extension) | COMPLETE | Type mismatch with server (null vs undefined) |
-| User field in LicenseGetStatusResponse (RPC) | COMPLETE | Same type mismatch concern |
-| Forward user data in license-rpc.handlers | COMPLETE | Correct forwarding with null check |
-| User signals in SettingsComponent | COMPLETE | All three signals (email, firstName, lastName) added |
-| User profile display in template | COMPLETE | Avatar, display name, email all rendered |
-| Null/undefined handling for community users | PARTIAL | Community users correctly see no profile; error catch path has stale data issue |
-| Type safety across all layers | PARTIAL | firstName/lastName null vs undefined mismatch |
+| Requirement                                          | Status   | Concern                                                                         |
+| ---------------------------------------------------- | -------- | ------------------------------------------------------------------------------- |
+| Remove openrouter_proxy from ProOnlyFeature type     | COMPLETE | Clean removal, no remaining references in source code                           |
+| Remove openrouter_proxy from PRO_ONLY_FEATURES array | COMPLETE | Array and type aligned                                                          |
+| Remove openrouter: from PRO_ONLY_METHOD_PREFIXES     | COMPLETE | openrouter: remains in ALLOWED_METHOD_PREFIXES (correct)                        |
+| Add openrouter_proxy to community plan features      | COMPLETE | Added with task reference comment                                               |
+| User field in LicenseVerificationResponse (server)   | COMPLETE | Properly typed with null for firstName/lastName                                 |
+| User field in LicenseStatus (extension)              | COMPLETE | Type mismatch with server (null vs undefined)                                   |
+| User field in LicenseGetStatusResponse (RPC)         | COMPLETE | Same type mismatch concern                                                      |
+| Forward user data in license-rpc.handlers            | COMPLETE | Correct forwarding with null check                                              |
+| User signals in SettingsComponent                    | COMPLETE | All three signals (email, firstName, lastName) added                            |
+| User profile display in template                     | COMPLETE | Avatar, display name, email all rendered                                        |
+| Null/undefined handling for community users          | PARTIAL  | Community users correctly see no profile; error catch path has stale data issue |
+| Type safety across all layers                        | PARTIAL  | firstName/lastName null vs undefined mismatch                                   |
 
 ### Implicit Requirements NOT Addressed:
+
 1. **License status refresh after enterLicenseKey()** -- user must navigate away and back to see updated status
 2. **User profile on revoked/expired licenses** -- server omits user data from error responses
 3. **lastName-only user initials** -- edge case not handled in computed
@@ -337,30 +344,30 @@ The server sends `null` values over the wire. The extension/frontend types say `
 
 ## Edge Case Analysis
 
-| Edge Case | Handled | How | Concern |
-|-----------|---------|-----|---------|
-| Null firstName + null lastName | YES | `userDisplayName` falls to email, `userInitials` falls to email[0] | Works correctly |
-| Null firstName + valid lastName | PARTIAL | `userDisplayName` shows lastName. `userInitials` skips to email | Wrong initials |
-| Valid firstName + null lastName | YES | Shows firstName only, initial is first[0] | Correct |
-| Empty email string | NO | `email[0].toUpperCase()` throws TypeError | Low probability, crash |
-| No user field (community) | YES | `@if (userEmail())` hides section | Correct |
-| Network failure during fetch | PARTIAL | Tier/premium reset, but user signals NOT reset | Stale data shown |
-| Rapid page opens | NO | No debouncing/cancellation | Race condition possible |
-| License key entered while on Settings page | NO | No refetch triggered | Stale display |
-| 7-day offline cache with user data | YES | User data included in persisted cache | Could be stale |
-| Server returns null for firstName | YES (runtime) | `?? null` handles it | Type mismatch exists |
+| Edge Case                                  | Handled       | How                                                                | Concern                 |
+| ------------------------------------------ | ------------- | ------------------------------------------------------------------ | ----------------------- |
+| Null firstName + null lastName             | YES           | `userDisplayName` falls to email, `userInitials` falls to email[0] | Works correctly         |
+| Null firstName + valid lastName            | PARTIAL       | `userDisplayName` shows lastName. `userInitials` skips to email    | Wrong initials          |
+| Valid firstName + null lastName            | YES           | Shows firstName only, initial is first[0]                          | Correct                 |
+| Empty email string                         | NO            | `email[0].toUpperCase()` throws TypeError                          | Low probability, crash  |
+| No user field (community)                  | YES           | `@if (userEmail())` hides section                                  | Correct                 |
+| Network failure during fetch               | PARTIAL       | Tier/premium reset, but user signals NOT reset                     | Stale data shown        |
+| Rapid page opens                           | NO            | No debouncing/cancellation                                         | Race condition possible |
+| License key entered while on Settings page | NO            | No refetch triggered                                               | Stale display           |
+| 7-day offline cache with user data         | YES           | User data included in persisted cache                              | Could be stale          |
+| Server returns null for firstName          | YES (runtime) | `?? null` handles it                                               | Type mismatch exists    |
 
 ---
 
 ## Integration Risk Assessment
 
-| Integration | Failure Probability | Impact | Mitigation |
-|-------------|---------------------|--------|------------|
-| Server -> Extension (HTTP) | LOW | User profile missing | Offline grace period with cached user data |
-| Extension -> RPC -> Frontend | LOW | User profile missing | Fallback to no-profile UI |
-| Prisma DB query for user | LOW | No user data returned | Server defensive null check |
-| Community fallback path | N/A | User profile always absent | By design -- no server user for keyless |
-| Type serialization (null/undefined) | MEDIUM | Silent type mismatch | `?? null` coalescing masks it |
+| Integration                         | Failure Probability | Impact                     | Mitigation                                 |
+| ----------------------------------- | ------------------- | -------------------------- | ------------------------------------------ |
+| Server -> Extension (HTTP)          | LOW                 | User profile missing       | Offline grace period with cached user data |
+| Extension -> RPC -> Frontend        | LOW                 | User profile missing       | Fallback to no-profile UI                  |
+| Prisma DB query for user            | LOW                 | No user data returned      | Server defensive null check                |
+| Community fallback path             | N/A                 | User profile always absent | By design -- no server user for keyless    |
+| Type serialization (null/undefined) | MEDIUM              | Silent type mismatch       | `?? null` coalescing masks it              |
 
 ---
 
@@ -371,11 +378,13 @@ The server sends `null` values over the wire. The extension/frontend types say `
 **Top Risk**: The type contract mismatch (null vs undefined) across server/extension/RPC layers, combined with the stale user signal state on error, creates two independently concerning issues. The type mismatch is a latent bug waiting for a future developer to write strict equality checks. The stale state issue produces a visually contradictory UI.
 
 ### What Must Be Fixed Before Approval:
+
 1. **CRITICAL**: Align firstName/lastName types across all three layers (server, extension, RPC) to use `string | null` consistently
 2. **SERIOUS**: Reset user signals in the Settings component error catch block
 3. **SERIOUS**: Add the `if (last)` branch to `userInitials` computed
 
 ### What Should Be Fixed (Not Blocking):
+
 4. Add license status refetch after `enterLicenseKey()` completes
 5. Include user data in server error responses (revoked/expired paths)
 6. Guard against empty email string in userInitials

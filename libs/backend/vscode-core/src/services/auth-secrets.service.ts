@@ -17,7 +17,7 @@ import { TOKENS } from '../di/tokens';
 /**
  * Auth credential types supported by this service
  */
-export type AuthCredentialType = 'oauthToken' | 'apiKey' | 'openrouterKey';
+export type AuthCredentialType = 'oauthToken' | 'apiKey';
 
 /**
  * Interface for auth secrets management
@@ -76,6 +76,34 @@ export interface IAuthSecretsService {
    * ```
    */
   hasCredential(type: AuthCredentialType): Promise<boolean>;
+
+  /**
+   * Get API key for a specific Anthropic-compatible provider
+   * @param providerId - Provider ID (e.g., 'openrouter', 'moonshot', 'z-ai')
+   * @returns Provider API key or undefined if not set
+   */
+  getProviderKey(providerId: string): Promise<string | undefined>;
+
+  /**
+   * Store API key for a specific Anthropic-compatible provider
+   * Each provider gets its own isolated storage slot.
+   * @param providerId - Provider ID
+   * @param value - API key to store. Empty string deletes the key.
+   */
+  setProviderKey(providerId: string, value: string): Promise<void>;
+
+  /**
+   * Delete API key for a specific provider
+   * @param providerId - Provider ID
+   */
+  deleteProviderKey(providerId: string): Promise<void>;
+
+  /**
+   * Check if a specific provider has an API key configured
+   * @param providerId - Provider ID
+   * @returns True if provider key exists and is non-empty
+   */
+  hasProviderKey(providerId: string): Promise<boolean>;
 }
 
 /**
@@ -102,7 +130,6 @@ export class AuthSecretsService implements IAuthSecretsService {
   private readonly KEY_MAP: Record<AuthCredentialType, string> = {
     oauthToken: 'claudeOAuthToken',
     apiKey: 'anthropicApiKey',
-    openrouterKey: 'openrouterApiKey',
   };
 
   constructor(
@@ -228,6 +255,79 @@ export class AuthSecretsService implements IAuthSecretsService {
    */
   async hasCredential(type: AuthCredentialType): Promise<boolean> {
     const value = await this.getCredential(type);
+    return !!value && value.length > 0;
+  }
+
+  // ================================================================
+  // Per-provider key storage (each provider gets its own slot)
+  // Storage key pattern: ptah.auth.provider.{providerId}
+  // ================================================================
+
+  /**
+   * Get the secret storage key for a provider-specific API key
+   */
+  private getProviderSecretKey(providerId: string): string {
+    return `${this.SECRET_PREFIX}.provider.${providerId}`;
+  }
+
+  /**
+   * Get API key for a specific Anthropic-compatible provider.
+   */
+  async getProviderKey(providerId: string): Promise<string | undefined> {
+    const secretKey = this.getProviderSecretKey(providerId);
+    const value = await this.context.secrets.get(secretKey);
+
+    this.logger.debug('[AuthSecretsService.getProviderKey] Retrieved status', {
+      providerId,
+      hasValue: !!value,
+    });
+
+    return value;
+  }
+
+  /**
+   * Store API key for a specific Anthropic-compatible provider.
+   * Each provider gets its own isolated storage slot to prevent overwriting.
+   */
+  async setProviderKey(providerId: string, value: string): Promise<void> {
+    if (!value || value.trim().length === 0) {
+      await this.deleteProviderKey(providerId);
+      return;
+    }
+
+    const secretKey = this.getProviderSecretKey(providerId);
+    await this.context.secrets.store(secretKey, value.trim());
+
+    this.logger.info(
+      '[AuthSecretsService.setProviderKey] Provider key stored',
+      {
+        providerId,
+        valueLength: value.length,
+      }
+    );
+  }
+
+  /**
+   * Delete API key for a specific provider.
+   */
+  async deleteProviderKey(providerId: string): Promise<void> {
+    const secretKey = this.getProviderSecretKey(providerId);
+    await this.context.secrets.delete(secretKey);
+
+    this.logger.info(
+      '[AuthSecretsService.deleteProviderKey] Provider key deleted',
+      {
+        providerId,
+      }
+    );
+  }
+
+  /**
+   * Check if a specific provider has an API key configured.
+   * SECURITY: Returns boolean only.
+   */
+  async hasProviderKey(providerId: string): Promise<boolean> {
+    const value = await this.getProviderKey(providerId);
     return !!value && value.length > 0;
   }
 }

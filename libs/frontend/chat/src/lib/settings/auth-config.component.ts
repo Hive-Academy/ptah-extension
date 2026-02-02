@@ -17,40 +17,36 @@ import {
   Check,
   Trash2,
 } from 'lucide-angular';
-import { ClaudeRpcService, RpcResult } from '@ptah-extension/core';
-import type {
-  AuthSaveSettingsParams,
-  AuthSaveSettingsResponse,
-  AuthTestConnectionResponse,
-  AuthGetAuthStatusResponse,
-  AnthropicProviderInfo,
-} from '@ptah-extension/shared';
+import { AuthStateService, ClaudeRpcService } from '@ptah-extension/core';
+import type { AuthSaveSettingsParams } from '@ptah-extension/shared';
 
 /**
  * AuthConfigComponent - Authentication configuration form
  *
- * Complexity Level: 2 (Form with RPC integration and state management)
- * Patterns: Signal-based state, RPC integration
+ * Complexity Level: 2 (Form with service delegation and local form state)
+ * Patterns: Signal delegation to AuthStateService, local form signals only
  *
  * Responsibilities:
- * - Display authentication method selection (OAuth, API Key, Auto-detect)
- * - Collect OAuth token and/or API key inputs
- * - Save settings via RPC (auth:saveSettings)
- * - Test connection via RPC (auth:testConnection)
- * - Display connection status and error messages
+ * - Display authentication method selection (Provider, OAuth, API Key, Auto-detect)
+ * - Collect credential inputs (OAuth token, API key, provider key)
+ * - Delegate save/delete/test operations to AuthStateService
+ * - Display connection status and error messages from service
  *
  * SOLID Principles:
- * - Single Responsibility: Authentication configuration only
- * - Dependency Inversion: Depends on ClaudeRpcService abstraction for RPC
+ * - Single Responsibility: Authentication configuration form only
+ * - Dependency Inversion: Depends on AuthStateService abstraction for all auth state
+ * - Open/Closed: Extensible via composition (provider model selector added by parent)
  *
  * State Management:
- * - Signal-based reactive state for form inputs and connection status
- * - No local storage - all config saved to VS Code settings via RPC
+ * - Auth state (credentials, providers, status) managed by AuthStateService
+ * - Local form state (text input values, replace toggles) managed by component signals
+ * - No duplicate state between component and service
  *
- * Error Handling:
- * - Catches RPC errors and displays user-friendly messages
- * - Handles network failures and timeout scenarios
- * - Validates form inputs before saving
+ * Critical Fixes (TASK_2025_133):
+ * - Critical Issue #1: deleteProviderKey uses UI-selected provider ID (not persisted)
+ * - Critical Issue #2: Single source of truth via AuthStateService
+ * - Critical Issue #4: Provider switch calls checkProviderKeyStatus for correct badge
+ * - Serious Issue #6: Concurrent guard via isSaving signal
  */
 @Component({
   selector: 'ptah-auth-config',
@@ -60,10 +56,9 @@ import type {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthConfigComponent implements OnInit {
+  /** Auth state service - single source of truth for all auth state (PUBLIC for template access) */
+  readonly authState = inject(AuthStateService);
   private readonly rpcService = inject(ClaudeRpcService);
-
-  // Timeout constants
-  private readonly CONNECTION_TEST_TIMEOUT_MS = 10000;
 
   // Lucide icons
   readonly CheckCircleIcon = CheckCircle;
@@ -72,72 +67,68 @@ export class AuthConfigComponent implements OnInit {
   readonly CheckIcon = Check;
   readonly Trash2Icon = Trash2;
 
-  // Form state signals
-  readonly authMethod = signal<'oauth' | 'apiKey' | 'openrouter' | 'auto'>(
-    'auto'
-  );
+  // --- Local form signals (text input values only) ---
+
+  /** OAuth token text input value */
   readonly oauthToken = signal('');
+
+  /** API key text input value */
   readonly apiKey = signal('');
-  // TASK_2025_091: Provider API key (used for OpenRouter, Moonshot, Z.AI, etc.)
-  readonly openrouterKey = signal('');
 
-  // TASK_2025_129 Batch 3: Multi-provider support
-  readonly selectedProviderId = signal('openrouter');
-  readonly availableProviders = signal<AnthropicProviderInfo[]>([]);
+  /** Provider API key text input value (renamed from openrouterKey for clarity) */
+  readonly providerKey = signal('');
 
-  // Credential status signals (TASK_2025_076)
-  readonly hasExistingOAuthToken = signal(false);
-  readonly hasExistingApiKey = signal(false);
-  // TASK_2025_091: Provider key status
-  readonly hasExistingOpenRouterKey = signal(false);
-  readonly isLoadingStatus = signal(true);
+  // --- Local toggle signals for showing credential replacement inputs ---
+
+  readonly isReplacingOAuth = signal(false);
+  readonly isReplacingApiKey = signal(false);
+  readonly isReplacingProviderKey = signal(false);
 
   /**
-   * Event emitted when auth status changes (after successful save)
-   * Parent components should refresh their auth state when this fires
+   * Event emitted when auth status changes (after successful save/delete)
+   * Parent components can listen for backward compatibility, though the service
+   * already auto-refreshes state.
    */
   readonly authStatusChanged = output<void>();
 
-  // Connection status signals
-  readonly connectionStatus = signal<
-    'idle' | 'saving' | 'testing' | 'success' | 'error'
-  >('idle');
-  readonly errorMessage = signal('');
-  readonly successMessage = signal('');
-
-  // Method switching state (for loading indicator during auth method change)
-  readonly isSwitchingMethod = signal(false);
-
   /**
-   * Computed: Currently selected provider info (TASK_2025_129 Batch 3)
+   * Computed: Currently selected provider info
+   * Delegates directly to the service's selectedProvider computed signal.
    */
-  readonly selectedProvider = computed(() => {
-    const id = this.selectedProviderId();
-    return this.availableProviders().find((p) => p.id === id) ?? null;
-  });
+  readonly selectedProvider = this.authState.selectedProvider;
 
   /**
-   * Computed signal to determine if Save & Test button should be enabled
-   * Button is enabled when there's a new credential value entered based on auth method
+   * Computed signal to determine if Save & Test button should be enabled.
+   * Button is enabled when there's a new credential value entered OR an existing credential
+   * already saved for the selected auth method.
+   *
+   * Reads auth method and existing credential flags from service,
+   * reads new input values from local form signals.
    */
   readonly canSaveAndTest = computed(() => {
-    const method = this.authMethod();
-    const oauth = this.oauthToken().trim();
-    const apiKeyValue = this.apiKey().trim();
-    const openrouterKeyValue = this.openrouterKey().trim();
+    const method = this.authState.authMethod();
+    const hasNewOAuth = this.oauthToken().trim().length > 0;
+    const hasNewApiKey = this.apiKey().trim().length > 0;
+    const hasNewProviderKey = this.providerKey().trim().length > 0;
+    const hasExistingOAuth = this.authState.hasOAuthToken();
+    const hasExistingApiKey = this.authState.hasApiKey();
+    const hasExistingProviderKey = this.authState.hasProviderKey();
 
     switch (method) {
       case 'oauth':
-        return oauth.length > 0;
+        return hasNewOAuth || hasExistingOAuth;
       case 'apiKey':
-        return apiKeyValue.length > 0;
+        return hasNewApiKey || hasExistingApiKey;
       case 'openrouter':
-        return openrouterKeyValue.length > 0;
+        return hasNewProviderKey || hasExistingProviderKey;
       case 'auto':
         return (
-          oauth.length > 0 ||
-          apiKeyValue.length > 0 ||
-          openrouterKeyValue.length > 0
+          hasNewOAuth ||
+          hasNewApiKey ||
+          hasNewProviderKey ||
+          hasExistingOAuth ||
+          hasExistingApiKey ||
+          hasExistingProviderKey
         );
       default:
         return false;
@@ -145,354 +136,115 @@ export class AuthConfigComponent implements OnInit {
   });
 
   /**
-   * Fetch auth status on component initialization
+   * Load auth status on component initialization.
+   * Delegates to AuthStateService which has an idempotent guard
+   * (only fetches once unless refreshed).
    */
   async ngOnInit(): Promise<void> {
     try {
-      await this.fetchAuthStatus();
+      await this.authState.loadAuthStatus();
     } catch (error) {
       console.error(
         '[AuthConfigComponent] Failed to initialize auth status:',
         error
       );
-      this.errorMessage.set(
-        'Failed to load authentication status. Please try refreshing.'
-      );
-      this.isLoadingStatus.set(false);
     }
   }
 
   /**
-   * Fetch current auth status from backend
-   * SECURITY: Only boolean flags returned, never actual credential values
-   */
-  async fetchAuthStatus(): Promise<void> {
-    this.isLoadingStatus.set(true);
-    try {
-      const result = await this.rpcService.call('auth:getAuthStatus', {});
-
-      if (result.isSuccess() && result.data) {
-        this.hasExistingOAuthToken.set(result.data.hasOAuthToken);
-        this.hasExistingApiKey.set(result.data.hasApiKey);
-        // TASK_2025_091: Provider key status
-        this.hasExistingOpenRouterKey.set(result.data.hasOpenRouterKey);
-        this.authMethod.set(result.data.authMethod);
-        // TASK_2025_129 Batch 3: Multi-provider support
-        this.selectedProviderId.set(result.data.anthropicProviderId);
-        this.availableProviders.set(result.data.availableProviders);
-      }
-    } catch (error) {
-      console.error(
-        '[AuthConfigComponent] Failed to fetch auth status:',
-        error
-      );
-      // Graceful degradation - show empty state
-    } finally {
-      this.isLoadingStatus.set(false);
-    }
-  }
-
-  /**
-   * Save authentication settings and test connection
+   * Save authentication settings and test connection.
    *
    * Flow:
-   * 1. Validate form inputs
-   * 2. Call auth:saveSettings RPC (saves to VS Code config)
-   * 3. Wait for ConfigManager watcher to trigger SDK re-initialization
-   * 4. Call auth:testConnection RPC to verify SDK health
-   * 5. Display success or error message
+   * 1. Guard against concurrent saves (via service's isSaving signal)
+   * 2. Build params from local form inputs + service state
+   * 3. Delegate to AuthStateService.saveAndTest()
+   * 4. On success: reset replace toggles, clear local inputs, emit event
    *
-   * Error Handling:
-   * - Missing credentials: Display validation error
-   * - RPC save failure: Display save error
-   * - Connection test failure: Display connection error with details
-   * - Network timeout: Display timeout error
+   * The service handles:
+   * - Saving settings via RPC (auth:saveSettings)
+   * - Testing connection via RPC (auth:testConnection)
+   * - Updating connection status, error/success messages
+   * - Refreshing auth status and model list on success
    */
   async saveAndTest(): Promise<void> {
-    // Reset status
-    this.connectionStatus.set('saving');
-    this.errorMessage.set('');
-    this.successMessage.set('');
+    // Concurrent guard: prevent double-click or rapid re-invocation
+    if (this.authState.isSaving()) {
+      return;
+    }
 
-    try {
-      // Validate inputs based on auth method
-      const method = this.authMethod();
-      const oauth = this.oauthToken().trim();
-      const apiKeyValue = this.apiKey().trim();
-      const openrouterKeyValue = this.openrouterKey().trim();
+    const params: AuthSaveSettingsParams = {
+      authMethod: this.authState.authMethod(),
+      claudeOAuthToken: this.oauthToken().trim() || undefined,
+      anthropicApiKey: this.apiKey().trim() || undefined,
+      openrouterApiKey: this.providerKey().trim() || undefined,
+      anthropicProviderId: this.authState.selectedProviderId(),
+    };
 
-      // Validation
-      if (method === 'oauth' && !oauth) {
-        this.connectionStatus.set('error');
-        this.errorMessage.set(
-          'OAuth token is required for OAuth authentication'
-        );
-        return;
-      }
+    await this.authState.saveAndTest(params);
 
-      if (method === 'apiKey' && !apiKeyValue) {
-        this.connectionStatus.set('error');
-        this.errorMessage.set('API key is required for API Key authentication');
-        return;
-      }
-
-      // TASK_2025_091: OpenRouter validation
-      if (method === 'openrouter' && !openrouterKeyValue) {
-        this.connectionStatus.set('error');
-        this.errorMessage.set(
-          'OpenRouter API key is required for OpenRouter authentication'
-        );
-        return;
-      }
-
-      if (method === 'auto' && !oauth && !apiKeyValue && !openrouterKeyValue) {
-        this.connectionStatus.set('error');
-        this.errorMessage.set(
-          'At least one credential is required for Auto-detect mode'
-        );
-        return;
-      }
-
-      // Step 1: Save settings via RPC
-      const saveParams: AuthSaveSettingsParams = {
-        authMethod: method,
-        claudeOAuthToken: oauth || undefined,
-        anthropicApiKey: apiKeyValue || undefined,
-        // TASK_2025_091: Include provider key
-        openrouterApiKey: openrouterKeyValue || undefined,
-        // TASK_2025_129 Batch 3: Include selected provider
-        anthropicProviderId: this.selectedProviderId(),
-      };
-
-      const saveResult = await this.rpcService.call(
-        'auth:saveSettings',
-        saveParams
-      );
-
-      if (!saveResult.isSuccess()) {
-        this.connectionStatus.set('error');
-        this.errorMessage.set(
-          saveResult.error || 'Failed to save authentication settings'
-        );
-        return;
-      }
-
-      // Step 2: Test connection (waits for SDK re-initialization)
-      this.connectionStatus.set('testing');
-      this.successMessage.set('Settings saved. Testing connection...');
-
-      const testResult = await Promise.race([
-        this.rpcService.call('auth:testConnection', {}),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(new Error('Connection test timed out after 10 seconds')),
-            this.CONNECTION_TEST_TIMEOUT_MS
-          )
-        ),
-      ]);
-
-      if (testResult.isSuccess()) {
-        const testData = testResult.data!;
-        if (testData.success && testData.health.status === 'available') {
-          // Success!
-          this.connectionStatus.set('success');
-          this.successMessage.set(
-            `✓ Connected successfully! (${Math.round(
-              testData.health.responseTime || 0
-            )}ms)`
-          );
-          this.errorMessage.set('');
-          // Refetch status to update configured badges (TASK_2025_076)
-          await this.fetchAuthStatus();
-          // Notify parent components to refresh their auth state
-          this.authStatusChanged.emit();
-        } else {
-          // Connection test failed
-          this.connectionStatus.set('error');
-          this.errorMessage.set(
-            testData.errorMessage ||
-              testData.health.errorMessage ||
-              'Connection test failed. Please check your credentials.'
-          );
-          this.successMessage.set('');
-        }
-      } else {
-        // RPC call failed
-        this.connectionStatus.set('error');
-        this.errorMessage.set(
-          testResult.error || 'Connection test failed. Please try again.'
-        );
-        this.successMessage.set('');
-      }
-    } catch (error) {
-      // Handle unexpected errors (network issues, timeouts, etc.)
-      this.connectionStatus.set('error');
-      this.errorMessage.set(
-        error instanceof Error
-          ? `Error: ${error.message}`
-          : 'An unexpected error occurred. Please try again.'
-      );
-      this.successMessage.set('');
-      console.error('[AuthConfigComponent] Error during save/test:', error);
+    // After save completes, check if it was successful
+    if (this.authState.connectionStatus() === 'success') {
+      // Reset replacement toggles
+      this.isReplacingOAuth.set(false);
+      this.isReplacingApiKey.set(false);
+      this.isReplacingProviderKey.set(false);
+      // Clear local form inputs (service has refreshed auth status)
+      this.oauthToken.set('');
+      this.apiKey.set('');
+      this.providerKey.set('');
+      // Notify parent components
+      this.authStatusChanged.emit();
     }
   }
 
   /**
-   * Update auth method selection and persist to backend
+   * Update auth method selection (delegates to service).
    *
    * When user changes auth method:
-   * 1. Update local signal immediately for responsive UI
-   * 2. Call auth:saveSettings to persist preference and reinitialize provider
-   * 3. Refresh auth status to reflect new state
-   * 4. Notify parent components of the change
+   * 1. Delegate to service (updates signal + resets status messages)
+   * 2. Reset local form toggles
+   *
+   * The selection is persisted to the backend when the user clicks
+   * "Save & Test Connection" via saveAndTest().
    */
-  async onAuthMethodChange(
-    method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'
-  ): Promise<void> {
-    // Skip if same method selected
-    if (this.authMethod() === method) {
+  onAuthMethodChange(method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'): void {
+    if (this.authState.authMethod() === method) {
       return;
     }
 
-    // Update local state immediately for responsive UI
-    this.authMethod.set(method);
-    // Reset status when user changes method
-    this.connectionStatus.set('idle');
-    this.errorMessage.set('');
-    this.successMessage.set('');
-
-    // Call backend to persist preference and reinitialize provider
-    this.isSwitchingMethod.set(true);
-    try {
-      const saveParams: AuthSaveSettingsParams = {
-        authMethod: method,
-        // Don't send credentials - just update the method preference
-      };
-
-      const result = await this.rpcService.call(
-        'auth:saveSettings',
-        saveParams
-      );
-
-      if (result.isSuccess()) {
-        // Refresh status to reflect new provider state
-        await this.fetchAuthStatus();
-        // Notify parent components
-        this.authStatusChanged.emit();
-        this.successMessage.set(
-          `Switched to ${this.getMethodDisplayName(method)}`
-        );
-        this.connectionStatus.set('success');
-      } else {
-        this.errorMessage.set(
-          result.error || 'Failed to switch authentication method'
-        );
-        this.connectionStatus.set('error');
-      }
-    } catch (error) {
-      console.error(
-        '[AuthConfigComponent] Failed to switch auth method:',
-        error
-      );
-      this.errorMessage.set(
-        error instanceof Error
-          ? error.message
-          : 'Failed to switch authentication method'
-      );
-      this.connectionStatus.set('error');
-    } finally {
-      this.isSwitchingMethod.set(false);
-    }
+    this.authState.setAuthMethod(method);
+    this.isReplacingOAuth.set(false);
+    this.isReplacingApiKey.set(false);
+    this.isReplacingProviderKey.set(false);
   }
 
   /**
-   * Handle provider selection change (TASK_2025_129 Batch 3)
+   * Handle provider selection change (delegates to service).
    *
    * When user selects a different Anthropic-compatible provider:
-   * 1. Update local signal for responsive UI
-   * 2. Persist to backend via auth:saveSettings
-   * 3. Trigger SDK re-initialization with new provider base URL
+   * 1. Delegate to service (updates signal + resets status messages)
+   * 2. Check key status for the new provider (fixes Critical Issue #4)
+   * 3. Reset local provider key input
+   *
+   * The selection is persisted to the backend when the user clicks
+   * "Save & Test Connection" via saveAndTest().
    */
   async onProviderChange(providerId: string): Promise<void> {
-    if (this.selectedProviderId() === providerId) {
+    if (this.authState.selectedProviderId() === providerId) {
       return;
     }
 
-    // Save previous state for rollback on failure
-    const previousProviderId = this.selectedProviderId();
+    this.authState.setSelectedProviderId(providerId);
+    this.providerKey.set('');
+    this.isReplacingProviderKey.set(false);
 
-    // Optimistic update
-    this.selectedProviderId.set(providerId);
-    // Reset key input when switching providers
-    this.openrouterKey.set('');
-    this.connectionStatus.set('idle');
-    this.errorMessage.set('');
-    this.successMessage.set('');
-
-    // Persist provider selection to backend
-    try {
-      const saveParams: AuthSaveSettingsParams = {
-        authMethod: this.authMethod(),
-        anthropicProviderId: providerId,
-      };
-
-      const result = await this.rpcService.call(
-        'auth:saveSettings',
-        saveParams
-      );
-
-      if (result.isSuccess()) {
-        const provider = this.availableProviders().find(
-          (p) => p.id === providerId
-        );
-        this.successMessage.set(
-          `Switched to ${provider?.name ?? providerId}`
-        );
-        this.connectionStatus.set('success');
-        this.authStatusChanged.emit();
-      } else {
-        // Rollback on RPC failure
-        this.selectedProviderId.set(previousProviderId);
-        this.errorMessage.set(
-          result.error || 'Failed to switch provider'
-        );
-        this.connectionStatus.set('error');
-      }
-    } catch (error) {
-      // Rollback on exception
-      this.selectedProviderId.set(previousProviderId);
-      this.errorMessage.set(
-        error instanceof Error
-          ? error.message
-          : 'Failed to switch provider'
-      );
-      this.connectionStatus.set('error');
-      console.error(
-        '[AuthConfigComponent] Failed to switch provider:',
-        error
-      );
-    }
+    // Query backend for key status of the newly selected provider
+    // This correctly updates the badge without a full auth status refresh
+    await this.authState.checkProviderKeyStatus(providerId);
   }
 
   /**
-   * Get human-readable display name for auth method
-   */
-  private getMethodDisplayName(
-    method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'
-  ): string {
-    const providerName = this.selectedProvider()?.name ?? 'Provider';
-    const displayNames: Record<typeof method, string> = {
-      openrouter: providerName,
-      oauth: 'OAuth Token',
-      apiKey: 'API Key',
-      auto: 'Auto-detect',
-    };
-    return displayNames[method];
-  }
-
-  /**
-   * Reload VS Code window to apply auth changes (TASK_2025_129 Batch 3)
+   * Reload VS Code window to apply auth changes
    *
    * Triggers a full window reload to ensure:
    * - SDK re-initializes with new provider/credentials
@@ -510,116 +262,34 @@ export class AuthConfigComponent implements OnInit {
   }
 
   /**
-   * Delete OAuth token from SecretStorage
+   * Delete OAuth token from SecretStorage.
+   * Delegates to AuthStateService which handles RPC call and state refresh.
    */
   async deleteOAuthToken(): Promise<void> {
-    this.connectionStatus.set('saving');
-    this.errorMessage.set('');
-    this.successMessage.set('');
-
-    try {
-      const saveParams: AuthSaveSettingsParams = {
-        authMethod: this.authMethod(),
-        claudeOAuthToken: '', // Empty string triggers deletion
-      };
-
-      const result = await this.rpcService.call(
-        'auth:saveSettings',
-        saveParams
-      );
-
-      if (result.isSuccess()) {
-        this.successMessage.set('OAuth token removed successfully');
-        this.connectionStatus.set('success');
-        this.oauthToken.set('');
-        await this.fetchAuthStatus();
-      } else {
-        this.errorMessage.set(result.error || 'Failed to remove OAuth token');
-        this.connectionStatus.set('error');
-      }
-    } catch (error) {
-      this.errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to remove OAuth token'
-      );
-      this.connectionStatus.set('error');
-    }
+    await this.authState.deleteOAuthToken();
+    this.oauthToken.set('');
+    this.authStatusChanged.emit();
   }
 
   /**
-   * Delete API key from SecretStorage
+   * Delete API key from SecretStorage.
+   * Delegates to AuthStateService which handles RPC call and state refresh.
    */
   async deleteApiKey(): Promise<void> {
-    this.connectionStatus.set('saving');
-    this.errorMessage.set('');
-    this.successMessage.set('');
-
-    try {
-      const saveParams: AuthSaveSettingsParams = {
-        authMethod: this.authMethod(),
-        anthropicApiKey: '', // Empty string triggers deletion
-      };
-
-      const result = await this.rpcService.call(
-        'auth:saveSettings',
-        saveParams
-      );
-
-      if (result.isSuccess()) {
-        this.successMessage.set('API key removed successfully');
-        this.connectionStatus.set('success');
-        this.apiKey.set('');
-        await this.fetchAuthStatus();
-      } else {
-        this.errorMessage.set(result.error || 'Failed to remove API key');
-        this.connectionStatus.set('error');
-      }
-    } catch (error) {
-      this.errorMessage.set(
-        error instanceof Error ? error.message : 'Failed to remove API key'
-      );
-      this.connectionStatus.set('error');
-    }
+    await this.authState.deleteApiKey();
+    this.apiKey.set('');
+    this.authStatusChanged.emit();
   }
 
   /**
-   * Delete OpenRouter key from SecretStorage (TASK_2025_091)
+   * Delete provider key from SecretStorage.
+   * Fixes Critical Issue #1: Uses the UI-selected provider ID (from service)
+   * instead of relying on potentially stale persisted state.
+   * Delegates to AuthStateService which sends explicit providerId in RPC call.
    */
-  async deleteOpenRouterKey(): Promise<void> {
-    this.connectionStatus.set('saving');
-    this.errorMessage.set('');
-    this.successMessage.set('');
-
-    try {
-      const saveParams: AuthSaveSettingsParams = {
-        authMethod: this.authMethod(),
-        openrouterApiKey: '', // Empty string triggers deletion
-      };
-
-      const result = await this.rpcService.call(
-        'auth:saveSettings',
-        saveParams
-      );
-
-      if (result.isSuccess()) {
-        this.successMessage.set(
-          `${this.selectedProvider()?.name ?? 'Provider'} key removed successfully`
-        );
-        this.connectionStatus.set('success');
-        this.openrouterKey.set('');
-        await this.fetchAuthStatus();
-      } else {
-        this.errorMessage.set(
-          result.error || 'Failed to remove OpenRouter key'
-        );
-        this.connectionStatus.set('error');
-      }
-    } catch (error) {
-      this.errorMessage.set(
-        error instanceof Error
-          ? error.message
-          : 'Failed to remove OpenRouter key'
-      );
-      this.connectionStatus.set('error');
-    }
+  async deleteProviderKey(): Promise<void> {
+    await this.authState.deleteProviderKey(this.authState.selectedProviderId());
+    this.providerKey.set('');
+    this.authStatusChanged.emit();
   }
 }

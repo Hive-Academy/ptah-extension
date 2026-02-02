@@ -79,7 +79,8 @@ export class RpcResult<T> {
 interface RpcResponse<T = unknown> {
   success: boolean;
   data?: T;
-  error?: string;
+  // Backend may send error as string or { message: string } depending on code path
+  error?: string | { message: string };
   /**
    * Error code for programmatic handling (TASK_2025_124)
    * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
@@ -191,12 +192,14 @@ export class ClaudeRpcService {
         (response: RpcResponse<RpcMethodResult<T>>) => {
           this.pendingCalls.delete(correlationId);
           clearTimeout(timer);
+          // Normalize error: backend may send string or { message: string }
+          const errorStr = this.normalizeError(response.error);
           // TASK_2025_124: Pass errorCode for license-related errors
           resolve(
             new RpcResult(
               response.success,
               response.data,
-              response.error,
+              errorStr,
               response.errorCode
             )
           );
@@ -224,6 +227,21 @@ export class ClaudeRpcService {
         payload: { method, params, correlationId },
       });
     });
+  }
+
+  /**
+   * Normalize error from backend response.
+   * Backend may send error as a string or as { message: string } depending on code path.
+   */
+  private normalizeError(
+    error: string | { message: string } | undefined
+  ): string | undefined {
+    if (error === undefined) return undefined;
+    if (typeof error === 'string') return error;
+    if (typeof error === 'object' && error !== null && 'message' in error) {
+      return String(error.message);
+    }
+    return String(error);
   }
 
   /**

@@ -91,8 +91,8 @@ const ProjectAnalysisSchema = z.object({
       errorCount: z.number().min(0).default(0),
       warningCount: z.number().min(0).default(0),
       infoCount: z.number().min(0).default(0),
-      errorsByType: z.record(z.number()).default({}),
-      warningsByType: z.record(z.number()).default({}),
+      errorsByType: z.record(z.string(), z.number()).default({}),
+      warningsByType: z.record(z.string(), z.number()).default({}),
       topErrors: z
         .array(
           z.object({
@@ -428,8 +428,8 @@ export class SetupRpcHandlers {
 
         if (!validationResult.success) {
           // Format error messages with field paths for debugging
-          const errors = validationResult.error.errors
-            .map((e) => `${e.path.join('.')}: ${e.message}`)
+          const errors = validationResult.error.issues
+            .map((e) => `${String(e.path.join('.'))}: ${e.message}`)
             .join('; ');
 
           this.logger.error('Invalid analysis input', {

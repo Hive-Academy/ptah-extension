@@ -45,7 +45,7 @@ import { SessionId } from '@ptah-extension/shared';
     >
       <button
         trigger
-        class="btn btn-ghost btn-sm gap-1 font-normal"
+        class="btn btn-ghost btn-sm gap-1 font-normal max-w-[14rem]"
         [class.ring-2]="isOpen()"
         [class.ring-primary]="isOpen()"
         type="button"
@@ -54,11 +54,26 @@ import { SessionId } from '@ptah-extension/shared';
       >
         @if (modelState.isPending()) {
         <span class="loading loading-spinner loading-xs"></span>
+        } @if (modelState.currentModelProviderHint()) {
+        <!-- Provider override active: show provider model as primary -->
+        <span
+          class="text-[10px] font-mono text-accent truncate"
+          [title]="
+            modelState.currentModelDisplay() +
+            ' → ' +
+            modelState.currentModelProviderHint()
+          "
+          >{{ modelState.currentModelProviderHint() }}</span
+        >
+        } @else {
+        <!-- No provider override: show standard display name -->
+        <span
+          class="text-xs font-medium truncate"
+          [title]="modelState.currentModelDisplay()"
+          >{{ modelState.currentModelDisplay() }}</span
+        >
         }
-        <span class="text-xs font-medium">{{
-          modelState.currentModelDisplay()
-        }}</span>
-        <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
+        <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3 flex-shrink-0" />
       </button>
 
       <div content class="w-72 max-h-80 flex flex-col">
@@ -104,7 +119,7 @@ import { SessionId } from '@ptah-extension/shared';
                 </div>
                 @if (model.providerModelId) {
                 <span
-                  class="text-[11px] mt-0.5 font-mono text-accent"
+                  class="text-[11px] mt-0.5 font-mono text-accent truncate max-w-full"
                 >
                   {{ model.providerModelId }}
                 </span>

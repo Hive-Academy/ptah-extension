@@ -147,20 +147,87 @@
           "default": "ask",
           "description": "Permission level for autopilot mode."
         },
-        "ptah.openrouter.modelTier.sonnet": {
-          "type": "string",
+        "ptah.provider.openrouter.modelTier.sonnet": {
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null,
           "description": "OpenRouter model override for Sonnet tier."
         },
-        "ptah.openrouter.modelTier.opus": {
-          "type": "string",
+        "ptah.provider.openrouter.modelTier.opus": {
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null,
           "description": "OpenRouter model override for Opus tier."
         },
-        "ptah.openrouter.modelTier.haiku": {
-          "type": "string",
+        "ptah.provider.openrouter.modelTier.haiku": {
+          "type": [
+            "string",
+            "null"
+          ],
           "default": null,
           "description": "OpenRouter model override for Haiku tier."
+        },
+        "ptah.provider.moonshot.modelTier.sonnet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Moonshot model override for Sonnet tier."
+        },
+        "ptah.provider.moonshot.modelTier.opus": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Moonshot model override for Opus tier."
+        },
+        "ptah.provider.moonshot.modelTier.haiku": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Moonshot model override for Haiku tier."
+        },
+        "ptah.provider.z-ai.modelTier.sonnet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Z.AI model override for Sonnet tier."
+        },
+        "ptah.provider.z-ai.modelTier.opus": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Z.AI model override for Opus tier."
+        },
+        "ptah.provider.z-ai.modelTier.haiku": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Z.AI model override for Haiku tier."
+        },
+        "ptah.anthropicProviderId": {
+          "type": "string",
+          "enum": [
+            "openrouter",
+            "moonshot",
+            "z-ai"
+          ],
+          "default": "openrouter",
+          "description": "Selected Anthropic-compatible provider for API key authentication."
         },
         "ptah.compaction.enabled": {
           "type": "boolean",
