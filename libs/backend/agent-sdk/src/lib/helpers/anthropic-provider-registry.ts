@@ -89,7 +89,36 @@ export const ANTHROPIC_PROVIDERS = [
     description: 'Kimi models via Anthropic-compatible API',
     keyPlaceholder: 'Enter Moonshot API key...',
     maskedKeyDisplay: '••••••••••••',
-    modelsEndpoint: 'https://api.moonshot.ai/v1/models',
+    staticModels: [
+      {
+        id: 'kimi-k2',
+        name: 'Kimi K2',
+        description: 'Flagship model (128K context)',
+        contextLength: 128000,
+        supportsToolUse: true,
+      },
+      {
+        id: 'kimi-k2-0905-preview',
+        name: 'Kimi K2 (0905)',
+        description: 'Preview release (256K context)',
+        contextLength: 256000,
+        supportsToolUse: true,
+      },
+      {
+        id: 'kimi-k2-thinking',
+        name: 'Kimi K2 Thinking',
+        description: 'Extended thinking model (256K context)',
+        contextLength: 256000,
+        supportsToolUse: true,
+      },
+      {
+        id: 'kimi-k2.5',
+        name: 'Kimi K2.5',
+        description: 'Latest generation model (256K context)',
+        contextLength: 256000,
+        supportsToolUse: true,
+      },
+    ],
   },
   {
     id: 'z-ai',
