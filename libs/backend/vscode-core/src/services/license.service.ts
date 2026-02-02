@@ -55,9 +55,9 @@ export type LicenseTierValue =
 /**
  * License verification status returned by the server
  *
- * TASK_2025_128: Updated for freemium model
- * - Community tier (no license key) has valid: true
- * - Only expired/revoked licenses have valid: false
+ * - No license key: valid: false with reason 'not_found' (triggers registration prompt)
+ * - Expired Pro (non-revoked): falls back to Community tier (valid: true)
+ * - Revoked licenses: valid: false (blocks extension)
  */
 export interface LicenseStatus {
   /** Whether the license is valid (Community = always true) */
@@ -173,18 +173,16 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   /**
    * Verify license key with server (or return cached result).
    *
-   * TASK_2025_128: Freemium model with Community fallback
-   *
    * Flow:
    * 1. Check cache validity (1-hour TTL)
    * 2. Get license key from SecretStorage
-   * 3. If no key: return Community tier (FREE, valid)
+   * 3. If no key: return { valid: false, reason: 'not_found' } to trigger registration prompt
    * 4. POST to server /api/v1/licenses/verify
    * 5. If server says invalid (expired/trial_ended/not_found):
    *    auto-clear key and fall back to Community tier
    * 6. ONLY admin revocation returns valid: false (blocks extension)
    * 7. Cache result and emit events
-   * 8. On error: return cached status or Community tier
+   * 8. On error: return cached status or trigger registration prompt
    *
    * @returns License status with tier, plan details, expiration
    *
@@ -217,17 +215,17 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       );
 
       if (!licenseKey) {
-        // TASK_2025_128: No license key = Community tier (FREE, valid)
-        const communityStatus: LicenseStatus = {
-          valid: true, // CHANGED from false - Community is valid
-          tier: 'community', // CHANGED from 'expired' - Community tier
-          // No reason field - Community is a valid state, not an error
+        // No license key = prompt user to register
+        const noAccountStatus: LicenseStatus = {
+          valid: false,
+          tier: 'community',
+          reason: 'not_found',
         };
-        this.updateCache(communityStatus);
+        this.updateCache(noAccountStatus);
         this.logger.info(
-          '[LicenseService.verifyLicense] No license key found, returning Community tier'
+          '[LicenseService.verifyLicense] No license key found, prompting registration'
         );
-        return communityStatus;
+        return noAccountStatus;
       }
 
       // Step 3: Verify with server
@@ -356,13 +354,31 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         return this.cache.status;
       }
 
-      // TASK_2025_128: No cache and outside grace period = Community tier (FREE, valid)
-      // Users without a license key still get the free Community tier
-      const communityStatus: LicenseStatus = {
-        valid: true,
+      // No cache and outside grace period - check if user had a license key
+      const licenseKey = await this.context.secrets.get(
+        LicenseService.SECRET_KEY
+      );
+
+      if (licenseKey) {
+        // User has a key but server is unreachable and grace period expired
+        this.logger.warn(
+          '[LicenseService.verifyLicense] License key exists but cannot verify (grace period expired)'
+        );
+        const expiredStatus: LicenseStatus = {
+          valid: false,
+          tier: 'expired',
+          reason: 'expired',
+        };
+        return expiredStatus;
+      }
+
+      // No key at all = prompt registration
+      const noAccountStatus: LicenseStatus = {
+        valid: false,
         tier: 'community',
+        reason: 'not_found',
       };
-      return communityStatus;
+      return noAccountStatus;
     }
   }
 
@@ -398,12 +414,11 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   /**
    * Remove license key from SecretStorage.
    *
-   * TASK_2025_128: Updated for freemium model
-   *
    * Flow:
    * 1. Delete key from SecretStorage
-   * 2. Update cache to Community tier (FREE, valid)
-   * 3. Emit license:updated event
+   * 2. Clear persisted cache
+   * 3. Update cache to invalid (triggers registration prompt on reload)
+   * 4. Emit license:updated event
    *
    * @example
    * ```typescript
@@ -418,13 +433,14 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     // TASK_2025_121: Clear persisted cache as well (no grace period for manual removal)
     await this.clearPersistedCache();
 
-    // TASK_2025_128: Downgrade to Community tier (not expired)
-    const communityStatus: LicenseStatus = {
-      valid: true, // CHANGED from false - Community is valid
-      tier: 'community', // CHANGED from 'expired' - Community tier
+    // No license key = prompt registration on next activation
+    const noAccountStatus: LicenseStatus = {
+      valid: false,
+      tier: 'community',
+      reason: 'not_found',
     };
-    this.updateCache(communityStatus);
-    this.emit('license:updated', communityStatus);
+    this.updateCache(noAccountStatus);
+    this.emit('license:updated', noAccountStatus);
   }
 
   /**

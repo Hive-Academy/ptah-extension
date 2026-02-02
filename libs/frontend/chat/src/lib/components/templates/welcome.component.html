@@ -2,7 +2,7 @@
 <!-- Pattern source: wizard-view.component.ts:70-124 (hero layout) -->
 <!-- Pattern source: settings.component.html (DaisyUI classes) -->
 
-<div class="hero min-h-screen bg-base-100">
+<div class="hero h-full bg-base-100">
   <div class="hero-content text-center max-w-2xl">
     <div class="flex flex-col items-center gap-6">
       <!-- Ptah Logo -->
@@ -15,18 +15,25 @@
         priority
       />
 
+      <!-- Loading state while fetching license status -->
+      @if (isLoadingStatus()) {
+      <div class="flex flex-col items-center gap-4">
+        <h1 class="text-4xl font-bold text-base-content">Welcome to Ptah</h1>
+        <span class="loading loading-spinner loading-md text-primary"></span>
+      </div>
+      } @else {
       <!-- Headline (context-aware based on license reason) -->
       <h1 class="text-4xl font-bold text-base-content">
-        {{ getHeadline() }}
+        {{ headline() }}
       </h1>
 
       <!-- Subheadline (context-aware based on license reason) -->
       <p class="text-lg text-base-content/70 max-w-lg">
-        {{ getSubheadline() }}
+        {{ subheadline() }}
       </p>
 
       <!-- Feature Highlights Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 w-full max-w-xl">
+      <div class="grid grid-cols-1 gap-4 mt-4 w-full max-w-xl">
         @for (feature of features; track feature.title) {
         <div class="card bg-base-200 p-4">
           <div class="flex items-start gap-3">
@@ -45,38 +52,61 @@
         }
       </div>
 
-      <!-- Action Buttons -->
-      <div class="flex flex-col sm:flex-row gap-3 mt-6 w-full max-w-sm">
-        <!-- Start Trial (Secondary style - left) -->
+      <!-- Action Buttons: New user (no account) -->
+      @if (isNewUser()) {
+      <div class="flex flex-col gap-3 mt-6 w-full max-w-sm">
+        <!-- Primary CTA: Create Account -->
         <button
-          class="btn btn-secondary btn-lg flex-1 gap-2"
-          (click)="startTrial()"
-          aria-label="Start 14-day free trial"
+          class="btn btn-primary btn-lg w-full gap-2"
+          (click)="createAccount()"
+          aria-label="Create account and start free trial"
+        >
+          <lucide-angular [img]="UserPlusIcon" class="w-5 h-5" />
+          Create Account & Start Free Trial
+        </button>
+        <p class="text-xs text-base-content/50 text-center">
+          No credit card required
+        </p>
+
+        <!-- Secondary CTA: Already have a license key -->
+        <button
+          class="btn btn-ghost btn-sm gap-1 text-base-content/60"
+          (click)="enterLicenseKey()"
+          aria-label="Enter existing license key"
+        >
+          <lucide-angular [img]="KeyIcon" class="w-4 h-4" />
+          I already have a license key
+        </button>
+      </div>
+      } @else {
+      <!-- Action Buttons: Returning user (expired/trial_ended) -->
+      <div class="flex flex-col gap-3 mt-6 w-full max-w-sm">
+        <!-- Primary CTA: View Pricing / Renew -->
+        <button
+          class="btn btn-primary btn-lg w-full gap-2"
+          (click)="viewPricing()"
+          aria-label="View pricing options"
         >
           <lucide-angular [img]="SparklesIcon" class="w-5 h-5" />
-          Start 14-Day Trial
+          {{
+            licenseReason() === 'expired'
+              ? 'Renew Subscription'
+              : 'View Pricing'
+          }}
         </button>
 
-        <!-- Enter License Key (Primary style - right) -->
+        <!-- Secondary CTA: Enter License Key -->
         <button
-          class="btn btn-primary btn-lg flex-1 gap-2"
+          class="btn btn-ghost btn-sm gap-1 text-base-content/60"
           (click)="enterLicenseKey()"
           aria-label="Enter license key"
         >
-          <lucide-angular [img]="KeyIcon" class="w-5 h-5" />
+          <lucide-angular [img]="KeyIcon" class="w-4 h-4" />
           Enter License Key
         </button>
       </div>
-
-      <!-- View Pricing Link -->
-      <button
-        class="btn btn-ghost btn-sm gap-1 text-base-content/60"
-        (click)="viewPricing()"
-        aria-label="View pricing options"
-      >
-        <lucide-angular [img]="ExternalLinkIcon" class="w-4 h-4" />
-        View Pricing
-      </button>
+      }
+      }
 
       <!-- Error State (shown when license status fetch fails) -->
       @if (errorMessage()) {

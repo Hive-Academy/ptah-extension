@@ -3,17 +3,18 @@ import {
   inject,
   ChangeDetectionStrategy,
   signal,
+  computed,
   OnInit,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
   Key,
-  ExternalLink,
   Sparkles,
   Zap,
   GitBranch,
   Bot,
+  UserPlus,
 } from 'lucide-angular';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
@@ -43,7 +44,7 @@ interface FeatureHighlight {
  * TASK_2025_126: Replaces VS Code modal for unlicensed users
  */
 @Component({
-  selector: 'ptah-welcome',
+  selector: 'ptah-auth-welcome',
   standalone: true,
   imports: [NgOptimizedImage, LucideAngularModule],
   templateUrl: './welcome.component.html',
@@ -55,16 +56,48 @@ export class WelcomeComponent implements OnInit {
 
   // Icons
   readonly KeyIcon = Key;
-  readonly ExternalLinkIcon = ExternalLink;
   readonly SparklesIcon = Sparkles;
   readonly ZapIcon = Zap;
   readonly GitBranchIcon = GitBranch;
   readonly BotIcon = Bot;
+  readonly UserPlusIcon = UserPlus;
 
   // State signals
-  readonly licenseReason = signal<string | null>(null);
+  readonly licenseReason = signal<LicenseGetStatusResponse['reason'] | null>(
+    null
+  );
   readonly isLoadingStatus = signal(true);
   readonly errorMessage = signal<string | null>(null);
+
+  // Computed signals for derived state (per codebase convention)
+  readonly headline = computed(() => {
+    const reason = this.licenseReason();
+    switch (reason) {
+      case 'expired':
+        return 'Your subscription has expired';
+      case 'trial_ended':
+        return 'Your trial has ended';
+      default:
+        return 'Welcome to Ptah';
+    }
+  });
+
+  readonly subheadline = computed(() => {
+    const reason = this.licenseReason();
+    switch (reason) {
+      case 'expired':
+        return "Renew your subscription to continue using Ptah's premium features.";
+      case 'trial_ended':
+        return 'Subscribe to Pro for premium features.';
+      default:
+        return 'Create your account and start a 15-day free trial of premium features. No credit card required.';
+    }
+  });
+
+  readonly isNewUser = computed(() => {
+    const reason = this.licenseReason();
+    return !reason || reason === 'no_license';
+  });
 
   // Ptah icon URI from VSCodeService
   readonly ptahIconUri: string;
@@ -130,37 +163,6 @@ export class WelcomeComponent implements OnInit {
   }
 
   /**
-   * Get contextual headline based on license reason
-   */
-  getHeadline(): string {
-    const reason = this.licenseReason();
-    switch (reason) {
-      case 'expired':
-        return 'Your subscription has expired';
-      case 'trial_ended':
-        return 'Your trial has ended';
-      default:
-        return 'Welcome to Ptah';
-    }
-  }
-
-  /**
-   * Get contextual subheadline based on license reason
-   * TASK_2025_128: Updated messaging to mention Community (free) as fallback option
-   */
-  getSubheadline(): string {
-    const reason = this.licenseReason();
-    switch (reason) {
-      case 'expired':
-        return "Renew your subscription to continue using Ptah's premium features, or downgrade to Community (free).";
-      case 'trial_ended':
-        return 'Subscribe to Pro for premium features, or continue with Community (free).';
-      default:
-        return 'Transform your Claude Code experience with a native VS Code interface.';
-    }
-  }
-
-  /**
    * Trigger license key entry via VS Code command
    * Uses RPC to execute VS Code command from webview
    * TASK_2025_126: Fixed to use command:execute RPC instead of raw postMessage
@@ -198,11 +200,17 @@ export class WelcomeComponent implements OnInit {
   }
 
   /**
-   * Start trial (opens pricing page)
-   * Trial registration flows through the pricing page
+   * Open signup page in external browser for account creation
    */
-  startTrial(): void {
-    this.viewPricing();
+  async createAccount(): Promise<void> {
+    try {
+      await this.rpcService.call('command:execute', {
+        command: 'ptah.openSignup',
+      });
+    } catch (error) {
+      console.error('[WelcomeComponent] Failed to open signup:', error);
+      this.errorMessage.set('Failed to open signup page. Please try again.');
+    }
   }
 
   /**
