@@ -17,15 +17,22 @@ import {
   UserPlus,
   Key,
   ExternalLink,
+  Wand2,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
 import { ProviderModelSelectorComponent } from './provider-model-selector.component';
+import { PromptPowerUpsComponent } from './prompt-power-ups/prompt-power-ups.component';
+import { CustomPromptEditorComponent } from './custom-prompt-editor/custom-prompt-editor.component';
+import { PromptPreviewComponent } from './prompt-preview/prompt-preview.component';
 import {
   AppStateManager,
   ClaudeRpcService,
   AuthStateService,
 } from '@ptah-extension/core';
-import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
+import type {
+  LicenseGetStatusResponse,
+  UserPromptSectionInfo,
+} from '@ptah-extension/shared';
 
 /**
  * SettingsComponent - Main settings page container
@@ -52,6 +59,9 @@ import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
   imports: [
     AuthConfigComponent,
     ProviderModelSelectorComponent,
+    PromptPowerUpsComponent,
+    CustomPromptEditorComponent,
+    PromptPreviewComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -74,6 +84,10 @@ export class SettingsComponent implements OnInit {
   readonly UserPlusIcon = UserPlus;
   readonly KeyIcon = Key;
   readonly ExternalLinkIcon = ExternalLink;
+  readonly Wand2Icon = Wand2;
+
+  // TASK_2025_135: Custom prompt sections state for CustomPromptEditorComponent
+  readonly customSections = signal<UserPromptSectionInfo[]>([]);
 
   // License status signals
   readonly isPremium = signal(false);
@@ -235,6 +249,26 @@ export class SettingsComponent implements OnInit {
     await this.rpcService.call('command:execute', {
       command: 'ptah.openPricing',
     });
+  }
+
+  /**
+   * TASK_2025_135: Handle custom sections change from CustomPromptEditorComponent
+   * Save updated sections via RPC
+   */
+  async onCustomSectionsChange(
+    sections: UserPromptSectionInfo[]
+  ): Promise<void> {
+    this.customSections.set(sections);
+    try {
+      await this.rpcService.call('promptHarness:saveConfig', {
+        customSections: sections,
+      });
+    } catch (error) {
+      console.error(
+        '[SettingsComponent] Failed to save custom sections:',
+        error
+      );
+    }
   }
 
   /**
