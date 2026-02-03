@@ -41,5 +41,5 @@ export {
 // Storage layer (Batch 2)
 export { UserPromptStore } from './user-prompt-store';
 
-// Future exports (Batch 3):
-// export { PromptHarnessService } from './prompt-harness.service';
+// Assembly service (Batch 3)
+export { PromptHarnessService } from './prompt-harness.service';

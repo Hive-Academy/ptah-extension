@@ -41,7 +41,7 @@ import {
   CompactionConfigProvider,
   CompactionHookHandler,
 } from '../helpers';
-import { UserPromptStore } from '../prompt-harness';
+import { UserPromptStore, PromptHarnessService } from '../prompt-harness';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -256,6 +256,13 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_USER_PROMPT_STORE,
     { useClass: UserPromptStore },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Prompt harness service - assembles power-ups into prompts
+  container.register(
+    SDK_TOKENS.SDK_PROMPT_HARNESS_SERVICE,
+    { useClass: PromptHarnessService },
     { lifecycle: Lifecycle.Singleton }
   );
 

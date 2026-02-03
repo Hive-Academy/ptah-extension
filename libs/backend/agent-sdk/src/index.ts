@@ -71,6 +71,8 @@ export {
   getPremiumPowerUps,
   getPowerUpCategories,
   calculateTotalTokens,
+  UserPromptStore,
+  PromptHarnessService,
 } from './lib/prompt-harness';
 export type {
   PowerUpCategory,
