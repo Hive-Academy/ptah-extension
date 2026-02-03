@@ -51,6 +51,98 @@
 
 ---
 
+### Batch 2: Prompt Designer Agent (Intelligence) - ✅ COMPLETE
+
+**Completed**: 2025-02-03
+
+**Files Created:**
+
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/prompt-designer-agent.ts` - Main agent class
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/prompt-designer.types.ts` - Type definitions
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/generation-prompts.ts` - LLM prompt templates
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/response-parser.ts` - Response parsing and validation
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/index.ts` - Module exports
+
+**Files Modified:**
+
+- `libs/backend/agent-sdk/src/lib/prompt-harness/index.ts` - Exports prompt-designer module
+- `libs/backend/agent-sdk/src/lib/di/tokens.ts` - Added SDK_PROMPT_DESIGNER_AGENT token
+- `libs/backend/agent-sdk/src/lib/di/register.ts` - Registered PromptDesignerAgent
+- `libs/backend/agent-sdk/src/index.ts` - Exported all new types and services
+- `libs/backend/agent-sdk/package.json` - Added zod and vscode-lm-tools dependencies
+
+**What was implemented:**
+
+1. **PromptDesignerAgent** - Main service that:
+
+   - Takes workspace analysis input (project type, framework, dependencies)
+   - Calls LLM with structured completion (Zod schema) to generate guidance
+   - Falls back to text completion and parsing for models without structured output
+   - Provides fallback guidance when LLM is unavailable
+   - Enforces token budgets on each section
+   - Validates output quality
+
+2. **Type System** (prompt-designer.types.ts):
+
+   - `PromptDesignerInput` - Project metadata from workspace-intelligence
+   - `PromptDesignerOutput` - Generated guidance with token counts
+   - `PromptDesignerResponseSchema` - Zod schema for structured LLM output
+   - `PromptGenerationProgress` - Progress events for UI feedback
+   - `PromptDesignerConfig` - Agent configuration options
+   - `CachedPromptDesign` - Cache entry structure (for Batch 3)
+
+3. **Generation Prompts** (generation-prompts.ts):
+
+   - `PROMPT_DESIGNER_SYSTEM_PROMPT` - Instructs LLM to generate project-specific guidance
+   - `buildGenerationUserPrompt()` - Builds context-rich user prompt from input
+   - `buildFallbackGuidance()` - Template-based fallback when LLM unavailable
+   - `FRAMEWORK_PROMPT_ADDITIONS` - Framework-specific prompt enhancements
+
+4. **Response Parser** (response-parser.ts):
+
+   - `parseStructuredResponse()` - Processes Zod-validated LLM response
+   - `parseTextResponse()` - Extracts sections from markdown text
+   - `validateOutput()` - Checks quality (minimum length, generic phrases)
+   - `truncateToTokenBudget()` - Truncates sections to fit budget
+   - `formatAsPromptSection()` - Formats output for prompt appending
+
+5. **DI Integration**:
+   - Added `SDK_PROMPT_DESIGNER_AGENT` token
+   - Registered as singleton in DI container
+   - Depends on `Logger` and `LlmService` (from llm-abstraction)
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Prompt Designer Agent                       │
+├─────────────────────────────────────────────────────────────┤
+│  Input: PromptDesignerInput                                 │
+│  ├─ projectType, framework, isMonorepo                      │
+│  ├─ dependencies, devDependencies                           │
+│  └─ sampleFilePaths (optional)                              │
+├─────────────────────────────────────────────────────────────┤
+│  Processing:                                                │
+│  1. Check LLM availability (fallback if unavailable)        │
+│  2. Build enhanced system prompt (+ framework additions)    │
+│  3. Try structured completion with Zod schema               │
+│  4. Fall back to text completion + parsing                  │
+│  5. Validate output quality                                 │
+│  6. Enforce token budgets per section                       │
+├─────────────────────────────────────────────────────────────┤
+│  Output: PromptDesignerOutput                               │
+│  ├─ projectContext (~400 tokens max)                        │
+│  ├─ frameworkGuidelines (~400 tokens max)                   │
+│  ├─ codingStandards (~400 tokens max)                       │
+│  ├─ architectureNotes (~400 tokens max)                     │
+│  └─ tokenBreakdown, totalTokens, generatedAt                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Token Budget:** ~1600 tokens total for generated guidance
+
+---
+
 ## Executive Summary
 
 Replace the static power-up toggle system (TASK_2025_135) with an **intelligent, agent-driven prompt generation system** that analyzes each workspace and dynamically creates project-specific guidance. This creates a **clean slate system prompt** owned entirely by Ptah, removing dependency on Anthropic's `claude_code` preset.
@@ -373,30 +465,33 @@ The core prompt is appended via PromptHarnessService.
 
 **Actual tokens:** ~900 tokens for core prompt
 
-### Batch 2: Prompt Designer Agent (Intelligence)
+### Batch 2: Prompt Designer Agent (Intelligence) - ✅ COMPLETE
 
 **Scope**: Create the intelligent agent that generates project-specific guidance
 
 **Files:**
 
-- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/` - NEW directory
-  - `prompt-designer-agent.ts`
-  - `prompt-designer.types.ts`
-  - `generation-prompts.ts`
-  - `response-parser.ts`
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/` - NEW directory ✅
+  - `prompt-designer-agent.ts` ✅
+  - `prompt-designer.types.ts` ✅
+  - `generation-prompts.ts` ✅
+  - `response-parser.ts` ✅
+  - `index.ts` ✅
 
 **Tasks:**
 
-1. [ ] Define PromptDesignerInput/Output interfaces
-2. [ ] Implement workspace analysis integration
-3. [ ] Create generation prompt templates
-4. [ ] Build response parser with validation
-5. [ ] Add token counting and budget enforcement
+1. [x] Define PromptDesignerInput/Output interfaces
+2. [x] Implement LLM integration (structured and text completion)
+3. [x] Create generation prompt templates
+4. [x] Build response parser with validation
+5. [x] Add token counting and budget enforcement
+6. [x] Add fallback guidance when LLM unavailable
+7. [x] DI registration and exports
 
 **Dependencies:**
 
-- `@ptah-extension/workspace-intelligence` for project detection
-- `@ptah-extension/llm-abstraction` for LLM calls
+- `@ptah-extension/workspace-intelligence` for project detection (input)
+- `@ptah-extension/llm-abstraction` for LLM calls (LlmService)
 
 ### Batch 3: Caching & Invalidation (Performance)
 

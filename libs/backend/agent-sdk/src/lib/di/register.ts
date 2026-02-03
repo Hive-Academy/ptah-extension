@@ -41,7 +41,11 @@ import {
   CompactionConfigProvider,
   CompactionHookHandler,
 } from '../helpers';
-import { UserPromptStore, PromptHarnessService } from '../prompt-harness';
+import {
+  UserPromptStore,
+  PromptHarnessService,
+  PromptDesignerAgent,
+} from '../prompt-harness';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -263,6 +267,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PROMPT_HARNESS_SERVICE,
     { useClass: PromptHarnessService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Prompt Designer Agent - generates project-specific guidance (TASK_2025_137)
+  // Note: Requires LlmService to be registered by consuming application
+  container.register(
+    SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT,
+    { useClass: PromptDesignerAgent },
     { lifecycle: Lifecycle.Singleton }
   );
 

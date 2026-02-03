@@ -73,6 +73,9 @@ export {
   calculateTotalTokens,
   UserPromptStore,
   PromptHarnessService,
+  // Core prompt (TASK_2025_137 Batch 1)
+  PTAH_CORE_SYSTEM_PROMPT,
+  PTAH_CORE_SYSTEM_PROMPT_TOKENS,
 } from './lib/prompt-harness';
 export type {
   PowerUpCategory,
@@ -86,6 +89,32 @@ export type {
   PromptLayer,
   PromptWarning,
   AssembledPrompt,
+} from './lib/prompt-harness';
+
+// Prompt Designer Agent (TASK_2025_137 Batch 2)
+// Intelligent prompt generation based on workspace analysis
+export {
+  PromptDesignerAgent,
+  PROMPT_DESIGNER_SYSTEM_PROMPT,
+  buildGenerationUserPrompt,
+  buildFallbackGuidance,
+  FRAMEWORK_PROMPT_ADDITIONS,
+  parseStructuredResponse,
+  parseTextResponse,
+  validateOutput,
+  formatAsPromptSection,
+  truncateToTokenBudget,
+  PromptDesignerResponseSchema,
+  DEFAULT_PROMPT_DESIGNER_CONFIG,
+} from './lib/prompt-harness';
+export type {
+  PromptDesignerInput,
+  PromptDesignerOutput,
+  PromptDesignerConfig,
+  PromptDesignerResponse,
+  PromptGenerationProgress,
+  PromptGenerationStatus,
+  CachedPromptDesign,
 } from './lib/prompt-harness';
 
 // Library version

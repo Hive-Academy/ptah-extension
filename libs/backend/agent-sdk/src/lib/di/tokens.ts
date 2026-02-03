@@ -55,6 +55,9 @@ export const SDK_TOKENS = {
   // Prompt harness services (TASK_2025_135)
   SDK_USER_PROMPT_STORE: 'SdkUserPromptStore',
   SDK_PROMPT_HARNESS_SERVICE: 'SdkPromptHarnessService',
+
+  // Prompt Designer Agent (TASK_2025_137)
+  SDK_PROMPT_DESIGNER_AGENT: 'SdkPromptDesignerAgent',
 } as const;
 
 /**
