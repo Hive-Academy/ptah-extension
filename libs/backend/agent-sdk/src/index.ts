@@ -61,5 +61,30 @@ export type {
   ProviderStaticModel,
 } from './lib/helpers';
 
+// Prompt Harness System (TASK_2025_135)
+// Layered prompt assembly with user-configurable power-ups
+export {
+  POWER_UP_DEFINITIONS,
+  getPowerUp,
+  getPowerUpsByCategory,
+  getFreePowerUps,
+  getPremiumPowerUps,
+  getPowerUpCategories,
+  calculateTotalTokens,
+} from './lib/prompt-harness';
+export type {
+  PowerUpCategory,
+  PromptLayerType,
+  PromptWarningType,
+  PromptWarningSeverity,
+  PowerUpDefinition,
+  PowerUpState,
+  UserPromptSection,
+  PromptHarnessConfig,
+  PromptLayer,
+  PromptWarning,
+  AssembledPrompt,
+} from './lib/prompt-harness';
+
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';
