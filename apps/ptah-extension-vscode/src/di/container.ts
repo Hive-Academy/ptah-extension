@@ -50,7 +50,7 @@ import {
   ProviderRpcHandlers,
   SubagentRpcHandlers,
   CommandRpcHandlers, // TASK_2025_126: Webview command execution
-  PromptHarnessRpcHandlers, // TASK_2025_135: Prompt harness configuration
+  EnhancedPromptsRpcHandlers, // TASK_2025_137: Enhanced Prompts
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -226,13 +226,14 @@ export class DIContainer {
     // TASK_2025_126: Command RPC handlers for webview command execution
     container.registerSingleton(CommandRpcHandlers);
 
-    // TASK_2025_135: Prompt Harness RPC handlers
-    container.registerSingleton(PromptHarnessRpcHandlers);
+    // TASK_2025_137: Enhanced Prompts RPC handlers
+    container.registerSingleton(EnhancedPromptsRpcHandlers);
 
     // RPC Method Registration Service (orchestrator - requires container instance)
     // TASK_2025_074: Refactored to use domain-specific handler classes
     // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
     // TASK_2025_103: Added SubagentRpcHandlers for subagent resumption
+    // TASK_2025_137: Added EnhancedPromptsRpcHandlers
     container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
       useFactory: (c) => {
         return new RpcMethodRegistrationService(
@@ -256,7 +257,7 @@ export class DIContainer {
           c.resolve(ProviderRpcHandlers),
           c.resolve(SubagentRpcHandlers),
           c.resolve(CommandRpcHandlers), // TASK_2025_126
-          c.resolve(PromptHarnessRpcHandlers), // TASK_2025_135
+          c.resolve(EnhancedPromptsRpcHandlers), // TASK_2025_137
           c // Pass container instance
         );
       },

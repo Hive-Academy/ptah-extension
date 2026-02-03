@@ -32,13 +32,13 @@ region: nyc
 static_sites:
   - name: landing
     github:
-      repo: anthropics/ptah-extension  # UPDATE: Change to your repo
+      repo: anthropics/ptah-extension # UPDATE: Change to your repo
       branch: main
       deploy_on_push: true
     source_dir: /
     build_command: npm ci && npx nx build ptah-landing-page --configuration=production
     output_dir: dist/ptah-landing-page/browser
-    catchall_document: index.html  # SPA routing support
+    catchall_document: index.html # SPA routing support
     routes:
       - path: /
     envs:
@@ -55,13 +55,13 @@ static_sites:
 services:
   - name: api
     github:
-      repo: anthropics/ptah-extension  # UPDATE: Change to your repo
+      repo: anthropics/ptah-extension # UPDATE: Change to your repo
       branch: main
       deploy_on_push: true
     source_dir: /
     dockerfile_path: apps/ptah-license-server/Dockerfile
     http_port: 3000
-    instance_size_slug: apps-s-1vcpu-0.5gb  # $5/month, 512MB RAM
+    instance_size_slug: apps-s-1vcpu-0.5gb # $5/month, 512MB RAM
     instance_count: 1
     routes:
       - path: /api
@@ -86,7 +86,7 @@ services:
         value: production
       - key: PORT
         scope: RUN_TIME
-        value: "3000"
+        value: '3000'
       - key: FRONTEND_URL
         scope: RUN_TIME
         value: https://ptah.live
@@ -105,7 +105,7 @@ services:
         type: SECRET
       - key: JWT_EXPIRATION
         scope: RUN_TIME
-        value: "7d"
+        value: '7d'
 
       # Admin API Key
       # Generate with: openssl rand -hex 32
@@ -152,7 +152,7 @@ services:
       # Magic Link Configuration
       - key: MAGIC_LINK_TTL_MS
         scope: RUN_TIME
-        value: "300000"  # 5 minutes for production (slower email delivery)
+        value: '300000' # 5 minutes for production (slower email delivery)
 
 # =============================================================================
 # Domains

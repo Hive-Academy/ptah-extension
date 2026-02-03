@@ -896,6 +896,118 @@ export interface LicenseSetKeyResponse {
 }
 
 // ============================================================
+// Enhanced Prompts RPC Types (TASK_2025_137)
+// ============================================================
+
+/**
+ * Detected technology stack from workspace analysis.
+ * Used for display in settings (readonly - not for editing).
+ */
+export interface EnhancedPromptsDetectedStack {
+  languages: string[];
+  frameworks: string[];
+  buildTools: string[];
+  testingFrameworks: string[];
+  additionalTools: string[];
+  projectType: string;
+  configFiles: string[];
+}
+
+/**
+ * Enhanced Prompts configuration options.
+ * For wizard customization (advanced users).
+ */
+export interface EnhancedPromptsConfigOptions {
+  includeStyleGuidelines?: boolean;
+  includeTerminology?: boolean;
+  includeArchitecturePatterns?: boolean;
+  includeTestingGuidelines?: boolean;
+  maxTokens?: number;
+}
+
+/** Parameters for enhancedPrompts:getStatus RPC method */
+export interface EnhancedPromptsGetStatusParams {
+  /** Workspace path to check status for */
+  workspacePath: string;
+}
+
+/** Response from enhancedPrompts:getStatus RPC method */
+export interface EnhancedPromptsGetStatusResponse {
+  /** Whether Enhanced Prompts is enabled for this workspace */
+  enabled: boolean;
+  /** Whether a prompt has been generated */
+  hasGeneratedPrompt: boolean;
+  /** ISO timestamp of last generation (null if never generated) */
+  generatedAt: string | null;
+  /** Detected technology stack (null if never generated) */
+  detectedStack: EnhancedPromptsDetectedStack | null;
+  /** Whether the cached prompt is still valid */
+  cacheValid: boolean;
+  /** Reason for cache invalidation (if invalid) */
+  invalidationReason?: string;
+  /** Error message if status check failed */
+  error?: string;
+}
+
+/** Parameters for enhancedPrompts:runWizard RPC method */
+export interface EnhancedPromptsRunWizardParams {
+  /** Workspace path to run wizard for */
+  workspacePath: string;
+  /** Optional configuration overrides */
+  config?: EnhancedPromptsConfigOptions;
+}
+
+/** Response from enhancedPrompts:runWizard RPC method */
+export interface EnhancedPromptsRunWizardResponse {
+  /** Whether wizard completed successfully */
+  success: boolean;
+  /** Error message if wizard failed */
+  error?: string;
+  /** ISO timestamp of generation (on success) */
+  generatedAt?: string | null;
+  /** Detected stack (on success) */
+  detectedStack?: EnhancedPromptsDetectedStack | null;
+}
+
+/** Parameters for enhancedPrompts:setEnabled RPC method */
+export interface EnhancedPromptsSetEnabledParams {
+  /** Workspace path */
+  workspacePath: string;
+  /** Whether to enable or disable */
+  enabled: boolean;
+}
+
+/** Response from enhancedPrompts:setEnabled RPC method */
+export interface EnhancedPromptsSetEnabledResponse {
+  /** Whether operation succeeded */
+  success: boolean;
+  /** New enabled state */
+  enabled?: boolean;
+  /** Error message if failed */
+  error?: string;
+}
+
+/** Parameters for enhancedPrompts:regenerate RPC method */
+export interface EnhancedPromptsRegenerateParams {
+  /** Workspace path */
+  workspacePath: string;
+  /** Force regeneration even if cache is valid */
+  force?: boolean;
+  /** Optional configuration overrides */
+  config?: EnhancedPromptsConfigOptions;
+}
+
+/** Response from enhancedPrompts:regenerate RPC method */
+export interface EnhancedPromptsRegenerateResponse {
+  /** Whether regeneration succeeded */
+  success: boolean;
+  /** Error message if failed */
+  error?: string;
+  /** Updated status (on success) */
+  status?: EnhancedPromptsGetStatusResponse;
+}
+
+// ============================================================
 // Command RPC Types (TASK_2025_126)
 // ============================================================
 
@@ -1159,6 +1271,7 @@ export interface RpcMethodRegistry {
   };
 
   // ---- Prompt Harness Methods (TASK_2025_135) ----
+  // @deprecated TASK_2025_137: Prompt Harness replaced by Enhanced Prompts
   'promptHarness:getConfig': {
     params: PromptHarnessGetConfigParams;
     result: PromptHarnessGetConfigResponse;
@@ -1178,6 +1291,24 @@ export interface RpcMethodRegistry {
   'promptHarness:importConfig': {
     params: PromptHarnessImportConfigParams;
     result: PromptHarnessImportConfigResponse;
+  };
+
+  // ---- Enhanced Prompts Methods (TASK_2025_137) ----
+  'enhancedPrompts:getStatus': {
+    params: EnhancedPromptsGetStatusParams;
+    result: EnhancedPromptsGetStatusResponse;
+  };
+  'enhancedPrompts:runWizard': {
+    params: EnhancedPromptsRunWizardParams;
+    result: EnhancedPromptsRunWizardResponse;
+  };
+  'enhancedPrompts:setEnabled': {
+    params: EnhancedPromptsSetEnabledParams;
+    result: EnhancedPromptsSetEnabledResponse;
+  };
+  'enhancedPrompts:regenerate': {
+    params: EnhancedPromptsRegenerateParams;
+    result: EnhancedPromptsRegenerateResponse;
   };
 }
 
@@ -1264,11 +1395,18 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'chat:subagent-query',
 
   // Prompt Harness Methods (TASK_2025_135)
+  // @deprecated TASK_2025_137: Prompt Harness replaced by Enhanced Prompts
   'promptHarness:getConfig',
   'promptHarness:saveConfig',
   'promptHarness:getPreview',
   'promptHarness:exportConfig',
   'promptHarness:importConfig',
+
+  // Enhanced Prompts Methods (TASK_2025_137)
+  'enhancedPrompts:getStatus',
+  'enhancedPrompts:runWizard',
+  'enhancedPrompts:setEnabled',
+  'enhancedPrompts:regenerate',
 ] as const;
 
 /**

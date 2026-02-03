@@ -52,15 +52,14 @@ export const SDK_TOKENS = {
   SDK_AGENT_CORRELATION: 'SdkAgentCorrelation',
   SDK_SESSION_REPLAY: 'SdkSessionReplay',
 
-  // Prompt harness services (TASK_2025_135)
-  SDK_USER_PROMPT_STORE: 'SdkUserPromptStore',
-  SDK_PROMPT_HARNESS_SERVICE: 'SdkPromptHarnessService',
-
-  // Prompt Designer Agent (TASK_2025_137)
+  // Prompt Designer Agent (TASK_2025_137 Batch 2)
   SDK_PROMPT_DESIGNER_AGENT: 'SdkPromptDesignerAgent',
 
   // Prompt Cache Service (TASK_2025_137 Batch 3)
   SDK_PROMPT_CACHE_SERVICE: 'SdkPromptCacheService',
+
+  // Enhanced Prompts Service (TASK_2025_137 Batch 4)
+  SDK_ENHANCED_PROMPTS_SERVICE: 'SdkEnhancedPromptsService',
 } as const;
 
 /**

@@ -42,10 +42,9 @@ import {
   CompactionHookHandler,
 } from '../helpers';
 import {
-  UserPromptStore,
-  PromptHarnessService,
   PromptDesignerAgent,
   PromptCacheService,
+  EnhancedPromptsService,
 } from '../prompt-harness';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
@@ -254,24 +253,10 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Prompt Harness Services (TASK_2025_135)
+  // Enhanced Prompts Services (TASK_2025_137)
   // ============================================================
 
-  // User prompt store - persists power-up states and custom sections
-  container.register(
-    SDK_TOKENS.SDK_USER_PROMPT_STORE,
-    { useClass: UserPromptStore },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // Prompt harness service - assembles power-ups into prompts
-  container.register(
-    SDK_TOKENS.SDK_PROMPT_HARNESS_SERVICE,
-    { useClass: PromptHarnessService },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // Prompt Designer Agent - generates project-specific guidance (TASK_2025_137)
+  // Prompt Designer Agent - generates project-specific guidance (Batch 2)
   // Note: Requires LlmService to be registered by consuming application
   container.register(
     SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT,
@@ -279,11 +264,19 @@ export function registerSdkServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
-  // Prompt Cache Service - smart caching with file-based invalidation (TASK_2025_137 Batch 3)
+  // Prompt Cache Service - smart caching with file-based invalidation (Batch 3)
   // Note: Requires ExtensionContext and FileSystemManager to be registered
   container.register(
     SDK_TOKENS.SDK_PROMPT_CACHE_SERVICE,
     { useClass: PromptCacheService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Enhanced Prompts Service - orchestrates the Enhanced Prompts feature (Batch 4)
+  // Note: Requires PromptDesignerAgent, PromptCacheService, WorkspaceIntelligence
+  container.register(
+    SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+    { useClass: EnhancedPromptsService },
     { lifecycle: Lifecycle.Singleton }
   );
 

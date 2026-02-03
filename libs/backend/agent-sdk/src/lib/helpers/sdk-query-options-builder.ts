@@ -12,6 +12,7 @@
  * Single Responsibility: Build SDK query options from session config
  *
  * @see TASK_2025_102 - Extracted to reduce SdkAgentAdapter complexity
+ * @see TASK_2025_137 - Updated to use PTAH_CORE_SYSTEM_PROMPT directly
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -33,17 +34,13 @@ import {
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import { getAnthropicProvider } from './anthropic-provider-registry';
-import { PromptHarnessService } from '../prompt-harness';
+import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 
 /**
  * Default port for Ptah HTTP MCP server
  * From vscode-lm-tools/CodeExecutionMCP
  */
 const PTAH_MCP_PORT = 51820;
-
-// Note: PTAH_BEHAVIORAL_PROMPT and PTAH_SYSTEM_PROMPT are now dynamically assembled
-// by PromptHarnessService based on user's enabled power-ups and custom sections.
-// See prompt-harness.service.ts for the prompt assembly logic.
 
 /**
  * Build model identity clarification prompt for third-party providers
@@ -141,7 +138,7 @@ export interface QueryOptionsInput {
   onCompactionStart?: CompactionStartCallback;
   /**
    * Premium user flag - enables MCP server and Ptah system prompt
-   * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT
+   * When true, enables Ptah MCP server and appends PTAH_CORE_SYSTEM_PROMPT
    * Defaults to false (free tier behavior)
    */
   isPremium?: boolean;
@@ -152,6 +149,12 @@ export interface QueryOptionsInput {
    * Defaults to true for backward compatibility.
    */
   mcpServerRunning?: boolean;
+  /**
+   * Enhanced prompts content (TASK_2025_137)
+   * When provided, this AI-generated guidance is appended to the system prompt
+   * instead of the default PTAH_CORE_SYSTEM_PROMPT.
+   */
+  enhancedPromptsContent?: string;
 }
 
 /**
@@ -220,9 +223,7 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
-    private readonly compactionHookHandler: CompactionHookHandler,
-    @inject(SDK_TOKENS.SDK_PROMPT_HARNESS_SERVICE)
-    private readonly promptHarnessService: PromptHarnessService
+    private readonly compactionHookHandler: CompactionHookHandler
   ) {}
 
   /**
@@ -253,6 +254,7 @@ export class SdkQueryOptionsBuilder {
       onCompactionStart,
       isPremium = false,
       mcpServerRunning = true,
+      enhancedPromptsContent,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -272,8 +274,12 @@ export class SdkQueryOptionsBuilder {
       baseUrl: process.env['ANTHROPIC_BASE_URL'] || 'default',
     });
 
-    // Build system prompt configuration (async - uses PromptHarnessService)
-    const systemPrompt = await this.buildSystemPrompt(sessionConfig, isPremium);
+    // Build system prompt configuration
+    const systemPrompt = this.buildSystemPrompt(
+      sessionConfig,
+      isPremium,
+      enhancedPromptsContent
+    );
 
     // Create permission callback
     const canUseToolCallback: CanUseTool =
@@ -301,7 +307,7 @@ export class SdkQueryOptionsBuilder {
       // Premium feature status (TASK_2025_108)
       isPremium,
       mcpEnabled: isPremium,
-      ptahSystemPromptAppended: isPremium,
+      hasEnhancedPrompts: !!enhancedPromptsContent,
     });
 
     return {
@@ -348,25 +354,26 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build system prompt configuration
    *
-   * Assembles the system prompt from multiple sources:
+   * TASK_2025_137: Simplified prompt assembly
+   *
+   * Assembles the system prompt from:
    * 1. Model identity clarification (for third-party providers)
    * 2. User's custom system prompt (from sessionConfig)
-   * 3. Prompt harness content (power-ups, custom sections, behavioral guidelines)
+   * 3. Enhanced prompts content (if provided) OR PTAH_CORE_SYSTEM_PROMPT (for premium)
    *
-   * The PromptHarnessService handles:
-   * - Enabled power-ups sorted by priority
-   * - User's custom sections
-   * - PTAH_BEHAVIORAL_PROMPT (always included)
-   * - PTAH_SYSTEM_PROMPT (for premium users)
+   * For free tier: Uses default claude_code preset only
+   * For premium: Appends PTAH_CORE_SYSTEM_PROMPT or enhanced prompts content
    *
    * @param sessionConfig - Session configuration with optional custom system prompt
    * @param isPremium - Whether user has premium features enabled
+   * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
    * @returns System prompt configuration for SDK
    */
-  private async buildSystemPrompt(
+  private buildSystemPrompt(
     sessionConfig?: AISessionConfig,
-    isPremium = false
-  ): Promise<SdkQueryOptions['systemPrompt']> {
+    isPremium = false,
+    enhancedPromptsContent?: string
+  ): SdkQueryOptions['systemPrompt'] {
     const appendParts: string[] = [];
 
     // TASK_2025_134: Add model identity clarification for third-party providers
@@ -386,26 +393,30 @@ export class SdkQueryOptionsBuilder {
       appendParts.push(sessionConfig.systemPrompt);
     }
 
-    // TASK_2025_135: Get assembled prompt from PromptHarnessService
-    // This includes:
-    // - Enabled power-ups (sorted by priority)
-    // - User's custom sections
-    // - PTAH_BEHAVIORAL_PROMPT (always included for AskUserQuestion guidance)
-    // - PTAH_SYSTEM_PROMPT (for premium users - MCP tools awareness)
-    const harnessPrompt = await this.promptHarnessService.getAppendPrompt(
-      isPremium
-    );
-    appendParts.push(harnessPrompt);
+    // TASK_2025_137: Add enhanced prompts content or core system prompt for premium users
+    if (enhancedPromptsContent) {
+      // Enhanced prompts enabled - use AI-generated guidance
+      appendParts.push(enhancedPromptsContent);
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Using enhanced prompts content',
+        { contentLength: enhancedPromptsContent.length }
+      );
+    } else if (isPremium) {
+      // Premium user without enhanced prompts - use core system prompt
+      appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Using PTAH_CORE_SYSTEM_PROMPT for premium user'
+      );
+    }
+    // Free tier: No additional prompt appended (uses default claude_code preset)
 
-    this.logger.debug(
-      '[SdkQueryOptionsBuilder] System prompt assembled via PromptHarnessService',
-      {
-        isPremium,
-        hasIdentityPrompt: !!identityPrompt,
-        hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
-        harnessPromptLength: harnessPrompt.length,
-      }
-    );
+    this.logger.debug('[SdkQueryOptionsBuilder] System prompt assembled', {
+      isPremium,
+      hasEnhancedPrompts: !!enhancedPromptsContent,
+      hasIdentityPrompt: !!identityPrompt,
+      hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
+      totalAppendLength: appendParts.join('\n\n').length,
+    });
 
     return {
       type: 'preset' as const,

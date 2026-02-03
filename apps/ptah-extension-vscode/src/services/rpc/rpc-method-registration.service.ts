@@ -46,7 +46,7 @@ import { LlmRpcHandlers } from './handlers/llm-rpc.handlers';
 import { ProviderRpcHandlers } from './handlers/provider-rpc.handlers';
 import { SubagentRpcHandlers } from './handlers/subagent-rpc.handlers';
 import { CommandRpcHandlers } from './handlers/command-rpc.handlers';
-import { PromptHarnessRpcHandlers } from './handlers/prompt-harness-rpc.handlers';
+import { EnhancedPromptsRpcHandlers } from './handlers/enhanced-prompts-rpc.handlers';
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -85,7 +85,7 @@ export class RpcMethodRegistrationService {
     private readonly providerHandlers: ProviderRpcHandlers,
     private readonly subagentHandlers: SubagentRpcHandlers,
     private readonly commandHandlers: CommandRpcHandlers, // TASK_2025_126
-    private readonly promptHarnessHandlers: PromptHarnessRpcHandlers, // TASK_2025_135
+    private readonly enhancedPromptsHandlers: EnhancedPromptsRpcHandlers, // TASK_2025_137
     private readonly container: DependencyContainer
   ) {
     // Setup SDK callbacks and listeners
@@ -114,7 +114,7 @@ export class RpcMethodRegistrationService {
     this.providerHandlers.register();
     this.subagentHandlers.register();
     this.commandHandlers.register(); // TASK_2025_126
-    this.promptHarnessHandlers.register(); // TASK_2025_135
+    this.enhancedPromptsHandlers.register(); // TASK_2025_137
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),

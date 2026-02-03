@@ -61,37 +61,18 @@ export type {
   ProviderStaticModel,
 } from './lib/helpers';
 
-// Prompt Harness System (TASK_2025_135)
-// Layered prompt assembly with user-configurable power-ups
+// ============================================================
+// Enhanced Prompts System (TASK_2025_137)
+// AI-powered, project-specific prompt generation
+// ============================================================
+
+// Core prompt (Batch 1)
 export {
-  POWER_UP_DEFINITIONS,
-  getPowerUp,
-  getPowerUpsByCategory,
-  getFreePowerUps,
-  getPremiumPowerUps,
-  getPowerUpCategories,
-  calculateTotalTokens,
-  UserPromptStore,
-  PromptHarnessService,
-  // Core prompt (TASK_2025_137 Batch 1)
   PTAH_CORE_SYSTEM_PROMPT,
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
 } from './lib/prompt-harness';
-export type {
-  PowerUpCategory,
-  PromptLayerType,
-  PromptWarningType,
-  PromptWarningSeverity,
-  PowerUpDefinition,
-  PowerUpState,
-  UserPromptSection,
-  PromptHarnessConfig,
-  PromptLayer,
-  PromptWarning,
-  AssembledPrompt,
-} from './lib/prompt-harness';
 
-// Prompt Designer Agent (TASK_2025_137 Batch 2)
+// Prompt Designer Agent (Batch 2)
 // Intelligent prompt generation based on workspace analysis
 export {
   PromptDesignerAgent,
@@ -117,7 +98,7 @@ export type {
   CachedPromptDesign,
 } from './lib/prompt-harness';
 
-// Prompt Cache Service (TASK_2025_137 Batch 3)
+// Prompt Cache Service (Batch 3)
 // Smart caching with file-based invalidation
 export {
   PromptCacheService,
@@ -140,6 +121,23 @@ export type {
   InvalidationReason,
   InvalidationEvent,
   CacheKeyComponents,
+} from './lib/prompt-harness';
+
+// Enhanced Prompts Service (Batch 4)
+// Orchestrates the Enhanced Prompts feature
+export {
+  EnhancedPromptsService,
+  DEFAULT_ENHANCED_PROMPTS_CONFIG,
+  createInitialEnhancedPromptsState,
+} from './lib/prompt-harness';
+export type {
+  EnhancedPromptsState,
+  EnhancedPromptsStatus,
+  EnhancedPromptsConfig,
+  EnhancedPromptsWizardResult,
+  DetectedStack,
+  RegeneratePromptsRequest,
+  RegeneratePromptsResponse,
 } from './lib/prompt-harness';
 
 // Library version
