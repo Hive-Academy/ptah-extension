@@ -17,7 +17,6 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { AISessionConfig } from '@ptah-extension/shared';
-import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
@@ -34,6 +33,7 @@ import {
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import { getAnthropicProvider } from './anthropic-provider-registry';
+import { PromptHarnessService } from '../prompt-harness';
 
 /**
  * Default port for Ptah HTTP MCP server
@@ -41,90 +41,9 @@ import { getAnthropicProvider } from './anthropic-provider-registry';
  */
 const PTAH_MCP_PORT = 51820;
 
-/**
- * Ptah behavioral system prompt - always appended (all tiers)
- *
- * Instructs the agent to use AskUserQuestion tool for presenting choices
- * instead of writing questions as plain markdown text. The AskUserQuestion
- * tool renders a structured UI with selectable options in the Ptah extension,
- * providing a much better user experience than plain text questions.
- *
- * Also instructs the agent to propagate this behavior to subagents via
- * the Task tool's prompt parameter.
- */
-const PTAH_BEHAVIORAL_PROMPT = `# Ptah Extension - MANDATORY User Interaction Rules
-
-## AskUserQuestion Tool — YOU MUST USE IT
-
-The \`claude_code\` tool preset you are running under includes a tool called **AskUserQuestion**.
-It is ALREADY available to you — do NOT claim otherwise. You MUST call it whenever you need the user to make a choice, answer a question, or pick between approaches.
-
-### Tool Schema (exact parameters)
-
-\`\`\`
-AskUserQuestion({
-  questions: [                          // 1-4 questions per call
-    {
-      question: string,                 // Full question ending with "?"
-      header: string,                   // Short label, max 12 chars (e.g. "Approach")
-      options: [                        // 2-4 options per question
-        { label: string, description: string }
-      ],
-      multiSelect: boolean              // true = checkboxes, false = radio
-    }
-  ]
-})
-\`\`\`
-
-### WRONG (NEVER do this)
-
-Writing options as plain text in your response:
-"Here are your options:
-1. Option A — does X
-2. Option B — does Y
-3. Option C — does Z
-Which do you prefer?"
-
-### CORRECT (ALWAYS do this)
-
-Call the AskUserQuestion tool:
-\`\`\`json
-{
-  "questions": [{
-    "question": "Which approach should we use?",
-    "header": "Approach",
-    "options": [
-      { "label": "Option A", "description": "Does X" },
-      { "label": "Option B", "description": "Does Y" },
-      { "label": "Option C", "description": "Does Z" }
-    ],
-    "multiSelect": false
-  }]
-}
-\`\`\`
-
-### Rules
-
-1. You MUST use AskUserQuestion for ANY situation where you present choices, ask preferences, or need a decision.
-2. NEVER present numbered options, bullet-point choices, or "which do you prefer?" as plain text.
-3. NEVER claim the tool is unavailable or that you cannot call it — it is part of your tool preset.
-4. When spawning subagents via the Task tool, include in the prompt parameter: "If you need to ask the user a question or present choices, you MUST use the AskUserQuestion tool. It is available in your claude_code tool preset. NEVER present choices as plain text."
-
-## Rich Formatting Guidelines
-
-The Ptah extension renders your markdown with enhanced visual styling. To produce the best-looking output, consider these formatting tips (all are optional — standard markdown always works):
-
-- **Use headings** (\`##\`, \`###\`) to give your responses clear structure and visual hierarchy.
-- **Use horizontal rules** (\`---\`) to separate major sections — they render as decorative gold dividers.
-- **Specify language in code blocks** (e.g. \`\`\`typescript, \`\`\`python) — the language appears as a badge header above the code.
-- **Use numbered lists** for sequential steps or instructions — they render as visually distinct step cards with numbered indicators.
-- **Use callout syntax** for important information:
-  - \`> [!NOTE]\` for general notes
-  - \`> [!TIP]\` for helpful tips
-  - \`> [!WARNING]\` for warnings
-  - \`> [!IMPORTANT]\` for critical information
-  - \`> [!CAUTION]\` for dangerous operations
-`;
+// Note: PTAH_BEHAVIORAL_PROMPT and PTAH_SYSTEM_PROMPT are now dynamically assembled
+// by PromptHarnessService based on user's enabled power-ups and custom sections.
+// See prompt-harness.service.ts for the prompt assembly logic.
 
 /**
  * Build model identity clarification prompt for third-party providers
@@ -301,7 +220,9 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
-    private readonly compactionHookHandler: CompactionHookHandler
+    private readonly compactionHookHandler: CompactionHookHandler,
+    @inject(SDK_TOKENS.SDK_PROMPT_HARNESS_SERVICE)
+    private readonly promptHarnessService: PromptHarnessService
   ) {}
 
   /**
@@ -351,8 +272,8 @@ export class SdkQueryOptionsBuilder {
       baseUrl: process.env['ANTHROPIC_BASE_URL'] || 'default',
     });
 
-    // Build system prompt configuration
-    const systemPrompt = this.buildSystemPrompt(sessionConfig, isPremium);
+    // Build system prompt configuration (async - uses PromptHarnessService)
+    const systemPrompt = await this.buildSystemPrompt(sessionConfig, isPremium);
 
     // Create permission callback
     const canUseToolCallback: CanUseTool =
@@ -427,19 +348,25 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build system prompt configuration
    *
-   * Always appends PTAH_BEHAVIORAL_PROMPT for AskUserQuestion guidance.
-   * For premium users, also appends PTAH_SYSTEM_PROMPT for MCP tool awareness.
-   * For third-party providers, prepends model identity clarification.
-   * User's custom system prompt (if provided) takes precedence.
+   * Assembles the system prompt from multiple sources:
+   * 1. Model identity clarification (for third-party providers)
+   * 2. User's custom system prompt (from sessionConfig)
+   * 3. Prompt harness content (power-ups, custom sections, behavioral guidelines)
+   *
+   * The PromptHarnessService handles:
+   * - Enabled power-ups sorted by priority
+   * - User's custom sections
+   * - PTAH_BEHAVIORAL_PROMPT (always included)
+   * - PTAH_SYSTEM_PROMPT (for premium users)
    *
    * @param sessionConfig - Session configuration with optional custom system prompt
    * @param isPremium - Whether user has premium features enabled
    * @returns System prompt configuration for SDK
    */
-  private buildSystemPrompt(
+  private async buildSystemPrompt(
     sessionConfig?: AISessionConfig,
     isPremium = false
-  ): SdkQueryOptions['systemPrompt'] {
+  ): Promise<SdkQueryOptions['systemPrompt']> {
     const appendParts: string[] = [];
 
     // TASK_2025_134: Add model identity clarification for third-party providers
@@ -459,17 +386,26 @@ export class SdkQueryOptionsBuilder {
       appendParts.push(sessionConfig.systemPrompt);
     }
 
-    // Always add Ptah behavioral guidelines (AskUserQuestion usage, subagent instructions)
-    // This is not tier-gated since AskUserQuestion is part of the claude_code preset
-    appendParts.push(PTAH_BEHAVIORAL_PROMPT);
+    // TASK_2025_135: Get assembled prompt from PromptHarnessService
+    // This includes:
+    // - Enabled power-ups (sorted by priority)
+    // - User's custom sections
+    // - PTAH_BEHAVIORAL_PROMPT (always included for AskUserQuestion guidance)
+    // - PTAH_SYSTEM_PROMPT (for premium users - MCP tools awareness)
+    const harnessPrompt = await this.promptHarnessService.getAppendPrompt(
+      isPremium
+    );
+    appendParts.push(harnessPrompt);
 
-    // Add Ptah MCP tools awareness for premium users (TASK_2025_108)
-    if (isPremium) {
-      this.logger.debug(
-        '[SdkQueryOptionsBuilder] Premium tier - appending Ptah system prompt'
-      );
-      appendParts.push(PTAH_SYSTEM_PROMPT);
-    }
+    this.logger.debug(
+      '[SdkQueryOptionsBuilder] System prompt assembled via PromptHarnessService',
+      {
+        isPremium,
+        hasIdentityPrompt: !!identityPrompt,
+        hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
+        harnessPromptLength: harnessPrompt.length,
+      }
+    );
 
     return {
       type: 'preset' as const,
