@@ -2,100 +2,38 @@
 # Ptah Extension - Docker Compose Development Environment
 # =============================================================================
 #
-# This Docker Compose configuration provides a complete local development
-# environment for the Ptah License Server, including:
-#   - PostgreSQL 16 (database)
-#   - Redis 7 (OPTIONAL - only for multi-instance testing)
-#   - License Server (NestJS application)
+# This Docker Compose configuration provides a local development environment
+# for the Ptah License Server with:
+#   - License Server (NestJS application with hot-reload)
+#   - ngrok (webhook tunnel for Paddle testing)
 #
-# NOTE: Redis is NOT required for single-instance deployments.
-# The license server uses in-memory storage for session state.
-# Redis is only needed when testing horizontal scaling.
+# DATABASE: Uses Neon PostgreSQL (cloud) - no local database required!
+#   - Create free account at https://neon.tech
+#   - Create a "development" branch for local dev
+#   - Set DATABASE_URL in apps/ptah-license-server/.env
 #
 # QUICK START:
-#   1. Copy apps/ptah-license-server/.env.example to apps/ptah-license-server/.env
-#   2. Run: docker-compose up -d
-#   3. Wait for health checks to pass
-#   4. Access API at http://localhost:3000/api
+#   1. Create Neon account and project at https://neon.tech
+#   2. Copy apps/ptah-license-server/.env.example to .env
+#   3. Set DATABASE_URL to your Neon development branch connection string
+#   4. Run: docker-compose up -d
+#   5. Access API at http://localhost:3000/api
 #
-# WITH REDIS (for multi-instance testing):
-#   docker-compose --profile with-redis up -d
-#
-# WINDOWS USERS:
-#   For optimal performance, run Docker with WSL2 backend and store the
-#   project files inside WSL2 filesystem (e.g., /home/user/projects/).
-#   Windows filesystem (C:\, D:\) has significant I/O performance overhead.
+# WITH NGROK (for Paddle webhook testing):
+#   1. Get ngrok authtoken from https://dashboard.ngrok.com
+#   2. Set NGROK_AUTHTOKEN in root .env file
+#   3. Run: docker-compose --profile webhook-testing up -d
+#   4. Get public URL: docker-compose logs ngrok | grep "url="
+#   5. Configure Paddle webhook: https://YOUR-URL.ngrok.io/webhooks/paddle
 #
 # TROUBLESHOOTING:
-#   - Check logs: docker-compose logs -f [service_name]
-#   - Restart services: docker-compose restart
-#   - Full rebuild: docker-compose down -v && docker-compose up -d --build
+#   - Check logs: docker-compose logs -f license-server
+#   - Restart: docker-compose restart license-server
+#   - Full rebuild: docker-compose down && docker-compose up -d --build
 #
 # =============================================================================
 
 services:
-  # ---------------------------------------------------------------------------
-  # PostgreSQL 16 - Primary Database
-  # ---------------------------------------------------------------------------
-  # Stores users, licenses, and subscriptions
-  # Health check ensures database is ready before dependent services start
-  postgres:
-    image: postgres:16-alpine
-    container_name: ptah_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-ptah_licenses}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    ports:
-      - '${POSTGRES_PORT:-5432}:5432'
-    healthcheck:
-      test:
-        [
-          'CMD-SHELL',
-          'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ptah_licenses}',
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-    networks:
-      - ptah-network
-
-  # ---------------------------------------------------------------------------
-  # Redis 7 - OPTIONAL (only for multi-instance testing)
-  # ---------------------------------------------------------------------------
-  # NOTE: Redis is NOT required for single-instance deployments.
-  # The license server uses in-memory storage for:
-  #   - PKCE state (5 min TTL)
-  #   - Magic link tokens (2 min TTL)
-  #   - SSE tickets (30 sec TTL)
-  #
-  # Only enable Redis when testing horizontal scaling (multiple instances).
-  # To start with Redis: docker-compose --profile with-redis up -d
-  #
-  redis:
-    image: redis:7-alpine
-    container_name: ptah_redis
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis-data:/data
-    ports:
-      - '${REDIS_PORT:-6379}:6379'
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
-    networks:
-      - ptah-network
-    profiles:
-      - with-redis
-
   # ---------------------------------------------------------------------------
   # License Server - NestJS Application
   # ---------------------------------------------------------------------------
@@ -105,48 +43,38 @@ services:
   #   - Paddle payment webhooks
   #   - User management
   #
-  # Hot-reload enabled via volume mount in development
+  # Connects to Neon PostgreSQL (cloud database)
+  # Hot-reload enabled via volume mount
+  #
   license-server:
     build:
       context: .
       dockerfile: apps/ptah-license-server/Dockerfile.dev
     container_name: ptah_license_server
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      # Redis dependency removed - not required for single-instance
-      # To test with Redis: docker-compose --profile with-redis up -d
     env_file:
       - apps/ptah-license-server/.env
     environment:
-      # Override database URL to use Docker network hostname
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ptah_licenses}
-      # REDIS_URL removed - license server uses in-memory storage
-      # Uncomment below if testing multi-instance with Redis:
-      # REDIS_URL: redis://redis:6379
-      # Ensure NODE_ENV is set for development
+      # DATABASE_URL comes from .env file (Neon connection string)
+      # Do NOT override here - let .env control the database connection
       NODE_ENV: development
       # Disable Nx daemon - it doesn't work in Docker containers
-      # The daemon tries to spawn worker processes which fail in containerized environments
       NX_DAEMON: 'false'
     volumes:
       # Mount source code for hot-reload
       - ./apps/ptah-license-server/src:/app/apps/ptah-license-server/src:delegated
       # Mount Prisma schema for migrations
       - ./apps/ptah-license-server/prisma:/app/apps/ptah-license-server/prisma:delegated
-      # Mount Prisma config file (must be at app root, not in prisma/ directory)
+      # Mount Prisma config file
       - ./apps/ptah-license-server/prisma.config.ts:/app/apps/ptah-license-server/prisma.config.ts:delegated
       # Use named volume for node_modules to prevent OS filesystem overhead
       - license-server-node-modules:/app/node_modules
     ports:
       - '${LICENSE_SERVER_PORT:-3000}:3000'
     # Run Prisma migrations before starting the server
-    # Prisma 7 requires running commands from app directory to find prisma.config.ts
-    # IMPORTANT: migrate deploy MUST run BEFORE generate (official Prisma Docker guide)
     command: >
       sh -c "
-        echo 'Waiting for database to be ready...' &&
+        echo 'Connecting to Neon PostgreSQL...' &&
         cd apps/ptah-license-server &&
         echo 'Running database migrations...' &&
         npx prisma migrate deploy &&
@@ -160,21 +88,21 @@ services:
       - ptah-network
 
   # ---------------------------------------------------------------------------
-  # ngrok - Webhook Tunnel for Local Testing
+  # ngrok - Webhook Tunnel for Paddle Testing
   # ---------------------------------------------------------------------------
   # Exposes the license server to the internet via HTTPS tunnel
-  # This allows Paddle webhooks to reach your local development environment
+  # Required for testing Paddle webhooks locally
   #
   # SETUP:
   #   1. Get free ngrok account: https://dashboard.ngrok.com/signup
   #   2. Get your authtoken: https://dashboard.ngrok.com/get-started/your-authtoken
-  #   3. Add to .env.docker: NGROK_AUTHTOKEN=your_token_here
-  #   4. Start services: docker-compose up -d
-  #   5. Get public URL: docker-compose logs ngrok | grep "started tunnel"
-  #   6. Configure Paddle webhook URL: https://YOUR-NGROK-URL.ngrok.io/webhooks/paddle
+  #   3. Add to root .env: NGROK_AUTHTOKEN=your_token_here
+  #   4. Start: docker-compose --profile webhook-testing up -d
+  #   5. Get URL: docker-compose logs ngrok | grep "url="
+  #   6. Configure Paddle webhook: https://YOUR-URL.ngrok.io/webhooks/paddle
   #
-  # NOTE: Free ngrok accounts get random URLs that change on restart.
-  # For static URLs, upgrade to ngrok paid plan or use alternative tunneling service.
+  # NOTE: Free ngrok URLs change on restart. Consider paid plan for static URLs.
+  #
   ngrok:
     image: ngrok/ngrok:latest
     container_name: ptah_ngrok
@@ -191,20 +119,11 @@ services:
       - ptah-network
     profiles:
       - webhook-testing
-    # ngrok doesn't expose ports to host - access via logs to get public URL
 
 # =============================================================================
 # Named Volumes
 # =============================================================================
-# Named volumes persist data between container restarts
-# To clear all data: docker-compose down -v
 volumes:
-  # PostgreSQL data persistence
-  postgres-data:
-    name: ptah_postgres_data
-  # Redis data persistence (AOF enabled)
-  redis-data:
-    name: ptah_redis_data
   # Node modules cache (improves Windows/macOS performance)
   license-server-node-modules:
     name: ptah_license_server_node_modules
@@ -212,7 +131,6 @@ volumes:
 # =============================================================================
 # Networks
 # =============================================================================
-# Bridge network allows containers to communicate using service names
 networks:
   ptah-network:
     name: ptah_network

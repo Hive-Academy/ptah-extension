@@ -1,20 +1,15 @@
 # Local Development Setup
 
-This guide explains how to set up the Ptah License Server for local development.
+This guide explains how to set up the Ptah License Server for local development using **Neon PostgreSQL** (cloud database).
 
 ## Quick Start
 
-Choose your preferred database option:
-
-### Option 1: Local Docker PostgreSQL (Recommended for Offline Work)
-
 ```bash
-# 1. Start PostgreSQL container
-docker-compose -f docker-compose.db.yml up -d
+# 1. Create Neon account and get connection string (see below)
 
-# 2. Copy and configure environment
+# 2. Configure environment
 cp apps/ptah-license-server/.env.example apps/ptah-license-server/.env
-# Ensure DATABASE_URL points to localhost (default)
+# Edit .env and set DATABASE_URL to your Neon connection string
 
 # 3. Run migrations
 cd apps/ptah-license-server
@@ -22,140 +17,64 @@ npx prisma migrate dev
 
 # 4. Start the server
 npx nx serve ptah-license-server
-```
-
-### Option 2: Neon Cloud Database (Recommended for Cloud-First)
-
-```bash
-# 1. Create Neon account and project at https://neon.tech (free)
-
-# 2. Copy and configure environment
-cp apps/ptah-license-server/.env.example apps/ptah-license-server/.env
-
-# 3. Update DATABASE_URL with your Neon connection string
-# DATABASE_URL="postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require"
-
-# 4. Run migrations
-cd apps/ptah-license-server
-npx prisma migrate dev
-
-# 5. Start the server
-npx nx serve ptah-license-server
+# Or with Docker: docker-compose up -d
 ```
 
 ---
 
-## Database Options Comparison
+## Why Neon?
 
-| Feature                | Local Docker  | Neon Cloud               |
-| ---------------------- | ------------- | ------------------------ |
-| **Setup Time**         | ~2 minutes    | ~5 minutes               |
-| **Works Offline**      | Yes           | No                       |
-| **Persistence**        | Docker volume | Cloud (always available) |
-| **Cold Starts**        | None          | ~500ms after 5min idle   |
-| **Cost**               | Free (local)  | Free tier available      |
-| **Matches Production** | No            | Yes (same provider)      |
-| **Team Sharing**       | No            | Yes (shared database)    |
+We use **Neon PostgreSQL** for both development and production:
 
-**Recommendation:**
-
-- Use **Local Docker** for day-to-day development and offline work
-- Use **Neon** when testing production-like behavior or sharing data
+| Benefit                  | Description                                   |
+| ------------------------ | --------------------------------------------- |
+| **Free Tier**            | 0.5GB storage, 100 compute hours/month        |
+| **Database Branching**   | Create isolated dev/staging/prod environments |
+| **No Local Setup**       | No Docker PostgreSQL container needed         |
+| **Same as Production**   | Dev environment matches production exactly    |
+| **Instant Provisioning** | New branches in seconds                       |
 
 ---
 
-## Detailed Setup: Local Docker PostgreSQL
+## Step 1: Create Neon Account
 
-### Prerequisites
-
-- Docker Desktop installed
-- Node.js 20+
-
-### Step 1: Start Database
-
-```bash
-# Start only PostgreSQL (Redis not needed)
-docker-compose -f docker-compose.db.yml up -d
-
-# Verify it's running
-docker ps
-# Should show: ptah_postgres_dev
-```
-
-### Step 2: Configure Environment
-
-```bash
-# Copy example environment file
-cp apps/ptah-license-server/.env.example apps/ptah-license-server/.env
-```
-
-The default `DATABASE_URL` in `.env.example` already points to localhost:
-
-```
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ptah_licenses"
-```
-
-### Step 3: Run Migrations
-
-```bash
-cd apps/ptah-license-server
-npx prisma migrate dev --name init
-```
-
-### Step 4: Start Development Server
-
-```bash
-npx nx serve ptah-license-server
-```
-
-Access the API at: http://localhost:3000/api
-
-### Useful Commands
-
-```bash
-# View database in Prisma Studio
-cd apps/ptah-license-server
-npx prisma studio
-
-# Stop database
-docker-compose -f docker-compose.db.yml down
-
-# Stop and delete all data
-docker-compose -f docker-compose.db.yml down -v
-
-# View logs
-docker-compose -f docker-compose.db.yml logs -f
-```
-
----
-
-## Detailed Setup: Neon Cloud Database
-
-### Prerequisites
-
-- Neon account (free at https://neon.tech)
-- Node.js 20+
-
-### Step 1: Create Neon Project
-
-1. Go to https://console.neon.tech
+1. Go to https://neon.tech and sign up (free)
 2. Click **"New Project"**
 3. Configure:
-   - **Project name**: `ptah-dev` (or your preference)
-   - **Region**: Choose closest to you
+   - **Project name**: `ptah-licenses`
+   - **Region**: Choose closest to you (e.g., `us-east-1`)
    - **PostgreSQL version**: 16
 4. Click **"Create Project"**
 
-### Step 2: Get Connection String
+## Step 2: Create Development Branch
 
-1. In Neon dashboard, go to **Connection Details**
-2. Select **Prisma** from the dropdown
-3. Copy the connection string:
+Neon's branching feature lets you create isolated database copies:
+
+1. In your Neon project, go to **Branches**
+2. You'll see a `main` branch (this will be production)
+3. Click **"New Branch"**
+4. Name it `development`
+5. This creates an instant copy of your database
+
+**Recommended Branch Structure:**
+
+```
+main           → Production (ptah.live)
+development    → Local development
+staging        → Pre-production testing (optional)
+```
+
+## Step 3: Get Connection String
+
+1. Go to **Connection Details** in Neon dashboard
+2. Select your `development` branch
+3. Choose **Prisma** from the dropdown
+4. Copy the connection string:
    ```
-   postgresql://neondb_owner:xxx@ep-xxx-xxx-123456.us-east-1.aws.neon.tech/neondb?sslmode=require
+   postgresql://neondb_owner:xxxx@ep-xxx-xxx-123456.us-east-1.aws.neon.tech/neondb?sslmode=require
    ```
 
-### Step 3: Configure Environment
+## Step 4: Configure Environment
 
 ```bash
 # Copy example environment file
@@ -166,63 +85,81 @@ cp apps/ptah-license-server/.env.example apps/ptah-license-server/.env
 
 Your `.env` should have:
 
-```
-DATABASE_URL="postgresql://neondb_owner:xxx@ep-xxx-xxx-123456.us-east-1.aws.neon.tech/neondb?sslmode=require"
+```env
+DATABASE_URL="postgresql://neondb_owner:xxxx@ep-xxx-xxx-123456.us-east-1.aws.neon.tech/neondb?sslmode=require"
 ```
 
-### Step 4: Run Migrations
+## Step 5: Run Migrations
 
 ```bash
 cd apps/ptah-license-server
-npx prisma migrate dev --name init
+npx prisma migrate dev
 ```
 
-### Step 5: Start Development Server
+## Step 6: Start Development Server
+
+**Option A: Without Docker (recommended for faster iteration)**
 
 ```bash
 npx nx serve ptah-license-server
 ```
 
-### Neon Free Tier Limits
+**Option B: With Docker (includes hot-reload)**
 
-- **0.5 GB** storage
-- **100 compute hours/month**
-- Auto-suspend after **5 minutes** of inactivity
-- 10 branches per project
+```bash
+docker-compose up -d
+```
 
-### Handling Cold Starts
-
-Neon's free tier auto-suspends after 5 minutes of inactivity. The first request after suspension takes ~500ms-2s to "wake up" the database.
-
-This is fine for development. In production, you can:
-
-- Keep compute always-on (Neon Launch tier)
-- Implement retry logic (Prisma does this automatically)
+Access the API at: http://localhost:3000/api
 
 ---
 
-## Full Stack Development
+## Docker Compose Setup
 
-### Running Backend + Frontend Together
+The `docker-compose.yml` provides:
+
+- **License Server** with hot-reload
+- **ngrok** for Paddle webhook testing (optional)
+
+### Basic Usage
 
 ```bash
-# Terminal 1: Start database
-docker-compose -f docker-compose.db.yml up -d
+# Start license server
+docker-compose up -d
 
-# Terminal 2: Start license server
-npx nx serve ptah-license-server
+# View logs
+docker-compose logs -f license-server
 
-# Terminal 3: Start landing page (if needed)
-npx nx serve ptah-landing-page
+# Stop
+docker-compose down
 ```
 
-### Environment Variables
+### With Webhook Testing (Paddle)
+
+```bash
+# 1. Set ngrok authtoken in root .env
+NGROK_AUTHTOKEN=your_token_here
+
+# 2. Start with ngrok
+docker-compose --profile webhook-testing up -d
+
+# 3. Get public URL
+docker-compose logs ngrok | grep "url="
+# Output: https://abc123.ngrok.io
+
+# 4. Configure Paddle webhook
+# URL: https://abc123.ngrok.io/webhooks/paddle
+```
+
+---
+
+## Environment Variables
 
 Essential variables for local development:
 
 ```env
-# Database
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ptah_licenses"
+# Database (Neon - REQUIRED)
+DATABASE_URL="postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require"
 
 # Server
 PORT=3000
@@ -230,8 +167,8 @@ NODE_ENV=development
 FRONTEND_URL=http://localhost:4200
 
 # Security (generate with: openssl rand -hex 32)
-JWT_SECRET=dev_secret_change_in_production_abc123
-ADMIN_API_KEY=dev_admin_key_change_in_production_xyz789
+JWT_SECRET=dev_secret_change_in_production
+ADMIN_API_KEY=dev_admin_key_change_in_production
 
 # WorkOS (get from https://dashboard.workos.com)
 WORKOS_API_KEY=sk_test_xxx
@@ -252,21 +189,34 @@ SENDGRID_FROM_NAME=Ptah Dev
 
 ---
 
-## Testing Webhooks Locally
+## Neon Tips
 
-Paddle webhooks require a public HTTPS URL. Use ngrok to expose your local server:
+### Cold Starts
+
+Neon's free tier auto-suspends after 5 minutes of inactivity. First request after suspension takes ~500ms-2s.
+
+**This is fine for development.** Prisma handles reconnection automatically.
+
+### Database Branching Workflow
 
 ```bash
-# Start services with ngrok profile
-docker-compose --profile webhook-testing up -d
-
-# Get the ngrok URL
-docker-compose logs ngrok | grep "started tunnel"
-# Output: https://abc123.ngrok.io
-
-# Configure in Paddle dashboard:
-# Webhook URL: https://abc123.ngrok.io/webhooks/paddle
+# Create a feature branch for testing schema changes
+# 1. In Neon dashboard: Create branch "feature-xyz" from "development"
+# 2. Update DATABASE_URL to use the new branch
+# 3. Run migrations: npx prisma migrate dev
+# 4. Test your changes
+# 5. Merge by promoting the branch or running migrations on development
 ```
+
+### Viewing Data
+
+```bash
+# Open Prisma Studio (web-based database viewer)
+cd apps/ptah-license-server
+npx prisma studio
+```
+
+Or use Neon's built-in SQL editor in the dashboard.
 
 ---
 
@@ -274,73 +224,76 @@ docker-compose logs ngrok | grep "started tunnel"
 
 ### Database Connection Failed
 
-**Symptom**: "Connection refused" or "ECONNREFUSED"
+**Symptom**: "Connection refused" or timeout errors
 
 **Solutions**:
 
-1. Verify Docker is running: `docker ps`
-2. Check database container: `docker-compose -f docker-compose.db.yml logs`
-3. Verify DATABASE_URL in `.env`
+1. Verify DATABASE_URL is correct
+2. Ensure `?sslmode=require` is in the connection string
+3. Check Neon dashboard - is the branch active?
+4. Try the connection in Neon's SQL editor first
 
 ### Prisma Migration Errors
 
-**Symptom**: "Migration failed" or "Database does not exist"
+**Symptom**: "Migration failed" or schema drift
 
 **Solutions**:
 
 ```bash
-# Reset database (WARNING: deletes all data)
+# Check migration status
 cd apps/ptah-license-server
+npx prisma migrate status
+
+# Reset database (WARNING: deletes all data)
 npx prisma migrate reset
 
-# Or recreate from scratch
-docker-compose -f docker-compose.db.yml down -v
-docker-compose -f docker-compose.db.yml up -d
-npx prisma migrate dev
+# Generate client after schema changes
+npx prisma generate
 ```
 
-### Port Already in Use
-
-**Symptom**: "Port 5432 already in use" or "Port 3000 already in use"
-
-**Solutions**:
-
-```bash
-# Change PostgreSQL port in .env
-POSTGRES_PORT=5433
-
-# Or find and kill the process
-# Windows:
-netstat -ano | findstr :5432
-taskkill /PID <pid> /F
-
-# macOS/Linux:
-lsof -i :5432
-kill -9 <pid>
-```
-
-### Neon Cold Start Timeout
+### Cold Start Timeout
 
 **Symptom**: First request after idle times out
 
 **Solutions**:
 
-- This is expected behavior on free tier
+- This is expected on free tier
 - Retry the request (Prisma handles this automatically)
-- For testing, send a simple query first to "wake up" the database
+- For faster cold starts, keep a tab open to the Neon dashboard
+
+### Port Already in Use
+
+**Symptom**: "Port 3000 already in use"
+
+**Solutions**:
+
+```bash
+# Change port in .env
+PORT=3001
+
+# Or find and kill the process
+# Windows:
+netstat -ano | findstr :3000
+taskkill /PID <pid> /F
+
+# macOS/Linux:
+lsof -i :3000
+kill -9 <pid>
+```
 
 ---
 
 ## Scripts Reference
 
-| Script                                           | Purpose                                          |
-| ------------------------------------------------ | ------------------------------------------------ |
-| `./setup-database.sh`                            | Start local Docker PostgreSQL and run migrations |
-| `./setup-database.sh --neon`                     | Run migrations against Neon cloud database       |
-| `docker-compose -f docker-compose.db.yml up -d`  | Start only PostgreSQL                            |
-| `docker-compose up -d`                           | Start PostgreSQL + License Server                |
-| `docker-compose --profile with-redis up -d`      | Start with Redis (multi-instance testing)        |
-| `docker-compose --profile webhook-testing up -d` | Start with ngrok tunnel                          |
+| Command                                          | Purpose                          |
+| ------------------------------------------------ | -------------------------------- |
+| `npx nx serve ptah-license-server`               | Start server locally (no Docker) |
+| `docker-compose up -d`                           | Start server in Docker           |
+| `docker-compose --profile webhook-testing up -d` | Start with ngrok                 |
+| `docker-compose logs -f license-server`          | View server logs                 |
+| `docker-compose down`                            | Stop all containers              |
+| `npx prisma migrate dev`                         | Create/apply migrations          |
+| `npx prisma studio`                              | Open database viewer             |
 
 ---
 
