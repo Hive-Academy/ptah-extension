@@ -4,13 +4,22 @@
  * TASK_2025_135: Centralized location for prompt constants used across
  * multiple services. Prevents duplication and ensures consistency.
  *
- * Usage:
- * - PromptHarnessService: Appends PTAH_BEHAVIORAL_PROMPT to all prompts
- * - SdkQueryOptionsBuilder: References these for documentation
+ * TASK_2025_137 Update: The content from PTAH_BEHAVIORAL_PROMPT has been
+ * incorporated into PTAH_CORE_SYSTEM_PROMPT in the prompt-harness module.
+ * This file is kept for backward compatibility but the behavioral prompt
+ * is now deprecated.
+ *
+ * Preferred import:
+ * ```typescript
+ * import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness/ptah-core-prompt';
+ * ```
  */
 
 /**
- * Ptah behavioral system prompt - always appended (all tiers)
+ * Ptah behavioral system prompt - DEPRECATED
+ *
+ * @deprecated TASK_2025_137: Use PTAH_CORE_SYSTEM_PROMPT from './prompt-harness/ptah-core-prompt' instead.
+ * This content has been incorporated into the core prompt which is now the foundation layer.
  *
  * Instructs the agent to use AskUserQuestion tool for presenting choices
  * instead of writing questions as plain markdown text. This provides a

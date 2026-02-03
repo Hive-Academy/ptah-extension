@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_135: Prompt Harness System
 
-**Total Tasks**: 21 | **Batches**: 6 | **Status**: 1/6 complete
+**Total Tasks**: 21 | **Batches**: 6 | **Status**: 6/6 batches complete (ALL COMPLETE)
 
 ---
 
@@ -158,13 +158,14 @@
 
 ---
 
-## Batch 2: Storage Layer (UserPromptStore) - IN PROGRESS
+## Batch 2: Storage Layer (UserPromptStore) - COMPLETE
 
 **Developer Type**: backend-developer
 **Dependencies**: Batch 1
-**Tasks**: 3 | **Status**: IN PROGRESS
+**Tasks**: 3 | **Status**: COMPLETE
+**Commit**: 75abe7d (included in TASK_2025_136 commit)
 
-### Task 2.1: Create UserPromptStore Service - IN PROGRESS
+### Task 2.1: Create UserPromptStore Service - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\prompt-harness\user-prompt-store.ts`
 **Action**: CREATE
@@ -202,7 +203,7 @@
 
 ---
 
-### Task 2.2: Add DI Token for UserPromptStore - IN PROGRESS
+### Task 2.2: Add DI Token for UserPromptStore - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\tokens.ts`
 **Action**: MODIFY
@@ -221,7 +222,7 @@
 
 ---
 
-### Task 2.3: Register UserPromptStore in DI Container - IN PROGRESS
+### Task 2.3: Register UserPromptStore in DI Container - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\register.ts`
 **Action**: MODIFY
@@ -247,20 +248,21 @@
 
 **Batch 2 Verification**:
 
-- [ ] All files exist at specified paths
-- [ ] Build passes: `npx nx build agent-sdk`
-- [ ] UserPromptStore can be resolved from DI container
-- [ ] Storage operations work with VS Code context
+- [x] All files exist at specified paths
+- [x] Build passes: `npx nx build agent-sdk`
+- [x] UserPromptStore can be resolved from DI container
+- [x] Storage operations work with VS Code context
 
 ---
 
-## Batch 3: Assembly Service (PromptHarnessService) - PENDING
+## Batch 3: Assembly Service (PromptHarnessService) - COMPLETE
 
 **Developer Type**: backend-developer
 **Dependencies**: Batch 1, Batch 2
-**Tasks**: 3 | **Status**: PENDING
+**Tasks**: 3 | **Status**: COMPLETE
+**Commit**: 8851c01
 
-### Task 3.1: Create PromptHarnessService - PENDING
+### Task 3.1: Create PromptHarnessService - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\prompt-harness\prompt-harness.service.ts`
 **Action**: CREATE
@@ -304,7 +306,7 @@
 
 ---
 
-### Task 3.2: Add DI Token for PromptHarnessService - PENDING
+### Task 3.2: Add DI Token for PromptHarnessService - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\tokens.ts`
 **Action**: MODIFY
@@ -319,7 +321,7 @@
 
 ---
 
-### Task 3.3: Register PromptHarnessService in DI Container - PENDING
+### Task 3.3: Register PromptHarnessService in DI Container - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\register.ts`
 **Action**: MODIFY
@@ -338,20 +340,21 @@
 
 **Batch 3 Verification**:
 
-- [ ] All files exist at specified paths
-- [ ] Build passes: `npx nx build agent-sdk`
-- [ ] PromptHarnessService can be resolved from DI container
-- [ ] assemblePrompt returns correct structure
+- [x] All files exist at specified paths
+- [x] Build passes: `npx nx build agent-sdk`
+- [x] PromptHarnessService can be resolved from DI container
+- [x] assemblePrompt returns correct structure
 
 ---
 
-## Batch 4: RPC Handlers - PENDING
+## Batch 4: RPC Handlers - COMPLETE
 
 **Developer Type**: backend-developer
 **Dependencies**: Batch 3
-**Tasks**: 4 | **Status**: PENDING
+**Tasks**: 4 | **Status**: COMPLETE
+**Commit**: 2366bd3
 
-### Task 4.1: Add RPC Type Definitions for Prompt Harness - PENDING
+### Task 4.1: Add RPC Type Definitions for Prompt Harness - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts`
 **Action**: MODIFY
@@ -513,7 +516,7 @@
 
 ---
 
-### Task 4.2: Create PromptHarnessRpcHandlers - PENDING
+### Task 4.2: Create PromptHarnessRpcHandlers - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\prompt-harness-rpc.handlers.ts`
 **Action**: CREATE
@@ -553,7 +556,7 @@
 
 ---
 
-### Task 4.3: Register PromptHarnessRpcHandlers in Registration Service - PENDING
+### Task 4.3: Register PromptHarnessRpcHandlers in Registration Service - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\rpc-method-registration.service.ts`
 **Action**: MODIFY
@@ -580,7 +583,7 @@
 
 ---
 
-### Task 4.4: Update Barrel Export in prompt-harness Module - PENDING
+### Task 4.4: Update Barrel Export in prompt-harness Module - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\prompt-harness\index.ts`
 **Action**: MODIFY
@@ -600,20 +603,21 @@
 
 **Batch 4 Verification**:
 
-- [ ] All files exist at specified paths
-- [ ] Build passes: `npx nx build shared` and `npx nx build ptah-extension-vscode`
-- [ ] RPC methods respond correctly when called
-- [ ] verifyRpcRegistration passes (no missing handlers)
+- [x] All files exist at specified paths
+- [x] Build passes: `npx nx build shared` and `npx nx build ptah-extension-vscode`
+- [x] RPC methods respond correctly when called
+- [x] verifyRpcRegistration passes (no missing handlers)
 
 ---
 
-## Batch 5: SDK Integration - PENDING
+## Batch 5: SDK Integration - COMPLETE
 
 **Developer Type**: backend-developer
 **Dependencies**: Batch 3
-**Tasks**: 2 | **Status**: PENDING
+**Tasks**: 2 | **Status**: COMPLETE
+**Commit**: 79ce361
 
-### Task 5.1: Integrate PromptHarnessService into SdkQueryOptionsBuilder - PENDING
+### Task 5.1: Integrate PromptHarnessService into SdkQueryOptionsBuilder - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts`
 **Action**: MODIFY
@@ -639,15 +643,15 @@
 
 **Acceptance Criteria**:
 
-- [ ] PromptHarnessService injected
-- [ ] buildSystemPrompt is now async
-- [ ] getAppendPrompt called with isPremium flag
-- [ ] Callers updated to await
-- [ ] Build passes: `npx nx build agent-sdk`
+- [x] PromptHarnessService injected
+- [x] buildSystemPrompt is now async
+- [x] getAppendPrompt called with isPremium flag
+- [x] Callers updated to await
+- [x] Build passes: `npx nx build agent-sdk`
 
 ---
 
-### Task 5.2: Update SdkQueryOptionsBuilder Build Method to Handle Async - PENDING
+### Task 5.2: Update SdkQueryOptionsBuilder Build Method to Handle Async - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts`
 **Action**: MODIFY
@@ -661,28 +665,29 @@
 
 **Acceptance Criteria**:
 
-- [ ] build() method properly awaits buildSystemPrompt
-- [ ] No runtime errors from unawaited promises
-- [ ] SDK queries include assembled prompt
+- [x] build() method properly awaits buildSystemPrompt
+- [x] No runtime errors from unawaited promises
+- [x] SDK queries include assembled prompt
 
 ---
 
 **Batch 5 Verification**:
 
-- [ ] All files exist at specified paths
-- [ ] Build passes: `npx nx build agent-sdk`
-- [ ] SDK queries include power-up content when enabled
-- [ ] Premium users get PTAH_SYSTEM_PROMPT via harness
+- [x] All files exist at specified paths
+- [x] Build passes: `npx nx build agent-sdk`
+- [x] SDK queries include power-up content when enabled
+- [x] Premium users get PTAH_SYSTEM_PROMPT via harness
 
 ---
 
-## Batch 6: Frontend Components - PENDING
+## Batch 6: Frontend Components - COMPLETE
 
 **Developer Type**: frontend-developer
 **Dependencies**: Batch 4
-**Tasks**: 5 | **Status**: PENDING
+**Tasks**: 5 | **Status**: COMPLETE
+**Commit**: f100f61
 
-### Task 6.1: Create PromptPowerUpsComponent - PENDING
+### Task 6.1: Create PromptPowerUpsComponent - COMPLETE
 
 **Files**:
 
@@ -728,7 +733,7 @@
 
 ---
 
-### Task 6.2: Create CustomPromptEditorComponent - PENDING
+### Task 6.2: Create CustomPromptEditorComponent - COMPLETE
 
 **Files**:
 
@@ -773,7 +778,7 @@
 
 ---
 
-### Task 6.3: Create PromptPreviewComponent - PENDING
+### Task 6.3: Create PromptPreviewComponent - COMPLETE
 
 **Files**:
 
@@ -814,7 +819,7 @@
 
 ---
 
-### Task 6.4: Integrate Power-Ups into SettingsComponent - PENDING
+### Task 6.4: Integrate Power-Ups into SettingsComponent - COMPLETE
 
 **Files**:
 
@@ -861,7 +866,7 @@
 
 ---
 
-### Task 6.5: Add Import/Export Buttons to PromptPowerUpsComponent - PENDING
+### Task 6.5: Add Import/Export Buttons to PromptPowerUpsComponent - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\settings\prompt-power-ups.component.ts`
 **Action**: MODIFY
@@ -887,12 +892,12 @@
 
 **Batch 6 Verification**:
 
-- [ ] All files exist at specified paths
-- [ ] Build passes: `npx nx build chat`
-- [ ] Components render correctly in settings
-- [ ] Power-up toggles persist and apply
-- [ ] Preview shows correct assembled prompt
-- [ ] Import/export functionality works
+- [x] All files exist at specified paths
+- [x] Build passes: `npx nx build ptah-extension-webview`
+- [x] Components render correctly in settings
+- [x] Power-up toggles persist and apply
+- [x] Preview shows correct assembled prompt
+- [x] Import/export functionality works
 
 ---
 

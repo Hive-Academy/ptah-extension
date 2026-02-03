@@ -22,7 +22,10 @@ import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
 import { SDK_TOKENS } from '../di/tokens';
 import { UserPromptStore } from './user-prompt-store';
 import { POWER_UP_DEFINITIONS, getPowerUp } from './power-up-registry';
-import { PTAH_BEHAVIORAL_PROMPT } from '../helpers/prompt-constants';
+import {
+  PTAH_CORE_SYSTEM_PROMPT,
+  PTAH_CORE_SYSTEM_PROMPT_TOKENS,
+} from './ptah-core-prompt';
 import type {
   PowerUpDefinition,
   PowerUpState,
@@ -124,6 +127,17 @@ export class PromptHarnessService {
     const layers: PromptLayer[] = [];
     const textParts: string[] = [];
 
+    // TASK_2025_137: Add PTAH_CORE_SYSTEM_PROMPT as foundation layer
+    // This is always included as the base prompt for all users
+    layers.push({
+      name: 'Ptah Core',
+      type: 'agent', // Core layer, not premium-gated
+      content: PTAH_CORE_SYSTEM_PROMPT,
+      tokenCount: PTAH_CORE_SYSTEM_PROMPT_TOKENS,
+      source: 'ptah-core',
+    });
+    textParts.push(PTAH_CORE_SYSTEM_PROMPT);
+
     // Add enabled power-up layers
     for (const powerUp of enabledPowerUps) {
       layers.push({
@@ -210,7 +224,11 @@ export class PromptHarnessService {
    * Get the complete append prompt text for SDK query.
    *
    * This is a convenience method that assembles the prompt and returns
-   * just the text with PTAH_BEHAVIORAL_PROMPT appended (for all tiers).
+   * the complete text ready to append to the system prompt.
+   *
+   * TASK_2025_137: PTAH_CORE_SYSTEM_PROMPT is now included as the foundation
+   * layer in assemblePrompt(), so we no longer need to append PTAH_BEHAVIORAL_PROMPT
+   * separately (its guidance is now part of the core prompt).
    *
    * @param isPremium - Whether user has premium features
    * @returns Complete prompt text ready to append to system prompt
@@ -218,23 +236,14 @@ export class PromptHarnessService {
   async getAppendPrompt(isPremium: boolean): Promise<string> {
     const assembled = await this.assemblePrompt(isPremium);
 
-    // Always append behavioral prompt for AskUserQuestion guidance
-    const parts: string[] = [];
-
-    if (assembled.text) {
-      parts.push(assembled.text);
-    }
-
-    parts.push(PTAH_BEHAVIORAL_PROMPT);
-
     this.logger.debug('[PromptHarnessService] Generated append prompt', {
       isPremium,
       assembledLength: assembled.text.length,
-      behavioralLength: PTAH_BEHAVIORAL_PROMPT.length,
-      totalLength: parts.join('\n\n').length,
+      totalTokens: assembled.totalTokens,
+      layerCount: assembled.layers.length,
     });
 
-    return parts.join('\n\n');
+    return assembled.text;
   }
 
   /**
