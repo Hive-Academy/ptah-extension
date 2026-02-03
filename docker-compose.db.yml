@@ -2,15 +2,18 @@
 # Ptah Extension - Database-Only Docker Compose
 # =============================================================================
 #
-# This compose file runs ONLY the databases (PostgreSQL + Redis).
-# Use this for local development when you want to run the backend server
-# outside of Docker (for faster hot-reload, debugging, etc.)
+# This compose file runs ONLY PostgreSQL for local development.
+# Use this when you want to run the backend server outside of Docker
+# (for faster hot-reload, debugging, etc.)
+#
+# NOTE: Redis is NOT included because the license server uses in-memory
+# storage for session state. Redis is only needed for multi-instance deployments.
 #
 # USAGE:
-#   # Start databases only
+#   # Start database only
 #   docker-compose -f docker-compose.db.yml up -d
 #
-#   # Stop databases
+#   # Stop database
 #   docker-compose -f docker-compose.db.yml down
 #
 #   # Stop and remove data volumes
@@ -53,25 +56,28 @@ services:
       - ptah-network
 
   # ---------------------------------------------------------------------------
-  # Redis 7 - Cache and Session Store
+  # Redis 7 - Optional (only for multi-instance testing)
   # ---------------------------------------------------------------------------
-  redis:
-    image: redis:7-alpine
-    container_name: ptah_redis_dev
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redis-data:/data
-    ports:
-      - '${REDIS_PORT:-6379}:6379'
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
-    networks:
-      - ptah-network
+  # Uncomment if you need to test Redis-based session storage.
+  # For single-instance development, Redis is NOT required.
+  #
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: ptah_redis_dev
+  #   restart: unless-stopped
+  #   command: redis-server --appendonly yes
+  #   volumes:
+  #     - redis-data:/data
+  #   ports:
+  #     - '${REDIS_PORT:-6379}:6379'
+  #   healthcheck:
+  #     test: ['CMD', 'redis-cli', 'ping']
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 10
+  #     start_period: 5s
+  #   networks:
+  #     - ptah-network
 
 # =============================================================================
 # Named Volumes
@@ -79,8 +85,8 @@ services:
 volumes:
   postgres-data:
     name: ptah_postgres_dev_data
-  redis-data:
-    name: ptah_redis_dev_data
+  # redis-data:
+  #   name: ptah_redis_dev_data
 
 # =============================================================================
 # Networks

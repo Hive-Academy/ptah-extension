@@ -5,15 +5,21 @@
 # This Docker Compose configuration provides a complete local development
 # environment for the Ptah License Server, including:
 #   - PostgreSQL 16 (database)
-#   - Redis 7 (caching and session storage)
+#   - Redis 7 (OPTIONAL - only for multi-instance testing)
 #   - License Server (NestJS application)
 #
+# NOTE: Redis is NOT required for single-instance deployments.
+# The license server uses in-memory storage for session state.
+# Redis is only needed when testing horizontal scaling.
+#
 # QUICK START:
-#   1. Copy .env.docker.example to .env.docker (at project root)
-#   2. Copy apps/ptah-license-server/.env.example to apps/ptah-license-server/.env
-#   3. Run: docker-compose up -d
-#   4. Wait for health checks to pass
-#   5. Access API at http://localhost:3000/api
+#   1. Copy apps/ptah-license-server/.env.example to apps/ptah-license-server/.env
+#   2. Run: docker-compose up -d
+#   3. Wait for health checks to pass
+#   4. Access API at http://localhost:3000/api
+#
+# WITH REDIS (for multi-instance testing):
+#   docker-compose --profile with-redis up -d
 #
 # WINDOWS USERS:
 #   For optimal performance, run Docker with WSL2 backend and store the
@@ -59,13 +65,17 @@ services:
       - ptah-network
 
   # ---------------------------------------------------------------------------
-  # Redis 7 - Cache and Session Store
+  # Redis 7 - OPTIONAL (only for multi-instance testing)
   # ---------------------------------------------------------------------------
-  # Used for:
-  #   - PKCE state storage (OAuth 2.1 flow)
-  #   - Session management
-  #   - Rate limiting (future)
-  #   - Caching (future)
+  # NOTE: Redis is NOT required for single-instance deployments.
+  # The license server uses in-memory storage for:
+  #   - PKCE state (5 min TTL)
+  #   - Magic link tokens (2 min TTL)
+  #   - SSE tickets (30 sec TTL)
+  #
+  # Only enable Redis when testing horizontal scaling (multiple instances).
+  # To start with Redis: docker-compose --profile with-redis up -d
+  #
   redis:
     image: redis:7-alpine
     container_name: ptah_redis
@@ -83,6 +93,8 @@ services:
       start_period: 5s
     networks:
       - ptah-network
+    profiles:
+      - with-redis
 
   # ---------------------------------------------------------------------------
   # License Server - NestJS Application
@@ -103,14 +115,16 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+      # Redis dependency removed - not required for single-instance
+      # To test with Redis: docker-compose --profile with-redis up -d
     env_file:
       - apps/ptah-license-server/.env
     environment:
-      # Override database URLs to use Docker network hostnames
+      # Override database URL to use Docker network hostname
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ptah_licenses}
-      REDIS_URL: redis://redis:6379
+      # REDIS_URL removed - license server uses in-memory storage
+      # Uncomment below if testing multi-instance with Redis:
+      # REDIS_URL: redis://redis:6379
       # Ensure NODE_ENV is set for development
       NODE_ENV: development
       # Disable Nx daemon - it doesn't work in Docker containers
