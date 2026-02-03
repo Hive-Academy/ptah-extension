@@ -493,28 +493,63 @@ The core prompt is appended via PromptHarnessService.
 - `@ptah-extension/workspace-intelligence` for project detection (input)
 - `@ptah-extension/llm-abstraction` for LLM calls (LlmService)
 
-### Batch 3: Caching & Invalidation (Performance)
+### Batch 3: Caching & Invalidation (Performance) - ✅ COMPLETE
+
+**Completed**: 2025-02-03
 
 **Scope**: Implement smart caching to avoid regenerating prompts unnecessarily
 
-**Files:**
+**Files Created:**
 
-- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-cache.service.ts` - NEW
-- `libs/backend/agent-sdk/src/lib/prompt-harness/cache-invalidation.ts` - NEW
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/prompt-cache.service.ts` - NEW
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/cache-invalidation.ts` - NEW
+
+**Files Modified:**
+
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/index.ts` - Added cache exports
+- `libs/backend/agent-sdk/src/lib/prompt-harness/index.ts` - Re-exported cache module
+- `libs/backend/agent-sdk/src/lib/di/tokens.ts` - Added SDK_PROMPT_CACHE_SERVICE token
+- `libs/backend/agent-sdk/src/lib/di/register.ts` - Registered PromptCacheService
+- `libs/backend/agent-sdk/src/index.ts` - Exported all cache types and utilities
 
 **Tasks:**
 
-1. [ ] Design cache key structure (workspace hash + config version)
-2. [ ] Implement file watcher for invalidation triggers
-3. [ ] Add manual regeneration option for users
-4. [ ] Set up cache persistence (VS Code globalState)
+1. [x] Design cache key structure (workspace hash + config version)
+2. [x] Implement file watcher for invalidation triggers
+3. [x] Add manual regeneration option for users
+4. [x] Set up cache persistence (VS Code globalState)
+
+**What was implemented:**
+
+1. **PromptCacheService** - Main caching service:
+
+   - Dual-layer caching (in-memory + VS Code globalState)
+   - Cache key generation from workspace path + dependency hash
+   - 7-day TTL with 1-day grace period
+   - File watcher integration for auto-invalidation
+   - `invalidate()` method for manual regeneration
+   - `onInvalidation()` callback for UI notifications
+   - `computeDependencyHash()` for package.json hashing
+
+2. **Cache Invalidation System** (cache-invalidation.ts):
+
+   - Trigger file patterns (package.json, tsconfig, angular.json, etc.)
+   - Ignore patterns (node_modules, dist, .git)
+   - Cache key generation with config versioning
+   - `InvalidationReason` types (file_changed, dependencies_changed, config_changed, ttl_expired, manual)
+   - `createInvalidationEvent()` for event notifications
+   - `isCacheExpired()` and `isInvalidationTrigger()` utilities
+
+3. **DI Integration**:
+   - Added `SDK_PROMPT_CACHE_SERVICE` token
+   - Registered as singleton (depends on ExtensionContext, FileSystemManager)
 
 **Cache Invalidation Triggers:**
 
 - Package.json changes (dependencies)
-- Config file changes (tsconfig, angular.json, etc.)
-- User-initiated "Regenerate" action
-- Time-based (>7 days old)
+- Config file changes (tsconfig, angular.json, nx.json, eslint, prettier, etc.)
+- User-initiated "Regenerate" action via `invalidate()` method
+- Time-based (>7 days old with 1-day grace period)
 
 ### Batch 4: Intelligent Assembly Pipeline (Integration)
 

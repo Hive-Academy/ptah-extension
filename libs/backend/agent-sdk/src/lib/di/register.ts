@@ -45,6 +45,7 @@ import {
   UserPromptStore,
   PromptHarnessService,
   PromptDesignerAgent,
+  PromptCacheService,
 } from '../prompt-harness';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
@@ -275,6 +276,14 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT,
     { useClass: PromptDesignerAgent },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Prompt Cache Service - smart caching with file-based invalidation (TASK_2025_137 Batch 3)
+  // Note: Requires ExtensionContext and FileSystemManager to be registered
+  container.register(
+    SDK_TOKENS.SDK_PROMPT_CACHE_SERVICE,
+    { useClass: PromptCacheService },
     { lifecycle: Lifecycle.Singleton }
   );
 

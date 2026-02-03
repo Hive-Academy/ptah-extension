@@ -80,3 +80,28 @@ export type {
   PromptGenerationStatus,
   CachedPromptDesign,
 } from './prompt-designer';
+
+// Prompt Cache Service (TASK_2025_137 Batch 3)
+export {
+  PromptCacheService,
+  DEFAULT_CACHE_CONFIG,
+  // Cache invalidation utilities
+  INVALIDATION_TRIGGER_FILES,
+  INVALIDATION_IGNORE_PATTERNS,
+  CACHE_CONFIG_VERSION,
+  DEFAULT_CACHE_TTL_MS,
+  computeHash,
+  generateCacheKey,
+  extractDependencyInfo,
+  isInvalidationTrigger,
+  getInvalidationReason,
+  isCacheExpired,
+  createInvalidationEvent,
+} from './prompt-designer';
+
+export type {
+  PromptCacheConfig,
+  InvalidationReason,
+  InvalidationEvent,
+  CacheKeyComponents,
+} from './prompt-designer';

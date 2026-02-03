@@ -117,5 +117,30 @@ export type {
   CachedPromptDesign,
 } from './lib/prompt-harness';
 
+// Prompt Cache Service (TASK_2025_137 Batch 3)
+// Smart caching with file-based invalidation
+export {
+  PromptCacheService,
+  DEFAULT_CACHE_CONFIG,
+  // Invalidation utilities
+  INVALIDATION_TRIGGER_FILES,
+  INVALIDATION_IGNORE_PATTERNS,
+  CACHE_CONFIG_VERSION,
+  DEFAULT_CACHE_TTL_MS,
+  computeHash,
+  generateCacheKey,
+  extractDependencyInfo,
+  isInvalidationTrigger,
+  getInvalidationReason,
+  isCacheExpired,
+  createInvalidationEvent,
+} from './lib/prompt-harness';
+export type {
+  PromptCacheConfig,
+  InvalidationReason,
+  InvalidationEvent,
+  CacheKeyComponents,
+} from './lib/prompt-harness';
+
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';
