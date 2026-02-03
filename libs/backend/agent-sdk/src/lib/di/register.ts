@@ -41,6 +41,7 @@ import {
   CompactionConfigProvider,
   CompactionHookHandler,
 } from '../helpers';
+import { UserPromptStore } from '../prompt-harness';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -244,6 +245,17 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER,
     { useClass: SdkQueryOptionsBuilder },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Prompt Harness Services (TASK_2025_135)
+  // ============================================================
+
+  // User prompt store - persists power-up states and custom sections
+  container.register(
+    SDK_TOKENS.SDK_USER_PROMPT_STORE,
+    { useClass: UserPromptStore },
     { lifecycle: Lifecycle.Singleton }
   );
 

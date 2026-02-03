@@ -234,9 +234,9 @@ export class LicenseCommands {
         );
       }),
       vscode.commands.registerCommand('ptah.openSignup', () => {
-        // TODO: restore production URL: https://ptah.dev/signup
+        // TODO: restore production URL: https://ptah.dev/signup?source=vscode
         vscode.env.openExternal(
-          vscode.Uri.parse('http://localhost:4200/signup')
+          vscode.Uri.parse('http://localhost:4200/signup?source=vscode')
         );
       })
     );

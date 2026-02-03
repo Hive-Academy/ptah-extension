@@ -107,8 +107,12 @@ import { LicenseData } from './models/license-data.interface';
           [isSyncing]="isSyncing()"
           [syncError]="syncError()"
           [syncSuccess]="syncSuccess()"
+          [licenseKey]="licenseKey()"
+          [isRevealingKey]="isRevealingKey()"
+          [revealKeyError]="revealKeyError()"
           (syncRequested)="handleSyncWithPaddle()"
           (manageSubscriptionRequested)="handleManageSubscription()"
+          (revealKeyRequested)="handleRevealLicenseKey()"
         />
 
         <!-- Features Section -->
@@ -182,6 +186,11 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   public readonly isSyncing = signal(false);
   public readonly syncError = signal<string | null>(null);
   public readonly syncSuccess = signal(false);
+
+  // License key reveal state signals
+  public readonly licenseKey = signal<string | null>(null);
+  public readonly isRevealingKey = signal(false);
+  public readonly revealKeyError = signal<string | null>(null);
 
   // Animation config for actions
   public readonly actionsConfig: ViewportAnimationConfig = {
@@ -282,6 +291,10 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
     this.http.get<LicenseData>('/api/v1/licenses/me').subscribe({
       next: (data) => {
         this.license.set(data);
+        // Clear revealed license key if license is no longer active
+        if (data.status !== 'active') {
+          this.licenseKey.set(null);
+        }
         console.log(
           '[Profile] License data refreshed:',
           data.plan,
@@ -381,6 +394,54 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
           setTimeout(() => {
             this.syncError.set(null);
           }, 5000);
+        },
+      });
+  }
+
+  /**
+   * Handle reveal license key request from profile details component
+   *
+   * Calls POST /api/v1/licenses/me/reveal-key to securely retrieve the license key.
+   * Updates UI with loading states and success/error feedback.
+   */
+  public handleRevealLicenseKey(): void {
+    this.isRevealingKey.set(true);
+    this.revealKeyError.set(null);
+
+    this.http
+      .post<{
+        success: boolean;
+        licenseKey?: string;
+        message?: string;
+        plan?: string;
+      }>('/api/v1/licenses/me/reveal-key', {})
+      .subscribe({
+        next: (response) => {
+          this.isRevealingKey.set(false);
+          if (response.success && response.licenseKey) {
+            this.licenseKey.set(response.licenseKey);
+          } else {
+            this.revealKeyError.set(
+              response.message || 'Failed to retrieve license key'
+            );
+          }
+        },
+        error: (error) => {
+          this.isRevealingKey.set(false);
+          if (error.status === 429) {
+            this.revealKeyError.set(
+              'Too many requests. Please wait a moment and try again.'
+            );
+          } else if (error.status === 401) {
+            this.revealKeyError.set(
+              'Your session has expired. Please log in again.'
+            );
+          } else {
+            this.revealKeyError.set(
+              error.error?.message ||
+                'Failed to retrieve license key. Please try again.'
+            );
+          }
         },
       });
   }

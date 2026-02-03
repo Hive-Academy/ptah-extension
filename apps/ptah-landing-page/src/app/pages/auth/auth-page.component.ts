@@ -7,7 +7,7 @@ import {
   OnInit,
   viewChild,
 } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 // Child Components
 import { AuthFormComponent } from './components/auth-form.component';
@@ -52,6 +52,7 @@ import { isValidEmail } from './utils/auth-validation.utils';
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: true,
   imports: [
+    RouterLink,
     AuthFormComponent,
     AuthHeaderComponent,
     AuthFooterComponent,
@@ -79,7 +80,80 @@ import { isValidEmail } from './utils/auth-validation.utils';
         ></div>
 
         <div class="relative z-10 max-w-md mx-auto w-full">
-          @if (pendingVerification()) {
+          @if (showVscodeSuccess()) {
+          <!-- VS Code Post-Signup Success Screen -->
+          <div class="flex flex-col items-center text-center gap-6 py-8">
+            <div
+              class="w-16 h-16 rounded-full bg-success/20 flex items-center justify-center"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="w-8 h-8 text-success"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <h2 class="text-2xl font-bold text-base-content">
+              Account Created Successfully!
+            </h2>
+            <div class="flex flex-col gap-3 text-base-content/70">
+              <p>
+                Check your email for your <strong>license key</strong>. It will
+                look like:
+              </p>
+              <code
+                class="bg-base-200 px-4 py-2 rounded-lg text-sm font-mono text-base-content/80"
+              >
+                ptah_lic_...
+              </code>
+              <p>
+                Copy the license key and paste it into the
+                <strong>Ptah extension</strong> in VS Code to activate your
+                account.
+              </p>
+            </div>
+            <div class="divider text-xs text-base-content/40">What's next?</div>
+            <ol
+              class="text-left text-sm text-base-content/70 space-y-2 w-full max-w-xs"
+            >
+              <li class="flex gap-2">
+                <span
+                  class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
+                  >1</span
+                >
+                <span>Check your email for the license key</span>
+              </li>
+              <li class="flex gap-2">
+                <span
+                  class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
+                  >2</span
+                >
+                <span>Go back to VS Code</span>
+              </li>
+              <li class="flex gap-2">
+                <span
+                  class="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs flex items-center justify-center font-bold"
+                  >3</span
+                >
+                <span>Paste the license key in the Ptah welcome screen</span>
+              </li>
+            </ol>
+            <a
+              routerLink="/profile"
+              class="btn btn-ghost btn-sm text-base-content/60 mt-4"
+            >
+              Or continue to your profile →
+            </a>
+          </div>
+          } @else if (pendingVerification()) {
           <!-- Email Verification Flow -->
           <!-- Messages: Errors & Success -->
           <ptah-auth-messages
@@ -200,6 +274,12 @@ export class AuthPageComponent implements OnInit {
   /** Selected plan for auto-checkout after login (from query params) */
   private readonly selectedPlan = signal<string | null>(null);
 
+  /** Source of signup (e.g., 'vscode' for VS Code extension users) */
+  private readonly source = signal<string | null>(null);
+
+  /** Whether to show VS Code post-signup success screen */
+  public readonly showVscodeSuccess = signal(false);
+
   // ============================================
   // EMAIL VERIFICATION STATE
   // ============================================
@@ -253,6 +333,12 @@ export class AuthPageComponent implements OnInit {
     }
     if (plan) {
       this.selectedPlan.set(plan);
+    }
+
+    // Capture source (e.g., 'vscode') for post-signup welcome screen
+    const source = this.route.snapshot.queryParamMap.get('source');
+    if (source) {
+      this.source.set(source);
     }
   }
 
@@ -360,6 +446,12 @@ export class AuthPageComponent implements OnInit {
   private navigateAfterAuth(): void {
     // Set auth hint so future auth checks don't make unnecessary API calls
     this.authService.setAuthHint();
+
+    // VS Code extension users: show inline success screen with license key instructions
+    if (this.source() === 'vscode') {
+      this.showVscodeSuccess.set(true);
+      return;
+    }
 
     const returnUrl = this.returnUrl();
     const plan = this.selectedPlan();

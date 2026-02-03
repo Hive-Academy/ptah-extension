@@ -109,6 +109,7 @@ interface RpcResponse<T = unknown> {
  */
 const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   'license:getStatus',
+  'license:setKey',
   'command:execute',
 ] as const;
 

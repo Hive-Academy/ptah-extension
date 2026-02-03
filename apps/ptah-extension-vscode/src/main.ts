@@ -79,8 +79,10 @@ function registerLicenseOnlyCommands(
       );
     }),
     vscode.commands.registerCommand('ptah.openSignup', () => {
-      // TODO: restore production URL: https://ptah.dev/signup
-      vscode.env.openExternal(vscode.Uri.parse('http://localhost:4200/signup'));
+      // TODO: restore production URL: https://ptah.dev/signup?source=vscode
+      vscode.env.openExternal(
+        vscode.Uri.parse('http://localhost:4200/signup?source=vscode')
+      );
     })
   );
 }
@@ -184,6 +186,86 @@ async function handleLicenseBlocking(
               type: 'rpc:response',
               ...response,
             });
+          } else if (method === 'license:setKey') {
+            // Inline license key verification from welcome screen
+            try {
+              const key = params?.licenseKey;
+              if (!key || typeof key !== 'string') {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: true,
+                  data: { success: false, error: 'License key is required' },
+                  correlationId,
+                });
+                return;
+              }
+
+              // Validate format
+              if (!/^ptah_lic_[a-f0-9]{64}$/.test(key)) {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: true,
+                  data: {
+                    success: false,
+                    error:
+                      'Invalid license key format. Keys start with ptah_lic_ followed by 64 hex characters.',
+                  },
+                  correlationId,
+                });
+                return;
+              }
+
+              // Store and verify
+              await licenseService.setLicenseKey(key);
+              const newStatus = await licenseService.verifyLicense();
+
+              if (newStatus.valid) {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: true,
+                  data: {
+                    success: true,
+                    tier: newStatus.tier,
+                    plan: newStatus.plan
+                      ? { name: newStatus.plan.name }
+                      : undefined,
+                  },
+                  correlationId,
+                });
+                // Reload window after a short delay to let the response reach the webview
+                setTimeout(
+                  () =>
+                    vscode.commands.executeCommand(
+                      'workbench.action.reloadWindow'
+                    ),
+                  1500
+                );
+              } else {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: true,
+                  data: {
+                    success: false,
+                    error:
+                      'License verification failed. Please check your key and try again.',
+                  },
+                  correlationId,
+                });
+              }
+            } catch (error) {
+              webviewView.webview.postMessage({
+                type: 'rpc:response',
+                success: false,
+                data: {
+                  success: false,
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : 'Failed to verify license key',
+                },
+                correlationId,
+              });
+            }
           } else if (method === 'command:execute') {
             // Execute ptah.* commands only (security: same check as CommandRpcHandlers)
             try {

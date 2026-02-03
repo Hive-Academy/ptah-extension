@@ -205,6 +205,10 @@ export class WebviewMessageHandlerService {
           await this.handleSdkPermissionResponse(webviewId, message);
           return;
 
+        case MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE:
+          await this.handleAskUserQuestionResponse(webviewId, message);
+          return;
+
         default:
           this.logger.debug(`[${webviewId}] Unhandled message type`, {
             type: message.type,
@@ -308,6 +312,46 @@ export class WebviewMessageHandlerService {
     } catch (error) {
       this.logger.error(
         `[${webviewId}] Failed to process MCP permission response`,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Handle AskUserQuestion responses (SDK clarifying questions)
+   *
+   * TASK_2025_136: Routes user answers back to SdkPermissionHandler
+   * - Triggered by: User answering questions in webview UI
+   * - Message type: MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE ('ask-user-question:response')
+   * - Handler: SdkPermissionHandler.handleQuestionResponse()
+   */
+  private async handleAskUserQuestionResponse(
+    webviewId: string,
+    message: any
+  ): Promise<void> {
+    try {
+      const { container } = await import('tsyringe');
+      const payload = message.payload;
+
+      const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
+      if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
+        const permissionHandler = container.resolve<ISdkPermissionHandler>(
+          SDK_PERMISSION_HANDLER
+        );
+        permissionHandler.handleQuestionResponse({
+          id: payload.id,
+          answers: payload.answers,
+        });
+        this.logger.info(`[${webviewId}] AskUserQuestion response processed`, {
+          requestId: payload.id,
+          answerCount: Object.keys(payload.answers || {}).length,
+        });
+      } else {
+        this.logger.warn(`[${webviewId}] SdkPermissionHandler not registered`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `[${webviewId}] Failed to process AskUserQuestion response`,
         error instanceof Error ? error : new Error(String(error))
       );
     }

@@ -9,6 +9,7 @@
  *
  * TASK_2025_091: Added OpenRouter as highest-priority auth method
  * TASK_2025_129 Batch 3: Generalized to support multiple Anthropic-compatible providers
+ * TASK_2025_134: Clean Slate pattern - centralized env cleanup before each auth configuration
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -21,6 +22,7 @@ import {
 import {
   getAnthropicProvider,
   getProviderBaseUrl,
+  getProviderAuthEnvVar,
   DEFAULT_PROVIDER_ID,
 } from './anthropic-provider-registry';
 import { ProviderModelsService } from '../provider-models.service';
@@ -34,6 +36,22 @@ export interface AuthResult {
 
 export interface AuthConfig {
   method: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+}
+
+/** All auth-related environment variable names (single source of truth) */
+const AUTH_ENV_VARS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+] as const;
+
+/** Snapshot of env values captured before cleanup, used for shell fallback detection */
+interface EnvSnapshot {
+  ANTHROPIC_API_KEY: string | undefined;
+  ANTHROPIC_BASE_URL: string | undefined;
+  ANTHROPIC_AUTH_TOKEN: string | undefined;
+  CLAUDE_CODE_OAUTH_TOKEN: string | undefined;
 }
 
 /**
@@ -53,9 +71,22 @@ export class AuthManager {
   /**
    * Configure authentication for SDK
    * Returns auth status and details for logging
+   *
+   * Uses the "Clean Slate" pattern:
+   * 1. Capture env snapshot (for shell fallback detection)
+   * 2. Clear ALL auth + tier env vars (single source of truth)
+   * 3. Run selected configure method (only sets its own vars)
+   * 4. Log env summary (boolean presence, no secrets)
    */
   async configureAuthentication(authMethod: string): Promise<AuthResult> {
     this.logger.debug(`[AuthManager] Configuring auth method: ${authMethod}`);
+
+    // Step 1: Capture env snapshot before cleanup (for shell fallback)
+    const envSnapshot = this.captureEnvSnapshot();
+
+    // Step 2: Clean slate - clear ALL auth and tier env vars
+    this.clearAllAuthEnvVars();
+    this.providerModels.clearAllTierEnvVars();
 
     let authConfigured = false;
     const authDetails: string[] = [];
@@ -71,6 +102,7 @@ export class AuthManager {
         this.logger.info(
           `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
         );
+        this.logEnvSummary();
         return { configured: true, details: authDetails };
       }
     }
@@ -79,7 +111,7 @@ export class AuthManager {
     // NOTE: As of SDK v0.1.8+, CLAUDE_CODE_OAUTH_TOKEN is supported and will use your subscription
     // Get token via: claude setup-token
     if (authMethod === 'oauth' || authMethod === 'auto') {
-      const oauthResult = await this.configureOAuthToken();
+      const oauthResult = await this.configureOAuthToken(envSnapshot);
       if (oauthResult.configured) {
         authConfigured = true;
         authDetails.push(...oauthResult.details);
@@ -92,7 +124,7 @@ export class AuthManager {
     const hasOAuthToken = authDetails.some((d) => d.includes('OAuth token'));
 
     if ((authMethod === 'apiKey' || authMethod === 'auto') && !hasOAuthToken) {
-      const apiKeyResult = await this.configureAPIKey();
+      const apiKeyResult = await this.configureAPIKey(envSnapshot);
       if (apiKeyResult.configured) {
         authConfigured = true;
         authDetails.push(...apiKeyResult.details);
@@ -117,6 +149,7 @@ export class AuthManager {
       this.logger.error(
         '[AuthManager] Option 3 (API Key): Get from https://console.anthropic.com/settings/keys'
       );
+      this.logEnvSummary();
       return {
         configured: false,
         details: [],
@@ -128,6 +161,7 @@ export class AuthManager {
     this.logger.info(
       `[AuthManager] Authentication configured: ${authDetails.join(', ')}`
     );
+    this.logEnvSummary();
 
     return {
       configured: true,
@@ -137,11 +171,13 @@ export class AuthManager {
 
   /**
    * Configure OAuth token authentication
-   * Reads from SecretStorage (primary) or environment (fallback)
+   * Reads from SecretStorage (primary) or env snapshot (fallback)
    */
-  private async configureOAuthToken(): Promise<AuthResult> {
+  private async configureOAuthToken(
+    envSnapshot: EnvSnapshot
+  ): Promise<AuthResult> {
     const oauthToken = await this.authSecrets.getCredential('oauthToken');
-    const envOAuthToken = process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+    const envOAuthToken = envSnapshot.CLAUDE_CODE_OAUTH_TOKEN;
     const details: string[] = [];
 
     if (oauthToken?.trim()) {
@@ -159,24 +195,10 @@ export class AuthManager {
         );
       }
 
-      // CRITICAL: When using OAuth token, we must REMOVE provider and API key env vars
-      // The SDK prioritizes API key over OAuth token, so we need to clear it
-      // Also clear provider routing to prevent stale ANTHROPIC_BASE_URL from a previous provider session
-      delete process.env['ANTHROPIC_API_KEY'];
-      delete process.env['ANTHROPIC_BASE_URL'];
-      delete process.env['ANTHROPIC_AUTH_TOKEN'];
-
-      // Clear stale tier env vars from previous provider session (TASK_2025_132)
-      this.providerModels.clearAllTierEnvVars();
-
-      // Set the OAuth token
       process.env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken.trim();
 
       this.logger.info(
         '[AuthManager] Using OAuth token from Claude Max/Pro subscription'
-      );
-      this.logger.info(
-        '[AuthManager] Removed ANTHROPIC_API_KEY to prioritize subscription auth'
       );
 
       details.push(
@@ -193,19 +215,11 @@ export class AuthManager {
         `[AuthManager] Found OAuth token in environment (length: ${tokenLength}, OAuth format: ${isOAuthFormat})`
       );
 
-      // Remove API key and provider routing to prioritize OAuth token
-      delete process.env['ANTHROPIC_API_KEY'];
-      delete process.env['ANTHROPIC_BASE_URL'];
-      delete process.env['ANTHROPIC_AUTH_TOKEN'];
-
-      // Clear stale tier env vars from previous provider session (TASK_2025_132)
-      this.providerModels.clearAllTierEnvVars();
+      // Restore the token from snapshot (it was cleared in clean slate)
+      process.env['CLAUDE_CODE_OAUTH_TOKEN'] = envOAuthToken;
 
       this.logger.info(
         '[AuthManager] Using OAuth token from environment (subscription mode)'
-      );
-      this.logger.info(
-        '[AuthManager] Removed ANTHROPIC_API_KEY to prioritize subscription auth'
       );
 
       details.push(
@@ -226,14 +240,13 @@ export class AuthManager {
    * Configure Anthropic-compatible provider authentication (TASK_2025_129 Batch 3)
    *
    * Supports multiple providers that implement the Anthropic API protocol:
-   * - OpenRouter: Multi-model access (200+ models)
-   * - Moonshot (Kimi): Anthropic-compatible endpoint
-   * - Z.AI (GLM): Anthropic-compatible endpoint
+   * - OpenRouter: Multi-model access (200+ models) — ANTHROPIC_AUTH_TOKEN (Bearer)
+   * - Moonshot (Kimi): Anthropic-compatible endpoint — ANTHROPIC_AUTH_TOKEN (Bearer)
+   * - Z.AI (GLM): Anthropic-compatible endpoint — ANTHROPIC_AUTH_TOKEN (Bearer)
    *
    * Environment variables set:
    * - ANTHROPIC_BASE_URL: Provider's API endpoint (from registry)
-   * - ANTHROPIC_AUTH_TOKEN: Provider's API key
-   * - ANTHROPIC_API_KEY: Empty (must be cleared to prevent conflicts)
+   * - Provider's authEnvVar: Either ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY
    *
    * @see https://openrouter.ai/docs/guides/claude-code-integration
    * @see https://platform.moonshot.ai/docs/guide/agent-support.en-US
@@ -254,6 +267,7 @@ export class AuthManager {
       const provider = getAnthropicProvider(providerId);
       const providerName = provider?.name ?? providerId;
       const baseUrl = getProviderBaseUrl(providerId);
+      const authEnvVar = getProviderAuthEnvVar(providerId);
 
       const keyLength = providerKey.length;
       const keyPrefix = providerKey.substring(0, 10);
@@ -276,13 +290,10 @@ export class AuthManager {
         );
       }
 
-      // Configure environment for Anthropic-compatible provider
+      // Set provider-specific env vars only
+      // authEnvVar is per-provider: ANTHROPIC_AUTH_TOKEN (Bearer) or ANTHROPIC_API_KEY (X-API-Key)
       process.env['ANTHROPIC_BASE_URL'] = baseUrl;
-      process.env['ANTHROPIC_AUTH_TOKEN'] = providerKey.trim();
-
-      // MUST clear API key and OAuth token to prevent conflicts
-      process.env['ANTHROPIC_API_KEY'] = '';
-      delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
+      process.env[authEnvVar] = providerKey.trim();
 
       // Apply persisted tier mappings for this provider (TASK_2025_132)
       this.providerModels.switchActiveProvider(providerId);
@@ -290,9 +301,8 @@ export class AuthManager {
       this.logger.info(
         `[AuthManager] Using ${providerName} (routing via ${baseUrl})`
       );
-      this.logger.info(`[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}`);
       this.logger.info(
-        '[AuthManager] Cleared ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN'
+        `[AuthManager] Set ANTHROPIC_BASE_URL=${baseUrl}, ${authEnvVar}=<set>`
       );
 
       details.push(
@@ -311,11 +321,11 @@ export class AuthManager {
 
   /**
    * Configure API key authentication
-   * Reads from SecretStorage (primary) or environment (fallback)
+   * Reads from SecretStorage (primary) or env snapshot (fallback)
    */
-  private async configureAPIKey(): Promise<AuthResult> {
+  private async configureAPIKey(envSnapshot: EnvSnapshot): Promise<AuthResult> {
     const apiKey = await this.authSecrets.getCredential('apiKey');
-    const envApiKey = process.env['ANTHROPIC_API_KEY'];
+    const envApiKey = envSnapshot.ANTHROPIC_API_KEY;
     const details: string[] = [];
 
     if (apiKey?.trim()) {
@@ -335,13 +345,6 @@ export class AuthManager {
           '[AuthManager] Get valid API keys from: https://console.anthropic.com/settings/keys'
         );
       }
-
-      // Clear provider routing to prevent stale ANTHROPIC_BASE_URL from a previous provider session
-      delete process.env['ANTHROPIC_BASE_URL'];
-      delete process.env['ANTHROPIC_AUTH_TOKEN'];
-
-      // Clear stale tier env vars from previous provider session (TASK_2025_132)
-      this.providerModels.clearAllTierEnvVars();
 
       process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
       details.push(
@@ -364,6 +367,9 @@ export class AuthManager {
         );
       }
 
+      // Restore the key from snapshot (it was cleared in clean slate)
+      process.env['ANTHROPIC_API_KEY'] = envApiKey;
+
       details.push(
         `API key from environment (pay-per-token, format ${
           isValidFormat ? 'valid' : 'INVALID'
@@ -380,15 +386,49 @@ export class AuthManager {
 
   /**
    * Clear all authentication environment variables
+   * Delegates to centralized cleanup methods
    */
   clearAuthentication(): void {
-    delete process.env['ANTHROPIC_API_KEY'];
-    delete process.env['CLAUDE_CODE_OAUTH_TOKEN'];
-    // TASK_2025_091: Clear OpenRouter environment variables
-    delete process.env['ANTHROPIC_BASE_URL'];
-    delete process.env['ANTHROPIC_AUTH_TOKEN'];
+    this.clearAllAuthEnvVars();
+    this.providerModels.clearAllTierEnvVars();
     this.logger.debug(
       '[AuthManager] Cleared authentication environment variables'
     );
+  }
+
+  /**
+   * Capture current env values before cleanup (for shell fallback detection)
+   * When users set env vars in their shell (e.g. ANTHROPIC_API_KEY),
+   * we need to detect them even after the clean slate wipe.
+   */
+  private captureEnvSnapshot(): EnvSnapshot {
+    return {
+      ANTHROPIC_API_KEY: process.env['ANTHROPIC_API_KEY'],
+      ANTHROPIC_BASE_URL: process.env['ANTHROPIC_BASE_URL'],
+      ANTHROPIC_AUTH_TOKEN: process.env['ANTHROPIC_AUTH_TOKEN'],
+      CLAUDE_CODE_OAUTH_TOKEN: process.env['CLAUDE_CODE_OAUTH_TOKEN'],
+    };
+  }
+
+  /**
+   * Delete ALL auth env vars - single source of truth for cleanup
+   * Called once at the top of configureAuthentication() to ensure a clean slate.
+   */
+  private clearAllAuthEnvVars(): void {
+    for (const varName of AUTH_ENV_VARS) {
+      delete process.env[varName];
+    }
+  }
+
+  /**
+   * Log boolean presence of all auth + tier env vars (no secrets)
+   * Useful for debugging which auth method is active after configuration.
+   */
+  private logEnvSummary(): void {
+    const authSummary = AUTH_ENV_VARS.map(
+      (v) => `${v}=${process.env[v] ? 'set' : 'unset'}`
+    ).join(', ');
+
+    this.logger.debug(`[AuthManager] Env summary: ${authSummary}`);
   }
 }

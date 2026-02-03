@@ -7,6 +7,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
   Key,
@@ -15,9 +16,14 @@ import {
   GitBranch,
   Bot,
   UserPlus,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-angular';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
-import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
+import type {
+  LicenseGetStatusResponse,
+  LicenseSetKeyResponse,
+} from '@ptah-extension/shared';
 
 /**
  * Feature highlight item displayed in the welcome page
@@ -46,7 +52,7 @@ interface FeatureHighlight {
 @Component({
   selector: 'ptah-auth-welcome',
   standalone: true,
-  imports: [NgOptimizedImage, LucideAngularModule],
+  imports: [NgOptimizedImage, FormsModule, LucideAngularModule],
   templateUrl: './welcome.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -61,6 +67,8 @@ export class WelcomeComponent implements OnInit {
   readonly GitBranchIcon = GitBranch;
   readonly BotIcon = Bot;
   readonly UserPlusIcon = UserPlus;
+  readonly Loader2Icon = Loader2;
+  readonly CheckCircle2Icon = CheckCircle2;
 
   // State signals
   readonly licenseReason = signal<LicenseGetStatusResponse['reason'] | null>(
@@ -68,6 +76,18 @@ export class WelcomeComponent implements OnInit {
   );
   readonly isLoadingStatus = signal(true);
   readonly errorMessage = signal<string | null>(null);
+
+  // Inline license key input state
+  readonly showLicenseInput = signal(false);
+  readonly licenseKeyInput = signal('');
+  readonly isVerifyingKey = signal(false);
+  readonly keyError = signal<string | null>(null);
+  readonly keySuccess = signal(false);
+
+  // Format validation: ptah_lic_ followed by 64 hex characters
+  readonly isKeyFormatValid = computed(() => {
+    return /^ptah_lic_[a-f0-9]{64}$/.test(this.licenseKeyInput());
+  });
 
   // Computed signals for derived state (per codebase convention)
   readonly headline = computed(() => {
@@ -163,23 +183,58 @@ export class WelcomeComponent implements OnInit {
   }
 
   /**
-   * Trigger license key entry via VS Code command
-   * Uses RPC to execute VS Code command from webview
-   * TASK_2025_126: Fixed to use command:execute RPC instead of raw postMessage
+   * Toggle inline license key input visibility
    */
-  async enterLicenseKey(): Promise<void> {
+  toggleLicenseInput(): void {
+    this.showLicenseInput.update((v) => !v);
+    this.keyError.set(null);
+    this.keySuccess.set(false);
+  }
+
+  /**
+   * Submit license key for inline verification via license:setKey RPC
+   * Validates format client-side, then calls backend for server verification
+   */
+  async submitLicenseKey(): Promise<void> {
+    const key = this.licenseKeyInput().trim();
+
+    // Client-side format validation
+    if (!key) {
+      this.keyError.set('Please enter your license key.');
+      return;
+    }
+    if (!/^ptah_lic_[a-f0-9]{64}$/.test(key)) {
+      this.keyError.set(
+        'Invalid format. License keys start with ptah_lic_ followed by 64 characters.'
+      );
+      return;
+    }
+
+    this.keyError.set(null);
+    this.isVerifyingKey.set(true);
+
     try {
-      await this.rpcService.call('command:execute', {
-        command: 'ptah.enterLicenseKey',
+      const result = await this.rpcService.call('license:setKey', {
+        licenseKey: key,
       });
+
+      if (result.isSuccess() && result.data) {
+        const data = result.data as LicenseSetKeyResponse;
+        if (data.success) {
+          this.keySuccess.set(true);
+          this.keyError.set(null);
+          // Window will reload automatically from backend
+        } else {
+          this.keyError.set(data.error || 'License verification failed.');
+        }
+      } else {
+        this.keyError.set('Failed to verify license key. Please try again.');
+      }
     } catch (error) {
-      console.error(
-        '[WelcomeComponent] Failed to execute enterLicenseKey:',
-        error
-      );
-      this.errorMessage.set(
-        'Failed to open license key input. Please try again.'
-      );
+      console.error('[WelcomeComponent] Failed to verify license key:', error);
+      this.keyError.set('Failed to verify license key. Please try again.');
+    } finally {
+      this.isVerifyingKey.set(false);
     }
   }
 

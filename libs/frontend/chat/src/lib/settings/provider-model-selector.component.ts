@@ -557,6 +557,10 @@ export class ProviderModelSelectorComponent implements OnInit {
         const data = result.data as ProviderListModelsResult;
         this.availableModels.set(data.models);
         this.isStatic.set(data.isStatic ?? false);
+        // Handle soft errors (auth failures returned as successful RPC with error field)
+        if (data.error) {
+          this.error.set(data.error);
+        }
       } else {
         this.error.set(result.error || 'Failed to load models');
       }

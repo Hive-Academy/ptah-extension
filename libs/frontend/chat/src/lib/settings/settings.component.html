@@ -202,9 +202,12 @@
 
         <!-- Provider Model Mapping - shown when provider auth + key configured (TASK_2025_133) -->
         @if (showProviderModels()) {
-        <div class="divider my-2 text-[10px] opacity-50">Provider Model Mapping</div>
+        <div class="divider my-2 text-[10px] opacity-50">
+          Provider Model Mapping
+        </div>
         <p class="text-xs text-base-content/70 mb-3">
-          Override default Anthropic model aliases with models from your provider.
+          Override default Anthropic model aliases with models from your
+          provider.
         </p>
         <ptah-provider-model-selector
           [providerId]="authState.selectedProviderId()"

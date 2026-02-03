@@ -54,7 +54,8 @@
   </div>
 
   <!-- Anthropic-Compatible Provider Input (TASK_2025_129 Batch 3) -->
-  @if (authState.authMethod() === 'openrouter' || authState.authMethod() === 'auto') {
+  @if (authState.authMethod() === 'openrouter' || authState.authMethod() ===
+  'auto') {
   <!-- Provider Selection Dropdown -->
   @if (authState.availableProviders().length > 0) {
   <div class="form-control">
@@ -145,8 +146,7 @@
       placeholder="Enter new key to replace..."
       [attr.aria-required]="authState.authMethod() === 'openrouter'"
     />
-    }
-    } @else {
+    } } @else {
     <input
       id="providerKey"
       type="password"
@@ -181,7 +181,8 @@
   }
 
   <!-- OAuth Token Input -->
-  @if (authState.authMethod() === 'oauth' || authState.authMethod() === 'auto') {
+  @if (authState.authMethod() === 'oauth' || authState.authMethod() === 'auto')
+  {
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="oauthToken">
       <span class="label-text text-xs font-medium">Claude OAuth Token</span>
@@ -247,8 +248,7 @@
       placeholder="Enter new token to replace..."
       [attr.aria-required]="authState.authMethod() === 'oauth'"
     />
-    }
-    } @else {
+    } } @else {
     <input
       id="oauthToken"
       type="password"
@@ -275,7 +275,8 @@
   }
 
   <!-- API Key Input -->
-  @if (authState.authMethod() === 'apiKey' || authState.authMethod() === 'auto') {
+  @if (authState.authMethod() === 'apiKey' || authState.authMethod() === 'auto')
+  {
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="apiKey">
       <span class="label-text text-xs font-medium">Anthropic API Key</span>
@@ -341,8 +342,7 @@
       placeholder="Enter new API key to replace..."
       [attr.aria-required]="authState.authMethod() === 'apiKey'"
     />
-    }
-    } @else {
+    } } @else {
     <input
       id="apiKey"
       type="password"
@@ -396,7 +396,8 @@
   </div>
 
   <!-- Success Message -->
-  @if (authState.connectionStatus() === 'success' && authState.successMessage()) {
+  @if (authState.connectionStatus() === 'success' && authState.successMessage())
+  {
   <div class="alert alert-success py-2 px-3" role="status" aria-live="polite">
     <lucide-angular [img]="CheckCircleIcon" class="w-4 h-4" />
     <span class="text-xs flex-1">{{ authState.successMessage() }}</span>
@@ -454,7 +455,8 @@
   }
 
   <!-- Testing In Progress (with success message from save) -->
-  @if (authState.connectionStatus() === 'testing' && authState.successMessage()) {
+  @if (authState.connectionStatus() === 'testing' && authState.successMessage())
+  {
   <div class="alert alert-info py-2 px-3" role="status" aria-live="polite">
     <lucide-angular [img]="Loader2Icon" class="w-4 h-4 animate-spin" />
     <span class="text-xs">{{ authState.successMessage() }}</span>

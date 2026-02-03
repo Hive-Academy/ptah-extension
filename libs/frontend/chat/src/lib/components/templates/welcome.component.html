@@ -65,18 +65,54 @@
           Create Account & Start Free Trial
         </button>
         <p class="text-xs text-base-content/50 text-center">
-          No credit card required
+          After signing up, you'll receive a license key via email.
         </p>
 
-        <!-- Secondary CTA: Already have a license key -->
-        <button
-          class="btn btn-ghost btn-sm gap-1 text-base-content/60"
-          (click)="enterLicenseKey()"
-          aria-label="Enter existing license key"
-        >
-          <lucide-angular [img]="KeyIcon" class="w-4 h-4" />
-          I already have a license key
-        </button>
+        <!-- Divider -->
+        <div class="divider text-xs text-base-content/40 my-1">
+          Already have a license key?
+        </div>
+
+        <!-- Inline license key input (always visible) -->
+        <div class="flex flex-col gap-2 w-full">
+          <div class="join w-full">
+            <input
+              type="password"
+              class="input input-bordered join-item w-full text-sm"
+              placeholder="ptah_lic_..."
+              [ngModel]="licenseKeyInput()"
+              (ngModelChange)="licenseKeyInput.set($event)"
+              [disabled]="isVerifyingKey() || keySuccess()"
+              (keydown.enter)="submitLicenseKey()"
+              aria-label="License key"
+            />
+            <button
+              class="btn btn-primary join-item gap-1"
+              (click)="submitLicenseKey()"
+              [disabled]="
+                isVerifyingKey() || keySuccess() || !licenseKeyInput()
+              "
+              aria-label="Activate license"
+            >
+              @if (isVerifyingKey()) {
+              <lucide-angular
+                [img]="Loader2Icon"
+                class="w-4 h-4 animate-spin"
+              />
+              } @else if (keySuccess()) {
+              <lucide-angular [img]="CheckCircle2Icon" class="w-4 h-4" />
+              } @else {
+              <lucide-angular [img]="KeyIcon" class="w-4 h-4" />
+              }
+              {{ keySuccess() ? 'Activated' : 'Activate' }}
+            </button>
+          </div>
+          @if (keyError()) {
+          <p class="text-xs text-error">{{ keyError() }}</p>
+          } @if (keySuccess()) {
+          <p class="text-xs text-success">License activated! Reloading...</p>
+          }
+        </div>
       </div>
       } @else {
       <!-- Action Buttons: Returning user (expired/trial_ended) -->
@@ -95,18 +131,51 @@
           }}
         </button>
 
-        <!-- Secondary CTA: Enter License Key -->
-        <button
-          class="btn btn-ghost btn-sm gap-1 text-base-content/60"
-          (click)="enterLicenseKey()"
-          aria-label="Enter license key"
-        >
-          <lucide-angular [img]="KeyIcon" class="w-4 h-4" />
-          Enter License Key
-        </button>
+        <!-- Inline license key input (always visible for returning users) -->
+        <div class="flex flex-col gap-2 w-full mt-2">
+          <p class="text-xs text-base-content/60 text-center">
+            Have a new license key? Enter it below.
+          </p>
+          <div class="join w-full">
+            <input
+              type="password"
+              class="input input-bordered join-item w-full text-sm"
+              placeholder="ptah_lic_..."
+              [ngModel]="licenseKeyInput()"
+              (ngModelChange)="licenseKeyInput.set($event)"
+              [disabled]="isVerifyingKey() || keySuccess()"
+              (keydown.enter)="submitLicenseKey()"
+              aria-label="License key"
+            />
+            <button
+              class="btn btn-primary join-item gap-1"
+              (click)="submitLicenseKey()"
+              [disabled]="
+                isVerifyingKey() || keySuccess() || !licenseKeyInput()
+              "
+              aria-label="Activate license"
+            >
+              @if (isVerifyingKey()) {
+              <lucide-angular
+                [img]="Loader2Icon"
+                class="w-4 h-4 animate-spin"
+              />
+              } @else if (keySuccess()) {
+              <lucide-angular [img]="CheckCircle2Icon" class="w-4 h-4" />
+              } @else {
+              <lucide-angular [img]="KeyIcon" class="w-4 h-4" />
+              }
+              {{ keySuccess() ? 'Activated' : 'Activate' }}
+            </button>
+          </div>
+          @if (keyError()) {
+          <p class="text-xs text-error">{{ keyError() }}</p>
+          } @if (keySuccess()) {
+          <p class="text-xs text-success">License activated! Reloading...</p>
+          }
+        </div>
       </div>
-      }
-      }
+      } }
 
       <!-- Error State (shown when license status fetch fails) -->
       @if (errorMessage()) {

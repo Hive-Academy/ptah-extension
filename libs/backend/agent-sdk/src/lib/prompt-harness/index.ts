@@ -38,6 +38,8 @@ export {
   calculateTotalTokens,
 } from './power-up-registry';
 
-// Future exports (Batch 2, 3):
-// export { UserPromptStore } from './user-prompt-store';
+// Storage layer (Batch 2)
+export { UserPromptStore } from './user-prompt-store';
+
+// Future exports (Batch 3):
 // export { PromptHarnessService } from './prompt-harness.service';

@@ -15,6 +15,7 @@ import { LucideAngularModule, Bell } from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
 import { ChatInputComponent } from '../molecules/chat-input.component';
 import { PermissionBadgeComponent } from '../molecules/permission-badge.component';
+import { QuestionCardComponent } from '../molecules/question-card.component';
 import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component';
 import { SessionStatsSummaryComponent } from '../molecules/session-stats-summary.component';
 // TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection
@@ -57,6 +58,7 @@ import {
     MessageBubbleComponent,
     ChatInputComponent,
     PermissionBadgeComponent,
+    QuestionCardComponent,
     ChatEmptyStateComponent,
     SessionStatsSummaryComponent,
     // TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection

@@ -51,6 +51,9 @@ export const SDK_TOKENS = {
   SDK_JSONL_READER: 'SdkJsonlReader',
   SDK_AGENT_CORRELATION: 'SdkAgentCorrelation',
   SDK_SESSION_REPLAY: 'SdkSessionReplay',
+
+  // Prompt harness services (TASK_2025_135)
+  SDK_USER_PROMPT_STORE: 'SdkUserPromptStore',
 } as const;
 
 /**

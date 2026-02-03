@@ -408,6 +408,27 @@ export class VSCodeService {
         }
       }
 
+      // Handle AskUserQuestion request from SDK (TASK_2025_136)
+      // Routes to PermissionHandlerService via ChatStore for question UI display
+      if (message.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST) {
+        console.log(
+          '[VSCodeService] AskUserQuestion request received:',
+          message.payload
+        );
+        if (message.payload && this.chatStore) {
+          // Route to PermissionHandlerService via ChatStore
+          this.chatStore.handleQuestionRequest(message.payload);
+        } else if (!message.payload) {
+          console.warn(
+            '[VSCodeService] ask-user-question:request received but payload is undefined!'
+          );
+        } else {
+          console.warn(
+            '[VSCodeService] ask-user-question:request received but ChatStore not registered!'
+          );
+        }
+      }
+
       // Handle backend-initiated view navigation (e.g., auth onboarding -> settings)
       // Uses handleViewSwitch() which bypasses canSwitchViews() intentionally,
       // since the backend is authoritative for navigation commands.

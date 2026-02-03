@@ -96,10 +96,10 @@ export class ProviderRpcHandlers {
       ProviderListModelsParams,
       ProviderListModelsResult
     >('provider:listModels', async (params) => {
-      try {
-        const validated = ListModelsSchema.parse(params);
-        const providerId = this.resolveProviderId(validated.providerId);
+      const validated = ListModelsSchema.parse(params);
+      const providerId = this.resolveProviderId(validated.providerId);
 
+      try {
         this.logger.debug('RPC: provider:listModels called', {
           providerId,
           toolUseOnly: validated.toolUseOnly,
@@ -139,6 +139,30 @@ export class ProviderRpcHandlers {
 
         return result;
       } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+
+        // Auth failures: return empty models + error message instead of throwing
+        if (
+          errorMsg.includes('401') ||
+          errorMsg.includes('403') ||
+          errorMsg.includes('Unauthorized') ||
+          errorMsg.includes('Forbidden') ||
+          errorMsg.includes('invalid or expired')
+        ) {
+          const provider = getAnthropicProvider(providerId);
+          const providerName = provider?.name ?? providerId;
+          this.logger.warn(
+            'RPC: provider:listModels - auth failed, returning empty result',
+            { providerId, error: errorMsg }
+          );
+          return {
+            models: [],
+            totalCount: 0,
+            isStatic: false,
+            error: `API key is invalid or expired. Delete and re-enter your ${providerName} key.`,
+          };
+        }
+
         this.logger.error(
           'RPC: provider:listModels failed',
           error instanceof Error ? error : new Error(String(error))

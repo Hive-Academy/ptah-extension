@@ -74,6 +74,16 @@
     (responded)="chatStore.handlePermissionResponse($event)"
   />
 
+  <!-- AskUserQuestion Cards (TASK_2025_136) -->
+  @for (questionReq of chatStore.questionRequests(); track questionReq.id) {
+  <div class="px-2 py-1">
+    <ptah-question-card
+      [request]="questionReq"
+      (answered)="chatStore.handleQuestionResponse($event)"
+    />
+  </div>
+  }
+
   <!-- Queued Content Indicator -->
   @if (chatStore.activeTab()?.queuedContent) {
   <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">

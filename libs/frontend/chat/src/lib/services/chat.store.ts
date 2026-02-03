@@ -139,6 +139,8 @@ export class ChatStore {
   readonly permissionRequests = this.permissionHandler.permissionRequests;
   // permissionRequestsByToolId - DELETED in TASK_2025_078 (use getPermissionForTool() method)
   readonly unmatchedPermissions = this.permissionHandler.unmatchedPermissions;
+  // TASK_2025_136: Question requests for AskUserQuestion tool
+  readonly questionRequests = this.permissionHandler.questionRequests;
 
   // Resumable subagents signals (TASK_2025_103)
   private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
@@ -719,6 +721,22 @@ export class ChatStore {
    */
   handlePermissionResponse(response: PermissionResponse): void {
     this.permissionHandler.handlePermissionResponse(response);
+  }
+
+  /**
+   * Handle AskUserQuestion request from backend (TASK_2025_136)
+   * Delegates to PermissionHandlerService
+   */
+  handleQuestionRequest(request: any): void {
+    this.permissionHandler.handleQuestionRequest(request);
+  }
+
+  /**
+   * Handle user response to AskUserQuestion request (TASK_2025_136)
+   * Delegates to PermissionHandlerService
+   */
+  handleQuestionResponse(response: any): void {
+    this.permissionHandler.handleQuestionResponse(response);
   }
 
   /**

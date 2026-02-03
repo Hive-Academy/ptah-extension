@@ -6,6 +6,7 @@ import {
   UseGuards,
   Req,
   Inject,
+  Logger,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -25,6 +26,8 @@ import { getPlanConfig, PlanName, PLANS } from '../../config/plans.config';
  */
 @Controller('v1/licenses')
 export class LicenseController {
+  private readonly logger = new Logger(LicenseController.name);
+
   constructor(
     private readonly licenseService: LicenseService,
     private readonly prisma: PrismaService
@@ -196,6 +199,79 @@ export class LicenseController {
             canceledAt: subscription.canceledAt?.toISOString() || null,
           }
         : null,
+    };
+  }
+
+  /**
+   * Reveal current user's license key
+   *
+   * POST /api/v1/licenses/me/reveal-key
+   *
+   * Authentication: Required (ptah_auth JWT cookie)
+   * Rate Limit: 3 requests per minute (strict - sensitive data)
+   * Used by: Customer portal profile page "Get License Key" button
+   *
+   * @param req - Express request with authenticated user
+   * @returns License key and plan on success, error message on failure
+   *
+   * Response (success):
+   * {
+   *   success: true,
+   *   licenseKey: "ptah_lic_abc123...",
+   *   plan: "pro"
+   * }
+   *
+   * Response (no active license):
+   * {
+   *   success: false,
+   *   message: "No active license found"
+   * }
+   *
+   * Security:
+   * - Requires JWT authentication via JwtAuthGuard
+   * - Strict rate limiting (3 req/min) to prevent abuse
+   * - POST method to avoid URL/cache/history leakage
+   * - All access events logged for audit trail
+   */
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('me/reveal-key')
+  @UseGuards(JwtAuthGuard)
+  async revealMyLicenseKey(@Req() req: Request) {
+    const user = req.user as { id: string; email: string };
+
+    const license = await this.prisma.license.findFirst({
+      where: {
+        userId: user.id,
+        status: 'active',
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      select: {
+        id: true,
+        licenseKey: true,
+        plan: true,
+      },
+    });
+
+    if (!license) {
+      this.logger.warn(
+        `License key reveal denied: userId=${user.id}, reason=no_active_license`
+      );
+      return {
+        success: false,
+        message: 'No active license found',
+      };
+    }
+
+    this.logger.log(
+      `License key revealed: userId=${user.id}, licenseId=${license.id}, plan=${license.plan}`
+    );
+
+    return {
+      success: true,
+      licenseKey: license.licenseKey,
+      plan: license.plan,
     };
   }
 }

@@ -18,6 +18,7 @@ import type {
   SubagentQueryParams,
   SubagentQueryResult,
 } from './subagent-registry.types';
+import type { AgentRecommendation } from './setup-wizard.types';
 
 // ============================================================
 // Chat RPC Types
@@ -528,6 +529,8 @@ export interface ProviderListModelsResult {
   totalCount: number;
   /** Whether the model list is static (no Refresh needed) */
   isStatic?: boolean;
+  /** Error message when models couldn't be loaded (e.g., auth failure) */
+  error?: string;
 }
 
 /** Parameters for provider:setModelTier RPC method */
@@ -622,6 +625,30 @@ export interface SetupWizardLaunchResponse {
   success: boolean;
 }
 
+/** Parameters for wizard:deep-analyze RPC method */
+export type WizardDeepAnalyzeParams = Record<string, never>;
+
+/**
+ * Response from wizard:deep-analyze RPC method
+ *
+ * TASK_2025_111: Deep project analysis result
+ * Returns the full DeepProjectAnalysis from agent-generation.
+ * Using 'unknown' here to avoid coupling shared types to agent-generation.
+ * Frontend components should type-cast based on their needs.
+ */
+export type WizardDeepAnalyzeResponse = unknown;
+
+/** Parameters for wizard:recommend-agents RPC method */
+export type WizardRecommendAgentsParams = unknown; // DeepProjectAnalysis input
+
+/**
+ * Response from wizard:recommend-agents RPC method
+ *
+ * TASK_2025_111: Agent recommendations based on project analysis
+ * Returns array of AgentRecommendation (from setup-wizard.types.ts)
+ */
+export type WizardRecommendAgentsResponse = AgentRecommendation[];
+
 // ============================================================
 // License RPC Types
 // ============================================================
@@ -676,6 +703,19 @@ export interface LicenseGetStatusResponse {
     firstName: string | null;
     lastName: string | null;
   };
+}
+
+/** Parameters for license:setKey RPC method */
+export interface LicenseSetKeyParams {
+  licenseKey: string;
+}
+
+/** Response from license:setKey RPC method */
+export interface LicenseSetKeyResponse {
+  success: boolean;
+  tier?: string;
+  plan?: { name: string };
+  error?: string;
 }
 
 // ============================================================
@@ -868,11 +908,23 @@ export interface RpcMethodRegistry {
     params: SetupWizardLaunchParams;
     result: SetupWizardLaunchResponse;
   };
+  'wizard:deep-analyze': {
+    params: WizardDeepAnalyzeParams;
+    result: WizardDeepAnalyzeResponse;
+  };
+  'wizard:recommend-agents': {
+    params: WizardRecommendAgentsParams;
+    result: WizardRecommendAgentsResponse;
+  };
 
   // ---- License Methods ----
   'license:getStatus': {
     params: LicenseGetStatusParams;
     result: LicenseGetStatusResponse;
+  };
+  'license:setKey': {
+    params: LicenseSetKeyParams;
+    result: LicenseSetKeyResponse;
   };
 
   // ---- Command Methods (TASK_2025_126) ----
@@ -984,9 +1036,12 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Setup Methods
   'setup-status:get-status',
   'setup-wizard:launch',
+  'wizard:deep-analyze',
+  'wizard:recommend-agents',
 
   // License Methods
   'license:getStatus',
+  'license:setKey',
 
   // Command Methods (TASK_2025_126)
   'command:execute',

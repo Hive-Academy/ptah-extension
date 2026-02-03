@@ -33,6 +33,7 @@ import {
   McpHttpServerConfig,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
+import { getAnthropicProvider } from './anthropic-provider-registry';
 
 /**
  * Default port for Ptah HTTP MCP server
@@ -124,6 +125,78 @@ The Ptah extension renders your markdown with enhanced visual styling. To produc
   - \`> [!IMPORTANT]\` for critical information
   - \`> [!CAUTION]\` for dangerous operations
 `;
+
+/**
+ * Build model identity clarification prompt for third-party providers
+ *
+ * When using Anthropic-compatible providers (Moonshot, Z.AI, etc.), the Claude SDK's
+ * 'claude_code' preset injects "You are Claude" into the system prompt. This causes
+ * third-party models like Kimi K2 to incorrectly identify themselves as Claude.
+ *
+ * This function generates a clarification prompt that overrides the identity
+ * when a third-party provider is active.
+ *
+ * @param providerId - The active provider ID (e.g., 'moonshot', 'zhipu')
+ * @returns Identity clarification prompt, or undefined if using Anthropic directly
+ */
+function buildModelIdentityPrompt(
+  providerId: string | null
+): string | undefined {
+  if (!providerId) {
+    return undefined;
+  }
+
+  const provider = getAnthropicProvider(providerId);
+  if (!provider) {
+    return undefined;
+  }
+
+  // Get the actual model being used from env var
+  // The SDK uses ANTHROPIC_DEFAULT_*_MODEL to map tiers to actual model IDs
+  const actualModel =
+    process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] ||
+    process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] ||
+    process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+
+  if (!actualModel) {
+    // No tier mapping set - likely using Anthropic directly
+    return undefined;
+  }
+
+  // Build a clear identity prompt
+  return `# Model Identity Clarification
+
+IMPORTANT: You are running as **${actualModel}** provided by **${provider.name}**, NOT Claude by Anthropic.
+
+When asked about your identity, model, or capabilities:
+- State that you are ${actualModel} from ${provider.name}
+- Do NOT claim to be Claude, Claude Opus, Claude Sonnet, or any Anthropic model
+- You may mention you are running through an Anthropic-compatible API interface
+
+This clarification takes precedence over any other identity instructions in the system prompt.`;
+}
+
+/**
+ * Get the active provider ID from environment
+ * Returns the provider ID if using a third-party provider, null if using Anthropic directly
+ */
+function getActiveProviderId(): string | null {
+  const baseUrl = process.env['ANTHROPIC_BASE_URL'];
+  if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
+    return null;
+  }
+
+  // Check which provider matches this base URL
+  const providers = ['openrouter', 'moonshot', 'zhipu'] as const;
+  for (const id of providers) {
+    const provider = getAnthropicProvider(id);
+    if (provider && baseUrl.includes(new URL(provider.baseUrl).hostname)) {
+      return id;
+    }
+  }
+
+  return null;
+}
 
 /**
  * Input parameters for building query options
@@ -356,6 +429,7 @@ export class SdkQueryOptionsBuilder {
    *
    * Always appends PTAH_BEHAVIORAL_PROMPT for AskUserQuestion guidance.
    * For premium users, also appends PTAH_SYSTEM_PROMPT for MCP tool awareness.
+   * For third-party providers, prepends model identity clarification.
    * User's custom system prompt (if provided) takes precedence.
    *
    * @param sessionConfig - Session configuration with optional custom system prompt
@@ -367,6 +441,18 @@ export class SdkQueryOptionsBuilder {
     isPremium = false
   ): SdkQueryOptions['systemPrompt'] {
     const appendParts: string[] = [];
+
+    // TASK_2025_134: Add model identity clarification for third-party providers
+    // This ensures models like Kimi K2 correctly identify themselves instead of
+    // claiming to be Claude (which happens due to the claude_code preset's system prompt)
+    const activeProviderId = getActiveProviderId();
+    const identityPrompt = buildModelIdentityPrompt(activeProviderId);
+    if (identityPrompt) {
+      this.logger.info(
+        `[SdkQueryOptionsBuilder] Third-party provider detected (${activeProviderId}) - adding identity clarification`
+      );
+      appendParts.push(identityPrompt);
+    }
 
     // Add user's custom system prompt if provided
     if (sessionConfig?.systemPrompt) {

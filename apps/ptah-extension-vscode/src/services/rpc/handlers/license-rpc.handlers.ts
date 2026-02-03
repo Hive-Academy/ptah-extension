@@ -7,6 +7,7 @@
  * TASK_2025_128: Freemium model (Community + Pro)
  */
 
+import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
@@ -18,6 +19,8 @@ import {
 import type {
   LicenseGetStatusParams,
   LicenseGetStatusResponse,
+  LicenseSetKeyParams,
+  LicenseSetKeyResponse,
   LicenseTier,
 } from '@ptah-extension/shared';
 
@@ -50,9 +53,10 @@ export class LicenseRpcHandlers {
    */
   register(): void {
     this.registerGetStatus();
+    this.registerSetKey();
 
     this.logger.debug('License RPC handlers registered', {
-      methods: ['license:getStatus'],
+      methods: ['license:getStatus', 'license:setKey'],
     });
   }
 
@@ -128,6 +132,91 @@ export class LicenseRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * license:setKey - Set and verify a license key
+   *
+   * Called from the welcome screen inline license input.
+   * Validates format, stores the key, verifies with server,
+   * and triggers window reload on success.
+   *
+   * Flow:
+   * 1. Validate key format (ptah_lic_ + 64 hex chars)
+   * 2. Store in SecretStorage
+   * 3. Verify with license server
+   * 4. Return result (reload handled by frontend)
+   */
+  private registerSetKey(): void {
+    this.rpcHandler.registerMethod<LicenseSetKeyParams, LicenseSetKeyResponse>(
+      'license:setKey',
+      async (params) => {
+        try {
+          const key = params?.licenseKey;
+
+          // Validate key is provided
+          if (!key || typeof key !== 'string') {
+            return { success: false, error: 'License key is required' };
+          }
+
+          // Validate format: ptah_lic_ + 64 hex characters
+          if (!/^ptah_lic_[a-f0-9]{64}$/.test(key)) {
+            return {
+              success: false,
+              error:
+                'Invalid license key format. Keys start with ptah_lic_ followed by 64 hex characters.',
+            };
+          }
+
+          this.logger.debug('RPC: license:setKey - storing and verifying key');
+
+          // Store and verify
+          await this.licenseService.setLicenseKey(key);
+          const newStatus = await this.licenseService.verifyLicense();
+
+          if (newStatus.valid) {
+            this.logger.info('RPC: license:setKey - license activated', {
+              tier: newStatus.tier,
+            });
+
+            // Schedule window reload to apply license changes
+            // Delay allows the RPC response to reach the webview first
+            setTimeout(
+              () =>
+                vscode.commands.executeCommand('workbench.action.reloadWindow'),
+              1500
+            );
+
+            return {
+              success: true,
+              tier: newStatus.tier,
+              plan: newStatus.plan ? { name: newStatus.plan.name } : undefined,
+            };
+          } else {
+            this.logger.warn('RPC: license:setKey - verification failed', {
+              reason: newStatus.reason,
+            });
+            return {
+              success: false,
+              error:
+                'License verification failed. Please check your key and try again.',
+            };
+          }
+        } catch (error) {
+          this.logger.error(
+            'RPC: license:setKey failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Failed to verify license key',
+          };
+        }
+      }
+    );
   }
 
   /**

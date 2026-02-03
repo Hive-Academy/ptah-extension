@@ -3,6 +3,8 @@ import {
   ChangeDetectionStrategy,
   input,
   output,
+  signal,
+  computed,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
@@ -18,6 +20,10 @@ import {
   ExternalLink,
   CheckCircle,
   AlertCircle,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Copy,
 } from 'lucide-angular';
 import {
   ViewportAnimationDirective,
@@ -35,13 +41,18 @@ import { LicenseData } from '../models/license-data.interface';
  * - Upgrade CTA for trial users
  * - Sync with Paddle button for subscription management
  * - Manage Subscription link to Paddle customer portal
+ * - License key reveal with show/hide toggle and copy-to-clipboard
  *
  * @input license - User license data
  * @input isSyncing - Whether a sync operation is in progress
  * @input syncError - Error message from sync operation
  * @input syncSuccess - Whether sync completed successfully
+ * @input licenseKey - Revealed license key (null until fetched)
+ * @input isRevealingKey - Whether a key reveal operation is in progress
+ * @input revealKeyError - Error message from key reveal operation
  * @output syncRequested - Emits when user clicks Sync with Paddle button
  * @output manageSubscriptionRequested - Emits when user clicks Manage Subscription
+ * @output revealKeyRequested - Emits when user clicks Get License Key button
  */
 @Component({
   selector: 'ptah-profile-details',
@@ -116,6 +127,86 @@ import { LicenseData } from '../models/license-data.interface';
           </span>
           <span class="font-medium">{{ license()?.planName }}</span>
         </div>
+
+        <!-- License Key -->
+        @if (license()?.status !== 'none') {
+        <div class="px-6 py-4 flex justify-between items-center">
+          <span class="text-neutral-content flex items-center gap-2">
+            <lucide-angular
+              [img]="KeyRoundIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            License Key
+          </span>
+
+          @if (licenseKey()) {
+          <div class="flex items-center gap-2">
+            <code
+              class="text-xs font-mono bg-base-300 px-2 py-1 rounded select-all max-w-[200px] truncate"
+            >
+              {{ showLicenseKey() ? licenseKey() : maskedKey() }}
+            </code>
+            <button
+              type="button"
+              (click)="toggleLicenseKeyVisibility()"
+              class="btn btn-xs btn-ghost"
+              [attr.aria-label]="
+                showLicenseKey() ? 'Hide license key' : 'Show license key'
+              "
+            >
+              <lucide-angular
+                [img]="showLicenseKey() ? EyeOffIcon : EyeIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+            </button>
+            <button
+              type="button"
+              (click)="copyLicenseKey()"
+              class="btn btn-xs btn-ghost"
+              aria-label="Copy license key"
+            >
+              @if (copiedToClipboard()) {
+              <lucide-angular
+                [img]="CheckCircleIcon"
+                class="w-3.5 h-3.5 text-success"
+                aria-hidden="true"
+              />
+              } @else {
+              <lucide-angular
+                [img]="CopyIcon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+              }
+            </button>
+          </div>
+          } @else {
+          <button
+            type="button"
+            class="btn btn-sm btn-ghost"
+            [disabled]="isRevealingKey()"
+            (click)="revealKeyRequested.emit()"
+          >
+            @if (isRevealingKey()) {
+            <span class="loading loading-spinner loading-xs"></span>
+            Retrieving... } @else { Get License Key }
+          </button>
+          }
+        </div>
+
+        <!-- License Key Error -->
+        @if (revealKeyError()) {
+        <div class="px-6 py-4 flex items-center gap-2 bg-error/10 text-error">
+          <lucide-angular
+            [img]="AlertCircleIcon"
+            class="w-4 h-4"
+            aria-hidden="true"
+          />
+          <span class="text-sm">{{ revealKeyError() }}</span>
+        </div>
+        } }
 
         <!-- Plan Description -->
         @if (license()?.planDescription) {
@@ -252,6 +343,10 @@ export class ProfileDetailsComponent {
   public readonly ExternalLinkIcon = ExternalLink;
   public readonly CheckCircleIcon = CheckCircle;
   public readonly AlertCircleIcon = AlertCircle;
+  public readonly KeyRoundIcon = KeyRound;
+  public readonly EyeIcon = Eye;
+  public readonly EyeOffIcon = EyeOff;
+  public readonly CopyIcon = Copy;
 
   /** License data input */
   public readonly license = input<LicenseData | null>(null);
@@ -261,9 +356,47 @@ export class ProfileDetailsComponent {
   public readonly syncError = input<string | null>(null);
   public readonly syncSuccess = input<boolean>(false);
 
-  /** Output events for sync and manage subscription actions */
+  /** License key reveal inputs from parent component */
+  public readonly licenseKey = input<string | null>(null);
+  public readonly isRevealingKey = input<boolean>(false);
+  public readonly revealKeyError = input<string | null>(null);
+
+  /** Output events for sync, manage subscription, and license key actions */
   public readonly syncRequested = output<void>();
   public readonly manageSubscriptionRequested = output<void>();
+  public readonly revealKeyRequested = output<void>();
+
+  /** Local state for license key visibility toggle and clipboard feedback */
+  public readonly showLicenseKey = signal(false);
+  public readonly copiedToClipboard = signal(false);
+
+  /** Toggle license key visibility between masked and full display */
+  public toggleLicenseKeyVisibility(): void {
+    this.showLicenseKey.update((show) => !show);
+  }
+
+  /** Copy license key to clipboard with 2-second visual feedback */
+  public async copyLicenseKey(): Promise<void> {
+    const key = this.licenseKey();
+    if (key) {
+      try {
+        await navigator.clipboard.writeText(key);
+        this.copiedToClipboard.set(true);
+        setTimeout(() => this.copiedToClipboard.set(false), 2000);
+      } catch {
+        // Clipboard API may fail in insecure contexts or when permission is denied
+        console.error('[Profile] Failed to copy license key to clipboard');
+      }
+    }
+  }
+
+  /** Masked license key showing prefix and last 4 chars */
+  public readonly maskedKey = computed(() => {
+    const key = this.licenseKey();
+    if (!key) return '';
+    if (key.length < 20) return key.substring(0, 4) + '...';
+    return key.substring(0, 12) + '...' + key.substring(key.length - 4);
+  });
 
   /**
    * Check if license requires sync with Paddle

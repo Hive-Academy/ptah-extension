@@ -4,15 +4,13 @@
  * Registry of providers that implement the Anthropic API protocol,
  * allowing Claude Agent SDK to route through them using:
  * - ANTHROPIC_BASE_URL: Provider's API endpoint
- * - ANTHROPIC_AUTH_TOKEN: Provider's API key
- *
- * All registered providers follow the same env var pattern, differing
- * only in base URL and key format.
+ * - ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY: Provider's API key
+ *   (per-provider; see authEnvVar field)
  *
  * Known providers:
- * - OpenRouter: Multi-model access (200+ models)
- * - Moonshot (Kimi): Anthropic-compatible endpoint
- * - Z.AI (GLM): Anthropic-compatible endpoint
+ * - OpenRouter: Multi-model access (200+ models) — Bearer auth
+ * - Moonshot (Kimi): Anthropic-compatible endpoint — Bearer auth
+ * - Z.AI (GLM): Anthropic-compatible endpoint — Bearer auth
  *
  * @see https://openrouter.ai/docs/guides/claude-code-integration
  * @see https://platform.moonshot.ai/docs/guide/agent-support.en-US
@@ -36,6 +34,13 @@ export interface ProviderStaticModel {
 }
 
 /**
+ * Which environment variable carries the provider's API key.
+ * - 'ANTHROPIC_AUTH_TOKEN' → sends Authorization: Bearer header (OpenRouter, Moonshot, Z.AI)
+ * - 'ANTHROPIC_API_KEY'    → sends x-api-key header (future providers)
+ */
+export type ProviderAuthEnvVar = 'ANTHROPIC_AUTH_TOKEN' | 'ANTHROPIC_API_KEY';
+
+/**
  * Anthropic-compatible provider definition
  */
 export interface AnthropicProvider {
@@ -45,6 +50,8 @@ export interface AnthropicProvider {
   name: string;
   /** Provider's Anthropic-compatible API base URL */
   baseUrl: string;
+  /** Which env var to set for this provider's API key */
+  authEnvVar: ProviderAuthEnvVar;
   /** Expected API key prefix for validation hints (empty string if no standard prefix) */
   keyPrefix: string;
   /** URL where users can obtain API keys */
@@ -73,6 +80,7 @@ export const ANTHROPIC_PROVIDERS = [
     id: 'openrouter',
     name: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api',
+    authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
     keyPrefix: 'sk-or-',
     helpUrl: 'https://openrouter.ai/keys',
     description: 'Access 200+ models via unified API',
@@ -84,6 +92,7 @@ export const ANTHROPIC_PROVIDERS = [
     id: 'moonshot',
     name: 'Moonshot (Kimi)',
     baseUrl: 'https://api.moonshot.ai/anthropic/',
+    authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
     keyPrefix: '',
     helpUrl: 'https://platform.moonshot.ai/console/api-keys',
     description: 'Kimi models via Anthropic-compatible API',
@@ -124,6 +133,7 @@ export const ANTHROPIC_PROVIDERS = [
     id: 'z-ai',
     name: 'Z.AI (GLM)',
     baseUrl: 'https://api.z.ai/api/anthropic',
+    authEnvVar: 'ANTHROPIC_AUTH_TOKEN',
     keyPrefix: '',
     helpUrl: 'https://open.z.ai/open/api/openkey',
     description: 'GLM models via Anthropic-compatible API',
@@ -213,4 +223,15 @@ export function getProviderBaseUrl(id: string): string {
     );
   }
   return defaultProvider.baseUrl;
+}
+
+/**
+ * Get provider auth env var by ID, with fallback to default
+ *
+ * @param id - Provider ID
+ * @returns The env var name to use for this provider's API key
+ */
+export function getProviderAuthEnvVar(id: string): ProviderAuthEnvVar {
+  const provider = getAnthropicProvider(id);
+  return provider?.authEnvVar ?? 'ANTHROPIC_AUTH_TOKEN';
 }

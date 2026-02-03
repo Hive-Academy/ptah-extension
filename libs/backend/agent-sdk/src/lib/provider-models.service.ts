@@ -196,6 +196,11 @@ export class ProviderModelsService {
       });
 
       if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(
+            `${provider.name} API key is invalid or expired. Please delete your key and re-enter a valid one.`
+          );
+        }
         throw new Error(
           `${provider.name} API error: ${response.status} ${response.statusText}`
         );
