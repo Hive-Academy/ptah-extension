@@ -19,7 +19,7 @@ import {
   TOKENS,
   LicenseService,
 } from '@ptah-extension/vscode-core';
-// eslint-disable-next-line @nx/enforce-module-boundaries
+// eslint-disable-next-line @nx/enforce-module-boundaries -- Extension app is allowed to import directly from all workspace libraries
 import {
   SDK_TOKENS,
   PromptHarnessService,
@@ -205,7 +205,7 @@ export class PromptHarnessRpcHandlers {
     const PowerUpStateSchema = z.object({
       powerUpId: z.string(),
       enabled: z.boolean(),
-      priority: z.number().optional(),
+      priority: z.number().min(0).max(100).optional(),
       lastModified: z.number(),
     });
 
@@ -214,7 +214,7 @@ export class PromptHarnessRpcHandlers {
       name: z.string(),
       content: z.string(),
       enabled: z.boolean(),
-      priority: z.number(),
+      priority: z.number().min(0).max(100),
       createdAt: z.number(),
       updatedAt: z.number(),
     });

@@ -20,6 +20,7 @@ import {
   Component,
   inject,
   signal,
+  OnInit,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -54,7 +55,7 @@ import type {
   templateUrl: './prompt-preview.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PromptPreviewComponent {
+export class PromptPreviewComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
 
   // Lucide icons
@@ -78,6 +79,13 @@ export class PromptPreviewComponent {
   readonly expandedLayers = signal<Set<string>>(new Set());
   readonly errorMessage = signal<string | null>(null);
   readonly copiedToClipboard = signal(false);
+
+  /**
+   * Auto-load preview on component initialization
+   */
+  ngOnInit(): void {
+    this.loadPreview();
+  }
 
   /**
    * Get icon for layer type

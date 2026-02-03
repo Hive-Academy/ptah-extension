@@ -65,7 +65,8 @@
           </span>
         </div>
         <p class="text-[10px] text-base-content/50 truncate">
-          {{ section.content.substring(0, 60) }}{{ section.content.length > 60 ? '...' : '' }}
+          {{ section.content.substring(0, 60)
+          }}{{ section.content.length > 60 ? '...' : '' }}
         </p>
       </div>
 
@@ -128,7 +129,10 @@
     <div class="form-control">
       <label class="label py-1" for="section-content">
         <span class="label-text text-xs">Content</span>
-        <span class="label-text-alt text-[10px]" [class.text-error]="isOverLimit()">
+        <span
+          class="label-text-alt text-[10px]"
+          [class.text-error]="isOverLimit()"
+        >
           {{ charCount() }}/8000 chars (~{{ estimatedTokens() }} tokens)
         </span>
       </label>
@@ -154,7 +158,9 @@
     <div class="form-control">
       <label class="label py-1" for="section-priority">
         <span class="label-text text-xs">Priority</span>
-        <span class="label-text-alt text-[10px]">Lower = earlier in prompt (1-100)</span>
+        <span class="label-text-alt text-[10px]"
+          >Lower = earlier in prompt (1-100)</span
+        >
       </label>
       <input
         type="number"
@@ -169,7 +175,10 @@
 
     <!-- Enabled toggle -->
     <div class="form-control">
-      <label class="label cursor-pointer justify-start gap-2 py-1" for="section-enabled">
+      <label
+        class="label cursor-pointer justify-start gap-2 py-1"
+        for="section-enabled"
+      >
         <input
           type="checkbox"
           id="section-enabled"
@@ -182,20 +191,28 @@
     </div>
 
     <!-- Actions -->
-    <div class="flex items-center justify-end gap-2 pt-2 border-t border-base-300">
+    <div
+      class="flex items-center justify-end gap-2 pt-2 border-t border-base-300"
+    >
       <button
         class="btn btn-ghost btn-xs"
         (click)="closeEditor()"
+        [disabled]="isSaving()"
       >
         Cancel
       </button>
       <button
         class="btn btn-primary btn-xs gap-1"
         (click)="saveSection()"
-        [disabled]="!isFormValid()"
+        [disabled]="!isFormValid() || isSaving()"
       >
+        @if (isSaving()) {
+        <span class="loading loading-spinner loading-xs"></span>
+        <span>Saving...</span>
+        } @else {
         <lucide-angular [img]="SaveIcon" class="w-3 h-3" />
         <span>{{ isNewSection() ? 'Create' : 'Save' }}</span>
+        }
       </button>
     </div>
   </div>

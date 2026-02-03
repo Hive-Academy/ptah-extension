@@ -69,6 +69,12 @@ export class UserPromptStore {
    */
   private static readonly CURRENT_VERSION = '1.0.0';
 
+  /**
+   * Promise-based mutex to prevent race conditions in setPowerUpState.
+   * Queues operations to ensure read-modify-write is atomic.
+   */
+  private saveMutex: Promise<void> = Promise.resolve();
+
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
@@ -110,31 +116,38 @@ export class UserPromptStore {
    * Merges with existing states - only updates the specific power-up.
    * Converts Map back to Record for JSON serialization in globalState.
    *
+   * Uses a promise-based mutex to prevent race conditions when multiple
+   * calls happen concurrently (read-modify-write pattern).
+   *
    * @param powerUpId - The power-up ID to update
    * @param state - The new state for the power-up
    */
   async setPowerUpState(powerUpId: string, state: PowerUpState): Promise<void> {
-    try {
-      const states = await this.getPowerUpStates();
-      states.set(powerUpId, state);
+    // Queue operations to prevent race conditions in read-modify-write
+    this.saveMutex = this.saveMutex.then(async () => {
+      try {
+        const states = await this.getPowerUpStates();
+        states.set(powerUpId, state);
 
-      await this.context.globalState.update(
-        UserPromptStore.POWER_UP_STATES_KEY,
-        Object.fromEntries(states)
-      );
+        await this.context.globalState.update(
+          UserPromptStore.POWER_UP_STATES_KEY,
+          Object.fromEntries(states)
+        );
 
-      this.logger.debug('[UserPromptStore] Power-up state saved', {
-        powerUpId,
-        enabled: state.enabled,
-        priority: state.priority,
-      });
-    } catch (error) {
-      this.logger.error('[UserPromptStore] Failed to save power-up state', {
-        powerUpId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
-    }
+        this.logger.debug('[UserPromptStore] Power-up state saved', {
+          powerUpId,
+          enabled: state.enabled,
+          priority: state.priority,
+        });
+      } catch (error) {
+        this.logger.error('[UserPromptStore] Failed to save power-up state', {
+          powerUpId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    });
+    return this.saveMutex;
   }
 
   /**
@@ -368,6 +381,19 @@ export class UserPromptStore {
             typeof section.updatedAt === 'number'
           );
         });
+
+        // Check for duplicate IDs
+        const sectionIds = validSections.map((s) => s.id);
+        const uniqueIds = new Set(sectionIds);
+        if (uniqueIds.size !== sectionIds.length) {
+          this.logger.warn(
+            '[UserPromptStore] Duplicate section IDs found in import'
+          );
+          return {
+            success: false,
+            error: 'Configuration contains duplicate section IDs',
+          };
+        }
 
         await this.setCustomSections(validSections);
       }

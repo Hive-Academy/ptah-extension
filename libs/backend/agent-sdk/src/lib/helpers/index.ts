@@ -66,3 +66,6 @@ export {
   type AnthropicProviderId,
   type ProviderStaticModel,
 } from './anthropic-provider-registry';
+
+// Prompt constants (TASK_2025_135)
+export { PTAH_BEHAVIORAL_PROMPT } from './prompt-constants';

@@ -63,6 +63,11 @@ interface PowerUpWithState extends PowerUpInfo {
 export class PromptPowerUpsComponent implements OnInit {
   private readonly rpcService = inject(ClaudeRpcService);
 
+  // Debounce state for togglePowerUp to prevent race conditions
+  private saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingStates = new Map<string, boolean>();
+  private lastKnownPowerUps: PowerUpWithState[] = [];
+
   // Lucide icons
   readonly LockIcon = Lock;
   readonly ChevronDownIcon = ChevronDown;
@@ -176,18 +181,48 @@ export class PromptPowerUpsComponent implements OnInit {
   }
 
   /**
-   * Toggle a power-up on/off with optimistic update
+   * Toggle a power-up on/off with optimistic update and debouncing
+   * Debouncing prevents race conditions when rapid toggles occur
    */
-  async togglePowerUp(powerUpId: string, enabled: boolean): Promise<void> {
-    // Optimistic update - immediately update UI
-    const currentPowerUps = this.powerUps();
-    const updatedPowerUps = currentPowerUps.map((p) =>
-      p.id === powerUpId ? { ...p, enabled } : p
-    );
-    this.powerUps.set(updatedPowerUps);
+  togglePowerUp(powerUpId: string, enabled: boolean): void {
+    // Store last known state for rollback on first pending change
+    if (this.pendingStates.size === 0) {
+      this.lastKnownPowerUps = [...this.powerUps()];
+    }
 
-    // Build the states array for the save call
-    const powerUpStates: Array<[string, PowerUpStateInfo]> = updatedPowerUps
+    // Optimistic update - immediately update UI
+    this.powerUps.update((list) =>
+      list.map((p) => (p.id === powerUpId ? { ...p, enabled } : p))
+    );
+
+    // Queue the state change
+    this.pendingStates.set(powerUpId, enabled);
+
+    // Debounce the save (300ms)
+    if (this.saveDebounceTimer) {
+      clearTimeout(this.saveDebounceTimer);
+    }
+
+    this.saveDebounceTimer = setTimeout(() => {
+      this.savePendingStates();
+    }, 300);
+  }
+
+  /**
+   * Save all pending power-up state changes in a single batch
+   */
+  private async savePendingStates(): Promise<void> {
+    if (this.pendingStates.size === 0) return;
+
+    // Capture and clear pending states
+    const statesToSave = new Map(this.pendingStates);
+    this.pendingStates.clear();
+    const rollbackState = this.lastKnownPowerUps;
+    this.lastKnownPowerUps = [];
+
+    // Build the full states array from current power-ups
+    const currentPowerUps = this.powerUps();
+    const powerUpStates: Array<[string, PowerUpStateInfo]> = currentPowerUps
       .filter((p) => p.enabled || p.priority !== undefined)
       .map((p) => [
         p.id,
@@ -195,7 +230,7 @@ export class PromptPowerUpsComponent implements OnInit {
           powerUpId: p.id,
           enabled: p.enabled,
           priority: p.priority,
-          lastModified: Date.now(),
+          lastModified: statesToSave.has(p.id) ? Date.now() : p.priority ?? 0,
         },
       ]);
 
@@ -206,16 +241,16 @@ export class PromptPowerUpsComponent implements OnInit {
 
       if (!result.isSuccess()) {
         // Rollback on failure
-        this.powerUps.set(currentPowerUps);
+        this.powerUps.set(rollbackState);
         this.errorMessage.set(result.error ?? 'Failed to save configuration');
       }
     } catch (error) {
       console.error(
-        '[PromptPowerUpsComponent] Failed to toggle power-up:',
+        '[PromptPowerUpsComponent] Failed to save power-up states:',
         error
       );
       // Rollback on failure
-      this.powerUps.set(currentPowerUps);
+      this.powerUps.set(rollbackState);
       this.errorMessage.set('Failed to save power-up state');
     }
   }

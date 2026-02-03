@@ -48,14 +48,14 @@
   <!-- Initial state (no preview loaded) -->
   @if (!previewData() && !isLoading() && !errorMessage()) {
   <div class="text-center py-6 border border-dashed border-base-300 rounded-md">
-    <lucide-angular [img]="LayersIcon" class="w-8 h-8 mx-auto text-base-content/30 mb-2" />
+    <lucide-angular
+      [img]="LayersIcon"
+      class="w-8 h-8 mx-auto text-base-content/30 mb-2"
+    />
     <p class="text-xs text-base-content/50 mb-3">
       Click "Refresh" to see how your prompt will be assembled
     </p>
-    <button
-      class="btn btn-ghost btn-xs gap-1"
-      (click)="loadPreview()"
-    >
+    <button class="btn btn-ghost btn-xs gap-1" (click)="loadPreview()">
       <lucide-angular [img]="RefreshCwIcon" class="w-3 h-3" />
       <span>Load Preview</span>
     </button>
@@ -81,8 +81,7 @@
   }
 
   <!-- Preview content -->
-  @if (previewData() && !isLoading()) {
-  @let data = previewData()!;
+  @if (previewData() && !isLoading()) { @let data = previewData()!;
 
   <!-- Total tokens -->
   <div class="flex items-center justify-between p-2 bg-base-200/50 rounded-md">
@@ -90,7 +89,9 @@
       <lucide-angular [img]="LayersIcon" class="w-4 h-4" />
       <span class="text-xs font-medium">Total Tokens</span>
     </div>
-    <span class="badge badge-primary badge-sm">{{ data.totalTokens | number }}</span>
+    <span class="badge badge-primary badge-sm">{{
+      data.totalTokens | number
+    }}</span>
   </div>
 
   <!-- Warnings -->
@@ -101,7 +102,10 @@
       class="alert alert-sm py-1.5"
       [ngClass]="getWarningClass(warning.severity)"
     >
-      <lucide-angular [img]="getWarningIcon(warning.severity)" class="w-3.5 h-3.5 shrink-0" />
+      <lucide-angular
+        [img]="getWarningIcon(warning.severity)"
+        class="w-3.5 h-3.5 shrink-0"
+      />
       <span class="text-xs">{{ warning.message }}</span>
     </div>
     }
@@ -120,10 +124,15 @@
       >
         <div class="flex items-center gap-2">
           <lucide-angular
-            [img]="isLayerExpanded(layer.name) ? ChevronDownIcon : ChevronRightIcon"
+            [img]="
+              isLayerExpanded(layer.name) ? ChevronDownIcon : ChevronRightIcon
+            "
             class="w-3 h-3 text-base-content/50"
           />
-          <lucide-angular [img]="getLayerIcon(layer.type)" class="w-3.5 h-3.5" />
+          <lucide-angular
+            [img]="getLayerIcon(layer.type)"
+            class="w-3.5 h-3.5"
+          />
           <span class="text-xs font-medium">{{ layer.name }}</span>
           <span
             class="badge badge-xs"
@@ -132,7 +141,9 @@
             {{ layer.type }}
           </span>
         </div>
-        <span class="badge badge-ghost badge-xs">{{ layer.tokenCount | number }} tokens</span>
+        <span class="badge badge-ghost badge-xs"
+          >{{ layer.tokenCount | number }} tokens</span
+        >
       </button>
 
       <!-- Layer content (expanded) -->
@@ -143,7 +154,10 @@
           Source: {{ layer.source }}
         </div>
         }
-        <pre class="text-[10px] font-mono whitespace-pre-wrap break-words text-base-content/80 max-h-48 overflow-y-auto">{{ layer.content }}</pre>
+        <pre
+          class="text-[10px] font-mono whitespace-pre-wrap break-words text-base-content/80 max-h-48 overflow-y-auto"
+          >{{ layer.content }}</pre
+        >
       </div>
       } @else {
       <!-- Collapsed preview (truncated) -->
@@ -160,6 +174,5 @@
   <div class="text-center py-4 text-xs text-base-content/50">
     No layers in the assembled prompt
   </div>
-  }
-  }
+  } }
 </div>

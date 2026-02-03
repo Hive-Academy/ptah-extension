@@ -51,10 +51,11 @@ function estimateTokens(text: string): number {
 }
 
 /**
- * Generate a unique ID for new sections
+ * Generate a unique ID for new sections using crypto.randomUUID()
+ * This is collision-safe even under rapid creation scenarios
  */
 function generateSectionId(): string {
-  return `custom_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  return `custom_${crypto.randomUUID()}`;
 }
 
 @Component({
@@ -79,9 +80,13 @@ export class CustomPromptEditorComponent {
   // Output event when sections change
   readonly sectionsChange = output<UserPromptSectionInfo[]>();
 
+  // Output event for save errors
+  readonly saveError = output<string>();
+
   // Editor state
   readonly isEditorOpen = signal(false);
   readonly editingSection = signal<UserPromptSectionInfo | null>(null);
+  readonly isSaving = signal(false);
 
   // Form fields
   readonly editName = signal('');
@@ -149,9 +154,10 @@ export class CustomPromptEditorComponent {
 
   /**
    * Save the current section (create or update)
+   * Sets isSaving state and emits change - parent should call confirmSave() or handleSaveError()
    */
   saveSection(): void {
-    if (!this.isFormValid()) {
+    if (!this.isFormValid() || this.isSaving()) {
       return;
     }
 
@@ -159,6 +165,8 @@ export class CustomPromptEditorComponent {
     if (!editing) {
       return;
     }
+
+    this.isSaving.set(true);
 
     const now = Date.now();
     const updatedSection: UserPromptSectionInfo = {
@@ -188,11 +196,24 @@ export class CustomPromptEditorComponent {
     // Sort by priority (lower first)
     newSections.sort((a, b) => a.priority - b.priority);
 
-    // Emit updated sections
+    // Emit updated sections - parent will call confirmSave() or handleSaveError()
     this.sectionsChange.emit(newSections);
+  }
 
-    // Close editor
+  /**
+   * Called by parent when save is successful
+   */
+  confirmSave(): void {
+    this.isSaving.set(false);
     this.closeEditor();
+  }
+
+  /**
+   * Called by parent when save fails
+   */
+  handleSaveError(error: string): void {
+    this.isSaving.set(false);
+    this.saveError.emit(error);
   }
 
   /**

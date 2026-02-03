@@ -76,9 +76,8 @@
   <!-- Power-ups by category -->
   @if (!isLoading() && !errorMessage()) {
   <div class="space-y-2">
-    @for (category of categories; track category.id) {
-    @let categoryPowerUps = category.getter();
-    @if (categoryPowerUps.length > 0) {
+    @for (category of categories; track category.id) { @let categoryPowerUps =
+    category.getter(); @if (categoryPowerUps.length > 0) {
     <div class="border border-base-300 rounded-md overflow-hidden">
       <!-- Category header (collapsible) -->
       <button
@@ -89,21 +88,24 @@
       >
         <div class="flex items-center gap-2">
           <lucide-angular
-            [img]="isCategoryCollapsed(category.id) ? ChevronRightIcon : ChevronDownIcon"
+            [img]="
+              isCategoryCollapsed(category.id)
+                ? ChevronRightIcon
+                : ChevronDownIcon
+            "
             class="w-3 h-3 text-base-content/50"
           />
           <lucide-angular [img]="category.icon" class="w-3.5 h-3.5" />
           <span class="text-xs font-medium">{{ category.name }}</span>
-          <span class="badge badge-ghost badge-xs">{{ categoryPowerUps.length }}</span>
+          <span class="badge badge-ghost badge-xs">{{
+            categoryPowerUps.length
+          }}</span>
         </div>
       </button>
 
       <!-- Category content (power-ups list) -->
       @if (!isCategoryCollapsed(category.id)) {
-      <div
-        [id]="'category-' + category.id"
-        class="divide-y divide-base-300"
-      >
+      <div [id]="'category-' + category.id" class="divide-y divide-base-300">
         @for (powerUp of categoryPowerUps; track powerUp.id) {
         <div
           class="flex items-start gap-3 p-2 hover:bg-base-200/30 transition-colors"
@@ -124,7 +126,9 @@
           <!-- Power-up info -->
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-1.5">
-              <span class="text-xs font-medium truncate">{{ powerUp.name }}</span>
+              <span class="text-xs font-medium truncate">{{
+                powerUp.name
+              }}</span>
               @if (powerUp.isPremium && !isPremium()) {
               <lucide-angular
                 [img]="LockIcon"
@@ -150,8 +154,7 @@
       </div>
       }
     </div>
-    }
-    }
+    } }
   </div>
 
   <!-- Premium upsell for non-premium users -->
@@ -162,9 +165,9 @@
       <span class="text-xs font-medium">Premium Power-Ups</span>
     </div>
     <p class="text-[10px] text-base-content/60">
-      Upgrade to Pro to unlock advanced power-ups for enhanced prompt customization.
+      Upgrade to Pro to unlock advanced power-ups for enhanced prompt
+      customization.
     </p>
   </div>
-  }
-  }
+  } }
 </div>
