@@ -4,7 +4,8 @@
 #
 # Multi-stage build for optimal production image:
 #   - Stage 1: Install dependencies and build
-#   - Stage 2: Production runtime with minimal footprint
+#   - Stage 2: Production dependencies only
+#   - Stage 3: Minimal runtime image
 #
 # BUILD:
 #   docker build -f apps/ptah-license-server/Dockerfile -t ptah-license-server:latest .
@@ -49,11 +50,35 @@ RUN cd apps/ptah-license-server && npx prisma generate
 # Build the application
 RUN npx nx build ptah-license-server --configuration=production
 
-# Prune to production dependencies only
-RUN npx nx run ptah-license-server:prune
+# -----------------------------------------------------------------------------
+# Stage 2: Dependencies - Install production dependencies only
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+
+# Install system dependencies required by Prisma
+RUN apk add --no-cache openssl libc6-compat
+
+# Copy generated package.json from build output
+# NxAppWebpackPlugin generates this with only required dependencies
+COPY --from=builder /app/dist/apps/ptah-license-server/package.json ./
+COPY --from=builder /app/dist/apps/ptah-license-server/package-lock.json ./
+
+# Also copy root package-lock.json for dependency resolution
+COPY package-lock.json ./root-package-lock.json
+
+# Install production dependencies
+# Note: We add the external packages that webpack excludes but are needed at runtime
+RUN npm install --omit=dev \
+    @workos-inc/node \
+    @nestjs/config \
+    @nestjs/jwt \
+    pg \
+    prisma
 
 # -----------------------------------------------------------------------------
-# Stage 2: Production - Minimal runtime image
+# Stage 3: Production - Minimal runtime image
 # -----------------------------------------------------------------------------
 FROM node:20-alpine AS production
 
@@ -67,6 +92,9 @@ RUN apk add --no-cache openssl libc6-compat
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nestjs
 
+# Copy production dependencies from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+
 # Copy built application from builder
 COPY --from=builder /app/dist/apps/ptah-license-server ./
 
@@ -77,11 +105,8 @@ COPY --from=builder /app/apps/ptah-license-server/prisma.config.ts ./
 # Copy generated Prisma client
 COPY --from=builder /app/apps/ptah-license-server/src/generated-prisma-client ./src/generated-prisma-client/
 
-# Install production dependencies only
-RUN npm ci --only=production
-
-# Generate Prisma client in production image
-RUN npx prisma generate
+# Generate Prisma client in production image (ensures engine binaries are correct)
+RUN npx prisma generate --schema=prisma/schema.prisma
 
 # Change ownership to non-root user
 RUN chown -R nestjs:nodejs /app
