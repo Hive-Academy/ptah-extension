@@ -50,6 +50,7 @@ import {
   ProviderRpcHandlers,
   SubagentRpcHandlers,
   CommandRpcHandlers, // TASK_2025_126: Webview command execution
+  PromptHarnessRpcHandlers, // TASK_2025_135: Prompt harness configuration
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -225,6 +226,9 @@ export class DIContainer {
     // TASK_2025_126: Command RPC handlers for webview command execution
     container.registerSingleton(CommandRpcHandlers);
 
+    // TASK_2025_135: Prompt Harness RPC handlers
+    container.registerSingleton(PromptHarnessRpcHandlers);
+
     // RPC Method Registration Service (orchestrator - requires container instance)
     // TASK_2025_074: Refactored to use domain-specific handler classes
     // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
@@ -252,6 +256,7 @@ export class DIContainer {
           c.resolve(ProviderRpcHandlers),
           c.resolve(SubagentRpcHandlers),
           c.resolve(CommandRpcHandlers), // TASK_2025_126
+          c.resolve(PromptHarnessRpcHandlers), // TASK_2025_135
           c // Pass container instance
         );
       },

@@ -9,6 +9,7 @@
  * TASK_2025_103: Added SubagentRpcHandlers for subagent resumption
  * TASK_2025_126: Added CommandRpcHandlers for webview command execution
  * TASK_2025_132: Renamed OpenRouterRpcHandlers -> ProviderRpcHandlers
+ * TASK_2025_135: Added PromptHarnessRpcHandlers for prompt harness configuration
  */
 
 export { ChatRpcHandlers } from './chat-rpc.handlers';
@@ -24,3 +25,4 @@ export { LlmRpcHandlers } from './llm-rpc.handlers';
 export { ProviderRpcHandlers } from './provider-rpc.handlers';
 export { SubagentRpcHandlers } from './subagent-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
+export { PromptHarnessRpcHandlers } from './prompt-harness-rpc.handlers';
