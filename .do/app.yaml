@@ -91,9 +91,9 @@ services:
         scope: RUN_TIME
         value: https://ptah.live
 
-      # Database (Neon PostgreSQL - FREE tier)
-      # Set this in DO console with your Neon connection string
-      # Format: postgresql://user:pass@ep-xxx.region.aws.neon.tech/dbname?sslmode=require
+      # Database (Neon PostgreSQL - FREE tier, Azure East US 2)
+      # Set this in DO console with your Neon PRODUCTION branch connection string
+      # Format: postgresql://neondb_owner:pass@ep-xxx-pooler.eastus2.azure.neon.tech/neondb?sslmode=require
       - key: DATABASE_URL
         scope: RUN_TIME
         type: SECRET

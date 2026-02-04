@@ -4,8 +4,9 @@
   "license": "MIT",
   "scripts": {
     "landing": "npx nx serve ptah-landing-page",
-    "docker:db:start": "docker-compose -f ./docker-compose.db.yml up -d",
-    "docker:db:stop": "docker-compose -f ./docker-compose.db.yml down",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f license-server",
     "prisma:generate": "cd apps/ptah-license-server && npx prisma generate",
     "prisma:migrate:dev": "cd apps/ptah-license-server && npx prisma migrate dev",
     "prisma:migrate:deploy": "cd apps/ptah-license-server && npx prisma migrate deploy",
