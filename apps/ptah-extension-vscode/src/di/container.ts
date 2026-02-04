@@ -55,7 +55,7 @@ import {
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { registerSdkServices } from '@ptah-extension/agent-sdk';
+import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 
 // Import agent-generation services (TASK_2025_069)
 // eslint-disable-next-line @nx/enforce-module-boundaries
@@ -242,7 +242,7 @@ export class DIContainer {
           c.resolve(TOKENS.WEBVIEW_MANAGER),
           c.resolve(TOKENS.AGENT_SESSION_WATCHER_SERVICE),
           c.resolve(TOKENS.COMMAND_MANAGER),
-          c.resolve('SdkAgentAdapter'),
+          c.resolve(SDK_TOKENS.SDK_AGENT_ADAPTER),
           // Domain-specific handlers
           c.resolve(ChatRpcHandlers),
           c.resolve(SessionRpcHandlers),
@@ -281,15 +281,10 @@ export class DIContainer {
     // (SdkRpcHandlers deleted - was dead code, only initializePermissionEmitter() was used)
     registerSdkServices(container, context, logger);
 
-    // Register adapter with main TOKENS symbol (TASK_2025_057 Batch 1)
-    // This allows main.ts to resolve adapter using TOKENS.SDK_AGENT_ADAPTER
-    container.register(TOKENS.SDK_AGENT_ADAPTER, {
-      useFactory: () => {
-        // Resolve from SDK_TOKENS registration
-        const { SDK_TOKENS } = require('@ptah-extension/agent-sdk');
-        return container.resolve(SDK_TOKENS.SDK_AGENT_ADAPTER);
-      },
-    });
+    // TASK_2025_140: Bridge registration removed. TOKENS.SDK_AGENT_ADAPTER and
+    // SDK_TOKENS.SDK_AGENT_ADAPTER both use Symbol.for('SdkAgentAdapter'), so
+    // they are the same symbol. registerSdkServices() registers the adapter
+    // directly against that symbol -- no bridge needed.
 
     // ========================================
     // PHASE 2.8: Agent Generation Services (TASK_2025_069)

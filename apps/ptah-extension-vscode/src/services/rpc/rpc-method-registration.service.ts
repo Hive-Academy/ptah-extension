@@ -25,7 +25,7 @@ import {
   verifyRpcRegistration,
 } from '@ptah-extension/vscode-core';
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
+import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
   retryWithBackoff,
@@ -70,7 +70,8 @@ export class RpcMethodRegistrationService {
     private readonly agentWatcher: AgentSessionWatcherService,
     @inject(TOKENS.COMMAND_MANAGER)
     private readonly commandManager: CommandManager,
-    @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
+    private readonly sdkAdapter: SdkAgentAdapter,
     // Domain-specific handlers
     private readonly chatHandlers: ChatRpcHandlers,
     private readonly sessionHandlers: SessionRpcHandlers,

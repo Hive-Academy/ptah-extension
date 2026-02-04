@@ -20,6 +20,7 @@ import {
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   SdkAgentAdapter,
+  SDK_TOKENS,
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
 } from '@ptah-extension/agent-sdk';
@@ -40,7 +41,8 @@ export class AuthRpcHandlers {
     private readonly configManager: ConfigManager,
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecretsService: IAuthSecretsService,
-    @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter
+    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
+    private readonly sdkAdapter: SdkAgentAdapter
   ) {}
 
   /**

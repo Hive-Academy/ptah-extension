@@ -44,7 +44,8 @@ export class ConfigRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
-    @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
+    private readonly sdkAdapter: SdkAgentAdapter,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService
   ) {}

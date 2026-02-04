@@ -56,7 +56,8 @@ export class ChatRpcHandlers {
     private readonly webviewManager: WebviewManager,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
-    @inject('SdkAgentAdapter') private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
+    private readonly sdkAdapter: SdkAgentAdapter,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
     private readonly historyReader: SessionHistoryReaderService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)

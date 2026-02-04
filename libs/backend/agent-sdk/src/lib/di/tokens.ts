@@ -1,65 +1,66 @@
 /**
  * DI tokens for agent-sdk services
  * TASK_2025_044 Batch 3: Dependency injection symbols
- */
-
-/**
- * Agent SDK DI Tokens
- * Use string tokens to avoid Symbol conflicts with main DI container
+ * TASK_2025_140 Batch 1: Migrated from string tokens to Symbol.for()
+ *
+ * All tokens use Symbol.for() for cross-module DI support.
+ * Symbol.for('X') === Symbol.for('X') across all modules, enabling
+ * cross-library token resolution (e.g., TOKENS.SDK_AGENT_ADAPTER in
+ * vscode-core resolves to the same symbol as SDK_TOKENS.SDK_AGENT_ADAPTER here).
  */
 export const SDK_TOKENS = {
   // Core services
-  SDK_AGENT_ADAPTER: 'SdkAgentAdapter',
-  SDK_SESSION_METADATA_STORE: 'SessionMetadataStore',
-  SDK_SESSION_IMPORTER: 'SdkSessionImporter',
-  SDK_SESSION_HISTORY_READER: 'SdkSessionHistoryReader',
-  SDK_PERMISSION_HANDLER: 'SdkPermissionHandler',
-  SDK_MESSAGE_TRANSFORMER: 'SdkMessageTransformer',
+  SDK_AGENT_ADAPTER: Symbol.for('SdkAgentAdapter'),
+  SDK_SESSION_METADATA_STORE: Symbol.for('SessionMetadataStore'),
+  SDK_SESSION_IMPORTER: Symbol.for('SdkSessionImporter'),
+  SDK_SESSION_HISTORY_READER: Symbol.for('SdkSessionHistoryReader'),
+  SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
+  SDK_MESSAGE_TRANSFORMER: Symbol.for('SdkMessageTransformer'),
 
   // Helper services
-  SDK_AUTH_MANAGER: 'SdkAuthManager',
-  SDK_SESSION_LIFECYCLE_MANAGER: 'SdkSessionLifecycleManager',
-  SDK_CONFIG_WATCHER: 'SdkConfigWatcher',
-  SDK_STREAM_TRANSFORMER: 'SdkStreamTransformer',
-  SDK_CLI_DETECTOR: 'SdkCliDetector',
-  SDK_ATTACHMENT_PROCESSOR: Symbol('SdkAttachmentProcessor'),
+  SDK_AUTH_MANAGER: Symbol.for('SdkAuthManager'),
+  SDK_SESSION_LIFECYCLE_MANAGER: Symbol.for('SdkSessionLifecycleManager'),
+  SDK_CONFIG_WATCHER: Symbol.for('SdkConfigWatcher'),
+  SDK_STREAM_TRANSFORMER: Symbol.for('SdkStreamTransformer'),
+  SDK_CLI_DETECTOR: Symbol.for('SdkCliDetector'),
+  SDK_ATTACHMENT_PROCESSOR: Symbol.for('SdkAttachmentProcessor'),
 
   // Subagent hook handler (TASK_2025_099)
-  SDK_SUBAGENT_HOOK_HANDLER: 'SdkSubagentHookHandler',
+  SDK_SUBAGENT_HOOK_HANDLER: Symbol.for('SdkSubagentHookHandler'),
 
   // Compaction configuration provider (TASK_2025_098)
-  SDK_COMPACTION_CONFIG_PROVIDER: 'SdkCompactionConfigProvider',
+  SDK_COMPACTION_CONFIG_PROVIDER: Symbol.for('SdkCompactionConfigProvider'),
 
   // Compaction hook handler (TASK_2025_098)
-  SDK_COMPACTION_HOOK_HANDLER: 'SdkCompactionHookHandler',
+  SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
   // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
-  SDK_PROVIDER_MODELS: 'SdkProviderModels',
+  SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
 
   // @deprecated Use SDK_PROVIDER_MODELS instead
-  SDK_OPENROUTER_MODELS: 'SdkProviderModels',
+  SDK_OPENROUTER_MODELS: Symbol.for('SdkProviderModels'),
 
   // Extracted services (TASK_2025_102)
-  SDK_MESSAGE_FACTORY: 'SdkMessageFactory',
-  SDK_QUERY_OPTIONS_BUILDER: 'SdkQueryOptionsBuilder',
-  SDK_MODULE_LOADER: 'SdkModuleLoader',
-  SDK_MODEL_SERVICE: 'SdkModelService',
-  SDK_USER_MESSAGE_STREAM_FACTORY: 'UserMessageStreamFactory',
+  SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
+  SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
+  SDK_MODULE_LOADER: Symbol.for('SdkModuleLoader'),
+  SDK_MODEL_SERVICE: Symbol.for('SdkModelService'),
+  SDK_USER_MESSAGE_STREAM_FACTORY: Symbol.for('UserMessageStreamFactory'),
 
   // History reader child services (TASK_2025_106)
-  SDK_HISTORY_EVENT_FACTORY: 'SdkHistoryEventFactory',
-  SDK_JSONL_READER: 'SdkJsonlReader',
-  SDK_AGENT_CORRELATION: 'SdkAgentCorrelation',
-  SDK_SESSION_REPLAY: 'SdkSessionReplay',
+  SDK_HISTORY_EVENT_FACTORY: Symbol.for('SdkHistoryEventFactory'),
+  SDK_JSONL_READER: Symbol.for('SdkJsonlReader'),
+  SDK_AGENT_CORRELATION: Symbol.for('SdkAgentCorrelation'),
+  SDK_SESSION_REPLAY: Symbol.for('SdkSessionReplay'),
 
   // Prompt Designer Agent (TASK_2025_137 Batch 2)
-  SDK_PROMPT_DESIGNER_AGENT: 'SdkPromptDesignerAgent',
+  SDK_PROMPT_DESIGNER_AGENT: Symbol.for('SdkPromptDesignerAgent'),
 
   // Prompt Cache Service (TASK_2025_137 Batch 3)
-  SDK_PROMPT_CACHE_SERVICE: 'SdkPromptCacheService',
+  SDK_PROMPT_CACHE_SERVICE: Symbol.for('SdkPromptCacheService'),
 
   // Enhanced Prompts Service (TASK_2025_137 Batch 4)
-  SDK_ENHANCED_PROMPTS_SERVICE: 'SdkEnhancedPromptsService',
+  SDK_ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
 } as const;
 
 /**
