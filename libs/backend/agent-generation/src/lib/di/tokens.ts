@@ -1,11 +1,29 @@
 /**
- * Dependency Injection tokens for agent-generation library.
+ * DI Token Registry - Agent Generation Tokens
  *
- * Uses tsyringe for DI container management.
- * All tokens use Symbol.for() for cross-module DI support.
+ * CONVENTION: All DI tokens MUST use Symbol.for('DescriptiveName')
  *
- * @see libs/backend/vscode-core/src/di/tokens.ts for pattern reference
- * @see task-tracking/TASK_2025_058/implementation-plan.md for service specifications
+ * Why Symbol.for():
+ * - Symbol.for() creates globally shared symbols (same description = same symbol)
+ * - String tokens ('Name') and Symbol.for('Name') are different — causes silent DI failures
+ * - Plain Symbol('Name') !== Symbol('Name') — creates unique symbols per call
+ * - Symbol.for('Name') === Symbol.for('Name') — always matches, even across modules
+ *
+ * Rules:
+ * 1. Always use Symbol.for() for token values
+ * 2. Never use string literals as DI tokens
+ * 3. Never use plain Symbol() (without .for)
+ * 4. Always inject via token constants (TOKENS.X, SDK_TOKENS.X), never hardcode strings
+ *    in @inject() decorators
+ * 5. Each Symbol.for() description must be globally unique across all token files
+ *    (unless intentionally shared for cross-library resolution)
+ *
+ * Token files:
+ * - vscode-core/src/di/tokens.ts    — core infrastructure tokens (TOKENS)
+ * - agent-sdk/src/lib/di/tokens.ts  — SDK-specific tokens (SDK_TOKENS)
+ * - agent-generation/src/lib/di/tokens.ts (this file) — agent generation tokens
+ *
+ * @see libs/backend/vscode-core/src/di/tokens.ts for canonical convention reference
  */
 
 // ========================================

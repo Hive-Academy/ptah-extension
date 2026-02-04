@@ -1,232 +1,146 @@
 /**
- * DI Container Tests - User Requirement Validation
- * Testing Week 2 implementation: Type-Safe Dependency Injection Container
- * Validates user requirements from TASK_CMD_002
+ * DI Token Tests - Token Convention Validation
+ *
+ * TASK_2025_140 Batch 2: Replaced broken container tests with token validation tests.
+ *
+ * Original tests imported DIContainer from './container' which no longer exists in
+ * vscode-core (moved to apps/ptah-extension-vscode/src/di/container.ts).
+ * These tests now validate the token definitions that DO exist in this directory.
+ *
+ * Tests validate:
+ * 1. All TOKENS use Symbol.for() (not strings or plain Symbol())
+ * 2. All Symbol.for() descriptions are unique
+ * 3. TOKENS object is complete and consistent with individual exports
  */
 
-import 'reflect-metadata';
-import * as vscode from 'vscode';
-import { DIContainer, TOKENS } from './container';
-// EventBus import removed - TASK_2025_078 (event-bus deleted)
-import { CommandManager } from '../api-wrappers/command-manager';
-import { WebviewManager } from '../api-wrappers/webview-manager';
-import { Logger } from '../logging/logger';
-import {
-  createMockExtensionContext,
-  vscodeModuleMock,
-} from '../__mocks__/vscode-mocks';
+import { TOKENS } from './tokens';
+import * as allTokenExports from './tokens';
 
-// Mock VS Code API
-jest.mock('vscode', () => vscodeModuleMock);
-
-// EventBus mock removed - TASK_2025_078 (event-bus deleted)
-
-jest.mock('../api-wrappers/command-manager', () => ({
-  CommandManager: jest.fn().mockImplementation(() => ({})),
-}));
-
-jest.mock('../api-wrappers/webview-manager', () => ({
-  WebviewManager: jest.fn().mockImplementation(() => ({})),
-}));
-
-describe('DIContainer - User Requirement: Type-Safe Dependency Injection', () => {
-  let mockContext: vscode.ExtensionContext;
-
-  beforeEach(() => {
-    // Reset container state before each test
-    DIContainer.clear();
-
-    mockContext = createMockExtensionContext();
-
-    jest.clearAllMocks();
-  });
-
-  afterEach(() => {
-    DIContainer.clear();
-  });
-
-  describe('User Scenario: Extension Initialization', () => {
-    it('should initialize container with VS Code extension context', () => {
-      // GIVEN: Extension is activating with context
-      // WHEN: DIContainer is set up
-      const container = DIContainer.setup(mockContext);
-
-      // THEN: Container should be configured and context registered
-      expect(container).toBeDefined();
-      expect(DIContainer.isRegistered(TOKENS.EXTENSION_CONTEXT)).toBe(true);
+describe('DI Tokens - Symbol.for() Convention', () => {
+  describe('Token Type Safety', () => {
+    it('should export all tokens as symbols', () => {
+      // Every entry in the TOKENS object must be a symbol
+      for (const [key, value] of Object.entries(TOKENS)) {
+        // Skip comment entries (keys starting with //)
+        if (typeof key === 'string' && !key.startsWith('//')) {
+          expect(typeof value).toBe('symbol');
+        }
+      }
     });
 
-    it('should register extension context as singleton with type safety', () => {
-      // GIVEN: Extension context provided
-      // WHEN: DIContainer setup is called
-      DIContainer.setup(mockContext);
+    it('should use Symbol.for() for all tokens (globally resolvable)', () => {
+      // Symbol.for() creates symbols in the global symbol registry.
+      // We can verify this by checking that Symbol.keyFor() returns the description.
+      // Plain Symbol() would return undefined from Symbol.keyFor().
+      for (const [key, value] of Object.entries(TOKENS)) {
+        if (typeof value === 'symbol') {
+          const description = Symbol.keyFor(value);
+          expect(description).toBeDefined();
+          expect(typeof description).toBe('string');
+          // Verify the description matches what Symbol.for() would produce
+          expect(Symbol.for(description!)).toBe(value);
+        }
+      }
+    });
 
-      // THEN: Context should be resolvable with correct type
-      const resolvedContext = DIContainer.resolve<vscode.ExtensionContext>(
-        TOKENS.EXTENSION_CONTEXT
+    it('should not use string tokens (regression guard)', () => {
+      // No entry in TOKENS should be a string - this was the bug that TASK_2025_140 fixed
+      for (const [, value] of Object.entries(TOKENS)) {
+        expect(typeof value).not.toBe('string');
+      }
+    });
+  });
+
+  describe('Token Uniqueness', () => {
+    it('should have unique Symbol.for() descriptions across all tokens', () => {
+      const descriptions = new Map<string, string>();
+
+      for (const [key, value] of Object.entries(TOKENS)) {
+        if (typeof value === 'symbol') {
+          const description = Symbol.keyFor(value);
+          if (description) {
+            if (descriptions.has(description)) {
+              fail(
+                `Duplicate Symbol.for() description "${description}" ` +
+                  `found in TOKENS.${key} and TOKENS.${descriptions.get(
+                    description
+                  )}`
+              );
+            }
+            descriptions.set(description, key);
+          }
+        }
+      }
+
+      // Verify we actually checked some tokens (guard against empty TOKENS)
+      expect(descriptions.size).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Token Completeness', () => {
+    it('should export TOKENS object with all individual token exports', () => {
+      // Every individually exported Symbol constant should also be in TOKENS
+      const individualExports = Object.entries(allTokenExports).filter(
+        ([key, value]) =>
+          key !== 'TOKENS' && key !== 'DIToken' && typeof value === 'symbol'
       );
-      expect(resolvedContext).toBe(mockContext);
+
+      for (const [exportName, exportValue] of individualExports) {
+        // Find matching entry in TOKENS by symbol identity
+        const matchingEntry = Object.entries(TOKENS).find(
+          ([, tokenValue]) => tokenValue === exportValue
+        );
+        expect(matchingEntry).toBeDefined();
+      }
+    });
+
+    it('should include essential infrastructure tokens', () => {
+      // Core tokens that must always exist
+      expect(TOKENS.EXTENSION_CONTEXT).toBeDefined();
+      expect(TOKENS.LOGGER).toBeDefined();
+      expect(TOKENS.ERROR_HANDLER).toBeDefined();
+      expect(TOKENS.CONFIG_MANAGER).toBeDefined();
+      expect(TOKENS.RPC_HANDLER).toBeDefined();
+      expect(TOKENS.COMMAND_MANAGER).toBeDefined();
+      expect(TOKENS.WEBVIEW_MANAGER).toBeDefined();
+      expect(TOKENS.OUTPUT_MANAGER).toBeDefined();
+    });
+
+    it('should not include deleted tokens', () => {
+      // Tokens that were explicitly deleted should not exist
+      // EVENT_BUS, MESSAGE_ROUTER, WEBVIEW_MESSAGE_BRIDGE - deleted (event system removed)
+      // COMMAND_REGISTRY, WEBVIEW_PROVIDER - deleted in TASK_2025_078
+      expect((TOKENS as Record<string, unknown>)['EVENT_BUS']).toBeUndefined();
+      expect(
+        (TOKENS as Record<string, unknown>)['MESSAGE_ROUTER']
+      ).toBeUndefined();
+      expect(
+        (TOKENS as Record<string, unknown>)['WEBVIEW_MESSAGE_BRIDGE']
+      ).toBeUndefined();
+      expect(
+        (TOKENS as Record<string, unknown>)['COMMAND_REGISTRY']
+      ).toBeUndefined();
+      expect(
+        (TOKENS as Record<string, unknown>)['WEBVIEW_PROVIDER']
+      ).toBeUndefined();
     });
   });
 
-  describe('User Scenario: Service Registration', () => {
-    it('should register all core services as singletons', () => {
-      // GIVEN: Extension needs core services
-      // WHEN: DIContainer is set up
-      DIContainer.setup(mockContext);
-
-      // THEN: All core services should be registered
-      // NOTE: EVENT_BUS, COMMAND_REGISTRY, WEBVIEW_PROVIDER deleted in TASK_2025_078
-      expect(DIContainer.isRegistered(TOKENS.COMMAND_MANAGER)).toBe(true);
-      expect(DIContainer.isRegistered(TOKENS.WEBVIEW_MANAGER)).toBe(true);
-      expect(DIContainer.isRegistered(TOKENS.LOGGER)).toBe(true);
+  describe('Cross-Module Resolution', () => {
+    it('should resolve to same symbol when using Symbol.for() with same description', () => {
+      // This is the core guarantee of Symbol.for() that makes cross-module DI work.
+      // When agent-sdk creates Symbol.for('SdkAgentAdapter') and vscode-core creates
+      // Symbol.for('SdkAgentAdapter'), they must be the same symbol.
+      const description = Symbol.keyFor(TOKENS.SDK_AGENT_ADAPTER);
+      expect(description).toBe('SdkAgentAdapter');
+      expect(Symbol.for('SdkAgentAdapter')).toBe(TOKENS.SDK_AGENT_ADAPTER);
     });
 
-    it('should use Symbol-based tokens for type safety', () => {
-      // GIVEN: Extension requires type-safe service resolution
-      // WHEN: Services are registered
-      DIContainer.setup(mockContext);
-
-      // THEN: All tokens should be Symbols (not strings)
-      expect(typeof TOKENS.EXTENSION_CONTEXT).toBe('symbol');
-      expect(typeof TOKENS.COMMAND_MANAGER).toBe('symbol');
-      expect(typeof TOKENS.WEBVIEW_MANAGER).toBe('symbol');
-      expect(typeof TOKENS.LOGGER).toBe('symbol');
-    });
-  });
-
-  describe('User Scenario: Service Resolution', () => {
-    beforeEach(() => {
-      DIContainer.setup(mockContext);
-    });
-
-    it('should resolve services with correct types', () => {
-      // GIVEN: Services are registered
-      // WHEN: Services are resolved
-      // NOTE: EVENT_BUS deleted in earlier cleanup, COMMAND_REGISTRY/WEBVIEW_PROVIDER deleted in TASK_2025_078
-      const commandManager = DIContainer.resolve<CommandManager>(
-        TOKENS.COMMAND_MANAGER
-      );
-      const webviewManager = DIContainer.resolve<WebviewManager>(
-        TOKENS.WEBVIEW_MANAGER
-      );
-      const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-
-      // THEN: Services should be resolved with correct types
-      expect(commandManager).toBeDefined();
-      expect(webviewManager).toBeDefined();
-      expect(logger).toBeDefined();
-    });
-
-    it('should return same singleton instance on multiple resolutions', () => {
-      // GIVEN: Singleton services are registered
-      // WHEN: Services are resolved multiple times
-      // NOTE: EVENT_BUS deleted in earlier cleanup
-      const logger1 = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-      const logger2 = DIContainer.resolve<Logger>(TOKENS.LOGGER);
-
-      // THEN: Same instance should be returned (singleton behavior)
-      expect(logger1).toBe(logger2);
-    });
-
-    it('should throw error for unregistered service', () => {
-      // GIVEN: Service is not registered
-      const unregisteredToken = Symbol('UnregisteredService');
-
-      // WHEN: Attempting to resolve unregistered service
-      // THEN: Should throw error
-      expect(() => {
-        DIContainer.resolve(unregisteredToken);
-      }).toThrow();
-    });
-  });
-
-  describe('User Scenario: Container Utilities', () => {
-    beforeEach(() => {
-      DIContainer.setup(mockContext);
-    });
-
-    it('should check service registration status', () => {
-      // GIVEN: Services are registered
-      // WHEN: Checking registration status
-      const isEventBusRegistered = DIContainer.isRegistered(TOKENS.EVENT_BUS);
-      const isUnknownRegistered = DIContainer.isRegistered(Symbol('Unknown'));
-
-      // THEN: Should correctly report registration status
-      expect(isEventBusRegistered).toBe(true);
-      expect(isUnknownRegistered).toBe(false);
-    });
-
-    it('should provide access to global container instance', () => {
-      // GIVEN: Container is set up
-      // WHEN: Getting container instance
-      const container = DIContainer.getContainer();
-
-      // THEN: Should return the global container
-      expect(container).toBeDefined();
-      expect(typeof container.resolve).toBe('function');
-      expect(typeof container.register).toBe('function');
-    });
-
-    it('should clear all instances for cleanup', () => {
-      // GIVEN: Container with registered services and resolved instances
-      const eventBus1 = DIContainer.resolve(TOKENS.EVENT_BUS);
-      expect(eventBus1).toBeDefined();
-
-      // WHEN: Container is cleared
-      DIContainer.clear();
-
-      // THEN: New instances should be created on subsequent resolves
-      const eventBus2 = DIContainer.resolve(TOKENS.EVENT_BUS);
-      expect(eventBus2).toBeDefined();
-      // Note: Since registrations remain, services can still be resolved
-      // but new instances are created after clearing
-    });
-  });
-
-  describe('User Error Scenarios', () => {
-    it('should handle resolution errors gracefully', () => {
-      // GIVEN: Container is not properly set up
-      const invalidToken = Symbol('InvalidService');
-
-      // WHEN: Attempting to resolve non-existent service
-      // THEN: Should throw meaningful error
-      expect(() => {
-        DIContainer.resolve(invalidToken);
-      }).toThrow(/unregistered dependency token/i);
-    });
-
-    it('should allow re-setup after clear', () => {
-      // GIVEN: Container was previously set up and cleared
-      DIContainer.setup(mockContext);
-      DIContainer.clear();
-
-      // WHEN: Setting up container again
-      expect(() => {
-        DIContainer.setup(mockContext);
-      }).not.toThrow();
-
-      // THEN: Services should be available again
-      expect(DIContainer.isRegistered(TOKENS.EXTENSION_CONTEXT)).toBe(true);
-    });
-  });
-
-  describe('User Requirement: Zero any types', () => {
-    it('should provide full TypeScript type safety', () => {
-      // GIVEN: Container is set up
-      DIContainer.setup(mockContext);
-
-      // WHEN: Resolving services with explicit types
-      // THEN: TypeScript should enforce correct types (this is a compile-time test)
-      const eventBus: EventBus = DIContainer.resolve<EventBus>(
-        TOKENS.EVENT_BUS
-      );
-      const context: vscode.ExtensionContext =
-        DIContainer.resolve<vscode.ExtensionContext>(TOKENS.EXTENSION_CONTEXT);
-
-      // Verify types are correctly enforced at runtime
-      expect(eventBus).toBeDefined();
-      expect(context).toBe(mockContext);
+    it('should resolve Logger token consistently', () => {
+      // Context service uses local Symbol.for('Logger') to avoid circular dependency.
+      // This must resolve to the same symbol as TOKENS.LOGGER.
+      const localLoggerToken = Symbol.for('Logger');
+      expect(localLoggerToken).toBe(TOKENS.LOGGER);
     });
   });
 });

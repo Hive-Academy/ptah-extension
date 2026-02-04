@@ -80,6 +80,13 @@ const STORAGE_KEY = 'ptah.sessionMetadata';
  */
 @injectable()
 export class SessionMetadataStore {
+  /**
+   * NOTE: @inject() decorators below are NOT used at runtime.
+   * This class is registered via registerInstance() in di/register.ts,
+   * which manually constructs the instance with context.workspaceState
+   * and a Logger instance. The decorators are retained for documentation
+   * purposes only (they show the logical dependencies).
+   */
   constructor(
     @inject(TOKENS.GLOBAL_STATE) private storage: vscode.Memento,
     @inject(TOKENS.LOGGER) private logger: Logger

@@ -1,12 +1,29 @@
 /**
- * DI Token Symbols - Type-safe dependency injection tokens
- * SINGLE SOURCE OF TRUTH for ALL dependency injection tokens
- * Based on MONSTER_EXTENSION_REFACTOR_PLAN lines 176-194
+ * DI Token Registry - Core Infrastructure Tokens
  *
- * ⚠️ CRITICAL: This is the ONLY file that defines DI tokens in the entire codebase
- * All libraries import from here. No other token definitions should exist.
+ * CONVENTION: All DI tokens MUST use Symbol.for('DescriptiveName')
  *
- * Uses Symbol.for() to create global symbols shared across module boundaries
+ * Why Symbol.for():
+ * - Symbol.for() creates globally shared symbols (same description = same symbol)
+ * - String tokens ('Name') and Symbol.for('Name') are different — causes silent DI failures
+ * - Plain Symbol('Name') !== Symbol('Name') — creates unique symbols per call
+ * - Symbol.for('Name') === Symbol.for('Name') — always matches, even across modules
+ *
+ * Rules:
+ * 1. Always use Symbol.for() for token values
+ * 2. Never use string literals as DI tokens
+ * 3. Never use plain Symbol() (without .for)
+ * 4. Always inject via token constants (TOKENS.X, SDK_TOKENS.X), never hardcode strings
+ *    in @inject() decorators
+ * 5. Each Symbol.for() description must be globally unique across all token files
+ *    (unless intentionally shared for cross-library resolution, e.g.,
+ *    TOKENS.SDK_AGENT_ADAPTER and SDK_TOKENS.SDK_AGENT_ADAPTER both resolve to
+ *    Symbol.for('SdkAgentAdapter') so they reference the same registration)
+ *
+ * Token files:
+ * - vscode-core/src/di/tokens.ts    (this file) — core infrastructure tokens
+ * - agent-sdk/src/lib/di/tokens.ts  — SDK-specific tokens (SDK_TOKENS)
+ * - agent-generation/src/lib/di/tokens.ts — agent generation tokens (AGENT_GENERATION_TOKENS)
  */
 
 // ========================================
