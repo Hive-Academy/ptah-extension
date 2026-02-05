@@ -136,6 +136,12 @@ export class LicenseController {
 
     // Step 4: No active license found - return unlicensed response
     if (!license) {
+      // Check if this is a trial-ended case: subscription exists, is trialing, but trial has ended
+      const isTrialEnded =
+        subscription?.status === 'trialing' &&
+        subscription?.trialEnd &&
+        new Date() > subscription.trialEnd;
+
       return {
         // User info
         user: {
@@ -151,8 +157,11 @@ export class LicenseController {
         planDescription: 'Start a trial or subscribe to use Ptah Extension',
         status: 'none',
         features: [],
-        message:
-          'No active license found. Start your free trial to get started!',
+        message: isTrialEnded
+          ? 'Your trial has ended. Upgrade to Pro to continue using all features!'
+          : 'No active license found. Start your free trial to get started!',
+        // Reason for license status (TASK_2025_143)
+        reason: isTrialEnded ? 'trial_ended' : undefined,
         // Subscription info
         subscription: null,
       };
@@ -172,7 +181,27 @@ export class LicenseController {
         ? getPlanConfig(license.plan as PlanName)
         : PLANS.community; // Safe fallback for unknown plans
 
-    // Step 7: Return complete account details (NEVER include licenseKey)
+    // Step 7: Determine reason for license status (TASK_2025_143)
+    // Check if trial has ended (subscription is trialing but trialEnd < now)
+    const isTrialEnded =
+      subscription?.status === 'trialing' &&
+      subscription?.trialEnd &&
+      new Date() > subscription.trialEnd;
+
+    // Check if license has expired
+    const isExpired =
+      license.status === 'expired' ||
+      (license.expiresAt && new Date() > license.expiresAt);
+
+    // Determine the reason field
+    let reason: 'trial_ended' | 'expired' | undefined;
+    if (isTrialEnded) {
+      reason = 'trial_ended';
+    } else if (isExpired) {
+      reason = 'expired';
+    }
+
+    // Step 8: Return complete account details (NEVER include licenseKey)
     return {
       // User info
       user: {
@@ -191,6 +220,11 @@ export class LicenseController {
       daysRemaining,
       licenseCreatedAt: license.createdAt.toISOString(),
       features: planConfig.features,
+      // Reason for license status (TASK_2025_143)
+      // Returns 'trial_ended' when subscription trial has expired
+      // Returns 'expired' when license has expired
+      // Returns undefined for active licenses
+      reason,
       // Subscription info (if Pro with Paddle subscription)
       subscription: subscription
         ? {

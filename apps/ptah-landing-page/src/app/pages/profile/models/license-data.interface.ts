@@ -80,6 +80,17 @@ export interface LicenseData {
 
   /** Subscription info for Pro users with Paddle subscription */
   subscription: SubscriptionInfo | null;
+
+  /**
+   * Reason for license status when not active
+   *
+   * TASK_2025_143: Trial-ended notifications
+   * - 'trial_ended': Trial period has concluded
+   * - 'expired': License/subscription has expired
+   * - 'revoked': License was revoked (e.g., refund)
+   * - 'not_found': No license record found
+   */
+  reason?: 'trial_ended' | 'expired' | 'revoked' | 'not_found';
 }
 
 /** Feature display configuration */

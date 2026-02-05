@@ -8,6 +8,7 @@ import {
   SessionId,
   MESSAGE_TYPES,
   SubagentRecord,
+  LicenseGetStatusResponse,
 } from '@ptah-extension/shared';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
@@ -101,6 +102,11 @@ export class ChatStore {
       this.loadSessions().catch((err) => {
         console.error('[ChatStore] Failed to auto-load sessions:', err);
       });
+
+      // TASK_2025_142: Fetch license status for trial banners
+      this.fetchLicenseStatus().catch((err) => {
+        console.error('[ChatStore] Failed to fetch license status:', err);
+      });
     } catch (error) {
       console.error('[ChatStore] Failed to initialize services:', error);
       // Services remain null, servicesReady stays false
@@ -145,6 +151,12 @@ export class ChatStore {
   // Resumable subagents signals (TASK_2025_103)
   private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
   readonly resumableSubagents = this._resumableSubagents.asReadonly();
+
+  // License status signal (TASK_2025_142)
+  private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
+    null
+  );
+  readonly licenseStatus = this._licenseStatus.asReadonly();
 
   // Compaction state signals (TASK_2025_098)
   private readonly _isCompacting = signal<boolean>(false);
@@ -423,6 +435,56 @@ export class ChatStore {
   // When a parent session continues, interrupted subagent context is injected
   // into the prompt, allowing Claude to naturally resume agents through conversation.
   // Users can type "resume agent {agentId}" to trigger natural resumption.
+
+  // ============================================================================
+  // LICENSE STATUS (TASK_2025_142)
+  // ============================================================================
+
+  /**
+   * Fetch the current license status from the backend with retry logic
+   * Called during initialization to populate license information for trial banners
+   *
+   * TASK_2025_142: Added exponential backoff retry (3 attempts) to handle
+   * transient network failures. Without retry, users see no trial banner
+   * for the entire session if the initial fetch fails.
+   *
+   * @param retries - Number of retry attempts (default: 3)
+   */
+  async fetchLicenseStatus(retries = 3): Promise<void> {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const result = await this._claudeRpcService.call(
+          'license:getStatus',
+          {} as Record<string, never>
+        );
+
+        if (result.isSuccess()) {
+          this._licenseStatus.set(result.data);
+          return;
+        } else {
+          // RPC returned failure result
+          if (attempt === retries) {
+            console.error(
+              '[ChatStore] Failed to fetch license status after retries:',
+              result.error
+            );
+            this._licenseStatus.set(null);
+          }
+        }
+      } catch (error) {
+        if (attempt === retries) {
+          console.error(
+            '[ChatStore] Error fetching license status after retries:',
+            error
+          );
+          this._licenseStatus.set(null);
+        } else {
+          // Exponential backoff: 1s, 2s, 3s...
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+    }
+  }
 
   // ============================================================================
   // COMPACTION HANDLING (TASK_2025_098)

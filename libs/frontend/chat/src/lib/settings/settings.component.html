@@ -104,13 +104,90 @@
         </div>
         }
 
-        <!-- Trial info -->
+        <!-- TASK_2025_142: Enhanced Trial Status Section -->
         @if (showTrialInfo()) {
         <div
-          class="flex items-center gap-1.5 text-xs text-base-content/70 mb-2"
+          class="border rounded-md p-2.5 mb-2"
+          [class.border-info]="trialUrgencyLevel() === 'info'"
+          [class.border-warning]="trialUrgencyLevel() === 'warning'"
+          [class.border-error]="trialUrgencyLevel() === 'error'"
+          [class.bg-info]="trialUrgencyLevel() === 'info'"
+          [class.bg-warning]="trialUrgencyLevel() === 'warning'"
+          [class.bg-error]="trialUrgencyLevel() === 'error'"
+          [class.bg-opacity-5]="true"
         >
-          <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
-          <span>Trial: {{ trialDaysRemaining() }} days remaining</span>
+          <!-- Header with icon and status badge -->
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-1.5">
+              <lucide-angular
+                [img]="ClockIcon"
+                class="w-3.5 h-3.5"
+                [class.text-info]="trialUrgencyLevel() === 'info'"
+                [class.text-warning]="trialUrgencyLevel() === 'warning'"
+                [class.text-error]="trialUrgencyLevel() === 'error'"
+              />
+              <span class="text-xs font-medium">Pro Trial Status</span>
+            </div>
+            <span
+              class="badge badge-xs"
+              [class.badge-info]="trialUrgencyLevel() === 'info'"
+              [class.badge-warning]="trialUrgencyLevel() === 'warning'"
+              [class.badge-error]="trialUrgencyLevel() === 'error'"
+            >
+              {{ trialStatusText() }}
+            </span>
+          </div>
+
+          <!-- Progress bar -->
+          <div
+            class="w-full h-1.5 bg-base-300 rounded-full overflow-hidden mb-2"
+          >
+            <div
+              class="h-full transition-all duration-300 rounded-full"
+              [class.bg-info]="trialUrgencyLevel() === 'info'"
+              [class.bg-warning]="trialUrgencyLevel() === 'warning'"
+              [class.bg-error]="trialUrgencyLevel() === 'error'"
+              [style.width.%]="trialProgress()"
+            ></div>
+          </div>
+
+          <!-- End date -->
+          @if (trialEndDate()) {
+          <p class="text-xs text-base-content/60 mb-2">
+            Ends on {{ trialEndDate() }}
+          </p>
+          }
+
+          <!-- Upgrade CTA -->
+          <button
+            class="btn btn-primary btn-xs w-full gap-1"
+            (click)="openPricing()"
+          >
+            <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+            Upgrade to Pro
+          </button>
+        </div>
+        }
+
+        <!-- TASK_2025_142: Trial Expired Section -->
+        @if (licenseTier() === 'expired' && licenseReason() === 'trial_ended') {
+        <div
+          class="border border-error rounded-md p-2.5 mb-2 bg-error bg-opacity-5"
+        >
+          <div class="flex items-center gap-1.5 mb-2">
+            <lucide-angular [img]="ClockIcon" class="w-3.5 h-3.5 text-error" />
+            <span class="text-xs font-medium text-error">Trial Expired</span>
+          </div>
+          <p class="text-xs text-base-content/60 mb-2">
+            Your 14-day Pro trial has ended. Upgrade to restore Pro features.
+          </p>
+          <button
+            class="btn btn-primary btn-xs w-full gap-1"
+            (click)="openPricing()"
+          >
+            <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+            Upgrade to Pro
+          </button>
         </div>
         }
 

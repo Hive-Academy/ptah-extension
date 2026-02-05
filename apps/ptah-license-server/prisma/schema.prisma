@@ -27,6 +27,7 @@ model User {
   updatedAt        DateTime       @updatedAt @map("updated_at")
   licenses         License[]
   subscriptions    Subscription[]
+  trialReminders   TrialReminder[]
 
   @@index([workosId])
   @@index([paddleCustomerId])
@@ -93,4 +94,20 @@ model FailedWebhook {
   @@index([eventType])
   @@index([resolved])
   @@map("failed_webhooks")
+}
+
+// TrialReminder model - tracks trial reminder emails sent to users
+// TASK_2025_142: Trial reminder scheduler - tracks which reminders have been sent
+model TrialReminder {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminderType String   @map("reminder_type") // "7_day" | "3_day" | "1_day" | "expired"
+  sentAt       DateTime @default(now()) @map("sent_at")
+  emailSentTo  String   @map("email_sent_to")
+
+  @@unique([userId, reminderType])
+  @@index([userId])
+  @@index([reminderType])
+  @@map("trial_reminders")
 }

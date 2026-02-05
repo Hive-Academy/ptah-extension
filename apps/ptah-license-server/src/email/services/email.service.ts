@@ -258,4 +258,430 @@ export class EmailService {
       </html>
     `;
   }
+
+  // ============================================================
+  // Trial Reminder Email Methods (TASK_2025_142)
+  // ============================================================
+
+  /**
+   * Send 7-day trial reminder email
+   *
+   * @param params - Email, firstName, trialEnd date
+   * @throws Error after 3 failed retry attempts
+   */
+  async sendTrialReminder7Day(params: {
+    email: string;
+    firstName: string | null;
+    trialEnd: Date;
+  }): Promise<void> {
+    const { email, firstName, trialEnd } = params;
+
+    const msg: MailDataRequired = {
+      to: email,
+      from: {
+        email:
+          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
+        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
+      },
+      subject: 'Your Ptah Pro trial ends in 7 days',
+      html: this.getTrialReminder7DayTemplate({ firstName, trialEnd }),
+    };
+
+    this.logger.log(`Sending 7-day trial reminder to ${email}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`7-day trial reminder sent successfully to ${email}`);
+  }
+
+  /**
+   * Send 3-day trial reminder email
+   *
+   * @param params - Email, firstName, trialEnd date
+   * @throws Error after 3 failed retry attempts
+   */
+  async sendTrialReminder3Day(params: {
+    email: string;
+    firstName: string | null;
+    trialEnd: Date;
+  }): Promise<void> {
+    const { email, firstName, trialEnd } = params;
+
+    const msg: MailDataRequired = {
+      to: email,
+      from: {
+        email:
+          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
+        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
+      },
+      subject: '3 days left in your Ptah Pro trial',
+      html: this.getTrialReminder3DayTemplate({ firstName, trialEnd }),
+    };
+
+    this.logger.log(`Sending 3-day trial reminder to ${email}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`3-day trial reminder sent successfully to ${email}`);
+  }
+
+  /**
+   * Send 1-day trial reminder email
+   *
+   * @param params - Email, firstName, trialEnd date
+   * @throws Error after 3 failed retry attempts
+   */
+  async sendTrialReminder1Day(params: {
+    email: string;
+    firstName: string | null;
+    trialEnd: Date;
+  }): Promise<void> {
+    const { email, firstName, trialEnd } = params;
+
+    const msg: MailDataRequired = {
+      to: email,
+      from: {
+        email:
+          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
+        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
+      },
+      subject: 'Your Ptah Pro trial ends tomorrow',
+      html: this.getTrialReminder1DayTemplate({ firstName, trialEnd }),
+    };
+
+    this.logger.log(`Sending 1-day trial reminder to ${email}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`1-day trial reminder sent successfully to ${email}`);
+  }
+
+  /**
+   * Send trial expired notification email
+   *
+   * @param params - Email, firstName
+   * @throws Error after 3 failed retry attempts
+   */
+  async sendTrialExpired(params: {
+    email: string;
+    firstName: string | null;
+  }): Promise<void> {
+    const { email, firstName } = params;
+
+    const msg: MailDataRequired = {
+      to: email,
+      from: {
+        email:
+          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
+        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
+      },
+      subject: 'Your Ptah Pro trial has ended',
+      html: this.getTrialExpiredTemplate({ firstName }),
+    };
+
+    this.logger.log(`Sending trial expired notification to ${email}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`Trial expired notification sent successfully to ${email}`);
+  }
+
+  // ============================================================
+  // Trial Reminder Email Templates (TASK_2025_142)
+  // ============================================================
+
+  /**
+   * 7-day trial reminder email template
+   *
+   * @private
+   * @param params - Template parameters (firstName, trialEnd)
+   * @returns HTML email content
+   */
+  private getTrialReminder7DayTemplate(params: {
+    firstName: string | null;
+    trialEnd: Date;
+  }): string {
+    const { firstName, trialEnd } = params;
+    const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
+    const endDate = trialEnd.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your Ptah Pro trial ends in 7 days</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          h1 { color: #4A5568; margin-bottom: 20px; }
+          .countdown-badge { display: inline-block; background-color: #3182CE; color: white; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+          .feature-list { background-color: #F7FAFC; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .feature-item { display: flex; align-items: center; margin-bottom: 8px; }
+          .feature-icon { width: 20px; height: 20px; margin-right: 8px; color: #48BB78; }
+          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+        </style>
+      </head>
+      <body>
+        <h1>${greeting},</h1>
+
+        <div class="countdown-badge">7 days remaining</div>
+
+        <p>Your Ptah Pro trial will end on <strong>${endDate}</strong>.</p>
+
+        <p>You've been enjoying these Pro features:</p>
+
+        <div class="feature-list">
+          <div class="feature-item">
+            <span class="feature-icon">✓</span>
+            <span>Advanced multi-agent orchestration</span>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">✓</span>
+            <span>Priority API access & faster responses</span>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">✓</span>
+            <span>Extended context window & memory</span>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">✓</span>
+            <span>Custom agent creation & MCP tools</span>
+          </div>
+        </div>
+
+        <p>Upgrade now to keep using these features after your trial ends.</p>
+
+        <a href="${frontendUrl}/pricing" class="cta-button">Upgrade Now</a>
+
+        <div class="footer">
+          <p>If you have any questions, just reply to this email.</p>
+          <p>- The Ptah Team</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * 3-day trial reminder email template
+   *
+   * @private
+   * @param params - Template parameters (firstName, trialEnd)
+   * @returns HTML email content
+   */
+  private getTrialReminder3DayTemplate(params: {
+    firstName: string | null;
+    trialEnd: Date;
+  }): string {
+    const { firstName, trialEnd } = params;
+    const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
+    const endDate = trialEnd.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>3 days left in your Ptah Pro trial</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          h1 { color: #4A5568; margin-bottom: 20px; }
+          .countdown-badge { display: inline-block; background-color: #ED8936; color: white; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+          .comparison-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+          .comparison-table th, .comparison-table td { padding: 12px; text-align: left; border-bottom: 1px solid #E2E8F0; }
+          .comparison-table th { background-color: #F7FAFC; }
+          .check { color: #48BB78; }
+          .cross { color: #E53E3E; }
+          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+        </style>
+      </head>
+      <body>
+        <h1>${greeting},</h1>
+
+        <div class="countdown-badge">Only 3 days left</div>
+
+        <p>Your Ptah Pro trial ends on <strong>${endDate}</strong>. Here's what changes after your trial:</p>
+
+        <table class="comparison-table">
+          <tr>
+            <th>Feature</th>
+            <th>Pro</th>
+            <th>Community</th>
+          </tr>
+          <tr>
+            <td>Multi-agent orchestration</td>
+            <td class="check">✓ Full</td>
+            <td class="cross">✗ Limited</td>
+          </tr>
+          <tr>
+            <td>Context window</td>
+            <td class="check">✓ Extended</td>
+            <td class="cross">✗ Standard</td>
+          </tr>
+          <tr>
+            <td>Custom agents & MCP</td>
+            <td class="check">✓ Unlimited</td>
+            <td class="cross">✗ None</td>
+          </tr>
+          <tr>
+            <td>Priority support</td>
+            <td class="check">✓ Yes</td>
+            <td class="cross">✗ No</td>
+          </tr>
+        </table>
+
+        <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>
+
+        <div class="footer">
+          <p>Questions? Reply to this email and we'll help you out.</p>
+          <p>- The Ptah Team</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * 1-day trial reminder email template (urgent)
+   *
+   * @private
+   * @param params - Template parameters (firstName, trialEnd)
+   * @returns HTML email content
+   */
+  private getTrialReminder1DayTemplate(params: {
+    firstName: string | null;
+    trialEnd: Date;
+  }): string {
+    const { firstName, trialEnd } = params;
+    const greeting = firstName
+      ? `${firstName}, this is your last chance!`
+      : 'This is your last chance!';
+    const endDate = trialEnd.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your Ptah Pro trial ends tomorrow</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          h1 { color: #E53E3E; margin-bottom: 20px; }
+          .urgent-badge { display: inline-block; background-color: #E53E3E; color: white; padding: 6px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
+          .warning-box { background-color: #FFF5F5; border-left: 4px solid #E53E3E; padding: 16px; margin: 20px 0; border-radius: 4px; }
+          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; font-size: 16px; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+        </style>
+      </head>
+      <body>
+        <h1>${greeting}</h1>
+
+        <div class="urgent-badge">Trial ends tomorrow</div>
+
+        <p>Your Ptah Pro trial expires on <strong>${endDate}</strong>.</p>
+
+        <div class="warning-box">
+          <strong>What happens tomorrow:</strong><br>
+          You'll be moved to the Community tier with limited features. Upgrade now to keep full access to Pro features without interruption.
+        </div>
+
+        <a href="${frontendUrl}/pricing" class="cta-button">Upgrade Now</a>
+
+        <p style="color: #718096; font-size: 14px;">
+          Not ready to upgrade? No worries - you can continue using Ptah with the Community tier,
+          and upgrade anytime to restore Pro features.
+        </p>
+
+        <div class="footer">
+          <p>Questions? Reply to this email.</p>
+          <p>- The Ptah Team</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Trial expired notification email template
+   *
+   * @private
+   * @param params - Template parameters (firstName)
+   * @returns HTML email content
+   */
+  private getTrialExpiredTemplate(params: {
+    firstName: string | null;
+  }): string {
+    const { firstName } = params;
+    const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Your Ptah Pro trial has ended</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          h1 { color: #4A5568; margin-bottom: 20px; }
+          .status-box { background-color: #F7FAFC; border-radius: 8px; padding: 16px; margin: 20px 0; text-align: center; }
+          .status-icon { font-size: 48px; margin-bottom: 12px; }
+          .community-info { background-color: #EBF8FF; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+        </style>
+      </head>
+      <body>
+        <h1>${greeting},</h1>
+
+        <div class="status-box">
+          <div class="status-icon">📅</div>
+          <p><strong>Your 14-day Pro trial has ended</strong></p>
+        </div>
+
+        <div class="community-info">
+          <p><strong>What's changed:</strong></p>
+          <p>You now have access to Ptah's Community tier, which includes basic AI assistance
+          and standard features. You can continue using Ptah for free!</p>
+        </div>
+
+        <p>Want to restore full Pro access? Upgrade anytime to unlock all premium features:</p>
+
+        <ul>
+          <li>Advanced multi-agent orchestration</li>
+          <li>Extended context window & memory</li>
+          <li>Custom agent creation & MCP tools</li>
+          <li>Priority support</li>
+        </ul>
+
+        <a href="${frontendUrl}/pricing" class="cta-button">View Plans</a>
+
+        <div class="footer">
+          <p>Thank you for trying Ptah Pro! If you have feedback, we'd love to hear it.</p>
+          <p>- The Ptah Team</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
 }

@@ -44,6 +44,9 @@ export {
   type AskUserQuestionRequest,
   type AskUserQuestionResponse,
 } from './molecules/question-card.component';
+// TASK_2025_142: Trial reminder UI components
+export * from './molecules/trial-banner.component';
+export * from './molecules/trial-ended-modal.component';
 
 // ============================================================================
 // ORGANISMS - Complex sections

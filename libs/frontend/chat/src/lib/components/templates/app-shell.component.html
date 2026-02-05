@@ -1,6 +1,9 @@
 <!-- Global confirmation dialog (replaces window.confirm) -->
 <ptah-confirmation-dialog />
 
+<!-- TASK_2025_142: Trial ended modal (shows when trial_ended reason) -->
+<ptah-trial-ended-modal [reason]="licenseReason()" />
+
 <!--
   Layout Architecture:
   - Wizard and Settings views render STANDALONE (no sidebar, no tabs)

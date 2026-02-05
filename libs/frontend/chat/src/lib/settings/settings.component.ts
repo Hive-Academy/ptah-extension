@@ -2,7 +2,6 @@ import {
   Component,
   inject,
   ChangeDetectionStrategy,
-  signal,
   computed,
   OnInit,
 } from '@angular/core';
@@ -25,7 +24,8 @@ import {
   ClaudeRpcService,
   AuthStateService,
 } from '@ptah-extension/core';
-import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
+import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
+import { ChatStore } from '../services/chat.store';
 
 /**
  * SettingsComponent - Main settings page container
@@ -45,6 +45,7 @@ import type { LicenseGetStatusResponse } from '@ptah-extension/shared';
  * - Composition: Uses AuthConfigComponent for authentication section
  *
  * TASK_2025_079: Added auth status and license status for conditional visibility
+ * TASK_2025_142: Refactored to use ChatStore.licenseStatus to avoid duplicate RPC calls
  */
 @Component({
   selector: 'ptah-settings',
@@ -64,6 +65,9 @@ export class SettingsComponent implements OnInit {
   // TASK_2025_133 Batch 2: Centralized auth state from AuthStateService
   readonly authState = inject(AuthStateService);
 
+  // TASK_2025_142: Use ChatStore's licenseStatus to avoid duplicate RPC calls
+  private readonly chatStore = inject(ChatStore);
+
   // Lucide icons
   readonly ArrowLeftIcon = ArrowLeft;
   readonly SparklesIcon = Sparkles;
@@ -75,26 +79,68 @@ export class SettingsComponent implements OnInit {
   readonly KeyIcon = Key;
   readonly ExternalLinkIcon = ExternalLink;
 
-  // License status signals
-  readonly isPremium = signal(false);
-  readonly licenseTier = signal<'community' | 'pro' | 'trial_pro' | 'expired'>(
-    'expired'
+  // ============================================================
+  // License status computed signals (derived from ChatStore)
+  // TASK_2025_142: All license data now flows from ChatStore.licenseStatus
+  // ============================================================
+
+  readonly isPremium = computed(
+    () => this.chatStore.licenseStatus()?.isPremium ?? false
   );
-  readonly isLoadingLicenseStatus = signal(true);
 
-  // License status card signals
-  readonly licenseValid = signal(false);
-  readonly trialActive = signal(false);
-  readonly trialDaysRemaining = signal<number | null>(null);
-  readonly daysRemaining = signal<number | null>(null);
-  readonly planName = signal<string | null>(null);
-  readonly planDescription = signal<string | null>(null);
-  readonly isCommunity = signal(false);
+  readonly licenseTier = computed(
+    () => this.chatStore.licenseStatus()?.tier ?? 'expired'
+  );
 
-  // User profile signals (TASK_2025_129)
-  readonly userEmail = signal<string | null>(null);
-  readonly userFirstName = signal<string | null>(null);
-  readonly userLastName = signal<string | null>(null);
+  readonly isLoadingLicenseStatus = computed(
+    () => this.chatStore.licenseStatus() === null
+  );
+
+  readonly licenseValid = computed(
+    () => this.chatStore.licenseStatus()?.valid ?? false
+  );
+
+  readonly trialActive = computed(
+    () => this.chatStore.licenseStatus()?.trialActive ?? false
+  );
+
+  readonly trialDaysRemaining = computed(
+    () => this.chatStore.licenseStatus()?.trialDaysRemaining ?? null
+  );
+
+  readonly daysRemaining = computed(
+    () => this.chatStore.licenseStatus()?.daysRemaining ?? null
+  );
+
+  readonly planName = computed(
+    () => this.chatStore.licenseStatus()?.plan?.name ?? null
+  );
+
+  readonly planDescription = computed(
+    () => this.chatStore.licenseStatus()?.plan?.description ?? null
+  );
+
+  readonly isCommunity = computed(
+    () => this.chatStore.licenseStatus()?.isCommunity ?? false
+  );
+
+  // User profile computed signals (TASK_2025_129)
+  readonly userEmail = computed(
+    () => this.chatStore.licenseStatus()?.user?.email ?? null
+  );
+
+  readonly userFirstName = computed(
+    () => this.chatStore.licenseStatus()?.user?.firstName ?? null
+  );
+
+  readonly userLastName = computed(
+    () => this.chatStore.licenseStatus()?.user?.lastName ?? null
+  );
+
+  // TASK_2025_142: License reason for trial ended detection
+  readonly licenseReason = computed(
+    () => this.chatStore.licenseStatus()?.reason
+  );
 
   /**
    * Computed: Whether any auth credential is configured
@@ -169,6 +215,65 @@ export class SettingsComponent implements OnInit {
     return !!name && name !== this.userEmail();
   });
 
+  // ============================================================
+  // TASK_2025_142: Enhanced Trial Status Computed Signals
+  // ============================================================
+
+  /**
+   * Computed: Trial end date in human-readable format
+   * Calculates the end date based on days remaining from today
+   */
+  readonly trialEndDate = computed(() => {
+    const days = this.trialDaysRemaining();
+    if (days === null) return null;
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + days);
+    return endDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  });
+
+  /**
+   * Computed: Trial progress percentage (for visual indicator)
+   * Uses TRIAL_DURATION_DAYS constant to avoid hardcoded magic number
+   * Returns percentage of trial remaining (100% = full trial, 0% = expired)
+   */
+  readonly trialProgress = computed(() => {
+    const days = this.trialDaysRemaining();
+    if (days === null) return 0;
+    // Clamp between 0 and 100
+    return Math.max(0, Math.min(100, (days / TRIAL_DURATION_DAYS) * 100));
+  });
+
+  /**
+   * Computed: Trial urgency level for styling
+   * - 'error' when days <= 1 (red/urgent)
+   * - 'warning' when days <= 3 (yellow/caution)
+   * - 'info' otherwise (blue/informational)
+   */
+  readonly trialUrgencyLevel = computed((): 'info' | 'warning' | 'error' => {
+    const days = this.trialDaysRemaining();
+    if (days === null) return 'info';
+    if (days <= 1) return 'error';
+    if (days <= 3) return 'warning';
+    return 'info';
+  });
+
+  /**
+   * Computed: Trial status text for display
+   * Shows appropriate message based on days remaining
+   */
+  readonly trialStatusText = computed(() => {
+    const days = this.trialDaysRemaining();
+    if (days === null) return '';
+    if (days === 0) return 'Expires today';
+    if (days === 1) return 'Expires tomorrow';
+    return `${days} days remaining`;
+  });
+
   /**
    * Computed: User initials for avatar (e.g., "JD" for John Doe)
    * (TASK_2025_129)
@@ -193,14 +298,13 @@ export class SettingsComponent implements OnInit {
   });
 
   /**
-   * Initialize: Load auth and license status on component mount
+   * Initialize: Load auth status on component mount
    * TASK_2025_133: Auth status now loaded via AuthStateService
+   * TASK_2025_142: License status now comes from ChatStore (already fetched at app init)
    */
   async ngOnInit(): Promise<void> {
-    await Promise.all([
-      this.authState.loadAuthStatus(),
-      this.fetchLicenseStatus(),
-    ]);
+    // Only load auth status - license status is already in ChatStore
+    await this.authState.loadAuthStatus();
   }
 
   /**
@@ -235,46 +339,5 @@ export class SettingsComponent implements OnInit {
     await this.rpcService.call('command:execute', {
       command: 'ptah.openPricing',
     });
-  }
-
-  /**
-   * Fetch license status from backend
-   */
-  private async fetchLicenseStatus(): Promise<void> {
-    this.isLoadingLicenseStatus.set(true);
-    try {
-      const result = await this.rpcService.call('license:getStatus', {});
-
-      if (result.isSuccess() && result.data) {
-        const data = result.data as LicenseGetStatusResponse;
-        this.isPremium.set(data.isPremium);
-        this.licenseTier.set(data.tier);
-        this.licenseValid.set(data.valid);
-        this.trialActive.set(data.trialActive);
-        this.trialDaysRemaining.set(data.trialDaysRemaining);
-        this.daysRemaining.set(data.daysRemaining);
-        this.isCommunity.set(data.isCommunity);
-        this.planName.set(data.plan?.name ?? null);
-        this.planDescription.set(data.plan?.description ?? null);
-        // TASK_2025_129: User profile data
-        this.userEmail.set(data.user?.email ?? null);
-        this.userFirstName.set(data.user?.firstName ?? null);
-        this.userLastName.set(data.user?.lastName ?? null);
-      }
-    } catch (error) {
-      console.error(
-        '[SettingsComponent] Failed to fetch license status:',
-        error
-      );
-      // Graceful degradation: assume expired (no access without valid license)
-      this.isPremium.set(false);
-      this.licenseTier.set('expired');
-      // TASK_2025_129: Reset user signals to prevent stale profile display
-      this.userEmail.set(null);
-      this.userFirstName.set(null);
-      this.userLastName.set(null);
-    } finally {
-      this.isLoadingLicenseStatus.set(false);
-    }
   }
 }

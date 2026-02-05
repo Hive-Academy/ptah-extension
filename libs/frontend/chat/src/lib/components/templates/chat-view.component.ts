@@ -20,6 +20,8 @@ import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component
 import { SessionStatsSummaryComponent } from '../molecules/session-stats-summary.component';
 // TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection
 import { CompactionNotificationComponent } from '../molecules/compaction-notification.component';
+// TASK_2025_142: Trial banner for chat view
+import { TrialBannerComponent } from '../molecules/trial-banner.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
 import {
@@ -63,6 +65,8 @@ import {
     SessionStatsSummaryComponent,
     // TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection
     CompactionNotificationComponent,
+    // TASK_2025_142: Trial banner for chat view
+    TrialBannerComponent,
   ],
   templateUrl: './chat-view.component.html',
   styleUrl: './chat-view.component.css',

@@ -27,3 +27,6 @@ export * from './lib/utils/subagent-cost.utils';
 
 // Setup wizard types
 export * from './lib/types/setup-wizard.types';
+
+// Constants
+export * from './lib/constants/trial.constants';

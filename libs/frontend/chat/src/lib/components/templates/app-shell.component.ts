@@ -26,6 +26,7 @@ import {
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
+import { TrialEndedModalComponent } from '../molecules/trial-ended-modal.component';
 import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
@@ -80,6 +81,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     WizardViewComponent,
     TabBarComponent,
     ConfirmationDialogComponent,
+    TrialEndedModalComponent,
     ThemeToggleComponent,
     NgOptimizedImage,
     LucideAngularModule,
@@ -133,6 +135,11 @@ export class AppShellComponent {
   private readonly _sessionNamePopoverOpen = signal(false);
   readonly sessionNamePopoverOpen = this._sessionNamePopoverOpen.asReadonly();
   readonly sessionNameInput = signal('');
+
+  // TASK_2025_142: License reason for trial ended modal
+  readonly licenseReason = computed(
+    () => this.chatStore.licenseStatus()?.reason
+  );
 
   // ViewChild for session name input (programmatic focus)
   readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(

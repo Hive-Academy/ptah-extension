@@ -157,6 +157,23 @@ export class SubscriptionStateService {
   });
 
   /**
+   * Computed: License reason
+   *
+   * TASK_2025_143: Trial-ended notifications
+   * Returns the reason for license status when not active:
+   * - 'trial_ended': Trial period has concluded
+   * - 'expired': License/subscription has expired
+   * - 'revoked': License was revoked
+   * - 'not_found': No license record found
+   * - undefined: License is active
+   */
+  public readonly licenseReason = computed<
+    'trial_ended' | 'expired' | 'revoked' | 'not_found' | undefined
+  >(() => {
+    return this._licenseData()?.reason;
+  });
+
+  /**
    * Fetch subscription state (only if authenticated)
    *
    * Pattern: Returns Observable for proper lifecycle management with takeUntilDestroyed.

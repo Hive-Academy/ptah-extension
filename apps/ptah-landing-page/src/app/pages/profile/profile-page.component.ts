@@ -21,6 +21,7 @@ import {
   ProfileDetailsComponent,
   ProfileFeaturesComponent,
   ProfileHeaderComponent,
+  TrialEndedModalComponent,
 } from './components';
 import { LicenseData } from './models/license-data.interface';
 
@@ -59,11 +60,15 @@ import { LicenseData } from './models/license-data.interface';
     ProfileDetailsComponent,
     ProfileFeaturesComponent,
     NavigationComponent,
+    TrialEndedModalComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100">
       <!-- Navigation Header -->
       <ptah-navigation />
+
+      <!-- Trial Ended Modal (TASK_2025_143) -->
+      <ptah-trial-ended-modal [reason]="license()?.reason" />
 
       <!-- Loading State -->
       @if (isLoading()) {
