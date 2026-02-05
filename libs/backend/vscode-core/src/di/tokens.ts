@@ -247,6 +247,18 @@ export const PRESCRIPTIVE_GUIDANCE_SERVICE = Symbol.for(
  */
 export const FILE_HASH_CACHE_SERVICE = Symbol.for('FileHashCacheService');
 
+/**
+ * QualityHistoryService - Assessment history persistence via globalState (TASK_2025_144)
+ * Responsibilities: Record assessment snapshots, retrieve history, manage max entries limit
+ */
+export const QUALITY_HISTORY_SERVICE = Symbol.for('QualityHistoryService');
+
+/**
+ * QualityExportService - Quality report export in multiple formats (TASK_2025_144)
+ * Responsibilities: Generate Markdown, JSON, and CSV reports from ProjectIntelligence data
+ */
+export const QUALITY_EXPORT_SERVICE = Symbol.for('QualityExportService');
+
 // ========================================
 // Main App Service Tokens (PARTIALLY DELETED)
 // ========================================
@@ -335,6 +347,8 @@ export const TOKENS = {
   PROJECT_INTELLIGENCE_SERVICE,
   PRESCRIPTIVE_GUIDANCE_SERVICE,
   FILE_HASH_CACHE_SERVICE,
+  QUALITY_HISTORY_SERVICE,
+  QUALITY_EXPORT_SERVICE,
 
   // ========================================
   // LLM Abstraction

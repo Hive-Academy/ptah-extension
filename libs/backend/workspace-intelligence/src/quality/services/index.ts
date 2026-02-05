@@ -27,3 +27,10 @@ export { FileHashCacheService } from './file-hash-cache.service';
 
 export { PrescriptiveGuidanceService } from './prescriptive-guidance.service';
 export { ProjectIntelligenceService } from './project-intelligence.service';
+
+// ============================================
+// History and Export Services (TASK_2025_144 Phase G)
+// ============================================
+
+export { QualityHistoryService } from './quality-history.service';
+export { QualityExportService } from './quality-export.service';

@@ -18,6 +18,7 @@ import type {
   ProjectIntelligence,
   PrescriptiveGuidance,
   AntiPatternType,
+  QualityHistoryEntry,
 } from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
 
@@ -393,4 +394,103 @@ export interface IFileHashCacheService {
    * @returns Object with total cached entries and cache hit rate
    */
   getStats(): { totalCached: number; cacheHitRate: number };
+}
+
+// ============================================
+// Quality History Service Interface (Phase G - TASK_2025_144)
+// ============================================
+
+/**
+ * Service for storing quality assessment snapshots for historical tracking.
+ *
+ * Persists compact assessment snapshots via VS Code globalState.
+ * Maintains a rolling window of entries (max 100) with oldest-first eviction.
+ *
+ * Responsibilities:
+ * - Record new assessment snapshots
+ * - Retrieve history entries (newest first)
+ * - Manage storage limits and eviction
+ */
+export interface IQualityHistoryService {
+  /**
+   * Record a new assessment snapshot in history.
+   *
+   * Creates a compact QualityHistoryEntry from the assessment
+   * and persists it to globalState. Evicts oldest entries if
+   * the maximum entry count is exceeded.
+   *
+   * @param assessment - Quality assessment to record
+   */
+  recordAssessment(assessment: QualityAssessment): void;
+
+  /**
+   * Get history entries ordered newest first.
+   *
+   * @param limit - Maximum number of entries to return (default: 30)
+   * @returns Array of history entries, newest first
+   */
+  getHistory(limit?: number): QualityHistoryEntry[];
+
+  /**
+   * Clear all history entries.
+   *
+   * Removes all stored history from globalState.
+   */
+  clearHistory(): void;
+}
+
+// ============================================
+// Quality Export Service Interface (Phase G - TASK_2025_144)
+// ============================================
+
+/**
+ * Service for generating quality reports in multiple formats.
+ *
+ * Transforms ProjectIntelligence data into human-readable or
+ * machine-parseable report formats for export.
+ *
+ * Responsibilities:
+ * - Generate Markdown reports with summary, tables, and recommendations
+ * - Generate JSON exports (full ProjectIntelligence serialization)
+ * - Generate CSV exports with flat anti-pattern rows
+ */
+export interface IQualityExportService {
+  /**
+   * Export assessment as a formatted Markdown report.
+   *
+   * Generates a comprehensive report including:
+   * - Header with project metadata and score
+   * - Anti-patterns table (type, severity, location, frequency)
+   * - Quality gaps table (area, priority, description, recommendation)
+   * - Strengths list
+   * - Prioritized recommendations
+   *
+   * @param intelligence - Full project intelligence data
+   * @returns Markdown-formatted report string
+   */
+  exportMarkdown(intelligence: ProjectIntelligence): string;
+
+  /**
+   * Export assessment as formatted JSON.
+   *
+   * Serializes the full ProjectIntelligence object with
+   * 2-space indentation for readability.
+   *
+   * @param intelligence - Full project intelligence data
+   * @returns JSON-formatted string
+   */
+  exportJson(intelligence: ProjectIntelligence): string;
+
+  /**
+   * Export anti-patterns as CSV rows.
+   *
+   * Generates a CSV file with one row per anti-pattern:
+   * type, severity, file, line, column, frequency, message, suggestion
+   *
+   * Handles proper CSV escaping for fields containing commas or quotes.
+   *
+   * @param intelligence - Full project intelligence data
+   * @returns CSV-formatted string with header row
+   */
+  exportCsv(intelligence: ProjectIntelligence): string;
 }

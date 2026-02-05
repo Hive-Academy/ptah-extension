@@ -23,6 +23,8 @@ import { FileHashCacheService } from './services/file-hash-cache.service';
 import { CodeQualityAssessmentService } from './services/code-quality-assessment.service';
 import { PrescriptiveGuidanceService } from './services/prescriptive-guidance.service';
 import { ProjectIntelligenceService } from './services/project-intelligence.service';
+import { QualityHistoryService } from './services/quality-history.service';
+import { QualityExportService } from './services/quality-export.service';
 
 /**
  * Register quality assessment services in DI container.
@@ -82,6 +84,19 @@ export function registerQualityServices(
     ProjectIntelligenceService
   );
 
+  // ============================================================
+  // Tier 5: History and export services (TASK_2025_144 Phase G)
+  // ============================================================
+  container.registerSingleton(
+    TOKENS.QUALITY_HISTORY_SERVICE,
+    QualityHistoryService
+  );
+
+  container.registerSingleton(
+    TOKENS.QUALITY_EXPORT_SERVICE,
+    QualityExportService
+  );
+
   logger.info('[Quality Services] Quality assessment services registered', {
     services: [
       'ANTI_PATTERN_DETECTION_SERVICE',
@@ -89,6 +104,8 @@ export function registerQualityServices(
       'CODE_QUALITY_ASSESSMENT_SERVICE',
       'PRESCRIPTIVE_GUIDANCE_SERVICE',
       'PROJECT_INTELLIGENCE_SERVICE',
+      'QUALITY_HISTORY_SERVICE',
+      'QUALITY_EXPORT_SERVICE',
     ],
   });
 }

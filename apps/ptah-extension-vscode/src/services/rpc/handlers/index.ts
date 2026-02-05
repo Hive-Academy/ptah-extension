@@ -26,3 +26,4 @@ export { ProviderRpcHandlers } from './provider-rpc.handlers';
 export { SubagentRpcHandlers } from './subagent-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
 export { EnhancedPromptsRpcHandlers } from './enhanced-prompts-rpc.handlers';
+export { QualityRpcHandlers } from './quality-rpc.handlers';

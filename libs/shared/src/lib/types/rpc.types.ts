@@ -19,6 +19,10 @@ import type {
   SubagentQueryResult,
 } from './subagent-registry.types';
 import type { AgentRecommendation } from './setup-wizard.types';
+import type {
+  ProjectIntelligence,
+  QualityHistoryEntry,
+} from './quality-assessment.types';
 
 // ============================================================
 // Chat RPC Types
@@ -914,6 +918,52 @@ export type LlmGetProviderStatusParams = Record<string, never>;
 export type LlmListVsCodeModelsParams = Record<string, never>;
 
 // ============================================================
+// Quality Dashboard RPC Types (TASK_2025_144)
+// ============================================================
+
+/** Parameters for quality:getAssessment RPC method */
+export interface QualityGetAssessmentParams {
+  /** Force fresh analysis (bypass cache) */
+  forceRefresh?: boolean;
+}
+
+/** Response from quality:getAssessment RPC method */
+export interface QualityGetAssessmentResult {
+  /** Full project intelligence data */
+  intelligence: ProjectIntelligence;
+  /** Whether result came from cache */
+  fromCache: boolean;
+}
+
+/** Parameters for quality:getHistory RPC method */
+export interface QualityGetHistoryParams {
+  /** Maximum number of history entries to return (default: 30) */
+  limit?: number;
+}
+
+/** Response from quality:getHistory RPC method */
+export interface QualityGetHistoryResult {
+  /** Historical assessment entries (newest first) */
+  entries: QualityHistoryEntry[];
+}
+
+/** Parameters for quality:export RPC method */
+export interface QualityExportParams {
+  /** Export format */
+  format: 'markdown' | 'json' | 'csv';
+}
+
+/** Response from quality:export RPC method */
+export interface QualityExportResult {
+  /** Exported content as string */
+  content: string;
+  /** Suggested filename */
+  filename: string;
+  /** MIME type */
+  mimeType: string;
+}
+
+// ============================================================
 // RPC Method Registry (Compile-Time Enforcement)
 // ============================================================
 
@@ -1110,6 +1160,20 @@ export interface RpcMethodRegistry {
     params: EnhancedPromptsRegenerateParams;
     result: EnhancedPromptsRegenerateResponse;
   };
+
+  // ---- Quality Dashboard Methods (TASK_2025_144) ----
+  'quality:getAssessment': {
+    params: QualityGetAssessmentParams;
+    result: QualityGetAssessmentResult;
+  };
+  'quality:getHistory': {
+    params: QualityGetHistoryParams;
+    result: QualityGetHistoryResult;
+  };
+  'quality:export': {
+    params: QualityExportParams;
+    result: QualityExportResult;
+  };
 }
 
 /**
@@ -1199,6 +1263,11 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'enhancedPrompts:runWizard',
   'enhancedPrompts:setEnabled',
   'enhancedPrompts:regenerate',
+
+  // Quality Dashboard Methods (TASK_2025_144)
+  'quality:getAssessment',
+  'quality:getHistory',
+  'quality:export',
 ] as const;
 
 /**

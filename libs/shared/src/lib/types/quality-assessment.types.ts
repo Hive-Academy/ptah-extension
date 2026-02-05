@@ -224,6 +224,31 @@ export interface WorkspaceContext {
 }
 
 // ============================================
+// Quality History Types (Phase G - TASK_2025_144)
+// ============================================
+
+/**
+ * A single quality assessment snapshot for historical tracking.
+ *
+ * Compact representation of a quality assessment at a point in time.
+ * Stored in VS Code globalState for persistence across sessions.
+ * Contains only aggregated data (no full anti-pattern details) to
+ * keep storage compact (~200 bytes per entry).
+ */
+export interface QualityHistoryEntry {
+  /** Assessment timestamp (epoch ms) */
+  timestamp: number;
+  /** Quality score at that time (0-100) */
+  score: number;
+  /** Number of anti-patterns detected */
+  patternCount: number;
+  /** Number of files analyzed */
+  filesAnalyzed: number;
+  /** Anti-pattern counts by category prefix (e.g., 'typescript': 3, 'angular': 2) */
+  categoryCounts: Record<string, number>;
+}
+
+// ============================================
 // Sampling Configuration Types
 // ============================================
 
