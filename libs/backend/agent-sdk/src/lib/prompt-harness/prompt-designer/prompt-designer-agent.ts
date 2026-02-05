@@ -14,6 +14,11 @@
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import type { z } from 'zod';
+import type {
+  QualityAssessment,
+  PrescriptiveGuidance,
+} from '@ptah-extension/shared';
+import type { IProjectIntelligenceService } from '@ptah-extension/workspace-intelligence';
 import {
   type PromptDesignerInput,
   type PromptDesignerOutput,
@@ -26,6 +31,7 @@ import {
   PROMPT_DESIGNER_SYSTEM_PROMPT,
   buildGenerationUserPrompt,
   buildFallbackGuidance,
+  buildQualityContextPrompt,
   FRAMEWORK_PROMPT_ADDITIONS,
 } from './generation-prompts';
 import {
@@ -84,12 +90,48 @@ interface LlmResult<T> {
 @injectable()
 export class PromptDesignerAgent {
   private config: PromptDesignerConfig = DEFAULT_PROMPT_DESIGNER_CONFIG;
+  /**
+   * Cached reference to ProjectIntelligenceService.
+   * Resolved lazily to avoid DI errors when service is not registered.
+   */
+  private _projectIntelligence?: IProjectIntelligenceService;
+  private _projectIntelligenceResolved = false;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(LLM_SERVICE_TOKEN)
     private readonly llmService: IPromptDesignerLlmService
   ) {}
+
+  /**
+   * Get the ProjectIntelligenceService if available.
+   * Uses lazy resolution to handle optional dependency without breaking DI.
+   *
+   * @returns The service instance if registered, undefined otherwise
+   */
+  private getProjectIntelligenceService():
+    | IProjectIntelligenceService
+    | undefined {
+    if (!this._projectIntelligenceResolved) {
+      this._projectIntelligenceResolved = true;
+      try {
+        // Dynamic import to avoid circular dependency issues
+
+        const { container } = require('tsyringe');
+        if (container.isRegistered(TOKENS.PROJECT_INTELLIGENCE_SERVICE)) {
+          this._projectIntelligence = container.resolve(
+            TOKENS.PROJECT_INTELLIGENCE_SERVICE
+          );
+        }
+      } catch {
+        // Service not available, continue without it
+        this.logger.debug(
+          'PromptDesignerAgent: ProjectIntelligenceService not available'
+        );
+      }
+    }
+    return this._projectIntelligence;
+  }
 
   /**
    * Configure the agent
@@ -123,12 +165,56 @@ export class PromptDesignerAgent {
       progress: 10,
     });
 
+    // Fetch quality assessment if needed and available (TASK_2025_141)
+    let qualityAssessment: QualityAssessment | undefined =
+      input.qualityAssessment;
+    let prescriptiveGuidance: PrescriptiveGuidance | undefined =
+      input.prescriptiveGuidance;
+
+    const projectIntelligenceService = this.getProjectIntelligenceService();
+    if (
+      input.includeQualityGuidance !== false &&
+      !qualityAssessment &&
+      projectIntelligenceService &&
+      input.workspacePath
+    ) {
+      try {
+        const vscodeApi = await import('vscode');
+        const result = await projectIntelligenceService.getIntelligence(
+          vscodeApi.Uri.file(input.workspacePath)
+        );
+        qualityAssessment = result.qualityAssessment;
+        prescriptiveGuidance = result.prescriptiveGuidance;
+        this.logger.debug(
+          'PromptDesignerAgent: Fetched quality assessment from ProjectIntelligenceService',
+          {
+            score: qualityAssessment.score,
+            antiPatternCount: qualityAssessment.antiPatterns.length,
+          }
+        );
+      } catch (error) {
+        this.logger.warn(
+          'PromptDesignerAgent: Failed to fetch quality assessment',
+          {
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+        // Continue without quality context - graceful degradation
+      }
+    }
+
+    // Build quality context for prompt if assessment available
+    const qualityContext =
+      qualityAssessment && prescriptiveGuidance
+        ? buildQualityContextPrompt(qualityAssessment, prescriptiveGuidance)
+        : undefined;
+
     // Check if LLM service is available
     if (!this.llmService.hasProvider()) {
       this.logger.warn(
         'PromptDesignerAgent: LLM service not available, using fallback'
       );
-      return this.generateFallbackGuidance(input);
+      return this.generateFallbackGuidance(input, qualityAssessment);
     }
 
     onProgress?.({
@@ -141,17 +227,23 @@ export class PromptDesignerAgent {
       // Build the enhanced system prompt
       const systemPrompt = this.buildEnhancedSystemPrompt(input.framework);
 
-      // Build the user prompt with project details
-      const userPrompt = buildGenerationUserPrompt(input);
+      // Build the user prompt with project details and quality context
+      const userPrompt = buildGenerationUserPrompt(input, qualityContext);
 
       // Try structured completion first
-      const output = await this.tryStructuredCompletion(
+      let output = await this.tryStructuredCompletion(
         systemPrompt,
         userPrompt,
         onProgress
       );
 
       if (output) {
+        // Enhance output with quality data (TASK_2025_141)
+        if (qualityAssessment) {
+          output.qualityScore = qualityAssessment.score;
+          output.qualityAssessment = qualityAssessment;
+        }
+
         // Validate output quality
         const validation = validateOutput(output);
         if (!validation.valid) {
@@ -170,7 +262,19 @@ export class PromptDesignerAgent {
       }
 
       // Fall back to text completion
-      return await this.tryTextCompletion(systemPrompt, userPrompt, onProgress);
+      output = await this.tryTextCompletion(
+        systemPrompt,
+        userPrompt,
+        onProgress
+      );
+
+      // Enhance fallback output with quality data (TASK_2025_141)
+      if (output && qualityAssessment) {
+        output.qualityScore = qualityAssessment.score;
+        output.qualityAssessment = qualityAssessment;
+      }
+
+      return output;
     } catch (error) {
       this.logger.error('PromptDesignerAgent: Generation failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -183,7 +287,7 @@ export class PromptDesignerAgent {
       });
 
       // Return fallback guidance on error
-      return this.generateFallbackGuidance(input);
+      return this.generateFallbackGuidance(input, qualityAssessment);
     }
   }
 
@@ -362,16 +466,21 @@ export class PromptDesignerAgent {
 
   /**
    * Generate fallback guidance when LLM is unavailable
+   *
+   * @param input - Project analysis data
+   * @param qualityAssessment - Optional quality assessment for quality guidance generation
+   * @returns Fallback guidance output
    */
   private generateFallbackGuidance(
-    input: PromptDesignerInput
+    input: PromptDesignerInput,
+    qualityAssessment?: QualityAssessment
   ): PromptDesignerOutput {
     const fallbackText = buildFallbackGuidance(input);
 
     // Estimate tokens (4 chars per token)
     const estimatedTokens = Math.ceil(fallbackText.length / 4);
 
-    return {
+    const output: PromptDesignerOutput = {
       projectContext: this.extractSection(fallbackText, 'Project Context'),
       frameworkGuidelines: this.extractSection(
         fallbackText,
@@ -391,6 +500,31 @@ export class PromptDesignerAgent {
         architectureNotes: Math.ceil(estimatedTokens / 4),
       },
     };
+
+    // Generate quality guidance from assessment if score indicates issues (TASK_2025_141)
+    if (qualityAssessment && qualityAssessment.score < 70) {
+      const topIssues = qualityAssessment.antiPatterns
+        .slice(0, 3)
+        .map((p) => `- ${p.message}`)
+        .join('\n');
+
+      output.qualityGuidance = `## Code Quality Considerations\n\nQuality score: ${qualityAssessment.score}/100.\n\nTop issues detected:\n${topIssues}`;
+      output.qualityScore = qualityAssessment.score;
+      output.qualityAssessment = qualityAssessment;
+
+      // Update token breakdown for quality guidance
+      const qualityGuidanceTokens = Math.ceil(
+        output.qualityGuidance.length / 4
+      );
+      output.tokenBreakdown.qualityGuidance = qualityGuidanceTokens;
+      output.totalTokens += qualityGuidanceTokens;
+    } else if (qualityAssessment) {
+      // Include quality data even if score is good
+      output.qualityScore = qualityAssessment.score;
+      output.qualityAssessment = qualityAssessment;
+    }
+
+    return output;
   }
 
   /**
