@@ -277,8 +277,8 @@ import { LicenseData } from '../models/license-data.interface';
         </div>
         }
 
-        <!-- Sync with Paddle Button -->
-        @if (license()?.subscription || requiresSync()) {
+        <!-- Sync with Paddle Button (only for users with real Paddle subscription) -->
+        @if (hasPaddleSubscription()) {
         <div class="px-6 py-4 flex justify-between items-center">
           <span class="text-neutral-content flex items-center gap-2">
             <lucide-angular
@@ -300,8 +300,8 @@ import { LicenseData } from '../models/license-data.interface';
         </div>
         }
 
-        <!-- Manage Subscription Link -->
-        @if (license()?.subscription) {
+        <!-- Manage Subscription Link (only for users with real Paddle subscription) -->
+        @if (hasPaddleSubscription()) {
         <div class="px-6 py-4 flex justify-between items-center">
           <span class="text-neutral-content flex items-center gap-2">
             <lucide-angular
@@ -399,17 +399,31 @@ export class ProfileDetailsComponent {
   });
 
   /**
+   * Check if user has a real Paddle subscription (not trialing)
+   * Trial users don't have a real Paddle customer ID, so we can't:
+   * - Sync with Paddle
+   * - Open customer portal
+   */
+  public hasPaddleSubscription(): boolean {
+    const licenseData = this.license();
+    if (!licenseData?.subscription) return false;
+
+    // Trial users have subscription.status = 'trialing' but no real Paddle customer
+    // They also have plan = 'trial_pro'
+    const isTrialing =
+      licenseData.subscription.status === 'trialing' ||
+      licenseData.plan?.startsWith('trial_');
+
+    return !isTrialing;
+  }
+
+  /**
    * Check if license requires sync with Paddle
    * This can be true when local data differs from Paddle data
    */
   public requiresSync(): boolean {
-    // Show sync button if there's a subscription or if license indicates sync is needed
-    const licenseData = this.license();
-    if (!licenseData) return false;
-
-    // Check for requiresSync flag in license data (if backend provides it)
-    // For now, show sync when user has subscription
-    return !!licenseData.subscription;
+    // Show sync button only if user has a real Paddle subscription
+    return this.hasPaddleSubscription();
   }
 
   // Animation configs
