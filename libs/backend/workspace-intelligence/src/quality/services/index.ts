@@ -16,7 +16,8 @@ export { AntiPatternDetectionService } from './anti-pattern-detection.service';
 export { CodeQualityAssessmentService } from './code-quality-assessment.service';
 
 // ============================================
-// Additional Services (Batch 5)
+// Unified Intelligence Services (Batch 5)
 // ============================================
-// PrescriptiveGuidanceService - Will be exported after implementation
-// ProjectIntelligenceService - Will be exported after implementation
+
+export { PrescriptiveGuidanceService } from './prescriptive-guidance.service';
+export { ProjectIntelligenceService } from './project-intelligence.service';

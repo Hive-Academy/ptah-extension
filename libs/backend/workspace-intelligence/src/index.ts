@@ -113,5 +113,8 @@ export * from './ast/tree-sitter.config';
 export * from './autocomplete/agent-discovery.service';
 export * from './autocomplete/command-discovery.service';
 
+// Quality Assessment (TASK_2025_141)
+export * from './quality';
+
 // DI registration function
 export { registerWorkspaceIntelligenceServices } from './di';
