@@ -14,6 +14,13 @@ import {
   MonorepoType,
 } from '@ptah-extension/workspace-intelligence';
 
+// Import quality assessment types for DeepProjectAnalysis extension (TASK_2025_141)
+import type {
+  QualityAssessment,
+  QualityGap,
+  PrescriptiveGuidance,
+} from '@ptah-extension/shared';
+
 // Re-export shared types for backward compatibility
 // Consumers can import from either location
 export type {
@@ -168,4 +175,51 @@ export interface DeepProjectAnalysis {
    * Low coverage increases relevance of senior-tester agent.
    */
   testCoverage: TestCoverageEstimate;
+
+  // ========================================
+  // Quality Assessment Fields (TASK_2025_141)
+  // All fields optional for backward compatibility
+  // ========================================
+
+  /**
+   * Overall code quality score (0-100).
+   * Derived from anti-pattern analysis across sampled files.
+   * Higher scores indicate better code quality practices.
+   *
+   * @example
+   * ```typescript
+   * if (analysis.qualityScore !== undefined && analysis.qualityScore < 70) {
+   *   // Increase relevance of code-reviewer agent
+   * }
+   * ```
+   */
+  qualityScore?: number;
+
+  /**
+   * Detected quality gaps from code analysis.
+   * Represents missing best practices or areas needing improvement.
+   * Used for targeted agent recommendations and guidance generation.
+   */
+  qualityGaps?: QualityGap[];
+
+  /**
+   * Generated prescriptive guidance based on quality assessment.
+   * Contains prioritized recommendations with actionable solutions.
+   * Token-budgeted to fit within LLM context limits.
+   */
+  prescriptiveGuidance?: PrescriptiveGuidance;
+
+  /**
+   * Full quality assessment data for advanced consumers.
+   * Includes anti-patterns, strengths, and detailed scoring breakdown.
+   * Use this for detailed quality reporting or custom analysis.
+   *
+   * @remarks
+   * This field provides access to the complete assessment including:
+   * - Detected anti-patterns with locations and suggestions
+   * - Identified strengths (best practices followed)
+   * - Sampled files used for analysis
+   * - Analysis timing metadata
+   */
+  qualityAssessment?: QualityAssessment;
 }

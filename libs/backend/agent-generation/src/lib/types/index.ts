@@ -50,3 +50,11 @@ export type {
   IndexedFile,
   FileType,
 } from '@ptah-extension/workspace-intelligence';
+
+// Re-export quality assessment types for DeepProjectAnalysis consumers (TASK_2025_141)
+// These types are used by the optional quality fields in DeepProjectAnalysis
+export type {
+  QualityAssessment,
+  QualityGap,
+  PrescriptiveGuidance,
+} from '@ptah-extension/shared';
