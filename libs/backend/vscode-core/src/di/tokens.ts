@@ -1,6 +1,9 @@
 /**
  * DI Token Registry - Core Infrastructure Tokens
  *
+ * This file is the CANONICAL reference for DI token conventions.
+ * Other token files (@see below) follow these same conventions.
+ *
  * CONVENTION: All DI tokens MUST use Symbol.for('DescriptiveName')
  *
  * Why Symbol.for():

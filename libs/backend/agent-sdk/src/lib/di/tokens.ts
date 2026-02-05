@@ -25,14 +25,12 @@
  * - agent-sdk/src/lib/di/tokens.ts  (this file) — SDK-specific tokens
  * - agent-generation/src/lib/di/tokens.ts — agent generation tokens (AGENT_GENERATION_TOKENS)
  *
- * History:
- * - TASK_2025_044 Batch 3: Initial creation with string tokens
- * - TASK_2025_140 Batch 1: Migrated all tokens from strings/plain Symbol() to Symbol.for()
+ * @see libs/backend/vscode-core/src/di/tokens.ts for canonical convention reference
  */
 export const SDK_TOKENS = {
   // Core services
   SDK_AGENT_ADAPTER: Symbol.for('SdkAgentAdapter'),
-  SDK_SESSION_METADATA_STORE: Symbol.for('SessionMetadataStore'),
+  SDK_SESSION_METADATA_STORE: Symbol.for('SdkSessionMetadataStore'),
   SDK_SESSION_IMPORTER: Symbol.for('SdkSessionImporter'),
   SDK_SESSION_HISTORY_READER: Symbol.for('SdkSessionHistoryReader'),
   SDK_PERMISSION_HANDLER: Symbol.for('SdkPermissionHandler'),
@@ -58,15 +56,12 @@ export const SDK_TOKENS = {
   // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
 
-  // @deprecated Use SDK_PROVIDER_MODELS instead
-  SDK_OPENROUTER_MODELS: Symbol.for('SdkProviderModels'),
-
   // Extracted services (TASK_2025_102)
   SDK_MESSAGE_FACTORY: Symbol.for('SdkMessageFactory'),
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
   SDK_MODULE_LOADER: Symbol.for('SdkModuleLoader'),
   SDK_MODEL_SERVICE: Symbol.for('SdkModelService'),
-  SDK_USER_MESSAGE_STREAM_FACTORY: Symbol.for('UserMessageStreamFactory'),
+  SDK_USER_MESSAGE_STREAM_FACTORY: Symbol.for('SdkUserMessageStreamFactory'),
 
   // History reader child services (TASK_2025_106)
   SDK_HISTORY_EVENT_FACTORY: Symbol.for('SdkHistoryEventFactory'),

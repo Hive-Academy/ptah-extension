@@ -59,6 +59,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'license:', // TASK_2025_079: License status for premium feature gating
   'wizard:', // TASK_2025_124: Setup wizard deep analysis and agent recommendations
   'command:', // TASK_2025_126: Webview command execution (ptah.* commands only)
+  'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts system (status, wizard, regenerate)
 ] as const;
 
 /**
@@ -85,6 +86,7 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'setup-status:', // setup_wizard feature
   'setup-wizard:', // setup_wizard feature
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
+  'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts (Pro-only intelligent prompt generation)
 ] as const;
 
 /**
