@@ -58,11 +58,12 @@ export class SubscriptionStateService {
     // This means user is either unauthenticated or has no subscription
     if (!data?.plan) return 'community';
 
-    // Pro tier (including trial)
-    if (data.plan.includes('pro')) return 'pro';
+    // Pro tier (including trial) - exact matching to prevent false positives
+    // Matches: 'pro', 'trial_pro'
+    if (data.plan === 'pro' || data.plan === 'trial_pro') return 'pro';
 
-    // Community tier
-    if (data.plan.includes('community')) return 'community';
+    // Community tier - exact matching
+    if (data.plan === 'community') return 'community';
 
     // Default to community for unknown plans
     return 'community';
@@ -163,12 +164,12 @@ export class SubscriptionStateService {
    * Returns the reason for license status when not active:
    * - 'trial_ended': Trial period has concluded
    * - 'expired': License/subscription has expired
-   * - 'revoked': License was revoked
-   * - 'not_found': No license record found
    * - undefined: License is active
+   *
+   * Note: Only these two values are returned by the backend.
    */
   public readonly licenseReason = computed<
-    'trial_ended' | 'expired' | 'revoked' | 'not_found' | undefined
+    'trial_ended' | 'expired' | undefined
   >(() => {
     return this._licenseData()?.reason;
   });

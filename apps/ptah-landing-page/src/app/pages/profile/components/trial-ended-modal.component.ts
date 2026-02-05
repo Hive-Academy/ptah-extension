@@ -188,11 +188,17 @@ export class TrialEndedModalComponent {
       const dismissedAt = localStorage.getItem(this.DISMISS_KEY);
       if (dismissedAt) {
         const dismissedTime = parseInt(dismissedAt, 10);
-        const now = Date.now();
-        if (now - dismissedTime < this.DISMISS_TTL_MS) {
-          // Still within 24-hour cooldown
-          this.isOpen.set(false);
-          return;
+        // Handle corrupted localStorage value (NaN check)
+        if (isNaN(dismissedTime)) {
+          localStorage.removeItem(this.DISMISS_KEY);
+          // Show modal if data corrupted - fall through to show
+        } else {
+          const now = Date.now();
+          if (now - dismissedTime < this.DISMISS_TTL_MS) {
+            // Still within 24-hour cooldown
+            this.isOpen.set(false);
+            return;
+          }
         }
       }
     }

@@ -87,10 +87,11 @@ export interface LicenseData {
    * TASK_2025_143: Trial-ended notifications
    * - 'trial_ended': Trial period has concluded
    * - 'expired': License/subscription has expired
-   * - 'revoked': License was revoked (e.g., refund)
-   * - 'not_found': No license record found
+   *
+   * Note: Only these two values are returned by the backend.
+   * Returns undefined for active licenses.
    */
-  reason?: 'trial_ended' | 'expired' | 'revoked' | 'not_found';
+  reason?: 'trial_ended' | 'expired';
 }
 
 /** Feature display configuration */

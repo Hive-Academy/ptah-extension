@@ -182,6 +182,10 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   /** Subject for managing subscriptions cleanup */
   private readonly destroy$ = new Subject<void>();
 
+  /** Timeout IDs for cleanup on destroy */
+  private syncSuccessTimeoutId?: ReturnType<typeof setTimeout>;
+  private syncErrorTimeoutId?: ReturnType<typeof setTimeout>;
+
   // State signals
   public readonly license = signal<LicenseData | null>(null);
   public readonly isLoading = signal(true);
@@ -213,6 +217,13 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   public ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
+    // Clear any pending timeouts to prevent memory leaks
+    if (this.syncSuccessTimeoutId) {
+      clearTimeout(this.syncSuccessTimeoutId);
+    }
+    if (this.syncErrorTimeoutId) {
+      clearTimeout(this.syncErrorTimeoutId);
+    }
     // Keep SSE connection alive for other components
     // Disconnect is handled by logout or auth service
   }
@@ -276,7 +287,11 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
         // Show success feedback if sync was successful
         if (event.data.success) {
           this.syncSuccess.set(true);
-          setTimeout(() => {
+          // Clear any previous timeout before setting a new one
+          if (this.syncSuccessTimeoutId) {
+            clearTimeout(this.syncSuccessTimeoutId);
+          }
+          this.syncSuccessTimeoutId = setTimeout(() => {
             this.syncSuccess.set(false);
           }, 5000);
         }
@@ -347,7 +362,11 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
             this.refreshLicenseData();
 
             // Clear success message after 5 seconds
-            setTimeout(() => {
+            // Clear any previous timeout before setting a new one
+            if (this.syncSuccessTimeoutId) {
+              clearTimeout(this.syncSuccessTimeoutId);
+            }
+            this.syncSuccessTimeoutId = setTimeout(() => {
               this.syncSuccess.set(false);
             }, 5000);
           } else {
@@ -396,7 +415,11 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
           console.error('[Profile] Failed to get portal session:', error);
 
           // Clear error after 5 seconds
-          setTimeout(() => {
+          // Clear any previous timeout before setting a new one
+          if (this.syncErrorTimeoutId) {
+            clearTimeout(this.syncErrorTimeoutId);
+          }
+          this.syncErrorTimeoutId = setTimeout(() => {
             this.syncError.set(null);
           }, 5000);
         },

@@ -610,6 +610,9 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * Pro plan uses 'checkout' action (opens Paddle checkout).
    */
   public handleCtaClick(plan: PricingPlan): void {
+    // Clear any running auto-checkout interval to prevent race conditions
+    this.clearAutoCheckoutInterval();
+
     // Community plan: download action handled by CommunityPlanCardComponent directly
     // Pro plan: checkout action
     if (plan.ctaAction === 'checkout') {

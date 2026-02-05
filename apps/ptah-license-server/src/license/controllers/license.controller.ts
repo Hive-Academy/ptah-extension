@@ -194,8 +194,10 @@ export class LicenseController {
       (license.expiresAt && new Date() > license.expiresAt);
 
     // Determine the reason field
+    // IMPORTANT: Only set reason when license is NOT active
+    // (user didn't upgrade to paid subscription after trial)
     let reason: 'trial_ended' | 'expired' | undefined;
-    if (isTrialEnded) {
+    if (isTrialEnded && license.status !== 'active') {
       reason = 'trial_ended';
     } else if (isExpired) {
       reason = 'expired';
