@@ -48,6 +48,9 @@ import { AstAnalysisService } from '../ast/ast-analysis.service';
 import { AgentDiscoveryService } from '../autocomplete/agent-discovery.service';
 import { CommandDiscoveryService } from '../autocomplete/command-discovery.service';
 
+// Quality assessment services registration (TASK_2025_141)
+import { registerQualityServices } from '../quality/di';
+
 /**
  * Register workspace-intelligence services in DI container
  *
@@ -59,6 +62,7 @@ import { CommandDiscoveryService } from '../autocomplete/command-discovery.servi
  * Tier 5: Context services - 4 services
  * Tier 6: AST services (Phase 2: RooCode migration) - 2 services
  * Tier 7: Autocomplete discovery services - 2 services
+ * Tier 8: Quality assessment services (TASK_2025_141) - 4 services
  *
  * @param container - TSyringe DI container
  * @param logger - Logger instance
@@ -179,6 +183,12 @@ export function registerWorkspaceIntelligenceServices(
     CommandDiscoveryService
   );
 
+  // ============================================================
+  // Tier 8: Quality assessment services (TASK_2025_141)
+  // Depends on: Tier 1-5 services (file system, indexing, relevance scoring)
+  // ============================================================
+  registerQualityServices(container, logger);
+
   logger.info('[Workspace Intelligence] Services registered', {
     services: [
       'PATTERN_MATCHER_SERVICE',
@@ -201,6 +211,10 @@ export function registerWorkspaceIntelligenceServices(
       'AST_ANALYSIS_SERVICE',
       'AGENT_DISCOVERY_SERVICE',
       'COMMAND_DISCOVERY_SERVICE',
+      'ANTI_PATTERN_DETECTION_SERVICE',
+      'CODE_QUALITY_ASSESSMENT_SERVICE',
+      'PRESCRIPTIVE_GUIDANCE_SERVICE',
+      'PROJECT_INTELLIGENCE_SERVICE',
     ],
   });
 }
