@@ -1,11 +1,17 @@
 import 'reflect-metadata';
 import { AstAnalysisService } from './ast-analysis.service';
+import {
+  TreeSitterParserService,
+  QueryMatch,
+} from './tree-sitter-parser.service';
 import { Logger } from '@ptah-extension/vscode-core';
+import { Result } from '@ptah-extension/shared';
 import { GenericAstNode } from './ast.types';
 
 describe('AstAnalysisService', () => {
   let service: AstAnalysisService;
   let mockLogger: jest.Mocked<Logger>;
+  let mockParserService: jest.Mocked<TreeSitterParserService>;
 
   beforeEach(() => {
     // Create mock logger
@@ -16,14 +22,30 @@ describe('AstAnalysisService', () => {
       debug: jest.fn(),
       lifecycle: jest.fn(),
       dispose: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<Logger>;
 
-    // Create service with mock logger
-    service = new AstAnalysisService(mockLogger);
+    // Create mock TreeSitterParserService
+    mockParserService = {
+      queryFunctions: jest.fn(),
+      queryClasses: jest.fn(),
+      queryImports: jest.fn(),
+      queryExports: jest.fn(),
+      initialize: jest.fn(),
+      parse: jest.fn(),
+    } as unknown as jest.Mocked<TreeSitterParserService>;
+
+    // Default mock implementations - return empty arrays for all queries
+    mockParserService.queryFunctions.mockReturnValue(Result.ok([]));
+    mockParserService.queryClasses.mockReturnValue(Result.ok([]));
+    mockParserService.queryImports.mockReturnValue(Result.ok([]));
+    mockParserService.queryExports.mockReturnValue(Result.ok([]));
+
+    // Create service with mock logger and parser service
+    service = new AstAnalysisService(mockLogger, mockParserService);
   });
 
-  describe('Phase 2 stub implementation', () => {
-    it('should return empty insights', async () => {
+  describe('analyzeAst (traversal-based fallback)', () => {
+    it('should return empty insights for empty AST', async () => {
       const mockAst: GenericAstNode = {
         type: 'program',
         text: '',
@@ -43,7 +65,7 @@ describe('AstAnalysisService', () => {
       expect(result.value!.imports).toEqual([]);
     });
 
-    it('should log warning about Phase 2 stub', async () => {
+    it('should log debug message about analyzing file', async () => {
       const mockAst: GenericAstNode = {
         type: 'program',
         text: '',
@@ -56,11 +78,11 @@ describe('AstAnalysisService', () => {
 
       await service.analyzeAst(mockAst, 'example.ts');
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Phase 2 stub')
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('analyzeAst')
       );
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('TODO Phase 3')
+        expect.stringContaining('example.ts')
       );
     });
 
@@ -127,7 +149,7 @@ describe('AstAnalysisService', () => {
       expect(result3.isOk()).toBe(true);
     });
 
-    it('should log file path in warning message', async () => {
+    it('should log file path in debug message', async () => {
       const mockAst: GenericAstNode = {
         type: 'program',
         text: '',
@@ -141,7 +163,7 @@ describe('AstAnalysisService', () => {
       const testPath = '/custom/path/myfile.ts';
       await service.analyzeAst(mockAst, testPath);
 
-      expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect(mockLogger.debug).toHaveBeenCalledWith(
         expect.stringContaining(testPath)
       );
     });
@@ -191,17 +213,17 @@ describe('AstAnalysisService', () => {
       const result = await service.analyzeAst(nestedAst, 'nested.ts');
 
       expect(result.isOk()).toBe(true);
-      // Phase 2 stub still returns empty arrays
+      // Traversal-based analysis returns empty since no identifier child node
       expect(result.value!.functions).toHaveLength(0);
     });
   });
 
-  describe('Phase 3 preparation', () => {
-    it('should be ready to integrate LLM service', () => {
-      // Verify service structure is ready for Phase 3 LLM integration
+  describe('analyzeSource (query-based preferred method)', () => {
+    it('should be ready to integrate query-based analysis', () => {
+      // Verify service structure is ready for query-based analysis
       expect(service).toBeDefined();
-      expect(service.analyzeAst).toBeDefined();
-      expect(typeof service.analyzeAst).toBe('function');
+      expect(service.analyzeSource).toBeDefined();
+      expect(typeof service.analyzeSource).toBe('function');
     });
 
     it('should maintain Result type pattern', async () => {
@@ -225,168 +247,359 @@ describe('AstAnalysisService', () => {
     });
   });
 
-  describe('LLM Integration (Phase 3 - NOT YET IMPLEMENTED)', () => {
-    /**
-     * IMPORTANT: These tests document planned LLM integration for Phase 3.
-     * Current implementation is a stub that returns empty insights.
-     *
-     * Phase 3 Implementation Plan:
-     * 1. Inject ILlmService via constructor
-     * 2. Condense AST using _condenseAst() method
-     * 3. Call llmService.getStructuredCompletion() with condensed AST
-     * 4. Parse response using Zod schema validation
-     * 5. Return CodeInsights or handle LlmProviderError
-     */
+  describe('Query-based analysis via analyzeSource', () => {
+    it('should return empty insights when all queries return empty', () => {
+      const result = service.analyzeSource('const x = 1;', 'typescript');
 
-    it('TODO Phase 3: should use LLM to analyze function complexity', async () => {
-      // This test is a placeholder for future LLM integration
-      const mockAst: GenericAstNode = {
-        type: 'function_declaration',
-        text: 'function complex() { for(let i=0;i<10;i++) { console.log(i); } }',
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 5, column: 1 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
-
-      const result = await service.analyzeAst(mockAst, 'complex.ts');
-
-      // Current stub behavior: returns empty insights
       expect(result.isOk()).toBe(true);
       expect(result.value?.functions).toEqual([]);
       expect(result.value?.classes).toEqual([]);
       expect(result.value?.imports).toEqual([]);
+    });
 
-      // Verify stub warning is logged
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Phase 2 stub')
+    it('should extract functions from query matches', () => {
+      const mockFunctionMatches: QueryMatch[] = [
+        {
+          pattern: 0,
+          captures: [
+            {
+              name: 'function.name',
+              text: 'myFunction',
+              node: {} as GenericAstNode,
+              startPosition: { row: 0, column: 0 },
+              endPosition: { row: 0, column: 10 },
+            },
+            {
+              name: 'function.params',
+              text: '(a, b)',
+              node: {} as GenericAstNode,
+              startPosition: { row: 0, column: 11 },
+              endPosition: { row: 0, column: 17 },
+            },
+            {
+              name: 'function.declaration',
+              text: 'function myFunction(a, b) {}',
+              node: {} as GenericAstNode,
+              startPosition: { row: 0, column: 0 },
+              endPosition: { row: 0, column: 28 },
+            },
+          ],
+        },
+      ];
+
+      mockParserService.queryFunctions.mockReturnValue(
+        Result.ok(mockFunctionMatches)
       );
 
-      // TODO Phase 3: When LLM is integrated, expect:
-      // - result.value.functions to contain extracted function insights
-      // - LLM service to have been called with condensed AST
-      // - Zod schema validation to pass
-    });
-
-    it('TODO Phase 3: should handle LLM errors gracefully', async () => {
-      // This test is a placeholder for future LLM error handling
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: 'const x = 1;',
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 1, column: 1 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
-
-      const result = await service.analyzeAst(mockAst, 'simple.ts');
-
-      // Current stub behavior: always succeeds with empty insights
-      expect(result.isOk()).toBe(true);
-
-      // TODO Phase 3: When LLM is integrated, mock LLM failure:
-      // - mockLlmService.getStructuredCompletion.mockResolvedValue(Result.err(new LlmProviderError()))
-      // - Expect service to handle error gracefully
-      // - Expect Result.err() with descriptive error message
-      // - Expect error to be logged
-    });
-
-    it('TODO Phase 3: should validate LLM response with Zod schema', async () => {
-      // This test is a placeholder for Zod schema validation
-      const mockAst: GenericAstNode = {
-        type: 'class_declaration',
-        text: 'class Calculator { add(a, b) { return a + b; } }',
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 3, column: 1 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
-
-      const result = await service.analyzeAst(mockAst, 'calculator.ts');
-
-      // Current stub behavior
-      expect(result.isOk()).toBe(true);
-      expect(result.value?.classes).toEqual([]);
-
-      // TODO Phase 3: When LLM is integrated:
-      // - Mock LLM to return invalid schema
-      // - Expect Zod validation to fail
-      // - Expect Result.err() with validation error
-      // - Expect error to contain schema mismatch details
-    });
-
-    it('TODO Phase 3: should extract imports from condensed AST via LLM', async () => {
-      // This test is a placeholder for import extraction
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: "import { Component } from '@angular/core';",
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 1, column: 0 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
-
-      const result = await service.analyzeAst(mockAst, 'component.ts');
-
-      // Current stub behavior
-      expect(result.isOk()).toBe(true);
-      expect(result.value?.imports).toEqual([]);
-
-      // TODO Phase 3: When LLM is integrated:
-      // - Expect result.value.imports to contain:
-      //   [{ source: '@angular/core' }]
-      // - Verify LLM was called with condensed import node
-    });
-
-    it('should document current Phase 2 stub behavior', async () => {
-      // This test verifies the current stub implementation
-      const mockAst: GenericAstNode = {
-        type: 'program',
-        text: `
-          class User {
-            constructor(name) { this.name = name; }
-            greet() { return 'Hello ' + this.name; }
-          }
-
-          function createUser(name) {
-            return new User(name);
-          }
-
-          import { Logger } from './logger';
-        `,
-        startPosition: { row: 0, column: 0 },
-        endPosition: { row: 12, column: 0 },
-        isNamed: true,
-        fieldName: null,
-        children: [],
-      };
-
-      const result = await service.analyzeAst(mockAst, 'user.ts');
-
-      // Current Phase 2 stub: Always returns empty insights
-      expect(result.isOk()).toBe(true);
-      expect(result.value).toEqual({
-        functions: [],
-        classes: [],
-        imports: [],
-      });
-
-      // Verifies stub warning is logged
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Phase 2 stub')
+      const result = service.analyzeSource(
+        'function myFunction(a, b) {}',
+        'typescript'
       );
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.functions).toHaveLength(1);
+      expect(result.value?.functions[0].name).toBe('myFunction');
+      expect(result.value?.functions[0].parameters).toEqual(['a', 'b']);
+    });
+
+    it('should extract classes from query matches', () => {
+      const mockClassMatches: QueryMatch[] = [
+        {
+          pattern: 0,
+          captures: [
+            {
+              name: 'class.name',
+              text: 'MyClass',
+              node: {} as GenericAstNode,
+              startPosition: { row: 0, column: 6 },
+              endPosition: { row: 0, column: 13 },
+            },
+            {
+              name: 'class.declaration',
+              text: 'class MyClass {}',
+              node: {} as GenericAstNode,
+              startPosition: { row: 0, column: 0 },
+              endPosition: { row: 0, column: 16 },
+            },
+          ],
+        },
+      ];
+
+      mockParserService.queryClasses.mockReturnValue(
+        Result.ok(mockClassMatches)
+      );
+
+      const result = service.analyzeSource('class MyClass {}', 'typescript');
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.classes).toHaveLength(1);
+      expect(result.value?.classes[0].name).toBe('MyClass');
+    });
+
+    it('should extract imports from query matches', () => {
+      const mockImportMatches: QueryMatch[] = [
+        {
+          pattern: 0,
+          captures: [
+            {
+              name: 'import.source',
+              text: "'lodash'",
+              node: {} as GenericAstNode,
+              startPosition: { row: 0, column: 20 },
+              endPosition: { row: 0, column: 28 },
+            },
+            {
+              name: 'import.default',
+              text: '_',
+              node: {} as GenericAstNode,
+              startPosition: { row: 0, column: 7 },
+              endPosition: { row: 0, column: 8 },
+            },
+          ],
+        },
+      ];
+
+      mockParserService.queryImports.mockReturnValue(
+        Result.ok(mockImportMatches)
+      );
+
+      const result = service.analyzeSource(
+        "import _ from 'lodash';",
+        'typescript'
+      );
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.imports).toHaveLength(1);
+      expect(result.value?.imports[0].source).toBe('lodash');
+      expect(result.value?.imports[0].isDefault).toBe(true);
+    });
+
+    it('should extract exports from query matches', () => {
+      const mockExportMatches: QueryMatch[] = [
+        {
+          pattern: 0,
+          captures: [
+            {
+              name: 'export.func_name',
+              text: 'myFunction',
+              node: {} as GenericAstNode,
+              startPosition: { row: 0, column: 16 },
+              endPosition: { row: 0, column: 26 },
+            },
+          ],
+        },
+      ];
+
+      mockParserService.queryExports.mockReturnValue(
+        Result.ok(mockExportMatches)
+      );
+
+      const result = service.analyzeSource(
+        'export function myFunction() {}',
+        'typescript'
+      );
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.exports).toHaveLength(1);
+      expect(result.value?.exports![0].name).toBe('myFunction');
+      expect(result.value?.exports![0].kind).toBe('function');
+    });
+
+    it('should handle query errors gracefully', () => {
+      mockParserService.queryFunctions.mockReturnValue(
+        Result.err(new Error('Query failed'))
+      );
+
+      const result = service.analyzeSource(
+        'function broken() {}',
+        'typescript'
+      );
+
+      // Should still succeed with empty functions array when query fails
+      expect(result.isOk()).toBe(true);
+      expect(result.value?.functions).toEqual([]);
+    });
+
+    it('should log debug info about analysis', () => {
+      service.analyzeSource('const x = 1;', 'typescript', 'test.ts');
+
       expect(mockLogger.debug).toHaveBeenCalledWith(
-        expect.stringContaining('TODO Phase 3')
+        expect.stringContaining('analyzeSource')
       );
+    });
+  });
 
-      // Phase 3 Expectation: Would extract:
-      // - functions: [{ name: 'createUser', parameters: ['name'] }]
-      // - classes: [{ name: 'User' }]
-      // - imports: [{ source: './logger' }]
+  describe('AST traversal with function extraction', () => {
+    it('should extract function with identifier child', async () => {
+      const astWithFunction: GenericAstNode = {
+        type: 'program',
+        text: 'function test() {}',
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 0, column: 18 },
+        isNamed: true,
+        fieldName: null,
+        children: [
+          {
+            type: 'function_declaration',
+            text: 'function test() {}',
+            startPosition: { row: 0, column: 0 },
+            endPosition: { row: 0, column: 18 },
+            isNamed: true,
+            fieldName: null,
+            children: [
+              {
+                type: 'identifier',
+                text: 'test',
+                startPosition: { row: 0, column: 9 },
+                endPosition: { row: 0, column: 13 },
+                isNamed: true,
+                fieldName: null,
+                children: [],
+              },
+              {
+                type: 'formal_parameters',
+                text: '()',
+                startPosition: { row: 0, column: 13 },
+                endPosition: { row: 0, column: 15 },
+                isNamed: true,
+                fieldName: null,
+                children: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = await service.analyzeAst(astWithFunction, 'func.ts');
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.functions).toHaveLength(1);
+      expect(result.value!.functions[0].name).toBe('test');
+    });
+
+    it('should extract class with type_identifier child', async () => {
+      const astWithClass: GenericAstNode = {
+        type: 'program',
+        text: 'class MyClass {}',
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 0, column: 16 },
+        isNamed: true,
+        fieldName: null,
+        children: [
+          {
+            type: 'class_declaration',
+            text: 'class MyClass {}',
+            startPosition: { row: 0, column: 0 },
+            endPosition: { row: 0, column: 16 },
+            isNamed: true,
+            fieldName: null,
+            children: [
+              {
+                type: 'type_identifier',
+                text: 'MyClass',
+                startPosition: { row: 0, column: 6 },
+                endPosition: { row: 0, column: 13 },
+                isNamed: true,
+                fieldName: null,
+                children: [],
+              },
+              {
+                type: 'class_body',
+                text: '{}',
+                startPosition: { row: 0, column: 14 },
+                endPosition: { row: 0, column: 16 },
+                isNamed: true,
+                fieldName: null,
+                children: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = await service.analyzeAst(astWithClass, 'class.ts');
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.classes).toHaveLength(1);
+      expect(result.value!.classes[0].name).toBe('MyClass');
+    });
+
+    it('should extract import statement', async () => {
+      const astWithImport: GenericAstNode = {
+        type: 'program',
+        text: "import { foo } from './bar';",
+        startPosition: { row: 0, column: 0 },
+        endPosition: { row: 0, column: 28 },
+        isNamed: true,
+        fieldName: null,
+        children: [
+          {
+            type: 'import_statement',
+            text: "import { foo } from './bar';",
+            startPosition: { row: 0, column: 0 },
+            endPosition: { row: 0, column: 28 },
+            isNamed: true,
+            fieldName: null,
+            children: [
+              {
+                type: 'import_clause',
+                text: '{ foo }',
+                startPosition: { row: 0, column: 7 },
+                endPosition: { row: 0, column: 14 },
+                isNamed: true,
+                fieldName: null,
+                children: [
+                  {
+                    type: 'named_imports',
+                    text: '{ foo }',
+                    startPosition: { row: 0, column: 7 },
+                    endPosition: { row: 0, column: 14 },
+                    isNamed: true,
+                    fieldName: null,
+                    children: [
+                      {
+                        type: 'import_specifier',
+                        text: 'foo',
+                        startPosition: { row: 0, column: 9 },
+                        endPosition: { row: 0, column: 12 },
+                        isNamed: true,
+                        fieldName: null,
+                        children: [
+                          {
+                            type: 'identifier',
+                            text: 'foo',
+                            startPosition: { row: 0, column: 9 },
+                            endPosition: { row: 0, column: 12 },
+                            isNamed: true,
+                            fieldName: null,
+                            children: [],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+              {
+                type: 'string',
+                text: "'./bar'",
+                startPosition: { row: 0, column: 20 },
+                endPosition: { row: 0, column: 27 },
+                isNamed: true,
+                fieldName: null,
+                children: [],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = await service.analyzeAst(astWithImport, 'import.ts');
+
+      expect(result.isOk()).toBe(true);
+      expect(result.value!.imports).toHaveLength(1);
+      expect(result.value!.imports[0].source).toBe('./bar');
+      expect(result.value!.imports[0].importedSymbols).toContain('foo');
     });
   });
 });
