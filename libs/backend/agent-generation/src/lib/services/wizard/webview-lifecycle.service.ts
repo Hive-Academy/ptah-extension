@@ -27,8 +27,12 @@ import type { WizardStep } from '../../types/wizard.types';
 /**
  * Custom message handler function type.
  * Returns true if the message was handled, false otherwise.
+ * Must match WebviewMessageHandlerService.CustomMessageHandler signature.
  */
-export type CustomMessageHandler = (message: unknown) => Promise<boolean>;
+export type CustomMessageHandler = (
+  message: unknown,
+  webview: vscode.Webview
+) => Promise<boolean>;
 
 /**
  * Initial data for webview panel creation.
@@ -95,8 +99,8 @@ export class WizardWebviewLifecycleService {
    *   'Setup Wizard',
    *   'ptah.setupWizard',
    *   [
-   *     async (message) => {
-   *       if (message.type === 'setup-wizard:start') {
+   *     async (message, _webview) => {
+   *       if ((message as { type: string }).type === 'setup-wizard:start') {
    *         await handleStart(message);
    *         return true;
    *       }
@@ -143,10 +147,7 @@ export class WizardWebviewLifecycleService {
     this.messageHandler.setupMessageListener({
       webviewId: viewType,
       webview: panel.webview,
-      customHandlers: customHandlers.map((handler) => ({
-        // Wrap the handler to match expected signature
-        handler: async (message: unknown) => handler(message),
-      })) as unknown as ((message: unknown) => Promise<boolean>)[],
+      customHandlers,
       onReady: () => {
         this.logger.info(
           '[WizardWebviewLifecycle] Wizard webview ready signal received'

@@ -206,6 +206,42 @@ export const STORAGE_SERVICE = Symbol.for('StorageService');
 // CONFIGURATION_PROVIDER - DELETED in TASK_2025_078 (orphaned, never registered)
 
 // ========================================
+// Project Intelligence Service Tokens (TASK_2025_141)
+// ========================================
+
+/**
+ * CodeQualityAssessmentService - Anti-pattern detection and quality scoring
+ * Responsibilities: Sample files, detect anti-patterns, calculate quality score
+ */
+export const CODE_QUALITY_ASSESSMENT_SERVICE = Symbol.for(
+  'CodeQualityAssessmentService'
+);
+
+/**
+ * AntiPatternDetectionService - Rule-based anti-pattern detection
+ * Responsibilities: Load rules, execute detection, aggregate results
+ */
+export const ANTI_PATTERN_DETECTION_SERVICE = Symbol.for(
+  'AntiPatternDetectionService'
+);
+
+/**
+ * ProjectIntelligenceService - Unified facade for project intelligence
+ * Responsibilities: Orchestrate workspace analysis + quality assessment + guidance generation
+ */
+export const PROJECT_INTELLIGENCE_SERVICE = Symbol.for(
+  'ProjectIntelligenceService'
+);
+
+/**
+ * PrescriptiveGuidanceService - Generate corrective recommendations
+ * Responsibilities: Prioritize issues, generate actionable guidance, respect token budgets
+ */
+export const PRESCRIPTIVE_GUIDANCE_SERVICE = Symbol.for(
+  'PrescriptiveGuidanceService'
+);
+
+// ========================================
 // Main App Service Tokens (PARTIALLY DELETED)
 // ========================================
 // COMMAND_BUILDER_SERVICE - DELETED in TASK_2025_078 (never used)
@@ -286,6 +322,12 @@ export const TOKENS = {
   AST_ANALYSIS_SERVICE,
   AGENT_DISCOVERY_SERVICE,
   COMMAND_DISCOVERY_SERVICE,
+
+  // Project Intelligence (TASK_2025_141)
+  CODE_QUALITY_ASSESSMENT_SERVICE,
+  ANTI_PATTERN_DETECTION_SERVICE,
+  PROJECT_INTELLIGENCE_SERVICE,
+  PRESCRIPTIVE_GUIDANCE_SERVICE,
 
   // ========================================
   // LLM Abstraction

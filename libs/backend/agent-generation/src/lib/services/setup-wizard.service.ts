@@ -197,7 +197,7 @@ export class SetupWizardService implements ISetupWizardService {
         'Ptah Setup Wizard',
         this.WIZARD_VIEW_TYPE,
         [
-          async (message: unknown) => {
+          async (message: unknown, _webview) => {
             const msg = message as { type: string };
             switch (msg.type) {
               case 'setup-wizard:start':
@@ -439,7 +439,7 @@ export class SetupWizardService implements ISetupWizardService {
         'Ptah Setup Wizard (Resumed)',
         this.WIZARD_VIEW_TYPE,
         [
-          async (message: unknown) => {
+          async (message: unknown, _webview) => {
             const msg = message as { type: string };
             switch (msg.type) {
               case 'setup-wizard:start':
