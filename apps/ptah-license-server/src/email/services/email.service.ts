@@ -378,6 +378,36 @@ export class EmailService {
     this.logger.log(`Trial expired notification sent successfully to ${email}`);
   }
 
+  /**
+   * Send notification that user has been downgraded to Community plan
+   *
+   * TASK_2025_143: Called when trial expires and user is auto-downgraded
+   *
+   * @param params - Email, firstName
+   * @throws Error after 3 failed retry attempts
+   */
+  async sendTrialDowngradedToCommunity(params: {
+    email: string;
+    firstName: string | null;
+  }): Promise<void> {
+    const { email, firstName } = params;
+
+    const msg: MailDataRequired = {
+      to: email,
+      from: {
+        email:
+          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
+        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
+      },
+      subject: "Welcome to Ptah Community - You're all set!",
+      html: this.getTrialDowngradedToCommunityTemplate({ firstName }),
+    };
+
+    this.logger.log(`Sending Community welcome email to ${email}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`Community welcome email sent successfully to ${email}`);
+  }
+
   // ============================================================
   // Trial Reminder Email Templates (TASK_2025_142)
   // ============================================================
@@ -678,6 +708,93 @@ export class EmailService {
 
         <div class="footer">
           <p>Thank you for trying Ptah Pro! If you have feedback, we'd love to hear it.</p>
+          <p>- The Ptah Team</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Template for trial downgraded to Community email
+   *
+   * TASK_2025_143: Positive messaging about Community tier
+   * Focus on what they CAN do, not what they lost
+   *
+   * @private
+   * @param params - Template parameters (firstName)
+   * @returns HTML email content
+   */
+  private getTrialDowngradedToCommunityTemplate(params: {
+    firstName: string | null;
+  }): string {
+    const { firstName } = params;
+    const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Welcome to Ptah Community</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          h1 { color: #4A5568; margin-bottom: 20px; }
+          .welcome-box { background-color: #F0FFF4; border: 1px solid #9AE6B4; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center; }
+          .welcome-icon { font-size: 48px; margin-bottom: 12px; }
+          .feature-list { background-color: #F7FAFC; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .feature-item { display: flex; align-items: center; margin-bottom: 8px; }
+          .feature-icon { width: 20px; height: 20px; margin-right: 8px; color: #48BB78; }
+          .upgrade-box { background-color: #EBF8FF; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
+          .cta-secondary { display: inline-block; color: #4F46E5; text-decoration: none; font-weight: 600; margin-left: 16px; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+        </style>
+      </head>
+      <body>
+        <h1>${greeting},</h1>
+
+        <div class="welcome-box">
+          <div class="welcome-icon">🎉</div>
+          <p><strong>Welcome to Ptah Community!</strong></p>
+          <p>Your account is ready - you can keep using Ptah for free.</p>
+        </div>
+
+        <p>Your Pro trial has ended, but you still have access to great features:</p>
+
+        <div class="feature-list">
+          <div class="feature-item">
+            <span class="feature-icon">✓</span>
+            <span>AI-powered code assistance</span>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">✓</span>
+            <span>Chat with Claude in VS Code</span>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">✓</span>
+            <span>Basic code generation & editing</span>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon">✓</span>
+            <span>Session history & management</span>
+          </div>
+        </div>
+
+        <div class="upgrade-box">
+          <p><strong>Want more power?</strong></p>
+          <p>Upgrade to Pro anytime for advanced features like multi-agent orchestration,
+          MCP tools, workspace intelligence, and priority support.</p>
+        </div>
+
+        <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>
+        <a href="${frontendUrl}/profile" class="cta-secondary">View Your Account →</a>
+
+        <div class="footer">
+          <p>Thank you for being part of the Ptah community!</p>
           <p>- The Ptah Team</p>
         </div>
       </body>

@@ -59,11 +59,16 @@ export class TrialReminderService {
     let totalSent = 0;
 
     try {
-      // Process each reminder type in sequence
-      // Order matters: expired first, then closest to expiry
+      // STEP 1: Downgrade expired trials to Community plan
+      // This must run BEFORE sending reminders to ensure clean state
+      const downgraded = await this.downgradeExpiredTrials();
+      this.logger.log(`Downgraded ${downgraded} expired trials to Community`);
+
+      // STEP 2: Process reminder emails for upcoming expirations
+      // Order matters: closest to expiry first (1_day, 3_day, 7_day)
+      // Note: We no longer send 'expired' reminder - users are auto-downgraded instead
       const reminderConfigs: { type: ReminderType; daysFromExpiry: number }[] =
         [
-          { type: 'expired', daysFromExpiry: 0 },
           { type: '1_day', daysFromExpiry: 1 },
           { type: '3_day', daysFromExpiry: 3 },
           { type: '7_day', daysFromExpiry: 7 },
@@ -79,13 +84,125 @@ export class TrialReminderService {
 
       const duration = Date.now() - startTime;
       this.logger.log(
-        `Trial reminder job completed: ${totalSent} emails sent in ${duration}ms`
+        `Trial reminder job completed: ${downgraded} downgraded, ${totalSent} reminders sent in ${duration}ms`
       );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Trial reminder job failed: ${errorMessage}`);
     }
+  }
+
+  /**
+   * Downgrade expired trials to Community plan
+   *
+   * TASK_2025_143: Auto-downgrade instead of leaving in "trial_ended" state
+   *
+   * Finds all subscriptions where:
+   * - status = 'trialing'
+   * - trial_end < NOW() (trial has expired)
+   *
+   * Then updates:
+   * - subscription.status = 'expired'
+   * - license.plan = 'community'
+   *
+   * And sends a "Welcome to Community" email
+   *
+   * @returns Number of users downgraded
+   */
+  private async downgradeExpiredTrials(): Promise<number> {
+    this.logger.debug('Processing expired trial downgrades');
+
+    const now = new Date();
+
+    // Find all expired trials that haven't been downgraded yet
+    const expiredTrials = await this.prisma.subscription.findMany({
+      where: {
+        status: 'trialing',
+        trialEnd: {
+          lt: now, // Trial end is in the past
+        },
+      },
+      include: {
+        user: {
+          include: {
+            licenses: true,
+          },
+        },
+      },
+      take: 1000, // Safety limit
+    });
+
+    if (expiredTrials.length === 1000) {
+      this.logger.warn(
+        'Hit 1000 subscription limit for downgrades - some users may not be processed. Consider implementing pagination.'
+      );
+    }
+
+    this.logger.debug(
+      `Found ${expiredTrials.length} expired trials to downgrade`
+    );
+
+    if (expiredTrials.length === 0) {
+      return 0;
+    }
+
+    let downgradedCount = 0;
+
+    for (const subscription of expiredTrials) {
+      try {
+        // Use a transaction to ensure atomicity
+        await this.prisma.$transaction(async (tx) => {
+          // 1. Update subscription status to 'expired'
+          await tx.subscription.update({
+            where: { id: subscription.id },
+            data: { status: 'expired' },
+          });
+
+          // 2. Update user's license to 'community' plan
+          // Find the active license for this user
+          const activeLicense = subscription.user.licenses.find(
+            (l) => l.status === 'active'
+          );
+
+          if (activeLicense) {
+            await tx.license.update({
+              where: { id: activeLicense.id },
+              data: { plan: 'community' },
+            });
+          }
+
+          // 3. Record the 'expired' reminder to track that we processed this user
+          // This also prevents re-processing on next cron run
+          await tx.trialReminder.create({
+            data: {
+              userId: subscription.userId,
+              reminderType: 'expired',
+              emailSentTo: subscription.user.email,
+            },
+          });
+        });
+
+        // 4. Send "Welcome to Community" email (outside transaction)
+        await this.emailService.sendTrialDowngradedToCommunity({
+          email: subscription.user.email,
+          firstName: subscription.user.firstName,
+        });
+
+        downgradedCount++;
+        this.logger.debug(
+          `Downgraded ${subscription.user.email} to Community plan`
+        );
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+        this.logger.warn(
+          `Failed to downgrade ${subscription.user.email}: ${errorMessage}`
+        );
+      }
+    }
+
+    return downgradedCount;
   }
 
   /**
