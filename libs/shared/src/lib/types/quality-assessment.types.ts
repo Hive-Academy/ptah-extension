@@ -15,7 +15,8 @@
 
 /**
  * Categories of anti-patterns detected by the quality assessment system.
- * Organized by domain: TypeScript, Error Handling, Architecture, Testing
+ * Organized by domain: TypeScript, Error Handling, Architecture, Testing,
+ * Angular, NestJS, React
  */
 export type AntiPatternType =
   // TypeScript anti-patterns
@@ -36,7 +37,25 @@ export type AntiPatternType =
   // Testing anti-patterns
   | 'test-missing-spec'
   | 'test-no-assertions'
-  | 'test-all-skipped';
+  | 'test-all-skipped'
+  // Angular anti-patterns (Phase E2 - TASK_2025_144)
+  | 'angular-improper-change-detection'
+  | 'angular-subscription-leak'
+  | 'angular-circular-dependency'
+  | 'angular-large-component'
+  | 'angular-missing-trackby'
+  // NestJS anti-patterns (Phase E2 - TASK_2025_144)
+  | 'nestjs-missing-decorator'
+  | 'nestjs-controller-logic'
+  | 'nestjs-unsafe-repository'
+  | 'nestjs-missing-guard'
+  | 'nestjs-circular-module'
+  // React anti-patterns (Phase E2 - TASK_2025_144)
+  | 'react-missing-key'
+  | 'react-direct-state-mutation'
+  | 'react-useeffect-dependencies'
+  | 'react-large-component'
+  | 'react-inline-function-prop';
 
 /**
  * Severity levels for detected anti-patterns

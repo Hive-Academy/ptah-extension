@@ -24,6 +24,9 @@ import { typescriptRules } from './typescript-rules';
 import { errorHandlingRules } from './error-handling-rules';
 import { architectureRules } from './architecture-rules';
 import { testingRules } from './testing-rules';
+import { angularRules } from './angular-rules';
+import { nestjsRules } from './nestjs-rules';
+import { reactRules } from './react-rules';
 
 // ============================================
 // Rule Aggregation
@@ -40,6 +43,9 @@ import { testingRules } from './testing-rules';
  * - Error handling rules (empty catch, console-only catch)
  * - Architecture rules (file too large, too many imports, function too large)
  * - Testing rules (no assertions, all skipped)
+ * - Angular rules (change detection, subscriptions, circular DI, large component, trackBy)
+ * - NestJS rules (missing decorator, controller logic, unsafe queries, missing guard, circular module)
+ * - React rules (missing key, state mutation, useEffect deps, large component, inline function props)
  *
  * @example
  * ```typescript
@@ -56,6 +62,9 @@ export const ALL_RULES: AntiPatternRule[] = [
   ...errorHandlingRules,
   ...architectureRules,
   ...testingRules,
+  ...angularRules,
+  ...nestjsRules,
+  ...reactRules,
 ];
 
 // ============================================
@@ -342,6 +351,9 @@ export { typescriptRules } from './typescript-rules';
 export { errorHandlingRules } from './error-handling-rules';
 export { architectureRules } from './architecture-rules';
 export { testingRules } from './testing-rules';
+export { angularRules } from './angular-rules';
+export { nestjsRules } from './nestjs-rules';
+export { reactRules } from './react-rules';
 
 // Export individual rules for selective use
 export {
@@ -359,6 +371,33 @@ export {
 } from './architecture-rules';
 
 export { noAssertionsRule, allSkippedRule } from './testing-rules';
+
+// Angular rules (TASK_2025_144 Phase E2)
+export {
+  improperChangeDetectionRule,
+  subscriptionLeakRule,
+  circularDependencyRule,
+  largeComponentRule as angularLargeComponentRule,
+  missingTrackByRule,
+} from './angular-rules';
+
+// NestJS rules (TASK_2025_144 Phase E2)
+export {
+  missingDecoratorRule,
+  controllerLogicRule,
+  unsafeRepositoryRule,
+  missingGuardRule,
+  circularModuleRule,
+} from './nestjs-rules';
+
+// React rules (TASK_2025_144 Phase E2)
+export {
+  missingKeyRule,
+  directStateMutationRule,
+  useEffectDependenciesRule,
+  largeComponentRule as reactLargeComponentRule,
+  inlineFunctionPropRule,
+} from './react-rules';
 
 // Export rule-base utilities
 export {

@@ -90,6 +90,9 @@ const CATEGORY_FROM_TYPE: Record<string, string> = {
   error: 'Error Handling',
   arch: 'Architecture',
   test: 'Testing',
+  angular: 'Angular Best Practices',
+  nestjs: 'NestJS Best Practices',
+  react: 'React Best Practices',
 };
 
 /**
@@ -100,6 +103,9 @@ const DEFAULT_STRENGTHS: Record<string, string> = {
   error: 'Proper error handling patterns observed',
   arch: 'Reasonable file sizes and module organization',
   test: 'Test files follow good practices',
+  angular: 'Angular components follow best practices',
+  nestjs: 'NestJS services follow proper patterns',
+  react: 'React components follow best practices',
 };
 
 // ============================================

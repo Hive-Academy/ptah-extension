@@ -35,13 +35,17 @@ export interface AntiPatternMatch {
 export type DetectionMethod = 'regex' | 'ast' | 'heuristic';
 
 /**
- * Rule category for grouping related rules
+ * Rule category for grouping related rules.
+ * Includes framework-specific categories added in TASK_2025_144 Phase E2.
  */
 export type RuleCategory =
   | 'typescript'
   | 'error-handling'
   | 'architecture'
-  | 'testing';
+  | 'testing'
+  | 'angular'
+  | 'nestjs'
+  | 'react';
 
 /**
  * Rule definition for anti-pattern detection
