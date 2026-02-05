@@ -1,4 +1,5 @@
 export * from './lib/types/ai-provider.types';
+export * from './lib/types/anti-pattern-rules.types';
 export * from './lib/types/branded.types';
 export * from './lib/types/claude-domain.types';
 export * from './lib/types/command-builder.types';
@@ -7,10 +8,12 @@ export * from './lib/types/execution-node.types';
 export * from './lib/types/message.types';
 export * from './lib/types/content-block.types';
 export * from './lib/types/permission.types';
+export * from './lib/types/quality-assessment.types';
+export * from './lib/types/reliable-workflow.types';
+export * from './lib/types/rpc.types';
 export * from './lib/types/subagent-registry.types';
 export * from './lib/types/webview-ui.types';
 export * from './lib/types/model-autopilot.types';
-export * from './lib/types/rpc.types';
 
 // Type guards
 export * from './lib/type-guards/tool-input-guards';
