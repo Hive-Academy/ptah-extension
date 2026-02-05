@@ -16,6 +16,12 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint"
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "npx ngc --noEmit --project libs/frontend/setup-wizard/tsconfig.lib.json"
+      }
     }
   }
 }

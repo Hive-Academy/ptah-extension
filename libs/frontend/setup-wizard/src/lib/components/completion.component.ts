@@ -12,6 +12,7 @@ import {
   Info,
   LucideAngularModule,
   MessageCircle,
+  Sparkles,
   Zap,
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
@@ -82,6 +83,25 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
             <div class="stat-title">Skill Files</div>
             <div class="stat-value text-accent">{{ skillFileCount() }}</div>
             <div class="stat-desc">.claude/skills/orchestration/</div>
+          </div>
+          <div class="stat place-items-center">
+            <div class="stat-title">Enhanced Prompts</div>
+            <div
+              class="stat-value"
+              [class.text-warning]="enhancedPromptsGenerated()"
+              [class.opacity-30]="!enhancedPromptsGenerated()"
+            >
+              @if (enhancedPromptsGenerated()) {
+              <lucide-angular [img]="SparklesIcon" class="h-8 w-8" />
+              } @else {
+              <span class="text-sm">--</span>
+              }
+            </div>
+            <div class="stat-desc">
+              @if (enhancedPromptsGenerated()) { Active } @else {
+              {{ enhancedPromptsStatusLabel() }}
+              }
+            </div>
           </div>
         </div>
 
@@ -364,6 +384,7 @@ export class CompletionComponent {
   protected readonly ZapIcon = Zap;
   protected readonly InfoIcon = Info;
   protected readonly MessageCircleIcon = MessageCircle;
+  protected readonly SparklesIcon = Sparkles;
 
   /**
    * All completed generation items from skill generation progress.
@@ -414,6 +435,28 @@ export class CompletionComponent {
    */
   protected readonly skillFileCount = computed(() => {
     return this.skillFiles().length;
+  });
+
+  /**
+   * Whether Enhanced Prompts was successfully generated.
+   */
+  protected readonly enhancedPromptsGenerated = computed(() => {
+    return this.wizardState.enhancedPromptsStatus() === 'complete';
+  });
+
+  /**
+   * Label for Enhanced Prompts status in the stats card.
+   */
+  protected readonly enhancedPromptsStatusLabel = computed(() => {
+    const status = this.wizardState.enhancedPromptsStatus();
+    switch (status) {
+      case 'skipped':
+        return 'Pro Only';
+      case 'error':
+        return 'Failed';
+      default:
+        return 'Not Generated';
+    }
   });
 
   /**

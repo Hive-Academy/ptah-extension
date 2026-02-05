@@ -1,5 +1,9 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
+import type {
+  EnhancedPromptsRunWizardResponse,
+  EnhancedPromptsGetStatusResponse,
+} from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
 /**
@@ -128,5 +132,59 @@ export class WizardRpcService {
       '[WizardRpcService] retryGenerationItem: Backend handler not implemented'
     );
     throw new Error('Retry generation item not yet implemented');
+  }
+
+  // === Enhanced Prompts Methods ===
+
+  /**
+   * Run Enhanced Prompts wizard to generate project-specific prompt guidance.
+   * Uses the existing enhancedPrompts:runWizard RPC handler.
+   *
+   * @param workspacePath - Workspace path to analyze
+   * @returns Enhanced Prompts wizard response
+   */
+  async runEnhancedPromptsWizard(
+    workspacePath: string
+  ): Promise<EnhancedPromptsRunWizardResponse> {
+    const result = await this.rpcService.call('enhancedPrompts:runWizard', {
+      workspacePath,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data as EnhancedPromptsRunWizardResponse;
+    }
+
+    return {
+      success: false,
+      error: result.error || 'Failed to run Enhanced Prompts wizard',
+    };
+  }
+
+  /**
+   * Get Enhanced Prompts status for a workspace.
+   * Uses the existing enhancedPrompts:getStatus RPC handler.
+   *
+   * @param workspacePath - Workspace path to check
+   * @returns Enhanced Prompts status response
+   */
+  async getEnhancedPromptsStatus(
+    workspacePath: string
+  ): Promise<EnhancedPromptsGetStatusResponse> {
+    const result = await this.rpcService.call('enhancedPrompts:getStatus', {
+      workspacePath,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data as EnhancedPromptsGetStatusResponse;
+    }
+
+    return {
+      enabled: false,
+      hasGeneratedPrompt: false,
+      generatedAt: null,
+      detectedStack: null,
+      cacheValid: false,
+      error: result.error || 'Failed to get Enhanced Prompts status',
+    };
   }
 }

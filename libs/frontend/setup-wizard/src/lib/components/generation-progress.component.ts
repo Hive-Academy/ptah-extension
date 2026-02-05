@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   OnDestroy,
 } from '@angular/core';
@@ -11,6 +12,7 @@ import {
   CircleCheck,
   LucideAngularModule,
   RotateCw,
+  Sparkles,
   TriangleAlert,
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
@@ -389,6 +391,99 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         </div>
         }
 
+        <!-- Enhanced Prompts Section -->
+        @if (isAgentGenerationComplete()) {
+        <div class="mb-8">
+          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+            <span class="badge badge-warning badge-lg">
+              <lucide-angular
+                [img]="SparklesIcon"
+                class="h-4 w-4"
+                aria-hidden="true"
+              />
+            </span>
+            Enhanced Prompts @if (enhancedPromptsStatus() === 'complete') {
+            <span class="text-sm text-base-content/60 font-normal">
+              (Generated)
+            </span>
+            } @else if (enhancedPromptsStatus() === 'error') {
+            <span class="text-sm text-error font-normal"> (Failed) </span>
+            }
+          </h3>
+          <div
+            class="card card-compact bg-base-100 shadow-md"
+            [class.border-error]="enhancedPromptsStatus() === 'error'"
+            [class.border-l-4]="enhancedPromptsStatus() === 'error'"
+          >
+            <div class="card-body">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3 flex-1 min-w-0">
+                  <!-- Status indicator -->
+                  @switch (enhancedPromptsStatus()) { @case ('idle') {
+                  <div class="badge badge-outline badge-sm">Pending</div>
+                  } @case ('generating') {
+                  <span
+                    class="loading loading-spinner loading-sm text-warning"
+                  ></span>
+                  } @case ('complete') {
+                  <lucide-angular
+                    [img]="CircleCheckIcon"
+                    class="h-6 w-6 text-success"
+                    aria-hidden="true"
+                  />
+                  } @case ('error') {
+                  <lucide-angular
+                    [img]="CircleAlertIcon"
+                    class="h-6 w-6 text-error"
+                    aria-hidden="true"
+                  />
+                  } @case ('skipped') {
+                  <div class="badge badge-ghost badge-sm">Skipped</div>
+                  } }
+
+                  <div class="flex-1 min-w-0">
+                    <div class="font-semibold">
+                      Project-Specific Prompt Guidance
+                    </div>
+                    <p class="text-sm text-base-content/60 mt-0.5">
+                      @switch (enhancedPromptsStatus()) { @case ('idle') {
+                      Waiting for agent generation to complete... } @case
+                      ('generating') { Analyzing workspace and generating
+                      project-specific guidance... } @case ('complete') {
+                      Enhanced prompts generated and enabled for your workspace.
+                      @if (enhancedPromptsStack().length > 0) {
+                      <span class="block mt-1">
+                        Detected:
+                        {{ enhancedPromptsStack().join(', ') }}
+                      </span>
+                      } } @case ('error') {
+                      {{ enhancedPromptsErrorMsg() }}
+                      } @case ('skipped') { Skipped (requires Pro license). } }
+                    </p>
+                  </div>
+                </div>
+
+                <!-- Retry button for failed Enhanced Prompts -->
+                @if (enhancedPromptsStatus() === 'error') {
+                <button
+                  class="btn btn-error btn-sm"
+                  (click)="onRetryEnhancedPrompts()"
+                  aria-label="Retry Enhanced Prompts generation"
+                >
+                  <lucide-angular
+                    [img]="RotateCwIcon"
+                    class="h-4 w-4"
+                    aria-hidden="true"
+                  />
+                  Retry
+                </button>
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+        }
+
         <!-- Empty state -->
         @if (totalCount() === 0) {
         <div class="card bg-base-200 shadow-xl">
@@ -404,8 +499,8 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         </div>
         }
 
-        <!-- Completion section -->
-        @if (isComplete()) {
+        <!-- Completion section (visible when agents AND Enhanced Prompts are done) -->
+        @if (isFullyComplete()) {
         <div
           class="alert mb-6"
           [class.alert-success]="failedCount() === 0"
@@ -465,6 +560,7 @@ export class GenerationProgressComponent implements OnDestroy {
   protected readonly RotateCwIcon = RotateCw;
   protected readonly CheckIcon = Check;
   protected readonly TriangleAlertIcon = TriangleAlert;
+  protected readonly SparklesIcon = Sparkles;
 
   /**
    * Maximum retry attempts per item.
@@ -490,6 +586,12 @@ export class GenerationProgressComponent implements OnDestroy {
    * Used to enforce MAX_RETRIES limit and calculate backoff delay.
    */
   private retryCounts = new Map<string, number>();
+
+  /**
+   * Track whether Enhanced Prompts generation has been triggered.
+   * Prevents duplicate triggers from the effect.
+   */
+  private enhancedPromptsTriggered = false;
 
   /**
    * All skill generation progress items from state service.
@@ -547,10 +649,41 @@ export class GenerationProgressComponent implements OnDestroy {
   });
 
   /**
-   * Whether all items are complete (success or error).
+   * Whether all agent/command/skill items are complete (success or error).
    */
-  protected readonly isComplete = computed(() => {
+  protected readonly isAgentGenerationComplete = computed(() => {
     return this.wizardState.isGenerationComplete();
+  });
+
+  /**
+   * Enhanced Prompts generation status from state service.
+   */
+  protected readonly enhancedPromptsStatus =
+    this.wizardState.enhancedPromptsStatus;
+
+  /**
+   * Enhanced Prompts error message.
+   */
+  protected readonly enhancedPromptsErrorMsg =
+    this.wizardState.enhancedPromptsError;
+
+  /**
+   * Enhanced Prompts detected stack labels.
+   */
+  protected readonly enhancedPromptsStack = computed(() => {
+    return this.wizardState.enhancedPromptsDetectedStack() ?? [];
+  });
+
+  /**
+   * Whether everything is fully complete (agents + Enhanced Prompts).
+   * The "Continue to Completion" button only appears when this is true.
+   */
+  protected readonly isFullyComplete = computed(() => {
+    const agentsDone = this.wizardState.isGenerationComplete();
+    const epStatus = this.wizardState.enhancedPromptsStatus();
+    const epDone =
+      epStatus === 'complete' || epStatus === 'error' || epStatus === 'skipped';
+    return agentsDone && epDone;
   });
 
   /**
@@ -562,6 +695,79 @@ export class GenerationProgressComponent implements OnDestroy {
     return this.progressItems().filter(
       (item) => item.type === type && item.status === 'complete'
     ).length;
+  }
+
+  /**
+   * Effect: Auto-trigger Enhanced Prompts generation when agent generation completes.
+   * Uses Angular effect() to reactively watch for generation completion.
+   */
+  private readonly enhancedPromptsEffect = effect(() => {
+    const agentsDone = this.wizardState.isGenerationComplete();
+    const epStatus = this.wizardState.enhancedPromptsStatus();
+
+    if (agentsDone && epStatus === 'idle' && !this.enhancedPromptsTriggered) {
+      this.enhancedPromptsTriggered = true;
+      // Use queueMicrotask to avoid signal write during effect
+      queueMicrotask(() => this.triggerEnhancedPrompts());
+    }
+  });
+
+  /**
+   * Trigger Enhanced Prompts generation.
+   * Gets workspace path from project context and calls RPC.
+   */
+  private async triggerEnhancedPrompts(): Promise<void> {
+    this.wizardState.setEnhancedPromptsStatus('generating');
+
+    try {
+      // Get workspace path - use project context or fallback
+      const workspacePath = '.';
+
+      const result = await this.wizardRpc.runEnhancedPromptsWizard(
+        workspacePath
+      );
+
+      if (result.success) {
+        this.wizardState.setEnhancedPromptsStatus('complete');
+
+        // Extract detected stack for display
+        if (result.detectedStack) {
+          const stackLabels = [
+            ...(result.detectedStack.frameworks ?? []),
+            ...(result.detectedStack.languages ?? []),
+          ].filter(Boolean);
+          this.wizardState.setEnhancedPromptsDetectedStack(stackLabels);
+        }
+      } else {
+        // Check if it's a premium-only error (non-premium users)
+        const isPremiumError =
+          result.error?.toLowerCase().includes('premium') ||
+          result.error?.toLowerCase().includes('upgrade');
+
+        if (isPremiumError) {
+          this.wizardState.setEnhancedPromptsStatus('skipped');
+          this.wizardState.setEnhancedPromptsError(null);
+        } else {
+          this.wizardState.setEnhancedPromptsStatus('error');
+          this.wizardState.setEnhancedPromptsError(
+            result.error ?? 'Failed to generate Enhanced Prompts'
+          );
+        }
+      }
+    } catch (error) {
+      this.wizardState.setEnhancedPromptsStatus('error');
+      this.wizardState.setEnhancedPromptsError(
+        error instanceof Error ? error.message : 'Unexpected error'
+      );
+    }
+  }
+
+  /**
+   * Retry Enhanced Prompts generation after failure.
+   */
+  protected async onRetryEnhancedPrompts(): Promise<void> {
+    this.wizardState.setEnhancedPromptsError(null);
+    await this.triggerEnhancedPrompts();
   }
 
   /**
@@ -664,5 +870,6 @@ export class GenerationProgressComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.pendingRetries.clear();
     this.retryCounts.clear();
+    this.enhancedPromptsTriggered = false;
   }
 }

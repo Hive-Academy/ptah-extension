@@ -30,4 +30,5 @@ export type {
   AnalysisResults,
   CompletionData,
   ErrorState,
+  EnhancedPromptsWizardStatus,
 } from './lib/services/setup-wizard-state.service';

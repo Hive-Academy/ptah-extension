@@ -127,8 +127,8 @@ export interface SkillGenerationProgressItem {
   id: string;
   /** Display name */
   name: string;
-  /** Item type: agent, command, or skill file */
-  type: 'agent' | 'command' | 'skill-file';
+  /** Item type: agent, command, skill file, or enhanced-prompt */
+  type: 'agent' | 'command' | 'skill-file' | 'enhanced-prompt';
   /** Current status */
   status: 'pending' | 'in-progress' | 'complete' | 'error';
   /** Progress percentage 0-100 (optional) */
@@ -136,6 +136,17 @@ export interface SkillGenerationProgressItem {
   /** Error message if status is 'error' */
   errorMessage?: string;
 }
+
+/**
+ * Enhanced Prompts generation status for the wizard.
+ * Tracks the state of Enhanced Prompts generation during setup.
+ */
+export type EnhancedPromptsWizardStatus =
+  | 'idle'
+  | 'generating'
+  | 'complete'
+  | 'error'
+  | 'skipped';
 
 /**
  * SetupWizardStateService
@@ -241,6 +252,28 @@ export class SetupWizardStateService {
     {}
   );
 
+  // === Enhanced Prompts State Signals ===
+
+  /**
+   * Private writable signal for Enhanced Prompts generation status.
+   * Tracks whether Enhanced Prompts has been generated during wizard setup.
+   */
+  private readonly enhancedPromptsStatusSignal =
+    signal<EnhancedPromptsWizardStatus>('idle');
+
+  /**
+   * Private writable signal for Enhanced Prompts error message.
+   */
+  private readonly enhancedPromptsErrorSignal = signal<string | null>(null);
+
+  /**
+   * Private writable signal for Enhanced Prompts detected stack.
+   * Populated after successful generation.
+   */
+  private readonly enhancedPromptsDetectedStackSignal = signal<string[] | null>(
+    null
+  );
+
   /**
    * Public readonly signal for current wizard step
    */
@@ -307,6 +340,25 @@ export class SetupWizardStateService {
    * Provides direct access to agent selection state.
    */
   readonly selectedAgentsMap = this.selectedAgentsMapSignal.asReadonly();
+
+  // === Enhanced Prompts Public Signals ===
+
+  /**
+   * Public readonly signal for Enhanced Prompts generation status.
+   */
+  readonly enhancedPromptsStatus =
+    this.enhancedPromptsStatusSignal.asReadonly();
+
+  /**
+   * Public readonly signal for Enhanced Prompts error message.
+   */
+  readonly enhancedPromptsError = this.enhancedPromptsErrorSignal.asReadonly();
+
+  /**
+   * Public readonly signal for Enhanced Prompts detected stack labels.
+   */
+  readonly enhancedPromptsDetectedStack =
+    this.enhancedPromptsDetectedStackSignal.asReadonly();
 
   constructor() {
     this.ensureMessageListenerRegistered();
@@ -521,6 +573,10 @@ export class SetupWizardStateService {
     this.recommendationsSignal.set([]);
     this.skillGenerationProgressSignal.set([]);
     this.selectedAgentsMapSignal.set({});
+    // Reset Enhanced Prompts state
+    this.enhancedPromptsStatusSignal.set('idle');
+    this.enhancedPromptsErrorSignal.set(null);
+    this.enhancedPromptsDetectedStackSignal.set(null);
   }
 
   // === Deep Analysis State Mutations (TASK_2025_111) ===
@@ -599,6 +655,29 @@ export class SetupWizardStateService {
       }
       return updated;
     });
+  }
+
+  // === Enhanced Prompts State Mutations ===
+
+  /**
+   * Set Enhanced Prompts generation status.
+   */
+  setEnhancedPromptsStatus(status: EnhancedPromptsWizardStatus): void {
+    this.enhancedPromptsStatusSignal.set(status);
+  }
+
+  /**
+   * Set Enhanced Prompts error message.
+   */
+  setEnhancedPromptsError(error: string | null): void {
+    this.enhancedPromptsErrorSignal.set(error);
+  }
+
+  /**
+   * Set Enhanced Prompts detected stack for display.
+   */
+  setEnhancedPromptsDetectedStack(stack: string[] | null): void {
+    this.enhancedPromptsDetectedStackSignal.set(stack);
   }
 
   /**
