@@ -125,11 +125,13 @@ import { LicenseData } from '../models/license-data.interface';
             />
             Current Plan
           </span>
-          <span class="font-medium">{{ license()?.planName }}</span>
+          <span class="font-medium" [class.text-error]="isTrialEnded()">
+            {{ getPlanDisplayName() }}
+          </span>
         </div>
 
-        <!-- License Key -->
-        @if (license()?.status !== 'none') {
+        <!-- License Key - Hide when trial ended (no valid license) -->
+        @if (license()?.status !== 'none' && !isTrialEnded()) {
         <div class="px-6 py-4 flex justify-between items-center">
           <span class="text-neutral-content flex items-center gap-2">
             <lucide-angular
@@ -229,7 +231,7 @@ import { LicenseData } from '../models/license-data.interface';
             Billing Status
           </span>
           <span class="badge" [class]="getSubscriptionStatusClass()">
-            {{ license()?.subscription?.status?.toUpperCase() }}
+            {{ getBillingStatusLabel() }}
           </span>
         </div>
 
@@ -441,7 +443,36 @@ export class ProfileDetailsComponent {
     delay: 0.2,
   };
 
+  /**
+   * Check if trial has ended (even if DB still shows trialing status)
+   * TASK_2025_143: Use reason field to detect trial expiration
+   */
+  public isTrialEnded(): boolean {
+    return this.license()?.reason === 'trial_ended';
+  }
+
+  /**
+   * Get display name for plan
+   * TASK_2025_143: Show "Trial Expired" when trial has ended
+   */
+  public getPlanDisplayName(): string {
+    if (this.isTrialEnded()) return 'Trial Expired';
+    return this.license()?.planName || 'Unknown';
+  }
+
+  /**
+   * Get billing status label
+   * TASK_2025_143: Show "EXPIRED" when trial has ended
+   */
+  public getBillingStatusLabel(): string {
+    if (this.isTrialEnded()) return 'EXPIRED';
+    return this.license()?.subscription?.status?.toUpperCase() || 'UNKNOWN';
+  }
+
   public getSubscriptionStatusClass(): string {
+    // Trial ended = error badge
+    if (this.isTrialEnded()) return 'badge-error';
+
     const status = this.license()?.subscription?.status;
     if (status === 'active') return 'badge-success';
     if (status === 'paused') return 'badge-warning';

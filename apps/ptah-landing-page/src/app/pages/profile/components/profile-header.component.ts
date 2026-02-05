@@ -106,7 +106,7 @@ import { LicenseData } from '../models/license-data.interface';
                     class="w-4 h-4"
                     aria-hidden="true"
                   />
-                  {{ license()?.planName }}
+                  {{ getPlanDisplayName() }}
                 </span>
                 <span class="badge badge-lg" [class]="getStatusBadgeClass()">
                   {{ getStatusLabel() }}
@@ -233,14 +233,37 @@ export class ProfileHeaderComponent {
     return this.license()?.features?.length || 0;
   });
 
+  /**
+   * Check if trial has ended (even if DB still shows trialing status)
+   * TASK_2025_143: Use reason field to detect trial expiration
+   */
+  public isTrialEnded(): boolean {
+    return this.license()?.reason === 'trial_ended';
+  }
+
   public getPlanBadgeClass(): string {
+    // Trial ended = show error badge
+    if (this.isTrialEnded()) return 'badge-error';
+
     const plan = this.license()?.plan;
     if (plan === 'pro' || plan === 'trial_pro') return 'badge-primary';
     if (plan === 'community') return 'badge-secondary';
     return 'badge-ghost';
   }
 
+  /**
+   * Get display name for plan badge
+   * TASK_2025_143: Show "Trial Expired" when trial has ended
+   */
+  public getPlanDisplayName(): string {
+    if (this.isTrialEnded()) return 'Trial Expired';
+    return this.license()?.planName || 'Unknown';
+  }
+
   public getStatusBadgeClass(): string {
+    // Trial ended = expired state
+    if (this.isTrialEnded()) return 'badge-error';
+
     const status = this.license()?.status;
     if (status === 'active') return 'badge-success';
     if (status === 'expired') return 'badge-error';
@@ -248,6 +271,9 @@ export class ProfileHeaderComponent {
   }
 
   public getStatusLabel(): string {
+    // Trial ended = show Expired
+    if (this.isTrialEnded()) return 'Expired';
+
     const status = this.license()?.status;
     if (status === 'active') return 'Active';
     if (status === 'expired') return 'Expired';
