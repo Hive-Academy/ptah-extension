@@ -257,38 +257,6 @@
       </div>
     </div>
 
-    <!-- Prompt Harness Section (TASK_2025_135) -->
-    <div class="border border-base-300 rounded-md bg-base-200/50">
-      <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <lucide-angular [img]="Wand2Icon" class="w-4 h-4" />
-          <h2 class="text-xs font-medium uppercase tracking-wide">
-            Prompt Customization
-          </h2>
-        </div>
-        <p class="text-xs text-base-content/70 mb-3">
-          Customize your system prompt with power-ups and custom sections.
-        </p>
-
-        <!-- Power-Ups Component -->
-        <ptah-prompt-power-ups />
-
-        <!-- Divider between power-ups and custom sections -->
-        <div class="divider my-3 text-[10px] opacity-50">Custom Sections</div>
-
-        <!-- Custom Prompt Editor Component -->
-        <ptah-custom-prompt-editor
-          [sections]="customSections()"
-          (sectionsChange)="onCustomSectionsChange($event)"
-        />
-
-        <!-- Divider for preview -->
-        <div class="divider my-3 text-[10px] opacity-50">Preview</div>
-
-        <!-- Prompt Preview Component -->
-        <ptah-prompt-preview />
-      </div>
-    </div>
     } @else if (!authState.isLoading()) {
     <!-- Hint: Configure auth to unlock more settings -->
     <div class="text-center py-4">
