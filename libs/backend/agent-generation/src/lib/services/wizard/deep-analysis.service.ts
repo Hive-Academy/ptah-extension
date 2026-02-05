@@ -14,12 +14,18 @@
 
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { Result } from '@ptah-extension/shared';
+import {
+  Result,
+  type QualityAssessment,
+  type QualityGap,
+  type PrescriptiveGuidance,
+} from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
 import {
   ProjectType,
   Framework,
   MonorepoType,
+  type IProjectIntelligenceService,
 } from '@ptah-extension/workspace-intelligence';
 import { AGENT_GENERATION_TOKENS } from '../../di/tokens';
 import type { AgentGenerationOrchestratorService } from '../orchestrator.service';
@@ -40,8 +46,11 @@ import type {
  * - Architecture pattern detection (DDD, Layered, Microservices, Hexagonal, etc.)
  * - Key file location extraction (entry points, configs, tests, APIs, components)
  * - Language distribution calculation
+ * - Code quality assessment with anti-pattern detection (TASK_2025_141)
  *
- * Integrates with CodeHealthAnalysisService for diagnostics, conventions, and coverage.
+ * Integrates with:
+ * - CodeHealthAnalysisService for diagnostics, conventions, and coverage
+ * - ProjectIntelligenceService for unified quality assessment (optional, TASK_2025_141)
  *
  * @injectable
  */
@@ -52,9 +61,13 @@ export class DeepProjectAnalysisService {
     @inject(AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR)
     private readonly orchestrator: AgentGenerationOrchestratorService,
     @inject(AGENT_GENERATION_TOKENS.CODE_HEALTH_ANALYSIS)
-    private readonly codeHealth: CodeHealthAnalysisService
+    private readonly codeHealth: CodeHealthAnalysisService,
+    @inject(TOKENS.PROJECT_INTELLIGENCE_SERVICE, { isOptional: true })
+    private readonly projectIntelligence?: IProjectIntelligenceService
   ) {
-    this.logger.debug('[DeepProjectAnalysis] Service initialized');
+    this.logger.debug('[DeepProjectAnalysis] Service initialized', {
+      hasProjectIntelligence: !!projectIntelligence,
+    });
   }
 
   /**
@@ -71,6 +84,7 @@ export class DeepProjectAnalysisService {
    * 8. Summarize diagnostics
    * 9. Detect code conventions
    * 10. Estimate test coverage
+   * 11. Get quality assessment from ProjectIntelligenceService (TASK_2025_141)
    *
    * @param workspaceUri - Workspace root URI
    * @returns Result with DeepProjectAnalysis or Error
@@ -82,6 +96,11 @@ export class DeepProjectAnalysisService {
    *   const analysis = result.value;
    *   console.log('Project type:', analysis.projectType);
    *   console.log('Architecture patterns:', analysis.architecturePatterns);
+   *   // New: Quality assessment data (TASK_2025_141)
+   *   if (analysis.qualityScore !== undefined) {
+   *     console.log('Quality score:', analysis.qualityScore);
+   *     console.log('Quality gaps:', analysis.qualityGaps?.length ?? 0);
+   *   }
    * }
    * ```
    */
@@ -180,6 +199,52 @@ export class DeepProjectAnalysisService {
         vscodeApi
       );
 
+      // Step 11: Get quality assessment from ProjectIntelligenceService (TASK_2025_141)
+      // This is optional - analysis works without quality data if service is unavailable
+      let qualityScore: number | undefined;
+      let qualityGaps: QualityGap[] | undefined;
+      let prescriptiveGuidance: PrescriptiveGuidance | undefined;
+      let qualityAssessment: QualityAssessment | undefined;
+
+      if (this.projectIntelligence) {
+        try {
+          this.logger.debug(
+            '[DeepProjectAnalysis] Fetching quality assessment from ProjectIntelligenceService'
+          );
+
+          const intelligence = await this.projectIntelligence.getIntelligence(
+            workspaceUri
+          );
+
+          // Extract quality data from the unified intelligence result
+          qualityScore = intelligence.qualityAssessment.score;
+          qualityGaps = intelligence.qualityAssessment.gaps;
+          prescriptiveGuidance = intelligence.prescriptiveGuidance;
+          qualityAssessment = intelligence.qualityAssessment;
+
+          this.logger.debug(
+            '[DeepProjectAnalysis] Quality assessment fetched successfully',
+            {
+              qualityScore,
+              gapCount: qualityGaps?.length ?? 0,
+              recommendationCount:
+                prescriptiveGuidance?.recommendations.length ?? 0,
+            }
+          );
+        } catch (error) {
+          // Log warning but continue - quality data is optional enhancement
+          this.logger.warn(
+            '[DeepProjectAnalysis] Failed to fetch quality assessment, continuing without quality data',
+            error as Error
+          );
+          // Leave quality fields as undefined - backward compatible behavior
+        }
+      } else {
+        this.logger.debug(
+          '[DeepProjectAnalysis] ProjectIntelligenceService not available, skipping quality assessment'
+        );
+      }
+
       const analysis: DeepProjectAnalysis = {
         projectType,
         frameworks,
@@ -190,6 +255,11 @@ export class DeepProjectAnalysisService {
         existingIssues,
         codeConventions,
         testCoverage,
+        // Quality assessment fields (TASK_2025_141) - all optional for backward compatibility
+        qualityScore,
+        qualityGaps,
+        prescriptiveGuidance,
+        qualityAssessment,
       };
 
       this.logger.info('[DeepProjectAnalysis] Deep project analysis complete', {
@@ -198,6 +268,7 @@ export class DeepProjectAnalysisService {
         patternCount: architecturePatterns.length,
         errorCount: existingIssues.errorCount,
         hasTests: testCoverage.hasTests,
+        qualityScore, // NEW: Include quality score in completion log
       });
 
       return Result.ok(analysis);
