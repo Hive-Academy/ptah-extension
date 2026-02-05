@@ -27,8 +27,10 @@ import { FileType, IndexedFile } from '../../types/workspace.types';
 import type {
   ICodeQualityAssessmentService,
   IAntiPatternDetectionService,
+  IFileHashCacheService,
   SampledFile,
 } from '../interfaces';
+import { AntiPatternDetectionService } from './anti-pattern-detection.service';
 
 // ============================================
 // Constants
@@ -153,6 +155,7 @@ export class CodeQualityAssessmentService
    * @param fileSystem - Service for file content reading
    * @param relevanceScorer - Service for file relevance scoring
    * @param antiPatternDetector - Service for pattern detection
+   * @param fileHashCache - Service for file content hash caching (Phase F - TASK_2025_144)
    */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -163,7 +166,9 @@ export class CodeQualityAssessmentService
     @inject(TOKENS.FILE_RELEVANCE_SCORER)
     private readonly relevanceScorer: FileRelevanceScorerService,
     @inject(TOKENS.ANTI_PATTERN_DETECTION_SERVICE)
-    private readonly antiPatternDetector: IAntiPatternDetectionService
+    private readonly antiPatternDetector: IAntiPatternDetectionService,
+    @inject(TOKENS.FILE_HASH_CACHE_SERVICE)
+    private readonly fileHashCache: IFileHashCacheService
   ) {
     this.logger.debug('CodeQualityAssessmentService initialized');
   }
@@ -350,6 +355,210 @@ export class CodeQualityAssessmentService
     });
 
     return sampledFiles;
+  }
+
+  // ============================================
+  // Incremental Analysis (Phase F - TASK_2025_144)
+  // ============================================
+
+  /**
+   * Assess code quality with incremental analysis using file hash caching.
+   *
+   * Uses FileHashCacheService to detect which files have changed since the
+   * last analysis. Unchanged files retrieve cached pattern results; changed
+   * files are analyzed fresh using async parallel detection. Returns a full
+   * QualityAssessment with incremental statistics.
+   *
+   * @param workspaceUri - Workspace root URI
+   * @param config - Optional sampling configuration overrides
+   * @returns QualityAssessment with incrementalStats populated
+   *
+   * @example
+   * ```typescript
+   * const assessment = await service.assessQualityIncremental(workspaceUri);
+   * console.log(`Cache hit rate: ${assessment.incrementalStats?.cacheHitRate}`);
+   * ```
+   */
+  async assessQualityIncremental(
+    workspaceUri: vscode.Uri,
+    config?: Partial<SamplingConfig>
+  ): Promise<QualityAssessment> {
+    const startTime = Date.now();
+
+    // Merge config with defaults, applying adaptive sample size
+    const mergedConfig: SamplingConfig = {
+      ...DEFAULT_CONFIG,
+      ...config,
+    };
+
+    this.logger.info('Starting incremental quality assessment', {
+      workspacePath: workspaceUri.fsPath,
+      config: mergedConfig,
+    });
+
+    // Sample files for analysis
+    const sampledFiles = await this.sampleFiles(workspaceUri, mergedConfig);
+
+    if (sampledFiles.length === 0) {
+      this.logger.info('No source files found for incremental analysis', {
+        workspacePath: workspaceUri.fsPath,
+      });
+      return this.createNeutralAssessment(startTime);
+    }
+
+    // Separate files into cached (unchanged) and fresh (changed)
+    const cachedPatterns: AntiPattern[] = [];
+    const freshFiles: SampledFile[] = [];
+    let cachedFileCount = 0;
+
+    for (const file of sampledFiles) {
+      if (this.fileHashCache.hasChanged(file.path, file.content)) {
+        freshFiles.push(file);
+      } else {
+        const cached = this.fileHashCache.getCachedPatterns(file.path);
+        if (cached && cached.length > 0) {
+          cachedPatterns.push(...cached);
+        }
+        cachedFileCount++;
+      }
+    }
+
+    this.logger.debug('Incremental analysis file split', {
+      total: sampledFiles.length,
+      cached: cachedFileCount,
+      fresh: freshFiles.length,
+    });
+
+    // Analyze fresh files using async parallel detection
+    let freshPatterns: AntiPattern[] = [];
+    if (freshFiles.length > 0) {
+      // Use the concrete AntiPatternDetectionService for async methods
+      const asyncDetector = this
+        .antiPatternDetector as AntiPatternDetectionService;
+
+      if (typeof asyncDetector.detectPatternsInFilesAsync === 'function') {
+        freshPatterns = await asyncDetector.detectPatternsInFilesAsync(
+          freshFiles
+        );
+      } else {
+        // Fallback to sync if async not available
+        freshPatterns =
+          this.antiPatternDetector.detectPatternsInFiles(freshFiles);
+      }
+
+      // Update cache for each fresh file with its individual patterns
+      for (const file of freshFiles) {
+        const filePatterns = freshPatterns.filter(
+          (p) =>
+            p.location.file === file.path || file.path.endsWith(p.location.file)
+        );
+        this.fileHashCache.updateHash(file.path, file.content);
+        this.fileHashCache.setCachedPatterns(file.path, filePatterns);
+      }
+    }
+
+    // Merge cached and fresh patterns, re-aggregate
+    const allPatterns = [...cachedPatterns, ...freshPatterns];
+
+    // Calculate quality score from merged patterns
+    const score = this.antiPatternDetector.calculateScore(
+      allPatterns,
+      sampledFiles.length
+    );
+
+    // Identify gaps and strengths
+    const gaps = this.identifyGaps(allPatterns);
+    const strengths = this.identifyStrengths(allPatterns);
+
+    // Calculate cache hit rate
+    const cacheHitRate =
+      sampledFiles.length > 0 ? cachedFileCount / sampledFiles.length : 0;
+
+    const assessment: QualityAssessment = {
+      score,
+      antiPatterns: allPatterns,
+      gaps,
+      strengths,
+      sampledFiles: sampledFiles.map((f) => f.path),
+      analysisTimestamp: Date.now(),
+      analysisDurationMs: Date.now() - startTime,
+      incrementalStats: {
+        cachedFiles: cachedFileCount,
+        freshFiles: freshFiles.length,
+        cacheHitRate,
+      },
+    };
+
+    this.logger.info('Incremental quality assessment complete', {
+      score,
+      patternCount: allPatterns.length,
+      cachedFiles: cachedFileCount,
+      freshFiles: freshFiles.length,
+      cacheHitRate: cacheHitRate.toFixed(2),
+      durationMs: assessment.analysisDurationMs,
+    });
+
+    return assessment;
+  }
+
+  /**
+   * Calculate adaptive sample size based on total file count.
+   *
+   * Scales sampling dynamically:
+   * - Small projects (<= 50 files): sample up to 15
+   * - Medium projects (<= 200 files): sample 20
+   * - Large projects (<= 1000 files): sample 30
+   * - Very large projects (<= 5000 files): sample 40
+   * - Massive projects (> 5000 files): sample 50
+   *
+   * @param totalFiles - Total number of source files in the workspace
+   * @returns Recommended sample size
+   */
+  calculateAdaptiveSampleSize(totalFiles: number): number {
+    if (totalFiles <= 50) return Math.min(totalFiles, 15);
+    if (totalFiles <= 200) return 20;
+    if (totalFiles <= 1000) return 30;
+    if (totalFiles <= 5000) return 40;
+    return 50;
+  }
+
+  /**
+   * Get framework-aware priority file patterns for intelligent sampling.
+   *
+   * Returns file name patterns that should be prioritized during sampling
+   * based on the detected framework. Framework-specific files are most
+   * likely to contain framework-specific anti-patterns.
+   *
+   * @param framework - Detected framework name (e.g., 'angular', 'react', 'nestjs')
+   * @returns Array of priority file name patterns
+   */
+  getFrameworkPriorityPatterns(framework: string | undefined): string[] {
+    switch (framework?.toLowerCase()) {
+      case 'angular':
+        return [
+          'component',
+          'service',
+          'module',
+          'guard',
+          'interceptor',
+          'pipe',
+          'directive',
+        ];
+      case 'react':
+        return ['component', 'hook', 'context', 'provider', 'reducer', 'store'];
+      case 'nestjs':
+        return [
+          'controller',
+          'service',
+          'module',
+          'guard',
+          'middleware',
+          'interceptor',
+          'repository',
+        ];
+      default:
+        return ['service', 'component', 'controller', 'repository', 'model'];
+    }
   }
 
   // ============================================

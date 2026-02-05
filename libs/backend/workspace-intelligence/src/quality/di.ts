@@ -19,6 +19,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 
 // Import quality assessment services
 import { AntiPatternDetectionService } from './services/anti-pattern-detection.service';
+import { FileHashCacheService } from './services/file-hash-cache.service';
 import { CodeQualityAssessmentService } from './services/code-quality-assessment.service';
 import { PrescriptiveGuidanceService } from './services/prescriptive-guidance.service';
 import { ProjectIntelligenceService } from './services/project-intelligence.service';
@@ -50,7 +51,15 @@ export function registerQualityServices(
   );
 
   // ============================================================
-  // Tier 2: Quality assessment service (depends on anti-pattern detection)
+  // Tier 1.5: File hash cache service (TASK_2025_144 Phase F)
+  // ============================================================
+  container.registerSingleton(
+    TOKENS.FILE_HASH_CACHE_SERVICE,
+    FileHashCacheService
+  );
+
+  // ============================================================
+  // Tier 2: Quality assessment service (depends on anti-pattern detection, file hash cache)
   // ============================================================
   container.registerSingleton(
     TOKENS.CODE_QUALITY_ASSESSMENT_SERVICE,
@@ -76,6 +85,7 @@ export function registerQualityServices(
   logger.info('[Quality Services] Quality assessment services registered', {
     services: [
       'ANTI_PATTERN_DETECTION_SERVICE',
+      'FILE_HASH_CACHE_SERVICE',
       'CODE_QUALITY_ASSESSMENT_SERVICE',
       'PRESCRIPTIVE_GUIDANCE_SERVICE',
       'PROJECT_INTELLIGENCE_SERVICE',

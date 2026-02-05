@@ -370,6 +370,209 @@ export class AntiPatternDetectionService
   }
 
   // ============================================
+  // Async Detection Methods (Phase F - TASK_2025_144)
+  // ============================================
+
+  /**
+   * Detect anti-patterns in a single file's content using parallel rule execution.
+   *
+   * Runs all applicable rules concurrently using Promise.allSettled for fault isolation.
+   * A failing rule logs a warning but does not block other rules from executing.
+   *
+   * @param content - File content to analyze
+   * @param filePath - Relative file path (used for extension detection and location)
+   * @returns Promise resolving to array of detected anti-patterns
+   *
+   * @example
+   * ```typescript
+   * const patterns = await service.detectPatternsAsync(
+   *   fileContent, 'src/user.service.ts'
+   * );
+   * ```
+   */
+  async detectPatternsAsync(
+    content: string,
+    filePath: string
+  ): Promise<AntiPattern[]> {
+    const extension = getFileExtension(filePath);
+
+    if (!extension) {
+      this.logger.debug(
+        'No file extension detected, skipping async pattern detection',
+        { filePath }
+      );
+      return [];
+    }
+
+    const applicableRules = this.ruleRegistry.getRulesForExtension(extension);
+
+    if (applicableRules.length === 0) {
+      this.logger.debug('No rules applicable for file extension (async)', {
+        filePath,
+        extension,
+      });
+      return [];
+    }
+
+    // Run all rules in parallel with fault isolation
+    const results = await Promise.allSettled(
+      applicableRules.map((rule) =>
+        Promise.resolve().then(() => ({
+          rule,
+          matches: rule.detect(content, filePath),
+        }))
+      )
+    );
+
+    const detectedPatterns: AntiPattern[] = [];
+
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        const { rule, matches } = result.value;
+
+        for (const match of matches) {
+          const effectiveSeverity =
+            (this.ruleRegistry.getEffectiveSeverity(
+              rule.id
+            ) as AntiPatternSeverity) || rule.severity;
+
+          const suggestion = rule.getSuggestion(match);
+
+          detectedPatterns.push({
+            type: match.type,
+            severity: effectiveSeverity,
+            location: match.location,
+            message: this.buildMessage(rule.name, match.matchedText),
+            suggestion,
+            frequency: 1,
+          });
+        }
+      } else {
+        this.logger.warn('Async rule execution failed', {
+          ruleId: applicableRules[index].id,
+          filePath,
+          error:
+            result.reason instanceof Error
+              ? result.reason.message
+              : String(result.reason),
+        });
+      }
+    });
+
+    this.logger.debug('Async pattern detection complete', {
+      filePath,
+      rulesApplied: applicableRules.length,
+      patternsFound: detectedPatterns.length,
+    });
+
+    return detectedPatterns;
+  }
+
+  /**
+   * Detect anti-patterns across multiple files in parallel batches.
+   *
+   * Processes files in batches of 5, running async detection per file.
+   * Aggregates patterns by type with frequency tracking, same as
+   * the synchronous detectPatternsInFiles method.
+   *
+   * @param files - Array of sampled files to analyze
+   * @returns Promise resolving to aggregated anti-patterns with frequency counts
+   *
+   * @example
+   * ```typescript
+   * const patterns = await service.detectPatternsInFilesAsync(sampledFiles);
+   * ```
+   */
+  async detectPatternsInFilesAsync(
+    files: SampledFile[]
+  ): Promise<AntiPattern[]> {
+    if (files.length === 0) {
+      this.logger.debug('No files provided for async pattern detection');
+      return [];
+    }
+
+    const BATCH_SIZE = 5;
+    const aggregations = new Map<AntiPatternType, PatternAggregation>();
+
+    // Process files in batches
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const batch = files.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.allSettled(
+        batch.map((file) => this.detectPatternsAsync(file.content, file.path))
+      );
+
+      // Merge batch results into aggregations
+      batchResults.forEach((result, batchIndex) => {
+        if (result.status === 'fulfilled') {
+          for (const pattern of result.value) {
+            const existing = aggregations.get(pattern.type);
+
+            if (existing) {
+              existing.count++;
+              existing.files.add(pattern.location.file);
+            } else {
+              aggregations.set(pattern.type, {
+                pattern,
+                count: 1,
+                files: new Set([pattern.location.file]),
+              });
+            }
+          }
+        } else {
+          const failedFile = batch[batchIndex];
+          this.logger.warn(
+            'Async file processing failed during pattern detection',
+            {
+              filePath: failedFile.path,
+              error:
+                result.reason instanceof Error
+                  ? result.reason.message
+                  : String(result.reason),
+            }
+          );
+        }
+      });
+    }
+
+    // Convert aggregations to AntiPattern array with frequency
+    const aggregatedPatterns: AntiPattern[] = [];
+
+    for (const [, aggregation] of aggregations) {
+      const { pattern, count, files: affectedFiles } = aggregation;
+
+      aggregatedPatterns.push({
+        ...pattern,
+        frequency: count,
+        message: this.buildAggregatedMessage(
+          pattern.message,
+          count,
+          affectedFiles.size
+        ),
+      });
+    }
+
+    // Sort by frequency (descending) then by severity
+    aggregatedPatterns.sort((a, b) => {
+      if (b.frequency !== a.frequency) {
+        return b.frequency - a.frequency;
+      }
+      return SEVERITY_DEDUCTIONS[b.severity] - SEVERITY_DEDUCTIONS[a.severity];
+    });
+
+    this.logger.debug('Async multi-file pattern detection complete', {
+      filesAnalyzed: files.length,
+      uniquePatternTypes: aggregatedPatterns.length,
+      totalOccurrences: aggregatedPatterns.reduce(
+        (sum, p) => sum + p.frequency,
+        0
+      ),
+    });
+
+    return aggregatedPatterns;
+  }
+
+  // ============================================
   // Private Helper Methods
   // ============================================
 

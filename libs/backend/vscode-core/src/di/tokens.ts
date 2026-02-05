@@ -241,6 +241,12 @@ export const PRESCRIPTIVE_GUIDANCE_SERVICE = Symbol.for(
   'PrescriptiveGuidanceService'
 );
 
+/**
+ * FileHashCacheService - SHA-256 content hashing for incremental analysis (TASK_2025_144)
+ * Responsibilities: Cache file content hashes, detect changed files, store per-file analysis results
+ */
+export const FILE_HASH_CACHE_SERVICE = Symbol.for('FileHashCacheService');
+
 // ========================================
 // Main App Service Tokens (PARTIALLY DELETED)
 // ========================================
@@ -328,6 +334,7 @@ export const TOKENS = {
   ANTI_PATTERN_DETECTION_SERVICE,
   PROJECT_INTELLIGENCE_SERVICE,
   PRESCRIPTIVE_GUIDANCE_SERVICE,
+  FILE_HASH_CACHE_SERVICE,
 
   // ========================================
   // LLM Abstraction

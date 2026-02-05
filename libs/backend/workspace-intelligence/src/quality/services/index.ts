@@ -16,6 +16,12 @@ export { AntiPatternDetectionService } from './anti-pattern-detection.service';
 export { CodeQualityAssessmentService } from './code-quality-assessment.service';
 
 // ============================================
+// Performance Optimization Services (TASK_2025_144 Phase F)
+// ============================================
+
+export { FileHashCacheService } from './file-hash-cache.service';
+
+// ============================================
 // Unified Intelligence Services (Batch 5)
 // ============================================
 

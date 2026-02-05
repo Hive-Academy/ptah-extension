@@ -17,6 +17,7 @@ import type {
   WorkspaceContext,
   ProjectIntelligence,
   PrescriptiveGuidance,
+  AntiPatternType,
 } from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
 
@@ -287,4 +288,109 @@ export interface IPrescriptiveGuidanceService {
     context: WorkspaceContext,
     tokenBudget?: number
   ): PrescriptiveGuidance;
+}
+
+// ============================================
+// File Hash Cache Service Interface (Phase F - TASK_2025_144)
+// ============================================
+
+/**
+ * Cache entry for storing file analysis state.
+ * Tracks content hash, analysis timestamp, and detected patterns per file.
+ */
+export interface FileHashCacheEntry {
+  /** SHA-256 content hash (16-char hex prefix) */
+  hash: string;
+  /** Timestamp of when this entry was last analyzed */
+  analysisTimestamp: number;
+  /** Anti-patterns detected in this file */
+  patterns: AntiPattern[];
+}
+
+/**
+ * Service for caching file content hashes and per-file analysis results.
+ *
+ * Enables incremental analysis by detecting which files have changed
+ * since the last analysis run. Uses SHA-256 content hashing with
+ * LRU eviction (max 10,000 entries) and 30-minute TTL.
+ *
+ * Responsibilities:
+ * - Compute and store SHA-256 content hashes per file
+ * - Detect file changes via hash comparison
+ * - Cache per-file anti-pattern detection results
+ * - Provide cache statistics for performance monitoring
+ */
+export interface IFileHashCacheService {
+  /**
+   * Get the cached hash for a file path.
+   *
+   * @param filePath - Relative file path from workspace root
+   * @returns The cached hash string, or undefined if not cached
+   */
+  getHash(filePath: string): string | undefined;
+
+  /**
+   * Set the hash for a file path.
+   *
+   * @param filePath - Relative file path from workspace root
+   * @param hash - SHA-256 hash string
+   */
+  setHash(filePath: string, hash: string): void;
+
+  /**
+   * Check if a file's content has changed since last cached hash.
+   * Computes a fresh hash from content and compares to cached.
+   * Also returns true if the cached entry has expired (TTL exceeded).
+   *
+   * @param filePath - Relative file path from workspace root
+   * @param content - Current file content
+   * @returns True if the file has changed or is not cached
+   */
+  hasChanged(filePath: string, content: string): boolean;
+
+  /**
+   * Update the cached hash for a file after fresh analysis.
+   * Computes hash from content and stores it with current timestamp.
+   *
+   * @param filePath - Relative file path from workspace root
+   * @param content - Current file content
+   */
+  updateHash(filePath: string, content: string): void;
+
+  /**
+   * Get cached anti-pattern results for a file.
+   * Returns undefined if not cached or cache entry has expired.
+   *
+   * @param filePath - Relative file path from workspace root
+   * @returns Cached anti-patterns, or undefined if not available
+   */
+  getCachedPatterns(filePath: string): AntiPattern[] | undefined;
+
+  /**
+   * Store anti-pattern results for a file in the cache.
+   *
+   * @param filePath - Relative file path from workspace root
+   * @param patterns - Detected anti-patterns for this file
+   */
+  setCachedPatterns(filePath: string, patterns: AntiPattern[]): void;
+
+  /**
+   * Get all file paths that have cached entries.
+   *
+   * @returns Array of file paths with valid (non-expired) cache entries
+   */
+  getCachedFiles(): string[];
+
+  /**
+   * Clear all cached entries.
+   * Called on full re-analysis or cache invalidation.
+   */
+  clearCache(): void;
+
+  /**
+   * Get cache statistics for monitoring and diagnostics.
+   *
+   * @returns Object with total cached entries and cache hit rate
+   */
+  getStats(): { totalCached: number; cacheHitRate: number };
 }

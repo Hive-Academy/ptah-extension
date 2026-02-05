@@ -137,6 +137,15 @@ export interface QualityAssessment {
   analysisTimestamp: number;
   /** Duration of analysis in milliseconds */
   analysisDurationMs: number;
+  /** Statistics from incremental analysis (Phase F - TASK_2025_144) */
+  incrementalStats?: {
+    /** Number of files retrieved from cache */
+    cachedFiles: number;
+    /** Number of files analyzed fresh */
+    freshFiles: number;
+    /** Cache hit rate (0-1) */
+    cacheHitRate: number;
+  };
 }
 
 // ============================================
