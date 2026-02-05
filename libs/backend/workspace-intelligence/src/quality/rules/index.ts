@@ -22,6 +22,8 @@ import type {
 // Import rule modules
 import { typescriptRules } from './typescript-rules';
 import { errorHandlingRules } from './error-handling-rules';
+import { architectureRules } from './architecture-rules';
+import { testingRules } from './testing-rules';
 
 // ============================================
 // Rule Aggregation
@@ -36,8 +38,8 @@ import { errorHandlingRules } from './error-handling-rules';
  * Categories included:
  * - TypeScript rules (explicit any, ts-ignore, non-null assertion)
  * - Error handling rules (empty catch, console-only catch)
- * - Architecture rules (added in Batch 7)
- * - Testing rules (added in Batch 7)
+ * - Architecture rules (file too large, too many imports, function too large)
+ * - Testing rules (no assertions, all skipped)
  *
  * @example
  * ```typescript
@@ -52,7 +54,8 @@ import { errorHandlingRules } from './error-handling-rules';
 export const ALL_RULES: AntiPatternRule[] = [
   ...typescriptRules,
   ...errorHandlingRules,
-  // Architecture and testing rules will be added in Batch 7
+  ...architectureRules,
+  ...testingRules,
 ];
 
 // ============================================
@@ -337,6 +340,8 @@ export class RuleRegistry {
 // Export rule modules for direct access
 export { typescriptRules } from './typescript-rules';
 export { errorHandlingRules } from './error-handling-rules';
+export { architectureRules } from './architecture-rules';
+export { testingRules } from './testing-rules';
 
 // Export individual rules for selective use
 export {
@@ -346,6 +351,14 @@ export {
 } from './typescript-rules';
 
 export { emptyCatchRule, consoleOnlyCatchRule } from './error-handling-rules';
+
+export {
+  fileTooLargeRule,
+  tooManyImportsRule,
+  functionTooLargeRule,
+} from './architecture-rules';
+
+export { noAssertionsRule, allSkippedRule } from './testing-rules';
 
 // Export rule-base utilities
 export {
