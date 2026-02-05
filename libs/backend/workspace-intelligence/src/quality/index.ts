@@ -12,8 +12,8 @@
 // Interfaces
 export * from './interfaces';
 
+// Rules (Batch 3)
+export * from './rules';
+
 // Services will be exported here after implementation (Batch 4-6)
 // export * from './services';
-
-// Rules will be exported here after implementation (Batch 3)
-// export * from './rules';
