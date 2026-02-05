@@ -3,12 +3,17 @@
  *
  * TASK_2025_137 Batch 2: Prompt templates used by the Prompt Designer Agent
  * to generate project-specific guidance.
+ * TASK_2025_141 Batch 9: Added quality context section for code quality assessment.
  *
  * These prompts are carefully crafted to produce consistent, actionable
  * output that integrates well with PTAH_CORE_SYSTEM_PROMPT.
  */
 
 import type { PromptDesignerInput } from './prompt-designer.types';
+import type {
+  QualityAssessment,
+  PrescriptiveGuidance,
+} from '@ptah-extension/shared';
 
 /**
  * System prompt for the Prompt Designer Agent
@@ -40,16 +45,97 @@ Each section must stay under 400 tokens. Total output should be under 1600 token
 Prioritize the most impactful guidance over comprehensive coverage.`;
 
 /**
+ * Build quality context section for inclusion in generation prompts.
+ *
+ * Formats quality assessment data into a concise prompt section that helps
+ * the LLM generate quality-specific guidance.
+ *
+ * @param assessment - Quality assessment from ProjectIntelligenceService
+ * @param guidance - Prescriptive guidance from ProjectIntelligenceService
+ * @returns Formatted quality context string (under 300 tokens) or empty string if no data
+ * @since TASK_2025_141
+ */
+export function buildQualityContextPrompt(
+  assessment: QualityAssessment | undefined,
+  guidance: PrescriptiveGuidance | undefined
+): string {
+  // Return empty if no assessment or no detected issues
+  if (!assessment || assessment.antiPatterns.length === 0) {
+    return '';
+  }
+
+  const parts: string[] = [];
+
+  // Quality score header
+  parts.push(`## Code Quality Context (Score: ${assessment.score}/100)`);
+  parts.push('');
+
+  // Top 5 detected issues (by frequency, then severity)
+  const sortedPatterns = [...assessment.antiPatterns].sort((a, b) => {
+    // Sort by frequency descending, then severity (error > warning > info)
+    if (b.frequency !== a.frequency) {
+      return b.frequency - a.frequency;
+    }
+    // Defensive severity lookup: unknown severities default to 0
+    const severityOrder: Record<string, number> = {
+      error: 3,
+      warning: 2,
+      info: 1,
+    };
+    const getSeverityScore = (s: string): number => severityOrder[s] ?? 0;
+    return getSeverityScore(b.severity) - getSeverityScore(a.severity);
+  });
+
+  const topIssues = sortedPatterns.slice(0, 5);
+  if (topIssues.length > 0) {
+    parts.push('### Detected Issues:');
+    for (const pattern of topIssues) {
+      const severityBadge =
+        pattern.severity === 'error'
+          ? '[ERROR]'
+          : pattern.severity === 'warning'
+          ? '[WARN]'
+          : '[INFO]';
+      parts.push(
+        `- ${severityBadge} ${pattern.message} (${pattern.frequency} occurrences)`
+      );
+    }
+    parts.push('');
+  }
+
+  // Top 3 recommendations from guidance
+  if (guidance && guidance.recommendations.length > 0) {
+    const topRecommendations = guidance.recommendations.slice(0, 3);
+    parts.push('### Top Recommendations:');
+    for (const rec of topRecommendations) {
+      parts.push(`- **${rec.category}**: ${rec.solution}`);
+    }
+    parts.push('');
+  }
+
+  // Instruction for the LLM
+  parts.push(
+    '**Note:** Include specific guidance addressing these quality issues in the Quality Guidance section.'
+  );
+
+  return parts.join('\n');
+}
+
+/**
  * Build the user prompt for generating project guidance
  *
  * @param input - Project analysis data
+ * @param qualityContext - Optional quality context section (from buildQualityContextPrompt)
  * @returns User prompt string
  */
-export function buildGenerationUserPrompt(input: PromptDesignerInput): string {
+export function buildGenerationUserPrompt(
+  input: PromptDesignerInput,
+  qualityContext?: string
+): string {
   const dependencyList = input.dependencies.slice(0, 20).join(', ');
   const devDependencyList = input.devDependencies.slice(0, 15).join(', ');
 
-  return `## Project Analysis
+  const basePrompt = `## Project Analysis
 
 **Project Type:** ${input.projectType}
 **Framework:** ${input.framework || 'Not detected'}
@@ -73,7 +159,9 @@ ${input.sampleFilePaths.map((p) => `- ${p}`).join('\n')}`
 
 ## Your Task
 
-Generate guidance in these four categories. Keep each section under 400 tokens.
+Generate guidance in these ${
+    qualityContext ? 'five' : 'four'
+  } categories. Keep each section under 400 tokens.
 
 ### 1. Project Context
 A brief description of what this project is based on its dependencies and structure.
@@ -98,6 +186,20 @@ ${
     : 'Single-project structure - focus on folder organization and module boundaries.'
 }
 Include: key abstractions, import patterns, layer boundaries.`;
+
+  // Add quality guidance section if quality context is provided
+  if (qualityContext) {
+    return `${basePrompt}
+
+### 5. Quality Guidance (Optional)
+Based on the Code Quality Context below, provide specific guidance for addressing the detected issues.
+Focus on: preventing anti-patterns, improving error handling, maintaining code quality.
+Keep this section under 300 tokens.
+
+${qualityContext}`;
+  }
+
+  return basePrompt;
 }
 
 /**
