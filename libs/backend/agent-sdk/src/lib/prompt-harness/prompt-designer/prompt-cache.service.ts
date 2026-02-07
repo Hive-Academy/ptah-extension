@@ -67,16 +67,6 @@ interface IFileWatcher {
 }
 
 /**
- * DI token for ExtensionContext
- */
-const EXTENSION_CONTEXT_TOKEN = 'ExtensionContext';
-
-/**
- * DI token for FileSystemManager
- */
-const FILE_SYSTEM_MANAGER_TOKEN = 'FileSystemManager';
-
-/**
  * Storage key prefix for globalState
  */
 const STORAGE_KEY_PREFIX = 'ptah.promptDesign.cache';
@@ -145,9 +135,9 @@ export class PromptCacheService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(EXTENSION_CONTEXT_TOKEN)
+    @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: IExtensionContext,
-    @inject(FILE_SYSTEM_MANAGER_TOKEN)
+    @inject(TOKENS.FILE_SYSTEM_MANAGER)
     private readonly fileManager: IFileSystemManager
   ) {}
 
