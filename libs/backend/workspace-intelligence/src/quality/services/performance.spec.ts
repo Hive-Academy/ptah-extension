@@ -13,6 +13,7 @@
 import 'reflect-metadata';
 import { createHash } from 'crypto';
 import type { AntiPattern, AntiPatternType } from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
 import { FileHashCacheService } from './file-hash-cache.service';
 import { AntiPatternDetectionService } from './anti-pattern-detection.service';
 import { CodeQualityAssessmentService } from './code-quality-assessment.service';
@@ -63,7 +64,7 @@ describe('FileHashCacheService', () => {
 
   beforeEach(() => {
     mockLogger = createMockLogger();
-    service = new FileHashCacheService(mockLogger as never);
+    service = new FileHashCacheService(mockLogger as unknown as Logger);
   });
 
   afterEach(() => {
@@ -151,7 +152,12 @@ describe('FileHashCacheService', () => {
         'cache'
       ] as Map<
         string,
-        { hash: string; analysisTimestamp: number; patterns: AntiPattern[] }
+        {
+          hash: string;
+          analysisTimestamp: number;
+          lastAccessTimestamp: number;
+          patterns: AntiPattern[];
+        }
       >;
       const entry = cache.get('src/app.ts');
       if (entry) {
@@ -211,7 +217,12 @@ describe('FileHashCacheService', () => {
         'cache'
       ] as Map<
         string,
-        { hash: string; analysisTimestamp: number; patterns: AntiPattern[] }
+        {
+          hash: string;
+          analysisTimestamp: number;
+          lastAccessTimestamp: number;
+          patterns: AntiPattern[];
+        }
       >;
       const entry = cache.get('src/app.ts');
       if (entry) {
@@ -256,7 +267,12 @@ describe('FileHashCacheService', () => {
         'cache'
       ] as Map<
         string,
-        { hash: string; analysisTimestamp: number; patterns: AntiPattern[] }
+        {
+          hash: string;
+          analysisTimestamp: number;
+          lastAccessTimestamp: number;
+          patterns: AntiPattern[];
+        }
       >;
       const entry = cache.get('src/stale.ts');
       if (entry) {
@@ -356,7 +372,12 @@ describe('FileHashCacheService', () => {
         'cache'
       ] as Map<
         string,
-        { hash: string; analysisTimestamp: number; patterns: AntiPattern[] }
+        {
+          hash: string;
+          analysisTimestamp: number;
+          lastAccessTimestamp: number;
+          patterns: AntiPattern[];
+        }
       >;
       const entry = cache.get('src/old.ts');
       if (entry) {
@@ -375,7 +396,12 @@ describe('FileHashCacheService', () => {
         'cache'
       ] as Map<
         string,
-        { hash: string; analysisTimestamp: number; patterns: AntiPattern[] }
+        {
+          hash: string;
+          analysisTimestamp: number;
+          lastAccessTimestamp: number;
+          patterns: AntiPattern[];
+        }
       >;
       const entry = cache.get('src/recent.ts');
       if (entry) {
@@ -397,7 +423,7 @@ describe('AntiPatternDetectionService - Async Methods', () => {
 
   beforeEach(() => {
     mockLogger = createMockLogger();
-    service = new AntiPatternDetectionService(mockLogger as never);
+    service = new AntiPatternDetectionService(mockLogger as unknown as Logger);
   });
 
   describe('detectPatternsAsync', () => {

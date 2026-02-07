@@ -98,26 +98,34 @@ export class QualityRpcHandlers {
           this.intelligenceService.invalidateCache(workspaceFolder.uri);
         }
 
+        // Track timing to detect if result came from cache
+        const preCallMs = Date.now();
+
         const intelligence = await this.intelligenceService.getIntelligence(
           workspaceFolder.uri
         );
 
-        // Record in history for trend tracking
-        try {
-          this.historyService.recordAssessment(intelligence.qualityAssessment);
-        } catch (historyError) {
-          // History recording failure should not block the response
-          this.logger.warn('Failed to record assessment in history', {
-            error:
-              historyError instanceof Error
-                ? historyError.message
-                : String(historyError),
-          });
-        }
+        // Determine cache status: fresh analysis takes measurable time,
+        // cached results return nearly instantly
+        const callDurationMs = Date.now() - preCallMs;
+        const fromCache = !params?.forceRefresh && callDurationMs < 50;
 
-        // Determine cache status: if forceRefresh was requested,
-        // the result is fresh; otherwise it may be from cache
-        const fromCache = !params?.forceRefresh;
+        // Only record in history when result is fresh (avoid duplicate entries)
+        if (!fromCache) {
+          try {
+            await this.historyService.recordAssessment(
+              intelligence.qualityAssessment
+            );
+          } catch (historyError) {
+            // History recording failure should not block the response
+            this.logger.warn('Failed to record assessment in history', {
+              error:
+                historyError instanceof Error
+                  ? historyError.message
+                  : String(historyError),
+            });
+          }
+        }
 
         this.logger.debug('RPC: quality:getAssessment success', {
           score: intelligence.qualityAssessment.score,
@@ -233,16 +241,41 @@ export class QualityRpcHandlers {
               throw new Error(`Unsupported export format: ${format}`);
           }
 
+          // Save file via VS Code save dialog (webview can't use blob download)
+          let saved = false;
+          let filePath: string | undefined;
+
+          const defaultUri = vscode.Uri.joinPath(workspaceFolder.uri, filename);
+
+          const saveUri = await vscode.window.showSaveDialog({
+            defaultUri,
+            filters: this.getFileFilters(format),
+            title: 'Save Quality Report',
+          });
+
+          if (saveUri) {
+            await vscode.workspace.fs.writeFile(
+              saveUri,
+              Buffer.from(content, 'utf-8')
+            );
+            saved = true;
+            filePath = saveUri.fsPath;
+          }
+
           this.logger.debug('RPC: quality:export success', {
             format,
             filename,
             contentLength: content.length,
+            saved,
+            filePath,
           });
 
           return {
             content,
             filename,
             mimeType,
+            saved,
+            filePath,
           };
         } catch (error) {
           this.logger.error(
@@ -258,6 +291,22 @@ export class QualityRpcHandlers {
   // ============================================
   // Private Helper Methods
   // ============================================
+
+  /**
+   * Returns VS Code save dialog file filters for a given export format.
+   */
+  private getFileFilters(format: string): Record<string, string[]> {
+    switch (format) {
+      case 'markdown':
+        return { 'Markdown Files': ['md'] };
+      case 'json':
+        return { 'JSON Files': ['json'] };
+      case 'csv':
+        return { 'CSV Files': ['csv'] };
+      default:
+        return { 'All Files': ['*'] };
+    }
+  }
 
   /**
    * Generates a date stamp for export filenames.

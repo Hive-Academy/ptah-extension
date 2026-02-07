@@ -429,31 +429,34 @@ export class CodeQualityAssessmentService
       fresh: freshFiles.length,
     });
 
-    // Analyze fresh files using async parallel detection
-    let freshPatterns: AntiPattern[] = [];
+    // Analyze fresh files individually (not aggregated) so we can cache per-file
+    const freshPatterns: AntiPattern[] = [];
     if (freshFiles.length > 0) {
       // Use the concrete AntiPatternDetectionService for async methods
       const asyncDetector = this
         .antiPatternDetector as AntiPatternDetectionService;
+      const hasAsync = typeof asyncDetector.detectPatternsAsync === 'function';
 
-      if (typeof asyncDetector.detectPatternsInFilesAsync === 'function') {
-        freshPatterns = await asyncDetector.detectPatternsInFilesAsync(
-          freshFiles
-        );
-      } else {
-        // Fallback to sync if async not available
-        freshPatterns =
-          this.antiPatternDetector.detectPatternsInFiles(freshFiles);
-      }
-
-      // Update cache for each fresh file with its individual patterns
       for (const file of freshFiles) {
-        const filePatterns = freshPatterns.filter(
-          (p) =>
-            p.location.file === file.path || file.path.endsWith(p.location.file)
-        );
+        let filePatterns: AntiPattern[];
+
+        if (hasAsync) {
+          filePatterns = await asyncDetector.detectPatternsAsync(
+            file.content,
+            file.path
+          );
+        } else {
+          filePatterns = this.antiPatternDetector.detectPatterns(
+            file.content,
+            file.path
+          );
+        }
+
+        // Cache per-file patterns before aggregation
         this.fileHashCache.updateHash(file.path, file.content);
         this.fileHashCache.setCachedPatterns(file.path, filePatterns);
+
+        freshPatterns.push(...filePatterns);
       }
     }
 

@@ -961,6 +961,10 @@ export interface QualityExportResult {
   filename: string;
   /** MIME type */
   mimeType: string;
+  /** Whether the file was saved to disk via VS Code save dialog */
+  saved?: boolean;
+  /** File path where the report was saved (if saved) */
+  filePath?: string;
 }
 
 // ============================================================

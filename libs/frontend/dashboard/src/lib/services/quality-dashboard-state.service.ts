@@ -83,9 +83,13 @@ export class QualityDashboardStateService {
 
       if (result.isSuccess()) {
         this._history.set(result.data.entries);
+      } else {
+        this._error.set(result.error ?? 'Failed to load quality history');
       }
     } catch (err) {
-      console.error('[QualityDashboardState] Failed to load history:', err);
+      const message =
+        err instanceof Error ? err.message : 'Unexpected error loading history';
+      this._error.set(message);
     }
   }
 

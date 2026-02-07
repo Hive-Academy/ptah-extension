@@ -89,7 +89,7 @@ export class QualityHistoryService implements IQualityHistoryService {
    *
    * @param assessment - Quality assessment to record
    */
-  recordAssessment(assessment: QualityAssessment): void {
+  async recordAssessment(assessment: QualityAssessment): Promise<void> {
     try {
       const entry = this.createHistoryEntry(assessment);
       const entries = this.readEntries();
@@ -107,7 +107,7 @@ export class QualityHistoryService implements IQualityHistoryService {
         });
       }
 
-      this.writeEntries(entries);
+      await this.writeEntries(entries);
 
       this.logger.debug('Quality assessment recorded in history', {
         score: entry.score,
@@ -146,9 +146,9 @@ export class QualityHistoryService implements IQualityHistoryService {
    *
    * Removes all stored history from globalState.
    */
-  clearHistory(): void {
+  async clearHistory(): Promise<void> {
     try {
-      this.writeEntries([]);
+      await this.writeEntries([]);
       this.logger.debug('Quality history cleared');
     } catch (error) {
       this.logger.error('Failed to clear quality history', {
@@ -219,8 +219,7 @@ export class QualityHistoryService implements IQualityHistoryService {
    *
    * @param entries - Array of history entries to persist
    */
-  private writeEntries(entries: QualityHistoryEntry[]): void {
-    // Memento.update returns a Thenable; fire-and-forget for synchronous API
-    void this.globalState.update(STORAGE_KEY, entries);
+  private async writeEntries(entries: QualityHistoryEntry[]): Promise<void> {
+    await this.globalState.update(STORAGE_KEY, entries);
   }
 }

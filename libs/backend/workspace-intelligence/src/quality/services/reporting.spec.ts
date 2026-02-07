@@ -18,6 +18,7 @@ import type {
   QualityGap,
 } from '@ptah-extension/shared';
 
+import type { Logger } from '@ptah-extension/vscode-core';
 import { QualityHistoryService } from './quality-history.service';
 import { QualityExportService } from './quality-export.service';
 
@@ -28,7 +29,7 @@ import { QualityExportService } from './quality-export.service';
 /**
  * Creates a mock Logger with no-op methods
  */
-function createMockLogger() {
+function createMockLogger(): Logger {
   return {
     debug: jest.fn(),
     info: jest.fn(),
@@ -36,7 +37,7 @@ function createMockLogger() {
     error: jest.fn(),
     setLevel: jest.fn(),
     getLevel: jest.fn(),
-  } as any;
+  } as unknown as Logger;
 }
 
 /**
@@ -169,14 +170,17 @@ describe('QualityHistoryService', () => {
   beforeEach(() => {
     mockLogger = createMockLogger();
     mockGlobalState = createMockGlobalState();
-    service = new QualityHistoryService(mockLogger, mockGlobalState as any);
+    service = new QualityHistoryService(
+      mockLogger,
+      mockGlobalState as unknown as import('vscode').Memento
+    );
   });
 
   describe('recordAssessment', () => {
-    it('should record a new assessment in history', () => {
+    it('should record a new assessment in history', async () => {
       const assessment = createSampleAssessment();
 
-      service.recordAssessment(assessment);
+      await service.recordAssessment(assessment);
 
       expect(mockGlobalState.update).toHaveBeenCalledWith(
         'ptah.quality.history',
@@ -192,10 +196,10 @@ describe('QualityHistoryService', () => {
       expect(storedEntries[0].filesAnalyzed).toBe(3);
     });
 
-    it('should compute category counts from anti-patterns', () => {
+    it('should compute category counts from anti-patterns', async () => {
       const assessment = createSampleAssessment();
 
-      service.recordAssessment(assessment);
+      await service.recordAssessment(assessment);
 
       const storedEntries = mockGlobalState._store.get(
         'ptah.quality.history'
@@ -212,7 +216,7 @@ describe('QualityHistoryService', () => {
       });
     });
 
-    it('should prepend new entries (newest first)', () => {
+    it('should prepend new entries (newest first)', async () => {
       const assessment1 = createSampleAssessment({
         score: 60,
         analysisTimestamp: 1000,
@@ -222,8 +226,8 @@ describe('QualityHistoryService', () => {
         analysisTimestamp: 2000,
       });
 
-      service.recordAssessment(assessment1);
-      service.recordAssessment(assessment2);
+      await service.recordAssessment(assessment1);
+      await service.recordAssessment(assessment2);
 
       const storedEntries = mockGlobalState._store.get(
         'ptah.quality.history'
@@ -233,14 +237,14 @@ describe('QualityHistoryService', () => {
       expect(storedEntries[1].score).toBe(60);
     });
 
-    it('should evict oldest entries when exceeding MAX_ENTRIES (100)', () => {
+    it('should evict oldest entries when exceeding MAX_ENTRIES (100)', async () => {
       // Record 102 assessments
       for (let i = 0; i < 102; i++) {
         const assessment = createSampleAssessment({
           score: i,
           analysisTimestamp: i * 1000,
         });
-        service.recordAssessment(assessment);
+        await service.recordAssessment(assessment);
       }
 
       const storedEntries = mockGlobalState._store.get(
@@ -254,13 +258,13 @@ describe('QualityHistoryService', () => {
       expect(storedEntries[99].score).toBe(2);
     });
 
-    it('should handle assessment with no anti-patterns', () => {
+    it('should handle assessment with no anti-patterns', async () => {
       const assessment = createSampleAssessment({
         score: 100,
         antiPatterns: [],
       });
 
-      service.recordAssessment(assessment);
+      await service.recordAssessment(assessment);
 
       const storedEntries = mockGlobalState._store.get(
         'ptah.quality.history'
@@ -269,15 +273,15 @@ describe('QualityHistoryService', () => {
       expect(storedEntries[0].categoryCounts).toEqual({});
     });
 
-    it('should handle storage errors gracefully', () => {
+    it('should handle storage errors gracefully', async () => {
       mockGlobalState.get.mockImplementation(() => {
         throw new Error('Storage error');
       });
 
       // Should not throw
-      expect(() =>
+      await expect(
         service.recordAssessment(createSampleAssessment())
-      ).not.toThrow();
+      ).resolves.not.toThrow();
       expect(mockLogger.error).toHaveBeenCalled();
     });
   });
@@ -288,28 +292,28 @@ describe('QualityHistoryService', () => {
       expect(result).toEqual([]);
     });
 
-    it('should return entries with default limit (30)', () => {
+    it('should return entries with default limit (30)', async () => {
       // Record 50 assessments
       for (let i = 0; i < 50; i++) {
-        service.recordAssessment(createSampleAssessment({ score: i }));
+        await service.recordAssessment(createSampleAssessment({ score: i }));
       }
 
       const result = service.getHistory();
       expect(result).toHaveLength(30);
     });
 
-    it('should respect custom limit', () => {
+    it('should respect custom limit', async () => {
       for (let i = 0; i < 20; i++) {
-        service.recordAssessment(createSampleAssessment({ score: i }));
+        await service.recordAssessment(createSampleAssessment({ score: i }));
       }
 
       const result = service.getHistory(5);
       expect(result).toHaveLength(5);
     });
 
-    it('should return all entries if fewer than limit', () => {
+    it('should return all entries if fewer than limit', async () => {
       for (let i = 0; i < 3; i++) {
-        service.recordAssessment(createSampleAssessment({ score: i }));
+        await service.recordAssessment(createSampleAssessment({ score: i }));
       }
 
       const result = service.getHistory(30);
@@ -326,19 +330,19 @@ describe('QualityHistoryService', () => {
   });
 
   describe('clearHistory', () => {
-    it('should clear all history entries', () => {
+    it('should clear all history entries', async () => {
       for (let i = 0; i < 10; i++) {
-        service.recordAssessment(createSampleAssessment({ score: i }));
+        await service.recordAssessment(createSampleAssessment({ score: i }));
       }
 
-      service.clearHistory();
+      await service.clearHistory();
 
       const result = service.getHistory();
       expect(result).toEqual([]);
     });
 
-    it('should write empty array to globalState', () => {
-      service.clearHistory();
+    it('should write empty array to globalState', async () => {
+      await service.clearHistory();
 
       expect(mockGlobalState.update).toHaveBeenCalledWith(
         'ptah.quality.history',

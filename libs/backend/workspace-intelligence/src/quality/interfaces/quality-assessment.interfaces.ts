@@ -304,6 +304,8 @@ export interface FileHashCacheEntry {
   hash: string;
   /** Timestamp of when this entry was last analyzed */
   analysisTimestamp: number;
+  /** Timestamp of when this entry was last accessed (for LRU eviction) */
+  lastAccessTimestamp: number;
   /** Anti-patterns detected in this file */
   patterns: AntiPattern[];
 }
@@ -421,7 +423,7 @@ export interface IQualityHistoryService {
    *
    * @param assessment - Quality assessment to record
    */
-  recordAssessment(assessment: QualityAssessment): void;
+  recordAssessment(assessment: QualityAssessment): Promise<void>;
 
   /**
    * Get history entries ordered newest first.
@@ -436,7 +438,7 @@ export interface IQualityHistoryService {
    *
    * Removes all stored history from globalState.
    */
-  clearHistory(): void;
+  clearHistory(): Promise<void>;
 }
 
 // ============================================

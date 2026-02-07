@@ -87,9 +87,9 @@ export const missingDecoratorRule: AntiPatternRule = createHeuristicRule({
     const matches: AntiPatternMatch[] = [];
 
     for (const cls of classes) {
-      // Look at the content before this class declaration for a decorator
-      // We check a reasonable window (500 chars before the class keyword)
-      const lookbackStart = Math.max(0, cls.index - 500);
+      // Look at the content before this class declaration for a decorator.
+      // Use 1500 chars to accommodate JSDoc blocks and stacked decorators.
+      const lookbackStart = Math.max(0, cls.index - 1500);
       const beforeClass = content.substring(lookbackStart, cls.index);
 
       // Check if there's a NestJS decorator in the content before this class

@@ -100,6 +100,7 @@ export class FileHashCacheService implements IFileHashCacheService {
   /**
    * Get the cached hash for a file path.
    * Returns undefined if not cached or entry has expired.
+   * Updates the access timestamp for LRU tracking.
    */
   getHash(filePath: string): string | undefined {
     const entry = this.cache.get(filePath);
@@ -113,6 +114,9 @@ export class FileHashCacheService implements IFileHashCacheService {
       return undefined;
     }
 
+    // Update access timestamp for LRU tracking
+    entry.lastAccessTimestamp = Date.now();
+
     return entry.hash;
   }
 
@@ -123,9 +127,11 @@ export class FileHashCacheService implements IFileHashCacheService {
   setHash(filePath: string, hash: string): void {
     this.evictIfNeeded();
 
+    const now = Date.now();
     this.cache.set(filePath, {
       hash,
-      analysisTimestamp: Date.now(),
+      analysisTimestamp: now,
+      lastAccessTimestamp: now,
       patterns: [],
     });
   }
@@ -157,6 +163,8 @@ export class FileHashCacheService implements IFileHashCacheService {
 
     if (!changed) {
       this.hitCount++;
+      // Update access timestamp for LRU tracking
+      entry.lastAccessTimestamp = Date.now();
     }
 
     return changed;
@@ -171,10 +179,12 @@ export class FileHashCacheService implements IFileHashCacheService {
 
     const hash = this.computeHash(content);
     const existing = this.cache.get(filePath);
+    const now = Date.now();
 
     this.cache.set(filePath, {
       hash,
-      analysisTimestamp: Date.now(),
+      analysisTimestamp: now,
+      lastAccessTimestamp: now,
       patterns: existing?.patterns ?? [],
     });
   }
@@ -182,6 +192,7 @@ export class FileHashCacheService implements IFileHashCacheService {
   /**
    * Get cached anti-pattern results for a file.
    * Returns undefined if not cached or cache entry has expired.
+   * Updates the access timestamp for LRU tracking.
    */
   getCachedPatterns(filePath: string): AntiPattern[] | undefined {
     const entry = this.cache.get(filePath);
@@ -194,6 +205,9 @@ export class FileHashCacheService implements IFileHashCacheService {
       this.cache.delete(filePath);
       return undefined;
     }
+
+    // Update access timestamp for LRU tracking
+    entry.lastAccessTimestamp = Date.now();
 
     return entry.patterns;
   }
@@ -214,9 +228,11 @@ export class FileHashCacheService implements IFileHashCacheService {
         { filePath }
       );
       this.evictIfNeeded();
+      const now = Date.now();
       this.cache.set(filePath, {
         hash: '',
-        analysisTimestamp: Date.now(),
+        analysisTimestamp: now,
+        lastAccessTimestamp: now,
         patterns,
       });
     }
@@ -285,7 +301,7 @@ export class FileHashCacheService implements IFileHashCacheService {
     // Find and remove the oldest entries (evict 10% to avoid frequent eviction)
     const evictionCount = Math.ceil(MAX_CACHE_SIZE * 0.1);
     const entries = Array.from(this.cache.entries()).sort(
-      ([, a], [, b]) => a.analysisTimestamp - b.analysisTimestamp
+      ([, a], [, b]) => a.lastAccessTimestamp - b.lastAccessTimestamp
     );
 
     for (let i = 0; i < evictionCount && i < entries.length; i++) {

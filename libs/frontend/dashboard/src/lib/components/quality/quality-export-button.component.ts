@@ -51,7 +51,7 @@ const EXPORT_OPTIONS: ExportOption[] = [
  * in multiple formats: Markdown, JSON, or CSV.
  *
  * Uses DaisyUI dropdown component with btn-outline styling.
- * Triggers download via in-memory blob URL creation.
+ * Triggers export via RPC which opens VS Code save dialog.
  * Disabled when no intelligence data is available.
  */
 @Component({
@@ -136,8 +136,8 @@ export class QualityExportButtonComponent {
 
   /**
    * Handle export for the selected format.
-   * Calls the state service to fetch report content from backend,
-   * then triggers a file download via a temporary blob URL.
+   * Calls the backend via RPC which generates the report and
+   * opens a VS Code save dialog to write it to disk.
    */
   async handleExport(format: 'markdown' | 'json' | 'csv'): Promise<void> {
     if (!this.intelligence() || this.exporting()) return;
@@ -147,12 +147,8 @@ export class QualityExportButtonComponent {
     try {
       const exportResult = await this.stateService.exportReport(format);
 
-      if (exportResult) {
-        this.downloadBlob(
-          exportResult.content,
-          exportResult.filename,
-          exportResult.mimeType
-        );
+      if (!exportResult?.saved) {
+        console.info('[QualityExportButton] Export cancelled by user');
       }
     } catch (err) {
       console.error('[QualityExportButton] Export failed:', err);
@@ -161,29 +157,5 @@ export class QualityExportButtonComponent {
       // Close dropdown by blurring the active element
       (document.activeElement as HTMLElement)?.blur();
     }
-  }
-
-  /**
-   * Create a blob from content and trigger a download via a temporary link element.
-   * The blob URL is revoked after download to prevent memory leaks.
-   */
-  private downloadBlob(
-    content: string,
-    filename: string,
-    mimeType: string
-  ): void {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.style.display = 'none';
-
-    document.body.appendChild(link);
-    link.click();
-
-    // Clean up
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   }
 }
