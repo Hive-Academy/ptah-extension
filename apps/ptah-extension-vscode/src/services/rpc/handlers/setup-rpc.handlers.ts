@@ -49,6 +49,8 @@ export class SetupRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.CONFIG_MANAGER)
+    private readonly configManager: ConfigManager,
     private readonly container: DependencyContainer
   ) {}
 
@@ -272,6 +274,12 @@ export class SetupRpcHandlers {
           );
         }
 
+        // Resolve current model from config (same pattern as chat:start)
+        const currentModel = this.configManager.getWithDefault<string>(
+          'model.selected',
+          'claude-sonnet-4-5-20250929'
+        );
+
         // Try agentic analysis first
         try {
           const agenticService = this.resolveService<{
@@ -296,7 +304,12 @@ export class SetupRpcHandlers {
 
           const agenticResult = await agenticService.analyzeWorkspace(
             workspaceFolder.uri,
-            { isPremium, mcpServerRunning, mcpPort }
+            {
+              model: currentModel,
+              isPremium,
+              mcpServerRunning,
+              mcpPort,
+            }
           );
 
           if (agenticResult.isOk() && agenticResult.value) {
