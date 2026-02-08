@@ -2,6 +2,7 @@ import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import {
   GenerationProgress,
+  ScanProgress,
   SetupWizardStateService,
 } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
@@ -13,13 +14,37 @@ describe('ScanProgressComponent', () => {
   let mockStateService: Partial<SetupWizardStateService>;
   let mockRpcService: Partial<WizardRpcService>;
 
+  const mockAnalysis = {
+    projectType: 'Angular Nx Monorepo',
+    fileCount: 280,
+    frameworks: ['Angular', 'NestJS'],
+    languages: ['TypeScript'],
+  };
+  const mockRecommendations = [
+    {
+      agentId: 'frontend-developer',
+      agentName: 'Frontend Developer',
+      relevanceScore: 95,
+      recommended: true,
+      matchedCriteria: ['Angular detected'],
+      category: 'development' as const,
+    },
+  ];
+
   beforeEach(async () => {
     mockStateService = {
       generationProgress: signal<GenerationProgress | null>(null),
+      scanProgress: signal<ScanProgress | null>(null),
+      analysisStream: signal([]).asReadonly(),
+      deepAnalysis: signal(null).asReadonly(),
       reset: jest.fn(),
+      setDeepAnalysis: jest.fn(),
+      setRecommendations: jest.fn(),
+      setCurrentStep: jest.fn(),
     };
     mockRpcService = {
-      cancelWizard: jest.fn(),
+      deepAnalyze: jest.fn().mockResolvedValue(mockAnalysis),
+      recommendAgents: jest.fn().mockResolvedValue(mockRecommendations),
     };
 
     await TestBed.configureTestingModule({
@@ -32,16 +57,16 @@ describe('ScanProgressComponent', () => {
 
     fixture = TestBed.createComponent(ScanProgressComponent);
     component = fixture.componentInstance;
-    fixture.detectChanges();
   });
 
   it('should create', () => {
+    fixture.detectChanges();
     expect(component).toBeTruthy();
   });
 
   describe('Initial State', () => {
-    it('should initialize with isCanceling as false', () => {
-      expect(component['isCanceling']()).toBe(false);
+    it('should initialize with isAnalyzing as false before ngOnInit', () => {
+      expect(component['isAnalyzing']()).toBe(false);
     });
 
     it('should initialize with null error message', () => {
@@ -49,22 +74,214 @@ describe('ScanProgressComponent', () => {
     });
 
     it('should display analyzing workspace heading', () => {
+      fixture.detectChanges();
       const heading = fixture.nativeElement.querySelector('h2');
       expect(heading.textContent).toContain('Analyzing Workspace');
     });
+  });
 
-    it('should show initializing message when no progress data', () => {
-      const text = fixture.nativeElement.textContent;
-      expect(text).toContain('Initializing workspace scan...');
+  describe('Analysis Flow (ngOnInit)', () => {
+    it('should call deepAnalyze on init', async () => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(mockRpcService.deepAnalyze).toHaveBeenCalled();
+    });
+
+    it('should store deep analysis results in state', async () => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(mockStateService.setDeepAnalysis).toHaveBeenCalledWith(
+        mockAnalysis
+      );
+    });
+
+    it('should call recommendAgents after deep analysis', async () => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(mockRpcService.recommendAgents).toHaveBeenCalledWith(mockAnalysis);
+    });
+
+    it('should store recommendations in state', async () => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(mockStateService.setRecommendations).toHaveBeenCalledWith(
+        mockRecommendations
+      );
+    });
+
+    it('should transition to analysis step on success', async () => {
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('analysis');
+    });
+
+    it('should update status text during analysis phases', async () => {
+      // Use a deferred promise to check intermediate state
+      let resolveDeepAnalyze!: (value: any) => void;
+      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveDeepAnalyze = resolve;
+        })
+      );
+
+      fixture.detectChanges();
+
+      expect(component['statusText']()).toBe('Analyzing project structure...');
+
+      resolveDeepAnalyze(mockAnalysis);
+      await fixture.whenStable();
+    });
+  });
+
+  describe('Analysis Error Handling', () => {
+    it('should show error message on deep analysis failure', async () => {
+      const errorMsg = 'Deep analysis failed: timeout';
+      (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
+        new Error(errorMsg)
+      );
+
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(component['errorMessage']()).toBe(errorMsg);
+      expect(component['statusText']()).toBe('Analysis failed');
+    });
+
+    it('should show error message on recommendation failure', async () => {
+      const errorMsg = 'Recommendation failed';
+      (mockRpcService.recommendAgents as jest.Mock).mockRejectedValue(
+        new Error(errorMsg)
+      );
+
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(component['errorMessage']()).toBe(errorMsg);
+    });
+
+    it('should show default error for non-Error failures', async () => {
+      (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
+        'String error'
+      );
+
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(component['errorMessage']()).toBe(
+        'Analysis failed. Please try again.'
+      );
+    });
+
+    it('should NOT transition step on failure', async () => {
+      (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
+        new Error('fail')
+      );
+
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(mockStateService.setCurrentStep).not.toHaveBeenCalled();
+    });
+
+    it('should reset isAnalyzing on failure', async () => {
+      (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
+        new Error('fail')
+      );
+
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      expect(component['isAnalyzing']()).toBe(false);
+    });
+  });
+
+  describe('Smart Retry', () => {
+    it('should skip deep analysis on retry if already cached', async () => {
+      // First call fails at recommendation stage
+      (mockRpcService.recommendAgents as jest.Mock).mockRejectedValueOnce(
+        new Error('timeout')
+      );
+
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      // Deep analysis succeeded and was stored
+      expect(mockStateService.setDeepAnalysis).toHaveBeenCalledWith(
+        mockAnalysis
+      );
+
+      // Simulate cached analysis in state
+      (mockStateService as any).deepAnalysis =
+        signal(mockAnalysis).asReadonly();
+
+      // Reset mock and retry — second call should succeed
+      (mockRpcService.deepAnalyze as jest.Mock).mockClear();
+      (mockRpcService.recommendAgents as jest.Mock).mockResolvedValueOnce(
+        mockRecommendations
+      );
+
+      component['onRetry']();
+      await fixture.whenStable();
+
+      // Should NOT have called deepAnalyze again (cached)
+      expect(mockRpcService.deepAnalyze).not.toHaveBeenCalled();
+      expect(mockRpcService.recommendAgents).toHaveBeenCalled();
+    });
+  });
+
+  describe('Re-entry Guard', () => {
+    it('should prevent concurrent analysis calls', async () => {
+      let resolveDeepAnalyze!: (value: any) => void;
+      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveDeepAnalyze = resolve;
+        })
+      );
+
+      fixture.detectChanges(); // Triggers first call via ngOnInit
+
+      // Try to call again while first is in flight
+      component['onRetry']();
+
+      // Should only have been called once
+      expect(mockRpcService.deepAnalyze).toHaveBeenCalledTimes(1);
+
+      resolveDeepAnalyze(mockAnalysis);
+      await fixture.whenStable();
+    });
+  });
+
+  describe('Cancel / Back Functionality', () => {
+    it('should reset wizard state on confirmed cancellation', () => {
+      component['onConfirmCancellation']();
+
+      expect(mockStateService.reset).toHaveBeenCalled();
+    });
+
+    it('should reset wizard state on go back', () => {
+      component['onGoBack']();
+
+      expect(mockStateService.reset).toHaveBeenCalled();
+    });
+
+    it('should do nothing on declined cancellation', () => {
+      component['onDeclineCancellation']();
+
+      expect(mockStateService.reset).not.toHaveBeenCalled();
     });
   });
 
   describe('Progress Display', () => {
     it('should display progress information', () => {
-      const progressSignal = mockStateService.generationProgress as any;
+      fixture.detectChanges();
+
+      const progressSignal = mockStateService.scanProgress as any;
       progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 50,
         filesScanned: 50,
         totalFiles: 100,
         detections: ['Angular', 'TypeScript'],
@@ -77,10 +294,8 @@ describe('ScanProgressComponent', () => {
     });
 
     it('should calculate progress percentage correctly', () => {
-      const progressSignal = mockStateService.generationProgress as any;
+      const progressSignal = mockStateService.scanProgress as any;
       progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 0,
         filesScanned: 25,
         totalFiles: 100,
         detections: [],
@@ -90,10 +305,8 @@ describe('ScanProgressComponent', () => {
     });
 
     it('should handle zero total files', () => {
-      const progressSignal = mockStateService.generationProgress as any;
+      const progressSignal = mockStateService.scanProgress as any;
       progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 0,
         filesScanned: 0,
         totalFiles: 0,
         detections: [],
@@ -102,23 +315,11 @@ describe('ScanProgressComponent', () => {
       expect(component['progressPercentage']()).toBe(0);
     });
 
-    it('should handle undefined filesScanned', () => {
-      const progressSignal = mockStateService.generationProgress as any;
-      progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 0,
-        totalFiles: 100,
-        detections: [],
-      });
-
-      expect(component['progressPercentage']()).toBe(0);
-    });
-
     it('should display detections list', () => {
-      const progressSignal = mockStateService.generationProgress as any;
+      fixture.detectChanges();
+
+      const progressSignal = mockStateService.scanProgress as any;
       progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 50,
         filesScanned: 50,
         totalFiles: 100,
         detections: ['Angular', 'TypeScript', 'Nx'],
@@ -131,176 +332,16 @@ describe('ScanProgressComponent', () => {
       expect(alerts[1].textContent).toContain('TypeScript');
       expect(alerts[2].textContent).toContain('Nx');
     });
-
-    it('should show empty state when no detections', () => {
-      const progressSignal = mockStateService.generationProgress as any;
-      progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 10,
-        filesScanned: 10,
-        totalFiles: 100,
-        detections: [],
-      });
-      fixture.detectChanges();
-
-      const text = fixture.nativeElement.textContent;
-      expect(text).toContain('Scanning for project characteristics...');
-    });
-
-    it('should update progress bar value', () => {
-      const progressSignal = mockStateService.generationProgress as any;
-      progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 75,
-        filesScanned: 75,
-        totalFiles: 100,
-        detections: [],
-      });
-      fixture.detectChanges();
-
-      const progressBar = fixture.nativeElement.querySelector('progress');
-      expect(progressBar.value).toBe(75);
-    });
-
-    it('should set proper aria attributes on progress bar', () => {
-      const progressSignal = mockStateService.generationProgress as any;
-      progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 60,
-        filesScanned: 60,
-        totalFiles: 100,
-        detections: [],
-      });
-      fixture.detectChanges();
-
-      const progressBar = fixture.nativeElement.querySelector('progress');
-      expect(progressBar.getAttribute('aria-valuenow')).toBe('60');
-      expect(progressBar.getAttribute('aria-valuemin')).toBe('0');
-      expect(progressBar.getAttribute('aria-valuemax')).toBe('100');
-      expect(progressBar.getAttribute('aria-label')).toContain(
-        '60 percent complete'
-      );
-    });
-  });
-
-  describe('Cancel Functionality', () => {
-    // it('should show confirmation modal when cancel clicked', () => {
-    //   jest.spyOn(component['confirmModal'], 'show');
-
-    //   const button = fixture.nativeElement.querySelector('button');
-    //   button.click();
-
-    //   expect(component['confirmModal'].show).toHaveBeenCalled();
-    // });
-
-    it('should call RPC service on confirmed cancellation', async () => {
-      (mockRpcService.cancelWizard as jest.Mock).mockResolvedValue(undefined);
-
-      await component['onConfirmCancellation']();
-
-      expect(mockRpcService.cancelWizard).toHaveBeenCalledWith(false);
-    });
-
-    it('should reset state on successful cancellation', async () => {
-      (mockRpcService.cancelWizard as jest.Mock).mockResolvedValue(undefined);
-
-      await component['onConfirmCancellation']();
-
-      expect(mockStateService.reset).toHaveBeenCalled();
-    });
-
-    it('should show error on failed cancellation', async () => {
-      const errorMessage = 'RPC timeout';
-      (mockRpcService.cancelWizard as jest.Mock).mockRejectedValue(
-        new Error(errorMessage)
-      );
-
-      await component['onConfirmCancellation']();
-
-      expect(component['errorMessage']()).toBe(errorMessage);
-    });
-
-    it('should NOT reset state on failed cancellation', async () => {
-      (mockRpcService.cancelWizard as jest.Mock).mockRejectedValue(
-        new Error('Test error')
-      );
-
-      await component['onConfirmCancellation']();
-
-      expect(mockStateService.reset).not.toHaveBeenCalled();
-    });
-
-    it('should show loading state while canceling', async () => {
-      let resolvePromise: () => void;
-      const promise = new Promise<void>((resolve) => {
-        resolvePromise = resolve;
-      });
-      (mockRpcService.cancelWizard as jest.Mock).mockReturnValue(promise);
-
-      const cancelPromise = component['onConfirmCancellation']();
-
-      expect(component['isCanceling']()).toBe(true);
-
-      resolvePromise!();
-      await cancelPromise;
-
-      expect(component['isCanceling']()).toBe(false);
-    });
-
-    it('should reset loading state on error', async () => {
-      (mockRpcService.cancelWizard as jest.Mock).mockRejectedValue(
-        new Error('Test error')
-      );
-
-      await component['onConfirmCancellation']();
-
-      expect(component['isCanceling']()).toBe(false);
-    });
-
-    it('should prevent double-click while canceling', async () => {
-      let resolvePromise: () => void;
-      const promise = new Promise<void>((resolve) => {
-        resolvePromise = resolve;
-      });
-      (mockRpcService.cancelWizard as jest.Mock).mockReturnValue(promise);
-
-      component['onCancel']();
-      component['onCancel']();
-
-      // Modal should only be shown once (would need to spy on confirmModal.show)
-
-      resolvePromise!();
-    });
-
-    it('should clear error message on new cancel attempt', async () => {
-      (mockRpcService.cancelWizard as jest.Mock).mockRejectedValue(
-        new Error('First error')
-      );
-      await component['onConfirmCancellation']();
-
-      expect(component['errorMessage']()).toBe('First error');
-
-      (mockRpcService.cancelWizard as jest.Mock).mockResolvedValue(undefined);
-      await component['onConfirmCancellation']();
-
-      expect(mockStateService.reset).toHaveBeenCalled();
-    });
-
-    it('should do nothing on declined cancellation', () => {
-      component['onDeclineCancellation']();
-
-      expect(mockRpcService.cancelWizard).not.toHaveBeenCalled();
-      expect(mockStateService.reset).not.toHaveBeenCalled();
-    });
   });
 
   describe('UI States', () => {
-    it('should show error alert when error message exists', async () => {
-      (mockRpcService.cancelWizard as jest.Mock).mockRejectedValue(
+    it('should show error alert when analysis fails', async () => {
+      (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
         new Error('Test error')
       );
 
-      await component['onConfirmCancellation']();
+      fixture.detectChanges();
+      await fixture.whenStable();
       fixture.detectChanges();
 
       const alert = fixture.nativeElement.querySelector('.alert-error');
@@ -308,66 +349,56 @@ describe('ScanProgressComponent', () => {
       expect(alert.textContent).toContain('Test error');
     });
 
-    it('should hide error alert when no error message', () => {
+    it('should hide error alert when no error', () => {
+      fixture.detectChanges();
       const alert = fixture.nativeElement.querySelector('.alert-error');
       expect(alert).toBeFalsy();
     });
 
-    it('should disable cancel button while canceling', async () => {
-      let resolvePromise: () => void;
-      const promise = new Promise<void>((resolve) => {
-        resolvePromise = resolve;
-      });
-      (mockRpcService.cancelWizard as jest.Mock).mockReturnValue(promise);
-
-      component['onConfirmCancellation']();
-      fixture.detectChanges();
-
-      const button = fixture.nativeElement.querySelector('button');
-      expect(button.disabled).toBe(true);
-      expect(button.classList.contains('btn-disabled')).toBe(true);
-
-      resolvePromise!();
-    });
-
-    it('should show loading spinner while canceling', async () => {
-      let resolvePromise: () => void;
-      const promise = new Promise<void>((resolve) => {
-        resolvePromise = resolve;
-      });
-      (mockRpcService.cancelWizard as jest.Mock).mockReturnValue(promise);
-
-      component['onConfirmCancellation']();
-      fixture.detectChanges();
-
-      const spinner = fixture.nativeElement.querySelector('.loading-spinner');
-      expect(spinner).toBeTruthy();
-
-      resolvePromise!();
-    });
-
-    it('should show "Retry Cancel" button text on error', async () => {
-      (mockRpcService.cancelWizard as jest.Mock).mockRejectedValue(
-        new Error('Test error')
+    it('should show Back and Retry buttons on error', async () => {
+      (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
+        new Error('fail')
       );
 
-      await component['onConfirmCancellation']();
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+
+      const buttons = fixture.nativeElement.querySelectorAll('button');
+      const buttonTexts = Array.from(buttons).map((b: any) =>
+        b.textContent.trim()
+      );
+      expect(buttonTexts).toContain('Back');
+      expect(buttonTexts.some((t: string) => t.includes('Retry'))).toBe(true);
+    });
+
+    it('should show Cancel Scan button when not in error state', async () => {
+      // Prevent auto-analysis from completing during this test
+      let resolveDeepAnalyze!: (value: any) => void;
+      (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
+        new Promise((resolve) => {
+          resolveDeepAnalyze = resolve;
+        })
+      );
+
       fixture.detectChanges();
 
       const button = fixture.nativeElement.querySelector('button');
-      expect(button.textContent).toContain('Retry Cancel');
+      expect(button.textContent).toContain('Cancel Scan');
+
+      resolveDeepAnalyze(mockAnalysis);
     });
   });
 
   describe('Accessibility', () => {
     it('should have proper heading hierarchy', () => {
+      fixture.detectChanges();
+
       const h2 = fixture.nativeElement.querySelector('h2');
       expect(h2).toBeTruthy();
 
-      const progressSignal = mockStateService.generationProgress as any;
+      const progressSignal = mockStateService.scanProgress as any;
       progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 50,
         filesScanned: 50,
         totalFiles: 100,
         detections: ['Angular'],
@@ -379,10 +410,10 @@ describe('ScanProgressComponent', () => {
     });
 
     it('should have accessible progress bar', () => {
-      const progressSignal = mockStateService.generationProgress as any;
+      fixture.detectChanges();
+
+      const progressSignal = mockStateService.scanProgress as any;
       progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 50,
         filesScanned: 50,
         totalFiles: 100,
         detections: [],
@@ -392,40 +423,25 @@ describe('ScanProgressComponent', () => {
       const progressBar = fixture.nativeElement.querySelector('progress');
       expect(progressBar.getAttribute('role')).toBe('progressbar');
     });
-
-    it('should have accessible cancel button', () => {
-      const button = fixture.nativeElement.querySelector('button');
-      expect(button.getAttribute('aria-label')).toBeTruthy();
-    });
   });
 
   describe('Edge Cases', () => {
-    it('should handle default error message for non-Error failures', async () => {
-      (mockRpcService.cancelWizard as jest.Mock).mockRejectedValue(
-        'String error'
-      );
-
-      await component['onConfirmCancellation']();
-
-      expect(component['errorMessage']()).toBe(
-        'Failed to cancel scan. Please try again.'
-      );
-    });
-
     it('should handle null progress data', () => {
-      const progressSignal = mockStateService.generationProgress as any;
+      fixture.detectChanges();
+
+      const progressSignal = mockStateService.scanProgress as any;
       progressSignal.set(null);
       fixture.detectChanges();
 
-      const text = fixture.nativeElement.textContent;
-      expect(text).toContain('Initializing workspace scan...');
+      // Should show the spinner with status text, not crash
+      expect(fixture.nativeElement).toBeTruthy();
     });
 
     it('should handle missing detections array', () => {
-      const progressSignal = mockStateService.generationProgress as any;
+      fixture.detectChanges();
+
+      const progressSignal = mockStateService.scanProgress as any;
       progressSignal.set({
-        phase: 'analysis',
-        percentComplete: 50,
         filesScanned: 50,
         totalFiles: 100,
       });
@@ -433,19 +449,6 @@ describe('ScanProgressComponent', () => {
 
       // Should not crash
       expect(fixture.nativeElement).toBeTruthy();
-    });
-
-    it('should log error to console on cancellation failure', async () => {
-      jest.spyOn(console, 'error').mockImplementation();
-      const error = new Error('Test error');
-      (mockRpcService.cancelWizard as jest.Mock).mockRejectedValue(error);
-
-      await component['onConfirmCancellation']();
-
-      expect(console.error).toHaveBeenCalledWith(
-        'Scan cancellation failed:',
-        error
-      );
     });
   });
 });

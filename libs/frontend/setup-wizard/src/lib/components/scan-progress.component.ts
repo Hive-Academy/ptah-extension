@@ -22,6 +22,7 @@ import {
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
 
 /**
@@ -59,7 +60,11 @@ interface PhaseStep {
 @Component({
   selector: 'ptah-scan-progress',
   standalone: true,
-  imports: [LucideAngularModule, ConfirmationModalComponent],
+  imports: [
+    LucideAngularModule,
+    AnalysisTranscriptComponent,
+    ConfirmationModalComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-6 py-12 max-w-3xl">
@@ -140,18 +145,19 @@ interface PhaseStep {
       </div>
       }
 
-      <!-- Agent Reasoning (collapsible) -->
-      @if (progressData.agentReasoning) {
-      <div class="collapse collapse-arrow bg-base-200 mb-6">
-        <input type="checkbox" checked />
-        <div class="collapse-title text-sm font-medium text-base-content/70">
-          Agent Activity
-        </div>
-        <div class="collapse-content">
-          <p class="text-sm text-base-content/60">
-            {{ progressData.agentReasoning }}
-          </p>
-        </div>
+      <!-- Agent Transcript (live streaming) or simple reasoning fallback -->
+      @if (hasStreamMessages()) {
+      <div class="mb-6">
+        <ptah-analysis-transcript />
+      </div>
+      } @else if (progressData.agentReasoning) {
+      <div class="alert alert-info mb-6">
+        <lucide-angular
+          [img]="InfoIcon"
+          class="stroke-current shrink-0 w-5 h-5"
+          aria-hidden="true"
+        />
+        <p class="text-sm">{{ progressData.agentReasoning }}</p>
       </div>
       }
 
@@ -271,6 +277,14 @@ export class ScanProgressComponent implements OnInit {
     }
     const scanned = progressData.filesScanned || 0;
     return Math.round((scanned / progressData.totalFiles) * 100);
+  });
+
+  /**
+   * Whether any stream messages have been received.
+   * Used to conditionally show the full transcript vs simple reasoning text.
+   */
+  protected readonly hasStreamMessages = computed(() => {
+    return this.wizardState.analysisStream().length > 0;
   });
 
   // Component-local state

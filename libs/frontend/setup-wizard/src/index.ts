@@ -18,6 +18,7 @@ export { CompletionComponent } from './lib/components/completion.component';
 // Utility Components
 export { ConfirmationModalComponent } from './lib/components/confirmation-modal.component';
 export { PremiumUpsellComponent } from './lib/components/premium-upsell.component';
+export { AnalysisTranscriptComponent } from './lib/components/analysis-transcript.component';
 
 // Wizard Types
 export type {

@@ -4,6 +4,7 @@ import {
   AgentRecommendation,
   AnalysisCompletePayload,
   AnalysisPhase,
+  AnalysisStreamPayload,
   AvailableAgentsPayload,
   GenerationCompletePayload,
   GenerationProgressPayload,
@@ -216,6 +217,12 @@ export class SetupWizardStateService {
   private readonly scanProgressSignal = signal<ScanProgress | null>(null);
 
   /**
+   * Private writable signal for analysis stream messages (live transcript).
+   * Accumulates AnalysisStreamPayload messages during agentic analysis.
+   */
+  private readonly analysisStreamSignal = signal<AnalysisStreamPayload[]>([]);
+
+  /**
    * Private writable signal for analysis results (null until analysis complete)
    */
   private readonly analysisResultsSignal = signal<AnalysisResults | null>(null);
@@ -308,6 +315,12 @@ export class SetupWizardStateService {
    * Public readonly signal for scan progress
    */
   readonly scanProgress = this.scanProgressSignal.asReadonly();
+
+  /**
+   * Public readonly signal for analysis stream messages.
+   * Used by AnalysisTranscriptComponent to display live agent transcript.
+   */
+  readonly analysisStream = this.analysisStreamSignal.asReadonly();
 
   /**
    * Public readonly signal for analysis results
@@ -575,6 +588,7 @@ export class SetupWizardStateService {
     this.availableAgentsSignal.set([]);
     this.generationProgressSignal.set(null);
     this.scanProgressSignal.set(null);
+    this.analysisStreamSignal.set([]);
     this.analysisResultsSignal.set(null);
     this.completionDataSignal.set(null);
     this.errorStateSignal.set(null);
@@ -803,8 +817,7 @@ export class SetupWizardStateService {
             break;
 
           case 'setup-wizard:analysis-stream':
-            // Analysis stream messages are accumulated for live transcript display.
-            // Full handler with signal accumulation will be added by Task 3.1.
+            this.handleAnalysisStream(message.payload);
             break;
 
           case 'setup-wizard:error':
@@ -855,6 +868,16 @@ export class SetupWizardStateService {
       totalFiles: payload.totalFiles,
       detections: payload.detections,
     });
+  }
+
+  /**
+   * Handle analysis stream messages for live transcript display.
+   * Appends each message to the accumulated stream.
+   *
+   * @param payload - Typed AnalysisStreamPayload from shared types
+   */
+  private handleAnalysisStream(payload: AnalysisStreamPayload): void {
+    this.analysisStreamSignal.update((messages) => [...messages, payload]);
   }
 
   /**
