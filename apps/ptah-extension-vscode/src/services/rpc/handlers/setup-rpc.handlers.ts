@@ -29,6 +29,7 @@ import type {
   DeepProjectAnalysis,
   AgentRecommendation,
 } from '@ptah-extension/agent-generation';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -124,11 +125,6 @@ export class SetupRpcHandlers {
             'No workspace folder open. Please open a folder to configure agents.'
           );
         }
-
-        // Dynamically import agent-generation library (lazy loading)
-        const { AGENT_GENERATION_TOKENS } = await import(
-          '@ptah-extension/agent-generation'
-        );
 
         // Resolve SetupStatusService from DI container with validation
         const setupStatusService = this.resolveService<{
