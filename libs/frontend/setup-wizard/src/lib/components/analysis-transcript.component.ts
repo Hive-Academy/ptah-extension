@@ -104,8 +104,8 @@ interface GroupedMessage {
         class="overflow-y-auto max-h-64 p-3 space-y-2 border-t border-base-300"
         (scroll)="onUserScroll()"
       >
-        @for (item of groupedMessages(); track item.timestamp) { @switch
-        (item.kind) { @case ('text') {
+        @for (item of groupedMessages(); track $index) { @switch (item.kind) {
+        @case ('text') {
         <div class="bg-base-100 rounded-md px-3 py-2">
           <p
             class="text-sm font-mono whitespace-pre-wrap break-words text-base-content/80"
@@ -234,10 +234,10 @@ export class AnalysisTranscriptComponent {
   protected readonly CodeIcon = Code;
 
   /** Whether the transcript panel is expanded */
-  readonly isExpanded = signal(true);
+  protected readonly isExpanded = signal(true);
 
   /** Whether the user has manually scrolled up (disables auto-scroll) */
-  private userHasScrolledUp = false;
+  private readonly userHasScrolledUp = signal(false);
 
   /** Track which tool input blocks are expanded */
   private readonly expandedToolInputs = signal<Set<number>>(new Set());
@@ -246,7 +246,7 @@ export class AnalysisTranscriptComponent {
   private readonly fullToolInputs = signal<Set<number>>(new Set());
 
   /** Reference to the scrollable container element */
-  readonly scrollContainer =
+  protected readonly scrollContainer =
     viewChild<ElementRef<HTMLDivElement>>('scrollContainer');
 
   /** Total message count for the badge */
@@ -315,7 +315,7 @@ export class AnalysisTranscriptComponent {
       if (messages.length === 0) return;
 
       // Only auto-scroll if user hasn't scrolled up
-      if (!this.userHasScrolledUp) {
+      if (!this.userHasScrolledUp()) {
         // Use requestAnimationFrame to ensure DOM has updated
         requestAnimationFrame(() => {
           const container = this.scrollContainer()?.nativeElement;
@@ -332,7 +332,7 @@ export class AnalysisTranscriptComponent {
     this.isExpanded.update((v) => !v);
     // Reset scroll tracking when re-expanding
     if (this.isExpanded()) {
-      this.userHasScrolledUp = false;
+      this.userHasScrolledUp.set(false);
     }
   }
 
@@ -346,7 +346,7 @@ export class AnalysisTranscriptComponent {
       container.scrollHeight - container.scrollTop - container.clientHeight <
       30;
 
-    this.userHasScrolledUp = !isAtBottom;
+    this.userHasScrolledUp.set(!isAtBottom);
   }
 
   /** Toggle tool input expansion */

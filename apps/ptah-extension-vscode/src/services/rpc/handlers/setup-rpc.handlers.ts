@@ -321,25 +321,34 @@ export class SetupRpcHandlers {
           });
         }
 
-        // Broadcast fallback transition to frontend (best-effort)
+        // Resolve WebviewManager once for fallback broadcasts (best-effort)
+        let webviewManager: WebviewManager | null = null;
         try {
-          const webviewManager = this.resolveService<WebviewManager>(
+          webviewManager = this.resolveService<WebviewManager>(
             TOKENS.WEBVIEW_MANAGER,
             'WebviewManager'
           );
-          webviewManager.broadcastMessage(
-            MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
-            {
-              filesScanned: 0,
-              totalFiles: 0,
-              detections: [],
-              agentReasoning: 'Switching to quick analysis mode...',
-              currentPhase: undefined,
-              completedPhases: [],
-            }
-          );
         } catch {
-          /* best-effort broadcast */
+          /* ignore - broadcasts will be skipped if unavailable */
+        }
+
+        // Broadcast fallback transition to frontend (best-effort)
+        if (webviewManager) {
+          try {
+            webviewManager.broadcastMessage(
+              MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
+              {
+                filesScanned: 0,
+                totalFiles: 0,
+                detections: [],
+                agentReasoning: 'Switching to quick analysis mode...',
+                currentPhase: undefined,
+                completedPhases: [],
+              }
+            );
+          } catch {
+            /* best-effort broadcast */
+          }
         }
 
         // Fallback: Use existing hardcoded DeepProjectAnalysisService
@@ -353,22 +362,20 @@ export class SetupRpcHandlers {
         }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
 
         // Broadcast that quick analysis is starting (best-effort)
-        try {
-          const webviewManager = this.resolveService<WebviewManager>(
-            TOKENS.WEBVIEW_MANAGER,
-            'WebviewManager'
-          );
-          webviewManager.broadcastMessage(
-            MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
-            {
-              filesScanned: 0,
-              totalFiles: 0,
-              detections: [],
-              agentReasoning: 'Running quick project analysis...',
-            }
-          );
-        } catch {
-          /* best-effort broadcast */
+        if (webviewManager) {
+          try {
+            webviewManager.broadcastMessage(
+              MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
+              {
+                filesScanned: 0,
+                totalFiles: 0,
+                detections: [],
+                agentReasoning: 'Running quick project analysis...',
+              }
+            );
+          } catch {
+            /* best-effort broadcast */
+          }
         }
 
         const result = await setupWizardService.performDeepAnalysis(

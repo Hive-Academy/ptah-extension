@@ -65,6 +65,17 @@ const PHASE_LABELS: Record<AnalysisPhase, string> = {
 };
 
 /**
+ * Valid phase names for runtime validation.
+ * Prevents invalid strings from being cast to AnalysisPhase.
+ */
+const VALID_PHASES: readonly AnalysisPhase[] = [
+  'discovery',
+  'architecture',
+  'health',
+  'quality',
+];
+
+/**
  * Heuristic mapping from tool call count to implicit analysis phase.
  * Used when the agent fails to emit explicit [PHASE:X] markers.
  * Only applied when currentPhase is undefined (explicit markers take priority).
@@ -260,17 +271,18 @@ export class AgenticAnalysisService {
         abortController,
       });
 
-      // Process stream with timeout
-      const result = await this.processStream(
-        handle.stream,
-        abortController,
-        timeout
-      );
+      // Process stream with timeout; guarantee handle cleanup via finally
+      try {
+        const result = await this.processStream(
+          handle.stream,
+          abortController,
+          timeout
+        );
 
-      // Cleanup
-      handle.close();
-
-      return result;
+        return result;
+      } finally {
+        handle.close();
+      }
     } catch (error) {
       // Inspect abort reason to produce distinct error messages for timeout vs user cancellation
       const abortReason = abortController.signal.reason as
@@ -281,6 +293,11 @@ export class AgenticAnalysisService {
         this.logger.warn(
           `${SERVICE_TAG} Analysis timed out after ${timeout}ms`
         );
+        this.broadcastStreamMessage({
+          kind: 'error',
+          content: 'Analysis timed out. Falling back to quick analysis...',
+          timestamp: Date.now(),
+        });
         this.broadcastProgress({
           filesScanned: 0,
           totalFiles: 0,
@@ -291,6 +308,11 @@ export class AgenticAnalysisService {
         return Result.err(new Error('Analysis timed out'));
       } else if (abortReason === ABORT_REASONS.USER_CANCELLED) {
         this.logger.info(`${SERVICE_TAG} Analysis cancelled by user`);
+        this.broadcastStreamMessage({
+          kind: 'error',
+          content: 'Analysis cancelled by user',
+          timestamp: Date.now(),
+        });
         return Result.err(new Error('Analysis cancelled by user'));
       }
 
@@ -369,6 +391,10 @@ export class AgenticAnalysisService {
     let lastTextBroadcastTime = 0;
     const TEXT_BROADCAST_THROTTLE_MS = 100;
 
+    // -- Throttle state for thinking_delta broadcasts --
+    let lastThinkingBroadcastTime = 0;
+    const THINKING_BROADCAST_THROTTLE_MS = 100;
+
     const timeoutId = setTimeout(() => {
       this.logger.warn(
         `${SERVICE_TAG} Analysis timed out after ${timeoutMs}ms`
@@ -389,6 +415,14 @@ export class AgenticAnalysisService {
               inputTokens: message.usage.input_tokens,
               outputTokens: message.usage.output_tokens,
             });
+
+            // Broadcast completion status for live transcript
+            this.broadcastStreamMessage({
+              kind: 'status',
+              content: 'Analysis complete',
+              timestamp: Date.now(),
+            });
+
             const resultText = message.result || fullText;
             return this.parseAnalysisResponse(resultText);
           }
@@ -438,23 +472,26 @@ export class AgenticAnalysisService {
             const phaseSearchRegion = fullText.substring(lastPhaseCheckPos);
             const phaseMatch = phaseSearchRegion.match(/\[PHASE:(\w+)\]/);
             if (phaseMatch) {
-              const phase = phaseMatch[1] as AnalysisPhase;
+              const rawPhase = phaseMatch[1];
               lastPhaseCheckPos =
                 lastPhaseCheckPos +
                 (phaseMatch.index ?? 0) +
                 phaseMatch[0].length;
-              if (currentPhase && !completedPhases.includes(currentPhase)) {
-                completedPhases.push(currentPhase);
+              if (VALID_PHASES.includes(rawPhase as AnalysisPhase)) {
+                const phase = rawPhase as AnalysisPhase;
+                if (currentPhase && !completedPhases.includes(currentPhase)) {
+                  completedPhases.push(currentPhase);
+                }
+                currentPhase = phase;
+                this.broadcastProgress({
+                  filesScanned: 0,
+                  totalFiles: 0,
+                  detections,
+                  currentPhase: phase,
+                  phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
+                  completedPhases: [...completedPhases],
+                });
               }
-              currentPhase = phase;
-              this.broadcastProgress({
-                filesScanned: 0,
-                totalFiles: 0,
-                detections,
-                currentPhase: phase,
-                phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
-                completedPhases: [...completedPhases],
-              });
             }
 
             // Detection markers: [DETECTED:Angular], [DETECTED:TypeScript], etc.
@@ -514,23 +551,26 @@ export class AgenticAnalysisService {
             );
             const phaseMatch = phaseSearchRegion.match(/\[PHASE:(\w+)\]/);
             if (phaseMatch) {
-              const phase = phaseMatch[1] as AnalysisPhase;
+              const rawPhase = phaseMatch[1];
               lastPhaseCheckPosToolInput =
                 lastPhaseCheckPosToolInput +
                 (phaseMatch.index ?? 0) +
                 phaseMatch[0].length;
-              if (currentPhase && !completedPhases.includes(currentPhase)) {
-                completedPhases.push(currentPhase);
+              if (VALID_PHASES.includes(rawPhase as AnalysisPhase)) {
+                const phase = rawPhase as AnalysisPhase;
+                if (currentPhase && !completedPhases.includes(currentPhase)) {
+                  completedPhases.push(currentPhase);
+                }
+                currentPhase = phase;
+                this.broadcastProgress({
+                  filesScanned: 0,
+                  totalFiles: 0,
+                  detections,
+                  currentPhase: phase,
+                  phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
+                  completedPhases: [...completedPhases],
+                });
               }
-              currentPhase = phase;
-              this.broadcastProgress({
-                filesScanned: 0,
-                totalFiles: 0,
-                detections,
-                currentPhase: phase,
-                phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
-                completedPhases: [...completedPhases],
-              });
             }
 
             // Detection markers in tool input
@@ -572,25 +612,33 @@ export class AgenticAnalysisService {
             event.type === 'content_block_delta' &&
             event.delta.type === 'thinking_delta'
           ) {
-            const thinkingPreview = event.delta.thinking.substring(0, 120);
-            this.broadcastProgress({
-              filesScanned: 0,
-              totalFiles: 0,
-              detections: [...detections],
-              currentPhase,
-              phaseLabel: currentPhase
-                ? PHASE_LABELS[currentPhase]
-                : 'Analyzing...',
-              agentReasoning: `Thinking: ${thinkingPreview}...`,
-              completedPhases: [...completedPhases],
-            });
+            // Throttle thinking_delta broadcasts to avoid flooding the frontend
+            const now = Date.now();
+            if (
+              now - lastThinkingBroadcastTime >=
+              THINKING_BROADCAST_THROTTLE_MS
+            ) {
+              lastThinkingBroadcastTime = now;
+              const thinkingPreview = event.delta.thinking.substring(0, 120);
+              this.broadcastProgress({
+                filesScanned: 0,
+                totalFiles: 0,
+                detections: [...detections],
+                currentPhase,
+                phaseLabel: currentPhase
+                  ? PHASE_LABELS[currentPhase]
+                  : 'Analyzing...',
+                agentReasoning: `Thinking: ${thinkingPreview}...`,
+                completedPhases: [...completedPhases],
+              });
 
-            // Task 2.5: Broadcast thinking for live transcript
-            this.broadcastStreamMessage({
-              kind: 'thinking',
-              content: event.delta.thinking,
-              timestamp: Date.now(),
-            });
+              // Broadcast thinking for live transcript
+              this.broadcastStreamMessage({
+                kind: 'thinking',
+                content: event.delta.thinking,
+                timestamp: now,
+              });
+            }
           }
 
           // ================================================================
@@ -678,6 +726,12 @@ export class AgenticAnalysisService {
 
               // Cleanup: remove completed block from tracking map
               activeToolBlocks.delete(event.index);
+
+              // Reset tool input buffer for next tool call to prevent
+              // cross-tool accumulation of input data and stale cursor positions
+              toolInputBuffer = '';
+              lastPhaseCheckPosToolInput = 0;
+              lastDetectionCheckPosToolInput = 0;
             }
           }
         }
@@ -698,18 +752,22 @@ export class AgenticAnalysisService {
               blockText = block.text;
             } else if (block.type === 'tool_use') {
               blockText = JSON.stringify(block.input);
-
-              // Task 2.5: Broadcast tool_input from complete message for live transcript
+              // Note: tool_input broadcast handled by content_block_stop handler
+              // to avoid duplicate broadcasts (real-time accumulated data is preferred)
+            } else if (block.type === 'tool_result') {
+              // Broadcast tool_result for live transcript
+              const resultContent =
+                typeof block.content === 'string'
+                  ? block.content.substring(0, 2000)
+                  : JSON.stringify(block.content).substring(0, 2000);
               this.broadcastStreamMessage({
-                kind: 'tool_input',
-                content: JSON.stringify(block.input, null, 2).substring(
-                  0,
-                  2000
-                ),
-                toolName: block.name,
-                toolCallId: block.id,
+                kind: 'tool_result',
+                content: resultContent,
+                toolCallId: block.tool_use_id,
+                isError: block.is_error ?? false,
                 timestamp: Date.now(),
               });
+              blockText = resultContent;
             }
 
             if (!blockText) continue;
@@ -717,7 +775,9 @@ export class AgenticAnalysisService {
             // Phase markers in complete content blocks
             const phaseMatches = [...blockText.matchAll(/\[PHASE:(\w+)\]/g)];
             for (const match of phaseMatches) {
-              const phase = match[1] as AnalysisPhase;
+              const rawPhase = match[1];
+              if (!VALID_PHASES.includes(rawPhase as AnalysisPhase)) continue;
+              const phase = rawPhase as AnalysisPhase;
               if (currentPhase && !completedPhases.includes(currentPhase)) {
                 completedPhases.push(currentPhase);
               }
