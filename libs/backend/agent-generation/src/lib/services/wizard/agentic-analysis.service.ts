@@ -23,7 +23,10 @@ import {
   type WebviewManager,
 } from '@ptah-extension/vscode-core';
 import { Result, MESSAGE_TYPES } from '@ptah-extension/shared';
-import type { AnalysisPhase } from '@ptah-extension/shared';
+import type {
+  AnalysisPhase,
+  AnalysisStreamPayload,
+} from '@ptah-extension/shared';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
@@ -60,6 +63,21 @@ const PHASE_LABELS: Record<AnalysisPhase, string> = {
   health: 'Assessing code health...',
   quality: 'Evaluating code quality...',
 };
+
+/**
+ * Heuristic mapping from tool call count to implicit analysis phase.
+ * Used when the agent fails to emit explicit [PHASE:X] markers.
+ * Only applied when currentPhase is undefined (explicit markers take priority).
+ */
+const TOOL_COUNT_PHASE_HEURISTIC: Record<number, AnalysisPhase> = {
+  1: 'discovery',
+  2: 'discovery',
+  3: 'architecture',
+  4: 'architecture',
+  5: 'health',
+  6: 'health',
+};
+// 7+ defaults to 'quality'
 
 // ============================================================================
 // Analysis System Prompt
@@ -313,18 +331,43 @@ export class AgenticAnalysisService {
 
   /**
    * Process the SDK message stream, extract progress, and parse the final result.
+   *
+   * Extracts phase/detection markers from three sources (defense-in-depth):
+   * 1. text_delta events (primary - agent's direct text output)
+   * 2. input_json_delta events (fallback - markers inside tool call code)
+   * 3. assistant messages (final sweep - markers in complete content blocks)
+   *
+   * Also broadcasts real-time stream messages via broadcastStreamMessage for
+   * the frontend analysis transcript component.
    */
   private async processStream(
     stream: AsyncIterable<SDKMessage>,
     abortController: AbortController,
     timeoutMs: number
   ): Promise<Result<DeepProjectAnalysis, Error>> {
+    // -- Text accumulation and marker extraction state --
     let fullText = '';
     const detections: string[] = [];
     const completedPhases: AnalysisPhase[] = [];
     let currentPhase: AnalysisPhase | undefined;
     let lastPhaseCheckPos = 0;
     let lastDetectionCheckPos = 0;
+
+    // -- Task 2.1: Tool input buffer for input_json_delta marker extraction --
+    let toolInputBuffer = '';
+    let lastPhaseCheckPosToolInput = 0;
+    let lastDetectionCheckPosToolInput = 0;
+
+    // -- Task 2.3: Tool call heuristics and active block tracking --
+    let toolCallCount = 0;
+    const activeToolBlocks = new Map<
+      number,
+      { name: string; inputBuffer: string }
+    >();
+
+    // -- Task 2.5: Throttle state for text_delta broadcasts --
+    let lastTextBroadcastTime = 0;
+    const TEXT_BROADCAST_THROTTLE_MS = 100;
 
     const timeoutId = setTimeout(() => {
       this.logger.warn(
@@ -367,13 +410,26 @@ export class AgenticAnalysisService {
         if (message.type === 'stream_event') {
           const event = message.event;
 
-          // Text deltas — extract progress markers
+          // ================================================================
+          // Text deltas -- extract progress markers (primary extraction path)
+          // ================================================================
           if (
             event.type === 'content_block_delta' &&
             event.delta.type === 'text_delta'
           ) {
             const text = event.delta.text;
             fullText += text;
+
+            // Task 2.5: Throttled text broadcast for live transcript
+            const now = Date.now();
+            if (now - lastTextBroadcastTime >= TEXT_BROADCAST_THROTTLE_MS) {
+              lastTextBroadcastTime = now;
+              this.broadcastStreamMessage({
+                kind: 'text',
+                content: text,
+                timestamp: now,
+              });
+            }
 
             // Phase markers: [PHASE:discovery], [PHASE:architecture], etc.
             // Match against accumulated fullText (not individual chunks) to handle
@@ -436,11 +492,138 @@ export class AgenticAnalysisService {
             }
           }
 
-          // Tool use — show agent reasoning
+          // ================================================================
+          // Task 2.1: input_json_delta -- extract markers from tool call code
+          // (defense-in-depth: catches markers agent puts inside MCP tool input)
+          // ================================================================
+          if (
+            event.type === 'content_block_delta' &&
+            event.delta.type === 'input_json_delta'
+          ) {
+            toolInputBuffer += event.delta.partial_json;
+
+            // Task 2.3: Accumulate input in per-block tracker for tool naming
+            const activeBlock = activeToolBlocks.get(event.index);
+            if (activeBlock) {
+              activeBlock.inputBuffer += event.delta.partial_json;
+            }
+
+            // Phase markers in tool input
+            const phaseSearchRegion = toolInputBuffer.substring(
+              lastPhaseCheckPosToolInput
+            );
+            const phaseMatch = phaseSearchRegion.match(/\[PHASE:(\w+)\]/);
+            if (phaseMatch) {
+              const phase = phaseMatch[1] as AnalysisPhase;
+              lastPhaseCheckPosToolInput =
+                lastPhaseCheckPosToolInput +
+                (phaseMatch.index ?? 0) +
+                phaseMatch[0].length;
+              if (currentPhase && !completedPhases.includes(currentPhase)) {
+                completedPhases.push(currentPhase);
+              }
+              currentPhase = phase;
+              this.broadcastProgress({
+                filesScanned: 0,
+                totalFiles: 0,
+                detections,
+                currentPhase: phase,
+                phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
+                completedPhases: [...completedPhases],
+              });
+            }
+
+            // Detection markers in tool input
+            const detectionSearchRegion = toolInputBuffer.substring(
+              lastDetectionCheckPosToolInput
+            );
+            const detectionMatches = [
+              ...detectionSearchRegion.matchAll(/\[DETECTED:(.+?)\]/g),
+            ];
+            for (const match of detectionMatches) {
+              const detection = match[1];
+              if (!detections.includes(detection)) {
+                detections.push(detection);
+                this.broadcastProgress({
+                  filesScanned: 0,
+                  totalFiles: 0,
+                  detections: [...detections],
+                  currentPhase,
+                  phaseLabel: currentPhase
+                    ? PHASE_LABELS[currentPhase]
+                    : undefined,
+                  completedPhases: [...completedPhases],
+                });
+              }
+            }
+            if (detectionMatches.length > 0) {
+              const lastMatch = detectionMatches[detectionMatches.length - 1];
+              lastDetectionCheckPosToolInput =
+                lastDetectionCheckPosToolInput +
+                (lastMatch.index ?? 0) +
+                lastMatch[0].length;
+            }
+          }
+
+          // ================================================================
+          // Task 2.3: thinking_delta -- broadcast thinking previews
+          // ================================================================
+          if (
+            event.type === 'content_block_delta' &&
+            event.delta.type === 'thinking_delta'
+          ) {
+            const thinkingPreview = event.delta.thinking.substring(0, 120);
+            this.broadcastProgress({
+              filesScanned: 0,
+              totalFiles: 0,
+              detections: [...detections],
+              currentPhase,
+              phaseLabel: currentPhase
+                ? PHASE_LABELS[currentPhase]
+                : 'Analyzing...',
+              agentReasoning: `Thinking: ${thinkingPreview}...`,
+              completedPhases: [...completedPhases],
+            });
+
+            // Task 2.5: Broadcast thinking for live transcript
+            this.broadcastStreamMessage({
+              kind: 'thinking',
+              content: event.delta.thinking,
+              timestamp: Date.now(),
+            });
+          }
+
+          // ================================================================
+          // Task 2.3: Enhanced tool_use content_block_start with heuristics
+          // ================================================================
           if (
             event.type === 'content_block_start' &&
             event.content_block.type === 'tool_use'
           ) {
+            toolCallCount++;
+
+            // Track active tool block by index for input accumulation
+            activeToolBlocks.set(event.index, {
+              name: event.content_block.name,
+              inputBuffer: '',
+            });
+
+            // Apply implicit phase heuristic if no explicit marker has been seen
+            if (!currentPhase) {
+              const implicitPhase =
+                TOOL_COUNT_PHASE_HEURISTIC[toolCallCount] || 'quality';
+              currentPhase = implicitPhase;
+              this.broadcastProgress({
+                filesScanned: 0,
+                totalFiles: 0,
+                detections,
+                currentPhase: implicitPhase,
+                phaseLabel: PHASE_LABELS[implicitPhase],
+                completedPhases: [...completedPhases],
+              });
+            }
+
+            // Broadcast tool name for progress display
             this.broadcastProgress({
               filesScanned: 0,
               totalFiles: 0,
@@ -450,15 +633,128 @@ export class AgenticAnalysisService {
               agentReasoning: `Using: ${event.content_block.name}...`,
               completedPhases: [...completedPhases],
             });
+
+            // Task 2.5: Broadcast tool_start for live transcript
+            this.broadcastStreamMessage({
+              kind: 'tool_start',
+              content: `Calling ${event.content_block.name}`,
+              toolName: event.content_block.name,
+              toolCallId: event.content_block.id,
+              timestamp: Date.now(),
+            });
+          }
+
+          // ================================================================
+          // Task 2.3: content_block_stop -- improved tool naming + cleanup
+          // ================================================================
+          if (event.type === 'content_block_stop') {
+            const completedBlock = activeToolBlocks.get(event.index);
+            if (completedBlock) {
+              // Try to extract ptah.* API call from accumulated input
+              const ptahApiMatch =
+                completedBlock.inputBuffer.match(/ptah\.(\w+)\.(\w+)\(/);
+              if (ptahApiMatch) {
+                const apiLabel = `ptah.${ptahApiMatch[1]}.${ptahApiMatch[2]}()`;
+                this.broadcastProgress({
+                  filesScanned: 0,
+                  totalFiles: 0,
+                  detections: [...detections],
+                  currentPhase,
+                  phaseLabel: currentPhase
+                    ? PHASE_LABELS[currentPhase]
+                    : undefined,
+                  agentReasoning: `Analyzing: ${apiLabel}`,
+                  completedPhases: [...completedPhases],
+                });
+              }
+
+              // Task 2.5: Broadcast tool_input for live transcript (truncated to 2000 chars)
+              this.broadcastStreamMessage({
+                kind: 'tool_input',
+                content: completedBlock.inputBuffer.substring(0, 2000),
+                toolName: completedBlock.name,
+                timestamp: Date.now(),
+              });
+
+              // Cleanup: remove completed block from tracking map
+              activeToolBlocks.delete(event.index);
+            }
           }
         }
 
-        // Log assistant messages for debugging
+        // ================================================================
+        // Task 2.2: Extract markers from complete assistant message content blocks
+        // (final sweep: catches markers after a complete turn finishes)
+        // ================================================================
         if (message.type === 'assistant') {
           this.logger.debug(`${SERVICE_TAG} Assistant message`, {
             contentBlocks: message.message.content.length,
             stopReason: message.message.stop_reason,
           });
+
+          for (const block of message.message.content) {
+            let blockText = '';
+            if (block.type === 'text') {
+              blockText = block.text;
+            } else if (block.type === 'tool_use') {
+              blockText = JSON.stringify(block.input);
+
+              // Task 2.5: Broadcast tool_input from complete message for live transcript
+              this.broadcastStreamMessage({
+                kind: 'tool_input',
+                content: JSON.stringify(block.input, null, 2).substring(
+                  0,
+                  2000
+                ),
+                toolName: block.name,
+                toolCallId: block.id,
+                timestamp: Date.now(),
+              });
+            }
+
+            if (!blockText) continue;
+
+            // Phase markers in complete content blocks
+            const phaseMatches = [...blockText.matchAll(/\[PHASE:(\w+)\]/g)];
+            for (const match of phaseMatches) {
+              const phase = match[1] as AnalysisPhase;
+              if (currentPhase && !completedPhases.includes(currentPhase)) {
+                completedPhases.push(currentPhase);
+              }
+              if (currentPhase !== phase) {
+                currentPhase = phase;
+                this.broadcastProgress({
+                  filesScanned: 0,
+                  totalFiles: 0,
+                  detections,
+                  currentPhase: phase,
+                  phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
+                  completedPhases: [...completedPhases],
+                });
+              }
+            }
+
+            // Detection markers in complete content blocks
+            const detectionMatches = [
+              ...blockText.matchAll(/\[DETECTED:(.+?)\]/g),
+            ];
+            for (const match of detectionMatches) {
+              const detection = match[1];
+              if (!detections.includes(detection)) {
+                detections.push(detection);
+                this.broadcastProgress({
+                  filesScanned: 0,
+                  totalFiles: 0,
+                  detections: [...detections],
+                  currentPhase,
+                  phaseLabel: currentPhase
+                    ? PHASE_LABELS[currentPhase]
+                    : undefined,
+                  completedPhases: [...completedPhases],
+                });
+              }
+            }
+          }
         }
       }
 
@@ -560,6 +856,24 @@ export class AgenticAnalysisService {
       );
     } catch (error) {
       this.logger.debug(`${SERVICE_TAG} Failed to broadcast progress`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Broadcast a stream message to the frontend for real-time transcript display.
+   * Uses the SETUP_WIZARD_ANALYSIS_STREAM message type (separate from scan progress).
+   * Failures are silently caught (best-effort broadcasting).
+   */
+  private broadcastStreamMessage(payload: AnalysisStreamPayload): void {
+    try {
+      this.webviewManager.broadcastMessage(
+        MESSAGE_TYPES.SETUP_WIZARD_ANALYSIS_STREAM,
+        payload
+      );
+    } catch (error) {
+      this.logger.debug(`${SERVICE_TAG} Failed to broadcast stream message`, {
         error: error instanceof Error ? error.message : String(error),
       });
     }
