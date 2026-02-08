@@ -2,13 +2,15 @@
 # DigitalOcean App Platform Specification
 # =============================================================================
 #
-# This file defines the infrastructure for Ptah production deployment.
+# This file defines the static site hosting on App Platform.
 #
 # ARCHITECTURE:
-#   - Static Site: ptah-landing-page (Angular) -> ptah.live
-#   - Web Service: ptah-license-server (NestJS) -> api.ptah.live
-#   - Database: Neon PostgreSQL (external, free tier)
-#   - Redis: NOT NEEDED (using in-memory storage for single instance)
+#   - Static Site: ptah-landing-page (Angular) -> ptah.live (App Platform, free)
+#   - API Server: ptah-license-server (NestJS) -> api.ptah.live (DO Droplet)
+#   - Database: Self-hosted PostgreSQL 16 (DO Droplet)
+#
+# The API and database run on a $6/month Droplet via docker-compose.prod.yml.
+# Only the landing page uses App Platform (free static site hosting).
 #
 # DEPLOYMENT:
 #   doctl apps create --spec .do/app.yaml
@@ -16,7 +18,7 @@
 # UPDATE:
 #   doctl apps update <APP_ID> --spec .do/app.yaml
 #
-# COST: ~$5/month (+ domain ~$12/year)
+# COST: ~$6/month (Droplet $6 + Domain ~$12/year)
 #
 # =============================================================================
 
@@ -45,115 +47,6 @@ static_sites:
       - key: NODE_ENV
         scope: BUILD_TIME
         value: production
-
-# =============================================================================
-# Web Service: License Server (NestJS)
-# =============================================================================
-# $5/month - apps-s-1vcpu-0.5gb (512MB RAM)
-# Handles authentication, licensing, and Paddle webhooks
-#
-services:
-  - name: api
-    github:
-      repo: anthropics/ptah-extension # UPDATE: Change to your repo
-      branch: main
-      deploy_on_push: true
-    source_dir: /
-    dockerfile_path: apps/ptah-license-server/Dockerfile
-    http_port: 3000
-    instance_size_slug: apps-s-1vcpu-0.5gb # $5/month, 512MB RAM
-    instance_count: 1
-    routes:
-      - path: /api
-        preserve_path_prefix: true
-    health_check:
-      http_path: /api
-      initial_delay_seconds: 30
-      period_seconds: 10
-      timeout_seconds: 5
-      success_threshold: 1
-      failure_threshold: 3
-
-    # -------------------------------------------------------------------------
-    # Environment Variables
-    # -------------------------------------------------------------------------
-    # IMPORTANT: Set SECRET values in DigitalOcean console, not here
-    #
-    envs:
-      # Server Configuration
-      - key: NODE_ENV
-        scope: RUN_TIME
-        value: production
-      - key: PORT
-        scope: RUN_TIME
-        value: '3000'
-      - key: FRONTEND_URL
-        scope: RUN_TIME
-        value: https://ptah.live
-
-      # Database (Neon PostgreSQL - FREE tier, Azure East US 2)
-      # Set this in DO console with your Neon PRODUCTION branch connection string
-      # Format: postgresql://neondb_owner:pass@ep-xxx-pooler.eastus2.azure.neon.tech/neondb?sslmode=require
-      - key: DATABASE_URL
-        scope: RUN_TIME
-        type: SECRET
-
-      # JWT Authentication
-      # Generate with: openssl rand -hex 32
-      - key: JWT_SECRET
-        scope: RUN_TIME
-        type: SECRET
-      - key: JWT_EXPIRATION
-        scope: RUN_TIME
-        value: '7d'
-
-      # Admin API Key
-      # Generate with: openssl rand -hex 32
-      - key: ADMIN_API_KEY
-        scope: RUN_TIME
-        type: SECRET
-
-      # WorkOS Authentication
-      - key: WORKOS_API_KEY
-        scope: RUN_TIME
-        type: SECRET
-      - key: WORKOS_CLIENT_ID
-        scope: RUN_TIME
-        type: SECRET
-      - key: WORKOS_REDIRECT_URI
-        scope: RUN_TIME
-        value: https://api.ptah.live/api/auth/callback
-
-      # Paddle Payment Processing
-      - key: PADDLE_API_KEY
-        scope: RUN_TIME
-        type: SECRET
-      - key: PADDLE_WEBHOOK_SECRET
-        scope: RUN_TIME
-        type: SECRET
-      - key: PADDLE_PRICE_ID_PRO_MONTHLY
-        scope: RUN_TIME
-        type: SECRET
-      - key: PADDLE_PRICE_ID_PRO_YEARLY
-        scope: RUN_TIME
-        type: SECRET
-
-      # SendGrid Email
-      - key: SENDGRID_API_KEY
-        scope: RUN_TIME
-        type: SECRET
-      - key: SENDGRID_FROM_EMAIL
-        scope: RUN_TIME
-        value: ptah@nghive.tech
-      - key: SENDGRID_FROM_NAME
-        scope: RUN_TIME
-        value: Ptah Team
-
-      # Magic Link Configuration
-      - key: MAGIC_LINK_TTL_MS
-        scope: RUN_TIME
-        value: '300000' # 5 minutes for production (slower email delivery)
-
 # =============================================================================
 # Domains
 # =============================================================================
@@ -163,16 +56,5 @@ services:
 #   - domain: ptah.live
 #     type: PRIMARY
 #     zone: ptah.live
-#   - domain: api.ptah.live
-#     type: PRIMARY
-#     zone: ptah.live
 #   - domain: www.ptah.live
 #     type: ALIAS
-
-# =============================================================================
-# Alerts (Optional)
-# =============================================================================
-# alerts:
-#   - rule: DEPLOYMENT_FAILED
-#   - rule: DOMAIN_FAILED
-#   - rule: DEPLOYMENT_LIVE

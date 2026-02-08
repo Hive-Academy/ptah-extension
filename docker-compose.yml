@@ -2,79 +2,72 @@
 # Ptah Extension - Docker Compose Development Environment
 # =============================================================================
 #
-# This Docker Compose configuration provides a local development environment
-# for the Ptah License Server with:
-#   - License Server (NestJS application with hot-reload)
-#   - ngrok (webhook tunnel for Paddle testing)
-#
-# DATABASE: Uses Neon PostgreSQL (cloud) - no local database required!
-#   - Create free account at https://neon.tech
-#   - Create a "development" branch for local dev
-#   - Set DATABASE_URL in apps/ptah-license-server/.env
+# Local development environment with PostgreSQL and license server.
 #
 # QUICK START:
-#   1. Create Neon account and project at https://neon.tech
-#   2. Copy apps/ptah-license-server/.env.example to .env
-#   3. Set DATABASE_URL to your Neon development branch connection string
-#   4. Run: docker-compose up -d
-#   5. Access API at http://localhost:3000/api
+#   1. Copy apps/ptah-license-server/.env.example to .env
+#   2. Run: docker compose up -d
+#   3. Access API at http://localhost:3000/api
 #
 # WITH NGROK (for Paddle webhook testing):
-#   1. Get ngrok authtoken from https://dashboard.ngrok.com
-#   2. Set NGROK_AUTHTOKEN in root .env file
-#   3. Run: docker-compose --profile webhook-testing up -d
-#   4. Get public URL: docker-compose logs ngrok | grep "url="
-#   5. Configure Paddle webhook: https://YOUR-URL.ngrok.io/webhooks/paddle
-#
-# TROUBLESHOOTING:
-#   - Check logs: docker-compose logs -f license-server
-#   - Restart: docker-compose restart license-server
-#   - Full rebuild: docker-compose down && docker-compose up -d --build
+#   1. Set NGROK_AUTHTOKEN in root .env file
+#   2. Run: docker compose --profile webhook-testing up -d
+#   3. Get public URL: docker compose logs ngrok | grep "url="
 #
 # =============================================================================
 
 services:
   # ---------------------------------------------------------------------------
+  # PostgreSQL 16 - Local Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: ptah_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ptah
+      POSTGRES_PASSWORD: ptah_dev_password
+      POSTGRES_DB: ptah_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ptah -d ptah_db']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ptah-network
+
+  # ---------------------------------------------------------------------------
   # License Server - NestJS Application
   # ---------------------------------------------------------------------------
-  # Main application handling:
-  #   - License verification and generation
-  #   - WorkOS authentication (PKCE)
-  #   - Paddle payment webhooks
-  #   - User management
-  #
-  # Connects to Neon PostgreSQL (cloud database)
-  # Hot-reload enabled via volume mount
-  #
   license-server:
     build:
       context: .
       dockerfile: apps/ptah-license-server/Dockerfile.dev
     container_name: ptah_license_server
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file:
       - apps/ptah-license-server/.env
     environment:
-      # DATABASE_URL comes from .env file (Neon connection string)
-      # Do NOT override here - let .env control the database connection
+      DATABASE_URL: postgresql://ptah:ptah_dev_password@postgres:5432/ptah_db
       NODE_ENV: development
-      # Disable Nx daemon - it doesn't work in Docker containers
       NX_DAEMON: 'false'
     volumes:
-      # Mount source code for hot-reload
       - ./apps/ptah-license-server/src:/app/apps/ptah-license-server/src:delegated
-      # Mount Prisma schema for migrations
       - ./apps/ptah-license-server/prisma:/app/apps/ptah-license-server/prisma:delegated
-      # Mount Prisma config file
       - ./apps/ptah-license-server/prisma.config.ts:/app/apps/ptah-license-server/prisma.config.ts:delegated
-      # Use named volume for node_modules to prevent OS filesystem overhead
       - license-server-node-modules:/app/node_modules
     ports:
       - '${LICENSE_SERVER_PORT:-3000}:3000'
-    # Run Prisma migrations before starting the server
     command: >
       sh -c "
-        echo 'Connecting to Neon PostgreSQL...' &&
+        echo 'Waiting for PostgreSQL...' &&
         cd apps/ptah-license-server &&
         echo 'Running database migrations...' &&
         npx prisma migrate deploy &&
@@ -90,19 +83,6 @@ services:
   # ---------------------------------------------------------------------------
   # ngrok - Webhook Tunnel for Paddle Testing
   # ---------------------------------------------------------------------------
-  # Exposes the license server to the internet via HTTPS tunnel
-  # Required for testing Paddle webhooks locally
-  #
-  # SETUP:
-  #   1. Get free ngrok account: https://dashboard.ngrok.com/signup
-  #   2. Get your authtoken: https://dashboard.ngrok.com/get-started/your-authtoken
-  #   3. Add to root .env: NGROK_AUTHTOKEN=your_token_here
-  #   4. Start: docker-compose --profile webhook-testing up -d
-  #   5. Get URL: docker-compose logs ngrok | grep "url="
-  #   6. Configure Paddle webhook: https://YOUR-URL.ngrok.io/webhooks/paddle
-  #
-  # NOTE: Free ngrok URLs change on restart. Consider paid plan for static URLs.
-  #
   ngrok:
     image: ngrok/ngrok:latest
     container_name: ptah_ngrok
@@ -124,7 +104,8 @@ services:
 # Named Volumes
 # =============================================================================
 volumes:
-  # Node modules cache (improves Windows/macOS performance)
+  postgres-data:
+    name: ptah_postgres_data
   license-server-node-modules:
     name: ptah_license_server_node_modules
 

@@ -53,8 +53,14 @@ Thumbs.db
 # Docker Compose environment (contains local configuration)
 .env.docker
 
+# Production environment (contains secrets)
+.env.prod
+
 # Docker Compose local overrides (user-specific settings)
 docker-compose.override.yml
+
+# Database backups
+backups/
 
 # ============================================
 # License Server Environment Files

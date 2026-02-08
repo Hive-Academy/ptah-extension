@@ -17,7 +17,7 @@ import { AuthModule } from '../app/auth/auth.module';
  *
  * Dependencies:
  * - PrismaModule (database access)
- * - EmailModule (email delivery via SendGrid)
+ * - EmailModule (email delivery via Resend)
  * - ConfigModule (for admin API key validation)
  */
 @Module({

@@ -37,7 +37,6 @@ This comprehensive guide explains how to set up the Ptah License Server locally 
 ### Optional (for non-Docker setup)
 
 - **PostgreSQL 16** running locally
-- **Redis 7** running locally
 
 ---
 
@@ -53,15 +52,17 @@ cd ptah-extension
 # 2. Install dependencies
 npm install
 
-# 3. Copy environment files
-cp .env.docker.example .env.docker
+# 3. Copy environment file
 cp apps/ptah-license-server/.env.example apps/ptah-license-server/.env
 
-# 4. Start all services
-docker-compose up -d
+# 4. Start PostgreSQL (local container)
+docker compose up -d postgres
 
-# 5. Wait for services to be healthy (about 30-60 seconds)
-docker-compose ps
+# 5. Wait for PostgreSQL to be healthy (about 5-10 seconds)
+docker compose ps
+
+# 6. Start all services (PostgreSQL + license server)
+docker compose up -d
 ```
 
 **Expected output after step 5:**
@@ -69,7 +70,6 @@ docker-compose ps
 ```
 NAME                     STATUS                   PORTS
 ptah_postgres            running (healthy)        0.0.0.0:5432->5432/tcp
-ptah_redis               running (healthy)        0.0.0.0:6379->6379/tcp
 ptah_license_server      running                  0.0.0.0:3000->3000/tcp
 ```
 
@@ -85,11 +85,10 @@ curl http://localhost:3000/api
 
 After starting Docker Compose, the following services are available:
 
-| Service            | URL                     | Health Check                                       |
-| ------------------ | ----------------------- | -------------------------------------------------- |
-| **License Server** | <http://localhost:3000> | `curl http://localhost:3000/api`                   |
-| **PostgreSQL**     | localhost:5432          | `docker exec ptah_postgres pg_isready -U postgres` |
-| **Redis**          | localhost:6379          | `docker exec ptah_redis redis-cli ping`            |
+| Service            | URL                     | Health Check                                   |
+| ------------------ | ----------------------- | ---------------------------------------------- |
+| **License Server** | <http://localhost:3000> | `curl http://localhost:3000/api`               |
+| **PostgreSQL**     | localhost:5432          | `docker exec ptah_postgres pg_isready -U ptah` |
 
 ### API Endpoints
 
@@ -106,103 +105,54 @@ After starting Docker Compose, the following services are available:
 
 ## Environment Setup
 
-### Docker Environment (.env.docker)
-
-Located at project root, controls Docker Compose:
-
-```env
-# PostgreSQL
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=ptah_licenses
-POSTGRES_PORT=5432
-
-# Redis
-REDIS_PORT=6379
-
-# License Server
-LICENSE_SERVER_PORT=3000
-```
-
 ### License Server Environment (.env)
 
-Located at `apps/ptah-license-server/.env`:
+Located at `apps/ptah-license-server/.env`. Copy from `.env.example`:
+
+```bash
+cp apps/ptah-license-server/.env.example apps/ptah-license-server/.env
+```
+
+The key database configuration:
 
 ```env
 # ============================================
-# DATABASE CONFIGURATION
+# DATABASE CONFIGURATION (Local PostgreSQL)
 # ============================================
-# Docker Compose overrides this, but keep for reference
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ptah_licenses"
+# Docker Compose starts PostgreSQL automatically.
+# This URL is for running the server OUTSIDE Docker (e.g., nx serve).
+#
+# Inside Docker, DATABASE_URL is overridden by docker-compose.yml to point
+# to the PostgreSQL container.
+#
+DATABASE_URL="postgresql://ptah:ptah_dev_password@localhost:5432/ptah_db"
+```
 
-# ============================================
-# REDIS CONFIGURATION
-# ============================================
-REDIS_URL="redis://localhost:6379"
+**Note**: When running via `docker compose up`, the `DATABASE_URL` is overridden by docker-compose.yml to use the internal Docker network hostname (`postgres` instead of `localhost`). The `.env` value is only used when running the server directly with `nx serve ptah-license-server`.
 
-# ============================================
-# SERVER CONFIGURATION
-# ============================================
-PORT=3000
-NODE_ENV=development
-FRONTEND_URL=http://localhost:4200
+### Docker Compose Environment Variables
 
-# ============================================
-# JWT CONFIGURATION
-# ============================================
-# Generate with: openssl rand -hex 32
-JWT_SECRET=dev-jwt-secret-change-in-production
-JWT_EXPIRATION=7d
+The docker-compose.yml file uses these environment variable overrides (you can customize them via a root `.env` file):
 
-# ============================================
-# ADMIN API SECURITY
-# ============================================
-# Used for /api/v1/admin/* endpoints
-ADMIN_API_KEY=dev-admin-key-change-in-production
-
-# ============================================
-# WORKOS AUTHENTICATION (Optional for basic dev)
-# ============================================
-# Get from: https://dashboard.workos.com/
-WORKOS_API_KEY=sk_test_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-WORKOS_CLIENT_ID=client_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-WORKOS_REDIRECT_URI=http://localhost:3000/auth/callback
-
-# ============================================
-# PADDLE PAYMENT (Optional for basic dev)
-# ============================================
-# Get from: https://sandbox-vendors.paddle.com/
-PADDLE_API_KEY=pdl_sbox_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-PADDLE_WEBHOOK_SECRET=pdl_ntfset_XXXXXXXXXXXXXXXXXXXXXXXX
-PADDLE_PRICE_ID_EARLY_ADOPTER=pri_XXXXXXXXXXXXXXXXXXXXXXXX
-PADDLE_PRICE_ID_PRO=pri_YYYYYYYYYYYYYYYYYYYYYYYY
-
-# ============================================
-# EMAIL SERVICE (Optional for basic dev)
-# ============================================
-SENDGRID_API_KEY=SG.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-SENDGRID_FROM_EMAIL=ptah@nghive.tech
-SENDGRID_FROM_NAME=Ptah Team
-
-# ============================================
-# MAGIC LINK CONFIGURATION
-# ============================================
-MAGIC_LINK_TTL_MS=30000
+```env
+# Port overrides (optional, defaults shown)
+POSTGRES_PORT=5432
+LICENSE_SERVER_PORT=3000
 ```
 
 **Note**: For basic development (license generation/verification), you only need:
 
-- `DATABASE_URL` (handled by Docker Compose)
+- `DATABASE_URL` (handled automatically by Docker Compose)
 - `JWT_SECRET`
 - `ADMIN_API_KEY`
 
-WorkOS, Paddle, and SendGrid are optional unless testing those specific features.
+WorkOS, Paddle, and Resend are optional unless testing those specific features.
 
 ---
 
 ## Prisma Database Migrations
 
-Migrations run automatically when Docker Compose starts. For manual control:
+Migrations run automatically when Docker Compose starts the license server. For manual control:
 
 ### View Migration Status
 
@@ -359,7 +309,7 @@ For optimal Docker performance on Windows:
    cd ~
    git clone https://github.com/your-org/ptah-extension.git
    cd ptah-extension
-   docker-compose up -d
+   docker compose up -d
    ```
 
    **Important**: Projects stored in `/mnt/c/` (Windows filesystem) have significant I/O overhead. Store in `/home/user/` for 10x faster builds.
@@ -401,46 +351,32 @@ sudo systemctl start postgresql
 # Windows: Download installer from https://www.postgresql.org/download/windows/
 ```
 
-Create database:
+Create database and user:
 
 ```bash
-createdb ptah_licenses
+# Create the database user and database
+psql -U postgres -c "CREATE USER ptah WITH PASSWORD 'ptah_dev_password';"
+psql -U postgres -c "CREATE DATABASE ptah_db OWNER ptah;"
 ```
 
-### 2. Install Redis
-
-```bash
-# macOS
-brew install redis
-brew services start redis
-
-# Ubuntu/Debian
-sudo apt install redis-server
-sudo systemctl start redis
-
-# Windows: Download from https://github.com/microsoftarchive/redis/releases
-# Or use WSL2
-```
-
-### 3. Configure Environment
+### 2. Configure Environment
 
 ```bash
 cd apps/ptah-license-server
 cp .env.example .env
 
-# Edit .env with local URLs:
-# DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ptah_licenses"
-# REDIS_URL="redis://localhost:6379"
+# The default DATABASE_URL in .env.example already points to local PostgreSQL:
+# DATABASE_URL="postgresql://ptah:ptah_dev_password@localhost:5432/ptah_db"
 ```
 
-### 4. Run Migrations
+### 3. Run Migrations
 
 ```bash
 cd apps/ptah-license-server
 npx prisma migrate dev
 ```
 
-### 5. Start Server
+### 4. Start Server
 
 ```bash
 # From project root
@@ -455,15 +391,15 @@ npx nx serve ptah-license-server
 
 ```bash
 # Check logs
-docker-compose logs -f
+docker compose logs -f
 
 # Check specific service
-docker-compose logs -f postgres
-docker-compose logs -f license-server
+docker compose logs -f postgres
+docker compose logs -f license-server
 
 # Full rebuild
-docker-compose down -v
-docker-compose up -d --build
+docker compose down -v
+docker compose up -d --build
 ```
 
 ### Database Connection Refused
@@ -471,19 +407,19 @@ docker-compose up -d --build
 1. **Check PostgreSQL is healthy**:
 
    ```bash
-   docker exec ptah_postgres pg_isready -U postgres
+   docker exec ptah_postgres pg_isready -U ptah
    ```
 
 2. **Verify database exists**:
 
    ```bash
-   docker exec ptah_postgres psql -U postgres -c "\l"
+   docker exec ptah_postgres psql -U ptah -d ptah_db -c "\l"
    ```
 
 3. **Check connection string format**:
 
    ```
-   postgresql://user:password@host:port/database
+   postgresql://ptah:ptah_dev_password@localhost:5432/ptah_db
    ```
 
 ### Port Already in Use
@@ -493,8 +429,8 @@ docker-compose up -d --build
 lsof -i :3000  # macOS/Linux
 netstat -ano | findstr :3000  # Windows
 
-# Kill process or change port in .env.docker
-LICENSE_SERVER_PORT=3001
+# Kill process or change port via environment variable
+LICENSE_SERVER_PORT=3001 docker compose up -d
 ```
 
 ### License Server Crashes on Start
@@ -526,7 +462,7 @@ LICENSE_SERVER_PORT=3001
 3. Restart license server after changing env vars:
 
    ```bash
-   docker-compose restart license-server
+   docker compose restart license-server
    ```
 
 ### Prisma Schema Out of Sync
@@ -537,7 +473,7 @@ docker exec ptah_license_server npx prisma generate \
   --schema=apps/ptah-license-server/prisma/schema.prisma
 
 # Or restart container (generates on start)
-docker-compose restart license-server
+docker compose restart license-server
 ```
 
 ### Hot Reload Not Working
@@ -545,7 +481,7 @@ docker-compose restart license-server
 1. **Check volume mounts**:
 
    ```bash
-   docker-compose config | grep volumes -A 10
+   docker compose config | grep volumes -A 10
    ```
 
 2. **Verify file watching**:
@@ -563,32 +499,38 @@ docker-compose restart license-server
 ### Start Everything
 
 ```bash
-docker-compose up -d
+docker compose up -d
+```
+
+### Start Only PostgreSQL (for running server via nx serve)
+
+```bash
+npm run docker:db:start
 ```
 
 ### Stop Everything
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Stop and Remove Data
 
 ```bash
-docker-compose down -v
+docker compose down -v
 ```
 
 ### View Logs
 
 ```bash
-docker-compose logs -f
-docker-compose logs -f license-server
+docker compose logs -f
+docker compose logs -f license-server
 ```
 
 ### Restart Single Service
 
 ```bash
-docker-compose restart license-server
+docker compose restart license-server
 ```
 
 ### Create License
@@ -611,13 +553,7 @@ curl -X POST http://localhost:3000/api/v1/licenses/verify \
 ### Database Shell
 
 ```bash
-docker exec -it ptah_postgres psql -U postgres -d ptah_licenses
-```
-
-### Redis Shell
-
-```bash
-docker exec -it ptah_redis redis-cli
+docker exec -it ptah_postgres psql -U ptah -d ptah_db
 ```
 
 ### Prisma Studio
@@ -628,6 +564,6 @@ cd apps/ptah-license-server && npx prisma studio
 
 ---
 
-**Document Version**: 2.0
-**Last Updated**: 2026-01-22
-**Author**: Backend Developer (Orchestration Workflow)
+**Document Version**: 3.0
+**Last Updated**: 2026-02-08
+**Author**: DevOps Engineer (Orchestration Workflow)

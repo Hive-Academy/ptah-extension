@@ -1,13 +1,12 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { MailDataRequired } from '@sendgrid/mail';
 import {
-  SENDGRID_MAIL_SERVICE,
-  SendGridMailService,
-} from '../providers/sendgrid.provider';
+  RESEND_MAIL_SERVICE,
+  ResendMailService,
+} from '../providers/resend.provider';
 
 /**
- * EmailService - SendGrid email delivery with retry logic
+ * EmailService - Resend email delivery with retry logic
  *
  * Features:
  * - License key email delivery with setup instructions
@@ -16,9 +15,9 @@ import {
  * - Graceful error handling (throws after 3 failures)
  *
  * Configuration (environment variables):
- * - SENDGRID_API_KEY: SendGrid API key (required)
- * - SENDGRID_FROM_EMAIL: Sender email address
- * - SENDGRID_FROM_NAME: Sender display name
+ * - RESEND_API_KEY: Resend API key (required)
+ * - FROM_EMAIL: Sender email address
+ * - FROM_NAME: Sender display name
  * - FRONTEND_URL: Customer portal URL for links
  */
 @Injectable()
@@ -27,10 +26,10 @@ export class EmailService {
 
   constructor(
     private readonly config: ConfigService,
-    @Inject(SENDGRID_MAIL_SERVICE)
-    private readonly mailService: SendGridMailService
+    @Inject(RESEND_MAIL_SERVICE)
+    private readonly mailService: ResendMailService
   ) {
-    this.logger.log('Email service initialized with SendGrid');
+    this.logger.log('Email service initialized with Resend');
   }
 
   /**
@@ -47,13 +46,12 @@ export class EmailService {
   }): Promise<void> {
     const { email, licenseKey, plan, expiresAt } = params;
 
-    const msg: MailDataRequired = {
-      to: email,
-      from: {
-        email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
-        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
-      },
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
       subject: 'Your Ptah Premium License Key',
       html: this.getLicenseKeyTemplate({ licenseKey, plan, expiresAt }),
     };
@@ -75,13 +73,12 @@ export class EmailService {
   }): Promise<void> {
     const { email, magicLink } = params;
 
-    const msg: MailDataRequired = {
-      to: email,
-      from: {
-        email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
-        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
-      },
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
       subject: 'Login to Ptah Portal',
       html: this.getMagicLinkTemplate({ magicLink }),
     };
@@ -97,31 +94,32 @@ export class EmailService {
    * Retry delays: 1s, 2s, 4s
    *
    * @private
-   * @param msg - SendGrid message object
+   * @param msg - Resend message object
    * @param attempts - Number of retry attempts
    * @throws Error if all attempts fail
    */
   private async sendWithRetry(
-    msg: MailDataRequired,
+    msg: { from: string; to: string[]; subject: string; html: string },
     attempts: number
   ): Promise<void> {
     for (let i = 0; i < attempts; i++) {
       try {
-        await this.mailService.send(msg);
-        return; // Success - exit retry loop
+        const { error } = await this.mailService.emails.send(msg);
+        if (error) {
+          throw new Error(error.message);
+        }
+        return;
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : 'Unknown error';
 
         if (i === attempts - 1) {
-          // Last attempt failed - throw error
           this.logger.error(
             `Email send failed after ${attempts} attempts: ${errorMessage}`
           );
           throw error;
         }
 
-        // Retry with exponential backoff: 2^i * 1000ms (1s, 2s, 4s)
         const delayMs = Math.pow(2, i) * 1000;
         this.logger.warn(
           `Email send attempt ${
@@ -276,13 +274,12 @@ export class EmailService {
   }): Promise<void> {
     const { email, firstName, trialEnd } = params;
 
-    const msg: MailDataRequired = {
-      to: email,
-      from: {
-        email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
-        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
-      },
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
       subject: 'Your Ptah Pro trial ends in 7 days',
       html: this.getTrialReminder7DayTemplate({ firstName, trialEnd }),
     };
@@ -305,13 +302,12 @@ export class EmailService {
   }): Promise<void> {
     const { email, firstName, trialEnd } = params;
 
-    const msg: MailDataRequired = {
-      to: email,
-      from: {
-        email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
-        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
-      },
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
       subject: '3 days left in your Ptah Pro trial',
       html: this.getTrialReminder3DayTemplate({ firstName, trialEnd }),
     };
@@ -334,13 +330,12 @@ export class EmailService {
   }): Promise<void> {
     const { email, firstName, trialEnd } = params;
 
-    const msg: MailDataRequired = {
-      to: email,
-      from: {
-        email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
-        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
-      },
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
       subject: 'Your Ptah Pro trial ends tomorrow',
       html: this.getTrialReminder1DayTemplate({ firstName, trialEnd }),
     };
@@ -362,13 +357,12 @@ export class EmailService {
   }): Promise<void> {
     const { email, firstName } = params;
 
-    const msg: MailDataRequired = {
-      to: email,
-      from: {
-        email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
-        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
-      },
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
       subject: 'Your Ptah Pro trial has ended',
       html: this.getTrialExpiredTemplate({ firstName }),
     };
@@ -392,13 +386,12 @@ export class EmailService {
   }): Promise<void> {
     const { email, firstName } = params;
 
-    const msg: MailDataRequired = {
-      to: email,
-      from: {
-        email:
-          this.config.get<string>('SENDGRID_FROM_EMAIL') || 'ptah@nghive.tech',
-        name: this.config.get<string>('SENDGRID_FROM_NAME') || 'Ptah Team',
-      },
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [email],
       subject: "Welcome to Ptah Community - You're all set!",
       html: this.getTrialDowngradedToCommunityTemplate({ firstName }),
     };

@@ -2,31 +2,31 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EmailService } from './services/email.service';
 import {
-  SendGridMailProvider,
-  SENDGRID_MAIL_SERVICE,
-} from './providers/sendgrid.provider';
+  ResendMailProvider,
+  RESEND_MAIL_SERVICE,
+} from './providers/resend.provider';
 
 /**
  * EmailModule - Email delivery services for license server
  *
  * Provides:
- * - SendGrid mail client (properly initialized via DI)
+ * - Resend mail client (properly initialized via DI)
  * - EmailService for email delivery with retry logic
  * - License key email delivery
  * - Magic link email delivery
  *
  * Dependencies:
- * - ConfigModule (for SENDGRID_API_KEY, SENDGRID_FROM_EMAIL, etc.)
+ * - ConfigModule (for RESEND_API_KEY, FROM_EMAIL, etc.)
  *
  * Configuration Required:
- * - SENDGRID_API_KEY: SendGrid API key
- * - SENDGRID_FROM_EMAIL: Sender email address
- * - SENDGRID_FROM_NAME: Sender display name
+ * - RESEND_API_KEY: Resend API key
+ * - FROM_EMAIL: Sender email address
+ * - FROM_NAME: Sender display name
  * - FRONTEND_URL: Customer portal URL
  */
 @Module({
   imports: [ConfigModule],
-  providers: [SendGridMailProvider, EmailService],
-  exports: [EmailService, SENDGRID_MAIL_SERVICE],
+  providers: [ResendMailProvider, EmailService],
+  exports: [EmailService, RESEND_MAIL_SERVICE],
 })
 export class EmailModule {}

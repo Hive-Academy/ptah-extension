@@ -29,7 +29,7 @@ module.exports = {
     '@paddle/paddle-node-sdk': 'commonjs @paddle/paddle-node-sdk',
 
     // Email
-    '@sendgrid/mail': 'commonjs @sendgrid/mail',
+    resend: 'commonjs resend',
 
     // Database (Prisma has its own binary, should never be bundled)
     '@prisma/client': 'commonjs @prisma/client',

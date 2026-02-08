@@ -1,21 +1,23 @@
 # DigitalOcean Deployment Guide
 
-This guide provides step-by-step instructions for deploying Ptah to DigitalOcean App Platform with a **budget-friendly configuration** (~$6/month).
+This guide provides step-by-step instructions for deploying Ptah to production using a **DigitalOcean Droplet** (API + database) and **App Platform** (landing page).
 
 ## Table of Contents
 
 - [Cost Overview](#cost-overview)
 - [Architecture Overview](#architecture-overview)
 - [Prerequisites](#prerequisites)
-- [Step 1: Set Up Neon PostgreSQL (Free)](#step-1-set-up-neon-postgresql-free)
-- [Step 2: Configure GoDaddy Domain](#step-2-configure-godaddy-domain)
-- [Step 3: Deploy to App Platform](#step-3-deploy-to-app-platform)
-- [Step 4: Configure Environment Variables](#step-4-configure-environment-variables)
-- [Step 5: Set Up Custom Domain](#step-5-set-up-custom-domain)
-- [Step 6: Configure External Services](#step-6-configure-external-services)
-- [Monitoring & Troubleshooting](#monitoring--troubleshooting)
+- [Step 1: Create a Droplet](#step-1-create-a-droplet)
+- [Step 2: SSH and Initial Setup](#step-2-ssh-and-initial-setup)
+- [Step 3: Clone Repository and Configure](#step-3-clone-repository-and-configure)
+- [Step 4: SSL Certificate Setup](#step-4-ssl-certificate-setup)
+- [Step 5: Start the Production Stack](#step-5-start-the-production-stack)
+- [Step 6: Deploy Landing Page (App Platform)](#step-6-deploy-landing-page-app-platform)
+- [Step 7: Configure DNS](#step-7-configure-dns)
+- [Step 8: Configure External Services](#step-8-configure-external-services)
+- [Monitoring and Troubleshooting](#monitoring-and-troubleshooting)
+- [Backup Strategy](#backup-strategy)
 - [Scaling Guide](#scaling-guide)
-- [Appendix: App Platform Specification](#appendix-app-platform-specification)
 
 ---
 
@@ -23,367 +25,409 @@ This guide provides step-by-step instructions for deploying Ptah to DigitalOcean
 
 ### Budget Configuration (~$6/month)
 
-| Service                | Provider        | Tier        | Monthly Cost  |
-| ---------------------- | --------------- | ----------- | ------------- |
-| **PostgreSQL**         | Neon            | Free        | **$0**        |
-| **Backend (NestJS)**   | DO App Platform | $5 (512MB)  | **$5**        |
-| **Frontend (Angular)** | DO App Platform | Static Site | **$0**        |
-| **Domain**             | GoDaddy         | ptah.live   | **~$1**       |
-|                        |                 | **TOTAL**   | **~$6/month** |
+| Service            | Provider        | Tier         | Monthly Cost  |
+| ------------------ | --------------- | ------------ | ------------- |
+| **Droplet**        | DigitalOcean    | $6 (1GB RAM) | **$6**        |
+| **PostgreSQL**     | Self-hosted     | On Droplet   | **$0**        |
+| **License Server** | Self-hosted     | On Droplet   | **$0**        |
+| **Landing Page**   | DO App Platform | Static Site  | **$0**        |
+| **Domain**         | GoDaddy         | ptah.live    | **~$1**       |
+|                    |                 | **TOTAL**    | **~$6/month** |
 
-### Why No Redis?
+### Why Self-Hosted PostgreSQL?
 
-The license server uses **in-memory storage** for:
-
-- PKCE state (OAuth flow) - 5 minute TTL
-- Magic link tokens - 2 minute TTL
-- SSE tickets - 30 second TTL
-
-This works perfectly for **single-instance deployments**. Redis is only needed if you scale to multiple instances (horizontal scaling).
+- No cold starts (always running, unlike Neon free tier)
+- No compute hour limits
+- Full control over backups and configuration
+- Data stays on your own infrastructure
+- No vendor lock-in
 
 ### When to Upgrade
 
-| Trigger                 | Upgrade Path             | New Cost     |
-| ----------------------- | ------------------------ | ------------ |
-| Database > 400MB        | Neon Launch ($0.35/GB)   | ~$7-15/mo    |
-| Memory issues           | App Platform 1GB         | $10/mo       |
-| Need horizontal scaling | Add Redis (Upstash free) | +$0          |
-| High traffic            | Multiple instances       | +$5/instance |
+| Trigger                 | Upgrade Path              | New Cost |
+| ----------------------- | ------------------------- | -------- |
+| Memory pressure > 80%   | $12/month Droplet (2GB)   | ~$12/mo  |
+| Need horizontal scaling | Add Redis (Upstash free)  | +$0      |
+| Database > 20GB         | Managed DB or larger disk | +$15/mo  |
+| High traffic            | Load balancer + replicas  | +$12/mo  |
 
 ---
 
 ## Architecture Overview
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │         GoDaddy (Domain)            │
-                    │         ptah.live                   │
-                    └──────────────┬──────────────────────┘
-                                   │
-                    ┌──────────────▼──────────────────────┐
-                    │    DigitalOcean (Nameservers)       │
-                    │    ns1/ns2/ns3.digitalocean.com     │
-                    └──────────────┬──────────────────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              │                    │                    │
-              ▼                    ▼                    ▼
-    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-    │  ptah.live      │  │  api.ptah.live  │  │  www.ptah.live  │
-    │  (Static Site)  │  │  (Web Service)  │  │  (Redirect)     │
-    │  Landing Page   │  │  License Server │  │                 │
-    │  FREE           │  │  $5/month       │  │  FREE           │
-    └─────────────────┘  └────────┬────────┘  └─────────────────┘
-                                  │
-                    ┌─────────────▼─────────────┐
-                    │     Neon PostgreSQL       │
-                    │     (Free Tier)           │
-                    │     0.5GB storage         │
-                    │     100 compute hours/mo  │
-                    └───────────────────────────┘
+                    +-------------------------------------+
+                    |         GoDaddy (Domain)            |
+                    |         ptah.live                   |
+                    +---------------+---------------------+
+                                    |
+                    +---------------v---------------------+
+                    |    DigitalOcean (Nameservers)        |
+                    |    ns1/ns2/ns3.digitalocean.com      |
+                    +---------------+---------------------+
+                                    |
+              +---------------------+---------------------+
+              |                                           |
+              v                                           v
+    +-------------------+                     +-------------------+
+    |  ptah.live        |                     |  api.ptah.live    |
+    |  (App Platform)   |                     |  (Droplet)        |
+    |  Landing Page     |                     |  $6/month         |
+    |  FREE             |                     +-------------------+
+    +-------------------+                     |                   |
+                                              |  +-------------+ |
+                                              |  | nginx       | |
+                                              |  | (SSL/proxy) | |
+                                              |  +------+------+ |
+                                              |         |         |
+                                              |  +------v------+ |
+                                              |  | License     | |
+                                              |  | Server      | |
+                                              |  | (NestJS)    | |
+                                              |  +------+------+ |
+                                              |         |         |
+                                              |  +------v------+ |
+                                              |  | PostgreSQL  | |
+                                              |  | 16-alpine   | |
+                                              |  +-------------+ |
+                                              +-------------------+
 
     External Services:
-    ├── WorkOS (Authentication)
-    ├── Paddle (Payments)
-    └── SendGrid (Email)
+    +-- WorkOS (Authentication)
+    +-- Paddle (Payments)
+    +-- Resend (Email)
 ```
 
 ---
 
 ## Prerequisites
 
-Before deploying, ensure you have:
-
 ### 1. Accounts Required
 
-| Service          | Purpose        | Sign Up                                          |
-| ---------------- | -------------- | ------------------------------------------------ |
-| **DigitalOcean** | Hosting        | https://cloud.digitalocean.com/registrations/new |
-| **Neon**         | PostgreSQL     | https://neon.tech (free tier)                    |
-| **GoDaddy**      | Domain         | https://www.godaddy.com                          |
-| **WorkOS**       | Authentication | https://workos.com                               |
-| **Paddle**       | Payments       | https://paddle.com                               |
-| **SendGrid**     | Email          | https://sendgrid.com                             |
+| Service          | Purpose        | Sign Up                                            |
+| ---------------- | -------------- | -------------------------------------------------- |
+| **DigitalOcean** | Hosting        | <https://cloud.digitalocean.com/registrations/new> |
+| **GoDaddy**      | Domain         | <https://www.godaddy.com>                          |
+| **WorkOS**       | Authentication | <https://workos.com>                               |
+| **Paddle**       | Payments       | <https://paddle.com>                               |
+| **Resend**       | Email          | <https://resend.com>                               |
 
 ### 2. GitHub Repository
 
-Your code must be in a GitHub repository that DigitalOcean can access.
+Your code must be in a GitHub repository that DigitalOcean can access (for App Platform landing page auto-deploy).
 
-### 3. Local Tools (Optional)
+### 3. Local Tools
 
 ```bash
-# DigitalOcean CLI
+# DigitalOcean CLI (optional but recommended)
 brew install doctl  # macOS
 snap install doctl  # Linux
 
 # Authenticate
 doctl auth init
+
+# SSH key (if not already generated)
+ssh-keygen -t ed25519 -C "your-email@example.com"
 ```
 
 ---
 
-## Step 1: Set Up Neon PostgreSQL (Free)
+## Step 1: Create a Droplet
 
-### Create Neon Account & Project
+### Via Console (Recommended)
 
-1. Go to https://neon.tech and sign up (free)
-2. Click **"New Project"**
-3. Configure:
-   - **Project name**: `ptah-production`
-   - **Region**: Choose closest to your users (e.g., `us-east-1` for NYC)
-   - **PostgreSQL version**: 16 (latest)
-4. Click **"Create Project"**
+1. Go to <https://cloud.digitalocean.com/droplets/new>
+2. Configure:
 
-### Get Connection String
+| Setting            | Value                                   |
+| ------------------ | --------------------------------------- |
+| **Region**         | NYC1 (or closest to your users)         |
+| **Image**          | Ubuntu 24.04 LTS                        |
+| **Size**           | Basic > Regular > $6/mo (1GB RAM, 25GB) |
+| **Authentication** | SSH Key (add your public key)           |
+| **Hostname**       | `ptah-api`                              |
 
-1. In your Neon dashboard, go to **Connection Details**
-2. Copy the **Connection string** (pooled):
-   ```
-   postgresql://neondb_owner:xxxx@ep-xxx-xxx-123456.us-east-1.aws.neon.tech/neondb?sslmode=require
-   ```
+3. Click **Create Droplet**
+4. Note the public IP address
 
-### Important: Neon Configuration
+### Via CLI
 
-Neon provides two connection strings:
-
-| Type                 | Use For             | String Contains       |
-| -------------------- | ------------------- | --------------------- |
-| **Pooled** (default) | Application runtime | `-pooler` in hostname |
-| **Direct**           | Migrations          | No `-pooler`          |
-
-For DigitalOcean App Platform, use the **pooled connection string** since migrations run at startup via the same connection.
-
-### Neon Free Tier Limits
-
-- **0.5 GB** storage per project
-- **100 compute hours** per month
-- Auto-suspend after **5 minutes** of inactivity (cold starts ~500ms)
-- 10 branches per project
+```bash
+doctl compute droplet create ptah-api \
+  --region nyc1 \
+  --size s-1vcpu-1gb \
+  --image ubuntu-24-04-x64 \
+  --ssh-keys $(doctl compute ssh-key list --format ID --no-header | head -1)
+```
 
 ---
 
-## Step 2: Configure GoDaddy Domain
+## Step 2: SSH and Initial Setup
 
-### Option A: Delegate DNS to DigitalOcean (Recommended)
+### Connect to the Droplet
 
-This is the **recommended approach** because:
+```bash
+ssh root@YOUR_DROPLET_IP
+```
 
-- DigitalOcean handles CNAME flattening for root domain (ptah.live)
-- Automatic SSL certificate provisioning
-- Single dashboard for infrastructure + DNS
+### Install Docker and Docker Compose
 
-**Steps:**
+```bash
+# Update system
+apt update && apt upgrade -y
+
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+
+# Install Docker Compose plugin
+apt install -y docker-compose-plugin
+
+# Verify installation
+docker --version
+docker compose version
+
+# (Optional) Add non-root user
+adduser deploy
+usermod -aG docker deploy
+```
+
+### Install Git
+
+```bash
+apt install -y git
+```
+
+### Configure Firewall
+
+```bash
+ufw allow OpenSSH
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable
+```
+
+---
+
+## Step 3: Clone Repository and Configure
+
+### Clone the Repository
+
+```bash
+cd /opt
+git clone https://github.com/your-org/ptah-extension.git
+cd ptah-extension
+```
+
+### Create Production Environment File
+
+```bash
+cp .env.prod.example .env.prod
+```
+
+Edit `.env.prod` with secure values:
+
+```bash
+nano .env.prod
+```
+
+**Critical: Generate secure secrets:**
+
+```bash
+# Generate each secret
+openssl rand -hex 32  # For POSTGRES_PASSWORD
+openssl rand -hex 32  # For JWT_SECRET
+openssl rand -hex 32  # For ADMIN_API_KEY
+openssl rand -hex 32  # For ADMIN_SECRET
+```
+
+Fill in all values including WorkOS, Paddle, and Resend credentials. See `.env.prod.example` for the full list.
+
+---
+
+## Step 4: SSL Certificate Setup
+
+### Initial Certificate (Before Starting Stack)
+
+First, start only nginx with a temporary HTTP-only config to obtain the certificate:
+
+```bash
+# Start only PostgreSQL and license-server first
+docker compose -f docker-compose.prod.yml up -d postgres license-server
+
+# Start nginx (it will fail on SSL the first time if no cert exists)
+# Temporarily comment out the SSL server block in nginx/conf.d/api.conf
+# Then start nginx
+docker compose -f docker-compose.prod.yml up -d nginx
+
+# Obtain SSL certificate
+docker compose -f docker-compose.prod.yml run --rm certbot \
+  certonly --webroot -w /var/www/certbot -d api.ptah.live
+
+# Restore the full nginx config with SSL
+# Restart nginx to pick up the certificate
+docker compose -f docker-compose.prod.yml restart nginx
+```
+
+### Auto-Renewal
+
+The certbot container automatically renews certificates every 12 hours. No additional configuration is needed.
+
+### Verify SSL
+
+```bash
+curl -I https://api.ptah.live/api
+```
+
+---
+
+## Step 5: Start the Production Stack
+
+```bash
+cd /opt/ptah-extension
+
+# Start all services
+docker compose -f docker-compose.prod.yml up -d
+
+# Check status
+docker compose -f docker-compose.prod.yml ps
+
+# View logs
+docker compose -f docker-compose.prod.yml logs -f license-server
+```
+
+### Expected Output
+
+```
+NAME                       STATUS                   PORTS
+ptah_postgres_prod         running (healthy)        5432/tcp
+ptah_license_server_prod   running                  3000/tcp
+ptah_nginx                 running                  0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
+ptah_certbot               running
+```
+
+### Verify the API
+
+```bash
+curl https://api.ptah.live/api
+```
+
+---
+
+## Step 6: Deploy Landing Page (App Platform)
+
+The landing page is deployed as a free static site on App Platform.
+
+### Via Console
+
+1. Go to <https://cloud.digitalocean.com/apps>
+2. Click **Create App**
+3. **Source**: GitHub > Select `ptah-extension` repo > Branch `main`
+4. **Component**: Static Site
+
+| Setting              | Value                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| **Name**             | `landing`                                                             |
+| **Build Command**    | `npm ci && npx nx build ptah-landing-page --configuration=production` |
+| **Output Directory** | `dist/ptah-landing-page/browser`                                      |
+
+5. Click **Create Resources**
+
+### Via CLI
+
+```bash
+doctl apps create --spec .do/app.yaml
+```
+
+---
+
+## Step 7: Configure DNS
+
+### Delegate DNS to DigitalOcean (Recommended)
 
 1. **In GoDaddy:**
 
-   - Go to **My Products** → Select `ptah.live`
-   - Click **DNS** → **Nameservers** → **Change**
-   - Select **"Enter my own nameservers"**
+   - Go to **My Products** > Select `ptah.live`
+   - Click **DNS** > **Nameservers** > **Change**
+   - Select **Enter my own nameservers**
    - Add:
+
      ```
      ns1.digitalocean.com
      ns2.digitalocean.com
      ns3.digitalocean.com
      ```
+
    - Save and confirm
 
-2. **Wait for propagation** (30 min to 72 hours)
+2. **In DigitalOcean:**
+
+   - Go to **Networking** > **Domains**
+   - Add domain: `ptah.live`
+   - Add A record: `api` > Droplet IP
+   - App Platform handles the root domain for the landing page
+
+3. **Wait for propagation** (30 min to 72 hours):
 
    ```bash
-   # Check propagation status
    dig NS ptah.live
+   dig A api.ptah.live
    ```
 
-3. **In DigitalOcean:**
-   - Go to **Networking** → **Domains**
-   - Click **Add Domain**
-   - Enter: `ptah.live`
-   - DigitalOcean will manage DNS records
-
-### Option B: Keep DNS at GoDaddy
-
-If you prefer to keep DNS at GoDaddy:
-
-1. **Limitation**: GoDaddy doesn't support CNAME at root domain
-2. You'll need to use `www.ptah.live` as primary and redirect root
-3. Or use Cloudflare (free) as intermediary for CNAME flattening
-
 ---
 
-## Step 3: Deploy to App Platform
-
-### Method 1: Via Console (Recommended for First Deploy)
-
-1. Go to https://cloud.digitalocean.com/apps
-2. Click **"Create App"**
-3. **Select Source**: GitHub
-4. **Repository**: Select your `ptah-extension` repo
-5. **Branch**: `main`
-
-App Platform will auto-detect components. Configure:
-
-#### Component 1: Landing Page (Static Site)
-
-| Setting              | Value                                                                 |
-| -------------------- | --------------------------------------------------------------------- |
-| **Name**             | `landing`                                                             |
-| **Source Directory** | `/`                                                                   |
-| **Build Command**    | `npm ci && npx nx build ptah-landing-page --configuration=production` |
-| **Output Directory** | `dist/ptah-landing-page/browser`                                      |
-| **HTTP Route**       | `/`                                                                   |
-
-#### Component 2: License Server (Web Service)
-
-| Setting              | Value                                 |
-| -------------------- | ------------------------------------- |
-| **Name**             | `api`                                 |
-| **Source Directory** | `/`                                   |
-| **Dockerfile Path**  | `apps/ptah-license-server/Dockerfile` |
-| **HTTP Port**        | `3000`                                |
-| **HTTP Route**       | `/api`                                |
-| **Instance Size**    | Basic ($5/month, 512MB RAM)           |
-| **Instance Count**   | `1`                                   |
-
-### Method 2: Via CLI with App Spec
-
-```bash
-# Create app from spec file
-doctl apps create --spec .do/app.yaml
-
-# Get app ID
-doctl apps list
-
-# Update existing app
-doctl apps update <APP_ID> --spec .do/app.yaml
-```
-
----
-
-## Step 4: Configure Environment Variables
-
-In DigitalOcean App Platform console:
-
-1. Go to your app → **Settings** → **App-Level Environment Variables**
-2. Or go to **api** component → **Environment Variables**
-
-### Required Variables
-
-```yaml
-# Database (Neon)
-DATABASE_URL: 'postgresql://user:pass@ep-xxx.region.aws.neon.tech/neondb?sslmode=require'
-
-# Server
-NODE_ENV: 'production'
-PORT: '3000'
-FRONTEND_URL: 'https://ptah.live'
-
-# Security (generate with: openssl rand -hex 32)
-JWT_SECRET: '<64-char-hex>' # ENCRYPT
-ADMIN_API_KEY: '<64-char-hex>' # ENCRYPT
-
-# WorkOS
-WORKOS_API_KEY: 'sk_live_xxx' # ENCRYPT
-WORKOS_CLIENT_ID: 'client_xxx' # ENCRYPT
-WORKOS_REDIRECT_URI: 'https://api.ptah.live/api/auth/callback'
-
-# Paddle
-PADDLE_API_KEY: 'pdl_live_xxx' # ENCRYPT
-PADDLE_WEBHOOK_SECRET: 'pdl_ntfset_xxx' # ENCRYPT
-PADDLE_PRICE_ID_PRO_MONTHLY: 'pri_xxx' # ENCRYPT
-PADDLE_PRICE_ID_PRO_YEARLY: 'pri_xxx' # ENCRYPT
-
-# SendGrid
-SENDGRID_API_KEY: 'SG.xxx' # ENCRYPT
-SENDGRID_FROM_EMAIL: 'ptah@nghive.tech'
-SENDGRID_FROM_NAME: 'Ptah Team'
-
-# Magic Link
-MAGIC_LINK_TTL_MS: '300000' # 5 minutes
-```
-
-**Important**: Mark sensitive variables as **"Encrypt"** in the console.
-
----
-
-## Step 5: Set Up Custom Domain
-
-### Add Domains to App Platform
-
-1. Go to your app → **Settings** → **Domains**
-2. Click **"Add Domain"**
-
-Add these domains:
-
-| Domain          | Type                           | Component |
-| --------------- | ------------------------------ | --------- |
-| `ptah.live`     | Primary                        | landing   |
-| `api.ptah.live` | Primary                        | api       |
-| `www.ptah.live` | Alias (redirects to ptah.live) | landing   |
-
-### DNS Records (If Using DigitalOcean DNS)
-
-DigitalOcean will auto-configure records when you add domains. Verify:
-
-```bash
-dig ptah.live
-dig api.ptah.live
-```
-
-### SSL Certificates
-
-App Platform automatically provisions SSL certificates via Let's Encrypt. This happens within a few minutes of adding the domain.
-
----
-
-## Step 6: Configure External Services
+## Step 8: Configure External Services
 
 ### WorkOS Configuration
 
-1. Go to https://dashboard.workos.com
-2. **Redirects** → Add:
-   ```
-   https://api.ptah.live/api/auth/callback
-   ```
-3. **Logout URL** → Add:
-   ```
-   https://ptah.live
-   ```
+1. Go to <https://dashboard.workos.com>
+2. **Redirects** > Add: `https://api.ptah.live/api/auth/callback`
+3. **Logout URL** > Add: `https://ptah.live`
 
 ### Paddle Configuration
 
-1. Go to https://vendors.paddle.com (or sandbox)
-2. **Developer Tools** → **Webhooks** → **New Destination**
-3. Configure:
-   - **URL**: `https://api.ptah.live/webhooks/paddle`
-   - **Events**: Select all subscription events
-4. Copy the **Webhook Secret**
+1. Go to <https://vendors.paddle.com>
+2. **Developer Tools** > **Webhooks** > **New Destination**
+3. **URL**: `https://api.ptah.live/webhooks/paddle`
+4. **Events**: Select all subscription events
+5. Copy the **Webhook Secret** to `.env.prod`
 
-### SendGrid Configuration
+### Resend Configuration
 
-1. Go to https://app.sendgrid.com
-2. **Settings** → **Sender Authentication**
-3. Verify your sending domain (`nghive.tech`)
-4. **Settings** → **API Keys** → Create key with "Mail Send" permission
+1. Go to <https://resend.com>
+2. **Domains** > Add and verify `ptah.live`
+3. **API Keys** > Create key
+4. Copy the key to `.env.prod` as `RESEND_API_KEY`
 
 ---
 
-## Monitoring & Troubleshooting
+## Monitoring and Troubleshooting
 
 ### View Logs
 
 ```bash
-# Via CLI
-doctl apps logs <APP_ID> --type=run
+# All services
+docker compose -f docker-compose.prod.yml logs -f
 
-# Or in console: App → Runtime Logs
+# Specific service
+docker compose -f docker-compose.prod.yml logs -f license-server
+docker compose -f docker-compose.prod.yml logs -f postgres
+docker compose -f docker-compose.prod.yml logs -f nginx
+
+# Last 100 lines
+docker compose -f docker-compose.prod.yml logs --tail 100 license-server
 ```
 
 ### Health Check
 
-The API exposes a health endpoint:
-
 ```bash
+# API health
 curl https://api.ptah.live/api
+
+# PostgreSQL health
+docker exec ptah_postgres_prod pg_isready -U ptah -d ptah_db
+
+# Container status
+docker compose -f docker-compose.prod.yml ps
 ```
 
 ### Common Issues
@@ -394,119 +438,141 @@ curl https://api.ptah.live/api
 
 **Solutions**:
 
-- Verify DATABASE_URL is correct (pooled connection string)
-- Check Neon project is not paused (free tier auto-suspends)
-- Ensure `?sslmode=require` is in the connection string
+- Verify PostgreSQL container is healthy: `docker compose -f docker-compose.prod.yml ps postgres`
+- Check DATABASE_URL in `.env.prod` matches docker-compose credentials
+- Restart the stack: `docker compose -f docker-compose.prod.yml restart`
 
-#### 2. Memory Errors (512MB limit)
+#### 2. Memory Pressure (1GB Droplet)
 
-**Symptom**: App crashes, "JavaScript heap out of memory"
-
-**Solutions**:
-
-- Verify `NODE_OPTIONS="--max-old-space-size=400"` is set
-- Check for memory leaks in logs
-- Upgrade to 1GB instance ($10/month) if needed
-
-#### 3. Cold Starts (Neon)
-
-**Symptom**: First request after inactivity takes 500ms-2s
-
-**Explanation**: Neon free tier auto-suspends after 5 min of inactivity
+**Symptom**: OOM kills, slow responses
 
 **Solutions**:
 
-- This is expected on free tier
-- Upgrade to Neon Launch for always-on compute
-- Implement connection retry logic (Prisma does this automatically)
+- Check memory: `free -h` and `docker stats`
+- Add swap space:
 
-#### 4. SSL Certificate Not Provisioning
+  ```bash
+  fallocate -l 1G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  ```
+
+- Upgrade to $12/month Droplet (2GB RAM) if persistent
+
+#### 3. SSL Certificate Not Provisioning
 
 **Solutions**:
 
-- Wait 5-10 minutes after adding domain
-- Verify DNS is pointing to DigitalOcean
-- Check for CAA records blocking Let's Encrypt
+- Verify DNS A record points to Droplet IP: `dig A api.ptah.live`
+- Check certbot logs: `docker compose -f docker-compose.prod.yml logs certbot`
+- Manually trigger renewal: `docker compose -f docker-compose.prod.yml run --rm certbot renew`
+
+#### 4. nginx 502 Bad Gateway
+
+**Solutions**:
+
+- License server may still be starting (wait 30-60 seconds)
+- Check license-server logs: `docker compose -f docker-compose.prod.yml logs license-server`
+- Verify license-server is running: `docker compose -f docker-compose.prod.yml ps license-server`
+
+### Restarting Services
+
+```bash
+# Restart everything
+docker compose -f docker-compose.prod.yml restart
+
+# Restart single service
+docker compose -f docker-compose.prod.yml restart license-server
+
+# Full rebuild (after code changes)
+cd /opt/ptah-extension
+git pull origin main
+docker compose -f docker-compose.prod.yml up -d --build license-server
+```
+
+---
+
+## Backup Strategy
+
+### Automated Daily Backups
+
+Set up a cron job on the Droplet:
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add daily backup at 3 AM UTC
+0 3 * * * cd /opt/ptah-extension && bash scripts/backup-db.sh >> /var/log/ptah-backup.log 2>&1
+```
+
+### Manual Backup
+
+```bash
+cd /opt/ptah-extension
+bash scripts/backup-db.sh
+```
+
+### Restore from Backup
+
+```bash
+# Decompress backup
+gunzip backups/ptah_db_20260208_030000.sql.gz
+
+# Restore to database
+cat backups/ptah_db_20260208_030000.sql | \
+  docker exec -i ptah_postgres_prod psql -U ptah -d ptah_db
+```
+
+### Off-Site Backup (Recommended)
+
+Sync backups to DigitalOcean Spaces or S3:
+
+```bash
+# Install s3cmd or rclone
+apt install -y rclone
+
+# Configure rclone with DO Spaces
+rclone config
+
+# Sync backups
+rclone sync ./backups spaces:ptah-backups/db/
+```
 
 ---
 
 ## Scaling Guide
 
-### When to Scale
+### Vertical Scaling (Bigger Droplet)
 
-| Metric           | Threshold   | Action                            |
-| ---------------- | ----------- | --------------------------------- |
-| Response time    | > 500ms P95 | Check DB queries, add instance    |
-| Memory usage     | > 80%       | Upgrade instance size             |
-| Database storage | > 400MB     | Upgrade Neon tier                 |
-| Error rate       | > 1%        | Investigate logs, scale if needed |
+| Current   | Upgrade To | When                   |
+| --------- | ---------- | ---------------------- |
+| $6 (1GB)  | $12 (2GB)  | Memory > 80% sustained |
+| $12 (2GB) | $24 (4GB)  | Still hitting limits   |
+
+```bash
+# Resize via CLI (requires power off)
+doctl compute droplet-action resize DROPLET_ID --size s-1vcpu-2gb --resize-disk
+```
 
 ### Horizontal Scaling (Multiple Instances)
 
-If you need multiple backend instances:
+When you need multiple backend instances:
 
-1. **Add Redis** for shared state (Upstash free tier):
+1. **Add Redis** for shared state (Upstash free tier or self-hosted)
+2. **Update code** to use Redis for PKCE state, magic link tokens, SSE tickets
+3. **Add a load balancer** ($12/month) in front of multiple Droplets
+4. **Separate database** to its own Droplet or use DigitalOcean Managed Database
 
-   ```
-   REDIS_URL: "rediss://default:xxx@xxx.upstash.io:6379"
-   ```
+### Database Scaling
 
-2. **Update code** to use Redis for:
-
-   - PKCE state storage
-   - Magic link tokens
-   - SSE tickets
-
-3. **Scale instances**:
-   ```bash
-   doctl apps update <APP_ID> --instance-count 2
-   ```
-
-### Vertical Scaling (Bigger Instances)
-
-| Current    | Upgrade To  | When                 |
-| ---------- | ----------- | -------------------- |
-| 512MB ($5) | 1GB ($10)   | Memory > 80%         |
-| 1GB ($10)  | 2GB ($25)   | Still hitting limits |
-| Neon Free  | Neon Launch | Storage > 400MB      |
-
----
-
-## Appendix: App Platform Specification
-
-The complete app spec is in `.do/app.yaml`. Key sections:
-
-```yaml
-name: ptah-production
-region: nyc
-
-static_sites:
-  - name: landing
-    # ... Angular landing page config
-
-services:
-  - name: api
-    dockerfile_path: apps/ptah-license-server/Dockerfile
-    instance_size_slug: apps-s-1vcpu-0.5gb # $5/month
-    instance_count: 1
-    # ... NestJS license server config
-```
-
-### Deploy Commands
-
-```bash
-# Initial deployment
-doctl apps create --spec .do/app.yaml
-
-# Update deployment
-doctl apps update <APP_ID> --spec .do/app.yaml
-
-# Force rebuild
-doctl apps create-deployment <APP_ID> --force-rebuild
-
-# View app info
-doctl apps get <APP_ID>
-```
+| Trigger            | Solution                                    |
+| ------------------ | ------------------------------------------- |
+| Storage > 20GB     | Resize Droplet disk or attach Block Storage |
+| Connections > 100  | Add PgBouncer connection pooler             |
+| Read-heavy traffic | Add read replica on second Droplet          |
 
 ---
 
@@ -514,42 +580,46 @@ doctl apps get <APP_ID>
 
 Before going live:
 
-- [ ] All secrets stored as encrypted environment variables
-- [ ] JWT_SECRET is unique, 64+ characters
-- [ ] ADMIN_API_KEY is unique, 64+ characters
+- [ ] All secrets in `.env.prod` are unique, cryptographically random values
+- [ ] Firewall (ufw) only allows ports 22, 80, 443
+- [ ] SSH key authentication only (disable password auth)
+- [ ] `.env.prod` is NOT committed to git
+- [ ] HTTPS enforced via nginx redirect
 - [ ] WorkOS redirect URI matches production URL
 - [ ] Paddle webhook URL configured
-- [ ] SendGrid sender domain verified
-- [ ] HTTPS enforced (automatic with App Platform)
-- [ ] Database connection uses SSL (`?sslmode=require`)
+- [ ] Resend sender domain verified
+- [ ] Daily database backups configured
+- [ ] Swap space enabled for memory safety
 
 ---
 
-## Next Steps After Deployment
+## Deployment Cheat Sheet
 
-1. **Test authentication flow**:
+```bash
+# Deploy code updates
+ssh root@YOUR_DROPLET_IP
+cd /opt/ptah-extension
+git pull origin main
+docker compose -f docker-compose.prod.yml up -d --build license-server
 
-   - Visit https://ptah.live
-   - Click login → WorkOS flow → Callback
+# View status
+docker compose -f docker-compose.prod.yml ps
 
-2. **Test payment flow**:
+# View logs
+docker compose -f docker-compose.prod.yml logs -f license-server
 
-   - Use Paddle sandbox first
-   - Create test subscription
-   - Verify webhook receipt
+# Backup database
+bash scripts/backup-db.sh
 
-3. **Test license verification**:
+# Restart everything
+docker compose -f docker-compose.prod.yml restart
 
-   - From VS Code extension
-   - Verify license key works
-
-4. **Monitor**:
-   - Set up DigitalOcean alerts
-   - Check Neon dashboard for usage
-   - Review logs daily for first week
+# Update landing page
+# (Automatic via App Platform deploy-on-push from main branch)
+```
 
 ---
 
-**Document Version**: 2.0
-**Last Updated**: 2026-02-03
-**Cost**: ~$6/month (Neon Free + DO App Platform $5 + Domain)
+**Document Version**: 3.0
+**Last Updated**: 2026-02-08
+**Architecture**: Droplet ($6/month) + App Platform (free) + Self-hosted PostgreSQL

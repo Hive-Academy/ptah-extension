@@ -313,7 +313,7 @@ export class TrialReminderService {
         }
       }
 
-      // Delay between batches for rate limiting (avoid SendGrid throttling)
+      // Delay between batches for rate limiting (avoid Resend throttling)
       if (i + this.BATCH_SIZE < eligibleSubscriptions.length) {
         await this.sleep(this.BATCH_DELAY_MS);
       }

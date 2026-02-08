@@ -74,6 +74,8 @@ RUN npm install --omit=dev \
     @workos-inc/node \
     @nestjs/config \
     @nestjs/jwt \
+    @paddle/paddle-node-sdk \
+    resend \
     pg \
     prisma
 
@@ -122,7 +124,7 @@ ENV NODE_ENV=production
 ENV PORT=3000
 
 # Memory optimization for 512MB container
-ENV NODE_OPTIONS="--max-old-space-size=400"
+ENV NODE_OPTIONS="--max-old-space-size=450"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
