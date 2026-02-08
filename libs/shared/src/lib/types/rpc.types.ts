@@ -653,6 +653,19 @@ export type WizardRecommendAgentsParams = unknown; // DeepProjectAnalysis input
  */
 export type WizardRecommendAgentsResponse = AgentRecommendation[];
 
+/** Parameters for wizard:cancel-analysis RPC method */
+export type WizardCancelAnalysisParams = Record<string, never>;
+
+/**
+ * Response from wizard:cancel-analysis RPC method
+ *
+ * TASK_2025_145 SERIOUS-6: Cancellation RPC for agentic analysis
+ */
+export interface WizardCancelAnalysisResponse {
+  /** Whether cancellation was triggered (false if no analysis was running) */
+  cancelled: boolean;
+}
+
 // ============================================================
 // License RPC Types
 // ============================================================
@@ -1082,6 +1095,10 @@ export interface RpcMethodRegistry {
     params: WizardRecommendAgentsParams;
     result: WizardRecommendAgentsResponse;
   };
+  'wizard:cancel-analysis': {
+    params: WizardCancelAnalysisParams;
+    result: WizardCancelAnalysisResponse;
+  };
 
   // ---- License Methods ----
   'license:getStatus': {
@@ -1236,6 +1253,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'setup-wizard:launch',
   'wizard:deep-analyze',
   'wizard:recommend-agents',
+  'wizard:cancel-analysis',
 
   // License Methods
   'license:getStatus',

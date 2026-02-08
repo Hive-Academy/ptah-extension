@@ -146,6 +146,8 @@ export type StrictMessageType =
   | 'refresh'
   | 'switchView'
   | 'workspaceChanged'
+  // Setup Wizard Messages
+  | 'setup-wizard:scan-progress'
   | string; // Allow extensibility for custom message types
 
 /**
@@ -311,6 +313,7 @@ export const MESSAGE_TYPES = {
   // ---- Setup Wizard Messages ----
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
   SETUP_WIZARD_START_CHAT: 'setup-wizard:start-chat',
+  SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
 
   // ---- AskUserQuestion Messages ----
   // Used by SDK's AskUserQuestion tool to prompt user with clarifying questions

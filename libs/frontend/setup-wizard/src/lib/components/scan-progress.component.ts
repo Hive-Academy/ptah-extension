@@ -1,15 +1,37 @@
 import {
-  Component,
-  inject,
   ChangeDetectionStrategy,
+  Component,
   computed,
+  DestroyRef,
+  inject,
+  OnInit,
   signal,
   viewChild,
 } from '@angular/core';
-import { LucideAngularModule, XCircle, Info } from 'lucide-angular';
+import type { AnalysisPhase } from '@ptah-extension/shared';
+import {
+  Bot,
+  Building2,
+  HeartPulse,
+  Info,
+  LucideAngularModule,
+  LucideIconData,
+  Search,
+  ShieldCheck,
+  XCircle,
+} from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
+
+/**
+ * Phase step definition for the stepper UI
+ */
+interface PhaseStep {
+  id: AnalysisPhase;
+  label: string;
+  icon: LucideIconData;
+}
 
 /**
  * ScanProgressComponent - Real-time workspace scan progress display
@@ -17,10 +39,14 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
  * Purpose:
  * - Show live file scanning progress (X of Y files)
  * - Display real-time detection updates (tech stack, frameworks, etc.)
+ * - Show phase stepper for agentic analysis progress
+ * - Display agent reasoning in collapsible section
  * - Provide cancel option with confirmation
  *
  * Features:
  * - Reactive progress bar based on files scanned / total files
+ * - Phase stepper UI for agentic analysis phases
+ * - Collapsible agent reasoning section
  * - Live detection list with alert cards
  * - Percentage calculation computed signal
  * - Cancel button with confirmation prompt
@@ -49,7 +75,44 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
         <span>{{ error }}</span>
       </div>
       } @if (progress(); as progressData) {
-      <!-- Progress Bar -->
+
+      <!-- Phase Stepper (agentic analysis) -->
+      @if (progressData.currentPhase) {
+      <div class="mb-8">
+        <ul class="steps steps-horizontal w-full">
+          @for (phase of phases; track phase.id) {
+          <li
+            class="step"
+            [class.step-primary]="isPhaseCompleteOrCurrent(phase.id)"
+            [attr.aria-label]="phase.label"
+          >
+            <span class="flex items-center gap-1.5 text-xs">
+              <lucide-angular
+                [img]="phase.icon"
+                class="w-3.5 h-3.5"
+                aria-hidden="true"
+              />
+              {{ phase.label }}
+            </span>
+          </li>
+          }
+        </ul>
+      </div>
+
+      <!-- Current Phase Label -->
+      @if (progressData.phaseLabel) {
+      <div class="flex items-center justify-center gap-2 mb-4">
+        <lucide-angular
+          [img]="BotIcon"
+          class="w-5 h-5 text-primary animate-pulse"
+          aria-hidden="true"
+        />
+        <span class="text-sm font-medium text-primary">
+          {{ progressData.phaseLabel }}
+        </span>
+      </div>
+      } } @else {
+      <!-- Progress Bar (hardcoded fallback analysis) -->
       <div class="mb-6">
         <div class="flex justify-between mb-2">
           <span class="text-sm font-medium text-base-content/80">
@@ -75,6 +138,22 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
           "
         ></progress>
       </div>
+      }
+
+      <!-- Agent Reasoning (collapsible) -->
+      @if (progressData.agentReasoning) {
+      <div class="collapse collapse-arrow bg-base-200 mb-6">
+        <input type="checkbox" checked />
+        <div class="collapse-title text-sm font-medium text-base-content/70">
+          Agent Activity
+        </div>
+        <div class="collapse-content">
+          <p class="text-sm text-base-content/60">
+            {{ progressData.agentReasoning }}
+          </p>
+        </div>
+      </div>
+      }
 
       <!-- Detections List -->
       @if (progressData.detections && progressData.detections.length > 0) {
@@ -99,27 +178,40 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
       <!-- Fallback: No progress data yet -->
       <div class="flex flex-col items-center gap-4 py-12">
         <span class="loading loading-spinner loading-lg text-primary"></span>
-        <p class="text-base-content/60">Initializing workspace scan...</p>
+        <p class="text-base-content/60">{{ statusText() }}</p>
       </div>
       }
 
-      <!-- Cancel Button -->
-      <div class="flex justify-center mt-8">
+      <!-- Action Buttons -->
+      <div class="flex justify-center gap-3 mt-8">
+        @if (errorMessage()) {
         <button
           class="btn btn-ghost"
-          [class.btn-disabled]="isCanceling()"
-          [disabled]="isCanceling()"
-          [attr.aria-busy]="isCanceling()"
-          [attr.aria-label]="
-            isCanceling() ? 'Canceling scan...' : 'Cancel scan'
-          "
+          aria-label="Go back to welcome"
+          (click)="onGoBack()"
+        >
+          Back
+        </button>
+        <button
+          class="btn btn-primary"
+          [disabled]="isAnalyzing()"
+          aria-label="Retry analysis"
+          (click)="onRetry()"
+        >
+          @if (isAnalyzing()) {
+          <span class="loading loading-spinner loading-sm"></span>
+          } Retry
+        </button>
+        } @else {
+        <button
+          class="btn btn-ghost"
+          [disabled]="isAnalyzing()"
+          aria-label="Cancel scan"
           (click)="onCancel()"
         >
-          @if (isCanceling()) {
-          <span class="loading loading-spinner"></span>
-          Canceling... } @else if (errorMessage()) { Retry Cancel } @else {
-          Cancel Scan }
+          Cancel Scan
         </button>
+        }
       </div>
     </div>
 
@@ -138,21 +230,35 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
     />
   `,
 })
-export class ScanProgressComponent {
+export class ScanProgressComponent implements OnInit {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly wizardRpc = inject(WizardRpcService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Set to true when the component is destroyed, to prevent stale state mutations. */
+  private isDestroyed = false;
 
   protected readonly XCircleIcon = XCircle;
   protected readonly InfoIcon = Info;
+  protected readonly BotIcon = Bot;
+
+  /** Phase steps for the stepper UI */
+  protected readonly phases: PhaseStep[] = [
+    { id: 'discovery', label: 'Discovery', icon: Search },
+    { id: 'architecture', label: 'Architecture', icon: Building2 },
+    { id: 'health', label: 'Health', icon: HeartPulse },
+    { id: 'quality', label: 'Quality', icon: ShieldCheck },
+  ];
 
   readonly confirmModal =
     viewChild.required<ConfirmationModalComponent>('confirmModal');
 
   /**
-   * Reactive progress data from state service
-   * Direct signal reference for optimal performance
+   * Reactive progress data from state service.
+   * Uses scanProgress signal which includes agentic analysis fields
+   * (currentPhase, phaseLabel, agentReasoning, completedPhases).
    */
-  protected readonly progress = this.wizardState.generationProgress;
+  protected readonly progress = this.wizardState.scanProgress;
 
   /**
    * Calculated progress percentage (0-100)
@@ -167,61 +273,124 @@ export class ScanProgressComponent {
     return Math.round((scanned / progressData.totalFiles) * 100);
   });
 
-  // Component-local cancellation state and error state
+  // Component-local state
   protected readonly isCanceling = signal(false);
   protected readonly errorMessage = signal<string | null>(null);
+  protected readonly statusText = signal('Initializing workspace scan...');
+  protected readonly isAnalyzing = signal(false);
 
   /**
-   * Handle cancel button click
-   * - Show DaisyUI confirmation modal
+   * Check if a phase is completed or is the current active phase.
+   * Used by the phase stepper to highlight completed/active steps.
    */
-  protected async onCancel(): Promise<void> {
-    if (this.isCanceling()) {
-      return; // Prevent double-click
-    }
+  protected isPhaseCompleteOrCurrent(phaseId: AnalysisPhase): boolean {
+    const progressData = this.progress();
+    if (!progressData) return false;
 
-    // Show confirmation modal
-    this.confirmModal().show();
+    const completedPhases = progressData.completedPhases || [];
+    return (
+      completedPhases.includes(phaseId) || progressData.currentPhase === phaseId
+    );
+  }
+
+  constructor() {
+    this.destroyRef.onDestroy(() => {
+      this.isDestroyed = true;
+    });
+  }
+
+  ngOnInit(): void {
+    this.startAnalysis();
   }
 
   /**
-   * Handle modal confirmation (user confirmed cancellation)
-   * - Trigger RPC cancel call
-   * - Reset wizard state ONLY on success
-   * - Show error message on failure (allow retry)
+   * Trigger deep analysis and agent recommendations.
+   * Skips deep analysis if results are already cached (smart retry for partial failures).
+   * Guarded against re-entry and stale component mutations.
    */
-  protected async onConfirmCancellation(): Promise<void> {
-    this.isCanceling.set(true);
+  private async startAnalysis(): Promise<void> {
+    if (this.isAnalyzing()) {
+      return; // Prevent concurrent calls
+    }
+
+    this.isAnalyzing.set(true);
     this.errorMessage.set(null);
 
     try {
-      // Trigger RPC cancel (saveProgress = false for scan step)
-      await this.wizardRpc.cancelWizard(false);
+      // Smart retry: skip deep analysis if already cached in state
+      let analysis = this.wizardState.deepAnalysis();
 
-      // Success - reset wizard state to welcome
-      this.wizardState.reset();
+      if (!analysis) {
+        this.statusText.set('Analyzing project structure...');
+        analysis = await this.wizardRpc.deepAnalyze();
+        if (this.isDestroyed) return; // Component was destroyed during async call
+        this.wizardState.setDeepAnalysis(analysis);
+      }
+
+      this.statusText.set('Calculating agent recommendations...');
+      const recommendations = await this.wizardRpc.recommendAgents(analysis);
+      if (this.isDestroyed) return; // Component was destroyed during async call
+
+      this.wizardState.setRecommendations(recommendations);
+      this.wizardState.setCurrentStep('analysis');
     } catch (error) {
-      // Handle RPC error - show user-facing message, DON'T reset state
+      if (this.isDestroyed) return;
       const message =
         error instanceof Error
           ? error.message
-          : 'Failed to cancel scan. Please try again.';
+          : 'Analysis failed. Please try again.';
       this.errorMessage.set(message);
-      console.error('Scan cancellation failed:', error);
+      this.statusText.set('Analysis failed');
+      console.error('[ScanProgressComponent] Analysis failed:', error);
     } finally {
-      // Only reset isCanceling if no error occurred
-      if (!this.errorMessage()) {
-        this.isCanceling.set(false);
-      } else {
-        // On error, allow user to retry - reset loading state
-        this.isCanceling.set(false);
+      if (!this.isDestroyed) {
+        this.isAnalyzing.set(false);
       }
     }
   }
 
   /**
+   * Handle "Retry" button — re-run the analysis flow.
+   */
+  protected onRetry(): void {
+    this.startAnalysis();
+  }
+
+  /**
+   * Handle "Back" button — go back to welcome step (client-side only).
+   */
+  protected onGoBack(): void {
+    this.wizardState.reset();
+  }
+
+  /**
+   * Handle "Cancel Scan" button — show confirmation modal.
+   */
+  protected onCancel(): void {
+    if (this.isAnalyzing()) {
+      this.confirmModal().show();
+    }
+  }
+
+  /**
+   * Handle modal confirmation (user confirmed cancellation).
+   * Cancels the backend analysis first, then resets wizard state.
+   *
+   * TASK_2025_145 SERIOUS-6: The cancel RPC aborts the active AbortController
+   * in AgenticAnalysisService, preventing the SDK query from running for up
+   * to 90 seconds after the user has already cancelled in the UI.
+   */
+  protected onConfirmCancellation(): void {
+    // Fire-and-forget: cancel the backend analysis (best-effort, non-blocking).
+    // Intentionally not awaited — the user should not wait for the backend
+    // cancellation RPC to complete before the wizard resets. The `void` operator
+    // makes the fire-and-forget intent explicit and suppresses floating-promise lints.
+    void this.wizardRpc.cancelAnalysis();
+    this.wizardState.reset();
+  }
+
+  /**
    * Handle modal cancellation (user declined cancellation)
-   * - Do nothing, modal auto-closes
    */
   protected onDeclineCancellation(): void {
     // Modal auto-closes, no action needed

@@ -43,7 +43,7 @@ export {
   type SetupStatus,
 } from './lib/services/setup-status.service';
 
-// Wizard child services (TASK_2025_115)
+// Wizard child services (TASK_2025_115) and shared analysis schema (TASK_2025_145)
 export {
   WizardWebviewLifecycleService,
   WizardSessionManagerService,
@@ -51,7 +51,11 @@ export {
   DeepProjectAnalysisService,
   CodeHealthAnalysisService,
   WizardContextMapperService,
+  AgenticAnalysisService,
+  ProjectAnalysisZodSchema,
+  normalizeAgentOutput,
   type StepDataResult,
   type CustomMessageHandler,
   type WizardPanelInitialData,
+  type ProjectAnalysisZodOutput,
 } from './lib/services/wizard';

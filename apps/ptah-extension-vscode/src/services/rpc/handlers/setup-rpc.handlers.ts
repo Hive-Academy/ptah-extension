@@ -10,158 +10,23 @@
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
  * TASK_2025_069: Setup wizard integration
  * TASK_2025_111: Added deep analysis and recommendation handlers
+ * TASK_2025_145: Use shared ProjectAnalysisZodSchema + normalizeAgentOutput (SERIOUS-7, CRITICAL-1)
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
-import { z } from 'zod';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  TOKENS,
+  LicenseService,
+  type LicenseStatus,
+} from '@ptah-extension/vscode-core';
+import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import * as vscode from 'vscode';
 import type {
   DeepProjectAnalysis,
   AgentRecommendation,
 } from '@ptah-extension/agent-generation';
-
-/**
- * Zod schema for comprehensive project analysis input validation.
- *
- * Validates the structure of DeepProjectAnalysis received from the frontend
- * before processing agent recommendations. Provides sensible defaults for
- * optional arrays and nested objects to prevent runtime errors.
- *
- * @remarks
- * - projectType and frameworks accept both string and number to handle enum serialization
- * - All array fields have default values to prevent undefined access
- * - Nested objects are validated recursively with appropriate defaults
- */
-const ProjectAnalysisSchema = z.object({
-  // Core project identification
-  projectType: z.union([z.string(), z.number()]),
-  frameworks: z.array(z.union([z.string(), z.number()])).default([]),
-  monorepoType: z.string().optional(),
-
-  // Architecture patterns with confidence scoring
-  architecturePatterns: z
-    .array(
-      z.object({
-        name: z.string(),
-        confidence: z.number().min(0).max(100),
-        evidence: z.array(z.string()),
-        description: z.string().optional(),
-      })
-    )
-    .default([]),
-
-  // Key file locations organized by purpose
-  keyFileLocations: z
-    .object({
-      entryPoints: z.array(z.string()).default([]),
-      configs: z.array(z.string()).default([]),
-      testDirectories: z.array(z.string()).default([]),
-      apiRoutes: z.array(z.string()).default([]),
-      components: z.array(z.string()).default([]),
-      services: z.array(z.string()).default([]),
-      models: z.array(z.string()).optional(),
-      repositories: z.array(z.string()).optional(),
-      utilities: z.array(z.string()).optional(),
-    })
-    .default({
-      entryPoints: [],
-      configs: [],
-      testDirectories: [],
-      apiRoutes: [],
-      components: [],
-      services: [],
-    }),
-
-  // Language distribution statistics
-  languageDistribution: z
-    .array(
-      z.object({
-        language: z.string(),
-        percentage: z.number().min(0).max(100),
-        fileCount: z.number().min(0),
-        linesOfCode: z.number().min(0).optional(),
-      })
-    )
-    .default([]),
-
-  // Code health diagnostics
-  existingIssues: z
-    .object({
-      errorCount: z.number().min(0).default(0),
-      warningCount: z.number().min(0).default(0),
-      infoCount: z.number().min(0).default(0),
-      errorsByType: z.record(z.string(), z.number()).default({}),
-      warningsByType: z.record(z.string(), z.number()).default({}),
-      topErrors: z
-        .array(
-          z.object({
-            message: z.string(),
-            count: z.number(),
-            source: z.string(),
-          })
-        )
-        .optional(),
-    })
-    .default({
-      errorCount: 0,
-      warningCount: 0,
-      infoCount: 0,
-      errorsByType: {},
-      warningsByType: {},
-    }),
-
-  // Code conventions detection
-  codeConventions: z
-    .object({
-      indentation: z.enum(['tabs', 'spaces']),
-      indentSize: z.number().min(1).max(8),
-      quoteStyle: z.enum(['single', 'double']),
-      semicolons: z.boolean(),
-      trailingComma: z.enum(['none', 'es5', 'all']).optional(),
-      namingConventions: z
-        .object({
-          files: z.string().optional(),
-          classes: z.string().optional(),
-          functions: z.string().optional(),
-          variables: z.string().optional(),
-          constants: z.string().optional(),
-          interfaces: z.string().optional(),
-          types: z.string().optional(),
-        })
-        .optional(),
-      maxLineLength: z.number().optional(),
-      usePrettier: z.boolean().optional(),
-      useEslint: z.boolean().optional(),
-      additionalTools: z.array(z.string()).optional(),
-    })
-    .optional(),
-
-  // Test coverage estimation
-  testCoverage: z
-    .object({
-      percentage: z.number().min(0).max(100).default(0),
-      hasTests: z.boolean().default(false),
-      testFramework: z.string().optional(),
-      hasUnitTests: z.boolean().default(false),
-      hasIntegrationTests: z.boolean().default(false),
-      hasE2eTests: z.boolean().default(false),
-      testFileCount: z.number().min(0).optional(),
-      sourceFileCount: z.number().min(0).optional(),
-      testToSourceRatio: z.number().min(0).optional(),
-    })
-    .default({
-      percentage: 0,
-      hasTests: false,
-      hasUnitTests: false,
-      hasIntegrationTests: false,
-      hasE2eTests: false,
-    }),
-
-  // File count (optional, added for completeness)
-  fileCount: z.number().min(0).optional(),
-  languages: z.array(z.string()).optional(),
-});
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -226,6 +91,7 @@ export class SetupRpcHandlers {
     this.registerLaunchWizard();
     this.registerDeepAnalyze();
     this.registerRecommendAgents();
+    this.registerCancelAnalysis();
 
     this.logger.debug('Setup RPC handlers registered', {
       methods: [
@@ -233,6 +99,7 @@ export class SetupRpcHandlers {
         'setup-wizard:launch',
         'wizard:deep-analyze',
         'wizard:recommend-agents',
+        'wizard:cancel-analysis',
       ],
     });
   }
@@ -337,13 +204,19 @@ export class SetupRpcHandlers {
   /**
    * wizard:deep-analyze - Perform deep project analysis
    *
-   * Conducts comprehensive analysis of the workspace including:
-   * - Architecture pattern detection
-   * - Key file location discovery
-   * - Language distribution analysis
-   * - Code health assessment
-   * - Code convention detection
-   * - Test coverage estimation
+   * Uses agentic analysis (Claude Agent SDK + MCP tools) as the primary path,
+   * with automatic fallback to the hardcoded DeepProjectAnalysisService.
+   *
+   * Agentic analysis provides:
+   * - Intelligent, LLM-driven workspace investigation
+   * - Real-time progress streaming to frontend
+   * - Sub-agent delegation for large projects
+   *
+   * Fallback triggers when:
+   * - SDK is not initialized or unavailable
+   * - Agent session fails to start
+   * - Response parsing/validation fails
+   * - Any unexpected error occurs
    */
   private registerDeepAnalyze(): void {
     this.rpcHandler.registerMethod<void, DeepProjectAnalysis>(
@@ -364,7 +237,89 @@ export class SetupRpcHandlers {
           '@ptah-extension/agent-generation'
         );
 
-        // Resolve SetupWizardService from DI container with validation
+        // Resolve license + MCP status (same pattern as ChatRpcHandlers)
+        let isPremium = false;
+        let mcpServerRunning = false;
+        let mcpPort: number | undefined;
+        try {
+          const licenseService = this.resolveService<LicenseService>(
+            TOKENS.LICENSE_SERVICE,
+            'LicenseService'
+          );
+          const licenseStatus: LicenseStatus =
+            await licenseService.verifyLicense();
+          isPremium =
+            licenseStatus.valid &&
+            (licenseStatus.plan?.isPremium === true ||
+              licenseStatus.tier === 'pro' ||
+              licenseStatus.tier === 'trial_pro');
+
+          const codeExecutionMcp = this.resolveService<CodeExecutionMCP>(
+            TOKENS.CODE_EXECUTION_MCP,
+            'CodeExecutionMCP'
+          );
+          const actualPort = codeExecutionMcp.getPort();
+          mcpServerRunning = actualPort !== null;
+          mcpPort = actualPort ?? undefined;
+        } catch (error) {
+          this.logger.debug(
+            'Could not resolve license/MCP services for agentic analysis',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            }
+          );
+        }
+
+        // Try agentic analysis first
+        try {
+          const agenticService = this.resolveService<{
+            analyzeWorkspace: (
+              uri: vscode.Uri,
+              options?: {
+                timeout?: number;
+                model?: string;
+                isPremium?: boolean;
+                mcpServerRunning?: boolean;
+                mcpPort?: number;
+              }
+            ) => Promise<{
+              isOk: () => boolean;
+              value?: DeepProjectAnalysis;
+              error?: Error;
+            }>;
+          }>(
+            AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE,
+            'AgenticAnalysisService'
+          );
+
+          const agenticResult = await agenticService.analyzeWorkspace(
+            workspaceFolder.uri,
+            { isPremium, mcpServerRunning, mcpPort }
+          );
+
+          if (agenticResult.isOk() && agenticResult.value) {
+            this.logger.info('Agentic analysis completed successfully', {
+              projectType:
+                agenticResult.value.projectType?.toString() || 'unknown',
+              patternCount:
+                agenticResult.value.architecturePatterns?.length || 0,
+            });
+            return agenticResult.value;
+          }
+
+          this.logger.warn(
+            'Agentic analysis returned error, falling back to hardcoded',
+            {
+              error: agenticResult.error?.message || 'Unknown error',
+            }
+          );
+        } catch (error) {
+          this.logger.warn('Agentic analysis unavailable, using fallback', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+
+        // Fallback: Use existing hardcoded DeepProjectAnalysisService
         const setupWizardService = this.resolveService<{
           performDeepAnalysis: (uri: vscode.Uri) => Promise<{
             isErr: () => boolean;
@@ -374,7 +329,6 @@ export class SetupRpcHandlers {
           }>;
         }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
 
-        // Perform deep analysis
         const result = await setupWizardService.performDeepAnalysis(
           workspaceFolder.uri
         );
@@ -387,7 +341,7 @@ export class SetupRpcHandlers {
           );
         }
 
-        this.logger.info('Deep analysis completed successfully', {
+        this.logger.info('Deep analysis completed successfully (fallback)', {
           projectType: result.value?.projectType?.toString() || 'unknown',
           patternCount: result.value?.architecturePatterns?.length || 0,
         });
@@ -404,11 +358,12 @@ export class SetupRpcHandlers {
    * Accepts a DeepProjectAnalysis and returns scored recommendations
    * for all 13 agents based on project characteristics.
    *
-   * Input is validated using Zod schema to ensure type safety and provide
-   * descriptive error messages with field paths on validation failure.
+   * Input is validated using the shared ProjectAnalysisZodSchema and normalized
+   * via normalizeAgentOutput for proper enum mapping.
    *
    * @remarks
    * TASK_2025_113 T3.3: Added comprehensive Zod input validation
+   * TASK_2025_145: Use shared schema from analysis-schema.ts (SERIOUS-7, CRITICAL-1)
    */
   private registerRecommendAgents(): void {
     this.rpcHandler.registerMethod<unknown, AgentRecommendation[]>(
@@ -423,8 +378,17 @@ export class SetupRpcHandlers {
           );
         }
 
-        // Validate input structure with Zod schema
-        const validationResult = ProjectAnalysisSchema.safeParse(rawAnalysis);
+        // Dynamically import the shared schema and normalizer (lazy loading)
+        const {
+          ProjectAnalysisZodSchema,
+          normalizeAgentOutput,
+          AGENT_GENERATION_TOKENS,
+          AgentRecommendationService,
+        } = await import('@ptah-extension/agent-generation');
+
+        // Validate input structure with shared Zod schema
+        const validationResult =
+          ProjectAnalysisZodSchema.safeParse(rawAnalysis);
 
         if (!validationResult.success) {
           // Format error messages with field paths for debugging
@@ -440,19 +404,15 @@ export class SetupRpcHandlers {
           throw new Error(`Invalid analysis input: ${errors}`);
         }
 
-        // Use validated data with defaults applied
-        const analysis = validationResult.data;
+        // Normalize validated data into properly typed DeepProjectAnalysis
+        const analysis = normalizeAgentOutput(validationResult.data);
 
-        this.logger.debug('Analysis input validated successfully', {
+        this.logger.debug('Analysis input validated and normalized', {
           projectType: String(analysis.projectType),
           frameworkCount: analysis.frameworks.length,
           patternCount: analysis.architecturePatterns.length,
           hasKeyFileLocations: !!analysis.keyFileLocations,
         });
-
-        // Dynamically import agent-generation library (lazy loading)
-        const { AGENT_GENERATION_TOKENS, AgentRecommendationService } =
-          await import('@ptah-extension/agent-generation');
 
         // Define the service interface type for reuse
         type RecommendationServiceType = {
@@ -483,11 +443,9 @@ export class SetupRpcHandlers {
             );
         }
 
-        // Calculate recommendations using validated analysis
-        // Cast to DeepProjectAnalysis since Zod schema aligns with the interface
-        const recommendations = recommendationService.calculateRecommendations(
-          analysis as unknown as DeepProjectAnalysis
-        );
+        // Calculate recommendations using normalized analysis
+        const recommendations =
+          recommendationService.calculateRecommendations(analysis);
 
         this.logger.info('Agent recommendations calculated', {
           totalAgents: recommendations.length,
@@ -495,6 +453,51 @@ export class SetupRpcHandlers {
         });
 
         return recommendations;
+      }
+    );
+  }
+
+  /**
+   * wizard:cancel-analysis - Cancel a running agentic workspace analysis
+   *
+   * Aborts the active AbortController in AgenticAnalysisService, which
+   * terminates the SDK query stream. Safe to call even if no analysis
+   * is running (no-op in that case).
+   *
+   * TASK_2025_145 SERIOUS-6: Ensures "Cancel Scan" button actually stops
+   * the backend SDK query, not just the frontend state.
+   */
+  private registerCancelAnalysis(): void {
+    this.rpcHandler.registerMethod<void, { cancelled: boolean }>(
+      'wizard:cancel-analysis',
+      async () => {
+        this.logger.debug('RPC: wizard:cancel-analysis called');
+
+        // Dynamically import agent-generation library (lazy loading)
+        const { AGENT_GENERATION_TOKENS } = await import(
+          '@ptah-extension/agent-generation'
+        );
+
+        try {
+          // Resolve AgenticAnalysisService and call cancelAnalysis()
+          const agenticService = this.resolveService<{
+            cancelAnalysis: () => void;
+          }>(
+            AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE,
+            'AgenticAnalysisService'
+          );
+
+          agenticService.cancelAnalysis();
+
+          this.logger.info('Agentic analysis cancellation requested');
+          return { cancelled: true };
+        } catch (error) {
+          this.logger.warn('Could not cancel agentic analysis', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          // Return success anyway -- the analysis may have already completed
+          return { cancelled: false };
+        }
       }
     );
   }

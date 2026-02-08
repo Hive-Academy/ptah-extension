@@ -1,8 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
+  AgentRecommendation,
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
+  ProjectAnalysisResult,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
@@ -132,6 +134,69 @@ export class WizardRpcService {
       '[WizardRpcService] retryGenerationItem: Backend handler not implemented'
     );
     throw new Error('Retry generation item not yet implemented');
+  }
+
+  // === Analysis Cancellation (TASK_2025_145 SERIOUS-6) ===
+
+  /**
+   * Cancel a running agentic workspace analysis.
+   *
+   * Sends the `wizard:cancel-analysis` RPC call to the backend, which aborts
+   * the active AbortController in AgenticAnalysisService. This terminates the
+   * SDK query stream, preventing further token usage after the user clicks
+   * "Cancel Scan" in the frontend.
+   *
+   * Safe to call even if no analysis is running (backend handles gracefully).
+   */
+  async cancelAnalysis(): Promise<void> {
+    try {
+      await this.rpcService.call('wizard:cancel-analysis', {});
+    } catch (error) {
+      // Log but don't throw -- cancel is best-effort.
+      // The analysis may have already completed or the service may be unavailable.
+      console.warn(
+        '[WizardRpcService] cancelAnalysis failed:',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
+  // === Deep Analysis Methods (TASK_2025_111) ===
+
+  /**
+   * Deep analyze the workspace project structure.
+   * Calls wizard:deep-analyze backend handler (registered in RpcMethodRegistry).
+   * Returns comprehensive project analysis (architecture, key files, code health).
+   */
+  async deepAnalyze(): Promise<ProjectAnalysisResult> {
+    const result = await this.rpcService.call(
+      'wizard:deep-analyze',
+      {},
+      { timeout: 120000 }
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data as ProjectAnalysisResult;
+    }
+    throw new Error(result.error || 'Deep analysis failed');
+  }
+
+  /**
+   * Get agent recommendations based on deep analysis results.
+   * Calls wizard:recommend-agents backend handler (registered in RpcMethodRegistry).
+   * Returns scored recommendations for all 13 agents.
+   */
+  async recommendAgents(
+    analysis: ProjectAnalysisResult
+  ): Promise<AgentRecommendation[]> {
+    const result = await this.rpcService.call(
+      'wizard:recommend-agents',
+      analysis as unknown as Record<string, unknown>,
+      { timeout: 60000 }
+    );
+    if (result.isSuccess() && result.data) {
+      return result.data as AgentRecommendation[];
+    }
+    throw new Error(result.error || 'Agent recommendation failed');
   }
 
   // === Enhanced Prompts Methods ===

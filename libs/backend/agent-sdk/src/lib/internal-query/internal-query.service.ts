@@ -1,0 +1,456 @@
+/**
+ * InternalQueryService - One-shot SDK query execution for internal use
+ *
+ * Provides a clean interface for running autonomous Claude Agent SDK queries
+ * WITHOUT going through the interactive chat path (SdkAgentAdapter → SessionLifecycleManager
+ * → SdkQueryOptionsBuilder). This is intentionally a separate code path.
+ *
+ * WHY SEPARATE:
+ * The interactive chat path uses streaming input mode (AsyncIterable<SDKUserMessage>),
+ * permission callbacks (canUseTool), session persistence, and real-time webview streaming.
+ * Internal queries use single-shot mode (string prompt + maxTurns), bypass permissions,
+ * don't persist sessions, and return results directly. Mixing these concerns would
+ * create coupling that risks breaking the working chat flow.
+ *
+ * FEATURES INTEGRATED:
+ * - Enhanced prompts (from EnhancedPromptsService) or PTAH_CORE_SYSTEM_PROMPT fallback
+ * - MCP server configuration (premium + running check)
+ * - Model identity clarification for third-party providers (OpenRouter, Moonshot, etc.)
+ * - Subagent hooks (for proper lifecycle tracking)
+ * - Compaction hooks (for compaction event handling)
+ * - Environment variables (includes API keys from AuthManager)
+ * - Setting sources (user, project, local — for CLAUDE.md files)
+ *
+ * FEATURES INTENTIONALLY DIFFERENT:
+ * - permissionMode: 'bypassPermissions' (no user to approve)
+ * - prompt: string (not AsyncIterable — single-shot, not multi-turn)
+ * - persistSession: false (internal, ephemeral)
+ * - maxTurns: explicit (not calculated from maxTokens)
+ * - No canUseTool callback (bypassed)
+ * - No session metadata tracking
+ *
+ * @module @ptah-extension/agent-sdk
+ */
+
+import { injectable, inject } from 'tsyringe';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '../di/tokens';
+import { SdkModuleLoader } from '../helpers/sdk-module-loader';
+import { SdkAgentAdapter } from '../sdk-agent-adapter';
+import { SubagentHookHandler } from '../helpers/subagent-hook-handler';
+import { CompactionConfigProvider } from '../helpers/compaction-config-provider';
+import { CompactionHookHandler } from '../helpers/compaction-hook-handler';
+import { EnhancedPromptsService } from '../prompt-harness';
+import { getAnthropicProvider } from '../helpers/anthropic-provider-registry';
+import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
+import type {
+  Options as SdkQueryOptions,
+  QueryFunction,
+  HookEvent,
+  HookCallbackMatcher,
+  McpHttpServerConfig,
+} from '../types/sdk-types/claude-sdk.types';
+import type {
+  InternalQueryConfig,
+  InternalQueryHandle,
+} from './internal-query.types';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const SERVICE_TAG = '[InternalQuery]';
+/** Default port for Ptah HTTP MCP server */
+const PTAH_MCP_PORT = 51820;
+/** Default max turns for internal queries */
+const DEFAULT_MAX_TURNS = 25;
+
+// ============================================================================
+// Service
+// ============================================================================
+
+/**
+ * InternalQueryService
+ *
+ * Executes one-shot SDK queries for internal use (e.g., workspace analysis).
+ * Completely separate from the interactive chat path.
+ *
+ * Usage:
+ * ```typescript
+ * const handle = await internalQueryService.execute({
+ *   cwd: '/workspace',
+ *   model: 'claude-sonnet-4-5-20250929',
+ *   prompt: 'Analyze this workspace...',
+ *   systemPromptAppend: '...analysis instructions...',
+ *   isPremium: true,
+ *   mcpServerRunning: true,
+ *   maxTurns: 25,
+ * });
+ *
+ * for await (const message of handle.stream) {
+ *   // Process SDK messages (stream_event, assistant, result)
+ * }
+ * ```
+ */
+@injectable()
+export class InternalQueryService {
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
+    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_MODULE_LOADER)
+    private readonly moduleLoader: SdkModuleLoader,
+    @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
+    private readonly enhancedPromptsService: EnhancedPromptsService,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
+    private readonly subagentHookHandler: SubagentHookHandler,
+    @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
+    private readonly compactionConfigProvider: CompactionConfigProvider,
+    @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
+    private readonly compactionHookHandler: CompactionHookHandler
+  ) {}
+
+  /**
+   * Execute a one-shot SDK query.
+   *
+   * Returns a handle with the message stream and control methods.
+   * The caller iterates the stream to process messages and extract results.
+   *
+   * @param config - Query configuration (model, prompt, features)
+   * @returns Handle with stream, abort, and close methods
+   * @throws Error if SDK is not available or query function cannot be loaded
+   */
+  async execute(config: InternalQueryConfig): Promise<InternalQueryHandle> {
+    this.logger.info(`${SERVICE_TAG} Starting internal query`, {
+      cwd: config.cwd,
+      model: config.model,
+      isPremium: config.isPremium,
+      mcpServerRunning: config.mcpServerRunning,
+      maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
+      hasSystemPromptAppend: !!config.systemPromptAppend,
+    });
+
+    // 1. Verify SDK health
+    this.verifyHealth();
+
+    // 2. Get SDK query function
+    const queryFn = await this.moduleLoader.getQueryFunction();
+
+    // 3. Build query options (with all feature integrations)
+    const abortController = config.abortController ?? new AbortController();
+    const options = await this.buildOptions(config, abortController);
+
+    const systemPromptObj =
+      typeof options.systemPrompt === 'object'
+        ? options.systemPrompt
+        : undefined;
+
+    this.logger.info(`${SERVICE_TAG} SDK options built`, {
+      model: config.model,
+      permissionMode: 'bypassPermissions',
+      maxTurns: options.maxTurns,
+      hasMcpServers: Object.keys(options.mcpServers ?? {}).length > 0,
+      hasSystemPromptAppend: !!systemPromptObj?.append,
+      systemPromptAppendLength: systemPromptObj?.append?.length ?? 0,
+    });
+
+    // 4. Start query with string prompt (single-shot mode)
+    const conversation = queryFn({
+      prompt: config.prompt,
+      options,
+    });
+
+    // 5. Return handle
+    return {
+      stream: conversation,
+      abort: () => abortController.abort(),
+      close: () => {
+        try {
+          conversation.close();
+        } catch (e) {
+          this.logger.debug(`${SERVICE_TAG} Failed to close conversation`, {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      },
+    };
+  }
+
+  // ==========================================================================
+  // Private — Option Assembly
+  // ==========================================================================
+
+  /**
+   * Verify SDK is available and initialized.
+   */
+  private verifyHealth(): void {
+    const health = this.sdkAdapter.getHealth();
+    if (health.status !== 'available') {
+      throw new Error(
+        `SDK not available (status: ${health.status}). ${
+          health.errorMessage || ''
+        }`
+      );
+    }
+  }
+
+  /**
+   * Build complete SDK query options for internal one-shot execution.
+   *
+   * Integrates all features:
+   * - System prompt: identity prompt + custom append + enhanced prompts / PTAH_CORE
+   * - MCP servers: configured when premium + running
+   * - Hooks: subagent + compaction lifecycle hooks
+   * - Environment: passes process.env (includes API keys)
+   * - Settings: loads user, project, local sources (CLAUDE.md)
+   *
+   * Note: Compaction behavior is managed through PreCompact hooks (see buildHooks()),
+   * not through a direct SDK option. The compaction config provider is used for
+   * logging/debugging purposes.
+   */
+  private async buildOptions(
+    config: InternalQueryConfig,
+    abortController: AbortController
+  ): Promise<SdkQueryOptions> {
+    // Assemble system prompt with all enhancements
+    const systemPrompt = await this.buildSystemPrompt(config);
+
+    // Build MCP server configuration
+    const mcpServers = this.buildMcpServers(
+      config.isPremium,
+      config.mcpServerRunning,
+      config.mcpPort
+    );
+
+    // Create lifecycle hooks (subagent + compaction)
+    const hooks = this.buildHooks(config.cwd);
+
+    // Log compaction configuration for debugging
+    // Note: compactionControl is not part of the SDK Options interface.
+    // Compaction behavior is managed through PreCompact hooks in buildHooks().
+    const compactionConfig = this.compactionConfigProvider.getConfig();
+    this.logger.debug(
+      `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`
+    );
+
+    return {
+      abortController,
+      cwd: config.cwd,
+      model: config.model,
+
+      // System prompt with all enhancements
+      systemPrompt,
+
+      // Tool preset (claude_code includes all standard tools)
+      tools: {
+        type: 'preset',
+        preset: 'claude_code',
+      },
+
+      // MCP servers (Ptah API — premium only)
+      mcpServers,
+
+      // Internal query — bypass all permission prompts
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+
+      // Bound execution with explicit turn limit
+      maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
+
+      // Enable streaming events for progress extraction
+      includePartialMessages: true,
+
+      // Don't persist internal sessions to disk
+      persistSession: false,
+
+      // Pass environment (includes ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, etc.)
+      env: process.env,
+
+      // Load user/project/local settings (CLAUDE.md files, etc.)
+      settingSources: ['user', 'project', 'local'],
+
+      // Capture stderr for debugging
+      stderr: (data: string) => {
+        this.logger.error(`${SERVICE_TAG} SDK stderr: ${data}`);
+      },
+
+      // Lifecycle hooks (subagent + compaction)
+      hooks,
+    };
+  }
+
+  /**
+   * Build system prompt with all enhancements.
+   *
+   * Assembly order:
+   * 1. Model identity clarification (for third-party providers like OpenRouter)
+   * 2. Enhanced prompts content (AI-generated) OR PTAH_CORE_SYSTEM_PROMPT (premium fallback)
+   * 3. Custom system prompt append (task-specific instructions)
+   *
+   * Uses preset 'claude_code' as base, then appends all parts.
+   */
+  private async buildSystemPrompt(
+    config: InternalQueryConfig
+  ): Promise<{ type: 'preset'; preset: 'claude_code'; append?: string }> {
+    const appendParts: string[] = [];
+
+    // 1. Model identity clarification for third-party providers
+    const identityPrompt = this.buildIdentityPrompt();
+    if (identityPrompt) {
+      appendParts.push(identityPrompt);
+      this.logger.debug(
+        `${SERVICE_TAG} Added identity prompt for third-party provider`
+      );
+    }
+
+    // 2. Enhanced prompts or PTAH_CORE_SYSTEM_PROMPT for premium users
+    if (config.isPremium) {
+      const enhancedContent = await this.resolveEnhancedPrompts(config.cwd);
+      if (enhancedContent) {
+        appendParts.push(enhancedContent);
+        this.logger.debug(`${SERVICE_TAG} Using enhanced prompts`, {
+          contentLength: enhancedContent.length,
+        });
+      } else {
+        appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+        this.logger.debug(
+          `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT (no enhanced prompts)`
+        );
+      }
+    }
+
+    // 3. Task-specific system prompt instructions
+    if (config.systemPromptAppend) {
+      appendParts.push(config.systemPromptAppend);
+    }
+
+    return {
+      type: 'preset',
+      preset: 'claude_code',
+      append: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
+    };
+  }
+
+  /**
+   * Resolve enhanced prompts content for the workspace.
+   *
+   * Returns the AI-generated enhanced prompt if available and enabled,
+   * or null to fall back to PTAH_CORE_SYSTEM_PROMPT.
+   */
+  private async resolveEnhancedPrompts(cwd: string): Promise<string | null> {
+    try {
+      return await this.enhancedPromptsService.getEnhancedPromptContent(cwd);
+    } catch (error) {
+      this.logger.debug(
+        `${SERVICE_TAG} Failed to resolve enhanced prompts, using fallback`,
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Build model identity clarification prompt for third-party providers.
+   *
+   * When using Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI),
+   * the claude_code preset injects "You are Claude" into the system prompt.
+   * This clarification overrides that for models that aren't Claude.
+   *
+   * Note: Direct process.env access follows the same pattern as
+   * SdkQueryOptionsBuilder. Centralizing env access into DI is tracked
+   * as future tech debt.
+   */
+  private buildIdentityPrompt(): string | undefined {
+    const baseUrl = process.env['ANTHROPIC_BASE_URL'];
+    if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
+      return undefined; // Using Anthropic directly — no clarification needed
+    }
+
+    // Detect which provider is active
+    const providerIds = ['openrouter', 'moonshot', 'zhipu'] as const;
+    for (const id of providerIds) {
+      const provider = getAnthropicProvider(id);
+      if (provider && baseUrl.includes(new URL(provider.baseUrl).hostname)) {
+        // Get actual model from tier env vars
+        const actualModel =
+          process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] ||
+          process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] ||
+          process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+
+        if (!actualModel) {
+          return undefined; // No tier mapping — likely using Anthropic directly
+        }
+
+        return `# Model Identity Clarification
+
+IMPORTANT: You are running as **${actualModel}** provided by **${provider.name}**, NOT Claude by Anthropic.
+
+When asked about your identity, model, or capabilities:
+- State that you are ${actualModel} from ${provider.name}
+- Do NOT claim to be Claude, Claude Opus, Claude Sonnet, or any Anthropic model
+- You may mention you are running through an Anthropic-compatible API interface
+
+This clarification takes precedence over any other identity instructions in the system prompt.`;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Build MCP servers configuration.
+   *
+   * Enables Ptah HTTP MCP server for premium users when the server is running.
+   * This gives the agent access to execute_code tool with all ptah.* API namespaces.
+   *
+   * @param isPremium - Whether user has premium features
+   * @param mcpServerRunning - Whether the MCP server is currently running
+   * @param mcpPort - Port the MCP server is listening on (defaults to PTAH_MCP_PORT)
+   */
+  private buildMcpServers(
+    isPremium: boolean,
+    mcpServerRunning: boolean,
+    mcpPort?: number
+  ): Record<string, McpHttpServerConfig> {
+    if (!isPremium) {
+      this.logger.debug(`${SERVICE_TAG} MCP disabled (not premium)`);
+      return {};
+    }
+
+    if (!mcpServerRunning) {
+      this.logger.warn(`${SERVICE_TAG} MCP disabled (server not running)`);
+      return {};
+    }
+
+    const port = mcpPort ?? PTAH_MCP_PORT;
+    return {
+      ptah: {
+        type: 'http',
+        url: `http://localhost:${port}`,
+      },
+    };
+  }
+
+  /**
+   * Build lifecycle hooks (subagent + compaction).
+   *
+   * Even for internal queries, hooks are useful for:
+   * - Subagent tracking (if the agent spawns subagents)
+   * - Compaction notification (for long-running analyses)
+   */
+  private buildHooks(
+    cwd: string
+  ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+    const subagentHooks = this.subagentHookHandler.createHooks(cwd);
+    const compactionHooks = this.compactionHookHandler.createHooks(
+      `internal-query-${Date.now()}`
+    );
+
+    return {
+      ...subagentHooks,
+      ...compactionHooks,
+    };
+  }
+}
