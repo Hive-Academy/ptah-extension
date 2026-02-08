@@ -693,6 +693,7 @@ export interface ProjectAnalysisResult {
  */
 export type WizardMessageType =
   | 'setup-wizard:scan-progress'
+  | 'setup-wizard:analysis-stream'
   | 'setup-wizard:analysis-complete'
   | 'setup-wizard:available-agents'
   | 'setup-wizard:generation-progress'
@@ -704,8 +705,18 @@ export type WizardMessageType =
 // ============================================================================
 
 /**
+ * Analysis phase identifiers for agentic workspace analysis.
+ * Used by the frontend to display phase stepper progress.
+ */
+export type AnalysisPhase = 'discovery' | 'architecture' | 'health' | 'quality';
+
+/**
  * Payload for scan progress updates.
  * Sent during workspace scanning phase.
+ *
+ * Extended with agentic analysis fields (currentPhase, phaseLabel,
+ * agentReasoning, completedPhases) that are populated when using
+ * the Claude Agent SDK-based analysis path.
  */
 export interface ScanProgressPayload {
   /** Number of files scanned so far */
@@ -714,6 +725,40 @@ export interface ScanProgressPayload {
   totalFiles: number;
   /** Detected technologies/frameworks so far */
   detections: string[];
+  /** Current analysis phase (agentic analysis only) */
+  currentPhase?: AnalysisPhase;
+  /** Human-readable label for the current phase (agentic analysis only) */
+  phaseLabel?: string;
+  /** Agent reasoning/activity description (agentic analysis only) */
+  agentReasoning?: string;
+  /** List of completed phase identifiers (agentic analysis only) */
+  completedPhases?: AnalysisPhase[];
+}
+
+/**
+ * Payload for streaming analysis messages to the frontend transcript.
+ * Sent from AgenticAnalysisService during SDK stream processing.
+ */
+export interface AnalysisStreamPayload {
+  /** Message type discriminator */
+  kind:
+    | 'text'
+    | 'tool_start'
+    | 'tool_input'
+    | 'tool_result'
+    | 'thinking'
+    | 'error'
+    | 'status';
+  /** Text content (text output, thinking preview, error message, or status) */
+  content: string;
+  /** Tool name (for tool_start, tool_input, tool_result) */
+  toolName?: string;
+  /** Tool call ID (for correlating tool_start with tool_result) */
+  toolCallId?: string;
+  /** Whether this is an error result (for tool_result) */
+  isError?: boolean;
+  /** Timestamp */
+  timestamp: number;
 }
 
 /**
@@ -839,6 +884,7 @@ export interface WizardErrorPayload {
  */
 export type WizardMessage =
   | { type: 'setup-wizard:scan-progress'; payload: ScanProgressPayload }
+  | { type: 'setup-wizard:analysis-stream'; payload: AnalysisStreamPayload }
   | { type: 'setup-wizard:analysis-complete'; payload: AnalysisCompletePayload }
   | { type: 'setup-wizard:available-agents'; payload: AvailableAgentsPayload }
   | {

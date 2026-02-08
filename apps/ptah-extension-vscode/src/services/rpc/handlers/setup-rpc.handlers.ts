@@ -20,7 +20,9 @@ import {
   TOKENS,
   LicenseService,
   type LicenseStatus,
+  type WebviewManager,
 } from '@ptah-extension/vscode-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import * as vscode from 'vscode';
 import type {
@@ -319,6 +321,27 @@ export class SetupRpcHandlers {
           });
         }
 
+        // Broadcast fallback transition to frontend (best-effort)
+        try {
+          const webviewManager = this.resolveService<WebviewManager>(
+            TOKENS.WEBVIEW_MANAGER,
+            'WebviewManager'
+          );
+          webviewManager.broadcastMessage(
+            MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
+            {
+              filesScanned: 0,
+              totalFiles: 0,
+              detections: [],
+              agentReasoning: 'Switching to quick analysis mode...',
+              currentPhase: undefined,
+              completedPhases: [],
+            }
+          );
+        } catch {
+          /* best-effort broadcast */
+        }
+
         // Fallback: Use existing hardcoded DeepProjectAnalysisService
         const setupWizardService = this.resolveService<{
           performDeepAnalysis: (uri: vscode.Uri) => Promise<{
@@ -328,6 +351,25 @@ export class SetupRpcHandlers {
             error?: Error;
           }>;
         }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
+
+        // Broadcast that quick analysis is starting (best-effort)
+        try {
+          const webviewManager = this.resolveService<WebviewManager>(
+            TOKENS.WEBVIEW_MANAGER,
+            'WebviewManager'
+          );
+          webviewManager.broadcastMessage(
+            MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
+            {
+              filesScanned: 0,
+              totalFiles: 0,
+              detections: [],
+              agentReasoning: 'Running quick project analysis...',
+            }
+          );
+        } catch {
+          /* best-effort broadcast */
+        }
 
         const result = await setupWizardService.performDeepAnalysis(
           workspaceFolder.uri

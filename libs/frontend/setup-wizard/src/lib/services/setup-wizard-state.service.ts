@@ -3,6 +3,7 @@ import { VSCodeService } from '@ptah-extension/core';
 import {
   AgentRecommendation,
   AnalysisCompletePayload,
+  AnalysisPhase,
   AvailableAgentsPayload,
   GenerationCompletePayload,
   GenerationProgressPayload,
@@ -85,12 +86,21 @@ export interface AgentProgress {
 }
 
 /**
- * Scan progress tracking
+ * Scan progress tracking.
+ * Extended with agentic analysis fields for phase stepper and reasoning display.
  */
 export interface ScanProgress {
   filesScanned: number;
   totalFiles: number;
   detections: string[];
+  /** Current analysis phase (agentic analysis only) */
+  currentPhase?: AnalysisPhase;
+  /** Human-readable label for the current phase (agentic analysis only) */
+  phaseLabel?: string;
+  /** Agent reasoning/activity description (agentic analysis only) */
+  agentReasoning?: string;
+  /** List of completed phase identifiers (agentic analysis only) */
+  completedPhases?: AnalysisPhase[];
 }
 
 /**
@@ -741,6 +751,7 @@ export class SetupWizardStateService {
 
     const validTypes: WizardMessageType[] = [
       'setup-wizard:scan-progress',
+      'setup-wizard:analysis-stream',
       'setup-wizard:analysis-complete',
       'setup-wizard:available-agents',
       'setup-wizard:generation-progress',
@@ -791,6 +802,11 @@ export class SetupWizardStateService {
             this.handleGenerationComplete(message.payload);
             break;
 
+          case 'setup-wizard:analysis-stream':
+            // Analysis stream messages are accumulated for live transcript display.
+            // Full handler with signal accumulation will be added by Task 3.1.
+            break;
+
           case 'setup-wizard:error':
             this.handleError(message.payload);
             break;
@@ -815,16 +831,26 @@ export class SetupWizardStateService {
   /**
    * Handle scan progress updates.
    * Payload is now typed via discriminated union.
+   * Propagates agentic analysis fields (currentPhase, phaseLabel, etc.) when present.
    *
    * @param payload - Typed ScanProgressPayload from shared types
    */
   private handleScanProgress(payload: ScanProgressPayload): void {
-    this.scanProgressSignal.set(payload);
+    this.scanProgressSignal.set({
+      filesScanned: payload.filesScanned,
+      totalFiles: payload.totalFiles,
+      detections: payload.detections,
+      currentPhase: payload.currentPhase,
+      phaseLabel: payload.phaseLabel,
+      agentReasoning: payload.agentReasoning,
+      completedPhases: payload.completedPhases,
+    });
     this.generationProgressSignal.set({
       phase: 'analysis',
-      percentComplete: Math.round(
-        (payload.filesScanned / payload.totalFiles) * 100
-      ),
+      percentComplete:
+        payload.totalFiles > 0
+          ? Math.round((payload.filesScanned / payload.totalFiles) * 100)
+          : 0,
       filesScanned: payload.filesScanned,
       totalFiles: payload.totalFiles,
       detections: payload.detections,

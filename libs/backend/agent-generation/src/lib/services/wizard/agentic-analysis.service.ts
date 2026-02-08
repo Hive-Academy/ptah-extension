@@ -43,6 +43,17 @@ const SERVICE_TAG = '[AgenticAnalysis]';
 const DEFAULT_TIMEOUT_MS = 90_000;
 const MAX_AGENT_TURNS = 25;
 
+/**
+ * Typed abort reasons for distinguishing timeout from user cancellation.
+ * Passed to AbortController.abort(reason) so the catch block can inspect
+ * signal.reason and produce distinct error messages for each case.
+ */
+const ABORT_REASONS = {
+  TIMEOUT: 'analysis_timeout',
+  USER_CANCELLED: 'user_cancelled',
+} as const;
+type AbortReason = (typeof ABORT_REASONS)[keyof typeof ABORT_REASONS];
+
 const PHASE_LABELS: Record<AnalysisPhase, string> = {
   discovery: 'Discovering project structure...',
   architecture: 'Analyzing architecture patterns...',
@@ -55,114 +66,92 @@ const PHASE_LABELS: Record<AnalysisPhase, string> = {
 // ============================================================================
 
 function buildAnalysisSystemPrompt(): string {
-  return `You are an expert workspace analyzer. Your job is to analyze a codebase using the available MCP tools and produce a comprehensive JSON analysis.
+  return `You are an expert workspace analyzer. Analyze a codebase using MCP tools and produce a JSON analysis.
 
-## Instructions
+## Phase Markers — CRITICAL
 
-1. Use the \`execute_code\` tool with the ptah.* API to investigate the workspace.
-2. Follow these phases IN ORDER and emit a progress marker at the start of each:
+Before starting each phase, output exactly this text as a standalone line in your direct text output (NOT inside any tool call, code block, or execute_code input):
 
-   Phase 1 - Discovery: Emit \`[PHASE:discovery]\` then use:
-   - \`ptah.workspace.analyze()\` to get project type, frameworks, file count
-   - \`ptah.search.findFiles({pattern})\` for key files (entry points, configs, tests)
-   - Emit \`[DETECTED:X]\` for each major technology/framework detected
+\`[PHASE:discovery]\`
+\`[PHASE:architecture]\`
+\`[PHASE:health]\`
+\`[PHASE:quality]\`
 
-   Phase 2 - Architecture: Emit \`[PHASE:architecture]\` then:
-   - Look for architecture patterns (DDD, Layered, MVC, Microservices, etc.)
-   - Check folder structures, naming conventions, dependency patterns
-   - Identify monorepo type if applicable (Nx, Lerna, Turborepo)
+DO NOT put phase markers inside execute_code tool input parameters. Phase markers MUST appear as your direct text response before each phase.
 
-   Phase 3 - Health: Emit \`[PHASE:health]\` then:
-   - \`ptah.diagnostics.getProblems()\` for error/warning counts
-   - Detect code conventions (indentation, quotes, semicolons)
-   - Analyze linter/formatter configs (.eslintrc, .prettierrc)
+Similarly, emit \`[DETECTED:X]\` (e.g. \`[DETECTED:Angular]\`) in your direct text output for each technology or framework you find.
 
-   Phase 4 - Quality: Emit \`[PHASE:quality]\` then:
-   - Estimate test coverage (find test files, compare to source files)
-   - Identify test frameworks (jest, mocha, vitest, etc.)
-   - Check for unit, integration, and e2e test patterns
+## Phases
 
-3. For large projects (500+ files), use \`ptah.ai.invokeAgent()\` or \`ptah.ai.chatWithTools()\` to delegate sub-analyses to cheaper models.
+Phase 1 - Discovery: Output \`[PHASE:discovery]\` then:
+- Call \`ptah.workspace.analyze()\` EXACTLY ONCE to get project type, frameworks, file count
+- Use \`ptah.search.findFiles({pattern})\` for key files (entry points, configs, tests)
+- Output \`[DETECTED:X]\` for each technology found
 
-4. After all analysis, emit your final result as a JSON object wrapped in a \`\`\`json code block.
+Phase 2 - Architecture: Output \`[PHASE:architecture]\` then:
+- Examine folder structures for patterns (DDD, Layered, MVC, Microservices, Hexagonal)
+- Identify monorepo type if applicable (Nx, Lerna, Turborepo)
 
-## Output Schema
+Phase 3 - Health: Output \`[PHASE:health]\` then:
+- Call \`ptah.diagnostics.getProblems()\` for error/warning counts
+- Check linter/formatter configs (.eslintrc, .prettierrc)
 
-Your JSON MUST match this exact structure:
+Phase 4 - Quality: Output \`[PHASE:quality]\` then:
+- Find test files and estimate coverage
+- Identify test frameworks (jest, mocha, vitest, etc.)
+
+## Tool Usage Rules
+
+- Call each MCP tool EXACTLY ONCE. Do NOT call \`ptah.workspace.analyze()\` more than once.
+- The execute_code tool returns the value of the last expression directly. Do NOT use \`console.log()\` to wrap return values.
+- When analyzing results, summarize key findings concisely in your text output. Do NOT reproduce entire JSON objects in your response text.
+- If a tool call fails, continue with remaining analysis.
+
+## Final Output
+
+After all phases, emit your result as a JSON object in a \`\`\`json code block matching this schema:
 
 \`\`\`typescript
 {
-  projectType: string,           // e.g., "Angular", "React", "Node.js", "Python"
-  frameworks: string[],          // e.g., ["NestJS", "Angular", "TailwindCSS"]
-  monorepoType?: string,         // e.g., "Nx", "Lerna", "Turborepo"
+  projectType: string,
+  frameworks: string[],
+  monorepoType?: string,
   architecturePatterns: Array<{
-    name: string,                // e.g., "Layered", "DDD", "MVC"
-    confidence: number,          // 0-100
-    evidence: string[],          // file paths or patterns that indicate this
-    description?: string
+    name: string, confidence: number, evidence: string[], description?: string
   }>,
   keyFileLocations: {
-    entryPoints: string[],
-    configs: string[],
-    testDirectories: string[],
-    apiRoutes: string[],
-    components: string[],
-    services: string[],
-    models?: string[],
-    repositories?: string[],
-    utilities?: string[]
+    entryPoints: string[], configs: string[], testDirectories: string[],
+    apiRoutes: string[], components: string[], services: string[],
+    models?: string[], repositories?: string[], utilities?: string[]
   },
   languageDistribution: Array<{
-    language: string,
-    percentage: number,
-    fileCount: number,
-    linesOfCode?: number
+    language: string, percentage: number, fileCount: number, linesOfCode?: number
   }>,
   existingIssues: {
-    errorCount: number,
-    warningCount: number,
-    infoCount: number,
-    errorsByType: Record<string, number>,
-    warningsByType: Record<string, number>,
+    errorCount: number, warningCount: number, infoCount: number,
+    errorsByType: Record<string, number>, warningsByType: Record<string, number>,
     topErrors?: Array<{ message: string, count: number, source: string }>
   },
   codeConventions?: {
-    indentation: "tabs" | "spaces",
-    indentSize: number,
-    quoteStyle: "single" | "double",
-    semicolons: boolean,
+    indentation: "tabs" | "spaces", indentSize: number,
+    quoteStyle: "single" | "double", semicolons: boolean,
     trailingComma?: "none" | "es5" | "all",
     namingConventions?: {
       files?: string, classes?: string, functions?: string,
       variables?: string, constants?: string, interfaces?: string, types?: string
     },
-    maxLineLength?: number,
-    usePrettier?: boolean,
-    useEslint?: boolean,
+    maxLineLength?: number, usePrettier?: boolean, useEslint?: boolean,
     additionalTools?: string[]
   },
   testCoverage: {
-    percentage: number,
-    hasTests: boolean,
-    testFramework?: string,
-    hasUnitTests: boolean,
-    hasIntegrationTests: boolean,
-    hasE2eTests: boolean,
-    testFileCount?: number,
-    sourceFileCount?: number,
-    testToSourceRatio?: number
+    percentage: number, hasTests: boolean, testFramework?: string,
+    hasUnitTests: boolean, hasIntegrationTests: boolean, hasE2eTests: boolean,
+    testFileCount?: number, sourceFileCount?: number, testToSourceRatio?: number
   }
 }
 \`\`\`
 
-## Important Rules
-
-- ALWAYS emit [PHASE:X] markers before starting each phase
-- ALWAYS emit [DETECTED:X] for each technology/framework you find
-- ALWAYS return the final JSON in a \`\`\`json code block
-- Be thorough but efficient — use the right tools for the job
-- If a tool call fails, continue with remaining analysis
-- If you cannot determine a value, use sensible defaults (0, [], false)`;
+If you cannot determine a value, use sensible defaults (0, [], false).`;
 }
 
 // ============================================================================
@@ -265,6 +254,29 @@ export class AgenticAnalysisService {
 
       return result;
     } catch (error) {
+      // Inspect abort reason to produce distinct error messages for timeout vs user cancellation
+      const abortReason = abortController.signal.reason as
+        | AbortReason
+        | undefined;
+
+      if (abortReason === ABORT_REASONS.TIMEOUT) {
+        this.logger.warn(
+          `${SERVICE_TAG} Analysis timed out after ${timeout}ms`
+        );
+        this.broadcastProgress({
+          filesScanned: 0,
+          totalFiles: 0,
+          detections: [],
+          agentReasoning:
+            'Analysis timed out. Falling back to quick analysis...',
+        });
+        return Result.err(new Error('Analysis timed out'));
+      } else if (abortReason === ABORT_REASONS.USER_CANCELLED) {
+        this.logger.info(`${SERVICE_TAG} Analysis cancelled by user`);
+        return Result.err(new Error('Analysis cancelled by user'));
+      }
+
+      // Generic error (not an abort)
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(`${SERVICE_TAG} Agentic analysis failed`, errorObj);
@@ -290,7 +302,7 @@ export class AgenticAnalysisService {
   cancelAnalysis(): void {
     if (this.activeAbortController) {
       this.logger.info(`${SERVICE_TAG} Cancelling active analysis`);
-      this.activeAbortController.abort();
+      this.activeAbortController.abort(ABORT_REASONS.USER_CANCELLED);
       this.activeAbortController = null;
     } else {
       this.logger.debug(
@@ -318,7 +330,7 @@ export class AgenticAnalysisService {
       this.logger.warn(
         `${SERVICE_TAG} Analysis timed out after ${timeoutMs}ms`
       );
-      abortController.abort();
+      abortController.abort(ABORT_REASONS.TIMEOUT);
     }, timeoutMs);
 
     try {
