@@ -52,6 +52,7 @@ import {
   CommandRpcHandlers, // TASK_2025_126: Webview command execution
   EnhancedPromptsRpcHandlers, // TASK_2025_137: Enhanced Prompts
   QualityRpcHandlers, // TASK_2025_144: Quality Dashboard
+  WizardGenerationRpcHandlers, // TASK_2025_148: Wizard Generation Pipeline
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -234,6 +235,16 @@ export class DIContainer {
     // TASK_2025_144: Quality Dashboard RPC handlers
     container.registerSingleton(QualityRpcHandlers);
 
+    // TASK_2025_148: Wizard Generation RPC handlers (requires container for lazy resolution)
+    container.register(WizardGenerationRpcHandlers, {
+      useFactory: (c) =>
+        new WizardGenerationRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c
+        ),
+    });
+
     // RPC Method Registration Service (orchestrator - requires container instance)
     // TASK_2025_074: Refactored to use domain-specific handler classes
     // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
@@ -264,6 +275,7 @@ export class DIContainer {
           c.resolve(CommandRpcHandlers), // TASK_2025_126
           c.resolve(EnhancedPromptsRpcHandlers), // TASK_2025_137
           c.resolve(QualityRpcHandlers), // TASK_2025_144
+          c.resolve(WizardGenerationRpcHandlers), // TASK_2025_148
           c // Pass container instance
         );
       },

@@ -1,0 +1,640 @@
+/**
+ * Wizard Generation RPC Handlers
+ *
+ * Handles RPC methods for the setup wizard generation pipeline:
+ * - wizard:submit-selection - Submit agent selection and trigger generation
+ * - wizard:cancel - Cancel active generation or wizard session
+ * - wizard:retry-item - Retry a single failed generation item
+ *
+ * TASK_2025_148: Wire Setup Wizard Generation Pipeline via RPC
+ *
+ * Design decisions:
+ * - Uses lazy DI resolution via container (same as SetupRpcHandlers)
+ * - Concurrent generation guard prevents multiple simultaneous generations
+ * - Progress callback errors are caught to prevent crashing the generation pipeline
+ * - Cancel is safe to call when no generation is running (no-op)
+ * - Uses local WebviewBroadcaster interface to avoid StrictMessageType constraint
+ *   since 'setup-wizard:generation-progress' is not in StrictMessageType union
+ */
+
+import { injectable, inject, DependencyContainer } from 'tsyringe';
+import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import type {
+  WizardSubmitSelectionParams,
+  WizardSubmitSelectionResponse,
+  WizardCancelParams,
+  WizardCancelResponse,
+  WizardRetryItemParams,
+  WizardRetryItemResponse,
+  GenerationProgressPayload,
+  GenerationCompletePayload,
+} from '@ptah-extension/shared';
+import type { GenerationSummary } from '@ptah-extension/agent-generation';
+import { Result } from '@ptah-extension/shared';
+import * as vscode from 'vscode';
+
+/**
+ * Progress update callback payload from AgentGenerationOrchestratorService.
+ * Defined locally because this type is not barrel-exported from agent-generation.
+ * Mirrors the GenerationProgress interface in orchestrator.service.ts.
+ */
+interface GenerationProgress {
+  phase:
+    | 'analysis'
+    | 'selection'
+    | 'customization'
+    | 'rendering'
+    | 'writing'
+    | 'complete';
+  percentComplete: number;
+  currentOperation?: string;
+  agentsProcessed?: number;
+  totalAgents?: number;
+  detectedCharacteristics?: string[];
+}
+
+/**
+ * Generation options for the orchestrator.
+ * Defined locally because this type is not barrel-exported from agent-generation.
+ * Mirrors the OrchestratorGenerationOptions interface in orchestrator.service.ts.
+ */
+interface OrchestratorGenerationOptions {
+  workspaceUri: vscode.Uri;
+  threshold?: number;
+  userOverrides?: string[];
+  variableOverrides?: Record<string, string>;
+}
+
+/**
+ * Local interface for webview broadcasting.
+ *
+ * Uses `string` for message type instead of `StrictMessageType` because
+ * 'setup-wizard:generation-progress' and 'setup-wizard:generation-complete'
+ * are not members of the StrictMessageType union. The underlying
+ * WebviewManager.broadcastMessage implementation accepts any message type
+ * via postMessage, so this is safe at runtime.
+ */
+interface WebviewBroadcaster {
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
+}
+
+/**
+ * Interface for the SetupWizardService methods we need.
+ * Uses structural typing to avoid importing the concrete class.
+ */
+interface SetupWizardServiceInterface {
+  getCurrentSession(): { id: string } | null;
+  cancelWizard(
+    sessionId: string,
+    saveProgress: boolean
+  ): Promise<Result<void, Error>>;
+}
+
+/**
+ * Interface for the AgentGenerationOrchestratorService methods we need.
+ * Uses structural typing to avoid importing the concrete class.
+ */
+interface OrchestratorServiceInterface {
+  generateAgents(
+    options: OrchestratorGenerationOptions,
+    progressCallback?: (progress: GenerationProgress) => void
+  ): Promise<Result<GenerationSummary, Error>>;
+}
+
+/**
+ * RPC handlers for setup wizard generation operations.
+ *
+ * TASK_2025_148: Connects the frontend Angular SPA to the backend
+ * AgentGenerationOrchestratorService via RPC, replacing the old
+ * postMessage-based webview panel handlers.
+ *
+ * Concurrency: Only one generation can run at a time. The `isGenerating`
+ * flag prevents concurrent submissions and is always reset in finally blocks.
+ */
+@injectable()
+export class WizardGenerationRpcHandlers {
+  /**
+   * Concurrent generation guard.
+   * Prevents multiple simultaneous agent generation runs.
+   */
+  private isGenerating = false;
+
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    private readonly container: DependencyContainer
+  ) {}
+
+  /**
+   * Safely resolve a service from the DI container with validation.
+   *
+   * Provides consistent error handling and logging for dynamic service resolution.
+   * Throws descriptive errors when resolution fails, including the service name
+   * and original error details for debugging.
+   *
+   * @param token - The DI token (symbol or string) identifying the service
+   * @param serviceName - Human-readable name for error messages
+   * @returns The resolved service instance
+   * @throws Error if service is not registered or resolves to null/undefined
+   */
+  private resolveService<T>(token: symbol | string, serviceName: string): T {
+    try {
+      const service = this.container.resolve(token);
+
+      if (service === null || service === undefined) {
+        throw new Error(`${serviceName} resolved to null/undefined`);
+      }
+
+      return service as T;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to resolve ${serviceName}`, {
+        error: message,
+      });
+      throw new Error(
+        `${serviceName} not available. Ensure the agent-generation module is properly initialized. Details: ${message}`
+      );
+    }
+  }
+
+  /**
+   * Register all wizard generation RPC methods.
+   */
+  register(): void {
+    this.registerSubmitSelection();
+    this.registerCancel();
+    this.registerRetryItem();
+
+    this.logger.debug('Wizard generation RPC handlers registered', {
+      methods: [
+        'wizard:submit-selection',
+        'wizard:cancel',
+        'wizard:retry-item',
+      ],
+    });
+  }
+
+  /**
+   * wizard:submit-selection - Submit agent selection and trigger generation.
+   *
+   * Validates the selected agent IDs, resolves the orchestrator and webview
+   * manager, then runs the 5-phase generation pipeline. Progress is broadcast
+   * to the frontend via 'setup-wizard:generation-progress' messages.
+   *
+   * Edge cases handled:
+   * - Empty selectedAgentIds: returns error immediately
+   * - Concurrent submissions: rejects with error if already generating
+   * - No workspace folder: returns error
+   * - Progress callback errors: caught and logged, do not crash generation
+   * - Orchestrator errors: caught and returned as { success: false, error }
+   */
+  private registerSubmitSelection(): void {
+    this.rpcHandler.registerMethod<
+      WizardSubmitSelectionParams,
+      WizardSubmitSelectionResponse
+    >('wizard:submit-selection', async (params) => {
+      // Validate selectedAgentIds is non-empty
+      if (!params?.selectedAgentIds?.length) {
+        this.logger.warn(
+          'RPC: wizard:submit-selection called with empty agent selection'
+        );
+        return {
+          success: false,
+          error: 'No agents selected. Please select at least one agent.',
+        };
+      }
+
+      // Concurrent generation guard
+      if (this.isGenerating) {
+        this.logger.warn(
+          'RPC: wizard:submit-selection rejected - generation already in progress'
+        );
+        return {
+          success: false,
+          error:
+            'Agent generation is already in progress. Please wait for it to complete or cancel it first.',
+        };
+      }
+
+      // Get workspace folder
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        return {
+          success: false,
+          error:
+            'No workspace folder open. Please open a folder to generate agents.',
+        };
+      }
+
+      const startTime = Date.now();
+      this.isGenerating = true;
+
+      try {
+        this.logger.info('RPC: wizard:submit-selection started', {
+          agentCount: params.selectedAgentIds.length,
+          agents: params.selectedAgentIds,
+          workspace: workspaceFolder.uri.fsPath,
+        });
+
+        // Resolve orchestrator from DI container
+        const orchestrator = this.resolveService<OrchestratorServiceInterface>(
+          AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
+          'AgentGenerationOrchestratorService'
+        );
+
+        // Resolve WebviewManager for progress broadcasting (best-effort)
+        let webviewManager: WebviewBroadcaster | null = null;
+        try {
+          webviewManager = this.resolveService<WebviewBroadcaster>(
+            TOKENS.WEBVIEW_MANAGER,
+            'WebviewManager'
+          );
+        } catch {
+          this.logger.warn(
+            'WebviewManager not available for progress broadcasting. ' +
+              'Generation will proceed without progress updates.'
+          );
+        }
+
+        // Build orchestrator options
+        const options: OrchestratorGenerationOptions = {
+          workspaceUri: workspaceFolder.uri,
+          userOverrides: params.selectedAgentIds,
+          threshold: params.threshold,
+          variableOverrides: params.variableOverrides,
+        };
+
+        // Progress callback - broadcasts progress to frontend
+        const progressCallback = (progress: GenerationProgress): void => {
+          // CRITICAL: Wrap in try/catch to prevent broadcasting errors
+          // from crashing the generation pipeline
+          try {
+            if (!webviewManager) {
+              return;
+            }
+
+            const payload: GenerationProgressPayload = {
+              progress: {
+                phase:
+                  progress.phase === 'writing' ? 'rendering' : progress.phase,
+                percentComplete: progress.percentComplete,
+                currentAgent: progress.currentOperation,
+              },
+            };
+
+            // Fire-and-forget broadcast. Do not await to avoid blocking
+            // the generation pipeline. Errors are caught by the .catch handler.
+            webviewManager
+              .broadcastMessage('setup-wizard:generation-progress', payload)
+              .catch((broadcastError) => {
+                this.logger.warn('Failed to broadcast generation progress', {
+                  error:
+                    broadcastError instanceof Error
+                      ? broadcastError.message
+                      : String(broadcastError),
+                  phase: progress.phase,
+                  percentComplete: progress.percentComplete,
+                });
+              });
+          } catch (callbackError) {
+            // This catch handles synchronous errors in the callback body
+            this.logger.warn('Error in generation progress callback', {
+              error:
+                callbackError instanceof Error
+                  ? callbackError.message
+                  : String(callbackError),
+              phase: progress.phase,
+            });
+          }
+        };
+
+        // Run generation pipeline
+        const result = await orchestrator.generateAgents(
+          options,
+          progressCallback
+        );
+
+        const durationMs = Date.now() - startTime;
+
+        if (result.isOk()) {
+          const summary = result.value!;
+
+          this.logger.info('RPC: wizard:submit-selection completed', {
+            successful: summary.successful,
+            failed: summary.failed,
+            durationMs,
+          });
+
+          // Broadcast generation complete
+          if (webviewManager) {
+            const completePayload: GenerationCompletePayload = {
+              success: true,
+              generatedCount: summary.successful,
+              duration: durationMs,
+              errors:
+                summary.warnings.length > 0 ? summary.warnings : undefined,
+            };
+
+            webviewManager
+              .broadcastMessage(
+                'setup-wizard:generation-complete',
+                completePayload
+              )
+              .catch((broadcastError) => {
+                this.logger.warn('Failed to broadcast generation complete', {
+                  error:
+                    broadcastError instanceof Error
+                      ? broadcastError.message
+                      : String(broadcastError),
+                });
+              });
+          }
+
+          return { success: true };
+        }
+
+        // Generation failed
+        const errorMessage = result.error?.message || 'Agent generation failed';
+        this.logger.error('RPC: wizard:submit-selection failed', {
+          error: errorMessage,
+          durationMs,
+        });
+
+        // Broadcast generation complete with failure
+        if (webviewManager) {
+          const failPayload: GenerationCompletePayload = {
+            success: false,
+            generatedCount: 0,
+            duration: durationMs,
+            errors: [errorMessage],
+          };
+
+          webviewManager
+            .broadcastMessage('setup-wizard:generation-complete', failPayload)
+            .catch((broadcastError) => {
+              this.logger.warn('Failed to broadcast generation failure', {
+                error:
+                  broadcastError instanceof Error
+                    ? broadcastError.message
+                    : String(broadcastError),
+              });
+            });
+        }
+
+        return { success: false, error: errorMessage };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'RPC: wizard:submit-selection unexpected error',
+          error instanceof Error ? error : new Error(errorMessage)
+        );
+        return {
+          success: false,
+          error: `Agent generation failed: ${errorMessage}`,
+        };
+      } finally {
+        // CRITICAL: Always reset the generation guard
+        this.isGenerating = false;
+      }
+    });
+  }
+
+  /**
+   * wizard:cancel - Cancel active generation or wizard session.
+   *
+   * Safe to call even when no generation is running (returns { cancelled: false }).
+   * When generation is running, resets the isGenerating flag and cancels
+   * the wizard session via SetupWizardService.
+   *
+   * Edge cases handled:
+   * - No active session: returns { cancelled: false } (safe no-op)
+   * - SetupWizardService unavailable: logs warning, still resets generation flag
+   * - Cancel during generation: resets isGenerating flag to unlock future submissions
+   */
+  private registerCancel(): void {
+    this.rpcHandler.registerMethod<WizardCancelParams, WizardCancelResponse>(
+      'wizard:cancel',
+      async (params) => {
+        this.logger.debug('RPC: wizard:cancel called', {
+          saveProgress: params?.saveProgress,
+          isCurrentlyGenerating: this.isGenerating,
+        });
+
+        const saveProgress = params?.saveProgress ?? true;
+
+        try {
+          // Resolve SetupWizardService to access session management
+          const setupWizardService =
+            this.resolveService<SetupWizardServiceInterface>(
+              AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
+              'SetupWizardService'
+            );
+
+          // Get current session
+          const currentSession = setupWizardService.getCurrentSession();
+
+          if (!currentSession) {
+            this.logger.debug(
+              'RPC: wizard:cancel - no active session to cancel'
+            );
+
+            // Still reset the generation flag if it was stuck
+            if (this.isGenerating) {
+              this.isGenerating = false;
+              this.logger.info(
+                'RPC: wizard:cancel - reset stuck isGenerating flag'
+              );
+            }
+
+            return { cancelled: false };
+          }
+
+          // Cancel the wizard session
+          const cancelResult = await setupWizardService.cancelWizard(
+            currentSession.id,
+            saveProgress
+          );
+
+          // Reset generation flag to unlock future submissions
+          this.isGenerating = false;
+
+          if (cancelResult.isErr()) {
+            this.logger.error('Failed to cancel wizard session', {
+              sessionId: currentSession.id,
+              error: cancelResult.error?.message,
+            });
+
+            // Return cancelled: true anyway since we reset the flag
+            // The session may have already completed
+            return {
+              cancelled: true,
+              sessionId: currentSession.id,
+              progressSaved: saveProgress,
+            };
+          }
+
+          this.logger.info('RPC: wizard:cancel completed', {
+            sessionId: currentSession.id,
+            progressSaved: saveProgress,
+          });
+
+          return {
+            cancelled: true,
+            sessionId: currentSession.id,
+            progressSaved: saveProgress,
+          };
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          this.logger.warn('RPC: wizard:cancel error', {
+            error: errorMessage,
+          });
+
+          // Reset generation flag even on error to prevent deadlock
+          this.isGenerating = false;
+
+          // Return cancelled: false since we could not perform the cancellation
+          return { cancelled: false };
+        }
+      }
+    );
+  }
+
+  /**
+   * wizard:retry-item - Retry a single failed generation item.
+   *
+   * Currently implements a simplified retry that acknowledges the request
+   * and triggers a targeted re-generation via the orchestrator for the
+   * single specified agent. If the orchestrator does not support single-item
+   * retry natively, this runs a full generation with just that one agent ID.
+   *
+   * Edge cases handled:
+   * - Empty itemId: returns error
+   * - Generation already running: returns error (same concurrency guard)
+   * - Orchestrator unavailable: returns error
+   * - No workspace folder: returns error
+   */
+  private registerRetryItem(): void {
+    this.rpcHandler.registerMethod<
+      WizardRetryItemParams,
+      WizardRetryItemResponse
+    >('wizard:retry-item', async (params) => {
+      // Validate itemId
+      if (!params?.itemId) {
+        return {
+          success: false,
+          error: 'Item ID is required for retry.',
+        };
+      }
+
+      // Concurrent generation guard
+      if (this.isGenerating) {
+        return {
+          success: false,
+          error:
+            'Agent generation is already in progress. Please wait for it to complete before retrying.',
+        };
+      }
+
+      // Get workspace folder
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        return {
+          success: false,
+          error: 'No workspace folder open. Please open a folder first.',
+        };
+      }
+
+      this.isGenerating = true;
+
+      try {
+        this.logger.info('RPC: wizard:retry-item started', {
+          itemId: params.itemId,
+          workspace: workspaceFolder.uri.fsPath,
+        });
+
+        // Resolve orchestrator
+        const orchestrator = this.resolveService<OrchestratorServiceInterface>(
+          AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
+          'AgentGenerationOrchestratorService'
+        );
+
+        // Resolve WebviewManager for progress broadcasting (best-effort)
+        let webviewManager: WebviewBroadcaster | null = null;
+        try {
+          webviewManager = this.resolveService<WebviewBroadcaster>(
+            TOKENS.WEBVIEW_MANAGER,
+            'WebviewManager'
+          );
+        } catch {
+          // Progress broadcasting will be skipped
+        }
+
+        // Run generation for the single item
+        const options: OrchestratorGenerationOptions = {
+          workspaceUri: workspaceFolder.uri,
+          userOverrides: [params.itemId],
+        };
+
+        const result = await orchestrator.generateAgents(options);
+
+        if (result.isOk()) {
+          const summary = result.value!;
+          this.logger.info('RPC: wizard:retry-item completed', {
+            itemId: params.itemId,
+            successful: summary.successful,
+          });
+
+          // Broadcast completion for the retried item
+          if (webviewManager) {
+            const completePayload: GenerationCompletePayload = {
+              success: true,
+              generatedCount: summary.successful,
+              duration: summary.durationMs,
+            };
+
+            webviewManager
+              .broadcastMessage(
+                'setup-wizard:generation-complete',
+                completePayload
+              )
+              .catch((broadcastError) => {
+                this.logger.warn('Failed to broadcast retry completion', {
+                  error:
+                    broadcastError instanceof Error
+                      ? broadcastError.message
+                      : String(broadcastError),
+                });
+              });
+          }
+
+          return { success: true };
+        }
+
+        const errorMessage =
+          result.error?.message || `Failed to retry item ${params.itemId}`;
+        this.logger.error('RPC: wizard:retry-item failed', {
+          itemId: params.itemId,
+          error: errorMessage,
+        });
+
+        return { success: false, error: errorMessage };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'RPC: wizard:retry-item unexpected error',
+          error instanceof Error ? error : new Error(errorMessage)
+        );
+        return {
+          success: false,
+          error: `Retry failed: ${errorMessage}`,
+        };
+      } finally {
+        this.isGenerating = false;
+      }
+    });
+  }
+}
