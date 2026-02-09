@@ -18,7 +18,7 @@ import * as allTokenExports from '@ptah-extension/vscode-core';
 // Test file needs static imports for token validation - override lazy-loading rule
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
-// eslint-disable-next-line @nx/enforce-module-boundaries
+
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 
 describe('DI Tokens - Symbol.for() Convention', () => {

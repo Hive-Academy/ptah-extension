@@ -203,6 +203,7 @@ export class DIContainer {
         new SetupRpcHandlers(
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(TOKENS.CONFIG_MANAGER),
           c
         ),
     });
