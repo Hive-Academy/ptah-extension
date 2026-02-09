@@ -346,9 +346,18 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
           <span class="text-xs text-base-content/50">{{ item.content }}</span>
         </div>
         } } } } @empty {
-        <p class="text-xs text-base-content/40 text-center py-4">
-          Waiting for agent messages...
-        </p>
+        <div class="space-y-3 py-4">
+          <div class="flex items-center gap-2">
+            <div class="skeleton w-4 h-4 rounded-full shrink-0"></div>
+            <div class="skeleton h-3 w-3/4"></div>
+          </div>
+          <div class="skeleton h-12 w-full rounded-md"></div>
+          <div class="flex items-center gap-2">
+            <div class="skeleton w-4 h-4 rounded-full shrink-0"></div>
+            <div class="skeleton h-3 w-1/2"></div>
+          </div>
+          <div class="skeleton h-8 w-full rounded-md"></div>
+        </div>
         }
       </div>
       }

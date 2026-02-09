@@ -84,48 +84,58 @@ interface PhaseStep {
       </div>
       } @if (progress(); as progressData) {
 
-      <!-- Phase Stepper (agentic analysis) -->
+      <!-- Phase Cards (agentic analysis) -->
       @if (progressData.currentPhase) {
-      <div class="mb-8">
-        <ul class="steps steps-horizontal w-full">
-          @for (phase of phases; track phase.id) {
-          <li
-            class="step transition-all duration-300"
-            [class.step-primary]="isPhaseCompleteOrCurrent(phase.id)"
-            [attr.aria-label]="
-              phase.label +
-              (isPhaseComplete(phase.id)
-                ? ' - complete'
-                : isCurrentPhase(phase.id)
-                ? ' - in progress'
-                : ' - pending')
-            "
-          >
-            <span class="flex items-center gap-1.5 text-xs">
-              @if (isPhaseComplete(phase.id)) {
-              <lucide-angular
-                [img]="CheckCircleIcon"
-                class="w-3.5 h-3.5 text-success"
-                aria-hidden="true"
-              />
-              } @else if (isCurrentPhase(phase.id)) {
-              <lucide-angular
-                [img]="phase.icon"
-                class="w-3.5 h-3.5 animate-pulse"
-                aria-hidden="true"
-              />
-              } @else {
-              <lucide-angular
-                [img]="phase.icon"
-                class="w-3.5 h-3.5 opacity-40"
-                aria-hidden="true"
-              />
-              }
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        @for (phase of phases; track phase.id) {
+        <div
+          class="card transition-all duration-500"
+          [class]="getPhaseCardClasses(phase.id)"
+          [attr.aria-label]="
+            phase.label +
+            (isPhaseComplete(phase.id)
+              ? ' - complete'
+              : isCurrentPhase(phase.id)
+              ? ' - in progress'
+              : ' - pending')
+          "
+        >
+          <div class="card-body p-3 items-center text-center gap-1">
+            @if (isPhaseComplete(phase.id)) {
+            <lucide-angular
+              [img]="CheckCircleIcon"
+              class="w-5 h-5 text-success"
+              aria-hidden="true"
+            />
+            } @else if (isCurrentPhase(phase.id)) {
+            <lucide-angular
+              [img]="phase.icon"
+              class="w-5 h-5 text-primary animate-pulse"
+              aria-hidden="true"
+            />
+            } @else {
+            <lucide-angular
+              [img]="phase.icon"
+              class="w-5 h-5 text-base-content/30"
+              aria-hidden="true"
+            />
+            }
+            <span
+              class="text-xs font-medium"
+              [class]="
+                isPhaseCompleteOrCurrent(phase.id) ? '' : 'text-base-content/40'
+              "
+            >
               {{ phase.label }}
             </span>
-          </li>
-          }
-        </ul>
+            @if (isPhaseComplete(phase.id)) {
+            <span class="badge badge-xs badge-success">done</span>
+            } @else if (isCurrentPhase(phase.id)) {
+            <span class="badge badge-xs badge-info animate-pulse">active</span>
+            }
+          </div>
+        </div>
+        }
       </div>
 
       <!-- Current Phase Label -->
@@ -365,6 +375,20 @@ export class ScanProgressComponent implements OnInit {
     const progressData = this.progress();
     if (!progressData) return false;
     return progressData.currentPhase === phaseId;
+  }
+
+  /**
+   * Get DaisyUI/Tailwind classes for a phase card based on its state.
+   * Returns gradient-styled classes for complete, active, and pending phases.
+   */
+  protected getPhaseCardClasses(phaseId: AnalysisPhase): string {
+    if (this.isPhaseComplete(phaseId)) {
+      return 'bg-success/10 border border-success/30 shadow-sm';
+    }
+    if (this.isCurrentPhase(phaseId)) {
+      return 'bg-primary/10 border border-primary/30 shadow-md';
+    }
+    return 'bg-base-200 border border-base-300/50 opacity-60';
   }
 
   constructor() {

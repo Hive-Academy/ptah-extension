@@ -42,6 +42,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    @if (messageCount() > 0) {
     <!-- Stats Grid -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
       <!-- Messages Processed -->
@@ -99,7 +100,6 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
     </div>
 
     <!-- Message Type Breakdown -->
-    @if (messageCount() > 0) {
     <div class="flex flex-wrap gap-2 mb-2">
       @if (textCount() > 0) {
       <span class="badge badge-sm badge-info gap-1">
@@ -135,12 +135,25 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
       </span>
       }
     </div>
+    } @else {
+    <!-- Skeleton Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+      @for (_ of skeletonItems; track $index) {
+      <div class="stat bg-base-200 rounded-lg p-3">
+        <div class="skeleton h-4 w-16 mb-2"></div>
+        <div class="skeleton h-6 w-12"></div>
+      </div>
+      }
+    </div>
     }
   `,
 })
 export class AnalysisStatsDashboardComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Array used for skeleton card iteration in the template */
+  protected readonly skeletonItems = [1, 2, 3, 4];
 
   // Icons
   protected readonly MessageSquareIcon = MessageSquare;

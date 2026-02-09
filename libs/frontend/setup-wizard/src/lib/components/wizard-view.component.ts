@@ -67,6 +67,31 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
     CompletionComponent,
     PremiumUpsellComponent,
   ],
+  styles: [
+    `
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .animate-fadeIn {
+        animation: fadeIn 0.3s ease-out;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .animate-fadeIn {
+          animation: none;
+        }
+        .animate-pulse {
+          animation: none;
+        }
+      }
+    `,
+  ],
   template: `
     <!-- License checking state -->
     @if (licenseState() === 'checking') {
@@ -106,19 +131,21 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
 
       <!-- Step content -->
       <div class="wizard-content flex-1 overflow-y-auto p-4">
-        @switch (currentStep()) { @case ('welcome') {
-        <ptah-welcome />
-        } @case ('scan') {
-        <ptah-scan-progress />
-        } @case ('analysis') {
-        <ptah-analysis-results />
-        } @case ('selection') {
-        <ptah-agent-selection />
-        } @case ('generation') {
-        <ptah-generation-progress />
-        } @case ('completion') {
-        <ptah-completion />
-        } }
+        <div class="animate-fadeIn">
+          @switch (currentStep()) { @case ('welcome') {
+          <ptah-welcome />
+          } @case ('scan') {
+          <ptah-scan-progress />
+          } @case ('analysis') {
+          <ptah-analysis-results />
+          } @case ('selection') {
+          <ptah-agent-selection />
+          } @case ('generation') {
+          <ptah-generation-progress />
+          } @case ('completion') {
+          <ptah-completion />
+          } }
+        </div>
       </div>
     </div>
     }

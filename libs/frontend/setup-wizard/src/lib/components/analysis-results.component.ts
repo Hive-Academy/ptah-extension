@@ -206,10 +206,38 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
       </div>
 
       } @else {
-      <!-- Fallback: No project context yet -->
-      <div class="flex flex-col items-center gap-4 py-12">
-        <span class="loading loading-spinner loading-lg text-primary"></span>
-        <p class="text-base-content/60">Loading analysis results...</p>
+      <!-- Skeleton loading state -->
+      <div class="space-y-6">
+        <!-- Skeleton: Tech Stack Summary -->
+        <div class="card bg-base-200 shadow-xl">
+          <div class="card-body">
+            <div class="skeleton h-6 w-48 mb-4"></div>
+            <div class="flex flex-wrap gap-2 mb-3">
+              <div class="skeleton h-6 w-20 rounded-full"></div>
+              <div class="skeleton h-6 w-24 rounded-full"></div>
+              <div class="skeleton h-6 w-16 rounded-full"></div>
+            </div>
+            <div class="skeleton h-4 w-full mb-2"></div>
+            <div class="skeleton h-4 w-3/4"></div>
+          </div>
+        </div>
+
+        <!-- Skeleton: Architecture Patterns -->
+        <div class="card bg-base-200 shadow-xl">
+          <div class="card-body">
+            <div class="skeleton h-6 w-56 mb-4"></div>
+            <div class="space-y-3">
+              <div class="skeleton h-8 w-full"></div>
+              <div class="skeleton h-8 w-full"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Skeleton: Action Buttons -->
+        <div class="flex gap-4 justify-center">
+          <div class="skeleton h-12 w-32 rounded-lg"></div>
+          <div class="skeleton h-12 w-32 rounded-lg"></div>
+        </div>
       </div>
       }
     </div>
