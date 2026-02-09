@@ -7,14 +7,16 @@
  * provides cancellation/resume capabilities.
  *
  * This service acts as a facade, coordinating between:
- * - WizardWebviewLifecycleService: Panel creation and message handling
+ * - WizardWebviewLifecycleService: Panel creation and lifecycle management
  * - WizardSessionManagerService: Session CRUD and persistence
  * - WizardStepMachineService: Step state machine and transitions
  * - DeepProjectAnalysisService: Architecture detection and code analysis
- * - CodeHealthAnalysisService: Diagnostics, conventions, test coverage
- * - WizardContextMapperService: Frontend-to-backend context transformation
  *
- * Pattern: Facade + RPC Message Handler
+ * Note: Old postMessage handlers (handleStartMessage, handleSelectionMessage,
+ * handleCancelMessage) removed in TASK_2025_148. The Angular SPA now communicates
+ * via RPC handlers registered in WizardGenerationRpcHandlers.
+ *
+ * Pattern: Facade
  * Reference: apps/ptah-extension-vscode/src/webview/ patterns
  *
  * @module @ptah-extension/agent-generation/services
@@ -30,21 +32,15 @@ import {
   WizardStep,
   AgentSelectionUpdate,
   ResumeWizardRequest,
-  // Typed message interfaces (TASK_2025_078)
-  WizardStartMessage,
-  WizardSelectionMessage,
-  WizardCancelMessage,
 } from '../types/wizard.types';
 // Note: AgentProjectContext and GenerationSummary are used indirectly via child services
 import { DeepProjectAnalysis } from '../types/analysis.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-import { AgentGenerationOrchestratorService } from './orchestrator.service';
 import {
   WizardWebviewLifecycleService,
   WizardSessionManagerService,
   WizardStepMachineService,
   DeepProjectAnalysisService,
-  WizardContextMapperService,
 } from './wizard';
 
 /**
@@ -55,8 +51,6 @@ import {
  * - Manage wizard sessions via WizardSessionManagerService
  * - Handle step transitions via WizardStepMachineService
  * - Perform deep analysis via DeepProjectAnalysisService
- * - Map frontend context via WizardContextMapperService
- * - Register RPC message handlers (facade coordination layer)
  *
  * @example
  * ```typescript
@@ -96,8 +90,6 @@ export class SetupWizardService implements ISetupWizardService {
   constructor(
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
-    @inject(AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR)
-    private readonly orchestrator: AgentGenerationOrchestratorService,
     @inject(AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE)
     private readonly webviewLifecycle: WizardWebviewLifecycleService,
     @inject(AGENT_GENERATION_TOKENS.WIZARD_SESSION_MANAGER)
@@ -105,9 +97,7 @@ export class SetupWizardService implements ISetupWizardService {
     @inject(AGENT_GENERATION_TOKENS.WIZARD_STEP_MACHINE)
     private readonly stepMachine: WizardStepMachineService,
     @inject(AGENT_GENERATION_TOKENS.DEEP_PROJECT_ANALYSIS)
-    private readonly deepAnalysis: DeepProjectAnalysisService,
-    @inject(AGENT_GENERATION_TOKENS.WIZARD_CONTEXT_MAPPER)
-    private readonly contextMapper: WizardContextMapperService
+    private readonly deepAnalysis: DeepProjectAnalysisService
   ) {
     this.logger.debug('SetupWizardService initialized (facade pattern)');
   }
@@ -119,8 +109,7 @@ export class SetupWizardService implements ISetupWizardService {
    * 1. Check for existing saved session (offer resume)
    * 2. Create wizard session via sessionManager
    * 3. Create webview panel via webviewLifecycle
-   * 4. Register RPC message handlers
-   * 5. Initialize wizard state
+   * 4. Initialize wizard state
    *
    * @param workspaceUri - Workspace root URI to analyze
    * @returns Result with void on success, or Error if launch fails
@@ -193,36 +182,11 @@ export class SetupWizardService implements ISetupWizardService {
       });
 
       // Create webview panel via webviewLifecycle
+      // Note: Message handlers removed (TASK_2025_148) - wizard now uses Angular SPA RPC
       const panel = await this.webviewLifecycle.createWizardPanel(
         'Ptah Setup Wizard',
         this.WIZARD_VIEW_TYPE,
-        [
-          async (message: unknown, _webview) => {
-            const msg = message as { type: string };
-            switch (msg.type) {
-              case 'setup-wizard:start':
-                await this.handleStartMessage(
-                  panel!,
-                  message as WizardStartMessage
-                );
-                return true;
-              case 'setup-wizard:submit-selection':
-                await this.handleSelectionMessage(
-                  panel!,
-                  message as WizardSelectionMessage
-                );
-                return true;
-              case 'setup-wizard:cancel':
-                await this.handleCancelMessage(
-                  panel!,
-                  message as WizardCancelMessage
-                );
-                return true;
-              default:
-                return false;
-            }
-          },
-        ]
+        []
       );
 
       if (!panel) {
@@ -435,36 +399,11 @@ export class SetupWizardService implements ISetupWizardService {
       this.currentSession = this.sessionManager.restoreSession(savedState);
 
       // Create webview panel via webviewLifecycle
+      // Note: Message handlers removed (TASK_2025_148) - wizard now uses Angular SPA RPC
       const panel = await this.webviewLifecycle.createWizardPanel(
         'Ptah Setup Wizard (Resumed)',
         this.WIZARD_VIEW_TYPE,
-        [
-          async (message: unknown, _webview) => {
-            const msg = message as { type: string };
-            switch (msg.type) {
-              case 'setup-wizard:start':
-                await this.handleStartMessage(
-                  panel!,
-                  message as WizardStartMessage
-                );
-                return true;
-              case 'setup-wizard:submit-selection':
-                await this.handleSelectionMessage(
-                  panel!,
-                  message as WizardSelectionMessage
-                );
-                return true;
-              case 'setup-wizard:cancel':
-                await this.handleCancelMessage(
-                  panel!,
-                  message as WizardCancelMessage
-                );
-                return true;
-              default:
-                return false;
-            }
-          },
-        ],
+        [],
         {
           resumedSession: {
             sessionId: this.currentSession.id,
@@ -590,285 +529,5 @@ export class SetupWizardService implements ISetupWizardService {
     this.transitionLock = false;
 
     this.logger.debug('Wizard cleanup complete');
-  }
-
-  /**
-   * Handle 'setup-wizard:start' RPC message.
-   * Initiates workspace scanning and agent detection (Phase 1).
-   *
-   * @param panel - Webview panel
-   * @param message - Typed RPC message with messageId and payload
-   * @private
-   */
-  private async handleStartMessage(
-    panel: vscode.WebviewPanel,
-    message: WizardStartMessage
-  ): Promise<void> {
-    const { messageId, payload } = message;
-
-    try {
-      this.logger.info('Handling setup-wizard:start', { messageId });
-
-      // Validate payload
-      if (!payload?.projectContext) {
-        await this.webviewLifecycle.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          'Missing project context in request'
-        );
-        return;
-      }
-
-      // Map frontend context to backend format via contextMapper
-      const context = this.contextMapper.mapToAgentProjectContext(
-        payload.projectContext
-      );
-
-      // Execute Phase 1: Workspace analysis with progress callbacks
-      const result = await this.orchestrator.generateAgents(
-        {
-          workspaceUri: { fsPath: context.rootPath } as vscode.Uri,
-          threshold: payload.threshold || 50,
-        },
-        async (progress) => {
-          // Forward orchestrator progress to webview via webviewLifecycle
-          if (progress.phase === 'analysis') {
-            await this.webviewLifecycle.emitProgress(
-              panel,
-              'setup-wizard:scan-progress',
-              {
-                filesScanned: progress.agentsProcessed || 0,
-                totalFiles: progress.totalAgents || 0,
-                detections: progress.detectedCharacteristics || [],
-              }
-            );
-          } else if (
-            progress.phase === 'customization' ||
-            progress.phase === 'rendering' ||
-            progress.phase === 'writing'
-          ) {
-            await this.webviewLifecycle.emitProgress(
-              panel,
-              'setup-wizard:generation-progress',
-              {
-                phase: progress.phase,
-                percent: progress.percentComplete,
-                currentAgent: progress.currentOperation,
-              }
-            );
-          }
-        }
-      );
-
-      // Send response via webviewLifecycle
-      if (result.isErr()) {
-        const errorMessage =
-          result.error?.message ?? 'Unknown error during generation';
-        await this.webviewLifecycle.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          errorMessage
-        );
-      } else {
-        const value = result.value;
-        if (value) {
-          await this.webviewLifecycle.sendResponse(panel, messageId, {
-            agents: value.agents.map((agent) => ({
-              id: agent.sourceTemplateId,
-              name: agent.sourceTemplateId,
-              version: agent.sourceTemplateVersion,
-            })),
-            summary: {
-              totalAgents: value.totalAgents,
-              successful: value.successful,
-              failed: value.failed,
-              durationMs: value.durationMs,
-              warnings: value.warnings,
-            },
-          });
-        }
-      }
-    } catch (error) {
-      this.logger.error('Error in handleStartMessage', error as Error);
-      await this.webviewLifecycle.sendResponse(
-        panel,
-        messageId,
-        undefined,
-        (error as Error).message
-      );
-    }
-  }
-
-  /**
-   * Handle 'setup-wizard:submit-selection' RPC message.
-   * Processes user's agent selection and initiates generation (Phase 2-5).
-   *
-   * @param panel - Webview panel
-   * @param message - Typed RPC message with messageId and payload
-   * @private
-   */
-  private async handleSelectionMessage(
-    panel: vscode.WebviewPanel,
-    message: WizardSelectionMessage
-  ): Promise<void> {
-    const { messageId, payload } = message;
-
-    try {
-      this.logger.info('Handling setup-wizard:submit-selection', {
-        messageId,
-      });
-
-      // Validate payload
-      if (
-        !payload?.selectedAgentIds ||
-        !Array.isArray(payload.selectedAgentIds)
-      ) {
-        await this.webviewLifecycle.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          'Missing or invalid selected agent IDs'
-        );
-        return;
-      }
-
-      // Validate session
-      if (!this.currentSession) {
-        await this.webviewLifecycle.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          'No active wizard session'
-        );
-        return;
-      }
-
-      // Update session with selection
-      this.currentSession.selectedAgentIds = payload.selectedAgentIds;
-
-      // Execute Phase 2-5: Generate selected agents with progress
-      const result = await this.orchestrator.generateAgents(
-        {
-          workspaceUri: {
-            fsPath: this.currentSession.workspaceRoot,
-          } as vscode.Uri,
-          userOverrides: payload.selectedAgentIds,
-          threshold: payload.threshold || 50,
-          variableOverrides: payload.variableOverrides,
-        },
-        async (progress) => {
-          // Forward generation progress to webview via webviewLifecycle
-          await this.webviewLifecycle.emitProgress(
-            panel,
-            'setup-wizard:generation-progress',
-            {
-              phase: progress.phase,
-              percent: progress.percentComplete,
-              currentAgent: progress.currentOperation,
-            }
-          );
-        }
-      );
-
-      // Send response via webviewLifecycle
-      if (result.isErr()) {
-        const errorMessage =
-          result.error?.message ?? 'Unknown generation error';
-        await this.webviewLifecycle.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          errorMessage
-        );
-      } else {
-        const value = result.value;
-        if (value) {
-          // Update session with generation summary
-          this.currentSession.generationSummary = {
-            totalAgents: value.totalAgents,
-            successful: value.successful,
-            failed: value.failed,
-            durationMs: value.durationMs,
-            warnings: value.warnings,
-          };
-
-          await this.webviewLifecycle.sendResponse(panel, messageId, {
-            summary: this.currentSession.generationSummary,
-          });
-        }
-      }
-    } catch (error) {
-      this.logger.error('Error in handleSelectionMessage', error as Error);
-      await this.webviewLifecycle.sendResponse(
-        panel,
-        messageId,
-        undefined,
-        (error as Error).message
-      );
-    }
-  }
-
-  /**
-   * Handle 'setup-wizard:cancel' RPC message.
-   * Cancels the wizard and optionally saves progress.
-   *
-   * @param panel - Webview panel
-   * @param message - Typed RPC message with messageId and payload
-   * @private
-   */
-  private async handleCancelMessage(
-    panel: vscode.WebviewPanel,
-    message: WizardCancelMessage
-  ): Promise<void> {
-    const { messageId, payload } = message;
-
-    try {
-      this.logger.info('Handling setup-wizard:cancel', { messageId });
-
-      // Validate session
-      if (!this.currentSession) {
-        await this.webviewLifecycle.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          'No active wizard session to cancel'
-        );
-        return;
-      }
-
-      const sessionId = this.currentSession.id;
-      const saveProgress = payload?.saveProgress ?? false;
-
-      // Cancel wizard
-      const result = await this.cancelWizard(sessionId, saveProgress);
-
-      // Send response via webviewLifecycle
-      if (result.isErr()) {
-        const errorMessage =
-          result.error?.message ?? 'Unknown cancellation error';
-        await this.webviewLifecycle.sendResponse(
-          panel,
-          messageId,
-          undefined,
-          errorMessage
-        );
-      } else {
-        await this.webviewLifecycle.sendResponse(panel, messageId, {
-          cancelled: true,
-          sessionId,
-          progressSaved: saveProgress,
-        });
-      }
-    } catch (error) {
-      this.logger.error('Error in handleCancelMessage', error as Error);
-      await this.webviewLifecycle.sendResponse(
-        panel,
-        messageId,
-        undefined,
-        (error as Error).message
-      );
-    }
   }
 }

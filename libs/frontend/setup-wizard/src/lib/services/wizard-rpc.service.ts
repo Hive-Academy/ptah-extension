@@ -34,9 +34,9 @@ export interface AgentSelectionResponse {
  * NOTE (TASK_2025_074): Backend RPC handlers for wizard operations are pending.
  * Currently only `setup-wizard:launch` is implemented in backend.
  * The following methods need backend handlers before they will work:
- * - startSetupWizard -> needs `wizard:start` RPC handler
  * - submitAgentSelection -> needs `wizard:submit-selection` RPC handler
  * - cancelWizard -> needs `wizard:cancel` RPC handler
+ * - retryGenerationItem -> needs `wizard:retry-item` RPC handler
  */
 @Injectable({
   providedIn: 'root',
@@ -53,24 +53,6 @@ export class WizardRpcService {
     if (!result.success) {
       throw new Error(result.error || 'Failed to launch wizard');
     }
-  }
-
-  /**
-   * Start the setup wizard (Step 1 -> Step 2 transition)
-   * Triggers workspace scanning and agent detection
-   *
-   * TODO: Backend handler not implemented yet
-   * When implemented, add 'wizard:start' to RpcMethodRegistry
-   */
-  async startSetupWizard(_workspaceUri: string): Promise<void> {
-    // TODO: Implement when backend handler is ready
-    // const result = await this.rpcService.call('wizard:start', { workspaceUri });
-    console.warn(
-      '[WizardRpcService] startSetupWizard: Backend handler not implemented'
-    );
-    throw new Error(
-      'Setup wizard backend not fully implemented. Use launchWizard() instead.'
-    );
   }
 
   /**
@@ -172,7 +154,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:deep-analyze',
       {},
-      { timeout: 120000 }
+      { timeout: 3_660_000 } // 1 hour + 1 minute buffer (timeout disabled for now until analysis is stable)
     );
     if (result.isSuccess() && result.data) {
       return result.data as ProjectAnalysisResult;
