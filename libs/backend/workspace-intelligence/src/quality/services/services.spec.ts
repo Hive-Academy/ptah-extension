@@ -409,12 +409,25 @@ describe('CodeQualityAssessmentService', () => {
       calculateScore: jest.fn(),
     } as unknown as jest.Mocked<AntiPatternDetectionService>;
 
+    const mockFileHashCache = {
+      getHash: jest.fn(),
+      setHash: jest.fn(),
+      hasChanged: jest.fn().mockReturnValue(true),
+      updateHash: jest.fn(),
+      getCachedPatterns: jest.fn(),
+      setCachedPatterns: jest.fn(),
+      getCachedFiles: jest.fn().mockReturnValue([]),
+      clearCache: jest.fn(),
+      getStats: jest.fn().mockReturnValue({ totalCached: 0, cacheHitRate: 0 }),
+    };
+
     service = new CodeQualityAssessmentService(
       mockLogger,
       mockIndexer,
       mockFileSystem,
       mockRelevanceScorer,
-      mockAntiPatternDetector
+      mockAntiPatternDetector,
+      mockFileHashCache as never
     );
   });
 

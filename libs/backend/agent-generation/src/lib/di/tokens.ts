@@ -184,6 +184,12 @@ export const CODE_HEALTH_ANALYSIS = Symbol.for('CodeHealthAnalysisService');
  */
 export const WIZARD_CONTEXT_MAPPER = Symbol.for('WizardContextMapperService');
 
+/**
+ * AgenticAnalysisService - Claude Agent SDK-powered workspace analysis
+ * Responsibilities: MCP-based analysis, real-time progress, JSON extraction
+ */
+export const AGENTIC_ANALYSIS_SERVICE = Symbol.for('AgenticAnalysisService');
+
 // ========================================
 // Token Registry (Type-Safe Access)
 // ========================================
@@ -228,6 +234,9 @@ export const AGENT_GENERATION_TOKENS = {
   DEEP_PROJECT_ANALYSIS,
   CODE_HEALTH_ANALYSIS,
   WIZARD_CONTEXT_MAPPER,
+
+  // Agentic Analysis
+  AGENTIC_ANALYSIS_SERVICE,
 } as const;
 
 /**

@@ -5,7 +5,14 @@ import {
   computed,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
-import { LucideAngularModule, Check, Download, Crown } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Check,
+  Download,
+  Crown,
+  Clock,
+  Sparkles,
+} from 'lucide-angular';
 import {
   PricingPlan,
   PlanSubscriptionContext,
@@ -73,6 +80,31 @@ import {
         </div>
         }
       </div>
+
+      <!-- Trial Ended Alert (TASK_2025_143) -->
+      @if (isTrialEnded()) {
+      <div
+        class="mt-4 p-3 rounded-lg bg-warning/10 border border-warning/30"
+        role="alert"
+      >
+        <div class="flex items-start gap-2">
+          <lucide-angular
+            [img]="ClockIcon"
+            class="w-4 h-4 text-warning flex-shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
+          <div class="flex-1">
+            <p class="text-sm font-medium text-warning">
+              Your Pro Trial Has Ended
+            </p>
+            <p class="text-xs text-base-content/70 mt-1">
+              You're now on the Community plan. Upgrade to Pro to unlock
+              advanced features like MCP servers and workspace intelligence.
+            </p>
+          </div>
+        </div>
+      </div>
+      }
 
       <!-- Plan Header -->
       <div class="mb-4 mt-2">
@@ -147,6 +179,8 @@ import {
       :host {
         display: block;
         height: 100%;
+        contain: layout style;
+        backface-visibility: hidden;
       }
     `,
   ],
@@ -156,6 +190,8 @@ export class CommunityPlanCardComponent {
   public readonly CheckIcon = Check;
   public readonly DownloadIcon = Download;
   public readonly CrownIcon = Crown;
+  public readonly ClockIcon = Clock;
+  public readonly SparklesIcon = Sparkles;
 
   /** Community plan data */
   public readonly plan = input.required<PricingPlan>();
@@ -187,6 +223,17 @@ export class CommunityPlanCardComponent {
   public readonly isProUser = computed(() => {
     const ctx = this.subscriptionContext();
     return ctx?.currentPlanTier === 'pro';
+  });
+
+  /**
+   * Computed: Did user's trial just end?
+   *
+   * TASK_2025_143: Show alert in Community card when trial ended
+   * Returns true if licenseReason === 'trial_ended'
+   */
+  public readonly isTrialEnded = computed(() => {
+    const ctx = this.subscriptionContext();
+    return ctx?.licenseReason === 'trial_ended';
   });
 
   /**

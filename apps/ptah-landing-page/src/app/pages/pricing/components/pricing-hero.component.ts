@@ -2,7 +2,6 @@ import { Component, ChangeDetectionStrategy } from '@angular/core';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
-  ScrollAnimationDirective,
 } from '@hive-academy/angular-gsap';
 import { LucideAngularModule, DollarSign } from 'lucide-angular';
 
@@ -19,11 +18,7 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
 @Component({
   selector: 'ptah-pricing-hero',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    ViewportAnimationDirective,
-    ScrollAnimationDirective,
-    LucideAngularModule,
-  ],
+  imports: [ViewportAnimationDirective, LucideAngularModule],
   template: `
     <section
       class="relative min-h-[80vh] flex items-center justify-center overflow-hidden"
@@ -35,22 +30,14 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
           class="absolute inset-0 bg-gradient-to-b from-base-100 via-base-100/95 to-base-100"
         ></div>
 
-        <!-- Pyramid Background Image with Parallax -->
+        <!-- Pyramid Background Image (static - parallax removed to prevent flickering) -->
         <div
-          class="absolute inset-0 opacity-80 "
-          scrollAnimation
-          [scrollConfig]="{
-            animation: 'parallax',
-            speed: 0.3,
-            scrub: true,
-
-          }"
-        >
-          <div
-            class="absolute inset-0 bg-cover mt-[-100px] bg-no-repeat bg-center"
-            style="background-image: url('/assets/backgrounds/pyramid_energy_apex.png')"
-          ></div>
-        </div>
+          class="absolute inset-0 opacity-80 will-change-transform backface-hidden"
+          style="background-image: url('/assets/backgrounds/pyramid_energy_apex.png');
+                 background-size: cover;
+                 background-position: center;
+                 background-repeat: no-repeat;"
+        ></div>
 
         <!-- Radial glow from center -->
         <div
@@ -168,6 +155,13 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
     `
       :host {
         display: block;
+        contain: layout style;
+        backface-visibility: hidden;
+      }
+
+      .backface-hidden {
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
       }
     `,
   ],

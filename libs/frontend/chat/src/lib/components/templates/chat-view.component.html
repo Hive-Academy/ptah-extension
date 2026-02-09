@@ -11,18 +11,8 @@
   </div>
   }
 
-  <!-- TASK_2025_142: Trial Banner (shows countdown when trial active) -->
-  @if (chatStore.licenseStatus(); as license) {
-  <div class="px-4">
-    <ptah-trial-banner
-      [trialActive]="license.trialActive"
-      [trialDaysRemaining]="license.trialDaysRemaining"
-    />
-  </div>
-  }
-
   <!-- TASK_2025_109: Resume Notification Banner removed - now uses context injection -->
-  <!-- Users can resume interrupted agents by typing "resume agent {agentId}" in chat -->
+  <!-- TASK_2025_142/143: Trial & community banners moved to header notification bell -->
 
   <!-- TASK_2025_098: Compaction Notification Banner -->
   <div class="px-4">

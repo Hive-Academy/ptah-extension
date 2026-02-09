@@ -8,7 +8,7 @@
  * @module @ptah-extension/vscode-core/services
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import * as vscode from 'vscode';
 import {
   MESSAGE_TYPES,
@@ -294,8 +294,6 @@ export class WebviewMessageHandlerService {
     message: any
   ): Promise<void> {
     try {
-      const { container } = await import('tsyringe');
-
       if (container.isRegistered(TOKENS.PERMISSION_PROMPT_SERVICE)) {
         const permissionService = container.resolve<any>(
           TOKENS.PERMISSION_PROMPT_SERVICE
@@ -330,7 +328,6 @@ export class WebviewMessageHandlerService {
     message: any
   ): Promise<void> {
     try {
-      const { container } = await import('tsyringe');
       const payload = message.payload;
 
       const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
@@ -373,7 +370,6 @@ export class WebviewMessageHandlerService {
     message: any
   ): Promise<void> {
     try {
-      const { container } = await import('tsyringe');
       const payload = message.payload || message.response;
       const requestId = payload?.id;
 

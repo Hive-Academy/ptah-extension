@@ -16,18 +16,6 @@
     "daisyui": {
       "type": "http",
       "url": "https://gitmcp.io/saadeghi/daisyui"
-    },
-    "Neon": {
-      "command": "cmd.exe",
-      "args": [
-        "/c",
-        "npx",
-        "-y",
-        "@neondatabase/mcp-server-neon"
-      ],
-      "env": {
-        "NEON_API_KEY": "${NEON_API_KEY}"
-      }
     }
   }
 }

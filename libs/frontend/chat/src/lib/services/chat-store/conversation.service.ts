@@ -20,7 +20,7 @@ import {
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { SessionLoaderService } from './session-loader.service';
-
+import { StreamingHandlerService } from './streaming-handler.service';
 import { MessageValidationService } from '../message-validation.service';
 
 @Injectable({ providedIn: 'root' })
@@ -401,10 +401,6 @@ export class ConversationService {
       // This converts the streaming content into a proper message in tab.messages.
       // Without this, the streaming message would persist alongside new messages.
       if (activeTab?.streamingState) {
-        // Lazy import to avoid circular dependency
-        const { StreamingHandlerService } = await import(
-          './streaming-handler.service'
-        );
         const streamingHandler = this.injector.get(StreamingHandlerService);
         streamingHandler.finalizeCurrentMessage(activeTabId);
         // Re-fetch the tab after finalization to get updated messages
@@ -542,10 +538,6 @@ export class ConversationService {
         : null;
 
       if (tab?.streamingState) {
-        // Dynamic import to avoid circular dependency
-        const { StreamingHandlerService } = await import(
-          './streaming-handler.service'
-        );
         const streamingHandler = this.injector.get(StreamingHandlerService);
         // TASK_2025_098 FIX: Pass isAborted=true to mark nodes as interrupted
         streamingHandler.finalizeCurrentMessage(activeTabId ?? undefined, true);

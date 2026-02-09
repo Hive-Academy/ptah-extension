@@ -77,6 +77,10 @@ export const SDK_TOKENS = {
 
   // Enhanced Prompts Service (TASK_2025_137 Batch 4)
   SDK_ENHANCED_PROMPTS_SERVICE: Symbol.for('SdkEnhancedPromptsService'),
+
+  // Internal Query Service (TASK_2025_145)
+  // One-shot SDK query execution, separate from interactive chat path
+  SDK_INTERNAL_QUERY_SERVICE: Symbol.for('SdkInternalQueryService'),
 } as const;
 
 /**

@@ -29,7 +29,12 @@ import type {
   DeepProjectAnalysis,
   AgentRecommendation,
 } from '@ptah-extension/agent-generation';
-import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import {
+  AGENT_GENERATION_TOKENS,
+  ProjectAnalysisZodSchema,
+  normalizeAgentOutput,
+  AgentRecommendationService,
+} from '@ptah-extension/agent-generation';
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -169,11 +174,6 @@ export class SetupRpcHandlers {
           );
         }
 
-        // Dynamically import agent-generation library (lazy loading)
-        const { AGENT_GENERATION_TOKENS } = await import(
-          '@ptah-extension/agent-generation'
-        );
-
         // Resolve SetupWizardService from DI container with validation
         const setupWizardService = this.resolveService<{
           launchWizard: (uri: vscode.Uri) => Promise<{
@@ -231,11 +231,6 @@ export class SetupRpcHandlers {
             'No workspace folder open. Please open a folder to analyze.'
           );
         }
-
-        // Dynamically import agent-generation library (lazy loading)
-        const { AGENT_GENERATION_TOKENS } = await import(
-          '@ptah-extension/agent-generation'
-        );
 
         // Resolve license + MCP status (same pattern as ChatRpcHandlers)
         let isPremium = false;
@@ -436,14 +431,6 @@ export class SetupRpcHandlers {
           );
         }
 
-        // Dynamically import the shared schema and normalizer (lazy loading)
-        const {
-          ProjectAnalysisZodSchema,
-          normalizeAgentOutput,
-          AGENT_GENERATION_TOKENS,
-          AgentRecommendationService,
-        } = await import('@ptah-extension/agent-generation');
-
         // Validate input structure with shared Zod schema
         const validationResult =
           ProjectAnalysisZodSchema.safeParse(rawAnalysis);
@@ -530,11 +517,6 @@ export class SetupRpcHandlers {
       'wizard:cancel-analysis',
       async () => {
         this.logger.debug('RPC: wizard:cancel-analysis called');
-
-        // Dynamically import agent-generation library (lazy loading)
-        const { AGENT_GENERATION_TOKENS } = await import(
-          '@ptah-extension/agent-generation'
-        );
 
         try {
           // Resolve AgenticAnalysisService and call cancelAnalysis()

@@ -35,9 +35,6 @@ import {
   TriangleAlert,
   CircleX,
   ExternalLink,
-  Clock,
-  Sparkles,
-  X,
 } from 'lucide-angular';
 
 /**
@@ -66,44 +63,7 @@ import {
     <div
       class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16 mt-[-150px]"
     >
-      <!-- Trial Ended Banner (TASK_2025_143) -->
-      @if (showTrialEndedBanner()) {
-      <div
-        class="alert alert-warning mb-8 max-w-3xl mx-auto shadow-lg"
-        role="alert"
-      >
-        <div class="flex items-center gap-3">
-          <div
-            class="w-10 h-10 rounded-full bg-warning/20 flex items-center justify-center shrink-0"
-          >
-            <lucide-angular
-              [img]="ClockIcon"
-              class="w-5 h-5 text-warning-content"
-              aria-hidden="true"
-            />
-          </div>
-          <div class="flex-1">
-            <h3 class="font-bold text-warning-content">
-              Your Pro Trial Has Ended
-            </h3>
-            <p class="text-sm text-warning-content/80">
-              Upgrade now to continue using Pro features like MCP servers,
-              workspace intelligence, and project-adaptive agents.
-            </p>
-          </div>
-        </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <button
-            class="btn btn-sm btn-ghost"
-            (click)="dismissTrialEndedBanner()"
-            type="button"
-            aria-label="Dismiss trial ended banner"
-          >
-            <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-      } @if (paddleError()) {
+      @if (paddleError()) {
       <div class="alert alert-warning mb-8 max-w-xl mx-auto">
         <lucide-angular
           [img]="TriangleAlertIcon"
@@ -217,6 +177,16 @@ import {
     `
       :host {
         display: block;
+        contain: layout style;
+        backface-visibility: hidden;
+      }
+
+      /* Card containment for animation isolation */
+      ptah-community-plan-card,
+      ptah-pro-plan-card {
+        display: block;
+        contain: layout style;
+        backface-visibility: hidden;
       }
     `,
   ],
@@ -226,9 +196,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
   public readonly TriangleAlertIcon = TriangleAlert;
   public readonly CircleXIcon = CircleX;
   public readonly ExternalLinkIcon = ExternalLink;
-  public readonly ClockIcon = Clock;
-  public readonly SparklesIcon = Sparkles;
-  public readonly XIcon = X;
 
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -247,13 +214,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
 
   // Track if portal was opened to refresh on return
   private portalWasOpened = false;
-
-  // SessionStorage key for trial-ended banner dismissal (TASK_2025_143)
-  private readonly TRIAL_BANNER_DISMISS_KEY =
-    'ptah_pricing_trial_banner_dismissed';
-
-  // Signal for tracking if trial-ended banner was dismissed this session
-  private readonly trialBannerDismissed = signal(false);
 
   // Configuration error state (for placeholder detection)
   public readonly configError = signal<string | null>(null);
@@ -299,6 +259,8 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         trialDaysRemaining: this.subscriptionService.trialDaysRemaining(),
         subscriptionStatus: validatedStatus,
         periodEndDate: this.subscriptionService.periodEndDate(),
+        // TASK_2025_143: Include license reason for trial ended display
+        licenseReason: this.subscriptionService.licenseReason(),
       };
     }
   );
@@ -333,45 +295,6 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * while subscription state is being fetched.
    */
   public readonly isLoadingSubscription = this.subscriptionService.isLoading;
-
-  /**
-   * Computed: Show trial-ended banner
-   *
-   * TASK_2025_143: Trial-ended notifications
-   * Returns true if:
-   * 1. License reason is 'trial_ended'
-   * 2. Banner has not been dismissed this session
-   *
-   * Uses sessionStorage for session-scoped dismissal (not 24-hour like modal).
-   */
-  public readonly showTrialEndedBanner = computed(() => {
-    // Check if license reason indicates trial ended
-    const reason = this.subscriptionService.licenseReason();
-    if (reason !== 'trial_ended') return false;
-
-    // Check if dismissed this session (via signal or sessionStorage)
-    if (this.trialBannerDismissed()) return false;
-
-    // Check sessionStorage for dismissal
-    if (typeof sessionStorage !== 'undefined') {
-      const dismissed = sessionStorage.getItem(this.TRIAL_BANNER_DISMISS_KEY);
-      if (dismissed === 'true') return false;
-    }
-
-    return true;
-  });
-
-  /**
-   * Dismiss trial-ended banner for this session
-   *
-   * TASK_2025_143: Uses sessionStorage for session-scoped dismissal
-   */
-  public dismissTrialEndedBanner(): void {
-    this.trialBannerDismissed.set(true);
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.setItem(this.TRIAL_BANNER_DISMISS_KEY, 'true');
-    }
-  }
 
   public constructor() {
     // Sync loading state with paddle service

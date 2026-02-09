@@ -381,16 +381,48 @@ export class CodeHealthAnalysisService {
     }
 
     // Check for E2E tests
-    const cypressFiles = await vscodeApi.workspace.findFiles(
-      '{cypress/**/*.{ts,js},cypress.config.*}',
+    // Note: Cannot nest alternate groups in VS Code findFiles globs
+    // e.g. '{cypress/**/*.{ts,js}}' fails — split into separate calls
+    const cypressSpecFiles = await vscodeApi.workspace.findFiles(
+      'cypress/**/*.ts',
       '**/node_modules/**',
       5
     );
-    const playwrightFiles = await vscodeApi.workspace.findFiles(
-      '{playwright/**/*.{ts,js},playwright.config.*}',
+    const cypressJsFiles = await vscodeApi.workspace.findFiles(
+      'cypress/**/*.js',
       '**/node_modules/**',
       5
     );
+    const cypressConfigFiles = await vscodeApi.workspace.findFiles(
+      'cypress.config.*',
+      '**/node_modules/**',
+      2
+    );
+    const cypressFiles = [
+      ...cypressSpecFiles,
+      ...cypressJsFiles,
+      ...cypressConfigFiles,
+    ];
+    const playwrightSpecFiles = await vscodeApi.workspace.findFiles(
+      'playwright/**/*.ts',
+      '**/node_modules/**',
+      5
+    );
+    const playwrightJsFiles = await vscodeApi.workspace.findFiles(
+      'playwright/**/*.js',
+      '**/node_modules/**',
+      5
+    );
+    const playwrightConfigFiles = await vscodeApi.workspace.findFiles(
+      'playwright.config.*',
+      '**/node_modules/**',
+      2
+    );
+    const playwrightFiles = [
+      ...playwrightSpecFiles,
+      ...playwrightJsFiles,
+      ...playwrightConfigFiles,
+    ];
     const e2eFiles = await vscodeApi.workspace.findFiles(
       '**/e2e/**/*.{ts,js}',
       '**/node_modules/**',

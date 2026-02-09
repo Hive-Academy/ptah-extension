@@ -4,173 +4,182 @@
 
 ## Purpose
 
-The **infra-test** app is a standalone Node.js application used for testing infrastructure libraries (DI container, event bus, logger, etc.) in isolation without VS Code dependencies.
+The **infra-test** app is a test client for infrastructure operations that require calling actual services via HTTP endpoints.
+
+## Current Use Case: Trial Reminder Cron Test
+
+**TASK_2025_143**: Test client for manually triggering trial expiration workflow.
+
+This script calls the license server's admin endpoint (`/admin/trial-reminder/trigger`) to execute the actual `TrialReminderService.handleTrialReminders()` method, testing the real implementation.
+
+### Why This Approach
+
+Unlike duplicating the cron job logic in a test script (which doesn't test the real code), this client:
+
+1. **Tests the actual implementation** - The real `TrialReminderService` runs
+2. **Tests the NestJS integration** - Dependency injection, Prisma, Email service all work together
+3. **Tests production-like conditions** - Same code path as the daily cron job
+
+### What It Tests
+
+When triggered, the cron job:
+
+1. Finds all expired trials (`status: 'trialing'` AND `trialEnd < NOW()`)
+2. Downgrades each user to Community plan
+3. Records trial reminder to prevent duplicates
+4. Sends "Welcome to Community" email
+5. Then processes 7-day, 3-day, 1-day reminders for active trials
+
+## Prerequisites
+
+### 1. Add ADMIN_SECRET to license server
+
+```bash
+# Add to apps/ptah-license-server/.env
+ADMIN_SECRET=your-test-secret-here
+```
+
+### 2. Start the license server
+
+```bash
+nx serve ptah-license-server
+```
+
+### 3. Set up test data
+
+Either via Prisma Studio or SQL, create a user with:
+
+- `subscription.status = 'trialing'`
+- `subscription.trial_end = <past date>`
+- `license.plan = 'trial_pro'`
+
+## Commands
+
+```bash
+# Show help
+npm run test:trial-cron -- --help
+
+# Trigger the cron job (requires ADMIN_SECRET in env)
+ADMIN_SECRET=your-test-secret npm run test:trial-cron
+
+# Or with inline secret
+npm run test:trial-cron -- --secret=your-test-secret
+
+# Custom server URL
+npm run test:trial-cron -- --url=http://localhost:3001 --secret=your-test-secret
+```
+
+## Example Session
+
+```bash
+# Terminal 1: Start license server
+cd D:\projects\ptah-extension
+nx serve ptah-license-server
+
+# Terminal 2: Run test client
+ADMIN_SECRET=my-test-secret npm run test:trial-cron
+```
+
+### Expected Output
+
+```
+============================================================
+Trial Reminder Cron Test Client
+============================================================
+
+Server URL: http://localhost:3000
+Endpoint: POST http://localhost:3000/admin/trial-reminder/trigger
+
+🚀 Triggering trial reminder cron job...
+
+✅ Cron job executed successfully!
+
+Message: Trial reminder cron job executed successfully
+
+────────────────────────────────────────────────────────────
+
+Next Steps:
+  1. Check license server logs for detailed execution output
+  2. Verify database changes in Prisma Studio:
+     npm run prisma:studio
+  3. Check if downgraded users appear in extension with Community plan
+```
+
+### License Server Logs
+
+Watch the license server terminal for detailed logs:
+
+```
+[Nest] LOG [TrialReminderService] Manually triggering trial reminder job
+[Nest] LOG [TrialReminderService] Starting daily trial reminder job
+[Nest] DEBUG [TrialReminderService] Processing expired trial downgrades
+[Nest] DEBUG [TrialReminderService] Found 1 expired trials to downgrade
+[Nest] DEBUG [TrialReminderService] Downgraded test@example.com to Community plan
+[Nest] LOG [TrialReminderService] Downgraded 1 expired trials to Community
+[Nest] DEBUG [TrialReminderService] Processing 1_day reminders (1 days from expiry)
+...
+[Nest] LOG [TrialReminderService] Trial reminder job completed: 1 downgraded, 0 reminders sent in 245ms
+```
+
+## Verifying Results
+
+### 1. Database Check (Prisma Studio)
+
+```bash
+npm run prisma:studio
+```
+
+Look for:
+
+- `subscriptions` table: `status` changed from `trialing` to `expired`
+- `licenses` table: `plan` changed from `trial_pro` to `community`
+- `trial_reminders` table: New row with `reminder_type: 'expired'`
+
+### 2. Profile Page Check
+
+Open the landing page profile for the test user:
+
+- Plan should show "Community"
+- Status should show "Expired" or show Community tier
+
+### 3. Extension Check
+
+Open VS Code extension as the test user:
+
+- Should see "Community Upgrade Banner" if trial just ended
+- Settings should show "Community" tier
+
+## Key Files
+
+| File                                                                                 | Purpose                 |
+| ------------------------------------------------------------------------------------ | ----------------------- |
+| `src/main.ts`                                                                        | Test client entry point |
+| `../ptah-license-server/src/trial-reminder/controllers/trial-reminder.controller.ts` | Admin endpoint          |
+| `../ptah-license-server/src/trial-reminder/services/trial-reminder.service.ts`       | Actual cron job logic   |
+
+## Security Notes
+
+- The `/admin/trial-reminder/trigger` endpoint requires the `X-Admin-Secret` header
+- Set `ADMIN_SECRET` environment variable in the license server
+- Without `ADMIN_SECRET`, the endpoint returns 401 Unauthorized
+- This endpoint should **NOT** be exposed in production without proper secrets
 
 ## Boundaries
 
 **Belongs here**:
 
-- Infrastructure library integration tests
-- DI container testing scenarios
-- Event bus message flow tests
-- Logger output verification
-- Service lifecycle testing
+- HTTP test clients for admin endpoints
+- Infrastructure testing scripts
+- Cron job trigger utilities
 
 **Does NOT belong**:
 
-- VS Code extension tests (belong in ptah-extension-vscode)
-- Frontend component tests (belong in webview apps)
-- Unit tests (belong in respective libraries)
-
-## Key Files
-
-- `src/main.ts` - Test runner entry point
-- `src/test-scenarios/` - Infrastructure test scenarios
-- `src/assets/` - Test fixtures and data
-
-## Use Cases
-
-### Testing DI Container
-
-```typescript
-// Test service registration and resolution
-import { container } from 'tsyringe';
-import { DIToken } from '@ptah-extension/vscode-core';
-
-container.register(DIToken.Logger, { useClass: ConsoleLogger });
-const logger = container.resolve(DIToken.Logger);
-logger.info('Testing DI container');
-```
-
-### Testing Event Bus
-
-```typescript
-// Test event publishing and subscription
-import { EventBus } from '@ptah-extension/vscode-core';
-
-const eventBus = new EventBus();
-
-eventBus.on('test:event', (payload) => {
-  console.log('Event received:', payload);
-});
-
-eventBus.emit('test:event', { data: 'test' });
-```
-
-### Testing Service Lifecycle
-
-```typescript
-// Test service initialization and cleanup
-import { SessionManager } from '@ptah-extension/claude-domain';
-
-const manager = new SessionManager();
-await manager.initialize();
-// Run tests...
-await manager.dispose();
-```
-
-## Commands
-
-```bash
-# Build
-nx build infra-test
-
-# Run tests
-nx serve infra-test  # Runs main.ts
-
-# Development (watch mode)
-nx build infra-test --watch
-
-# Run specific scenario
-node dist/apps/infra-test/main.js --scenario=di-container
-```
-
-## Test Scenarios
-
-### 1. DI Container Registration
-
-Tests:
-
-- Singleton registration
-- Transient registration
-- Factory registration
-- Circular dependency detection
-- Token resolution
-
-### 2. Event Bus
-
-Tests:
-
-- Event emission and subscription
-- Multiple subscribers
-- Event payload validation
-- Unsubscribe functionality
-- Error handling in subscribers
-
-### 3. Logger
-
-Tests:
-
-- Log level filtering
-- Multiple transports
-- Structured logging
-- Performance (high-volume logging)
-
-### 4. Service Orchestration
-
-Tests:
-
-- Service initialization order
-- Dependency resolution
-- Graceful shutdown
-- Error propagation
-
-## Configuration
-
-```typescript
-// Test configuration
-export const testConfig = {
-  logLevel: 'debug',
-  enableMetrics: true,
-  mockExternalServices: true,
-};
-```
-
-## Running Tests
-
-```bash
-# Run all scenarios
-nx serve infra-test
-
-# Run specific scenario
-BUILD_TARGET=infra-test:build node dist/apps/infra-test/main.js
-
-# With debugging
-node --inspect-brk dist/apps/infra-test/main.js
-```
-
-## Output
-
-Test results are logged to console:
-
-```
-✓ DI Container: Singleton registration
-✓ DI Container: Dependency resolution
-✓ Event Bus: Event emission
-✓ Event Bus: Multiple subscribers
-...
-
-Total: 15 passed, 0 failed
-```
-
-## Guidelines
-
-1. **Isolation**: Each scenario should clean up after itself
-2. **No VS Code Dependencies**: Use mocks for VS Code API
-3. **Fast Execution**: Keep tests quick (< 1s per scenario)
-4. **Clear Output**: Use descriptive test names and logging
+- Duplicating business logic (use HTTP to test real implementation)
+- VS Code extension tests
+- Frontend component tests
 
 ## Related Documentation
 
-- [VS Code Core Library](../../libs/backend/vscode-core/CLAUDE.md)
-- [Shared Types](../../libs/shared/CLAUDE.md)
+- [Trial Reminder Service](../ptah-license-server/src/trial-reminder/services/trial-reminder.service.ts)
+- [Trial Reminder Controller](../ptah-license-server/src/trial-reminder/controllers/trial-reminder.controller.ts)
+- [License Server](../ptah-license-server/CLAUDE.md)

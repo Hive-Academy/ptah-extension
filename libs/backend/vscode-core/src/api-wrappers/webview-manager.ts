@@ -391,9 +391,9 @@ export class WebviewManager {
       // Handle system messages internally
       this.handleSystemMessage(webviewId, message);
     } else if (isRoutableMessage(message)) {
-      // TODO: Phase 2 - Route to RPC handler for message processing
-      this.logger.warn(
-        `[WebviewManager] Routable message received but EventBus removed: ${message.type}`
+      // Routable messages are handled by WebviewMessageHandlerService's parallel listener
+      this.logger.debug(
+        `[WebviewManager] Routable message handled by WebviewMessageHandlerService: ${message.type}`
       );
     } else {
       this.logger.error(

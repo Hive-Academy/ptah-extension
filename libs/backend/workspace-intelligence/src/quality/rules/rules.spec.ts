@@ -889,8 +889,8 @@ describe('RuleRegistry', () => {
 // ============================================
 
 describe('ALL_RULES', () => {
-  it('should contain 10 total rules', () => {
-    expect(ALL_RULES.length).toBe(10);
+  it('should contain 25 total rules (10 original + 15 framework)', () => {
+    expect(ALL_RULES.length).toBe(25);
   });
 
   it('should contain all rule categories', () => {

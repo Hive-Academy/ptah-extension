@@ -1945,7 +1945,7 @@ JWT_EXPIRATION=7d
 
 # Email (SendGrid)
 SENDGRID_API_KEY=<sendgrid-api-key>
-SENDGRID_FROM_EMAIL=ptah@nghive.tech
+SENDGRID_FROM_EMAIL=help@ptah.live
 SENDGRID_FROM_NAME=Ptah Team
 
 # Magic Link

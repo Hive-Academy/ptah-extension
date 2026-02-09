@@ -11,7 +11,7 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import { FileOpenParams, FileOpenResult } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
-
+import * as fs from 'fs';
 /**
  * RPC handlers for file operations
  */
@@ -45,7 +45,6 @@ export class FileRpcHandlers {
           this.logger.debug('RPC: file:open called', { path, line });
 
           // Check if path is a directory (Claude sometimes reads directories by mistake)
-          const fs = await import('fs');
           const stats = await fs.promises.stat(path).catch(() => null);
 
           if (!stats) {

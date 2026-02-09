@@ -51,6 +51,7 @@ import {
   SubagentRpcHandlers,
   CommandRpcHandlers, // TASK_2025_126: Webview command execution
   EnhancedPromptsRpcHandlers, // TASK_2025_137: Enhanced Prompts
+  QualityRpcHandlers, // TASK_2025_144: Quality Dashboard
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -58,7 +59,7 @@ import {
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 
 // Import agent-generation services (TASK_2025_069)
-// eslint-disable-next-line @nx/enforce-module-boundaries
+
 import { registerAgentGenerationServices } from '@ptah-extension/agent-generation';
 
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
@@ -229,6 +230,9 @@ export class DIContainer {
     // TASK_2025_137: Enhanced Prompts RPC handlers
     container.registerSingleton(EnhancedPromptsRpcHandlers);
 
+    // TASK_2025_144: Quality Dashboard RPC handlers
+    container.registerSingleton(QualityRpcHandlers);
+
     // RPC Method Registration Service (orchestrator - requires container instance)
     // TASK_2025_074: Refactored to use domain-specific handler classes
     // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
@@ -258,6 +262,7 @@ export class DIContainer {
           c.resolve(SubagentRpcHandlers),
           c.resolve(CommandRpcHandlers), // TASK_2025_126
           c.resolve(EnhancedPromptsRpcHandlers), // TASK_2025_137
+          c.resolve(QualityRpcHandlers), // TASK_2025_144
           c // Pass container instance
         );
       },

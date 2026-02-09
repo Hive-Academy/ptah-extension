@@ -43,11 +43,6 @@ import {
 } from './response-parser';
 
 /**
- * DI Token for LlmService - matches llm-abstraction library
- */
-const LLM_SERVICE_TOKEN = 'LlmService';
-
-/**
  * LLM Service interface for Prompt Designer
  *
  * This is a minimal interface matching llm-abstraction's LlmService.
@@ -99,7 +94,7 @@ export class PromptDesignerAgent {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(LLM_SERVICE_TOKEN)
+    @inject(TOKENS.LLM_SERVICE)
     private readonly llmService: IPromptDesignerLlmService
   ) {}
 

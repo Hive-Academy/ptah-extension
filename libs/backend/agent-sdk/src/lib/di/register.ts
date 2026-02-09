@@ -46,6 +46,7 @@ import {
   PromptCacheService,
   EnhancedPromptsService,
 } from '../prompt-harness';
+import { InternalQueryService } from '../internal-query';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -277,6 +278,19 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
     { useClass: EnhancedPromptsService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Internal Query Service (TASK_2025_145)
+  // One-shot SDK queries, separate from interactive chat path
+  // ============================================================
+
+  // Depends on: SdkModuleLoader, SdkAgentAdapter (health check), EnhancedPromptsService,
+  // SubagentHookHandler, CompactionConfigProvider, CompactionHookHandler
+  container.register(
+    SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
+    { useClass: InternalQueryService },
     { lifecycle: Lifecycle.Singleton }
   );
 

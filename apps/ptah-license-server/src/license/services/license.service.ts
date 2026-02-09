@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PLANS, getPlanConfig, PlanName } from '../../config/plans.config';
+import {
+  calculateTrialExpirationDate,
+  getTrialDurationDays,
+} from '../../config/trial.config';
 import { randomBytes } from 'crypto';
 
 /**
@@ -303,14 +307,15 @@ export class LicenseService {
   /**
    * Create a trial license for a new user signup
    *
-   * Provides a 14-day Pro trial license automatically on signup.
+   * Provides a Pro trial license automatically on signup.
+   * Trial duration is configurable via TRIAL_DURATION_DAYS env var (default: 14 days).
    * Idempotent: if user already has an active license, returns it.
    *
    * Process:
    * 1. Find or create user by email
    * 2. Check for existing active license (prevent duplicate trials)
    * 3. If existing, return it (idempotent)
-   * 4. Generate license key and set 14-day expiration
+   * 4. Generate license key and set trial expiration
    * 5. Create License record with plan: 'pro', createdBy: 'auto_trial_signup'
    * 6. Create Subscription record with status: 'trialing'
    *
@@ -348,17 +353,15 @@ export class LicenseService {
       );
       return {
         licenseKey: existingLicense.licenseKey,
-        expiresAt:
-          existingLicense.expiresAt ??
-          new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+        expiresAt: existingLicense.expiresAt ?? calculateTrialExpirationDate(),
       };
     }
 
     // Step 3: Generate license key
     const licenseKey = this.generateLicenseKey();
 
-    // Step 4: Set 14-day trial expiration
-    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+    // Step 4: Set trial expiration (configurable via TRIAL_DURATION_DAYS env var)
+    const expiresAt = calculateTrialExpirationDate();
 
     // Step 5: Create License record
     await this.prisma.license.create({
@@ -390,7 +393,7 @@ export class LicenseService {
     });
 
     this.logger.log(
-      `Trial license created for ${normalizedEmail}, expires: ${expiresAt.toISOString()}`
+      `Trial license created for ${normalizedEmail}, expires: ${expiresAt.toISOString()} (${getTrialDurationDays()} days)`
     );
 
     return { licenseKey, expiresAt };

@@ -31,6 +31,7 @@ import {
   CodeHealthAnalysisService,
   DeepProjectAnalysisService,
   WizardWebviewLifecycleService,
+  AgenticAnalysisService,
 } from '../services/wizard';
 
 /**
@@ -110,6 +111,14 @@ export function registerAgentGenerationServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
+  // Agentic analysis service - Claude Agent SDK-powered workspace analysis
+  // Note: Depends on SDK_AGENT_ADAPTER, SDK_MODULE_LOADER (registered in Phase 2.7), WEBVIEW_MANAGER
+  container.register(
+    AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE,
+    { useClass: AgenticAnalysisService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
   // Wizard webview lifecycle service - panel creation, message handling, progress emission
   // Note: Depends on WEBVIEW_MANAGER, WEBVIEW_MESSAGE_HANDLER, WEBVIEW_HTML_GENERATOR from vscode-core
   container.register(
@@ -180,6 +189,7 @@ export function registerAgentGenerationServices(
       'WIZARD_SESSION_MANAGER',
       'CODE_HEALTH_ANALYSIS',
       'DEEP_PROJECT_ANALYSIS',
+      'AGENTIC_ANALYSIS_SERVICE',
       'WIZARD_WEBVIEW_LIFECYCLE',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',

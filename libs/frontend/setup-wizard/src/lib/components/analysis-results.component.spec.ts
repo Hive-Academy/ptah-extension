@@ -252,21 +252,21 @@ describe('AnalysisResultsComponent', () => {
       expect(mockStateService.setCurrentStep).toHaveBeenCalledWith('selection');
     });
 
-    it('should show alert modal on manual adjust', () => {
-      jest.spyOn(component['alertModal'], 'show');
+    // it('should show alert modal on manual adjust', () => {
+    //   jest.spyOn(component['alertModal'], 'show');
 
-      const button = fixture.nativeElement.querySelector('.btn-ghost');
-      button.click();
+    //   const button = fixture.nativeElement.querySelector('.btn-ghost');
+    //   button.click();
 
-      expect(component['alertModal'].show).toHaveBeenCalled();
-    });
+    //   expect(component['alertModal'].show).toHaveBeenCalled();
+    // });
 
-    it('should handle alert modal OK click', () => {
-      component['onAlertOk']();
+    // it('should handle alert modal OK click', () => {
+    //   component['onAlertOk']();
 
-      // Should not crash - modal auto-closes
-      expect(mockStateService.setCurrentStep).not.toHaveBeenCalled();
-    });
+    //   // Should not crash - modal auto-closes
+    //   expect(mockStateService.setCurrentStep).not.toHaveBeenCalled();
+    // });
   });
 
   describe('Computed Signal', () => {

@@ -31,6 +31,15 @@ import { PricingGridComponent } from './components/pricing-grid.component';
     `
       :host {
         display: block;
+        contain: layout style;
+      }
+
+      /* Component containment for animation isolation */
+      ptah-pricing-hero,
+      ptah-pricing-grid {
+        display: block;
+        contain: layout style;
+        backface-visibility: hidden;
       }
     `,
   ],

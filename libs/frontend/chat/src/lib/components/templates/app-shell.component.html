@@ -240,18 +240,14 @@
 
       <!-- Header actions -->
       <div class="flex gap-1">
-        <!-- Open in editor panel (sidebar only) -->
-        @if (isInSidebar()) {
-        <button
-          type="button"
-          class="btn btn-square btn-ghost btn-sm"
-          aria-label="Open in Editor Panel"
-          title="Open in Editor Panel"
-          [disabled]="isOpeningPanel()"
-          (click)="openInPanel()"
-        >
-          <lucide-angular [img]="PanelRightIcon" class="w-4 h-4" />
-        </button>
+        <!-- Notification bell -->
+        @if (chatStore.licenseStatus(); as license) {
+        <ptah-notification-bell
+          [trialActive]="license.trialActive"
+          [trialDaysRemaining]="license.trialDaysRemaining"
+          [isCommunity]="license.isCommunity"
+          [reason]="license.reason"
+        />
         }
 
         <!-- Theme toggle -->

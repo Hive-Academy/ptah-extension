@@ -42,7 +42,7 @@
 
 **File**: D:\projects\ptah-extension\apps\ptah-license-server\prisma\schema.prisma (CREATE)
 **Spec Reference**: implementation-plan.md:95-150
-**Pattern**: https://www.prisma.io/docs/orm/overview/databases/database-drivers#driver-adapters
+**Pattern**: <https://www.prisma.io/docs/orm/overview/databases/database-drivers#driver-adapters>
 
 **Quality Requirements**:
 
@@ -490,7 +490,7 @@ export class LicenseKeyGeneratorService {
 - MUST retry 3 times with exponential backoff (1s, 2s, 4s)
 - MUST log failures for manual intervention
 - Email subject MUST be "Your Ptah Premium License Key"
-- Sender MUST be "ptah@nghive.tech"
+- Sender MUST be "<help@ptah.live>"
 
 **Validation Notes**:
 
@@ -529,7 +529,7 @@ export class EmailService {
 
         await sgMail.send({
           to: email,
-          from: 'ptah@nghive.tech',
+          from: 'help@ptah.live',
           subject: 'Your Ptah Premium License Key',
           html,
         });
@@ -875,7 +875,7 @@ async sendMagicLinkEmail(email: string, magicLink: string): Promise<void> {
 
   await sgMail.send({
     to: email,
-    from: 'ptah@nghive.tech',
+    from: 'help@ptah.live',
     subject: 'Login to Ptah Portal',
     html
   });

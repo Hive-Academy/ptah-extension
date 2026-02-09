@@ -17,6 +17,14 @@ export type {
   ResultStatsCallback,
 } from './lib/sdk-agent-adapter';
 
+// Internal Query Service (TASK_2025_145)
+// One-shot SDK query execution, separate from interactive chat path
+export { InternalQueryService } from './lib/internal-query';
+export type {
+  InternalQueryConfig,
+  InternalQueryHandle,
+} from './lib/internal-query';
+
 // Message transformation exports
 export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 

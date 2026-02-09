@@ -60,6 +60,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'wizard:', // TASK_2025_124: Setup wizard deep analysis and agent recommendations
   'command:', // TASK_2025_126: Webview command execution (ptah.* commands only)
   'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts system (status, wizard, regenerate)
+  'quality:', // TASK_2025_144: Quality Dashboard (assessment, history, export)
 ] as const;
 
 /**

@@ -1,6 +1,7 @@
 import { Injectable, signal, computed, inject, Injector } from '@angular/core';
 import { TabState } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
+import { StreamingHandlerService } from './chat-store/streaming-handler.service';
 
 /**
  * TabManagerService - Manages multi-session tab state
@@ -211,9 +212,6 @@ export class TabManagerService {
     // TASK_2025_090: Clean up deduplication state to prevent memory leaks
     // Use lazy injection to avoid circular dependency (StreamingHandler depends on TabManager)
     if (tab.claudeSessionId) {
-      const { StreamingHandlerService } = await import(
-        './chat-store/streaming-handler.service'
-      );
       const streamingHandler = this.injector.get(StreamingHandlerService);
       streamingHandler.cleanupSessionDeduplication(tab.claudeSessionId);
     }

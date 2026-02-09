@@ -136,6 +136,12 @@ export interface PlanSubscriptionContext {
    * ISO date string or null if not applicable.
    */
   periodEndDate: string | null;
+
+  /**
+   * License reason from API (e.g., 'trial_ended').
+   * TASK_2025_143: Used to show trial ended message in Community card.
+   */
+  licenseReason?: string;
 }
 
 /**

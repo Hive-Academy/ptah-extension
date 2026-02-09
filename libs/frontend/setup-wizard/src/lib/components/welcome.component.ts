@@ -1,12 +1,5 @@
-import {
-  Component,
-  inject,
-  ChangeDetectionStrategy,
-  signal,
-} from '@angular/core';
-import { LucideAngularModule, XCircle } from 'lucide-angular';
+import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
-import { WizardRpcService } from '../services/wizard-rpc.service';
 
 /**
  * WelcomeComponent - Setup wizard hero screen
@@ -31,7 +24,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 @Component({
   selector: 'ptah-welcome',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="hero min-h-screen bg-base-200">
@@ -48,30 +41,12 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             <span class="font-semibold">Estimated time:</span> 2-4 minutes
           </p>
 
-          @if (errorMessage()) {
-          <div class="alert alert-error mb-6 max-w-md mx-auto">
-            <lucide-angular
-              [img]="XCircleIcon"
-              class="stroke-current shrink-0 h-6 w-6"
-              aria-hidden="true"
-            />
-            <span>{{ errorMessage() }}</span>
-          </div>
-          }
-
           <button
             class="btn btn-primary btn-lg"
-            [class.btn-disabled]="isStarting()"
-            [disabled]="isStarting()"
-            [attr.aria-busy]="isStarting()"
-            [attr.aria-label]="
-              isStarting() ? 'Starting wizard setup...' : 'Start wizard setup'
-            "
+            aria-label="Start wizard setup"
             (click)="onStartSetup()"
           >
-            @if (isStarting()) {
-            <span class="loading loading-spinner"></span>
-            Starting... } @else { Start Setup }
+            Start Setup
           </button>
         </div>
       </div>
@@ -80,45 +55,13 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 })
 export class WelcomeComponent {
   private readonly wizardState = inject(SetupWizardStateService);
-  private readonly wizardRpc = inject(WizardRpcService);
-
-  protected readonly XCircleIcon = XCircle;
-
-  // Component-local loading state (not in global state)
-  protected readonly isStarting = signal(false);
-  protected readonly errorMessage = signal<string | null>(null);
 
   /**
-   * Handle "Start Setup" button click
-   * - Trigger RPC call to start wizard
-   * - Transition to 'scan' step on success
-   * - Show error message on failure
+   * Handle "Start Setup" button click.
+   * Transitions directly to scan step — no RPC needed since the wizard webview already exists.
+   * The ScanProgressComponent will initiate the actual deep analysis on mount.
    */
-  protected async onStartSetup(): Promise<void> {
-    if (this.isStarting()) {
-      return; // Prevent double-click
-    }
-
-    this.isStarting.set(true);
-    this.errorMessage.set(null);
-
-    try {
-      // Launch the setup wizard webview
-      // Note: Full wizard workflow (scan → select → generate) not yet implemented
-      // For now, launchWizard() opens the wizard webview panel
-      await this.wizardRpc.launchWizard();
-
-      // Transition to scan step (when backend is ready)
-      this.wizardState.setCurrentStep('scan');
-    } catch (error) {
-      // Handle RPC error (timeout, backend failure, etc.)
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Failed to start setup wizard. Please try again.';
-      this.errorMessage.set(message);
-    } finally {
-      this.isStarting.set(false);
-    }
+  protected onStartSetup(): void {
+    this.wizardState.setCurrentStep('scan');
   }
 }

@@ -361,7 +361,7 @@ export class EmailService {
   async sendLicenseKey(email: string, licenseKey: string): Promise<void> {
     const msg = {
       to: email,
-      from: 'ptah@nghive.tech', // Verified sender in SendGrid
+      from: 'help@ptah.live', // Verified sender in SendGrid
       subject: 'Your Ptah Premium License Key',
       html: `<p>Your license key: <strong>${licenseKey}</strong></p>`,
     };
@@ -411,7 +411,7 @@ export class EmailService {
   async sendLicenseKey(email: string, licenseKey: string): Promise<void> {
     await this.sendgrid.send({
       to: email,
-      from: 'ptah@nghive.tech',
+      from: 'help@ptah.live',
       subject: 'Your Ptah Premium License Key',
       html: this.renderTemplate(licenseKey),
     });
@@ -481,7 +481,7 @@ async sendWithRetry(to: string, subject: string, html: string): Promise<void> {
   const maxRetries = 3;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      await sgMail.send({ to, from: 'ptah@nghive.tech', subject, html });
+      await sgMail.send({ to, from: 'help@ptah.live', subject, html });
       this.logger.log(`Email sent to ${to}`);
       return; // ✅ Success
     } catch (error) {
@@ -537,8 +537,8 @@ try {
 ```typescript
 // Send multiple emails at once (max 1000 per batch)
 await sgMail.send([
-  { to: 'user1@example.com', from: 'ptah@nghive.tech', subject: '...', html: '...' },
-  { to: 'user2@example.com', from: 'ptah@nghive.tech', subject: '...', html: '...' },
+  { to: 'user1@example.com', from: 'help@ptah.live', subject: '...', html: '...' },
+  { to: 'user2@example.com', from: 'help@ptah.live', subject: '...', html: '...' },
 ]);
 ```
 
@@ -863,7 +863,7 @@ libs/
 nx generate @nx/js:library database --unitTestRunner=none --bundler=none
 ```
 
-2. **Configure Nx-Prisma Plugin**:
+1. **Configure Nx-Prisma Plugin**:
 
 ```bash
 nx g @nx-tools/nx-prisma:configuration database
@@ -893,7 +893,7 @@ This adds executors to `libs/database/project.json`:
 }
 ```
 
-3. **ZenStack Generate Command** (custom):
+1. **ZenStack Generate Command** (custom):
 
 ```json
 {
@@ -1192,7 +1192,7 @@ export class SendGridProvider implements EmailProvider {
   async send(to: string, subject: string, html: string): Promise<void> {
     const sgMail = require('@sendgrid/mail');
     sgMail.setApiKey(this.apiKey);
-    await sgMail.send({ to, from: 'ptah@nghive.tech', subject, html });
+    await sgMail.send({ to, from: 'help@ptah.live', subject, html });
   }
 }
 
@@ -1201,7 +1201,7 @@ export class ResendProvider implements EmailProvider {
   async send(to: string, subject: string, html: string): Promise<void> {
     const { Resend } = require('resend');
     const resend = new Resend(this.apiKey);
-    await resend.emails.send({ from: 'ptah@nghive.tech', to, subject, html });
+    await resend.emails.send({ from: 'help@ptah.live', to, subject, html });
   }
 }
 

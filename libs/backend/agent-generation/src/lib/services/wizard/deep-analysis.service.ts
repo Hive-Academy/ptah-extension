@@ -217,10 +217,10 @@ export class DeepProjectAnalysisService {
           );
 
           // Extract quality data from the unified intelligence result
-          qualityScore = intelligence.qualityAssessment.score;
-          qualityGaps = intelligence.qualityAssessment.gaps;
-          prescriptiveGuidance = intelligence.prescriptiveGuidance;
-          qualityAssessment = intelligence.qualityAssessment;
+          qualityScore = intelligence?.qualityAssessment?.score;
+          qualityGaps = intelligence?.qualityAssessment?.gaps;
+          prescriptiveGuidance = intelligence?.prescriptiveGuidance;
+          qualityAssessment = intelligence?.qualityAssessment;
 
           this.logger.debug(
             '[DeepProjectAnalysis] Quality assessment fetched successfully',

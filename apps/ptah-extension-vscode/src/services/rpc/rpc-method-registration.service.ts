@@ -31,6 +31,7 @@ import {
   retryWithBackoff,
   MESSAGE_TYPES,
 } from '@ptah-extension/shared';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
 
 import { ChatRpcHandlers } from './handlers/chat-rpc.handlers';
@@ -47,6 +48,7 @@ import { ProviderRpcHandlers } from './handlers/provider-rpc.handlers';
 import { SubagentRpcHandlers } from './handlers/subagent-rpc.handlers';
 import { CommandRpcHandlers } from './handlers/command-rpc.handlers';
 import { EnhancedPromptsRpcHandlers } from './handlers/enhanced-prompts-rpc.handlers';
+import { QualityRpcHandlers } from './handlers/quality-rpc.handlers';
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -87,6 +89,7 @@ export class RpcMethodRegistrationService {
     private readonly subagentHandlers: SubagentRpcHandlers,
     private readonly commandHandlers: CommandRpcHandlers, // TASK_2025_126
     private readonly enhancedPromptsHandlers: EnhancedPromptsRpcHandlers, // TASK_2025_137
+    private readonly qualityHandlers: QualityRpcHandlers, // TASK_2025_144
     private readonly container: DependencyContainer
   ) {
     // Setup SDK callbacks and listeners
@@ -116,6 +119,7 @@ export class RpcMethodRegistrationService {
     this.subagentHandlers.register();
     this.commandHandlers.register(); // TASK_2025_126
     this.enhancedPromptsHandlers.register(); // TASK_2025_137
+    this.qualityHandlers.register(); // TASK_2025_144
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -399,10 +403,6 @@ export class RpcMethodRegistrationService {
         }
 
         try {
-          const { AGENT_GENERATION_TOKENS } = await import(
-            '@ptah-extension/agent-generation'
-          );
-
           const setupWizardService = this.container.resolve(
             AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE
           ) as {

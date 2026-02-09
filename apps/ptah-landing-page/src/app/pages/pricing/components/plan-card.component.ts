@@ -204,6 +204,8 @@ import { isPriceIdPlaceholder } from '../../../utils/paddle-validation.util';
       :host {
         display: block;
         height: 100%;
+        contain: layout style;
+        backface-visibility: hidden;
       }
     `,
   ],

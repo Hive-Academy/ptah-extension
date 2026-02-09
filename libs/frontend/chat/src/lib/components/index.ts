@@ -47,6 +47,10 @@ export {
 // TASK_2025_142: Trial reminder UI components
 export * from './molecules/trial-banner.component';
 export * from './molecules/trial-ended-modal.component';
+// TASK_2025_143: Community upgrade banner for downgraded users
+export * from './molecules/community-upgrade-banner.component';
+// Notification bell for header (replaces inline trial/community banners)
+export * from './molecules/notification-bell.component';
 
 // ============================================================================
 // ORGANISMS - Complex sections

@@ -13,7 +13,7 @@ import { NgClass } from '@angular/common';
   imports: [NgClass],
   template: `
     <div
-      class="inline-flex items-center gap-1 p-1 bg-base-300/50 backdrop-blur-sm
+      class="inline-flex items-center gap-1 p-1 bg-base-300/50
              border border-base-content/10 rounded-full"
     >
       <!-- Monthly Option -->
@@ -61,6 +61,8 @@ import { NgClass } from '@angular/common';
     `
       :host {
         display: block;
+        contain: layout style;
+        backface-visibility: hidden;
       }
     `,
   ],

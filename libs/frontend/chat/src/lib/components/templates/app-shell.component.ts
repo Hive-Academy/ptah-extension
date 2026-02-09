@@ -16,7 +16,6 @@ import {
   Plus,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRight,
   ChevronDown,
   Check,
   X,
@@ -32,6 +31,7 @@ import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
+import { NotificationBellComponent } from '../molecules/notification-bell.component';
 import { ChatStore } from '../../services/chat.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
@@ -83,6 +83,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     ConfirmationDialogComponent,
     TrialEndedModalComponent,
     ThemeToggleComponent,
+    NotificationBellComponent,
     NgOptimizedImage,
     LucideAngularModule,
     FormsModule,
@@ -116,17 +117,9 @@ export class AppShellComponent {
   readonly XIcon = X;
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
-  readonly PanelRightIcon = PanelRight;
   readonly ChevronDownIcon = ChevronDown;
   readonly Trash2Icon = Trash2;
   readonly MessageSquareIcon = MessageSquare;
-
-  // Show "Open in Panel" only when in sidebar (panelId is empty/undefined)
-  readonly isInSidebar = computed(() => !this.vscodeService.config().panelId);
-
-  // Rapid-click guard for panel opening
-  private readonly _isOpeningPanel = signal(false);
-  readonly isOpeningPanel = this._isOpeningPanel.asReadonly();
 
   // Ptah icon URI
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -169,30 +162,6 @@ export class AppShellComponent {
    */
   openSettings(): void {
     this.appState.setCurrentView('settings');
-  }
-
-  /**
-   * Open chat in a new editor panel (TASK_2025_117)
-   * Executes the ptah.openFullPanel VS Code command via RPC
-   * Includes rapid-click guard to prevent duplicate panels
-   */
-  async openInPanel(): Promise<void> {
-    if (this._isOpeningPanel()) return;
-
-    this._isOpeningPanel.set(true);
-    try {
-      const result = await this.rpcService.call('command:execute', {
-        command: 'ptah.openFullPanel',
-      });
-      if (!result.isSuccess()) {
-        console.error('[AppShell] Panel command failed:', result.error);
-      }
-    } catch (error) {
-      console.error('[AppShell] Failed to open editor panel:', error);
-    } finally {
-      // Brief cooldown to prevent rapid duplicate panels
-      setTimeout(() => this._isOpeningPanel.set(false), 1500);
-    }
   }
 
   /**

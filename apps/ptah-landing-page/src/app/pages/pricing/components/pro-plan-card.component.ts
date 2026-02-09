@@ -287,6 +287,8 @@ import {
       :host {
         display: block;
         height: 100%;
+        contain: layout style;
+        backface-visibility: hidden;
       }
     `,
   ],

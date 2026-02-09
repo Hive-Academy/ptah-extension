@@ -1,286 +1,187 @@
 /**
- * Standalone MCP Server for Testing
+ * Infra Test - Trial Reminder Cron Test Client
  *
- * This is a standalone MCP server that bundles the Ptah MCP server
- * for testing with MCP Inspector and Claude Code integration.
+ * TASK_2025_143: Test script for manually triggering trial expiration workflow
  *
- * Transport: STDIO (standard input/output for MCP Inspector compatibility)
- * Protocol: JSON-RPC 2.0
+ * This script calls the license server's admin endpoint to trigger the actual
+ * TrialReminderService cron job, ensuring we test the real implementation.
  *
  * Usage:
- *   npx @modelcontextprotocol/inspector node dist/apps/infra-test/main.js
- *   Or configure in .mcp.json for Claude Code integration
+ *   npx ts-node apps/infra-test/src/main.ts              # Trigger cron job
+ *   npx ts-node apps/infra-test/src/main.ts --help       # Show help
+ *
+ * Environment Variables:
+ *   LICENSE_SERVER_URL - URL of the license server (default: http://localhost:3000)
+ *   ADMIN_SECRET - Admin secret for authentication (required)
+ *
+ * Server Setup:
+ *   The license server must be running with ADMIN_SECRET configured in its .env
  */
 
-import * as readline from 'readline';
-import {
-  buildExecuteCodeTool,
-  buildApprovalPromptTool,
-} from './tools/tool-descriptions';
-import { executeCode, serializeResult } from './tools/code-execution';
-import { createMockPtahAPI } from './mocks/ptah-api.mock';
-import type { MCPRequest, MCPResponse, PtahAPI } from './types';
+// Load environment variables
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('dotenv').config({ path: 'apps/ptah-license-server/.env' });
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('dotenv').config({ path: '.env' });
 
-// Initialize mock Ptah API
-const ptahAPI: PtahAPI = createMockPtahAPI();
+// Parse command line arguments
+const args = process.argv.slice(2);
 
 /**
- * Main entry point - start stdio MCP server
+ * Display usage information
+ */
+function showUsage(): void {
+  console.log(`
+Trial Reminder Cron Test Client
+
+This script triggers the actual TrialReminderService cron job in the license server,
+testing the real implementation including:
+- Finding expired trials
+- Downgrading users to Community plan
+- Recording trial reminders
+- Sending emails
+
+Usage:
+  npx ts-node apps/infra-test/src/main.ts [options]
+
+Options:
+  --help                 Show this help message
+  --url=<url>            Override LICENSE_SERVER_URL (default: http://localhost:3000)
+  --secret=<secret>      Override ADMIN_SECRET
+
+Environment Variables:
+  LICENSE_SERVER_URL     Base URL of the license server
+  ADMIN_SECRET           Admin secret for authentication (required)
+
+Examples:
+  # Trigger cron job (uses env vars)
+  npx ts-node apps/infra-test/src/main.ts
+
+  # Override URL
+  npx ts-node apps/infra-test/src/main.ts --url=http://localhost:3001
+
+Prerequisites:
+  1. License server must be running:
+     nx serve ptah-license-server
+
+  2. ADMIN_SECRET must be set in the license server's .env:
+     echo "ADMIN_SECRET=my-test-secret" >> apps/ptah-license-server/.env
+
+  3. Set ADMIN_SECRET for this script (same value as above)
+`);
+}
+
+// Show help if requested
+if (args.includes('--help')) {
+  showUsage();
+  process.exit(0);
+}
+
+/**
+ * Main entry point
  */
 async function main(): Promise<void> {
-  log('Ptah MCP Test Server starting...');
-  log('Transport: STDIO');
-  log('Protocol: JSON-RPC 2.0');
+  console.log('='.repeat(60));
+  console.log('Trial Reminder Cron Test Client');
+  console.log('='.repeat(60));
+  console.log('');
 
-  // Set up readline for stdio communication
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: false,
-  });
+  // Get configuration
+  const urlArg = args.find((arg) => arg.startsWith('--url='));
+  const secretArg = args.find((arg) => arg.startsWith('--secret='));
 
-  // Process each line as a JSON-RPC request
-  rl.on('line', async (line: string) => {
-    try {
-      const request = JSON.parse(line) as MCPRequest;
-      const response = await handleMCPRequest(request);
-      sendResponse(response);
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      sendResponse({
-        jsonrpc: '2.0',
-        id: null,
-        error: {
-          code: -32700,
-          message: `Parse error: ${errorMessage}`,
-        },
-      });
-    }
-  });
+  const baseUrl =
+    urlArg?.split('=')[1] ||
+    process.env['LICENSE_SERVER_URL'] ||
+    'http://localhost:3000';
 
-  rl.on('close', () => {
-    log('Connection closed');
-    process.exit(0);
-  });
+  const adminSecret = secretArg?.split('=')[1] || process.env['ADMIN_SECRET'];
 
-  log('Ready for connections');
-}
+  if (!adminSecret) {
+    console.error('❌ ERROR: ADMIN_SECRET is not set!');
+    console.error('');
+    console.error(
+      '   Set ADMIN_SECRET in your environment or use --secret=<value>'
+    );
+    console.error('');
+    console.error('   Example:');
+    console.error(
+      '     ADMIN_SECRET=my-test-secret npx ts-node apps/infra-test/src/main.ts'
+    );
+    console.error('');
+    process.exit(1);
+  }
 
-/**
- * Handle MCP JSON-RPC 2.0 request
- */
-async function handleMCPRequest(request: MCPRequest): Promise<MCPResponse> {
-  log(`Request: ${request.method} (id: ${request.id})`);
+  const endpoint = `${baseUrl}/admin/trial-reminder/trigger`;
+  console.log(`Server URL: ${baseUrl}`);
+  console.log(`Endpoint: POST ${endpoint}`);
+  console.log('');
 
   try {
-    switch (request.method) {
-      case 'initialize':
-        return handleInitialize(request);
+    console.log('🚀 Triggering trial reminder cron job...');
+    console.log('');
 
-      case 'notifications/initialized':
-        // Client notification - no response needed
-        return { jsonrpc: '2.0', id: request.id, result: {} };
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Secret': adminSecret,
+      },
+    });
 
-      case 'tools/list':
-        return handleToolsList(request);
+    const data = await response.json();
 
-      case 'tools/call':
-        return await handleToolsCall(request);
-
-      default:
-        return createErrorResponse(
-          request.id,
-          -32601,
-          `Method not found: ${request.method}`
-        );
+    if (response.ok && data.success) {
+      console.log('✅ Cron job executed successfully!');
+      console.log('');
+      console.log(`Message: ${data.message}`);
+    } else if (response.status === 401) {
+      console.error('❌ Authentication failed!');
+      console.error('');
+      console.error(
+        '   Check that ADMIN_SECRET matches the license server configuration.'
+      );
+      console.error(`   Response: ${data.message || 'Unauthorized'}`);
+      process.exit(1);
+    } else {
+      console.error('❌ Cron job failed!');
+      console.error('');
+      console.error(`   Status: ${response.status}`);
+      console.error(`   Message: ${data.message || JSON.stringify(data)}`);
+      process.exit(1);
     }
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error';
-    return createErrorResponse(request.id, -32603, errorMessage);
-  }
-}
-
-/**
- * Handle initialize request
- */
-function handleInitialize(request: MCPRequest): MCPResponse {
-  log('Initialize request received');
-
-  return {
-    jsonrpc: '2.0',
-    id: request.id,
-    result: {
-      protocolVersion: '2024-11-05',
-      capabilities: {
-        tools: {},
-      },
-      serverInfo: {
-        name: 'ptah-test',
-        version: '1.0.0',
-      },
-    },
-  };
-}
-
-/**
- * Handle tools/list request
- */
-function handleToolsList(request: MCPRequest): MCPResponse {
-  const tools = [buildExecuteCodeTool(), buildApprovalPromptTool()];
-
-  log(`Listing ${tools.length} tools`);
-
-  return {
-    jsonrpc: '2.0',
-    id: request.id,
-    result: { tools },
-  };
-}
-
-/**
- * Handle tools/call request
- */
-async function handleToolsCall(request: MCPRequest): Promise<MCPResponse> {
-  const { name, arguments: args } = request.params || {};
-
-  log(`Tool call: ${name}`);
-
-  if (name === 'execute_code') {
-    return await handleExecuteCode(
-      request,
-      args as { code: string; timeout?: number }
-    );
+    if (error instanceof Error && error.message.includes('ECONNREFUSED')) {
+      console.error('❌ Connection refused!');
+      console.error('');
+      console.error(`   Cannot connect to ${baseUrl}`);
+      console.error('');
+      console.error('   Make sure the license server is running:');
+      console.error('     nx serve ptah-license-server');
+    } else {
+      console.error('❌ Request failed!');
+      console.error('');
+      console.error(
+        `   Error: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    process.exit(1);
   }
 
-  if (name === 'approval_prompt') {
-    return handleApprovalPrompt(
-      request,
-      args as { tool_name: string; input: unknown; tool_use_id?: string }
-    );
-  }
-
-  return createErrorResponse(request.id, -32602, `Unknown tool: ${name}`);
+  console.log('');
+  console.log('─'.repeat(60));
+  console.log('');
+  console.log('Next Steps:');
+  console.log('  1. Check license server logs for detailed execution output');
+  console.log('  2. Verify database changes in Prisma Studio:');
+  console.log('     npm run prisma:studio');
+  console.log(
+    '  3. Check if downgraded users appear in extension with Community plan'
+  );
+  console.log('');
 }
 
-/**
- * Handle execute_code tool
- */
-async function handleExecuteCode(
-  request: MCPRequest,
-  params: { code: string; timeout?: number }
-): Promise<MCPResponse> {
-  const { code, timeout = 5000 } = params || {};
-
-  if (!code) {
-    return createErrorResponse(
-      request.id,
-      -32602,
-      'Missing required parameter: code'
-    );
-  }
-
-  const actualTimeout = Math.min(timeout, 30000);
-
-  try {
-    const result = await executeCode(code, actualTimeout, ptahAPI);
-    const textResult = serializeResult(result);
-
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      result: {
-        content: [
-          {
-            type: 'text',
-            text: textResult,
-          },
-        ],
-      },
-    };
-  } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : 'Unknown error';
-
-    return {
-      jsonrpc: '2.0',
-      id: request.id,
-      result: {
-        content: [
-          {
-            type: 'text',
-            text: `Error: ${errorMessage}`,
-          },
-        ],
-        isError: true,
-      },
-    };
-  }
-}
-
-/**
- * Handle approval_prompt tool (mock implementation)
- */
-function handleApprovalPrompt(
-  request: MCPRequest,
-  params: { tool_name: string; input: unknown; tool_use_id?: string }
-): MCPResponse {
-  const { tool_name, input } = params || {};
-
-  log(`Approval prompt for tool: ${tool_name}`);
-
-  // In standalone mode, auto-approve everything
-  return {
-    jsonrpc: '2.0',
-    id: request.id,
-    result: {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            approved: true,
-            tool_name,
-            input,
-            message: 'Auto-approved in test mode',
-          }),
-        },
-      ],
-    },
-  };
-}
-
-/**
- * Create JSON-RPC error response
- */
-function createErrorResponse(
-  id: string | number | null,
-  code: number,
-  message: string
-): MCPResponse {
-  return {
-    jsonrpc: '2.0',
-    id: id ?? null,
-    error: { code, message },
-  };
-}
-
-/**
- * Send response to stdout (MCP stdio transport)
- */
-function sendResponse(response: MCPResponse): void {
-  const json = JSON.stringify(response);
-  process.stdout.write(json + '\n');
-}
-
-/**
- * Log to stderr (doesn't interfere with stdio transport)
- */
-function log(message: string): void {
-  process.stderr.write(`[ptah-test] ${message}\n`);
-}
-
-// Start the server
+// Run main
 main().catch((error) => {
   console.error('Fatal error:', error);
   process.exit(1);
