@@ -116,8 +116,8 @@ interface PhaseStep {
           {{ progressData.phaseLabel }}
         </span>
       </div>
-      } } @else {
-      <!-- Progress Bar (hardcoded fallback analysis) -->
+      } } @else if (progressData.totalFiles > 0) {
+      <!-- Progress Bar (only when valid file counts exist) -->
       <div class="mb-6">
         <div class="flex justify-between mb-2">
           <span class="text-sm font-medium text-base-content/80">
@@ -142,6 +142,14 @@ interface PhaseStep {
             ' percent complete'
           "
         ></progress>
+      </div>
+      } @else {
+      <!-- Initializing state: neither phase nor file counts available yet -->
+      <div class="flex items-center justify-center gap-3 mb-6 py-4">
+        <span class="loading loading-spinner loading-sm text-primary"></span>
+        <span class="text-sm text-base-content/60"
+          >Initializing analysis...</span
+        >
       </div>
       }
 
@@ -395,12 +403,20 @@ export class ScanProgressComponent implements OnInit {
    * to 90 seconds after the user has already cancelled in the UI.
    */
   protected onConfirmCancellation(): void {
+    // Show cancellation feedback
+    this.isCanceling.set(true);
+    this.statusText.set('Canceling analysis...');
+
     // Fire-and-forget: cancel the backend analysis (best-effort, non-blocking).
     // Intentionally not awaited — the user should not wait for the backend
     // cancellation RPC to complete before the wizard resets. The `void` operator
     // makes the fire-and-forget intent explicit and suppresses floating-promise lints.
-    void this.wizardRpc.cancelAnalysis();
-    this.wizardState.reset();
+    void this.wizardRpc.cancelAnalysis().finally(() => {
+      // Reset wizard state after cancellation completes
+      if (!this.isDestroyed) {
+        this.wizardState.reset();
+      }
+    });
   }
 
   /**

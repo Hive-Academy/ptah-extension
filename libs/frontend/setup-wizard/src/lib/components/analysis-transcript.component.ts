@@ -12,6 +12,7 @@ import type { AnalysisStreamPayload } from '@ptah-extension/shared';
 import {
   AlertTriangle,
   Brain,
+  CheckCircle,
   ChevronDown,
   ChevronUp,
   Code,
@@ -19,6 +20,7 @@ import {
   LucideAngularModule,
   Terminal,
 } from 'lucide-angular';
+import { MarkdownModule } from 'ngx-markdown';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 
 /**
@@ -42,6 +44,25 @@ interface GroupedMessage {
 }
 
 /**
+ * Groups tool_start + tool_input + tool_result into a single collapsible unit.
+ * Identified by shared toolCallId.
+ */
+interface ToolCallGroup {
+  kind: 'tool_group';
+  toolCallId: string;
+  toolName: string;
+  messages: GroupedMessage[];
+  isComplete: boolean;
+  isError: boolean;
+  timestamp: number;
+}
+
+/**
+ * Union type for displayable items in the transcript.
+ */
+type TranscriptItem = GroupedMessage | ToolCallGroup;
+
+/**
  * AnalysisTranscriptComponent - Live agent transcript during analysis
  *
  * Purpose:
@@ -49,12 +70,17 @@ interface GroupedMessage {
  * - Show text output, tool calls, thinking previews, errors, and status messages
  * - Provide an expand/collapse toggle to manage screen real estate
  * - Auto-scroll to bottom on new messages unless user has scrolled up
+ * - Render markdown content with syntax highlighting via ngx-markdown
+ * - Group tool calls by toolCallId into collapsible sections
  *
  * Features:
  * - Renders all 7 message kinds with distinct visual styling
  * - Consecutive text messages are merged into a single block
+ * - Tool calls with same toolCallId grouped into collapsible units
+ * - Completed tool groups default to collapsed; in-progress groups expanded
  * - Collapsible tool input JSON with truncation and show-more toggle
  * - Auto-scroll with user scroll detection
+ * - Markdown rendering with prose styling and language detection
  * - DaisyUI styling consistent with the wizard theme
  * - Standalone component with OnPush change detection
  *
@@ -66,7 +92,7 @@ interface GroupedMessage {
 @Component({
   selector: 'ptah-analysis-transcript',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, MarkdownModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="bg-base-200 rounded-lg overflow-hidden">
@@ -104,14 +130,100 @@ interface GroupedMessage {
         class="overflow-y-auto max-h-64 p-3 space-y-2 border-t border-base-300"
         (scroll)="onUserScroll()"
       >
-        @for (item of groupedMessages(); track $index) { @switch (item.kind) {
-        @case ('text') {
-        <div class="bg-base-100 rounded-md px-3 py-2">
-          <p
-            class="text-sm font-mono whitespace-pre-wrap break-words text-base-content/80"
+        @for (item of transcriptItems(); track $index) { @if (isToolGroup(item))
+        {
+        <!-- Tool Call Group (collapsible) -->
+        <div class="bg-base-200/30 rounded border border-base-300/50 my-1">
+          <!-- Group Header -->
+          <button
+            type="button"
+            class="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-base-300/30 transition-colors text-xs"
+            (click)="toggleToolGroup(item.toolCallId)"
+            [attr.aria-expanded]="!isToolGroupCollapsed(item)"
           >
-            {{ item.content }}
-          </p>
+            <lucide-angular
+              [img]="ChevronDownIcon"
+              class="w-3 h-3 shrink-0 text-base-content/50 transition-transform"
+              [class.-rotate-90]="isToolGroupCollapsed(item)"
+              aria-hidden="true"
+            />
+            <lucide-angular
+              [img]="TerminalIcon"
+              class="w-3 h-3 shrink-0"
+              [class.text-info]="!item.isComplete"
+              [class.text-success]="item.isComplete && !item.isError"
+              [class.text-error]="item.isError"
+              aria-hidden="true"
+            />
+            <span class="font-medium">{{ item.toolName }}</span>
+            @if (!item.isComplete) {
+            <span class="badge badge-xs badge-info badge-outline animate-pulse"
+              >running</span
+            >
+            } @else if (item.isError) {
+            <span class="badge badge-xs badge-error badge-outline">error</span>
+            } @else {
+            <span class="badge badge-xs badge-success badge-outline">done</span>
+            }
+          </button>
+
+          <!-- Group Content (collapsible) -->
+          @if (!isToolGroupCollapsed(item)) {
+          <div class="px-3 pb-2 pt-1 border-t border-base-300/30 space-y-1">
+            @for (subItem of item.messages; track $index) { @switch
+            (subItem.kind) { @case ('tool_start') {
+            <!-- Tool start is represented by the header, skip -->
+            } @case ('tool_input') {
+            <div class="bg-base-100 rounded-md overflow-hidden">
+              <div
+                class="px-2 py-1 text-[10px] font-semibold text-base-content/50"
+              >
+                Input
+              </div>
+              <div class="px-2 pb-2 max-h-40 overflow-y-auto">
+                <markdown
+                  [data]="getFormattedToolInput(subItem)"
+                  class="prose prose-xs prose-invert max-w-none
+                                     [&_pre]:my-0 [&_pre]:rounded-sm [&_code]:text-[10px]
+                                     [&_pre]:bg-base-300/50 [&_p]:my-1 [&_p]:text-[10px]"
+                />
+              </div>
+            </div>
+            } @case ('tool_result') {
+            <div
+              class="rounded-md overflow-hidden"
+              [class]="subItem.isError ? 'bg-error/5' : ''"
+            >
+              <div
+                class="px-2 py-1 text-[10px] font-semibold text-base-content/50"
+              >
+                Output
+              </div>
+              <div class="px-2 pb-2 max-h-32 overflow-y-auto">
+                <markdown
+                  [data]="getFormattedToolResult(subItem)"
+                  class="prose prose-xs prose-invert max-w-none
+                                     [&_pre]:my-0 [&_pre]:rounded-sm [&_code]:text-[10px]
+                                     [&_pre]:bg-base-300/50 [&_p]:my-1 [&_p]:text-xs"
+                />
+              </div>
+            </div>
+            } } }
+          </div>
+          }
+        </div>
+        } @else {
+        <!-- Non-grouped messages (text, thinking, error, status, ungrouped tools) -->
+        @switch (item.kind) { @case ('text') {
+        <div class="bg-base-100 rounded-md px-3 py-2">
+          <markdown
+            [data]="item.content"
+            class="prose prose-sm prose-invert max-w-none
+                           [&_pre]:my-1 [&_pre]:text-xs [&_code]:text-xs
+                           [&_p]:my-1 [&_p]:text-sm [&_p]:text-base-content/80
+                           [&_h1]:text-lg [&_h2]:text-base [&_h3]:text-sm
+                           [&_ul]:my-1 [&_ol]:my-1 [&_li]:text-sm"
+          />
         </div>
         } @case ('tool_start') {
         <div class="flex items-center gap-2 py-1">
@@ -120,9 +232,9 @@ interface GroupedMessage {
             class="w-3.5 h-3.5 text-info shrink-0"
             aria-hidden="true"
           />
-          <span class="badge badge-sm badge-info badge-outline">
-            {{ item.toolName || 'tool' }}
-          </span>
+          <span class="badge badge-sm badge-info badge-outline">{{
+            item.toolName || 'tool'
+          }}</span>
           <span class="text-xs text-base-content/50">started</span>
         </div>
         } @case ('tool_input') {
@@ -131,6 +243,7 @@ interface GroupedMessage {
             type="button"
             class="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-base-content/60 hover:bg-base-200 transition-colors"
             (click)="toggleToolInput(item.timestamp)"
+            [attr.aria-expanded]="isToolInputExpanded(item.timestamp)"
           >
             <lucide-angular
               [img]="CodeIcon"
@@ -149,11 +262,13 @@ interface GroupedMessage {
             />
           </button>
           @if (isToolInputExpanded(item.timestamp)) {
-          <div class="px-3 pb-2">
-            <pre
-              class="text-xs font-mono text-base-content/70 whitespace-pre-wrap break-all max-h-40 overflow-y-auto"
-              >{{ getToolInputContent(item) }}</pre
-            >
+          <div class="px-3 pb-2 max-h-40 overflow-y-auto">
+            <markdown
+              [data]="getFormattedToolInput(item)"
+              class="prose prose-xs prose-invert max-w-none
+                               [&_pre]:my-0 [&_pre]:rounded-sm [&_code]:text-[10px]
+                               [&_pre]:bg-base-300/50 [&_p]:my-1 [&_p]:text-[10px]"
+            />
             @if (item.content.length > 500) {
             <button
               type="button"
@@ -170,19 +285,38 @@ interface GroupedMessage {
         </div>
         } @case ('tool_result') {
         <div
-          class="flex items-center gap-2 py-1"
-          [class.text-error]="item.isError"
+          class="rounded-md overflow-hidden"
+          [class]="item.isError ? 'border-l-2 border-error/20' : ''"
         >
-          <lucide-angular
-            [img]="item.isError ? AlertTriangleIcon : TerminalIcon"
-            class="w-3.5 h-3.5 shrink-0"
-            [class.text-error]="item.isError"
-            [class.text-success]="!item.isError"
-            aria-hidden="true"
-          />
-          <span class="text-xs" [class.text-error]="item.isError">
-            {{ item.toolName || 'tool' }}: {{ item.content }}
-          </span>
+          <div class="flex items-center gap-2 px-3 py-1.5">
+            <lucide-angular
+              [img]="item.isError ? AlertTriangleIcon : CheckCircleIcon"
+              class="w-3.5 h-3.5 shrink-0"
+              [class.text-error]="item.isError"
+              [class.text-success]="!item.isError"
+              aria-hidden="true"
+            />
+            <span class="text-xs font-medium" [class.text-error]="item.isError">
+              {{ item.toolName || 'Result' }}
+            </span>
+            <span
+              class="badge badge-xs"
+              [class.badge-error]="item.isError"
+              [class.badge-success]="!item.isError"
+            >
+              {{ item.isError ? 'error' : 'success' }}
+            </span>
+          </div>
+          @if (item.content) {
+          <div class="px-3 pb-2 max-h-32 overflow-y-auto">
+            <markdown
+              [data]="getFormattedToolResult(item)"
+              class="prose prose-xs prose-invert max-w-none
+                               [&_pre]:my-0 [&_pre]:rounded-sm [&_code]:text-[10px]
+                               [&_pre]:bg-base-300/50 [&_p]:my-1 [&_p]:text-xs"
+            />
+          </div>
+          }
         </div>
         } @case ('thinking') {
         <div class="flex items-start gap-2 py-1">
@@ -211,7 +345,7 @@ interface GroupedMessage {
           />
           <span class="text-xs text-base-content/50">{{ item.content }}</span>
         </div>
-        } } } @empty {
+        } } } } @empty {
         <p class="text-xs text-base-content/40 text-center py-4">
           Waiting for agent messages...
         </p>
@@ -230,6 +364,7 @@ export class AnalysisTranscriptComponent {
   protected readonly ChevronDownIcon = ChevronDown;
   protected readonly BrainIcon = Brain;
   protected readonly AlertTriangleIcon = AlertTriangle;
+  protected readonly CheckCircleIcon = CheckCircle;
   protected readonly InfoIcon = Info;
   protected readonly CodeIcon = Code;
 
@@ -245,6 +380,9 @@ export class AnalysisTranscriptComponent {
   /** Track which tool inputs show full content */
   private readonly fullToolInputs = signal<Set<number>>(new Set());
 
+  /** Track which tool groups are collapsed (by toolCallId) */
+  private readonly collapsedToolGroups = signal<Set<string>>(new Set());
+
   /** Reference to the scrollable container element */
   protected readonly scrollContainer =
     viewChild<ElementRef<HTMLDivElement>>('scrollContainer');
@@ -255,33 +393,55 @@ export class AnalysisTranscriptComponent {
   );
 
   /**
-   * Grouped messages with consecutive text messages merged.
-   * This reduces visual noise from high-frequency text_delta broadcasts.
+   * Language extension mapping for tool input language detection.
+   * Pattern source: tool-input-display.component.ts:120-141
    */
-  protected readonly groupedMessages = computed<GroupedMessage[]>(() => {
+  private readonly languageMap: Record<string, string> = {
+    '.ts': 'typescript',
+    '.tsx': 'tsx',
+    '.js': 'javascript',
+    '.jsx': 'jsx',
+    '.json': 'json',
+    '.html': 'html',
+    '.css': 'css',
+    '.scss': 'scss',
+    '.py': 'python',
+    '.java': 'java',
+    '.go': 'go',
+    '.rs': 'rust',
+    '.md': 'markdown',
+    '.yaml': 'yaml',
+    '.yml': 'yaml',
+    '.xml': 'xml',
+    '.sql': 'sql',
+    '.sh': 'bash',
+    '.bash': 'bash',
+    '.zsh': 'bash',
+  };
+
+  /**
+   * Processed transcript items with text merging and tool call grouping.
+   * - Consecutive text messages are merged
+   * - Tool messages with same toolCallId are grouped into ToolCallGroup
+   */
+  protected readonly transcriptItems = computed<TranscriptItem[]>(() => {
     const raw = this.wizardState.analysisStream();
     if (raw.length === 0) return [];
 
+    // Step 1: Merge consecutive text messages (existing logic)
     const grouped: GroupedMessage[] = [];
     let currentTextGroup: GroupedMessage | null = null;
 
     for (const msg of raw) {
       if (msg.kind === 'text') {
         if (currentTextGroup !== null) {
-          // Merge consecutive text messages by appending content
           const merged: GroupedMessage = {
-            kind: currentTextGroup.kind,
+            ...currentTextGroup,
             content: currentTextGroup.content + msg.content,
-            toolName: currentTextGroup.toolName,
-            toolCallId: currentTextGroup.toolCallId,
-            isError: currentTextGroup.isError,
-            timestamp: currentTextGroup.timestamp,
           };
           currentTextGroup = merged;
-          // Replace last item in grouped array
           grouped[grouped.length - 1] = merged;
         } else {
-          // Start new text group
           currentTextGroup = {
             kind: 'text',
             content: msg.content,
@@ -290,7 +450,6 @@ export class AnalysisTranscriptComponent {
           grouped.push(currentTextGroup);
         }
       } else {
-        // Non-text message breaks the text group
         currentTextGroup = null;
         grouped.push({
           kind: msg.kind,
@@ -303,7 +462,45 @@ export class AnalysisTranscriptComponent {
       }
     }
 
-    return grouped;
+    // Step 2: Group tool messages by toolCallId into ToolCallGroups
+    const items: TranscriptItem[] = [];
+    const toolGroupMap = new Map<string, ToolCallGroup>();
+
+    for (const msg of grouped) {
+      if (
+        msg.toolCallId &&
+        (msg.kind === 'tool_start' ||
+          msg.kind === 'tool_input' ||
+          msg.kind === 'tool_result')
+      ) {
+        let group = toolGroupMap.get(msg.toolCallId);
+        if (!group) {
+          group = {
+            kind: 'tool_group',
+            toolCallId: msg.toolCallId,
+            toolName: msg.toolName || 'tool',
+            messages: [],
+            isComplete: false,
+            isError: false,
+            timestamp: msg.timestamp,
+          };
+          toolGroupMap.set(msg.toolCallId, group);
+          items.push(group);
+        }
+        group.messages.push(msg);
+        if (msg.kind === 'tool_result') {
+          group.isComplete = true;
+          group.isError = !!msg.isError;
+        }
+        if (msg.toolName) {
+          group.toolName = msg.toolName;
+        }
+      } else {
+        items.push(msg);
+      }
+    }
+
+    return items;
   });
 
   constructor() {
@@ -393,5 +590,98 @@ export class AnalysisTranscriptComponent {
     if (item.content.length <= 500) return item.content;
     if (this.fullToolInputs().has(item.timestamp)) return item.content;
     return item.content.substring(0, 500) + '...';
+  }
+
+  /** Toggle a tool group's collapsed state */
+  protected toggleToolGroup(toolCallId: string): void {
+    this.collapsedToolGroups.update((set) => {
+      const newSet = new Set(set);
+      if (newSet.has(toolCallId)) {
+        newSet.delete(toolCallId);
+      } else {
+        newSet.add(toolCallId);
+      }
+      return newSet;
+    });
+  }
+
+  /** Check if a tool group is collapsed. Completed groups default to collapsed. */
+  protected isToolGroupCollapsed(group: ToolCallGroup): boolean {
+    // If user has explicitly toggled, use that state
+    if (this.collapsedToolGroups().has(group.toolCallId)) {
+      return !group.isComplete; // Toggled: invert default
+    }
+    // Default: completed = collapsed, in-progress = expanded
+    return group.isComplete;
+  }
+
+  /** Type guard to check if a transcript item is a ToolCallGroup */
+  protected isToolGroup(item: TranscriptItem): item is ToolCallGroup {
+    return 'kind' in item && item.kind === 'tool_group';
+  }
+
+  /**
+   * Format tool input as markdown with language detection.
+   * Pattern source: tool-input-display.component.ts:217-240
+   */
+  protected getFormattedToolInput(item: GroupedMessage): string {
+    const content = this.getToolInputContent(item);
+
+    // Try to parse as JSON to detect file paths for language detection
+    try {
+      const parsed = JSON.parse(item.content);
+      if (parsed && typeof parsed === 'object') {
+        // Check for file_path parameter to detect language
+        const filePath = parsed.file_path || parsed.path || '';
+        if (filePath) {
+          const language = this.getLanguageFromPath(filePath);
+          if (language !== 'text') {
+            // If there's a content/command field, wrap it with detected language
+            const codeContent =
+              parsed.content || parsed.command || parsed.pattern || '';
+            if (codeContent) {
+              return '```' + language + '\n' + codeContent + '\n```';
+            }
+          }
+        }
+        // Default: format entire JSON with syntax highlighting
+        return '```json\n' + JSON.stringify(parsed, null, 2) + '\n```';
+      }
+    } catch {
+      // Not JSON, try to detect language from content
+    }
+
+    // Fallback: wrap in generic code block
+    return '```\n' + content + '\n```';
+  }
+
+  /**
+   * Format tool result content as markdown.
+   * Handles both error and success results.
+   */
+  protected getFormattedToolResult(item: GroupedMessage): string {
+    const content = item.content;
+    if (!content) return '_No output_';
+
+    // If content looks like code/file content, wrap in code block
+    if (
+      content.includes('\n') &&
+      (content.includes('{') || content.includes('import '))
+    ) {
+      return '```\n' + content + '\n```';
+    }
+
+    // Otherwise render as markdown (may contain formatted text)
+    return content;
+  }
+
+  /**
+   * Get language identifier from a file path extension.
+   * Pattern source: tool-input-display.component.ts:262-266
+   */
+  private getLanguageFromPath(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, '/');
+    const ext = '.' + normalized.split('.').pop()?.toLowerCase();
+    return this.languageMap[ext] || 'text';
   }
 }
