@@ -19,6 +19,7 @@ export { CompletionComponent } from './lib/components/completion.component';
 export { ConfirmationModalComponent } from './lib/components/confirmation-modal.component';
 export { PremiumUpsellComponent } from './lib/components/premium-upsell.component';
 export { AnalysisTranscriptComponent } from './lib/components/analysis-transcript.component';
+export { AnalysisStatsDashboardComponent } from './lib/components/analysis-stats-dashboard.component';
 
 // Wizard Types
 export type {

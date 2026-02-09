@@ -12,6 +12,7 @@ import type { AnalysisPhase } from '@ptah-extension/shared';
 import {
   Bot,
   Building2,
+  CheckCircle,
   HeartPulse,
   Info,
   LucideAngularModule,
@@ -22,6 +23,7 @@ import {
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { AnalysisStatsDashboardComponent } from './analysis-stats-dashboard.component';
 import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
 
@@ -64,6 +66,7 @@ interface PhaseStep {
     LucideAngularModule,
     AnalysisTranscriptComponent,
     ConfirmationModalComponent,
+    AnalysisStatsDashboardComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -87,16 +90,37 @@ interface PhaseStep {
         <ul class="steps steps-horizontal w-full">
           @for (phase of phases; track phase.id) {
           <li
-            class="step"
+            class="step transition-all duration-300"
             [class.step-primary]="isPhaseCompleteOrCurrent(phase.id)"
-            [attr.aria-label]="phase.label"
+            [attr.aria-label]="
+              phase.label +
+              (isPhaseComplete(phase.id)
+                ? ' - complete'
+                : isCurrentPhase(phase.id)
+                ? ' - in progress'
+                : ' - pending')
+            "
           >
             <span class="flex items-center gap-1.5 text-xs">
+              @if (isPhaseComplete(phase.id)) {
               <lucide-angular
-                [img]="phase.icon"
-                class="w-3.5 h-3.5"
+                [img]="CheckCircleIcon"
+                class="w-3.5 h-3.5 text-success"
                 aria-hidden="true"
               />
+              } @else if (isCurrentPhase(phase.id)) {
+              <lucide-angular
+                [img]="phase.icon"
+                class="w-3.5 h-3.5 animate-pulse"
+                aria-hidden="true"
+              />
+              } @else {
+              <lucide-angular
+                [img]="phase.icon"
+                class="w-3.5 h-3.5 opacity-40"
+                aria-hidden="true"
+              />
+              }
               {{ phase.label }}
             </span>
           </li>
@@ -115,6 +139,13 @@ interface PhaseStep {
         <span class="text-sm font-medium text-primary">
           {{ progressData.phaseLabel }}
         </span>
+      </div>
+      }
+
+      <!-- Stats Dashboard (between phase stepper and transcript) -->
+      @if (hasStreamMessages()) {
+      <div class="mb-4">
+        <ptah-analysis-stats-dashboard />
       </div>
       } } @else if (progressData.totalFiles > 0) {
       <!-- Progress Bar (only when valid file counts exist) -->
@@ -255,6 +286,7 @@ export class ScanProgressComponent implements OnInit {
   protected readonly XCircleIcon = XCircle;
   protected readonly InfoIcon = Info;
   protected readonly BotIcon = Bot;
+  protected readonly CheckCircleIcon = CheckCircle;
 
   /** Phase steps for the stepper UI */
   protected readonly phases: PhaseStep[] = [
@@ -313,6 +345,26 @@ export class ScanProgressComponent implements OnInit {
     return (
       completedPhases.includes(phaseId) || progressData.currentPhase === phaseId
     );
+  }
+
+  /**
+   * Check if a specific phase is completed (in completedPhases array).
+   * Used by the phase stepper to show green checkmark for completed phases.
+   */
+  protected isPhaseComplete(phaseId: AnalysisPhase): boolean {
+    const progressData = this.progress();
+    if (!progressData) return false;
+    return (progressData.completedPhases || []).includes(phaseId);
+  }
+
+  /**
+   * Check if a specific phase is the currently active phase.
+   * Used by the phase stepper to show pulsing animation on the active phase.
+   */
+  protected isCurrentPhase(phaseId: AnalysisPhase): boolean {
+    const progressData = this.progress();
+    if (!progressData) return false;
+    return progressData.currentPhase === phaseId;
   }
 
   constructor() {
