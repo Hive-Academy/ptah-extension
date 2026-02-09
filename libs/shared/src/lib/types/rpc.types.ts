@@ -667,6 +667,58 @@ export interface WizardCancelAnalysisResponse {
 }
 
 // ============================================================
+// Wizard Generation RPC Types (TASK_2025_148)
+// ============================================================
+
+/** Parameters for wizard:submit-selection RPC method */
+export interface WizardSubmitSelectionParams {
+  /** Array of agent IDs to generate (from AgentRecommendation.agentId) */
+  selectedAgentIds: string[];
+  /** Minimum relevance threshold for agent selection (0-100). Default: 50 */
+  threshold?: number;
+  /** Variable overrides for template rendering */
+  variableOverrides?: Record<string, string>;
+}
+
+/** Response from wizard:submit-selection RPC method */
+export interface WizardSubmitSelectionResponse {
+  /** Whether the selection was accepted and generation started */
+  success: boolean;
+  /** Error message if selection failed */
+  error?: string;
+}
+
+/** Parameters for wizard:cancel RPC method */
+export interface WizardCancelParams {
+  /** Whether to save progress for later resume */
+  saveProgress?: boolean;
+}
+
+/** Response from wizard:cancel RPC method */
+export interface WizardCancelResponse {
+  /** Whether cancellation was performed */
+  cancelled: boolean;
+  /** Session ID of cancelled session */
+  sessionId?: string;
+  /** Whether progress was saved */
+  progressSaved?: boolean;
+}
+
+/** Parameters for wizard:retry-item RPC method */
+export interface WizardRetryItemParams {
+  /** ID of the generation item to retry */
+  itemId: string;
+}
+
+/** Response from wizard:retry-item RPC method */
+export interface WizardRetryItemResponse {
+  /** Whether retry was initiated */
+  success: boolean;
+  /** Error message if retry failed */
+  error?: string;
+}
+
+// ============================================================
 // License RPC Types
 // ============================================================
 
@@ -1099,6 +1151,19 @@ export interface RpcMethodRegistry {
     params: WizardCancelAnalysisParams;
     result: WizardCancelAnalysisResponse;
   };
+  // Wizard Generation Methods (TASK_2025_148)
+  'wizard:submit-selection': {
+    params: WizardSubmitSelectionParams;
+    result: WizardSubmitSelectionResponse;
+  };
+  'wizard:cancel': {
+    params: WizardCancelParams;
+    result: WizardCancelResponse;
+  };
+  'wizard:retry-item': {
+    params: WizardRetryItemParams;
+    result: WizardRetryItemResponse;
+  };
 
   // ---- License Methods ----
   'license:getStatus': {
@@ -1254,6 +1319,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'wizard:deep-analyze',
   'wizard:recommend-agents',
   'wizard:cancel-analysis',
+  // Wizard Generation Methods (TASK_2025_148)
+  'wizard:submit-selection',
+  'wizard:cancel',
+  'wizard:retry-item',
 
   // License Methods
   'license:getStatus',
