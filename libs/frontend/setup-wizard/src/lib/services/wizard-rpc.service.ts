@@ -24,19 +24,18 @@ export interface AgentSelectionResponse {
  * Thin facade for wizard-specific RPC calls.
  * Delegates to ClaudeRpcService for actual RPC communication.
  *
- * REFACTORED (TASK_2025_078): Removed duplicate RPC infrastructure.
- * Previously had its own pendingResponses map, setupMessageListener(), and
- * generateMessageId() which duplicated ClaudeRpcService's implementation.
- * Now delegates to ClaudeRpcService's unified RPC layer.
- *
  * Pattern: Facade pattern - provides wizard-specific API over unified RPC
  *
- * NOTE (TASK_2025_074): Backend RPC handlers for wizard operations are pending.
- * Currently only `setup-wizard:launch` is implemented in backend.
- * The following methods need backend handlers before they will work:
- * - submitAgentSelection -> needs `wizard:submit-selection` RPC handler
- * - cancelWizard -> needs `wizard:cancel` RPC handler
- * - retryGenerationItem -> needs `wizard:retry-item` RPC handler
+ * Supported RPC methods:
+ * - setup-wizard:launch - Launch the wizard webview
+ * - wizard:submit-selection - Submit agent selection and trigger generation
+ * - wizard:cancel - Cancel the wizard session
+ * - wizard:retry-item - Retry a failed generation item
+ * - wizard:cancel-analysis - Cancel a running analysis
+ * - wizard:deep-analyze - Deep workspace analysis
+ * - wizard:recommend-agents - Get agent recommendations
+ * - enhancedPrompts:runWizard - Run Enhanced Prompts wizard
+ * - enhancedPrompts:getStatus - Get Enhanced Prompts status
  */
 @Injectable({
   providedIn: 'root',
@@ -56,66 +55,56 @@ export class WizardRpcService {
   }
 
   /**
-   * Submit agent selection (Step 4 -> Step 5 transition)
-   * Triggers agent generation with selected agents
+   * Submit agent selection (Step 4 -> Step 5 transition).
+   * Triggers agent generation with selected agents.
    *
    * Returns acknowledgment response to verify backend received the selection.
    * The caller should check response.success before transitioning to generation step.
    *
-   * TODO: Backend handler not implemented yet
-   * When implemented, add 'wizard:submit-selection' to RpcMethodRegistry
+   * Uses a 5-minute timeout since agent generation is a long-running operation.
    */
   async submitAgentSelection(
-    _selections: AgentSelection[]
+    selections: AgentSelection[]
   ): Promise<AgentSelectionResponse> {
-    // TODO: Implement when backend handler is ready
-    // const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
-    // const result = await this.rpcService.call<{ agentIds: string[] }, AgentSelectionResponse>(
-    //   'wizard:submit-selection',
-    //   { agentIds: selectedIds },
-    //   { timeout: 30000 }
-    // );
-    // if (result.success) {
-    //   return result.data;
-    // } else {
-    //   throw new Error(result.error);
-    // }
-    console.warn(
-      '[WizardRpcService] submitAgentSelection: Backend handler not implemented'
+    const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
+    const result = await this.rpcService.call(
+      'wizard:submit-selection',
+      { selectedAgentIds: selectedIds },
+      { timeout: 300_000 }
     );
-    throw new Error('Agent selection submission not yet implemented');
+
+    if (result.isSuccess()) {
+      return (result.data as AgentSelectionResponse) ?? { success: true };
+    }
+    throw new Error(result.error || 'Failed to submit agent selection');
   }
 
   /**
-   * Cancel wizard (any step -> close)
-   * Optionally saves progress for resuming later
+   * Cancel wizard (any step -> close).
+   * Optionally saves progress for resuming later.
    *
-   * TODO: Backend handler not implemented yet
-   * When implemented, add 'wizard:cancel' to RpcMethodRegistry
+   * Safe to call even if no active session exists (backend handles gracefully).
    */
-  async cancelWizard(_saveProgress = true): Promise<void> {
-    // TODO: Implement when backend handler is ready
-    // const result = await this.rpcService.call('wizard:cancel', { saveProgress });
-    console.warn(
-      '[WizardRpcService] cancelWizard: Backend handler not implemented'
-    );
-    throw new Error('Wizard cancellation not yet implemented');
+  async cancelWizard(saveProgress = true): Promise<void> {
+    const result = await this.rpcService.call('wizard:cancel', {
+      saveProgress,
+    });
+    if (!result.isSuccess()) {
+      console.warn('[WizardRpcService] cancelWizard failed:', result.error);
+    }
   }
 
   /**
    * Retry a failed generation item.
    * Triggers regeneration of a specific agent, command, or skill file.
    *
-   * TODO: Backend handler not implemented yet
-   * When implemented, add 'wizard:retry-item' to RpcMethodRegistry
+   * @param itemId - Identifier of the generation item to retry
    */
-  async retryGenerationItem(_itemId: string): Promise<void> {
-    // TODO: Implement when backend handler is ready
-    // const result = await this.rpcService.call('wizard:retry-item', { itemId });
-    console.warn(
-      '[WizardRpcService] retryGenerationItem: Backend handler not implemented'
-    );
-    throw new Error('Retry generation item not yet implemented');
+  async retryGenerationItem(itemId: string): Promise<void> {
+    const result = await this.rpcService.call('wizard:retry-item', { itemId });
+    if (!result.isSuccess()) {
+      throw new Error(result.error || 'Failed to retry generation item');
+    }
   }
 
   // === Analysis Cancellation (TASK_2025_145 SERIOUS-6) ===

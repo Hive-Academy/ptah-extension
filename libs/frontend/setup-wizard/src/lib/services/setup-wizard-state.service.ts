@@ -928,10 +928,67 @@ export class SetupWizardStateService {
    * Handle generation progress updates.
    * Payload is now typed via discriminated union.
    *
+   * Updates both the overall generation progress signal and per-item
+   * skill generation progress when currentAgent information is available.
+   *
    * @param payload - Typed GenerationProgressPayload from shared types
    */
   private handleGenerationProgress(payload: GenerationProgressPayload): void {
     this.generationProgressSignal.set(payload.progress);
+
+    // Update per-item tracking in skillGenerationProgressSignal
+    const items = this.skillGenerationProgressSignal();
+    if (items.length === 0) {
+      // Items not yet initialized -- skip per-item updates.
+      // The items are initialized by the frontend component that calls
+      // submitAgentSelection() before generation begins.
+      return;
+    }
+
+    const { currentAgent, phase, percentComplete } = payload.progress;
+
+    if (phase === 'complete') {
+      // Mark all remaining pending/in-progress items as complete
+      this.skillGenerationProgressSignal.update((currentItems) =>
+        currentItems.map((item) =>
+          item.status === 'pending' || item.status === 'in-progress'
+            ? { ...item, status: 'complete' as const, progress: 100 }
+            : item
+        )
+      );
+      return;
+    }
+
+    if (currentAgent) {
+      this.skillGenerationProgressSignal.update((currentItems) =>
+        currentItems.map((item) => {
+          // Match by name or ID (backend may send either)
+          const isCurrentAgent =
+            item.name === currentAgent || item.id === currentAgent;
+
+          if (isCurrentAgent) {
+            // Mark this item as in-progress
+            return {
+              ...item,
+              status: 'in-progress' as const,
+              progress: Math.min(percentComplete, 99),
+            };
+          }
+
+          // Mark previously in-progress items as complete
+          // (if a new agent is current, the previous one must be done)
+          if (item.status === 'in-progress') {
+            return {
+              ...item,
+              status: 'complete' as const,
+              progress: 100,
+            };
+          }
+
+          return item;
+        })
+      );
+    }
   }
 
   /**
