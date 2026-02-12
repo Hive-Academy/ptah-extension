@@ -3,6 +3,7 @@ import {
   inject,
   ChangeDetectionStrategy,
   computed,
+  signal,
   OnInit,
 } from '@angular/core';
 import {
@@ -16,6 +17,7 @@ import {
   UserPlus,
   Key,
   ExternalLink,
+  AlertTriangle,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
 import { ProviderModelSelectorComponent } from './provider-model-selector.component';
@@ -25,6 +27,7 @@ import {
   AuthStateService,
 } from '@ptah-extension/core';
 import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
+import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { ChatStore } from '../services/chat.store';
 
 /**
@@ -78,6 +81,20 @@ export class SettingsComponent implements OnInit {
   readonly UserPlusIcon = UserPlus;
   readonly KeyIcon = Key;
   readonly ExternalLinkIcon = ExternalLink;
+  readonly AlertTriangleIcon = AlertTriangle;
+
+  // ============================================================
+  // Enhanced Prompts state signals (TASK_2025_151)
+  // ============================================================
+
+  readonly enhancedPromptsStatus =
+    signal<EnhancedPromptsGetStatusResponse | null>(null);
+  readonly enhancedPromptsLoading = signal(false);
+  readonly enhancedPromptsError = signal<string | null>(null);
+  readonly isRegenerating = signal(false);
+  readonly promptPreviewContent = signal<string | null>(null);
+  readonly promptPreviewExpanded = signal(false);
+  readonly isDownloading = signal(false);
 
   // ============================================================
   // License status computed signals (derived from ChatStore)
@@ -167,6 +184,42 @@ export class SettingsComponent implements OnInit {
    */
   readonly showPremiumSections = computed(
     () => this.isAuthenticated() && this.isPremium()
+  );
+
+  // ============================================================
+  // Enhanced Prompts computed signals (TASK_2025_151)
+  // ============================================================
+
+  readonly enhancedPromptsEnabled = computed(
+    () => this.enhancedPromptsStatus()?.enabled ?? false
+  );
+
+  readonly hasGeneratedPrompt = computed(
+    () => this.enhancedPromptsStatus()?.hasGeneratedPrompt ?? false
+  );
+
+  readonly enhancedPromptsGeneratedAt = computed(() => {
+    const ts = this.enhancedPromptsStatus()?.generatedAt;
+    if (!ts) return null;
+    return new Date(ts).toLocaleString();
+  });
+
+  readonly enhancedPromptsCacheValid = computed(
+    () => this.enhancedPromptsStatus()?.cacheValid ?? false
+  );
+
+  readonly detectedStackSummary = computed(() => {
+    const stack = this.enhancedPromptsStatus()?.detectedStack;
+    if (!stack) return null;
+    const parts: string[] = [];
+    if (stack.frameworks.length > 0) parts.push(stack.frameworks.join(', '));
+    if (stack.languages.length > 0) parts.push(stack.languages.join(', '));
+    if (stack.projectType) parts.push(stack.projectType);
+    return parts.join(' | ');
+  });
+
+  readonly showEnhancedPromptsSection = computed(
+    () => this.showPremiumSections() && !this.enhancedPromptsLoading()
   );
 
   /**
@@ -305,6 +358,10 @@ export class SettingsComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     // Only load auth status - license status is already in ChatStore
     await this.authState.loadAuthStatus();
+    // Load enhanced prompts status for premium users (TASK_2025_151)
+    if (this.isPremium()) {
+      await this.loadEnhancedPromptsStatus();
+    }
   }
 
   /**
@@ -339,5 +396,113 @@ export class SettingsComponent implements OnInit {
     await this.rpcService.call('command:execute', {
       command: 'ptah.openPricing',
     });
+  }
+
+  // ============================================================
+  // Enhanced Prompts methods (TASK_2025_151)
+  // ============================================================
+
+  /**
+   * Load enhanced prompts status from backend.
+   * Called on init for premium users and after toggle/regenerate actions.
+   */
+  async loadEnhancedPromptsStatus(): Promise<void> {
+    this.enhancedPromptsLoading.set(true);
+    this.enhancedPromptsError.set(null);
+    try {
+      const result = await this.rpcService.call('enhancedPrompts:getStatus', {
+        workspacePath: '.',
+      });
+      if (result.isSuccess()) {
+        this.enhancedPromptsStatus.set(result.data);
+      } else {
+        this.enhancedPromptsError.set(result.error ?? 'Failed to load status');
+      }
+    } catch {
+      this.enhancedPromptsError.set('Failed to load enhanced prompts status');
+    } finally {
+      this.enhancedPromptsLoading.set(false);
+    }
+  }
+
+  /**
+   * Toggle enhanced prompts on/off for the current workspace.
+   * Reloads status after toggling to reflect the updated state.
+   */
+  async toggleEnhancedPrompts(enabled: boolean): Promise<void> {
+    this.enhancedPromptsError.set(null);
+    const result = await this.rpcService.call('enhancedPrompts:setEnabled', {
+      workspacePath: '.',
+      enabled,
+    });
+    if (result.isSuccess()) {
+      await this.loadEnhancedPromptsStatus();
+    } else {
+      this.enhancedPromptsError.set(result.error ?? 'Failed to toggle');
+    }
+  }
+
+  /**
+   * Regenerate the enhanced prompt for the current workspace.
+   * Uses a 2-minute timeout since generation involves an SDK query.
+   */
+  async regenerateEnhancedPrompt(): Promise<void> {
+    this.isRegenerating.set(true);
+    this.enhancedPromptsError.set(null);
+    try {
+      const result = await this.rpcService.call(
+        'enhancedPrompts:regenerate',
+        { workspacePath: '.', force: true },
+        { timeout: 120000 }
+      );
+      if (result.isSuccess()) {
+        // Clear cached preview content since prompt has changed
+        this.promptPreviewContent.set(null);
+        this.promptPreviewExpanded.set(false);
+        await this.loadEnhancedPromptsStatus();
+      } else {
+        this.enhancedPromptsError.set(result.error ?? 'Regeneration failed');
+      }
+    } finally {
+      this.isRegenerating.set(false);
+    }
+  }
+
+  /**
+   * Toggle the expandable prompt preview section.
+   * Fetches prompt content on first expand, then caches it in signal.
+   */
+  async togglePromptPreview(): Promise<void> {
+    if (this.promptPreviewExpanded()) {
+      this.promptPreviewExpanded.set(false);
+      return;
+    }
+    // Fetch content if not already loaded
+    if (!this.promptPreviewContent()) {
+      const result = await this.rpcService.call(
+        'enhancedPrompts:getPromptContent',
+        {
+          workspacePath: '.',
+        }
+      );
+      if (result.isSuccess() && result.data.content) {
+        this.promptPreviewContent.set(result.data.content);
+      }
+    }
+    this.promptPreviewExpanded.set(true);
+  }
+
+  /**
+   * Download the enhanced prompt file to disk via VS Code save dialog.
+   */
+  async downloadEnhancedPrompt(): Promise<void> {
+    this.isDownloading.set(true);
+    try {
+      await this.rpcService.call('enhancedPrompts:download', {
+        workspacePath: '.',
+      });
+    } finally {
+      this.isDownloading.set(false);
+    }
   }
 }
