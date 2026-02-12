@@ -50,10 +50,10 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
   imports: [LucideAngularModule, AnalysisTranscriptComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="container mx-auto px-4 py-8">
+    <div class="container mx-auto px-3 py-4">
       <div class="max-w-4xl mx-auto">
-        <div class="mb-6">
-          <h2 class="text-3xl font-bold mb-2">Generating Your Configuration</h2>
+        <div class="mb-4">
+          <h2 class="text-lg font-bold mb-2">Generating Your Configuration</h2>
           <p class="text-base-content/70">
             Creating customized agents, commands, and orchestration skill
             files...
@@ -61,7 +61,7 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
         </div>
 
         <!-- Overall progress section -->
-        <div class="card bg-base-200 shadow-xl mb-8">
+        <div class="card bg-base-200 shadow-xl mb-4">
           <div class="card-body">
             <div class="flex justify-between items-center mb-2">
               <span class="text-lg font-semibold"> Overall Progress </span>
@@ -93,9 +93,9 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 
         <!-- Agent Activity Log (collapsible stream transcript) -->
         @if (hasStreamMessages()) {
-        <div class="collapse collapse-arrow bg-base-200 mb-8">
+        <div class="collapse collapse-arrow bg-base-200 mb-4">
           <input type="checkbox" aria-label="Toggle agent activity log" />
-          <div class="collapse-title text-lg font-medium">
+          <div class="collapse-title text-sm font-medium uppercase">
             Agent Activity Log
             <span class="badge badge-sm ml-2">{{ streamMessageCount() }}</span>
           </div>
@@ -107,8 +107,10 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 
         <!-- Agents Section -->
         @if (agentItems().length > 0) {
-        <div class="mb-8">
-          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+        <div class="mb-4">
+          <h3
+            class="text-sm font-medium uppercase mb-4 flex items-center gap-2"
+          >
             <span class="badge badge-primary badge-lg">🤖</span>
             Agent Files
             <span class="text-sm text-base-content/60 font-normal">
@@ -135,13 +137,13 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
                     } @case ('complete') {
                     <lucide-angular
                       [img]="CircleCheckIcon"
-                      class="h-6 w-6 text-success"
+                      class="h-4 w-4 text-success"
                       aria-hidden="true"
                     />
                     } @case ('error') {
                     <lucide-angular
                       [img]="CircleAlertIcon"
-                      class="h-6 w-6 text-error"
+                      class="h-4 w-4 text-error"
                       aria-hidden="true"
                     />
                     } }
@@ -206,8 +208,10 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 
         <!-- Commands Section -->
         @if (commandItems().length > 0) {
-        <div class="mb-8">
-          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+        <div class="mb-4">
+          <h3
+            class="text-sm font-medium uppercase mb-4 flex items-center gap-2"
+          >
             <span class="badge badge-secondary badge-lg">⌨️</span>
             Command Files
             <span class="text-sm text-base-content/60 font-normal">
@@ -307,8 +311,10 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 
         <!-- Skill Files Section -->
         @if (skillFileItems().length > 0) {
-        <div class="mb-8">
-          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+        <div class="mb-4">
+          <h3
+            class="text-sm font-medium uppercase mb-4 flex items-center gap-2"
+          >
             <span class="badge badge-accent badge-lg">📝</span>
             Orchestration Skill Files
             <span class="text-sm text-base-content/60 font-normal">
@@ -337,13 +343,13 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
                     } @case ('complete') {
                     <lucide-angular
                       [img]="CircleCheckIcon"
-                      class="h-6 w-6 text-success"
+                      class="h-4 w-4 text-success"
                       aria-hidden="true"
                     />
                     } @case ('error') {
                     <lucide-angular
                       [img]="CircleAlertIcon"
-                      class="h-6 w-6 text-error"
+                      class="h-4 w-4 text-error"
                       aria-hidden="true"
                     />
                     } }
@@ -408,8 +414,10 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 
         <!-- Enhanced Prompts Section -->
         @if (isAgentGenerationComplete()) {
-        <div class="mb-8">
-          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
+        <div class="mb-4">
+          <h3
+            class="text-sm font-medium uppercase mb-4 flex items-center gap-2"
+          >
             <span class="badge badge-warning badge-lg">
               <lucide-angular
                 [img]="SparklesIcon"
@@ -443,13 +451,13 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
                   } @case ('complete') {
                   <lucide-angular
                     [img]="CircleCheckIcon"
-                    class="h-6 w-6 text-success"
+                    class="h-4 w-4 text-success"
                     aria-hidden="true"
                   />
                   } @case ('error') {
                   <lucide-angular
                     [img]="CircleAlertIcon"
-                    class="h-6 w-6 text-error"
+                    class="h-4 w-4 text-error"
                     aria-hidden="true"
                   />
                   } @case ('skipped') {

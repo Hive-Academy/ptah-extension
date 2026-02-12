@@ -13,6 +13,7 @@ import {
   Bot,
   Building2,
   CheckCircle,
+  CircleDot,
   HeartPulse,
   Info,
   LucideAngularModule,
@@ -20,6 +21,7 @@ import {
   Search,
   ShieldCheck,
   XCircle,
+  Zap,
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
@@ -70,175 +72,250 @@ interface PhaseStep {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="container mx-auto px-6 py-12 max-w-3xl">
-      <h2 class="text-4xl font-bold text-center mb-8">Analyzing Workspace</h2>
-
-      @if (errorMessage(); as error) {
-      <div class="alert alert-error mb-4" role="alert">
-        <lucide-angular
-          [img]="XCircleIcon"
-          class="h-6 w-6 shrink-0 stroke-current"
-          aria-hidden="true"
-        />
-        <span>{{ error }}</span>
+    <div class="h-full flex flex-col">
+      <!-- Header -->
+      <div class="shrink-0 px-3 py-3">
+        <h2 class="text-lg font-semibold">Analyzing Workspace</h2>
       </div>
-      } @if (progress(); as progressData) {
 
-      <!-- Phase Cards (agentic analysis) -->
-      @if (progressData.currentPhase) {
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-        @for (phase of phases; track phase.id) {
-        <div
-          class="card transition-all duration-500"
-          [class]="getPhaseCardClasses(phase.id)"
-          [attr.aria-label]="
-            phase.label +
-            (isPhaseComplete(phase.id)
-              ? ' - complete'
-              : isCurrentPhase(phase.id)
-              ? ' - in progress'
-              : ' - pending')
-          "
-        >
-          <div class="card-body p-3 items-center text-center gap-1">
-            @if (isPhaseComplete(phase.id)) {
-            <lucide-angular
-              [img]="CheckCircleIcon"
-              class="w-5 h-5 text-success"
-              aria-hidden="true"
+      @if (fallbackWarning(); as warning) {
+      <div class="shrink-0 px-3">
+        <div class="alert alert-warning mb-3 py-2 px-3 text-xs" role="status">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="stroke-current shrink-0 h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
             />
-            } @else if (isCurrentPhase(phase.id)) {
-            <lucide-angular
-              [img]="phase.icon"
-              class="w-5 h-5 text-primary animate-pulse"
-              aria-hidden="true"
-            />
-            } @else {
-            <lucide-angular
-              [img]="phase.icon"
-              class="w-5 h-5 text-base-content/30"
-              aria-hidden="true"
-            />
-            }
-            <span
-              class="text-xs font-medium"
-              [class]="
-                isPhaseCompleteOrCurrent(phase.id) ? '' : 'text-base-content/40'
-              "
-            >
-              {{ phase.label }}
-            </span>
-            @if (isPhaseComplete(phase.id)) {
-            <span class="badge badge-xs badge-success">done</span>
-            } @else if (isCurrentPhase(phase.id)) {
-            <span class="badge badge-xs badge-info animate-pulse">active</span>
-            }
-          </div>
+          </svg>
+          <span>{{ warning }}</span>
         </div>
-        }
       </div>
-
-      <!-- Current Phase Label -->
-      @if (progressData.phaseLabel) {
-      <div class="flex items-center justify-center gap-2 mb-4">
-        <lucide-angular
-          [img]="BotIcon"
-          class="w-5 h-5 text-primary animate-pulse"
-          aria-hidden="true"
-        />
-        <span class="text-sm font-medium text-primary">
-          {{ progressData.phaseLabel }}
-        </span>
-      </div>
-      }
-
-      <!-- Stats Dashboard (between phase stepper and transcript) -->
-      @if (hasStreamMessages()) {
-      <div class="mb-4">
-        <ptah-analysis-stats-dashboard />
-      </div>
-      } } @else if (progressData.totalFiles > 0) {
-      <!-- Progress Bar (only when valid file counts exist) -->
-      <div class="mb-6">
-        <div class="flex justify-between mb-2">
-          <span class="text-sm font-medium text-base-content/80">
-            Analyzing {{ progressData.filesScanned || 0 }} of
-            {{ progressData.totalFiles || 0 }} files...
-          </span>
-          <span class="text-sm font-semibold text-base-content">
-            {{ progressPercentage() }}%
-          </span>
-        </div>
-        <progress
-          class="progress progress-primary w-full h-3"
-          [value]="progressPercentage()"
-          max="100"
-          role="progressbar"
-          [attr.aria-valuenow]="progressPercentage()"
-          [attr.aria-valuemin]="0"
-          [attr.aria-valuemax]="100"
-          [attr.aria-label]="
-            'Workspace scan progress: ' +
-            progressPercentage() +
-            ' percent complete'
-          "
-        ></progress>
-      </div>
-      } @else {
-      <!-- Initializing state: neither phase nor file counts available yet -->
-      <div class="flex items-center justify-center gap-3 mb-6 py-4">
-        <span class="loading loading-spinner loading-sm text-primary"></span>
-        <span class="text-sm text-base-content/60"
-          >Initializing analysis...</span
-        >
-      </div>
-      }
-
-      <!-- Agent Transcript (live streaming) or simple reasoning fallback -->
-      @if (hasStreamMessages()) {
-      <div class="mb-6">
-        <ptah-analysis-transcript />
-      </div>
-      } @else if (progressData.agentReasoning) {
-      <div class="alert alert-info mb-6">
-        <lucide-angular
-          [img]="InfoIcon"
-          class="stroke-current shrink-0 w-5 h-5"
-          aria-hidden="true"
-        />
-        <p class="text-sm">{{ progressData.agentReasoning }}</p>
-      </div>
-      }
-
-      <!-- Detections List -->
-      @if (progressData.detections && progressData.detections.length > 0) {
-      <div class="space-y-3 mb-8">
-        <h3 class="text-lg font-semibold text-base-content/80">Detections:</h3>
-        @for (detection of progressData.detections; track detection) {
-        <div class="alert alert-info shadow-md">
+      } @if (errorMessage(); as error) {
+      <div class="shrink-0 px-3">
+        <div class="alert alert-error mb-3 py-2 px-3 text-xs" role="alert">
           <lucide-angular
-            [img]="InfoIcon"
-            class="stroke-current shrink-0 w-6 h-6"
+            [img]="XCircleIcon"
+            class="h-4 w-4 shrink-0 stroke-current"
             aria-hidden="true"
           />
-          <span>{{ detection }}</span>
+          <span>{{ error }}</span>
         </div>
-        } @empty {
-        <p class="text-base-content/60">
-          Scanning for project characteristics...
-        </p>
-        }
-      </div>
-      } } @else {
-      <!-- Fallback: No progress data yet -->
-      <div class="flex flex-col items-center gap-4 py-12">
-        <span class="loading loading-spinner loading-lg text-primary"></span>
-        <p class="text-base-content/60">{{ statusText() }}</p>
       </div>
       }
 
+      <!-- Main Content Area -->
+      <div class="flex-1 min-h-0 px-3 pb-3">
+        @if (progress(); as progressData) {
+        <!-- Phase Cards (agentic analysis) -->
+        @if (progressData.currentPhase) {
+        <div class="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+          @for (phase of phases; track phase.id) {
+          <div
+            class="card transition-all duration-500"
+            [class]="getPhaseCardClasses(phase.id)"
+            [attr.aria-label]="
+              phase.label +
+              (isPhaseComplete(phase.id)
+                ? ' - complete'
+                : isCurrentPhase(phase.id)
+                ? ' - in progress'
+                : ' - pending')
+            "
+          >
+            <div class="card-body p-2 items-center text-center gap-0.5">
+              @if (isPhaseComplete(phase.id)) {
+              <lucide-angular
+                [img]="CheckCircleIcon"
+                class="w-4 h-4 text-success"
+                aria-hidden="true"
+              />
+              } @else if (isCurrentPhase(phase.id)) {
+              <lucide-angular
+                [img]="phase.icon"
+                class="w-4 h-4 text-primary animate-pulse"
+                aria-hidden="true"
+              />
+              } @else {
+              <lucide-angular
+                [img]="phase.icon"
+                class="w-4 h-4 text-base-content/30"
+                aria-hidden="true"
+              />
+              }
+              <span
+                class="text-xs font-medium"
+                [class]="
+                  isPhaseCompleteOrCurrent(phase.id)
+                    ? ''
+                    : 'text-base-content/40'
+                "
+              >
+                {{ phase.label }}
+              </span>
+              @if (isPhaseComplete(phase.id)) {
+              <span class="badge badge-xs badge-success">done</span>
+              } @else if (isCurrentPhase(phase.id)) {
+              <span class="badge badge-xs badge-info animate-pulse"
+                >active</span
+              >
+              }
+            </div>
+          </div>
+          }
+        </div>
+
+        <!-- Current Phase Label -->
+        @if (progressData.phaseLabel) {
+        <div class="shrink-0 flex items-center justify-center gap-1.5 mb-3">
+          <lucide-angular
+            [img]="BotIcon"
+            class="w-4 h-4 text-primary animate-pulse"
+            aria-hidden="true"
+          />
+          <span class="text-xs font-medium text-primary">
+            {{ progressData.phaseLabel }}
+          </span>
+        </div>
+        }
+
+        <!-- Stats Dashboard -->
+        @if (hasStreamMessages()) {
+        <div class="shrink-0 mb-3">
+          <ptah-analysis-stats-dashboard />
+        </div>
+        } } @else if (progressData.totalFiles > 0) {
+        <!-- Progress Bar -->
+        <div class="shrink-0 mb-3">
+          <div class="flex justify-between mb-1.5">
+            <span class="text-sm font-medium text-base-content/80">
+              Analyzing {{ progressData.filesScanned || 0 }} of
+              {{ progressData.totalFiles || 0 }} files...
+            </span>
+            <span class="text-sm font-semibold text-base-content">
+              {{ progressPercentage() }}%
+            </span>
+          </div>
+          <progress
+            class="progress progress-primary w-full h-2"
+            [value]="progressPercentage()"
+            max="100"
+            role="progressbar"
+            [attr.aria-valuenow]="progressPercentage()"
+            [attr.aria-valuemin]="0"
+            [attr.aria-valuemax]="100"
+            [attr.aria-label]="
+              'Workspace scan progress: ' +
+              progressPercentage() +
+              ' percent complete'
+            "
+          ></progress>
+        </div>
+        } @else {
+        <!-- Initializing state -->
+        <div class="shrink-0 flex items-center justify-center gap-2 mb-3 py-2">
+          <span class="loading loading-spinner loading-sm text-primary"></span>
+          <span class="text-sm text-base-content/60"
+            >Initializing analysis...</span
+          >
+        </div>
+        }
+
+        <!-- Two Column Layout: Transcript (left) + Detections (right) -->
+        <div class="flex gap-4 min-h-[400px] max-h-[70vh]">
+          <!-- Left Column: Agent Transcript -->
+          <div class="flex-1 min-w-0">
+            @if (hasStreamMessages()) {
+            <div class="h-full">
+              <ptah-analysis-transcript />
+            </div>
+            } @else if (progressData.agentReasoning) {
+            <div class="alert alert-info h-full flex items-center">
+              <lucide-angular
+                [img]="InfoIcon"
+                class="stroke-current shrink-0 w-5 h-5"
+                aria-hidden="true"
+              />
+              <p class="text-sm">{{ progressData.agentReasoning }}</p>
+            </div>
+            } @else {
+            <div class="h-full flex flex-col items-center justify-center gap-4">
+              <span
+                class="loading loading-spinner loading-lg text-primary"
+              ></span>
+              <p class="text-base-content/60">{{ statusText() }}</p>
+            </div>
+            }
+          </div>
+
+          <!-- Right Column: Detections -->
+          @if (progressData.detections && progressData.detections.length > 0) {
+          <div class="w-64 shrink-0 flex flex-col">
+            <div
+              class="flex items-center gap-2 mb-3 sticky top-0 bg-base-100 py-2 z-10"
+            >
+              <lucide-angular
+                [img]="ZapIcon"
+                class="w-4 h-4 text-accent"
+                aria-hidden="true"
+              />
+              <h3 class="text-sm font-bold text-base-content">
+                Detected Stack
+              </h3>
+              <span class="badge badge-sm badge-ghost">
+                {{ progressData.detections.length }}
+              </span>
+            </div>
+            <div class="flex-1 overflow-y-auto pr-1">
+              <div class="flex flex-wrap gap-2">
+                @for (detection of progressData.detections; track detection; let
+                i = $index) {
+                <div
+                  class="group flex items-center gap-2 px-3 py-2 rounded-lg
+                         bg-base-200/80 border border-base-300/60
+                         hover:border-primary/40 hover:bg-primary/5
+                         transition-all duration-200 cursor-default"
+                >
+                  <lucide-angular
+                    [img]="CircleDotIcon"
+                    class="w-3 h-3 shrink-0 text-primary group-hover:text-primary"
+                    aria-hidden="true"
+                  />
+                  <span
+                    class="text-sm font-medium text-base-content/90 whitespace-nowrap"
+                  >
+                    {{ detection }}
+                  </span>
+                </div>
+                } @empty {
+                <p class="text-base-content/50 text-xs italic">
+                  Scanning for project characteristics...
+                </p>
+                }
+              </div>
+            </div>
+          </div>
+          }
+        </div>
+        } @else {
+        <!-- Fallback: No progress data yet -->
+        <div class="h-full flex flex-col items-center justify-center gap-4">
+          <span class="loading loading-spinner loading-lg text-primary"></span>
+          <p class="text-base-content/60">{{ statusText() }}</p>
+        </div>
+        }
+      </div>
+
       <!-- Action Buttons -->
-      <div class="flex justify-center gap-3 mt-8">
+      <div
+        class="shrink-0 flex justify-center gap-3 py-4 border-t border-base-300"
+      >
         @if (errorMessage()) {
         <button
           class="btn btn-ghost"
@@ -297,6 +374,8 @@ export class ScanProgressComponent implements OnInit {
   protected readonly InfoIcon = Info;
   protected readonly BotIcon = Bot;
   protected readonly CheckCircleIcon = CheckCircle;
+  protected readonly ZapIcon = Zap;
+  protected readonly CircleDotIcon = CircleDot;
 
   /** Phase steps for the stepper UI */
   protected readonly phases: PhaseStep[] = [
@@ -315,6 +394,13 @@ export class ScanProgressComponent implements OnInit {
    * (currentPhase, phaseLabel, agentReasoning, completedPhases).
    */
   protected readonly progress = this.wizardState.scanProgress;
+
+  /**
+   * Fallback warning from state service.
+   * Displayed as a non-blocking amber alert when agentic analysis
+   * falls back to quick analysis mode.
+   */
+  protected readonly fallbackWarning = this.wizardState.fallbackWarning;
 
   /**
    * Calculated progress percentage (0-100)
@@ -425,11 +511,15 @@ export class ScanProgressComponent implements OnInit {
         this.wizardState.setDeepAnalysis(analysis);
       }
 
-      this.statusText.set('Calculating agent recommendations...');
-      const recommendations = await this.wizardRpc.recommendAgents(analysis);
-      if (this.isDestroyed) return; // Component was destroyed during async call
-
-      this.wizardState.setRecommendations(recommendations);
+      const cachedRecommendations = this.wizardState.recommendations();
+      if (cachedRecommendations.length > 0) {
+        // Use cached recommendations (skip re-fetch)
+      } else {
+        this.statusText.set('Calculating agent recommendations...');
+        const recommendations = await this.wizardRpc.recommendAgents(analysis);
+        if (this.isDestroyed) return; // Component was destroyed during async call
+        this.wizardState.setRecommendations(recommendations);
+      }
       this.wizardState.setCurrentStep('analysis');
     } catch (error) {
       if (this.isDestroyed) return;

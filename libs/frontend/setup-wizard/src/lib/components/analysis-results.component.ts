@@ -51,94 +51,99 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="container mx-auto px-6 py-12 max-w-4xl">
-      <h2 class="text-4xl font-bold text-center mb-8">Analysis Complete</h2>
+    <div class="px-3 py-4">
+      <h2 class="text-xl font-semibold mb-4">Analysis Complete</h2>
 
       @if (deepAnalysis(); as analysis) {
-      <!-- Tech Stack Summary (Project Overview + Language Distribution) -->
-      <ptah-tech-stack-summary
-        [projectType]="analysis.projectType"
-        [fileCount]="analysis.fileCount"
-        [frameworks]="analysis.frameworks"
-        [monorepoType]="analysis.monorepoType"
-        [languageDistribution]="analysis.languageDistribution"
-      />
+      <!-- 2-Column Grid Layout -->
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <!-- Left Column: Tech Stack Summary -->
+        <div>
+          <ptah-tech-stack-summary
+            [projectType]="analysis.projectType"
+            [projectTypeDescription]="analysis.projectTypeDescription"
+            [fileCount]="analysis.fileCount"
+            [frameworks]="analysis.frameworks"
+            [monorepoType]="analysis.monorepoType"
+            [languageDistribution]="analysis.languageDistribution"
+          />
+        </div>
 
-      <!-- Architecture Patterns Card -->
-      @if (analysis.architecturePatterns && analysis.architecturePatterns.length
-      > 0) {
-      <ptah-architecture-patterns-card
-        [patterns]="analysis.architecturePatterns"
-      />
-      }
+        <!-- Right Column: Architecture Patterns + Code Health -->
+        <div class="space-y-4">
+          @if (analysis.architecturePatterns &&
+          analysis.architecturePatterns.length > 0) {
+          <ptah-architecture-patterns-card
+            [patterns]="analysis.architecturePatterns"
+          />
+          } @if (analysis.existingIssues && analysis.testCoverage) {
+          <ptah-code-health-card
+            [issues]="analysis.existingIssues"
+            [testCoverage]="analysis.testCoverage"
+          />
+          }
+        </div>
+      </div>
 
-      <!-- Key File Locations Card -->
+      <!-- Full-Width: Key File Locations -->
       @if (analysis.keyFileLocations) {
       <ptah-key-file-locations-card [locations]="analysis.keyFileLocations" />
       }
 
-      <!-- Code Health Card (Diagnostics + Test Coverage) -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        @if (analysis.existingIssues && analysis.testCoverage) {
-        <ptah-code-health-card
-          [issues]="analysis.existingIssues"
-          [testCoverage]="analysis.testCoverage"
-        />
-        }
-      </div>
-
       <!-- Confirmation Warning -->
-      <div class="alert alert-warning shadow-md mb-6">
+      <div class="alert alert-warning text-xs mb-4">
         <lucide-angular
           [img]="TriangleAlertIcon"
-          class="stroke-current shrink-0 h-6 w-6"
+          class="stroke-current shrink-0 h-4 w-4"
           aria-hidden="true"
         />
         <div>
           <div class="font-semibold">Does this look correct?</div>
-          <div class="text-sm text-base-content/80">
+          <div class="text-xs opacity-80">
             The agents we generate will be tailored to these characteristics.
           </div>
         </div>
       </div>
 
       <!-- Action Buttons -->
-      <div class="flex gap-4 justify-center">
-        <button class="btn btn-ghost" (click)="onManualAdjust()">
+      <div class="flex gap-2 justify-center">
+        <button class="btn btn-ghost btn-sm" (click)="onManualAdjust()">
           No, Let Me Adjust
         </button>
-        <button class="btn btn-primary" (click)="onContinue()">
+        <button class="btn btn-primary btn-sm" (click)="onContinue()">
           Yes, Continue
         </button>
       </div>
 
-      } @if (projectContext(); as context) {
+      } @else { @if (projectContext(); as context) {
       <!-- Fallback: Show basic project context if deep analysis not available -->
-      <div class="card bg-base-200 shadow-xl mb-6">
-        <div class="card-body">
-          <h3 class="card-title text-2xl mb-4">Detected Project Details</h3>
+      <div class="border border-base-300 rounded-md bg-base-200/50 mb-4">
+        <div class="p-4">
+          <h3 class="text-sm font-medium uppercase tracking-wide mb-3">
+            Detected Project Details
+          </h3>
 
-          <div class="space-y-4">
+          <div class="space-y-3">
             <!-- Project Type -->
             <div>
-              <span class="font-semibold text-base-content/80"
+              <span class="font-semibold text-base-content/80 text-xs"
                 >Project Type:</span
               >
-              <span class="ml-2 badge badge-primary badge-lg">{{
+              <span class="ml-2 badge badge-primary badge-sm">{{
                 context.type
               }}</span>
             </div>
 
             <!-- Tech Stack -->
             <div>
-              <span class="font-semibold text-base-content/80"
+              <span class="font-semibold text-base-content/80 text-xs"
                 >Tech Stack:</span
               >
-              <div class="flex flex-wrap gap-2 mt-2">
+              <div class="flex flex-wrap gap-2 mt-1">
                 @for (tech of context.techStack; track tech) {
-                <span class="badge badge-secondary">{{ tech }}</span>
+                <span class="badge badge-secondary badge-sm">{{ tech }}</span>
                 } @empty {
-                <span class="text-base-content/60 text-sm"
+                <span class="text-base-content/60 text-xs"
                   >No tech stack detected</span
                 >
                 }
@@ -148,10 +153,10 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
             <!-- Architecture (if present) -->
             @if (context.architecture) {
             <div>
-              <span class="font-semibold text-base-content/80"
+              <span class="font-semibold text-base-content/80 text-xs"
                 >Architecture:</span
               >
-              <span class="ml-2 text-base-content">{{
+              <span class="ml-2 text-base-content text-xs">{{
                 context.architecture
               }}</span>
             </div>
@@ -159,21 +164,23 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
 
             <!-- Monorepo Information -->
             <div>
-              <span class="font-semibold text-base-content/80">Monorepo:</span>
+              <span class="font-semibold text-base-content/80 text-xs"
+                >Monorepo:</span
+              >
               @if (context.isMonorepo) {
-              <span class="ml-2 text-success">
+              <span class="ml-2 text-success text-xs">
                 Yes @if (context.monorepoType) {
-                <span class="text-base-content/60 text-sm"
+                <span class="text-base-content/60 text-xs"
                   >({{ context.monorepoType }})</span
                 >
                 } @if (context.packageCount) {
-                <span class="text-base-content/60 text-sm"
+                <span class="text-base-content/60 text-xs"
                   >- {{ context.packageCount }} packages</span
                 >
                 }
               </span>
               } @else {
-              <span class="ml-2 text-base-content/60">No</span>
+              <span class="ml-2 text-base-content/60 text-xs">No</span>
               }
             </div>
           </div>
@@ -181,65 +188,65 @@ import { TechStackSummaryComponent } from './analysis/tech-stack-summary.compone
       </div>
 
       <!-- Confirmation Warning -->
-      <div class="alert alert-warning shadow-md mb-6">
+      <div class="alert alert-warning text-xs mb-4">
         <lucide-angular
           [img]="TriangleAlertIcon"
-          class="stroke-current shrink-0 h-6 w-6"
+          class="stroke-current shrink-0 h-4 w-4"
           aria-hidden="true"
         />
         <div>
           <div class="font-semibold">Does this look correct?</div>
-          <div class="text-sm text-base-content/80">
+          <div class="text-xs opacity-80">
             The agents we generate will be tailored to these characteristics.
           </div>
         </div>
       </div>
 
       <!-- Action Buttons -->
-      <div class="flex gap-4 justify-center">
-        <button class="btn btn-ghost" (click)="onManualAdjust()">
+      <div class="flex gap-2 justify-center">
+        <button class="btn btn-ghost btn-sm" (click)="onManualAdjust()">
           No, Let Me Adjust
         </button>
-        <button class="btn btn-primary" (click)="onContinue()">
+        <button class="btn btn-primary btn-sm" (click)="onContinue()">
           Yes, Continue
         </button>
       </div>
 
       } @else {
-      <!-- Skeleton loading state -->
-      <div class="space-y-6">
+      <!-- Skeleton loading state (no context available) -->
+      <div class="space-y-4">
         <!-- Skeleton: Tech Stack Summary -->
-        <div class="card bg-base-200 shadow-xl">
-          <div class="card-body">
-            <div class="skeleton h-6 w-48 mb-4"></div>
-            <div class="flex flex-wrap gap-2 mb-3">
-              <div class="skeleton h-6 w-20 rounded-full"></div>
-              <div class="skeleton h-6 w-24 rounded-full"></div>
-              <div class="skeleton h-6 w-16 rounded-full"></div>
+        <div class="border border-base-300 rounded-md bg-base-200/50">
+          <div class="p-4">
+            <div class="skeleton h-4 w-48 mb-2"></div>
+            <div class="flex flex-wrap gap-2 mb-2">
+              <div class="skeleton h-4 w-20 rounded-full"></div>
+              <div class="skeleton h-4 w-24 rounded-full"></div>
+              <div class="skeleton h-4 w-16 rounded-full"></div>
             </div>
-            <div class="skeleton h-4 w-full mb-2"></div>
-            <div class="skeleton h-4 w-3/4"></div>
+            <div class="skeleton h-3 w-full mb-1"></div>
+            <div class="skeleton h-3 w-3/4"></div>
           </div>
         </div>
 
         <!-- Skeleton: Architecture Patterns -->
-        <div class="card bg-base-200 shadow-xl">
-          <div class="card-body">
-            <div class="skeleton h-6 w-56 mb-4"></div>
-            <div class="space-y-3">
-              <div class="skeleton h-8 w-full"></div>
-              <div class="skeleton h-8 w-full"></div>
+        <div class="border border-base-300 rounded-md bg-base-200/50">
+          <div class="p-4">
+            <div class="skeleton h-4 w-56 mb-2"></div>
+            <div class="space-y-2">
+              <div class="skeleton h-6 w-full"></div>
+              <div class="skeleton h-6 w-full"></div>
             </div>
           </div>
         </div>
 
         <!-- Skeleton: Action Buttons -->
-        <div class="flex gap-4 justify-center">
-          <div class="skeleton h-12 w-32 rounded-lg"></div>
-          <div class="skeleton h-12 w-32 rounded-lg"></div>
+        <div class="flex gap-2 justify-center">
+          <div class="skeleton h-8 w-28 rounded-lg"></div>
+          <div class="skeleton h-8 w-28 rounded-lg"></div>
         </div>
       </div>
-      }
+      } }
     </div>
 
     <!-- Alert Modal for Future Enhancement -->

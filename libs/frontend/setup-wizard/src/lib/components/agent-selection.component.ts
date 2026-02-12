@@ -53,227 +53,216 @@ import {
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="container mx-auto px-4 py-8">
-      <div class="max-w-5xl mx-auto">
-        <div class="mb-6">
-          <h2 class="text-3xl font-bold mb-2">Select Agents to Generate</h2>
-          <p class="text-base-content/70">
-            Based on your project analysis, we've scored each agent's relevance.
-            Highly recommended agents (score >= 80) are auto-selected.
+    <div class="px-3 py-4">
+      <div class="mb-4">
+        <h2 class="text-base font-semibold mb-2">Select Agents to Generate</h2>
+        <p class="text-xs text-base-content/60">
+          Based on your project analysis, we've scored each agent's relevance.
+          Highly recommended agents (score >= 80) are auto-selected.
+        </p>
+      </div>
+
+      @if (errorMessage(); as error) {
+      <div class="alert alert-error mb-2 py-2 text-xs" role="alert">
+        <lucide-angular [img]="XCircleIcon" class="h-4 w-4 shrink-0" />
+        <span>{{ error }}</span>
+      </div>
+      }
+
+      <!-- Selection controls and count -->
+      <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            class="btn btn-outline btn-xs"
+            (click)="onSelectAllRecommended()"
+            [disabled]="allRecommendedSelected()"
+          >
+            <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
+            Select Recommended
+          </button>
+          <button
+            class="btn btn-ghost btn-xs"
+            (click)="onDeselectAll()"
+            [disabled]="noneSelected()"
+          >
+            Deselect All
+          </button>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <div class="badge badge-primary badge-sm gap-1">
+            <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
+            {{ selectedCount() }} selected
+          </div>
+          <div class="badge badge-outline badge-sm">
+            {{ recommendedCount() }} recommended
+          </div>
+        </div>
+      </div>
+
+      @if (sortedRecommendations().length === 0) {
+      <!-- No recommendations available -->
+      <div class="card border border-base-300 bg-base-200/50">
+        <div class="card-body items-center text-center py-6">
+          <lucide-angular
+            [img]="UsersIcon"
+            class="h-8 w-8 text-base-content/30 mb-2"
+          />
+          <h3 class="text-sm font-semibold mb-1">No Agent Recommendations</h3>
+          <p class="text-xs text-base-content/60">
+            Unable to load agent recommendations. Please go back and restart the
+            analysis.
           </p>
         </div>
-
-        @if (errorMessage(); as error) {
-        <div class="alert alert-error mb-4" role="alert">
-          <lucide-angular [img]="XCircleIcon" class="h-6 w-6 shrink-0" />
-          <span>{{ error }}</span>
-        </div>
-        }
-
-        <!-- Selection controls and count -->
-        <div
-          class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6"
+      </div>
+      } @else {
+      <!-- Agent categories -->
+      @for (category of categoryOrder; track category) { @if
+      (getAgentsByCategory(category).length > 0) {
+      <div class="mb-4">
+        <h3
+          class="text-xs font-medium uppercase tracking-wide mb-2 flex items-center gap-1.5"
         >
-          <div class="flex flex-wrap gap-2">
-            <button
-              class="btn btn-outline btn-sm"
-              (click)="onSelectAllRecommended()"
-              [disabled]="allRecommendedSelected()"
-            >
-              <lucide-angular [img]="CheckIcon" class="h-4 w-4" />
-              Select Recommended
-            </button>
-            <button
-              class="btn btn-ghost btn-sm"
-              (click)="onDeselectAll()"
-              [disabled]="noneSelected()"
-            >
-              Deselect All
-            </button>
-          </div>
-          <div class="flex items-center gap-3">
-            <div class="badge badge-primary badge-lg gap-2">
-              <lucide-angular [img]="CheckIcon" class="h-4 w-4" />
-              {{ selectedCount() }} selected
-            </div>
-            <div class="badge badge-outline badge-lg">
-              {{ recommendedCount() }} recommended
-            </div>
-          </div>
-        </div>
+          <span
+            class="badge badge-sm"
+            [class]="getCategoryBadgeClass(category)"
+          >
+            {{ getCategoryIcon(category) }}
+          </span>
+          {{ getCategoryLabel(category) }}
+          <span class="text-xs text-base-content/60 font-normal normal-case">
+            ({{ getAgentsByCategory(category).length }})
+          </span>
+        </h3>
 
-        @if (sortedRecommendations().length === 0) {
-        <!-- No recommendations available -->
-        <div class="card bg-base-200 shadow-xl">
-          <div class="card-body items-center text-center py-12">
-            <lucide-angular
-              [img]="UsersIcon"
-              class="h-16 w-16 text-base-content/30 mb-4"
-            />
-            <h3 class="text-xl font-semibold mb-2">No Agent Recommendations</h3>
-            <p class="text-base-content/60 max-w-md">
-              Unable to load agent recommendations. Please go back and restart
-              the analysis.
-            </p>
-          </div>
-        </div>
-        } @else {
-        <!-- Agent categories -->
-        @for (category of categoryOrder; track category) { @if
-        (getAgentsByCategory(category).length > 0) {
-        <div class="mb-8">
-          <h3 class="text-xl font-semibold mb-4 flex items-center gap-2">
-            <span
-              class="badge badge-lg"
-              [class]="getCategoryBadgeClass(category)"
-            >
-              {{ getCategoryIcon(category) }}
-            </span>
-            {{ getCategoryLabel(category) }}
-            <span class="text-sm text-base-content/60 font-normal">
-              ({{ getAgentsByCategory(category).length }} agents)
-            </span>
-          </h3>
+        <div class="space-y-2">
+          @for (agent of getAgentsByCategory(category); track agent.agentId) {
+          <div
+            class="card border border-base-300 bg-base-200/50 hover:border-primary/40 transition-colors cursor-pointer"
+            [class.ring-1]="isSelected(agent.agentId)"
+            [class.ring-primary]="isSelected(agent.agentId)"
+            (click)="onToggleAgent(agent.agentId)"
+            (keydown.enter)="onToggleAgent(agent.agentId)"
+            (keydown.space)="
+              onToggleAgent(agent.agentId); $event.preventDefault()
+            "
+            tabindex="0"
+            role="checkbox"
+            [attr.aria-checked]="isSelected(agent.agentId)"
+            [attr.aria-label]="
+              'Select ' +
+              agent.agentName +
+              ' agent, relevance score ' +
+              agent.relevanceScore +
+              ' percent'
+            "
+          >
+            <div class="card-body p-2.5">
+              <div class="flex items-center gap-3">
+                <!-- 1. Checkbox (60px) -->
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-primary checkbox-sm shrink-0"
+                  [checked]="isSelected(agent.agentId)"
+                  (click)="$event.stopPropagation()"
+                  (change)="onToggleAgent(agent.agentId)"
+                  [attr.aria-label]="'Select ' + agent.agentName"
+                />
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            @for (agent of getAgentsByCategory(category); track agent.agentId) {
-            <div
-              class="card bg-base-100 shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-              [class.ring-2]="isSelected(agent.agentId)"
-              [class.ring-primary]="isSelected(agent.agentId)"
-              (click)="onToggleAgent(agent.agentId)"
-              (keydown.enter)="onToggleAgent(agent.agentId)"
-              (keydown.space)="
-                onToggleAgent(agent.agentId); $event.preventDefault()
-              "
-              tabindex="0"
-              role="checkbox"
-              [attr.aria-checked]="isSelected(agent.agentId)"
-              [attr.aria-label]="
-                'Select ' +
-                agent.agentName +
-                ' agent, relevance score ' +
-                agent.relevanceScore +
-                ' percent'
-              "
-            >
-              <div class="card-body p-4">
-                <div class="flex items-start justify-between gap-3">
-                  <div class="flex items-center gap-3 flex-1 min-w-0">
-                    <!-- Checkbox -->
-                    <input
-                      type="checkbox"
-                      class="checkbox checkbox-primary"
-                      [checked]="isSelected(agent.agentId)"
-                      (click)="$event.stopPropagation()"
-                      (change)="onToggleAgent(agent.agentId)"
-                      [attr.aria-label]="'Select ' + agent.agentName"
-                    />
-
-                    <!-- Agent Info -->
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center gap-2 flex-wrap">
-                        <span class="font-semibold">{{ agent.agentName }}</span>
-                        @if (agent.recommended) {
-                        <span class="badge badge-success badge-sm gap-1">
-                          <lucide-angular [img]="CheckIcon" class="h-3 w-3" />
-                          Recommended
-                        </span>
-                        }
-                      </div>
-                      <p
-                        class="text-sm text-base-content/70 truncate"
-                        [title]="agent.description"
-                      >
-                        {{ agent.description }}
-                      </p>
-                    </div>
-                  </div>
-
-                  <!-- Score Badge -->
-                  <div class="flex flex-col items-end gap-1">
-                    <span
-                      class="badge badge-lg font-bold"
-                      [class]="getScoreBadgeClass(agent.relevanceScore)"
-                    >
-                      {{ agent.relevanceScore }}%
+                <!-- 2. Name + Recommended Badge (200px) -->
+                <div class="w-48 shrink-0">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-semibold truncate">{{
+                      agent.agentName
+                    }}</span>
+                    @if (agent.recommended) {
+                    <span class="badge badge-success badge-xs gap-0.5 shrink-0">
+                      <lucide-angular [img]="CheckIcon" class="h-2.5 w-2.5" />
+                      Rec
                     </span>
+                    }
                   </div>
                 </div>
 
-                <!-- Score Progress Bar -->
-                <div class="mt-3">
-                  <progress
-                    class="progress w-full h-2"
-                    [class]="getScoreProgressClass(agent.relevanceScore)"
-                    [value]="agent.relevanceScore"
-                    max="100"
-                    [attr.aria-label]="
-                      agent.agentName +
-                      ' relevance: ' +
-                      agent.relevanceScore +
-                      ' percent'
-                    "
-                  ></progress>
+                <!-- 3. Description (flex-1, grows to fill available space) -->
+                <div class="flex-1 min-w-0">
+                  <p
+                    class="text-xs text-base-content/60 truncate"
+                    [title]="agent.description"
+                  >
+                    {{ agent.description }}
+                  </p>
                 </div>
 
-                <!-- Matched Criteria -->
+                <!-- 4. Score Badge (80px) -->
+                <div class="w-20 shrink-0 flex justify-center">
+                  <span
+                    class="badge badge-sm font-bold"
+                    [class]="getScoreBadgeClass(agent.relevanceScore)"
+                  >
+                    {{ agent.relevanceScore }}%
+                  </span>
+                </div>
+
+                <!-- 5. Matched Criteria Badges (250px, with truncation) -->
                 @if (agent.matchedCriteria && agent.matchedCriteria.length > 0)
                 {
-                <div class="mt-2 flex flex-wrap gap-1">
-                  @for (criteria of agent.matchedCriteria.slice(0, 3); track
+                <div class="w-64 shrink-0 flex gap-1 overflow-hidden">
+                  @for (criteria of agent.matchedCriteria.slice(0, 2); track
                   criteria) {
-                  <span class="badge badge-outline badge-xs" [title]="criteria">
+                  <span
+                    class="badge badge-outline badge-xs truncate max-w-[100px]"
+                    [title]="criteria"
+                  >
                     {{ criteria }}
                   </span>
-                  } @if (agent.matchedCriteria.length > 3) {
+                  } @if (agent.matchedCriteria.length > 2) {
                   <span
-                    class="badge badge-ghost badge-xs cursor-help"
-                    [title]="agent.matchedCriteria.slice(3).join(', ')"
+                    class="badge badge-ghost badge-xs cursor-help shrink-0"
+                    [title]="agent.matchedCriteria.slice(2).join(', ')"
                   >
-                    +{{ agent.matchedCriteria.length - 3 }} more
+                    +{{ agent.matchedCriteria.length - 2 }}
                   </span>
                   }
                 </div>
                 }
               </div>
             </div>
-            }
           </div>
+          }
         </div>
-        } } }
+      </div>
+      } } }
 
-        <!-- Action buttons -->
-        <div
-          class="flex flex-col sm:flex-row gap-4 justify-between items-center mt-8 pt-6 border-t border-base-300"
+      <!-- Action buttons -->
+      <div
+        class="flex gap-2 justify-between items-center mt-4 pt-3 border-t border-base-300"
+      >
+        <button class="btn btn-ghost btn-sm" (click)="onBack()">
+          <lucide-angular [img]="ChevronLeftIcon" class="h-4 w-4" />
+          Back
+        </button>
+
+        <button
+          class="btn btn-primary btn-sm"
+          [class.btn-disabled]="isGenerating() || noneSelected()"
+          [disabled]="isGenerating() || noneSelected()"
+          [attr.aria-busy]="isGenerating()"
+          [attr.aria-label]="
+            isGenerating()
+              ? 'Generating agents...'
+              : 'Generate ' + selectedCount() + ' selected agents'
+          "
+          (click)="onGenerateAgents()"
         >
-          <button class="btn btn-ghost" (click)="onBack()">
-            <lucide-angular [img]="ChevronLeftIcon" class="h-5 w-5" />
-            Back
-          </button>
-
-          <button
-            class="btn btn-primary btn-lg"
-            [class.btn-disabled]="isGenerating() || noneSelected()"
-            [disabled]="isGenerating() || noneSelected()"
-            [attr.aria-busy]="isGenerating()"
-            [attr.aria-label]="
-              isGenerating()
-                ? 'Generating agents...'
-                : 'Generate ' + selectedCount() + ' selected agents'
-            "
-            (click)="onGenerateAgents()"
-          >
-            @if (isGenerating()) {
-            <span class="loading loading-spinner"></span>
-            Generating... } @else {
-            <lucide-angular [img]="ZapIcon" class="h-5 w-5" />
-            Generate {{ selectedCount() }} Agent{{
-              selectedCount() === 1 ? '' : 's'
-            }}
-            }
-          </button>
-        </div>
+          @if (isGenerating()) {
+          <span class="loading loading-spinner loading-sm"></span>
+          Generating... } @else {
+          <lucide-angular [img]="ZapIcon" class="h-4 w-4" />
+          Generate {{ selectedCount() }} Agent{{
+            selectedCount() === 1 ? '' : 's'
+          }}
+          }
+        </button>
       </div>
     </div>
   `,
@@ -552,10 +541,18 @@ export class AgentSelectionComponent {
     const result = await withErrorHandling(
       async () => {
         const selectedAgents = this.buildSelectedAgents();
+        const analysis = this.wizardState.deepAnalysis();
 
-        // Submit selection and verify acknowledgment
+        if (!analysis) {
+          throw new Error(
+            'No analysis data available. Please re-run the wizard scan.'
+          );
+        }
+
+        // Submit selection with analysis data and verify acknowledgment
         const response = await this.wizardRpc.submitAgentSelection(
-          selectedAgents
+          selectedAgents,
+          analysis
         );
 
         // Verify backend acknowledgment before transitioning
@@ -578,8 +575,11 @@ export class AgentSelectionComponent {
     );
 
     if (result) {
-      // Only transition after confirmed acknowledgment
-      this.wizardState.setCurrentStep('generation');
+      // Transition to enhanced prompts step before generation.
+      // The backend generation runs in the background while enhanced prompts
+      // execute. When the user completes the enhance step, they proceed to
+      // the generation step to see progress.
+      this.wizardState.setCurrentStep('enhance');
     }
 
     // Always reset loading state

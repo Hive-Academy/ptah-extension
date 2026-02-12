@@ -58,123 +58,109 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
     `,
   ],
   template: `
-    <div
-      class="hero min-h-screen bg-gradient-to-br from-primary/10 via-base-200 to-secondary/10"
-    >
-      <div class="hero-content text-center">
-        <div class="max-w-2xl animate-fadeIn">
-          <!-- Gradient Title -->
-          <h1
-            class="text-5xl font-bold mb-6 bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent"
-          >
-            Let's Personalize Your Ptah Experience
-          </h1>
+    <div class="h-full flex flex-col items-center justify-center px-3 py-4">
+      <div class="animate-fadeIn text-center">
+        <!-- Title -->
+        <h1 class="text-base font-semibold mb-3">
+          Let's Personalize Your Ptah Experience
+        </h1>
 
-          <p class="text-lg text-base-content/80 mb-4">
-            We'll analyze your project structure, detect your tech stack, and
-            generate intelligent agents tailored specifically to your codebase.
-          </p>
-          <p class="text-base text-base-content/60 mb-8">
-            <span class="font-semibold">Estimated time:</span> 2-4 minutes
-          </p>
+        <p class="text-xs text-base-content/70 mb-2">
+          We'll analyze your project structure, detect your tech stack, and
+          generate intelligent agents tailored specifically to your codebase.
+        </p>
+        <p class="text-xs text-base-content/60 mb-4">
+          <span class="font-semibold">Estimated time:</span> 2-4 minutes
+        </p>
 
-          <!-- Feature Cards Grid -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 text-left">
-            <div
-              class="card bg-base-100 shadow-md hover:shadow-lg transition-shadow duration-300"
-            >
-              <div class="card-body p-4 flex-row items-center gap-3">
-                <div class="bg-primary/10 rounded-lg p-2">
-                  <lucide-angular
-                    [img]="SearchIcon"
-                    class="w-5 h-5 text-primary"
-                    aria-hidden="true"
-                  />
-                </div>
-                <div>
-                  <h3 class="font-semibold text-sm">Deep Analysis</h3>
-                  <p class="text-xs text-base-content/60">
-                    4-phase AI-powered codebase scan
-                  </p>
-                </div>
+        <!-- Feature Cards Grid -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 text-left">
+          <div class="border border-base-300 rounded-md bg-base-200/50">
+            <div class="p-3 flex flex-row items-center gap-2">
+              <div class="bg-primary/10 rounded p-1.5">
+                <lucide-angular
+                  [img]="SearchIcon"
+                  class="w-4 h-4 text-primary"
+                  aria-hidden="true"
+                />
               </div>
-            </div>
-
-            <div
-              class="card bg-base-100 shadow-md hover:shadow-lg transition-shadow duration-300"
-            >
-              <div class="card-body p-4 flex-row items-center gap-3">
-                <div class="bg-secondary/10 rounded-lg p-2">
-                  <lucide-angular
-                    [img]="BotIcon"
-                    class="w-5 h-5 text-secondary"
-                    aria-hidden="true"
-                  />
-                </div>
-                <div>
-                  <h3 class="font-semibold text-sm">Smart Agents</h3>
-                  <p class="text-xs text-base-content/60">
-                    13 customized agent templates
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div
-              class="card bg-base-100 shadow-md hover:shadow-lg transition-shadow duration-300"
-            >
-              <div class="card-body p-4 flex-row items-center gap-3">
-                <div class="bg-accent/10 rounded-lg p-2">
-                  <lucide-angular
-                    [img]="ZapIcon"
-                    class="w-5 h-5 text-accent"
-                    aria-hidden="true"
-                  />
-                </div>
-                <div>
-                  <h3 class="font-semibold text-sm">Quick Setup</h3>
-                  <p class="text-xs text-base-content/60">
-                    Ready in under 5 minutes
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div
-              class="card bg-base-100 shadow-md hover:shadow-lg transition-shadow duration-300"
-            >
-              <div class="card-body p-4 flex-row items-center gap-3">
-                <div class="bg-success/10 rounded-lg p-2">
-                  <lucide-angular
-                    [img]="ShieldIcon"
-                    class="w-5 h-5 text-success"
-                    aria-hidden="true"
-                  />
-                </div>
-                <div>
-                  <h3 class="font-semibold text-sm">Project-Specific</h3>
-                  <p class="text-xs text-base-content/60">
-                    Rules matched to your tech stack
-                  </p>
-                </div>
+              <div>
+                <h3 class="font-medium text-xs">Deep Analysis</h3>
+                <p class="text-xs text-base-content/60">
+                  4-phase AI-powered codebase scan
+                </p>
               </div>
             </div>
           </div>
 
-          <!-- CTA Button -->
-          <button
-            class="btn btn-primary btn-lg shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105"
-            aria-label="Start wizard setup"
-            (click)="onStartSetup()"
-          >
-            <lucide-angular
-              [img]="SparklesIcon"
-              class="w-5 h-5"
-              aria-hidden="true"
-            />
-            Start Setup
-          </button>
+          <div class="border border-base-300 rounded-md bg-base-200/50">
+            <div class="p-3 flex flex-row items-center gap-2">
+              <div class="bg-secondary/10 rounded p-1.5">
+                <lucide-angular
+                  [img]="BotIcon"
+                  class="w-4 h-4 text-secondary"
+                  aria-hidden="true"
+                />
+              </div>
+              <div>
+                <h3 class="font-medium text-xs">Smart Agents</h3>
+                <p class="text-xs text-base-content/60">
+                  13 customized agent templates
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="border border-base-300 rounded-md bg-base-200/50">
+            <div class="p-3 flex flex-row items-center gap-2">
+              <div class="bg-accent/10 rounded p-1.5">
+                <lucide-angular
+                  [img]="ZapIcon"
+                  class="w-4 h-4 text-accent"
+                  aria-hidden="true"
+                />
+              </div>
+              <div>
+                <h3 class="font-medium text-xs">Quick Setup</h3>
+                <p class="text-xs text-base-content/60">
+                  Ready in under 5 minutes
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="border border-base-300 rounded-md bg-base-200/50">
+            <div class="p-3 flex flex-row items-center gap-2">
+              <div class="bg-success/10 rounded p-1.5">
+                <lucide-angular
+                  [img]="ShieldIcon"
+                  class="w-4 h-4 text-success"
+                  aria-hidden="true"
+                />
+              </div>
+              <div>
+                <h3 class="font-medium text-xs">Project-Specific</h3>
+                <p class="text-xs text-base-content/60">
+                  Rules matched to your tech stack
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
+
+        <!-- CTA Button -->
+        <button
+          class="btn btn-primary btn-sm"
+          aria-label="Start wizard setup"
+          (click)="onStartSetup()"
+        >
+          <lucide-angular
+            [img]="SparklesIcon"
+            class="w-4 h-4"
+            aria-hidden="true"
+          />
+          Start Setup
+        </button>
       </div>
     </div>
   `,

@@ -50,17 +50,17 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
     <div class="container mx-auto px-4 py-8">
       <div class="max-w-4xl mx-auto">
         <!-- Success Header -->
-        <div class="text-center mb-8">
-          <div class="flex justify-center mb-6">
-            <div class="rounded-full bg-success/20 p-6">
+        <div class="text-center mb-4">
+          <div class="flex justify-center mb-3">
+            <div class="rounded-full bg-success/20 p-4">
               <lucide-angular
                 [img]="CheckIcon"
-                class="h-20 w-20 text-success"
+                class="h-12 w-12 text-success"
               />
             </div>
           </div>
-          <h1 class="text-4xl font-bold mb-4">Setup Complete!</h1>
-          <p class="text-lg text-base-content/70 max-w-2xl mx-auto">
+          <h1 class="text-xl font-bold mb-3">Setup Complete!</h1>
+          <p class="text-sm text-base-content/70 max-w-2xl mx-auto">
             Your personalized agents and orchestration skill have been
             generated. You're ready to start using intelligent development
             workflows.
@@ -68,7 +68,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
         </div>
 
         <!-- Generation Summary Stats -->
-        <div class="stats shadow-xl w-full mb-8">
+        <div class="stats shadow-xl w-full mb-4">
           <div class="stat place-items-center">
             <div class="stat-title">Agents Generated</div>
             <div class="stat-value text-primary">{{ agentCount() }}</div>
@@ -105,270 +105,310 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
           </div>
         </div>
 
-        <!-- Generated Files Card -->
-        <div class="card bg-base-200 shadow-xl mb-8">
-          <div class="card-body">
-            <h2 class="card-title text-xl mb-4">
-              <lucide-angular [img]="FolderIcon" class="h-6 w-6" />
-              Generated Files
-            </h2>
+        <!-- 2-Column Grid: Generated Files + Quick Start Guide -->
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <!-- Generated Files Card -->
+          <div class="card bg-base-200 shadow-xl">
+            <div class="card-body p-4">
+              <h2 class="text-sm font-medium uppercase mb-3">
+                <lucide-angular [img]="FolderIcon" class="h-6 w-6" />
+                Generated Files
+              </h2>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <!-- Agents Column -->
-              @if (agentFiles().length > 0) {
-              <div>
-                <h3
-                  class="font-semibold text-primary mb-2 flex items-center gap-2"
-                >
-                  <span>🤖</span> Agents
-                </h3>
-                <ul class="space-y-1 text-sm">
-                  @for (file of agentFiles(); track file.id) {
-                  <li class="flex items-center gap-2">
-                    <lucide-angular
-                      [img]="CheckIcon"
-                      class="h-4 w-4 text-success"
-                    />
-                    <span
-                      class="font-mono text-xs truncate"
-                      [title]="file.name"
-                      >{{ file.name }}</span
-                    >
-                  </li>
-                  }
-                </ul>
-              </div>
-              }
-
-              <!-- Commands Column -->
-              @if (commandFiles().length > 0) {
-              <div>
-                <h3
-                  class="font-semibold text-secondary mb-2 flex items-center gap-2"
-                >
-                  <span>⌨️</span> Commands
-                </h3>
-                <ul class="space-y-1 text-sm">
-                  @for (file of commandFiles(); track file.id) {
-                  <li class="flex items-center gap-2">
-                    <lucide-angular
-                      [img]="CheckIcon"
-                      class="h-4 w-4 text-success"
-                    />
-                    <span
-                      class="font-mono text-xs truncate"
-                      [title]="file.name"
-                      >{{ file.name }}</span
-                    >
-                  </li>
-                  }
-                </ul>
-              </div>
-              }
-
-              <!-- Skill Files Column -->
-              @if (skillFiles().length > 0) {
-              <div>
-                <h3
-                  class="font-semibold text-accent mb-2 flex items-center gap-2"
-                >
-                  <span>📝</span> Skill Files
-                </h3>
-                <ul class="space-y-1 text-sm">
-                  @for (file of skillFiles(); track file.id) {
-                  <li class="flex items-center gap-2">
-                    <lucide-angular
-                      [img]="CheckIcon"
-                      class="h-4 w-4 text-success"
-                    />
-                    <span
-                      class="font-mono text-xs truncate"
-                      [title]="file.name"
-                      >{{ file.name }}</span
-                    >
-                  </li>
-                  }
-                </ul>
-              </div>
-              }
-            </div>
-          </div>
-        </div>
-
-        <!-- Quick Start Guide Card -->
-        <div class="card bg-base-200 shadow-xl mb-8">
-          <div class="card-body">
-            <h2 class="card-title text-xl mb-4">
-              <lucide-angular [img]="ZapIcon" class="h-6 w-6" />
-              Quick Start Guide
-            </h2>
-
-            <div class="space-y-6">
-              <!-- Step 1: Using Orchestrate -->
-              <div>
-                <h3 class="font-semibold mb-2 flex items-center gap-2">
-                  <span class="badge badge-primary badge-sm">1</span>
-                  Start a Development Workflow
-                </h3>
-                <p class="text-sm text-base-content/70 mb-2">
-                  Use the
-                  <code class="bg-base-300 px-1 py-0.5 rounded"
-                    >/orchestrate</code
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Agents Column -->
+                @if (agentFiles().length > 0) {
+                <div>
+                  <h3
+                    class="font-semibold text-primary mb-2 flex items-center gap-2"
                   >
-                  command to start an intelligent development workflow:
-                </p>
-                <div class="mockup-code text-sm">
-                  <pre
-                    data-prefix="$"
-                  ><code>/orchestrate Add user authentication with OAuth2</code></pre>
+                    <span>🤖</span> Agents
+                  </h3>
+                  <ul class="space-y-1 text-sm">
+                    @for (file of agentFiles(); track file.id) {
+                    <li class="flex items-center gap-2">
+                      <lucide-angular
+                        [img]="CheckIcon"
+                        class="h-4 w-4 text-success"
+                      />
+                      <span
+                        class="font-mono text-xs truncate"
+                        [title]="file.name"
+                        >{{ file.name }}</span
+                      >
+                    </li>
+                    }
+                  </ul>
                 </div>
-                <p class="text-xs text-base-content/60 mt-2">
-                  The orchestrator will analyze your task, select the
-                  appropriate workflow (FEATURE, BUGFIX, etc.), and coordinate
-                  specialized agents.
-                </p>
-              </div>
+                }
 
-              <!-- Step 2: Workflow Strategies -->
-              <div>
-                <h3 class="font-semibold mb-2 flex items-center gap-2">
-                  <span class="badge badge-secondary badge-sm">2</span>
-                  Available Workflow Strategies
-                </h3>
-                <p class="text-sm text-base-content/70 mb-2">
-                  The orchestrator supports multiple workflow types:
-                </p>
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  <div class="badge badge-outline gap-1">
-                    <span>✨</span> FEATURE
-                  </div>
-                  <div class="badge badge-outline gap-1">
-                    <span>🐛</span> BUGFIX
-                  </div>
-                  <div class="badge badge-outline gap-1">
-                    <span>🔧</span> REFACTORING
-                  </div>
-                  <div class="badge badge-outline gap-1">
-                    <span>📚</span> DOCUMENTATION
-                  </div>
-                  <div class="badge badge-outline gap-1">
-                    <span>🔍</span> RESEARCH
-                  </div>
-                  <div class="badge badge-outline gap-1">
-                    <span>⚙️</span> DEVOPS
-                  </div>
+                <!-- Commands Column -->
+                @if (commandFiles().length > 0) {
+                <div>
+                  <h3
+                    class="font-semibold text-secondary mb-2 flex items-center gap-2"
+                  >
+                    <span>⌨️</span> Commands
+                  </h3>
+                  <ul class="space-y-1 text-sm">
+                    @for (file of commandFiles(); track file.id) {
+                    <li class="flex items-center gap-2">
+                      <lucide-angular
+                        [img]="CheckIcon"
+                        class="h-4 w-4 text-success"
+                      />
+                      <span
+                        class="font-mono text-xs truncate"
+                        [title]="file.name"
+                        >{{ file.name }}</span
+                      >
+                    </li>
+                    }
+                  </ul>
                 </div>
-              </div>
+                }
 
-              <!-- Step 3: Example Commands -->
-              <div>
-                <h3 class="font-semibold mb-2 flex items-center gap-2">
-                  <span class="badge badge-accent badge-sm">3</span>
-                  Example Commands
-                </h3>
-                <div class="space-y-2">
+                <!-- Skill Files Column -->
+                @if (skillFiles().length > 0) {
+                <div>
+                  <h3
+                    class="font-semibold text-accent mb-2 flex items-center gap-2"
+                  >
+                    <span>📝</span> Skill Files
+                  </h3>
+                  <ul class="space-y-1 text-sm">
+                    @for (file of skillFiles(); track file.id) {
+                    <li class="flex items-center gap-2">
+                      <lucide-angular
+                        [img]="CheckIcon"
+                        class="h-4 w-4 text-success"
+                      />
+                      <span
+                        class="font-mono text-xs truncate"
+                        [title]="file.name"
+                        >{{ file.name }}</span
+                      >
+                    </li>
+                    }
+                  </ul>
+                </div>
+                }
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Start Guide Card -->
+          <div class="card bg-base-200 shadow-xl">
+            <div class="card-body p-4">
+              <h2 class="text-sm font-medium uppercase mb-3">
+                <lucide-angular [img]="ZapIcon" class="h-6 w-6" />
+                Quick Start Guide
+              </h2>
+
+              <div class="space-y-3">
+                <!-- Step 1: Using Orchestrate -->
+                <div>
+                  <h3 class="font-semibold mb-2 flex items-center gap-2">
+                    <span class="badge badge-primary badge-sm">1</span>
+                    Start a Development Workflow
+                  </h3>
+                  <p class="text-sm text-base-content/70 mb-2">
+                    Use the
+                    <code class="bg-base-300 px-1 py-0.5 rounded"
+                      >/orchestrate</code
+                    >
+                    command to start an intelligent development workflow:
+                  </p>
                   <div class="mockup-code text-sm">
                     <pre
                       data-prefix="$"
-                    ><code>/orchestrate Fix the login form validation bug</code></pre>
-                    <pre
-                      data-prefix=" "
-                      class="text-base-content/60"
-                    ><code># Strategy: BUGFIX - Research -> Team-Leader -> QA</code></pre>
+                    ><code>/orchestrate Add user authentication with OAuth2</code></pre>
                   </div>
-                  <div class="mockup-code text-sm">
-                    <pre
-                      data-prefix="$"
-                    ><code>/orchestrate Refactor the UserService to use repository pattern</code></pre>
-                    <pre
-                      data-prefix=" "
-                      class="text-base-content/60"
-                    ><code># Strategy: REFACTORING - Architect -> Team-Leader</code></pre>
-                  </div>
-                  <div class="mockup-code text-sm">
-                    <pre
-                      data-prefix="$"
-                    ><code>/orchestrate Create API documentation for the auth endpoints</code></pre>
-                    <pre
-                      data-prefix=" "
-                      class="text-base-content/60"
-                    ><code># Strategy: DOCUMENTATION - Technical-Writer</code></pre>
+                  <p class="text-xs text-base-content/60 mt-2">
+                    The orchestrator will analyze your task, select the
+                    appropriate workflow (FEATURE, BUGFIX, etc.), and coordinate
+                    specialized agents.
+                  </p>
+                </div>
+
+                <!-- Step 2: Workflow Strategies -->
+                <div>
+                  <h3 class="font-semibold mb-2 flex items-center gap-2">
+                    <span class="badge badge-secondary badge-sm">2</span>
+                    Available Workflow Strategies
+                  </h3>
+                  <p class="text-sm text-base-content/70 mb-2">
+                    The orchestrator supports multiple workflow types:
+                  </p>
+                  <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    <div class="badge badge-outline gap-1">
+                      <span>✨</span> FEATURE
+                    </div>
+                    <div class="badge badge-outline gap-1">
+                      <span>🐛</span> BUGFIX
+                    </div>
+                    <div class="badge badge-outline gap-1">
+                      <span>🔧</span> REFACTORING
+                    </div>
+                    <div class="badge badge-outline gap-1">
+                      <span>📚</span> DOCUMENTATION
+                    </div>
+                    <div class="badge badge-outline gap-1">
+                      <span>🔍</span> RESEARCH
+                    </div>
+                    <div class="badge badge-outline gap-1">
+                      <span>⚙️</span> DEVOPS
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <!-- Step 4: Continuing Tasks -->
-              <div>
-                <h3 class="font-semibold mb-2 flex items-center gap-2">
-                  <span class="badge badge-info badge-sm">4</span>
-                  Continuing Existing Tasks
-                </h3>
-                <p class="text-sm text-base-content/70 mb-2">
-                  Resume work on an existing task using the task ID:
-                </p>
-                <div class="mockup-code text-sm">
-                  <pre
-                    data-prefix="$"
-                  ><code>/orchestrate TASK_2025_XXX</code></pre>
-                  <pre
-                    data-prefix=" "
-                    class="text-base-content/60"
-                  ><code># Continues from last checkpoint</code></pre>
+                <!-- Step 3: Example Commands -->
+                <div>
+                  <h3 class="font-semibold mb-2 flex items-center gap-2">
+                    <span class="badge badge-accent badge-sm">3</span>
+                    Example Commands
+                  </h3>
+                  <div class="space-y-2">
+                    <div class="mockup-code text-sm">
+                      <pre
+                        data-prefix="$"
+                      ><code>/orchestrate Fix the login form validation bug</code></pre>
+                      <pre
+                        data-prefix=" "
+                        class="text-base-content/60"
+                      ><code># Strategy: BUGFIX - Research -> Team-Leader -> QA</code></pre>
+                    </div>
+                    <div class="mockup-code text-sm">
+                      <pre
+                        data-prefix="$"
+                      ><code>/orchestrate Refactor the UserService to use repository pattern</code></pre>
+                      <pre
+                        data-prefix=" "
+                        class="text-base-content/60"
+                      ><code># Strategy: REFACTORING - Architect -> Team-Leader</code></pre>
+                    </div>
+                    <div class="mockup-code text-sm">
+                      <pre
+                        data-prefix="$"
+                      ><code>/orchestrate Create API documentation for the auth endpoints</code></pre>
+                      <pre
+                        data-prefix=" "
+                        class="text-base-content/60"
+                      ><code># Strategy: DOCUMENTATION - Technical-Writer</code></pre>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Step 4: Continuing Tasks -->
+                <div>
+                  <h3 class="font-semibold mb-2 flex items-center gap-2">
+                    <span class="badge badge-info badge-sm">4</span>
+                    Continuing Existing Tasks
+                  </h3>
+                  <p class="text-sm text-base-content/70 mb-2">
+                    Resume work on an existing task using the task ID:
+                  </p>
+                  <div class="mockup-code text-sm">
+                    <pre
+                      data-prefix="$"
+                    ><code>/orchestrate TASK_2025_XXX</code></pre>
+                    <pre
+                      data-prefix=" "
+                      class="text-base-content/60"
+                    ><code># Continues from last checkpoint</code></pre>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Tips Card -->
-        <div class="alert alert-info mb-8">
-          <lucide-angular [img]="InfoIcon" class="shrink-0 w-6 h-6" />
-          <div>
-            <h3 class="font-bold mb-1">Pro Tips</h3>
-            <ul class="text-sm space-y-1">
-              <li>
-                Use
-                <code class="bg-base-300 px-1 py-0.5 rounded">@agent-name</code>
-                to invoke a specific agent directly (e.g.,
-                <code class="bg-base-300 px-1 py-0.5 rounded"
-                  >@frontend-developer</code
-                >)
-              </li>
-              <li>
-                Check
-                <code class="bg-base-300 px-1 py-0.5 rounded"
-                  >.claude/skills/orchestration/SKILL.md</code
-                >
-                for the complete workflow reference
-              </li>
-              <li>
-                Task progress is saved in
-                <code class="bg-base-300 px-1 py-0.5 rounded"
-                  >task-tracking/</code
-                >
-                folder for easy continuation
-              </li>
-            </ul>
+          <!-- Tips Card -->
+          <div class="alert alert-info mb-4">
+            <lucide-angular [img]="InfoIcon" class="shrink-0 w-6 h-6" />
+            <div>
+              <h3 class="font-bold mb-1">Pro Tips</h3>
+              <ul class="text-sm space-y-1">
+                <li>
+                  Use
+                  <code class="bg-base-300 px-1 py-0.5 rounded"
+                    >@agent-name</code
+                  >
+                  to invoke a specific agent directly (e.g.,
+                  <code class="bg-base-300 px-1 py-0.5 rounded"
+                    >@frontend-developer</code
+                  >)
+                </li>
+                <li>
+                  Check
+                  <code class="bg-base-300 px-1 py-0.5 rounded"
+                    >.claude/skills/orchestration/SKILL.md</code
+                  >
+                  for the complete workflow reference
+                </li>
+                <li>
+                  Task progress is saved in
+                  <code class="bg-base-300 px-1 py-0.5 rounded"
+                    >task-tracking/</code
+                  >
+                  folder for easy continuation
+                </li>
+              </ul>
+            </div>
           </div>
-        </div>
 
-        <!-- Action Buttons -->
-        <div class="flex flex-col sm:flex-row gap-4 justify-center">
-          <button class="btn btn-primary btn-lg" (click)="onOpenClaudeFolder()">
-            <lucide-angular [img]="FolderIcon" class="h-5 w-5" />
-            Open .claude Folder
-          </button>
-          <button
-            class="btn btn-secondary btn-lg"
-            (click)="onTestOrchestration()"
+          <!-- Warnings Section (collapsible) -->
+          @if (hasWarnings()) {
+          <div
+            class="collapse collapse-arrow bg-warning/10 border border-warning/20 rounded-box mb-4"
           >
-            <lucide-angular [img]="ZapIcon" class="h-5 w-5" />
-            Test /orchestrate
-          </button>
-          <button class="btn btn-ghost btn-lg" (click)="onStartNewChat()">
-            <lucide-angular [img]="MessageCircleIcon" class="h-5 w-5" />
-            Start New Chat
-          </button>
+            <input type="checkbox" />
+            <div class="collapse-title text-sm font-medium text-warning">
+              {{ warnings().length }} warning(s) during generation
+            </div>
+            <div class="collapse-content">
+              <ul class="list-disc list-inside text-sm text-base-content/70">
+                @for (warning of warnings(); track $index) {
+                <li>{{ warning }}</li>
+                }
+              </ul>
+            </div>
+          </div>
+          }
+
+          <!-- Enhanced Prompts Status Badge -->
+          <div class="flex justify-center mb-4">
+            @if (enhancedPromptsUsed()) {
+            <div class="badge badge-success badge-sm gap-1">
+              Enhanced prompts applied
+            </div>
+            } @else {
+            <div class="badge badge-ghost badge-sm gap-1">
+              Standard prompts used
+            </div>
+            }
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              class="btn btn-primary btn-lg"
+              (click)="onOpenClaudeFolder()"
+            >
+              <lucide-angular [img]="FolderIcon" class="h-5 w-5" />
+              Open .claude Folder
+            </button>
+            <button
+              class="btn btn-secondary btn-lg"
+              (click)="onTestOrchestration()"
+            >
+              <lucide-angular [img]="ZapIcon" class="h-5 w-5" />
+              Test /orchestrate
+            </button>
+            <button class="btn btn-ghost btn-lg" (click)="onStartNewChat()">
+              <lucide-angular [img]="MessageCircleIcon" class="h-5 w-5" />
+              Start New Chat
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -458,6 +498,27 @@ export class CompletionComponent {
         return 'Not Generated';
     }
   });
+
+  /**
+   * Generation warnings from completion data.
+   * Contains per-section customization failure messages.
+   */
+  protected readonly warnings = computed(
+    () => this.wizardState.completionData()?.warnings ?? []
+  );
+
+  /**
+   * Whether any generation warnings exist.
+   */
+  protected readonly hasWarnings = computed(() => this.warnings().length > 0);
+
+  /**
+   * Whether enhanced prompts were used during generation.
+   * Derived from completion data payload.
+   */
+  protected readonly enhancedPromptsUsed = computed(
+    () => this.wizardState.completionData()?.enhancedPromptsUsed ?? false
+  );
 
   /**
    * Open .claude folder in VS Code explorer.

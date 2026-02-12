@@ -35,37 +35,51 @@ import { LanguageStats } from '@ptah-extension/shared';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Project Overview Card -->
-    <div class="card bg-base-200 shadow-xl mb-6">
-      <div class="card-body">
-        <h3 class="card-title text-2xl mb-4">Project Overview</h3>
+    <div class="border border-base-300 rounded-md bg-base-200/50 mb-4">
+      <div class="p-4">
+        <h3 class="text-sm font-medium uppercase tracking-wide mb-3">
+          Project Overview
+        </h3>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
           <!-- Project Type -->
           <div>
-            <span class="font-semibold text-base-content/80"
+            <span class="font-semibold text-base-content/80 text-xs"
               >Project Type:</span
             >
-            <span class="ml-2 badge badge-primary badge-lg">{{
+            @if (projectTypeDescription()) {
+            <span class="ml-2 badge badge-primary badge-sm">{{
+              projectTypeDescription()
+            }}</span>
+            } @else {
+            <span class="ml-2 badge badge-primary badge-sm">{{
               projectType()
             }}</span>
+            }
           </div>
 
           <!-- File Count -->
           <div>
-            <span class="font-semibold text-base-content/80">Total Files:</span>
-            <span class="ml-2 text-base-content">{{
+            <span class="font-semibold text-base-content/80 text-xs"
+              >Total Files:</span
+            >
+            <span class="ml-2 text-base-content text-xs">{{
               fileCount() | number
             }}</span>
           </div>
 
           <!-- Frameworks -->
           <div class="md:col-span-2">
-            <span class="font-semibold text-base-content/80">Frameworks:</span>
+            <span class="font-semibold text-base-content/80 text-xs"
+              >Frameworks:</span
+            >
             <div class="flex flex-wrap gap-2 mt-2">
               @for (framework of frameworks(); track framework) {
-              <span class="badge badge-secondary">{{ framework }}</span>
+              <span class="badge badge-secondary badge-sm">{{
+                framework
+              }}</span>
               } @empty {
-              <span class="text-base-content/60 text-sm"
+              <span class="text-base-content/60 text-xs"
                 >No frameworks detected</span
               >
               }
@@ -75,10 +89,12 @@ import { LanguageStats } from '@ptah-extension/shared';
           <!-- Monorepo Information -->
           @if (monorepoType()) {
           <div class="md:col-span-2">
-            <span class="font-semibold text-base-content/80">Monorepo:</span>
-            <span class="ml-2 text-success">
+            <span class="font-semibold text-base-content/80 text-xs"
+              >Monorepo:</span
+            >
+            <span class="ml-2 text-success text-xs">
               Yes
-              <span class="text-base-content/60 text-sm"
+              <span class="text-base-content/60 text-xs"
                 >({{ monorepoType() }})</span
               >
             </span>
@@ -90,12 +106,12 @@ import { LanguageStats } from '@ptah-extension/shared';
 
     <!-- Language Distribution Card -->
     @if (languageDistribution(); as langs) { @if (langs.length > 0) {
-    <div class="card bg-base-200 shadow-xl mb-6">
-      <div class="card-body">
-        <h3 class="card-title text-lg mb-4">
+    <div class="border border-base-300 rounded-md bg-base-200/50 mb-4">
+      <div class="p-4">
+        <h3 class="text-sm font-medium uppercase tracking-wide mb-3">
           <lucide-angular
             [img]="Code2Icon"
-            class="h-5 w-5"
+            class="h-4 w-4"
             aria-hidden="true"
           />
           Language Distribution
@@ -130,9 +146,16 @@ export class TechStackSummaryComponent {
   protected readonly Code2Icon = Code2;
 
   /**
-   * Project type (e.g., 'Angular', 'Node.js', 'React').
+   * Project type enum value (e.g., 'angular', 'node', 'react').
+   * Fallback display when projectTypeDescription is not available.
    */
   readonly projectType = input.required<string>();
+
+  /**
+   * Agent's rich project type description (e.g., "React SPA with Supabase Backend").
+   * Displayed to users when available, preserving the agent's intelligent analysis.
+   */
+  readonly projectTypeDescription = input<string>();
 
   /**
    * Total file count in the project.

@@ -27,21 +27,22 @@ import { LucideAngularModule, Building } from 'lucide-angular';
   imports: [NgClass, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="card bg-base-200 shadow-xl mb-6">
-      <div class="card-body">
-        <h3 class="card-title text-xl mb-4">
-          <lucide-angular [img]="BuildingIcon" class="h-6 w-6" />
+    <div class="border border-base-300 rounded-md bg-base-200/50 mb-4">
+      <div class="p-4">
+        <h3 class="text-sm font-medium uppercase tracking-wide mb-3">
+          <lucide-angular [img]="BuildingIcon" class="h-4 w-4" />
           Architecture Patterns Detected
         </h3>
 
-        <div class="space-y-4">
+        <div class="space-y-3">
           @for (pattern of patterns(); track pattern.name) {
-          <div class="p-4 bg-base-100 rounded-lg">
+          <div class="p-3 bg-base-100 rounded-lg">
             <div class="flex justify-between items-center mb-2">
-              <span class="font-semibold">{{ pattern.name }}</span>
+              <span class="font-semibold text-sm">{{ pattern.name }}</span>
               <span
                 [ngClass]="[
                   'badge',
+                  'badge-sm',
                   getConfidenceBadgeClass(pattern.confidence)
                 ]"
               >

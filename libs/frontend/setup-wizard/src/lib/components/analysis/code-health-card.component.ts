@@ -24,26 +24,26 @@ import { LucideAngularModule, CheckCircle } from 'lucide-angular';
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="card bg-base-200 shadow-xl">
-      <div class="card-body">
-        <h3 class="card-title text-lg mb-4">
-          <lucide-angular [img]="CheckCircleIcon" class="h-5 w-5" />
+    <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="p-4">
+        <h3 class="text-sm font-medium uppercase tracking-wide mb-3">
+          <lucide-angular [img]="CheckCircleIcon" class="h-4 w-4" />
           Code Health
         </h3>
         @if (issues()) {
         <div class="mb-4">
-          <span class="text-sm font-semibold text-base-content/80"
+          <span class="text-xs font-semibold text-base-content/80"
             >Existing Issues:</span
           >
-          <div class="flex gap-3 mt-2">
-            <div class="badge badge-error gap-1">
+          <div class="flex gap-2 mt-2">
+            <div class="badge badge-error badge-sm gap-1">
               {{ issues().errorCount }} errors
             </div>
-            <div class="badge badge-warning gap-1">
+            <div class="badge badge-warning badge-sm gap-1">
               {{ issues().warningCount }} warnings
             </div>
             @if (issues().infoCount) {
-            <div class="badge badge-info gap-1">
+            <div class="badge badge-info badge-sm gap-1">
               {{ issues().infoCount }} info
             </div>
             }
@@ -51,14 +51,14 @@ import { LucideAngularModule, CheckCircle } from 'lucide-angular';
         </div>
         } @if (testCoverage()) {
         <div>
-          <span class="text-sm font-semibold text-base-content/80"
+          <span class="text-xs font-semibold text-base-content/80"
             >Test Coverage Estimate:</span
           >
           <div class="mt-2">
             @if (testCoverage().hasTests) {
-            <div class="flex items-center gap-2 mb-2">
+            <div class="flex items-center gap-2 mb-3">
               <div
-                class="radial-progress text-primary"
+                class="radial-progress text-primary text-xs"
                 [style]="
                   '--value:' + testCoverage().percentage + '; --size:4rem;'
                 "
@@ -67,13 +67,13 @@ import { LucideAngularModule, CheckCircle } from 'lucide-angular';
               >
                 {{ testCoverage().percentage }}%
               </div>
-              <div class="text-sm">
+              <div class="text-xs">
                 @if (testCoverage().testFramework) {
                 <div class="badge badge-outline badge-sm">
                   {{ testCoverage().testFramework }}
                 </div>
                 }
-                <div class="flex flex-wrap gap-1 mt-1">
+                <div class="flex flex-wrap gap-1 mt-2">
                   @if (testCoverage().hasUnitTests) {
                   <span class="badge badge-success badge-xs">Unit</span> } @if
                   (testCoverage().hasIntegrationTests) {
@@ -84,8 +84,8 @@ import { LucideAngularModule, CheckCircle } from 'lucide-angular';
               </div>
             </div>
             } @else {
-            <div class="text-sm text-base-content/60">
-              <span class="badge badge-ghost">No tests detected</span>
+            <div class="text-xs text-base-content/60">
+              <span class="badge badge-ghost badge-sm">No tests detected</span>
             </div>
             }
           </div>

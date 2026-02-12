@@ -18,8 +18,9 @@
  * 2. Scan - Codebase scanning progress
  * 3. Analysis - Project analysis results
  * 4. Selection - Agent selection
- * 5. Generation - Rule generation progress
- * 6. Completion - Success confirmation
+ * 5. Enhance - Enhanced prompts generation
+ * 6. Generation - Rule generation progress
+ * 7. Completion - Success confirmation
  *
  * **Premium Gating**:
  * - Shows loading state while checking license
@@ -42,7 +43,10 @@ import {
 } from '@angular/core';
 import { ClaudeRpcService } from '@ptah-extension/core';
 
-import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+import {
+  SetupWizardStateService,
+  type WizardStep,
+} from '../services/setup-wizard-state.service';
 import { WelcomeComponent } from './welcome.component';
 import { ScanProgressComponent } from './scan-progress.component';
 import { AnalysisResultsComponent } from './analysis-results.component';
@@ -50,6 +54,7 @@ import { AgentSelectionComponent } from './agent-selection.component';
 import { GenerationProgressComponent } from './generation-progress.component';
 import { CompletionComponent } from './completion.component';
 import { PremiumUpsellComponent } from './premium-upsell.component';
+import { PromptEnhancementComponent } from './prompt-enhancement.component';
 
 /**
  * License verification state
@@ -63,6 +68,7 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
     ScanProgressComponent,
     AnalysisResultsComponent,
     AgentSelectionComponent,
+    PromptEnhancementComponent,
     GenerationProgressComponent,
     CompletionComponent,
     PremiumUpsellComponent,
@@ -95,12 +101,10 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
   template: `
     <!-- License checking state -->
     @if (licenseState() === 'checking') {
-    <div class="hero min-h-screen bg-base-200">
-      <div class="hero-content text-center">
-        <div class="max-w-md">
-          <span class="loading loading-spinner loading-lg text-primary"></span>
-          <p class="mt-4 text-lg text-base-content/70">Verifying license...</p>
-        </div>
+    <div class="h-full flex items-center justify-center">
+      <div class="text-center">
+        <span class="loading loading-spinner loading-sm text-primary"></span>
+        <p class="mt-2 text-xs text-base-content/60">Verifying license...</p>
       </div>
     </div>
     }
@@ -118,19 +122,81 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
     @else {
     <div class="wizard-container h-full flex flex-col bg-base-100">
       <!-- Progress indicator -->
-      <div class="wizard-progress p-4 border-b border-base-300">
-        <ul class="steps steps-horizontal w-full">
-          <li class="step" [class.step-primary]="stepIndex() >= 0">Welcome</li>
-          <li class="step" [class.step-primary]="stepIndex() >= 1">Scan</li>
-          <li class="step" [class.step-primary]="stepIndex() >= 2">Analysis</li>
-          <li class="step" [class.step-primary]="stepIndex() >= 3">Select</li>
-          <li class="step" [class.step-primary]="stepIndex() >= 4">Generate</li>
-          <li class="step" [class.step-primary]="stepIndex() >= 5">Complete</li>
+      <div class="wizard-progress p-3 border-b border-base-300">
+        <ul class="steps steps-horizontal w-full text-xs">
+          <li
+            class="step cursor-pointer hover:opacity-80 transition-opacity"
+            [class.step-primary]="stepIndex() >= 0"
+            (click)="navigateToStep(0)"
+            title="Go to Welcome"
+          >
+            Welcome
+          </li>
+          <li
+            class="step cursor-pointer hover:opacity-80 transition-opacity"
+            [class.step-primary]="stepIndex() >= 1"
+            [class.pointer-events-none]="!canNavigateToStep(1)"
+            [class.opacity-50]="!canNavigateToStep(1)"
+            (click)="navigateToStep(1)"
+            title="Go to Scan"
+          >
+            Scan
+          </li>
+          <li
+            class="step cursor-pointer hover:opacity-80 transition-opacity"
+            [class.step-primary]="stepIndex() >= 2"
+            [class.pointer-events-none]="!canNavigateToStep(2)"
+            [class.opacity-50]="!canNavigateToStep(2)"
+            (click)="navigateToStep(2)"
+            title="Go to Analysis"
+          >
+            Analysis
+          </li>
+          <li
+            class="step cursor-pointer hover:opacity-80 transition-opacity"
+            [class.step-primary]="stepIndex() >= 3"
+            [class.pointer-events-none]="!canNavigateToStep(3)"
+            [class.opacity-50]="!canNavigateToStep(3)"
+            (click)="navigateToStep(3)"
+            title="Go to Selection"
+          >
+            Select
+          </li>
+          <li
+            class="step cursor-pointer hover:opacity-80 transition-opacity"
+            [class.step-primary]="stepIndex() >= 4"
+            [class.pointer-events-none]="!canNavigateToStep(4)"
+            [class.opacity-50]="!canNavigateToStep(4)"
+            (click)="navigateToStep(4)"
+            title="Go to Enhance"
+          >
+            Enhance
+          </li>
+          <li
+            class="step cursor-pointer hover:opacity-80 transition-opacity"
+            [class.step-primary]="stepIndex() >= 5"
+            [class.pointer-events-none]="!canNavigateToStep(5)"
+            [class.opacity-50]="!canNavigateToStep(5)"
+            (click)="navigateToStep(5)"
+            title="Go to Generation"
+          >
+            Generate
+          </li>
+          <li
+            class="step cursor-pointer hover:opacity-80 transition-opacity"
+            [class.step-primary]="stepIndex() >= 6"
+            [class.pointer-events-none]="!canNavigateToStep(6)"
+            [class.opacity-50]="!canNavigateToStep(6)"
+            (click)="navigateToStep(6)"
+            title="Go to Complete"
+          >
+            Complete
+          </li>
         </ul>
       </div>
 
       <!-- Step content -->
-      <div class="wizard-content flex-1 overflow-y-auto p-4">
+      <div class="wizard-content flex-1 overflow-y-auto p-3">
         <div class="animate-fadeIn">
           @switch (currentStep()) { @case ('welcome') {
           <ptah-welcome />
@@ -140,6 +206,8 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
           <ptah-analysis-results />
           } @case ('selection') {
           <ptah-agent-selection />
+          } @case ('enhance') {
+          <ptah-prompt-enhancement />
           } @case ('generation') {
           <ptah-generation-progress />
           } @case ('completion') {
@@ -158,6 +226,44 @@ export class WizardViewComponent {
 
   readonly currentStep = this.wizardState.currentStep;
   readonly stepIndex = this.wizardState.stepIndex;
+
+  // Step order for navigation
+  private readonly stepOrder: WizardStep[] = [
+    'welcome',
+    'scan',
+    'analysis',
+    'selection',
+    'enhance',
+    'generation',
+    'completion',
+  ];
+
+  /**
+   * Check if user can navigate to a specific step
+   * Only allow navigation to current or completed steps, not future steps
+   */
+  protected canNavigateToStep(targetIndex: number): boolean {
+    const currentIdx = this.stepIndex();
+    // Can navigate to current step or any completed step (index <= current)
+    // Cannot navigate to future steps (index > current)
+    return targetIndex <= currentIdx;
+  }
+
+  /**
+   * Navigate to a specific step by index
+   */
+  protected navigateToStep(targetIndex: number): void {
+    if (!this.canNavigateToStep(targetIndex)) {
+      return;
+    }
+
+    const targetStep = this.stepOrder[targetIndex];
+    if (targetStep) {
+      // Use the wizard state's setCurrentStep method if available,
+      // otherwise use nextStep/previousStep to navigate incrementally
+      this.wizardState.setCurrentStep(targetStep);
+    }
+  }
 
   /**
    * License verification state
