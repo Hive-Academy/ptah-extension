@@ -476,7 +476,7 @@ export interface TestCoverageEstimate {
    * Detected test framework.
    * Common: 'jest', 'mocha', 'vitest', 'jasmine', 'karma', 'pytest', 'junit'
    */
-  testFramework?: string;
+  testFramework?: string | null;
 
   /**
    * Whether unit tests were detected.
@@ -627,10 +627,17 @@ export interface AgentRecommendation {
  */
 export interface ProjectAnalysisResult {
   /**
-   * Project type as string (e.g., 'Angular', 'Node.js', 'React').
-   * Simplified from ProjectType enum for cross-boundary safety.
+   * Project type enum value as string (e.g., 'angular', 'node', 'react').
+   * Best-effort mapping for infrastructure code compatibility.
    */
   projectType: string;
+
+  /**
+   * Agent's rich project type description (e.g., "React SPA with Supabase Backend",
+   * "Angular Nx Monorepo with NestJS API"). Preserves the agent's intelligent analysis.
+   * This is what the frontend should display to users.
+   */
+  projectTypeDescription?: string;
 
   /**
    * Total file count in the project.
@@ -698,6 +705,8 @@ export type WizardMessageType =
   | 'setup-wizard:available-agents'
   | 'setup-wizard:generation-progress'
   | 'setup-wizard:generation-complete'
+  | 'setup-wizard:generation-stream'
+  | 'setup-wizard:enhance-stream'
   | 'setup-wizard:error';
 
 // ============================================================================
@@ -759,6 +768,19 @@ export interface AnalysisStreamPayload {
   isError?: boolean;
   /** Timestamp */
   timestamp: number;
+}
+
+/**
+ * Payload for streaming generation events to the frontend transcript.
+ * Extends AnalysisStreamPayload with an optional agent identifier
+ * to distinguish which agent template is being processed.
+ *
+ * Used by ContentGenerationService during SDK stream processing
+ * and broadcast via 'setup-wizard:generation-stream' messages.
+ */
+export interface GenerationStreamPayload extends AnalysisStreamPayload {
+  /** Which agent template is currently being processed */
+  agentId?: string;
 }
 
 /**
@@ -843,6 +865,10 @@ export interface GenerationCompletePayload {
   duration?: number;
   /** Error messages if any */
   errors?: string[];
+  /** Warning messages from Phase 3 customization failures */
+  warnings?: string[];
+  /** Whether enhanced prompts were used during generation */
+  enhancedPromptsUsed?: boolean;
 }
 
 /**
@@ -854,6 +880,8 @@ export interface WizardErrorPayload {
   message: string;
   /** Additional error details */
   details?: string;
+  /** Error type: 'error' for real errors, 'fallback-warning' for degraded-mode warnings */
+  type?: 'error' | 'fallback-warning';
 }
 
 // ============================================================================
@@ -895,4 +923,6 @@ export type WizardMessage =
       type: 'setup-wizard:generation-complete';
       payload: GenerationCompletePayload;
     }
+  | { type: 'setup-wizard:generation-stream'; payload: GenerationStreamPayload }
+  | { type: 'setup-wizard:enhance-stream'; payload: AnalysisStreamPayload }
   | { type: 'setup-wizard:error'; payload: WizardErrorPayload };

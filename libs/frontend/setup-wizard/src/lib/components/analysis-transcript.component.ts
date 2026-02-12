@@ -5,6 +5,7 @@ import {
   effect,
   ElementRef,
   inject,
+  input,
   signal,
   viewChild,
 } from '@angular/core';
@@ -77,8 +78,9 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
  * - Renders all 7 message kinds with distinct visual styling
  * - Consecutive text messages are merged into a single block
  * - Tool calls with same toolCallId grouped into collapsible units
- * - Completed tool groups default to collapsed; in-progress groups expanded
- * - Collapsible tool input JSON with truncation and show-more toggle
+ * - All tool groups collapsed by default; user clicks to expand
+ * - Focus on tool RESULTS (prominent); tool inputs de-emphasized (collapsed)
+ * - Content processing pipeline: MCP extraction, system-reminder stripping, line number removal
  * - Auto-scroll with user scroll detection
  * - Markdown rendering with prose styling and language detection
  * - DaisyUI styling consistent with the wizard theme
@@ -95,7 +97,9 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
   imports: [LucideAngularModule, MarkdownModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="bg-base-200 rounded-lg overflow-hidden">
+    <div
+      class="bg-base-200 rounded-lg overflow-hidden h-full max-h-[70vh] flex flex-col"
+    >
       <!-- Header with toggle -->
       <button
         type="button"
@@ -127,7 +131,7 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
       <div
         id="analysis-transcript-content"
         #scrollContainer
-        class="overflow-y-auto max-h-64 p-3 space-y-2 border-t border-base-300"
+        class="overflow-y-auto flex-1 min-h-0 p-3 space-y-2 border-t border-base-300"
         (scroll)="onUserScroll()"
       >
         @for (item of transcriptItems(); track $index) { @if (isToolGroup(item))
@@ -170,45 +174,61 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
           <!-- Group Content (collapsible) -->
           @if (!isToolGroupCollapsed(item)) {
           <div class="px-3 pb-2 pt-1 border-t border-base-300/30 space-y-1">
-            @for (subItem of item.messages; track $index) { @switch
-            (subItem.kind) { @case ('tool_start') {
-            <!-- Tool start is represented by the header, skip -->
-            } @case ('tool_input') {
-            <div class="bg-base-100 rounded-md overflow-hidden">
-              <div
-                class="px-2 py-1 text-[10px] font-semibold text-base-content/50"
-              >
-                Input
-              </div>
-              <div class="px-2 pb-2 max-h-40 overflow-y-auto">
-                <markdown
-                  [data]="getFormattedToolInput(subItem)"
-                  class="prose prose-xs prose-invert max-w-none
-                                     [&_pre]:my-0 [&_pre]:rounded-sm [&_code]:text-[10px]
-                                     [&_pre]:bg-base-300/50 [&_p]:my-1 [&_p]:text-[10px]"
-                />
-              </div>
-            </div>
-            } @case ('tool_result') {
+            <!-- Tool Result (prominent, shown first) -->
+            @for (subItem of item.messages; track $index) { @if (subItem.kind
+            === 'tool_result') {
             <div
               class="rounded-md overflow-hidden"
               [class]="subItem.isError ? 'bg-error/5' : ''"
             >
-              <div
-                class="px-2 py-1 text-[10px] font-semibold text-base-content/50"
-              >
-                Output
-              </div>
-              <div class="px-2 pb-2 max-h-32 overflow-y-auto">
+              <div class="px-2 pb-2 max-h-48 overflow-y-auto">
                 <markdown
                   [data]="getFormattedToolResult(subItem)"
                   class="prose prose-xs prose-invert max-w-none
-                                     [&_pre]:my-0 [&_pre]:rounded-sm [&_code]:text-[10px]
-                                     [&_pre]:bg-base-300/50 [&_p]:my-1 [&_p]:text-xs"
+                                       [&_pre]:my-0 [&_pre]:rounded-sm [&_code]:text-[10px]
+                                       [&_pre]:bg-base-300/50 [&_p]:my-1 [&_p]:text-xs"
                 />
               </div>
             </div>
-            } } }
+            } }
+            <!-- Tool Input (de-emphasized, collapsed below result) -->
+            @for (subItem of item.messages; track $index) { @if (subItem.kind
+            === 'tool_input') {
+            <div class="bg-base-100/50 rounded-md overflow-hidden">
+              <button
+                type="button"
+                class="w-full flex items-center gap-2 px-2 py-1 text-[10px] text-base-content/40 hover:bg-base-200/50 transition-colors"
+                (click)="toggleToolInput(subItem.timestamp)"
+                [attr.aria-expanded]="isToolInputExpanded(subItem.timestamp)"
+              >
+                <lucide-angular
+                  [img]="CodeIcon"
+                  class="w-2.5 h-2.5 shrink-0"
+                  aria-hidden="true"
+                />
+                <span>Input</span>
+                <lucide-angular
+                  [img]="
+                    isToolInputExpanded(subItem.timestamp)
+                      ? ChevronUpIcon
+                      : ChevronDownIcon
+                  "
+                  class="w-2.5 h-2.5 ml-auto"
+                  aria-hidden="true"
+                />
+              </button>
+              @if (isToolInputExpanded(subItem.timestamp)) {
+              <div class="px-2 pb-2 max-h-32 overflow-y-auto">
+                <markdown
+                  [data]="getFormattedToolInput(subItem)"
+                  class="prose prose-xs prose-invert max-w-none
+                                       [&_pre]:my-0 [&_pre]:rounded-sm [&_code]:text-[10px]
+                                       [&_pre]:bg-base-300/50 [&_p]:my-1 [&_p]:text-[10px]"
+                />
+              </div>
+              }
+            </div>
+            } }
           </div>
           }
         </div>
@@ -367,6 +387,14 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
 export class AnalysisTranscriptComponent {
   private readonly wizardState = inject(SetupWizardStateService);
 
+  /** Stream messages to display. Falls back to analysis stream from state service if not provided. */
+  readonly messages = input<AnalysisStreamPayload[]>();
+
+  /** Effective messages source: external input or state service fallback */
+  protected readonly effectiveMessages = computed(
+    () => this.messages() ?? this.wizardState.analysisStream()
+  );
+
   /** Lucide icon references */
   protected readonly TerminalIcon = Terminal;
   protected readonly ChevronUpIcon = ChevronUp;
@@ -389,8 +417,8 @@ export class AnalysisTranscriptComponent {
   /** Track which tool inputs show full content */
   private readonly fullToolInputs = signal<Set<number>>(new Set());
 
-  /** Track which tool groups are collapsed (by toolCallId) */
-  private readonly collapsedToolGroups = signal<Set<string>>(new Set());
+  /** Track which tool groups the user has expanded (by toolCallId) */
+  private readonly expandedToolGroups = signal<Set<string>>(new Set());
 
   /** Reference to the scrollable container element */
   protected readonly scrollContainer =
@@ -398,7 +426,7 @@ export class AnalysisTranscriptComponent {
 
   /** Total message count for the badge */
   protected readonly messageCount = computed(
-    () => this.wizardState.analysisStream().length
+    () => this.effectiveMessages().length
   );
 
   /**
@@ -434,7 +462,7 @@ export class AnalysisTranscriptComponent {
    * - Tool messages with same toolCallId are grouped into ToolCallGroup
    */
   protected readonly transcriptItems = computed<TranscriptItem[]>(() => {
-    const raw = this.wizardState.analysisStream();
+    const raw = this.effectiveMessages();
     if (raw.length === 0) return [];
 
     // Step 1: Merge consecutive text messages (existing logic)
@@ -471,11 +499,24 @@ export class AnalysisTranscriptComponent {
       }
     }
 
+    // Step 1.5: Filter out noise text groups (JSON fragments, bracket noise, garbled tokens)
+    const filtered = grouped.filter((msg) => {
+      if (msg.kind !== 'text') return true;
+      const trimmed = msg.content.trim();
+      if (trimmed.length === 0) return false;
+      // Filter out text that's mostly JSON syntax (quotes, brackets, numbers, colons)
+      const alphaChars = trimmed.replace(/[^a-zA-Z]/g, '').length;
+      if (trimmed.length > 5 && alphaChars / trimmed.length < 0.3) return false;
+      // Filter out very short noise (single brackets, punctuation)
+      if (trimmed.length < 3 && /^[[\]{}",:.\s]+$/.test(trimmed)) return false;
+      return true;
+    });
+
     // Step 2: Group tool messages by toolCallId into ToolCallGroups
     const items: TranscriptItem[] = [];
     const toolGroupMap = new Map<string, ToolCallGroup>();
 
-    for (const msg of grouped) {
+    for (const msg of filtered) {
       if (
         msg.toolCallId &&
         (msg.kind === 'tool_start' ||
@@ -517,7 +558,7 @@ export class AnalysisTranscriptComponent {
     // unless the user has manually scrolled up
     effect(() => {
       // Read the signal to track changes
-      const messages = this.wizardState.analysisStream();
+      const messages = this.effectiveMessages();
       if (messages.length === 0) return;
 
       // Only auto-scroll if user hasn't scrolled up
@@ -603,7 +644,7 @@ export class AnalysisTranscriptComponent {
 
   /** Toggle a tool group's collapsed state */
   protected toggleToolGroup(toolCallId: string): void {
-    this.collapsedToolGroups.update((set) => {
+    this.expandedToolGroups.update((set) => {
       const newSet = new Set(set);
       if (newSet.has(toolCallId)) {
         newSet.delete(toolCallId);
@@ -614,14 +655,13 @@ export class AnalysisTranscriptComponent {
     });
   }
 
-  /** Check if a tool group is collapsed. Completed groups default to collapsed. */
+  /** Check if a tool group is collapsed. All groups collapsed by default. */
   protected isToolGroupCollapsed(group: ToolCallGroup): boolean {
-    // If user has explicitly toggled, use that state
-    if (this.collapsedToolGroups().has(group.toolCallId)) {
-      return !group.isComplete; // Toggled: invert default
+    // The set tracks user-expanded groups (toggled open)
+    if (this.expandedToolGroups().has(group.toolCallId)) {
+      return false; // User explicitly expanded
     }
-    // Default: completed = collapsed, in-progress = expanded
-    return group.isComplete;
+    return true; // Default: all collapsed
   }
 
   /** Type guard to check if a transcript item is a ToolCallGroup */
@@ -666,22 +706,102 @@ export class AnalysisTranscriptComponent {
 
   /**
    * Format tool result content as markdown.
-   * Handles both error and success results.
+   * Applies the same processing pipeline as chat's CodeOutputComponent:
+   * 1. Extract MCP content blocks
+   * 2. Strip system-reminder tags
+   * 3. Strip line number prefixes
+   * 4. Auto-detect JSON and code
    */
   protected getFormattedToolResult(item: GroupedMessage): string {
-    const content = item.content;
+    let content = item.content;
     if (!content) return '_No output_';
 
-    // If content looks like code/file content, wrap in code block
+    // Processing pipeline (ported from code-output.component.ts)
+    content = this.extractMCPContent(content);
+    content = this.stripSystemReminders(content);
+    content = this.stripLineNumbers(content);
+
+    // JSON auto-detect
+    if (content.trim().startsWith('{') || content.trim().startsWith('[')) {
+      try {
+        JSON.parse(content);
+        return '```json\n' + content + '\n```';
+      } catch {
+        // Not valid JSON
+      }
+    }
+
+    // Code detection heuristic
     if (
       content.includes('\n') &&
-      (content.includes('{') || content.includes('import '))
+      (content.includes('{') ||
+        content.includes('import ') ||
+        content.includes('const '))
     ) {
       return '```\n' + content + '\n```';
     }
 
-    // Otherwise render as markdown (may contain formatted text)
+    // Otherwise render as markdown
     return content;
+  }
+
+  /**
+   * Extract text content from MCP-style content blocks.
+   * Converts [{type: "text", text: "..."}] → "..."
+   * Ported from chat's code-output.component.ts
+   */
+  private extractMCPContent(content: string): string {
+    const trimmed = content.trim();
+    if (!trimmed.startsWith('[')) return content;
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) return content;
+
+      const isMCPContent = parsed.every(
+        (item: unknown) =>
+          typeof item === 'object' &&
+          item !== null &&
+          'type' in item &&
+          (item as { type: string }).type === 'text' &&
+          'text' in item
+      );
+
+      if (isMCPContent) {
+        return parsed
+          .map((item: { type: string; text: string }) => item.text)
+          .join('\n');
+      }
+
+      return content;
+    } catch {
+      return content;
+    }
+  }
+
+  /**
+   * Strip <system-reminder>...</system-reminder> tags from content.
+   * Ported from chat's code-output.component.ts
+   */
+  private stripSystemReminders(content: string): string {
+    return content
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim();
+  }
+
+  /**
+   * Strip line number prefixes from Read tool output.
+   * Converts "     1→import { Module }" → "import { Module }"
+   * Ported from chat's code-output.component.ts
+   */
+  private stripLineNumbers(content: string): string {
+    return content
+      .split('\n')
+      .map((line) => {
+        const match = line.match(/^\s*\d+→(.*)$/);
+        return match ? match[1] : line;
+      })
+      .join('\n');
   }
 
   /**
