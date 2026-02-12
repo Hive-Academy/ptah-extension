@@ -17,6 +17,7 @@ import {
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 
 /**
  * GenerationProgressComponent - Detailed generation progress with grouped items and retry
@@ -46,7 +47,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
 @Component({
   selector: 'ptah-generation-progress',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, AnalysisTranscriptComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-4 py-8">
@@ -89,6 +90,20 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             </div>
           </div>
         </div>
+
+        <!-- Agent Activity Log (collapsible stream transcript) -->
+        @if (hasStreamMessages()) {
+        <div class="collapse collapse-arrow bg-base-200 mb-8">
+          <input type="checkbox" aria-label="Toggle agent activity log" />
+          <div class="collapse-title text-lg font-medium">
+            Agent Activity Log
+            <span class="badge badge-sm ml-2">{{ streamMessageCount() }}</span>
+          </div>
+          <div class="collapse-content">
+            <ptah-analysis-transcript [messages]="generationStream()" />
+          </div>
+        </div>
+        }
 
         <!-- Agents Section -->
         @if (agentItems().length > 0) {
@@ -463,20 +478,8 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                   </div>
                 </div>
 
-                <!-- Retry button for failed Enhanced Prompts -->
                 @if (enhancedPromptsStatus() === 'error') {
-                <button
-                  class="btn btn-error btn-sm"
-                  (click)="onRetryEnhancedPrompts()"
-                  aria-label="Retry Enhanced Prompts generation"
-                >
-                  <lucide-angular
-                    [img]="RotateCwIcon"
-                    class="h-4 w-4"
-                    aria-hidden="true"
-                  />
-                  Retry
-                </button>
+                <span class="badge badge-error badge-sm">Failed</span>
                 }
               </div>
             </div>
@@ -485,7 +488,25 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
         }
 
         <!-- Empty state -->
-        @if (totalCount() === 0) {
+        @if (totalCount() === 0) { @if (hasCompletedWithError()) {
+        <!-- Generation failed before items were created (e.g. template loading error) -->
+        <div class="card bg-base-200 shadow-xl">
+          <div class="card-body items-center text-center py-12">
+            <lucide-angular
+              [img]="CircleAlertIcon"
+              class="h-12 w-12 text-error mb-4"
+              aria-hidden="true"
+            />
+            <h3 class="text-xl font-semibold mb-2">Generation Failed</h3>
+            @for (err of completionErrors(); track err) {
+            <p class="text-sm text-error mb-1">{{ err }}</p>
+            }
+            <button class="btn btn-primary btn-sm mt-4" (click)="onContinue()">
+              Continue
+            </button>
+          </div>
+        </div>
+        } @else {
         <div class="card bg-base-200 shadow-xl">
           <div class="card-body items-center text-center py-12">
             <span
@@ -497,7 +518,7 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
             </p>
           </div>
         </div>
-        }
+        } }
 
         <!-- Completion section (visible when agents AND Enhanced Prompts are done) -->
         @if (isFullyComplete()) {
@@ -588,10 +609,23 @@ export class GenerationProgressComponent implements OnDestroy {
   private retryCounts = new Map<string, number>();
 
   /**
-   * Track whether Enhanced Prompts generation has been triggered.
-   * Prevents duplicate triggers from the effect.
+   * Generation stream messages from state service for the activity log transcript.
    */
-  private enhancedPromptsTriggered = false;
+  protected readonly generationStream = this.wizardState.generationStream;
+
+  /**
+   * Whether there are any generation stream messages to display.
+   */
+  protected readonly hasStreamMessages = computed(
+    () => this.generationStream().length > 0
+  );
+
+  /**
+   * Count of generation stream messages for the badge.
+   */
+  protected readonly streamMessageCount = computed(
+    () => this.generationStream().length
+  );
 
   /**
    * All skill generation progress items from state service.
@@ -675,15 +709,45 @@ export class GenerationProgressComponent implements OnDestroy {
   });
 
   /**
-   * Whether everything is fully complete (agents + Enhanced Prompts).
+   * Whether generation is fully complete.
    * The "Continue to Completion" button only appears when this is true.
+   * Enhanced Prompts generation now runs in the preceding Enhance step.
    */
   protected readonly isFullyComplete = computed(() => {
-    const agentsDone = this.wizardState.isGenerationComplete();
-    const epStatus = this.wizardState.enhancedPromptsStatus();
-    const epDone =
-      epStatus === 'complete' || epStatus === 'error' || epStatus === 'skipped';
-    return agentsDone && epDone;
+    return this.wizardState.isGenerationComplete();
+  });
+
+  /**
+   * Whether generation completed with an error before any items were created.
+   * This happens when template loading fails, causing the orchestrator to fail
+   * at Phase 2 before individual agent progress items are broadcasted.
+   */
+  protected readonly hasCompletedWithError = computed(() => {
+    const completion = this.wizardState.completionData();
+    return (
+      completion !== null && !completion.success && this.totalCount() === 0
+    );
+  });
+
+  /**
+   * Error messages from completion data (for early failure display).
+   */
+  protected readonly completionErrors = computed(() => {
+    return this.wizardState.completionData()?.errors ?? [];
+  });
+
+  /**
+   * Auto-transition to completion when generation finished during a prior step.
+   * If the user arrives at the generation step and completionData already exists
+   * with progress items tracked, transition to completion immediately.
+   */
+  private readonly autoCompleteEffect = effect(() => {
+    const completion = this.wizardState.completionData();
+    const items = this.progressItems();
+    // Only auto-transition if generation produced tracked items that are all done
+    if (completion && items.length > 0 && this.isFullyComplete()) {
+      queueMicrotask(() => this.wizardState.setCurrentStep('completion'));
+    }
   });
 
   /**
@@ -695,79 +759,6 @@ export class GenerationProgressComponent implements OnDestroy {
     return this.progressItems().filter(
       (item) => item.type === type && item.status === 'complete'
     ).length;
-  }
-
-  /**
-   * Effect: Auto-trigger Enhanced Prompts generation when agent generation completes.
-   * Uses Angular effect() to reactively watch for generation completion.
-   */
-  private readonly enhancedPromptsEffect = effect(() => {
-    const agentsDone = this.wizardState.isGenerationComplete();
-    const epStatus = this.wizardState.enhancedPromptsStatus();
-
-    if (agentsDone && epStatus === 'idle' && !this.enhancedPromptsTriggered) {
-      this.enhancedPromptsTriggered = true;
-      // Use queueMicrotask to avoid signal write during effect
-      queueMicrotask(() => this.triggerEnhancedPrompts());
-    }
-  });
-
-  /**
-   * Trigger Enhanced Prompts generation.
-   * Gets workspace path from project context and calls RPC.
-   */
-  private async triggerEnhancedPrompts(): Promise<void> {
-    this.wizardState.setEnhancedPromptsStatus('generating');
-
-    try {
-      // Get workspace path - use project context or fallback
-      const workspacePath = '.';
-
-      const result = await this.wizardRpc.runEnhancedPromptsWizard(
-        workspacePath
-      );
-
-      if (result.success) {
-        this.wizardState.setEnhancedPromptsStatus('complete');
-
-        // Extract detected stack for display
-        if (result.detectedStack) {
-          const stackLabels = [
-            ...(result.detectedStack.frameworks ?? []),
-            ...(result.detectedStack.languages ?? []),
-          ].filter(Boolean);
-          this.wizardState.setEnhancedPromptsDetectedStack(stackLabels);
-        }
-      } else {
-        // Check if it's a premium-only error (non-premium users)
-        const isPremiumError =
-          result.error?.toLowerCase().includes('premium') ||
-          result.error?.toLowerCase().includes('upgrade');
-
-        if (isPremiumError) {
-          this.wizardState.setEnhancedPromptsStatus('skipped');
-          this.wizardState.setEnhancedPromptsError(null);
-        } else {
-          this.wizardState.setEnhancedPromptsStatus('error');
-          this.wizardState.setEnhancedPromptsError(
-            result.error ?? 'Failed to generate Enhanced Prompts'
-          );
-        }
-      }
-    } catch (error) {
-      this.wizardState.setEnhancedPromptsStatus('error');
-      this.wizardState.setEnhancedPromptsError(
-        error instanceof Error ? error.message : 'Unexpected error'
-      );
-    }
-  }
-
-  /**
-   * Retry Enhanced Prompts generation after failure.
-   */
-  protected async onRetryEnhancedPrompts(): Promise<void> {
-    this.wizardState.setEnhancedPromptsError(null);
-    await this.triggerEnhancedPrompts();
   }
 
   /**
@@ -870,6 +861,5 @@ export class GenerationProgressComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.pendingRetries.clear();
     this.retryCounts.clear();
-    this.enhancedPromptsTriggered = false;
   }
 }

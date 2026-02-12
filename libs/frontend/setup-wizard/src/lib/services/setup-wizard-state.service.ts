@@ -8,6 +8,7 @@ import {
   AvailableAgentsPayload,
   GenerationCompletePayload,
   GenerationProgressPayload,
+  GenerationStreamPayload,
   ProjectAnalysisResult,
   ScanProgressPayload,
   WizardErrorPayload,
@@ -36,6 +37,7 @@ export type WizardStep =
   | 'scan'
   | 'analysis'
   | 'selection'
+  | 'enhance'
   | 'generation'
   | 'completion';
 
@@ -119,6 +121,8 @@ export interface CompletionData {
   generatedCount: number;
   duration?: number;
   errors?: string[];
+  warnings?: string[];
+  enhancedPromptsUsed?: boolean;
 }
 
 /**
@@ -223,6 +227,20 @@ export class SetupWizardStateService {
   private readonly analysisStreamSignal = signal<AnalysisStreamPayload[]>([]);
 
   /**
+   * Private writable signal for generation stream messages (live transcript).
+   * Accumulates GenerationStreamPayload messages during content generation.
+   */
+  private readonly generationStreamSignal = signal<GenerationStreamPayload[]>(
+    []
+  );
+
+  /**
+   * Private writable signal for enhance stream messages (live transcript).
+   * Accumulates AnalysisStreamPayload messages during enhanced prompts generation.
+   */
+  private readonly enhanceStreamSignal = signal<AnalysisStreamPayload[]>([]);
+
+  /**
    * Private writable signal for analysis results (null until analysis complete)
    */
   private readonly analysisResultsSignal = signal<AnalysisResults | null>(null);
@@ -268,6 +286,15 @@ export class SetupWizardStateService {
   private readonly selectedAgentsMapSignal = signal<Record<string, boolean>>(
     {}
   );
+
+  // === Fallback Warning State ===
+
+  /**
+   * Private writable signal for fallback warning message.
+   * Set when agentic analysis falls back to quick analysis mode.
+   * Displayed as a non-blocking warning in the scan progress UI.
+   */
+  private readonly fallbackWarningSignal = signal<string | null>(null);
 
   // === Enhanced Prompts State Signals ===
 
@@ -323,6 +350,18 @@ export class SetupWizardStateService {
   readonly analysisStream = this.analysisStreamSignal.asReadonly();
 
   /**
+   * Public readonly signal for generation stream messages.
+   * Used by GenerationProgressComponent to display live agent transcript during content generation.
+   */
+  readonly generationStream = this.generationStreamSignal.asReadonly();
+
+  /**
+   * Public readonly signal for enhance stream messages.
+   * Used by PromptEnhancementComponent to display live agent transcript during enhanced prompts generation.
+   */
+  readonly enhanceStream = this.enhanceStreamSignal.asReadonly();
+
+  /**
    * Public readonly signal for analysis results
    */
   readonly analysisResults = this.analysisResultsSignal.asReadonly();
@@ -363,6 +402,14 @@ export class SetupWizardStateService {
    * Provides direct access to agent selection state.
    */
   readonly selectedAgentsMap = this.selectedAgentsMapSignal.asReadonly();
+
+  // === Fallback Warning Public Signal ===
+
+  /**
+   * Public readonly signal for fallback warning message.
+   * Non-null when agentic analysis fell back to quick analysis mode.
+   */
+  readonly fallbackWarning = this.fallbackWarningSignal.asReadonly();
 
   // === Enhanced Prompts Public Signals ===
 
@@ -426,6 +473,8 @@ export class SetupWizardStateService {
         return this.projectContextSignal() !== null; // Need project context
       case 'selection':
         return this.selectedCount() > 0; // Need at least one agent
+      case 'enhance':
+        return false; // Enhance step manages its own Continue button
       case 'generation':
         return false; // Cannot proceed during generation
       case 'completion':
@@ -449,6 +498,7 @@ export class SetupWizardStateService {
       scan: 20,
       analysis: 35,
       selection: 50,
+      enhance: 55,
       generation: progress?.percentComplete ?? 65,
       completion: 100,
     };
@@ -457,20 +507,22 @@ export class SetupWizardStateService {
   });
 
   /**
-   * Current step index (0-based) for progress indicator
+   * Current step index (0-based) for the UI progress indicator.
+   * Excludes 'premium-check' since that step is not displayed in the stepper.
    */
   readonly stepIndex = computed(() => {
     const step = this.currentStepSignal();
-    const stepOrder: WizardStep[] = [
-      'premium-check',
+    const uiStepOrder: WizardStep[] = [
       'welcome',
       'scan',
       'analysis',
       'selection',
+      'enhance',
       'generation',
       'completion',
     ];
-    return stepOrder.indexOf(step);
+    // 'premium-check' maps to -1 (not shown in stepper)
+    return uiStepOrder.indexOf(step);
   });
 
   // === Deep Analysis Computed Signals (TASK_2025_111) ===
@@ -589,9 +641,12 @@ export class SetupWizardStateService {
     this.generationProgressSignal.set(null);
     this.scanProgressSignal.set(null);
     this.analysisStreamSignal.set([]);
+    this.generationStreamSignal.set([]);
+    this.enhanceStreamSignal.set([]);
     this.analysisResultsSignal.set(null);
     this.completionDataSignal.set(null);
     this.errorStateSignal.set(null);
+    this.fallbackWarningSignal.set(null);
     // Reset deep analysis state (TASK_2025_111)
     this.deepAnalysisSignal.set(null);
     this.recommendationsSignal.set([]);
@@ -679,6 +734,16 @@ export class SetupWizardStateService {
       }
       return updated;
     });
+  }
+
+  // === Fallback Warning State Mutation ===
+
+  /**
+   * Set or clear the fallback warning message.
+   * Called when agentic analysis falls back to quick analysis mode.
+   */
+  setFallbackWarning(warning: string | null): void {
+    this.fallbackWarningSignal.set(warning);
   }
 
   // === Enhanced Prompts State Mutations ===
@@ -770,6 +835,8 @@ export class SetupWizardStateService {
       'setup-wizard:available-agents',
       'setup-wizard:generation-progress',
       'setup-wizard:generation-complete',
+      'setup-wizard:generation-stream',
+      'setup-wizard:enhance-stream',
       'setup-wizard:error',
     ];
 
@@ -818,6 +885,20 @@ export class SetupWizardStateService {
 
           case 'setup-wizard:analysis-stream':
             this.handleAnalysisStream(message.payload);
+            break;
+
+          case 'setup-wizard:generation-stream':
+            this.generationStreamSignal.update((msgs) => [
+              ...msgs,
+              message.payload,
+            ]);
+            break;
+
+          case 'setup-wizard:enhance-stream':
+            this.enhanceStreamSignal.update((msgs) => [
+              ...msgs,
+              message.payload,
+            ]);
             break;
 
           case 'setup-wizard:error':
@@ -998,16 +1079,26 @@ export class SetupWizardStateService {
    * @param payload - Typed GenerationCompletePayload from shared types
    */
   private handleGenerationComplete(payload: GenerationCompletePayload): void {
-    // Map GenerationCompletePayload to local CompletionData format
     const completionData: CompletionData = {
       success: payload.success,
       generatedCount: payload.generatedCount,
       duration: payload.duration,
       errors: payload.errors,
+      warnings: payload.warnings,
+      enhancedPromptsUsed: payload.enhancedPromptsUsed,
     };
 
+    // Always store completion data so it's available when generation step mounts
     this.completionDataSignal.set(completionData);
-    this.currentStepSignal.set('completion');
+
+    // Only auto-transition to completion if we're on the generation step.
+    // If we're on the enhance step (or earlier), generation runs in the background
+    // and the user should complete the enhance step first. The generation-progress
+    // component will pick up completionData when it mounts.
+    const currentStep = this.currentStepSignal();
+    if (currentStep === 'generation') {
+      this.currentStepSignal.set('completion');
+    }
   }
 
   /**
@@ -1017,7 +1108,11 @@ export class SetupWizardStateService {
    * @param payload - Typed ErrorPayload from shared types
    */
   private handleError(payload: WizardErrorPayload): void {
-    // Map ErrorPayload to local ErrorState format
+    if (payload.type === 'fallback-warning') {
+      this.fallbackWarningSignal.set(payload.message);
+      return;
+    }
+
     const errorState: ErrorState = {
       message: payload.message,
       details: payload.details,
