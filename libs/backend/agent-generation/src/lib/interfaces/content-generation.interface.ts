@@ -8,11 +8,24 @@
  */
 
 import { Result } from '@ptah-extension/shared';
+import type { GenerationStreamPayload } from '@ptah-extension/shared';
 import {
   AgentTemplate,
   AgentProjectContext,
   LlmCustomization,
 } from '../types/core.types';
+
+/**
+ * SDK configuration for internal query execution during content generation.
+ */
+export interface ContentGenerationSdkConfig {
+  isPremium: boolean;
+  mcpServerRunning: boolean;
+  mcpPort?: number;
+  model?: string;
+  /** Callback for real-time stream events (text, tool calls, thinking) */
+  onStreamEvent?: (event: GenerationStreamPayload) => void;
+}
 
 /**
  * Service for generating agent content using templates and LLM.
@@ -64,7 +77,8 @@ export interface IContentGenerationService {
    */
   generateContent(
     template: AgentTemplate,
-    context: AgentProjectContext
+    context: AgentProjectContext,
+    sdkConfig?: ContentGenerationSdkConfig
   ): Promise<Result<string, Error>>;
 
   /**

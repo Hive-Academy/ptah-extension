@@ -18,8 +18,16 @@
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
-import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  RpcHandler,
+  TOKENS,
+  LicenseService,
+} from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+// eslint-disable-next-line @nx/enforce-module-boundaries
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
   WizardSubmitSelectionParams,
   WizardSubmitSelectionResponse,
@@ -29,10 +37,16 @@ import type {
   WizardRetryItemResponse,
   GenerationProgressPayload,
   GenerationCompletePayload,
+  GenerationStreamPayload,
 } from '@ptah-extension/shared';
-import type { GenerationSummary } from '@ptah-extension/agent-generation';
+import type {
+  GenerationSummary,
+  AgentProjectContext,
+} from '@ptah-extension/agent-generation';
 import { Result } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
+import { mapAnalysisToAgentContext } from './analysis-mapper';
+import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
 
 /**
  * Progress update callback payload from AgentGenerationOrchestratorService.
@@ -64,6 +78,13 @@ interface OrchestratorGenerationOptions {
   threshold?: number;
   userOverrides?: string[];
   variableOverrides?: Record<string, string>;
+  enhancedPromptContent?: string;
+  preComputedContext?: AgentProjectContext;
+  isPremium?: boolean;
+  mcpServerRunning?: boolean;
+  mcpPort?: number;
+  /** Callback for real-time stream events during content generation */
+  onStreamEvent?: (event: GenerationStreamPayload) => void;
 }
 
 /**
@@ -100,6 +121,14 @@ interface OrchestratorServiceInterface {
     options: OrchestratorGenerationOptions,
     progressCallback?: (progress: GenerationProgress) => void
   ): Promise<Result<GenerationSummary, Error>>;
+}
+
+/**
+ * Interface for the EnhancedPromptsService methods we need.
+ * Uses structural typing to avoid importing the concrete class.
+ */
+interface EnhancedPromptsServiceInterface {
+  getEnhancedPromptContent(workspacePath: string): Promise<string | null>;
 }
 
 /**
@@ -257,12 +286,133 @@ export class WizardGenerationRpcHandlers {
           );
         }
 
+        // Resolve enhanced prompt content (best-effort, non-blocking)
+        let enhancedPromptContent: string | undefined;
+        try {
+          const enhancedPromptsService =
+            this.resolveService<EnhancedPromptsServiceInterface>(
+              SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
+              'EnhancedPromptsService'
+            );
+          const content = await enhancedPromptsService.getEnhancedPromptContent(
+            workspaceFolder.uri.fsPath
+          );
+          if (content) {
+            enhancedPromptContent = content;
+            this.logger.info(
+              'Enhanced prompt content resolved for generation pipeline',
+              {
+                contentLength: content.length,
+              }
+            );
+          }
+        } catch {
+          this.logger.warn(
+            'EnhancedPromptsService not available. ' +
+              'Generation will proceed without enhanced prompt context.'
+          );
+        }
+
+        // Map wizard analysis to AgentProjectContext (skip Phase 1 re-analysis)
+        let preComputedContext: AgentProjectContext | undefined;
+        if (params.analysisData) {
+          try {
+            const workspaceAnalyzer =
+              this.resolveService<WorkspaceAnalyzerService>(
+                TOKENS.WORKSPACE_ANALYZER_SERVICE,
+                'WorkspaceAnalyzerService'
+              );
+            const projectInfo = await workspaceAnalyzer.getProjectInfo();
+            preComputedContext = mapAnalysisToAgentContext(
+              params.analysisData,
+              workspaceFolder.uri.fsPath,
+              projectInfo
+            );
+            this.logger.info(
+              'Mapped wizard analysis to AgentProjectContext for generation pipeline',
+              {
+                projectType: preComputedContext.projectType,
+                frameworkCount: preComputedContext.frameworks.length,
+                relevantFileCount: preComputedContext.relevantFiles.length,
+              }
+            );
+          } catch (mapError) {
+            this.logger.warn(
+              'Failed to map wizard analysis, generation will run its own analysis',
+              {
+                error:
+                  mapError instanceof Error
+                    ? mapError.message
+                    : String(mapError),
+              }
+            );
+          }
+        }
+
+        // Resolve license + MCP status for SDK config
+        let isPremium = false;
+        let mcpServerRunning = false;
+        let mcpPort: number | undefined;
+        try {
+          const licenseService = this.resolveService<LicenseService>(
+            TOKENS.LICENSE_SERVICE,
+            'LicenseService'
+          );
+          const licenseStatus = await licenseService.verifyLicense();
+          isPremium =
+            licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro';
+
+          const codeExecutionMcp = this.resolveService<CodeExecutionMCP>(
+            TOKENS.CODE_EXECUTION_MCP,
+            'CodeExecutionMCP'
+          );
+          const actualPort = codeExecutionMcp.getPort();
+          mcpServerRunning = actualPort !== null;
+          mcpPort = actualPort ?? undefined;
+        } catch (error) {
+          this.logger.debug(
+            'Could not resolve license/MCP services for generation',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            }
+          );
+        }
+
+        // Stream event broadcaster -- broadcasts real-time generation events
+        // (text deltas, tool calls, thinking) to the frontend for live transcript
+        const onStreamEvent = (event: GenerationStreamPayload): void => {
+          try {
+            if (!webviewManager) return;
+            webviewManager
+              .broadcastMessage('setup-wizard:generation-stream', event)
+              .catch((broadcastError) => {
+                this.logger.warn(
+                  'Failed to broadcast generation stream event',
+                  {
+                    error:
+                      broadcastError instanceof Error
+                        ? broadcastError.message
+                        : String(broadcastError),
+                  }
+                );
+              });
+          } catch {
+            // Swallow synchronous errors to avoid crashing generation pipeline
+          }
+        };
+
         // Build orchestrator options
         const options: OrchestratorGenerationOptions = {
           workspaceUri: workspaceFolder.uri,
           userOverrides: params.selectedAgentIds,
           threshold: params.threshold,
           variableOverrides: params.variableOverrides,
+          enhancedPromptContent,
+          preComputedContext,
+          isPremium,
+          mcpServerRunning,
+          mcpPort,
+          onStreamEvent,
         };
 
         // Progress callback - broadcasts progress to frontend
@@ -334,6 +484,9 @@ export class WizardGenerationRpcHandlers {
               duration: durationMs,
               errors:
                 summary.warnings.length > 0 ? summary.warnings : undefined,
+              warnings:
+                summary.warnings.length > 0 ? summary.warnings : undefined,
+              enhancedPromptsUsed: summary.enhancedPromptsUsed,
             };
 
             webviewManager

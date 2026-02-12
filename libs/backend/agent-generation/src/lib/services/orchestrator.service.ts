@@ -1,15 +1,18 @@
 /**
  * Agent Generation Orchestrator Service
  *
- * Coordinates the end-to-end workflow for intelligent agent generation through 5 phases:
+ * Coordinates the end-to-end workflow for intelligent agent generation through 4 phases:
  * 1. Analysis - Workspace and project analysis
  * 2. Selection - Template selection based on relevance
- * 3. Customization - LLM-powered content customization
- * 4. Rendering - Template rendering with variables
- * 5. Writing - Atomic file writing with rollback
+ * 3. Rendering - Template rendering with LLM-driven content generation
+ * 4. Writing - Atomic file writing with rollback
+ *
+ * LLM Pipeline Migration:
+ * Previously: 5 phases with separate Phase 3 (LLM customization via VsCodeLmService)
+ * Now: 4 phases - Phase 3 removed (was dead code - its results were never used by Phase 4).
+ * Content generation now routes through InternalQueryService (Agent SDK) in Phase 3 (Rendering).
  *
  * Pattern: Service Orchestration with Transaction Management
- * Reference: TemplateGeneratorService patterns
  *
  * @module @ptah-extension/agent-generation/services
  */
@@ -17,6 +20,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
+import type { GenerationStreamPayload } from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
 import {
   ProjectType,
@@ -36,15 +40,10 @@ import {
   GenerationSummary,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
-import {
-  VsCodeLmService,
-  LlmValidationFallbackError,
-} from './vscode-lm.service';
-import { SectionCustomizationRequest } from '../interfaces/vscode-lm.interface';
 
 /**
  * Generation options for orchestrator.
- * Extends base options with workspace context.
+ * Extends base options with workspace context and SDK config.
  */
 export interface OrchestratorGenerationOptions {
   /**
@@ -68,6 +67,40 @@ export interface OrchestratorGenerationOptions {
    * Variable overrides for template rendering.
    */
   variableOverrides?: Record<string, string>;
+
+  /**
+   * Optional enhanced prompt content from the Prompt Designer.
+   * When provided, included as context for LLM content generation.
+   */
+  enhancedPromptContent?: string;
+
+  /**
+   * Pre-computed project context from the wizard analysis (Step 1).
+   * When provided, Phase 1 (workspace analysis) is skipped entirely
+   * and this context is used as the single source of truth.
+   */
+  preComputedContext?: AgentProjectContext;
+
+  /**
+   * Whether user has premium features (enables MCP server + enhanced prompts in SDK calls).
+   */
+  isPremium?: boolean;
+
+  /**
+   * Whether the Ptah MCP server is currently running.
+   */
+  mcpServerRunning?: boolean;
+
+  /**
+   * Port the Ptah MCP server is listening on.
+   */
+  mcpPort?: number;
+
+  /**
+   * Callback for real-time stream events during content generation.
+   * Receives text deltas, tool calls, and thinking events for live UI updates.
+   */
+  onStreamEvent?: (event: GenerationStreamPayload) => void;
 }
 
 /**
@@ -96,7 +129,7 @@ export interface GenerationProgress {
   currentOperation?: string;
 
   /**
-   * Number of agents processed (for customization/rendering).
+   * Number of agents processed (for rendering).
    */
   agentsProcessed?: number;
 
@@ -115,7 +148,7 @@ export interface GenerationProgress {
  * Agent Generation Orchestrator Service
  *
  * Responsibilities:
- * - Coordinate 5-phase workflow sequentially
+ * - Coordinate 4-phase workflow sequentially
  * - Manage errors and provide graceful degradation
  * - Track and report progress to callers
  * - Delegate to specialized services for each phase
@@ -125,7 +158,7 @@ export interface GenerationProgress {
  * ```typescript
  * const orchestrator = container.resolve(AgentGenerationOrchestratorService);
  * const result = await orchestrator.generateAgents(
- *   { workspaceUri, threshold: 70 },
+ *   { workspaceUri, threshold: 70, isPremium: true, mcpServerRunning: true },
  *   (progress) => console.log(`${progress.phase}: ${progress.percentComplete}%`)
  * );
  * if (result.isOk()) {
@@ -135,19 +168,11 @@ export interface GenerationProgress {
  */
 @injectable()
 export class AgentGenerationOrchestratorService {
-  /**
-   * Phase 3 timeout limit in milliseconds (5 minutes).
-   * Prevents wizard from appearing frozen during long LLM operations.
-   */
-  private readonly PHASE_3_TIMEOUT_MS = 5 * 60 * 1000;
-
   constructor(
     @inject(AGENT_GENERATION_TOKENS.AGENT_SELECTION_SERVICE)
     private readonly agentSelector: IAgentSelectionService,
     @inject(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE)
     private readonly templateStorage: ITemplateStorageService,
-    @inject(AGENT_GENERATION_TOKENS.VSCODE_LM_SERVICE)
-    private readonly llmService: VsCodeLmService,
     @inject(AGENT_GENERATION_TOKENS.CONTENT_GENERATION_SERVICE)
     private readonly contentGenerator: IContentGenerationService,
     @inject(AGENT_GENERATION_TOKENS.AGENT_FILE_WRITER_SERVICE)
@@ -167,16 +192,15 @@ export class AgentGenerationOrchestratorService {
   }
 
   /**
-   * Generate agents through 5-phase workflow.
+   * Generate agents through 4-phase workflow.
    *
    * Phases:
    * 1. Analysis (0-20%): Analyze workspace and build project context
    * 2. Selection (20-30%): Select relevant agents based on context
-   * 3. Customization (30-80%): LLM-customize agent sections
-   * 4. Rendering (80-95%): Render templates with variables
-   * 5. Writing (95-100%): Atomic file writing
+   * 3. Rendering (30-95%): Render templates with LLM-driven content generation
+   * 4. Writing (95-100%): Atomic file writing
    *
-   * @param options - Generation options with workspace URI
+   * @param options - Generation options with workspace URI and SDK config
    * @param progressCallback - Optional progress callback for UI updates
    * @returns Result with generation summary or error
    */
@@ -192,31 +216,60 @@ export class AgentGenerationOrchestratorService {
         workspace: options.workspaceUri.fsPath,
         threshold: options.threshold ?? 50,
         hasOverrides: !!options.userOverrides,
+        isPremium: options.isPremium,
+        mcpServerRunning: options.mcpServerRunning,
       });
 
       // Phase 1: Workspace Analysis (0% → 20%)
-      this.logger.info('Phase 1: Analyzing workspace');
-      progressCallback?.({
-        phase: 'analysis',
-        percentComplete: 5,
-        currentOperation: 'Detecting project type and frameworks',
-      });
+      let projectContext: AgentProjectContext;
 
-      const contextResult = await this.analyzeWorkspace(
-        options.workspaceUri,
-        progressCallback
-      );
+      if (options.preComputedContext) {
+        // Use pre-computed context from wizard analysis — skip independent analysis
+        projectContext = options.preComputedContext;
+        this.logger.info(
+          'Phase 1: Using pre-computed context from wizard analysis',
+          {
+            projectType: projectContext.projectType,
+            frameworkCount: projectContext.frameworks.length,
+            relevantFileCount: projectContext.relevantFiles.length,
+          }
+        );
+        progressCallback?.({
+          phase: 'analysis',
+          percentComplete: 20,
+          currentOperation: 'Using wizard analysis results',
+          detectedCharacteristics: [
+            `Project Type: ${projectContext.projectType}`,
+            `Frameworks: ${projectContext.frameworks.join(', ') || 'None'}`,
+            projectContext.monorepoType
+              ? `Monorepo: ${projectContext.monorepoType}`
+              : 'Single package',
+          ],
+        });
+      } else {
+        this.logger.info('Phase 1: Analyzing workspace');
+        progressCallback?.({
+          phase: 'analysis',
+          percentComplete: 5,
+          currentOperation: 'Detecting project type and frameworks',
+        });
 
-      if (contextResult.isErr()) {
-        this.logger.error('Workspace analysis failed', contextResult.error!);
-        return Result.err(contextResult.error!);
+        const contextResult = await this.analyzeWorkspace(
+          options.workspaceUri,
+          progressCallback
+        );
+
+        if (contextResult.isErr()) {
+          this.logger.error('Workspace analysis failed', contextResult.error!);
+          return Result.err(contextResult.error!);
+        }
+
+        projectContext = contextResult.value!;
+        this.logger.info('Workspace analysis complete', {
+          projectType: projectContext.projectType,
+          frameworkCount: projectContext.frameworks.length,
+        });
       }
-
-      const projectContext = contextResult.value!;
-      this.logger.info('Workspace analysis complete', {
-        projectType: projectContext.projectType,
-        frameworkCount: projectContext.frameworks.length,
-      });
 
       // Phase 2: Agent Selection (20% → 30%)
       this.logger.info('Phase 2: Selecting agents');
@@ -252,55 +305,22 @@ export class AgentGenerationOrchestratorService {
         });
       }
 
-      // Phase 3: LLM Customization (30% → 80%) with timeout protection
-      this.logger.info(`Phase 3: Customizing ${selections.length} agents`);
-      progressCallback?.({
-        phase: 'customization',
-        percentComplete: 35,
-        currentOperation: 'Preparing LLM customization requests',
-        totalAgents: selections.length,
-        agentsProcessed: 0,
-      });
-
-      // Wrap Phase 3 with timeout to prevent indefinite waiting
-      const customizationsResult = await this.executeWithTimeout(
-        this.customizeAgents(
-          selections.map((s) => s.template.id),
-          projectContext,
-          progressCallback
-        ),
-        this.PHASE_3_TIMEOUT_MS,
-        'Phase 3 (LLM Customization)'
-      );
-
-      if (customizationsResult.isErr()) {
-        // Customization failures are non-fatal - use fallback
-        this.logger.warn(
-          'LLM customization failed, using generic content',
-          customizationsResult.error!
-        );
-        warnings.push(
-          `LLM customization failed: ${customizationsResult.error!.message}`
-        );
-      }
-
-      const customizations = customizationsResult.isOk()
-        ? customizationsResult.value!
-        : new Map();
-
-      // Phase 4: Template Rendering (80% → 95%)
-      this.logger.info('Phase 4: Rendering templates');
+      // Phase 3: Template Rendering with LLM Content Generation (30% → 95%)
+      this.logger.info(`Phase 3: Rendering ${selections.length} agents`);
       progressCallback?.({
         phase: 'rendering',
-        percentComplete: 85,
-        currentOperation: 'Rendering agent templates with variables',
+        percentComplete: 35,
+        currentOperation: 'Rendering agent templates with LLM content',
+        totalAgents: selections.length,
+        agentsProcessed: 0,
       });
 
       const renderedResult = await this.renderAgents(
         selections.map((s) => s.template.id),
         projectContext,
-        customizations,
-        options.variableOverrides
+        options,
+        progressCallback,
+        warnings
       );
 
       if (renderedResult.isErr()) {
@@ -311,8 +331,8 @@ export class AgentGenerationOrchestratorService {
       const renderedAgents = renderedResult.value!;
       this.logger.info(`Rendered ${renderedAgents.length} agents`);
 
-      // Phase 5: Atomic File Writing (95% → 100%)
-      this.logger.info('Phase 5: Writing agent files');
+      // Phase 4: Atomic File Writing (95% → 100%)
+      this.logger.info('Phase 4: Writing agent files');
       progressCallback?.({
         phase: 'writing',
         percentComplete: 97,
@@ -344,6 +364,7 @@ export class AgentGenerationOrchestratorService {
         durationMs,
         warnings,
         agents: renderedAgents,
+        enhancedPromptsUsed: !!options.enhancedPromptContent,
       };
 
       this.logger.info('Agent generation complete', {
@@ -433,7 +454,10 @@ export class AgentGenerationOrchestratorService {
           : undefined,
         relevantFiles: [], // Can be populated by FileRelevanceScorerService if needed
         techStack: {
-          languages: this.detectLanguagesFromProjectType(projectInfo.type),
+          languages: this.detectLanguagesFromProjectType(
+            projectInfo.type,
+            projectInfo
+          ),
           frameworks: frameworksString,
           buildTools: this.detectBuildTools(projectInfo),
           testingFrameworks: this.detectTestingFrameworks(
@@ -498,17 +522,56 @@ export class AgentGenerationOrchestratorService {
 
         // Load user-selected templates
         const selections = [];
+        const loadErrors: string[] = [];
+
         for (const agentId of userOverrides) {
+          this.logger.debug(`Loading template for agent: ${agentId}`);
           const templateResult = await this.templateStorage.loadTemplate(
             agentId
           );
+
           if (templateResult.isOk()) {
             selections.push({
               template: templateResult.value!,
               relevanceScore: 100, // User override = max relevance
               matchedCriteria: ['User manual selection'],
             });
+            this.logger.debug(`Successfully loaded template: ${agentId}`);
+          } else {
+            const errorMsg = templateResult.error?.message || 'Unknown error';
+            loadErrors.push(`${agentId}: ${errorMsg}`);
+            this.logger.error(
+              `Failed to load template for agent: ${agentId}`,
+              templateResult.error!
+            );
           }
+        }
+
+        // Log summary
+        this.logger.info('User agent selection loading complete', {
+          requested: userOverrides.length,
+          successful: selections.length,
+          failed: loadErrors.length,
+          errors: loadErrors,
+        });
+
+        // If no templates loaded successfully, return error
+        if (selections.length === 0 && loadErrors.length > 0) {
+          return Result.err(
+            new Error(
+              `Failed to load any agent templates. Errors: ${loadErrors.join(
+                '; '
+              )}`
+            )
+          );
+        }
+
+        // If some failed but others succeeded, log warning but continue
+        if (loadErrors.length > 0) {
+          this.logger.warn(
+            `Some agent templates failed to load, continuing with ${selections.length} successful agents`,
+            { errors: loadErrors }
+          );
         }
 
         return Result.ok(selections);
@@ -533,146 +596,60 @@ export class AgentGenerationOrchestratorService {
   }
 
   /**
-   * Phase 3: Customize agents with LLM-generated content.
+   * Phase 3: Render agent templates with LLM-driven content generation.
    *
-   * @param agentIds - Selected agent IDs to customize
-   * @param context - Project context for customization
-   * @param progressCallback - Progress callback for updates
-   * @returns Result with customizations map or error
-   * @private
-   */
-  private async customizeAgents(
-    agentIds: string[],
-    context: AgentProjectContext,
-    progressCallback?: (progress: GenerationProgress) => void
-  ): Promise<Result<Map<string, Map<string, string>>, Error>> {
-    try {
-      const customizations = new Map<string, Map<string, string>>();
-
-      for (let i = 0; i < agentIds.length; i++) {
-        const agentId = agentIds[i];
-
-        this.logger.debug(`Customizing agent: ${agentId}`);
-
-        // Load template to get LLM sections
-        const templateResult = await this.templateStorage.loadTemplate(agentId);
-        if (templateResult.isErr()) {
-          this.logger.warn(
-            `Failed to load template for ${agentId}, skipping customization`
-          );
-          continue;
-        }
-
-        const template = templateResult.value!;
-        const llmSections = template.llmSections || [];
-
-        if (llmSections.length === 0) {
-          this.logger.debug(
-            `No LLM sections for ${agentId}, skipping customization`
-          );
-          customizations.set(agentId, new Map());
-          continue;
-        }
-
-        // Build customization requests for all sections
-        const sectionRequests: SectionCustomizationRequest[] = llmSections.map(
-          (section) => ({
-            id: section.id,
-            topic: section.topic,
-            projectContext: context,
-            fileSamples: this.selectFileSamples(context, section.topic),
-          })
-        );
-
-        // Batch customize all sections
-        const sectionResults = await this.llmService.batchCustomize(
-          sectionRequests
-        );
-
-        // Collect results
-        const agentCustomizations = new Map<string, string>();
-        for (const [sectionId, result] of sectionResults.entries()) {
-          if (result.isOk()) {
-            agentCustomizations.set(sectionId, result.value!);
-          } else {
-            // Check if error is fallback error (validation failed) vs real error
-            if (result.error instanceof LlmValidationFallbackError) {
-              this.logger.warn(
-                `LLM customization validation failed for section ${sectionId}, using generic content`,
-                {
-                  attempts: result.error.attempts,
-                  lastScore: result.error.lastValidationScore,
-                }
-              );
-              agentCustomizations.set(sectionId, ''); // Fallback to generic content
-            } else {
-              // Real error (infrastructure, API failure) - still fallback but log as error
-              this.logger.error(
-                `LLM customization error for section ${sectionId}, using generic content`,
-                result.error!
-              );
-              agentCustomizations.set(sectionId, ''); // Fallback to generic content
-            }
-          }
-        }
-
-        customizations.set(agentId, agentCustomizations);
-
-        // Progress update
-        const percentComplete =
-          30 + Math.floor(((i + 1) / agentIds.length) * 50);
-        progressCallback?.({
-          phase: 'customization',
-          percentComplete,
-          currentOperation: `Customized ${agentId}`,
-          agentsProcessed: i + 1,
-          totalAgents: agentIds.length,
-        });
-      }
-
-      return Result.ok(customizations);
-    } catch (error) {
-      return Result.err(
-        new Error(`Agent customization failed: ${(error as Error).message}`)
-      );
-    }
-  }
-
-  /**
-   * Phase 4: Render agent templates with variables and customizations.
+   * Each template is processed by ContentGenerationService which handles:
+   * - Extracting dynamic sections (LLM + VAR markers)
+   * - Making SDK calls to fill sections with project-specific content
+   * - Substituting remaining variables from analysis context
    *
    * @param agentIds - Agent IDs to render
    * @param context - Project context for variable substitution
-   * @param customizations - LLM customizations map
-   * @param variableOverrides - Optional variable overrides
+   * @param options - Generation options with SDK config
+   * @param progressCallback - Progress callback for updates
+   * @param warnings - Warnings array to append to
    * @returns Result with rendered agents or error
    * @private
    */
   private async renderAgents(
     agentIds: string[],
     context: AgentProjectContext,
-    customizations: Map<string, Map<string, string>>,
-    variableOverrides?: Record<string, string>
+    options: OrchestratorGenerationOptions,
+    progressCallback?: (progress: GenerationProgress) => void,
+    warnings?: string[]
   ): Promise<Result<GeneratedAgent[], Error>> {
     try {
       const rendered: GeneratedAgent[] = [];
 
-      for (const agentId of agentIds) {
+      // Build SDK config from options
+      const sdkConfig = {
+        isPremium: options.isPremium ?? false,
+        mcpServerRunning: options.mcpServerRunning ?? false,
+        mcpPort: options.mcpPort,
+        onStreamEvent: options.onStreamEvent,
+      };
+
+      for (let i = 0; i < agentIds.length; i++) {
+        const agentId = agentIds[i];
         this.logger.debug(`Rendering agent: ${agentId}`);
 
         // Load template
         const templateResult = await this.templateStorage.loadTemplate(agentId);
         if (templateResult.isErr()) {
           this.logger.warn(`Failed to load template for ${agentId}, skipping`);
+          warnings?.push(
+            `Failed to load template for ${agentId}: ${templateResult.error?.message}`
+          );
           continue;
         }
 
         const template = templateResult.value!;
 
-        // Generate content (this handles variable substitution and LLM sections)
+        // Generate content (handles variable substitution and LLM sections via SDK)
         const contentResult = await this.contentGenerator.generateContent(
           template,
-          context
+          context,
+          sdkConfig
         );
 
         if (contentResult.isOk()) {
@@ -681,7 +658,7 @@ export class AgentGenerationOrchestratorService {
             sourceTemplateId: template.id,
             sourceTemplateVersion: template.version,
             content: contentResult.value!,
-            variables: this.buildVariables(context, variableOverrides),
+            variables: this.buildVariables(context, options.variableOverrides),
             customizations: [],
             generatedAt: new Date(),
             filePath: `.claude/agents/${template.id}.md`,
@@ -694,7 +671,23 @@ export class AgentGenerationOrchestratorService {
               contentResult.error!.message
             }`
           );
+          warnings?.push(
+            `Content generation failed for ${agentId}: ${
+              contentResult.error!.message
+            }`
+          );
         }
+
+        // Progress update
+        const percentComplete =
+          30 + Math.floor(((i + 1) / agentIds.length) * 65);
+        progressCallback?.({
+          phase: 'rendering',
+          percentComplete,
+          currentOperation: `Rendered ${agentId}`,
+          agentsProcessed: i + 1,
+          totalAgents: agentIds.length,
+        });
       }
 
       if (rendered.length === 0) {
@@ -739,105 +732,95 @@ export class AgentGenerationOrchestratorService {
   }
 
   /**
-   * Select relevant file samples for LLM context.
-   *
-   * @param context - Project context with file index
-   * @param topic - LLM section topic
-   * @returns Array of file content samples
+   * Detect primary languages from project type.
+   * Uses the project type string as the primary language indicator
+   * and checks dependencies for TypeScript usage.
    * @private
    */
-  private selectFileSamples(
-    context: AgentProjectContext,
-    topic: string
+  private detectLanguagesFromProjectType(
+    projectType: ProjectType,
+    projectInfo?: ProjectInfo
   ): string[] {
-    // TODO: Implement intelligent file selection based on topic
-    // For now, return empty array (generic customization)
-    return [];
+    const languages: string[] = [];
+    const typeStr = projectType.toString();
+
+    // Use project type as primary language hint
+    languages.push(typeStr);
+
+    // Check for TypeScript in dependencies
+    if (projectInfo) {
+      const allDeps = [
+        ...projectInfo.dependencies,
+        ...projectInfo.devDependencies,
+      ];
+      if (allDeps.some((d) => d.includes('typescript'))) {
+        if (!languages.includes('TypeScript')) {
+          languages.push('TypeScript');
+        }
+      }
+    }
+
+    return languages.length > 0 ? languages : [typeStr];
   }
 
   /**
-   * Detect primary languages from project type
-   * @private
-   */
-  private detectLanguagesFromProjectType(projectType: ProjectType): string[] {
-    const languageMap: Record<ProjectType, string[]> = {
-      [ProjectType.Node]: ['JavaScript', 'TypeScript'],
-      [ProjectType.React]: ['JavaScript', 'TypeScript', 'JSX', 'TSX'],
-      [ProjectType.Angular]: ['TypeScript'],
-      [ProjectType.Vue]: ['JavaScript', 'TypeScript', 'Vue'],
-      [ProjectType.NextJS]: ['JavaScript', 'TypeScript', 'JSX', 'TSX'],
-      [ProjectType.Python]: ['Python'],
-      [ProjectType.Java]: ['Java'],
-      [ProjectType.Rust]: ['Rust'],
-      [ProjectType.Go]: ['Go'],
-      [ProjectType.DotNet]: ['C#', 'F#'],
-      [ProjectType.PHP]: ['PHP'],
-      [ProjectType.Ruby]: ['Ruby'],
-      [ProjectType.General]: ['Unknown'],
-      [ProjectType.Unknown]: ['Unknown'],
-    };
-
-    return languageMap[projectType] || ['Unknown'];
-  }
-
-  /**
-   * Detect build tools from project info
+   * Detect build tools from project dependencies.
+   * Filters dependencies that match known build tool patterns.
    * @private
    */
   private detectBuildTools(projectInfo: ProjectInfo): string[] {
-    const buildTools: string[] = [];
-    const deps = [...projectInfo.dependencies, ...projectInfo.devDependencies];
+    const allDeps = [
+      ...projectInfo.dependencies,
+      ...projectInfo.devDependencies,
+    ];
 
-    if (deps.includes('webpack')) buildTools.push('Webpack');
-    if (deps.includes('vite')) buildTools.push('Vite');
-    if (deps.includes('esbuild')) buildTools.push('esbuild');
-    if (deps.includes('rollup')) buildTools.push('Rollup');
-    if (deps.includes('parcel')) buildTools.push('Parcel');
-    if (deps.includes('turbopack')) buildTools.push('Turbopack');
-    if (deps.includes('@nx/devkit')) buildTools.push('Nx');
-    if (deps.includes('gradle')) buildTools.push('Gradle');
-    if (deps.includes('maven')) buildTools.push('Maven');
-    if (deps.includes('cargo')) buildTools.push('Cargo');
-    if (deps.includes('go')) buildTools.push('Go Build');
-    if (deps.includes('setuptools')) buildTools.push('setuptools');
+    // Pattern-based detection — matches dependency names containing these substrings
+    const buildToolPatterns = [
+      'webpack',
+      'vite',
+      'esbuild',
+      'rollup',
+      'parcel',
+      'turbo',
+      '@nx/',
+      'nx',
+      'gradle',
+      'maven',
+      'cargo',
+      'setuptools',
+    ];
 
-    // Fallback based on project type
-    if (buildTools.length === 0) {
-      if (projectInfo.type === ProjectType.Node) buildTools.push('npm/tsc');
-      if (projectInfo.type === ProjectType.Python) buildTools.push('pip');
-      if (projectInfo.type === ProjectType.Java)
-        buildTools.push('Maven/Gradle');
-      if (projectInfo.type === ProjectType.Rust) buildTools.push('Cargo');
-      if (projectInfo.type === ProjectType.Go) buildTools.push('Go Build');
-    }
-
-    return buildTools;
+    return allDeps
+      .filter((dep) =>
+        buildToolPatterns.some((pattern) => dep.includes(pattern))
+      )
+      .slice(0, 10);
   }
 
   /**
-   * Detect testing frameworks from dependencies
+   * Detect testing frameworks from dev dependencies.
+   * Filters dependencies that match known test framework patterns.
    * @private
    */
   private detectTestingFrameworks(devDependencies: string[]): string[] {
-    const frameworks: string[] = [];
+    const testPatterns = [
+      'jest',
+      'vitest',
+      'mocha',
+      'jasmine',
+      'karma',
+      'cypress',
+      'playwright',
+      'testing-library',
+      'pytest',
+      'unittest',
+      'junit',
+      'cargo-test',
+    ];
 
-    if (devDependencies.includes('jest')) frameworks.push('Jest');
-    if (devDependencies.includes('vitest')) frameworks.push('Vitest');
-    if (devDependencies.includes('mocha')) frameworks.push('Mocha');
-    if (devDependencies.includes('jasmine')) frameworks.push('Jasmine');
-    if (devDependencies.includes('karma')) frameworks.push('Karma');
-    if (devDependencies.includes('cypress')) frameworks.push('Cypress');
-    if (devDependencies.includes('playwright')) frameworks.push('Playwright');
-    if (devDependencies.includes('@testing-library/react'))
-      frameworks.push('React Testing Library');
-    if (devDependencies.includes('@testing-library/angular'))
-      frameworks.push('Angular Testing Library');
-    if (devDependencies.includes('pytest')) frameworks.push('pytest');
-    if (devDependencies.includes('unittest')) frameworks.push('unittest');
-    if (devDependencies.includes('junit')) frameworks.push('JUnit');
-    if (devDependencies.includes('cargo-test')) frameworks.push('Cargo Test');
-
-    return frameworks;
+    return devDependencies
+      .filter((dep) => testPatterns.some((pattern) => dep.includes(pattern)))
+      .slice(0, 10);
   }
 
   /**
@@ -869,41 +852,5 @@ export class AgentGenerationOrchestratorService {
       return 'composer';
 
     return 'npm'; // Default fallback
-  }
-
-  /**
-   * Execute a promise with a timeout.
-   * Races the promise against a timeout, returning an error if timeout is reached.
-   *
-   * @param promise - Promise to execute
-   * @param timeoutMs - Timeout in milliseconds
-   * @param phaseName - Human-readable phase name for error messages
-   * @returns Result from promise or timeout error
-   * @private
-   */
-  private async executeWithTimeout<T>(
-    promise: Promise<Result<T, Error>>,
-    timeoutMs: number,
-    phaseName: string
-  ): Promise<Result<T, Error>> {
-    const timeoutPromise = new Promise<Result<T, Error>>((resolve) => {
-      setTimeout(() => {
-        this.logger.error(`${phaseName} timeout exceeded`, {
-          timeoutMs,
-          timeoutMinutes: (timeoutMs / 1000 / 60).toFixed(1),
-        });
-        resolve(
-          Result.err(
-            new Error(
-              `${phaseName} timeout exceeded (${(timeoutMs / 1000 / 60).toFixed(
-                1
-              )} minutes). Please try again with fewer agents.`
-            )
-          )
-        );
-      }, timeoutMs);
-    });
-
-    return Promise.race([promise, timeoutPromise]);
   }
 }

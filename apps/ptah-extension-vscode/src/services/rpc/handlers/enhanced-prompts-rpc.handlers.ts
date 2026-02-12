@@ -6,8 +6,11 @@
  * - enhancedPrompts:runWizard - Execute the wizard to generate prompts
  * - enhancedPrompts:setEnabled - Toggle the feature on/off
  * - enhancedPrompts:regenerate - Force regenerate the prompt
+ * - enhancedPrompts:getPromptContent - Get generated prompt content for preview
+ * - enhancedPrompts:download - Download generated prompt as .md file
  *
  * TASK_2025_137: Intelligent Prompt Generation System
+ * TASK_2025_149 Batch 5: Added getPromptContent and download handlers
  */
 
 /**
@@ -25,6 +28,11 @@ import {
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import { EnhancedPromptsService, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type {
+  PromptDesignerInput,
+  EnhancedPromptsSdkConfig,
+} from '@ptah-extension/agent-sdk';
+import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
+import type {
   EnhancedPromptsGetStatusParams,
   EnhancedPromptsGetStatusResponse,
   EnhancedPromptsRunWizardParams,
@@ -33,7 +41,11 @@ import type {
   EnhancedPromptsSetEnabledResponse,
   EnhancedPromptsRegenerateParams,
   EnhancedPromptsRegenerateResponse,
+  AnalysisStreamPayload,
 } from '@ptah-extension/shared';
+import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
+import { mapAnalysisToDesignerInput } from './analysis-mapper';
+import * as vscode from 'vscode';
 
 /**
  * RPC handlers for Enhanced Prompts operations
@@ -58,7 +70,9 @@ export class EnhancedPromptsRpcHandlers {
     @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService
+    private readonly licenseService: LicenseService,
+    @inject(TOKENS.WORKSPACE_ANALYZER_SERVICE)
+    private readonly workspaceAnalyzer: WorkspaceAnalyzerService
   ) {}
 
   /**
@@ -69,6 +83,8 @@ export class EnhancedPromptsRpcHandlers {
     this.registerRunWizard();
     this.registerSetEnabled();
     this.registerRegenerate();
+    this.registerGetPromptContent();
+    this.registerDownload();
 
     this.logger.debug('Enhanced Prompts RPC handlers registered', {
       methods: [
@@ -76,6 +92,8 @@ export class EnhancedPromptsRpcHandlers {
         'enhancedPrompts:runWizard',
         'enhancedPrompts:setEnabled',
         'enhancedPrompts:regenerate',
+        'enhancedPrompts:getPromptContent',
+        'enhancedPrompts:download',
       ],
     });
   }
@@ -94,9 +112,9 @@ export class EnhancedPromptsRpcHandlers {
       EnhancedPromptsGetStatusResponse
     >('enhancedPrompts:getStatus', async (params) => {
       try {
-        const workspacePath = params?.workspacePath;
+        const rawPath = params?.workspacePath;
 
-        if (!workspacePath) {
+        if (!rawPath) {
           return {
             enabled: false,
             hasGeneratedPrompt: false,
@@ -106,6 +124,9 @@ export class EnhancedPromptsRpcHandlers {
             error: 'Workspace path is required',
           };
         }
+
+        // Resolve relative paths to actual workspace folder path
+        const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.debug('RPC: enhancedPrompts:getStatus called', {
           workspacePath,
@@ -160,17 +181,21 @@ export class EnhancedPromptsRpcHandlers {
       EnhancedPromptsRunWizardResponse
     >('enhancedPrompts:runWizard', async (params) => {
       try {
-        const workspacePath = params?.workspacePath;
+        const rawPath = params?.workspacePath;
 
-        if (!workspacePath) {
+        if (!rawPath) {
           return {
             success: false,
             error: 'Workspace path is required',
           };
         }
 
+        // Resolve relative paths (e.g. '.') to actual workspace folder path
+        const workspacePath = this.resolveWorkspacePath(rawPath);
+
         this.logger.info('RPC: enhancedPrompts:runWizard started', {
           workspacePath,
+          rawPath: rawPath !== workspacePath ? rawPath : undefined,
         });
 
         // Verify premium license with timeout to prevent hanging
@@ -194,10 +219,83 @@ export class EnhancedPromptsRpcHandlers {
           };
         }
 
+        // Map wizard analysis to PromptDesignerInput if available
+        let preComputedInput: PromptDesignerInput | undefined;
+        if (params.analysisData) {
+          try {
+            const projectInfo = await this.workspaceAnalyzer.getProjectInfo();
+
+            preComputedInput = mapAnalysisToDesignerInput(
+              params.analysisData,
+              workspacePath,
+              projectInfo
+            );
+
+            this.logger.info(
+              'Mapped wizard analysis to PromptDesignerInput for enhanced prompts',
+              {
+                projectType: preComputedInput.projectType,
+                framework: preComputedInput.framework,
+                isMonorepo: preComputedInput.isMonorepo,
+              }
+            );
+          } catch (mapError) {
+            this.logger.warn(
+              'Failed to map wizard analysis for enhanced prompts, will run independent analysis',
+              {
+                error:
+                  mapError instanceof Error
+                    ? mapError.message
+                    : String(mapError),
+              }
+            );
+          }
+        }
+
+        // Resolve WebviewManager for stream event broadcasting (best-effort)
+        let webviewManager: {
+          broadcastMessage(type: string, payload: unknown): Promise<void>;
+        } | null = null;
+        try {
+          const { container } = require('tsyringe');
+          if (container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
+            webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER);
+          }
+        } catch {
+          this.logger.debug(
+            'Could not resolve WebviewManager for enhance stream broadcasting'
+          );
+        }
+
+        // Stream event broadcaster for enhanced prompts pipeline
+        const onStreamEvent = (event: AnalysisStreamPayload): void => {
+          try {
+            if (!webviewManager) return;
+            webviewManager
+              .broadcastMessage('setup-wizard:enhance-stream', event)
+              .catch((broadcastError) => {
+                this.logger.warn('Failed to broadcast enhance stream event', {
+                  error:
+                    broadcastError instanceof Error
+                      ? broadcastError.message
+                      : String(broadcastError),
+                });
+              });
+          } catch {
+            // Swallow synchronous errors to avoid crashing enhance pipeline
+          }
+        };
+
+        // Resolve MCP status for SDK config
+        const sdkConfig = this.resolveSdkConfig(isPremium, onStreamEvent);
+
         // Run the wizard
         const result = await this.enhancedPromptsService.runWizard(
           workspacePath,
-          params.config
+          params.config,
+          undefined,
+          preComputedInput,
+          sdkConfig
         );
 
         if (result.success && result.state) {
@@ -243,14 +341,16 @@ export class EnhancedPromptsRpcHandlers {
       EnhancedPromptsSetEnabledResponse
     >('enhancedPrompts:setEnabled', async (params) => {
       try {
-        const { workspacePath, enabled } = params || {};
+        const { workspacePath: rawPath, enabled } = params || {};
 
-        if (!workspacePath) {
+        if (!rawPath) {
           return {
             success: false,
             error: 'Workspace path is required',
           };
         }
+
+        const workspacePath = this.resolveWorkspacePath(rawPath);
 
         if (typeof enabled !== 'boolean') {
           return {
@@ -301,14 +401,17 @@ export class EnhancedPromptsRpcHandlers {
       EnhancedPromptsRegenerateResponse
     >('enhancedPrompts:regenerate', async (params) => {
       try {
-        const workspacePath = params?.workspacePath;
+        const rawPath = params?.workspacePath;
 
-        if (!workspacePath) {
+        if (!rawPath) {
           return {
             success: false,
             error: 'Workspace path is required',
           };
         }
+
+        // Resolve relative paths to actual workspace folder path
+        const workspacePath = this.resolveWorkspacePath(rawPath);
 
         this.logger.info('RPC: enhancedPrompts:regenerate started', {
           workspacePath,
@@ -336,13 +439,52 @@ export class EnhancedPromptsRpcHandlers {
           };
         }
 
+        // Resolve WebviewManager for stream event broadcasting (best-effort)
+        let webviewManager: {
+          broadcastMessage(type: string, payload: unknown): Promise<void>;
+        } | null = null;
+        try {
+          const { container } = require('tsyringe');
+          if (container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
+            webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER);
+          }
+        } catch {
+          this.logger.debug(
+            'Could not resolve WebviewManager for enhance stream broadcasting'
+          );
+        }
+
+        // Stream event broadcaster for enhanced prompts regeneration
+        const onStreamEvent = (event: AnalysisStreamPayload): void => {
+          try {
+            if (!webviewManager) return;
+            webviewManager
+              .broadcastMessage('setup-wizard:enhance-stream', event)
+              .catch((broadcastError) => {
+                this.logger.warn('Failed to broadcast enhance stream event', {
+                  error:
+                    broadcastError instanceof Error
+                      ? broadcastError.message
+                      : String(broadcastError),
+                });
+              });
+          } catch {
+            // Swallow synchronous errors to avoid crashing enhance pipeline
+          }
+        };
+
+        // Resolve MCP status for SDK config
+        const sdkConfig = this.resolveSdkConfig(isPremium, onStreamEvent);
+
         // Regenerate
         const result = await this.enhancedPromptsService.regenerate(
           workspacePath,
           {
             force: params.force ?? true,
             config: params.config,
-          }
+          },
+          undefined,
+          sdkConfig
         );
 
         if (result.success && result.status) {
@@ -372,6 +514,181 @@ export class EnhancedPromptsRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * enhancedPrompts:getPromptContent - Get generated prompt content for preview
+   *
+   * Returns the full generated prompt content for a workspace, or null
+   * if no prompt has been generated or enhanced prompts is disabled.
+   *
+   * TASK_2025_149 Batch 5: Added for prompt content preview in settings UI
+   */
+  private registerGetPromptContent(): void {
+    this.rpcHandler.registerMethod<
+      { workspacePath: string },
+      { content: string | null; error?: string }
+    >('enhancedPrompts:getPromptContent', async (params) => {
+      try {
+        const rawPath = params?.workspacePath;
+
+        if (!rawPath) {
+          return {
+            content: null,
+            error: 'Workspace path is required',
+          };
+        }
+
+        const workspacePath = this.resolveWorkspacePath(rawPath);
+
+        this.logger.debug('RPC: enhancedPrompts:getPromptContent called', {
+          workspacePath,
+        });
+
+        const content =
+          await this.enhancedPromptsService.getEnhancedPromptContent(
+            workspacePath
+          );
+
+        return { content };
+      } catch (error) {
+        this.logger.error(
+          'RPC: enhancedPrompts:getPromptContent failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+
+        return {
+          content: null,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
+    });
+  }
+
+  /**
+   * enhancedPrompts:download - Download generated prompt as a .md file
+   *
+   * Gets the prompt content for the workspace, shows a native VS Code
+   * save dialog with .md filter, and writes the content to the selected
+   * file path.
+   *
+   * TASK_2025_149 Batch 5: Added for prompt download in settings UI
+   */
+  private registerDownload(): void {
+    this.rpcHandler.registerMethod<
+      { workspacePath: string },
+      { success: boolean; filePath?: string; error?: string }
+    >('enhancedPrompts:download', async (params) => {
+      try {
+        const rawPath = params?.workspacePath;
+
+        if (!rawPath) {
+          return {
+            success: false,
+            error: 'Workspace path is required',
+          };
+        }
+
+        const workspacePath = this.resolveWorkspacePath(rawPath);
+
+        this.logger.debug('RPC: enhancedPrompts:download called', {
+          workspacePath,
+        });
+
+        const content =
+          await this.enhancedPromptsService.getEnhancedPromptContent(
+            workspacePath
+          );
+
+        if (!content) {
+          return {
+            success: false,
+            error:
+              'No enhanced prompt content available. Generate enhanced prompts first.',
+          };
+        }
+
+        const defaultUri = vscode.Uri.file('enhanced-prompt.md');
+        const saveUri = await vscode.window.showSaveDialog({
+          defaultUri,
+          filters: { Markdown: ['md'] },
+          title: 'Save Enhanced Prompt',
+        });
+
+        if (!saveUri) {
+          return {
+            success: false,
+            error: 'Save cancelled by user',
+          };
+        }
+
+        const contentBytes = Buffer.from(content, 'utf-8');
+        await vscode.workspace.fs.writeFile(saveUri, contentBytes);
+
+        this.logger.info('RPC: enhancedPrompts:download completed', {
+          filePath: saveUri.fsPath,
+          contentLength: content.length,
+        });
+
+        return {
+          success: true,
+          filePath: saveUri.fsPath,
+        };
+      } catch (error) {
+        this.logger.error(
+          'RPC: enhancedPrompts:download failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
+    });
+  }
+
+  /**
+   * Resolve SDK config for internal query execution.
+   * Resolves MCP server status from CodeExecutionMCP service.
+   *
+   * @param isPremium - Whether user has premium license
+   * @param onStreamEvent - Optional callback for real-time stream events
+   */
+  private resolveSdkConfig(
+    isPremium: boolean,
+    onStreamEvent?: (event: AnalysisStreamPayload) => void
+  ): EnhancedPromptsSdkConfig {
+    let mcpServerRunning = false;
+    let mcpPort: number | undefined;
+
+    try {
+      const { container } = require('tsyringe');
+      if (container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
+        const codeExecutionMcp = container.resolve<CodeExecutionMCP>(
+          TOKENS.CODE_EXECUTION_MCP
+        );
+        const actualPort = codeExecutionMcp.getPort();
+        mcpServerRunning = actualPort !== null;
+        mcpPort = actualPort ?? undefined;
+      }
+    } catch {
+      this.logger.debug('Could not resolve CodeExecutionMCP for SDK config');
+    }
+
+    return { isPremium, mcpServerRunning, mcpPort, onStreamEvent };
+  }
+
+  /**
+   * Resolve workspace path from frontend value.
+   * The frontend may send '.' or './' since it doesn't have access to the
+   * real filesystem path. We resolve these to the actual workspace folder.
+   */
+  private resolveWorkspacePath(rawPath: string): string {
+    if (rawPath === '.' || rawPath === './') {
+      return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? rawPath;
+    }
+    return rawPath;
   }
 
   /**
