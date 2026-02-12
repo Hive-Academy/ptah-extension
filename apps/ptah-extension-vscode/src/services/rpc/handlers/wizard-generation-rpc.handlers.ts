@@ -725,10 +725,34 @@ export class WizardGenerationRpcHandlers {
           // Progress broadcasting will be skipped
         }
 
+        // Stream event broadcaster -- broadcasts real-time generation events
+        // (text deltas, tool calls, thinking) to the frontend for live transcript
+        const onStreamEvent = (event: GenerationStreamPayload): void => {
+          try {
+            if (!webviewManager) return;
+            webviewManager
+              .broadcastMessage('setup-wizard:generation-stream', event)
+              .catch((broadcastError) => {
+                this.logger.warn(
+                  'Failed to broadcast generation stream event',
+                  {
+                    error:
+                      broadcastError instanceof Error
+                        ? broadcastError.message
+                        : String(broadcastError),
+                  }
+                );
+              });
+          } catch {
+            // Swallow synchronous errors to avoid crashing generation pipeline
+          }
+        };
+
         // Run generation for the single item
         const options: OrchestratorGenerationOptions = {
           workspaceUri: workspaceFolder.uri,
           userOverrides: [params.itemId],
+          onStreamEvent,
         };
 
         const result = await orchestrator.generateAgents(options);

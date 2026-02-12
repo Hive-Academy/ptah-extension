@@ -50,7 +50,10 @@ import {
 } from './enhanced-prompts.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../ptah-core-prompt';
 import type { InternalQueryService } from '../../internal-query/internal-query.service';
-import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
+import type {
+  SDKMessage,
+  ToolResultBlock,
+} from '../../types/sdk-types/claude-sdk.types';
 import {
   isContentBlockDelta,
   isContentBlockStart,
@@ -662,6 +665,9 @@ export class EnhancedPromptsService {
       { name: string; inputBuffer: string; toolCallId: string }
     >();
 
+    // Track completed tool names by toolCallId for tool_result attribution
+    const completedToolNames = new Map<string, string>();
+
     try {
       for await (const message of stream) {
         // ==============================================================
@@ -755,7 +761,44 @@ export class EnhancedPromptsService {
               } catch {
                 // Fire-and-forget: swallow callback errors
               }
+              completedToolNames.set(
+                completedBlock.toolCallId,
+                completedBlock.name
+              );
               activeToolBlocks.delete(event.index);
+            }
+          }
+        }
+
+        // ==============================================================
+        // Tool results — broadcast for live transcript
+        // ==============================================================
+        if (message.type === 'user' && onStreamEvent) {
+          const content = (message as { message?: { content?: unknown } })
+            .message?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              const typedBlock = block as { type?: string };
+              if (typedBlock.type === 'tool_result') {
+                const resultBlock = block as ToolResultBlock;
+                const resultContent =
+                  typeof resultBlock.content === 'string'
+                    ? resultBlock.content.substring(0, 2000)
+                    : JSON.stringify(resultBlock.content).substring(0, 2000);
+                try {
+                  onStreamEvent({
+                    kind: 'tool_result',
+                    content: resultContent,
+                    toolName:
+                      completedToolNames.get(resultBlock.tool_use_id) || 'tool',
+                    toolCallId: resultBlock.tool_use_id,
+                    isError: resultBlock.is_error ?? false,
+                    timestamp: Date.now(),
+                  });
+                } catch {
+                  // Fire-and-forget: swallow callback errors
+                }
+              }
             }
           }
         }

@@ -50,7 +50,7 @@ import {
 // eslint-disable-next-line @nx/enforce-module-boundaries
 import type { InternalQueryService } from '@ptah-extension/agent-sdk';
 // eslint-disable-next-line @nx/enforce-module-boundaries
-import type { SDKMessage } from '@ptah-extension/agent-sdk';
+import type { SDKMessage, ToolResultBlock } from '@ptah-extension/agent-sdk';
 
 /**
  * Represents a dynamic section extracted from a template.
@@ -254,12 +254,17 @@ export class ContentGenerationService implements IContentGenerationService {
         outputFormat: { type: 'json_schema', schema: outputSchema },
       });
 
-      // Process stream to extract structured output
-      const structuredOutput = await this.processGenerationStream(
-        handle.stream,
-        sdkConfig?.onStreamEvent,
-        templateName
-      );
+      let structuredOutput: unknown | null;
+      try {
+        // Process stream to extract structured output
+        structuredOutput = await this.processGenerationStream(
+          handle.stream,
+          sdkConfig?.onStreamEvent,
+          templateName
+        );
+      } finally {
+        handle.close();
+      }
 
       if (
         structuredOutput &&
@@ -384,6 +389,9 @@ Return a JSON object with a "sections" property containing each section ID mappe
       { name: string; inputBuffer: string; toolCallId: string }
     >();
 
+    // Track completed tool names by toolCallId for tool_result attribution
+    const completedToolNames = new Map<string, string>();
+
     try {
       for await (const message of stream) {
         // ==============================================================
@@ -483,7 +491,45 @@ Return a JSON object with a "sections" property containing each section ID mappe
               } catch {
                 // Fire-and-forget: swallow callback errors
               }
+              completedToolNames.set(
+                completedBlock.toolCallId,
+                completedBlock.name
+              );
               activeToolBlocks.delete(event.index);
+            }
+          }
+        }
+
+        // ==============================================================
+        // Tool results — broadcast for live transcript
+        // ==============================================================
+        if (message.type === 'user' && onStreamEvent) {
+          const content = (message as { message?: { content?: unknown } })
+            .message?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              const typedBlock = block as { type?: string };
+              if (typedBlock.type === 'tool_result') {
+                const resultBlock = block as ToolResultBlock;
+                const resultContent =
+                  typeof resultBlock.content === 'string'
+                    ? resultBlock.content.substring(0, 2000)
+                    : JSON.stringify(resultBlock.content).substring(0, 2000);
+                try {
+                  onStreamEvent({
+                    kind: 'tool_result',
+                    content: resultContent,
+                    toolName:
+                      completedToolNames.get(resultBlock.tool_use_id) || 'tool',
+                    toolCallId: resultBlock.tool_use_id,
+                    isError: resultBlock.is_error ?? false,
+                    agentId,
+                    timestamp: Date.now(),
+                  });
+                } catch {
+                  // Fire-and-forget: swallow callback errors
+                }
+              }
             }
           }
         }

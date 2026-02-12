@@ -18,7 +18,7 @@
  */
 const LICENSE_VERIFICATION_TIMEOUT_MS = 10 * 1000;
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, DependencyContainer } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
@@ -62,6 +62,18 @@ import * as vscode from 'vscode';
  * - Generated prompt content is NEVER exposed (IP protection)
  * - Premium feature gating via LicenseService
  */
+/**
+ * Local interface for webview broadcasting.
+ *
+ * Uses `string` for message type instead of `StrictMessageType` because
+ * 'setup-wizard:enhance-stream' is not a member of the StrictMessageType union.
+ * The underlying WebviewManager.broadcastMessage implementation accepts any
+ * message type via postMessage, so this is safe at runtime.
+ */
+interface WebviewBroadcaster {
+  broadcastMessage(type: string, payload: unknown): Promise<void>;
+}
+
 @injectable()
 export class EnhancedPromptsRpcHandlers {
   constructor(
@@ -72,7 +84,8 @@ export class EnhancedPromptsRpcHandlers {
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
     @inject(TOKENS.WORKSPACE_ANALYZER_SERVICE)
-    private readonly workspaceAnalyzer: WorkspaceAnalyzerService
+    private readonly workspaceAnalyzer: WorkspaceAnalyzerService,
+    private readonly container: DependencyContainer
   ) {}
 
   /**
@@ -252,39 +265,8 @@ export class EnhancedPromptsRpcHandlers {
           }
         }
 
-        // Resolve WebviewManager for stream event broadcasting (best-effort)
-        let webviewManager: {
-          broadcastMessage(type: string, payload: unknown): Promise<void>;
-        } | null = null;
-        try {
-          const { container } = require('tsyringe');
-          if (container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
-            webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER);
-          }
-        } catch {
-          this.logger.debug(
-            'Could not resolve WebviewManager for enhance stream broadcasting'
-          );
-        }
-
-        // Stream event broadcaster for enhanced prompts pipeline
-        const onStreamEvent = (event: AnalysisStreamPayload): void => {
-          try {
-            if (!webviewManager) return;
-            webviewManager
-              .broadcastMessage('setup-wizard:enhance-stream', event)
-              .catch((broadcastError) => {
-                this.logger.warn('Failed to broadcast enhance stream event', {
-                  error:
-                    broadcastError instanceof Error
-                      ? broadcastError.message
-                      : String(broadcastError),
-                });
-              });
-          } catch {
-            // Swallow synchronous errors to avoid crashing enhance pipeline
-          }
-        };
+        // Create stream event broadcaster for enhanced prompts pipeline
+        const onStreamEvent = this.createEnhanceStreamBroadcaster();
 
         // Resolve MCP status for SDK config
         const sdkConfig = this.resolveSdkConfig(isPremium, onStreamEvent);
@@ -439,39 +421,8 @@ export class EnhancedPromptsRpcHandlers {
           };
         }
 
-        // Resolve WebviewManager for stream event broadcasting (best-effort)
-        let webviewManager: {
-          broadcastMessage(type: string, payload: unknown): Promise<void>;
-        } | null = null;
-        try {
-          const { container } = require('tsyringe');
-          if (container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
-            webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER);
-          }
-        } catch {
-          this.logger.debug(
-            'Could not resolve WebviewManager for enhance stream broadcasting'
-          );
-        }
-
-        // Stream event broadcaster for enhanced prompts regeneration
-        const onStreamEvent = (event: AnalysisStreamPayload): void => {
-          try {
-            if (!webviewManager) return;
-            webviewManager
-              .broadcastMessage('setup-wizard:enhance-stream', event)
-              .catch((broadcastError) => {
-                this.logger.warn('Failed to broadcast enhance stream event', {
-                  error:
-                    broadcastError instanceof Error
-                      ? broadcastError.message
-                      : String(broadcastError),
-                });
-              });
-          } catch {
-            // Swallow synchronous errors to avoid crashing enhance pipeline
-          }
-        };
+        // Create stream event broadcaster for enhanced prompts regeneration
+        const onStreamEvent = this.createEnhanceStreamBroadcaster();
 
         // Resolve MCP status for SDK config
         const sdkConfig = this.resolveSdkConfig(isPremium, onStreamEvent);
@@ -649,6 +600,51 @@ export class EnhancedPromptsRpcHandlers {
   }
 
   /**
+   * Create a stream event broadcaster for the enhance pipeline.
+   *
+   * Resolves WebviewManager from DI container (best-effort) and returns
+   * a callback that broadcasts AnalysisStreamPayload events to the frontend
+   * via 'setup-wizard:enhance-stream' messages.
+   *
+   * Extracted to avoid duplicating this closure in registerRunWizard() and
+   * registerRegenerate().
+   */
+  private createEnhanceStreamBroadcaster(): (
+    event: AnalysisStreamPayload
+  ) => void {
+    let webviewManager: WebviewBroadcaster | null = null;
+    try {
+      if (this.container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
+        webviewManager = this.container.resolve<WebviewBroadcaster>(
+          TOKENS.WEBVIEW_MANAGER
+        );
+      }
+    } catch {
+      this.logger.debug(
+        'Could not resolve WebviewManager for enhance stream broadcasting'
+      );
+    }
+
+    return (event: AnalysisStreamPayload): void => {
+      try {
+        if (!webviewManager) return;
+        webviewManager
+          .broadcastMessage('setup-wizard:enhance-stream', event)
+          .catch((broadcastError) => {
+            this.logger.warn('Failed to broadcast enhance stream event', {
+              error:
+                broadcastError instanceof Error
+                  ? broadcastError.message
+                  : String(broadcastError),
+            });
+          });
+      } catch {
+        // Swallow synchronous errors to avoid crashing enhance pipeline
+      }
+    };
+  }
+
+  /**
    * Resolve SDK config for internal query execution.
    * Resolves MCP server status from CodeExecutionMCP service.
    *
@@ -663,9 +659,8 @@ export class EnhancedPromptsRpcHandlers {
     let mcpPort: number | undefined;
 
     try {
-      const { container } = require('tsyringe');
-      if (container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
-        const codeExecutionMcp = container.resolve<CodeExecutionMCP>(
+      if (this.container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
+        const codeExecutionMcp = this.container.resolve<CodeExecutionMCP>(
           TOKENS.CODE_EXECUTION_MCP
         );
         const actualPort = codeExecutionMcp.getPort();
