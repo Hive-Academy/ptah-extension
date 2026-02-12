@@ -7,7 +7,7 @@
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, DependencyContainer } from 'tsyringe';
 import {
   Logger,
   RpcHandler,
@@ -23,6 +23,8 @@ import {
   SessionHistoryReaderService,
   SDK_TOKENS,
 } from '@ptah-extension/agent-sdk';
+
+import type { EnhancedPromptsService } from '@ptah-extension/agent-sdk';
 
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
@@ -65,7 +67,9 @@ export class ChatRpcHandlers {
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
     @inject(TOKENS.CODE_EXECUTION_MCP)
-    private readonly codeExecutionMcp: CodeExecutionMCP
+    private readonly codeExecutionMcp: CodeExecutionMCP,
+    // TASK_2025_151: DependencyContainer auto-injected by tsyringe for lazy resolution
+    private readonly container: DependencyContainer
   ) {}
 
   /**
@@ -92,6 +96,44 @@ export class ChatRpcHandlers {
    */
   private isMcpServerRunning(): boolean {
     return this.codeExecutionMcp.getPort() !== null;
+  }
+
+  /**
+   * Resolve enhanced prompt content for premium users (TASK_2025_151)
+   *
+   * Uses lazy container resolution to avoid adding EnhancedPromptsService
+   * to the ChatRpcHandlers constructor (keeps chat DI chain simple).
+   *
+   * @param workspacePath - Workspace path to resolve prompt for
+   * @param isPremium - Whether the user has premium features
+   * @returns Enhanced prompt content string, or undefined on error/disabled/non-premium
+   */
+  private async resolveEnhancedPromptsContent(
+    workspacePath: string | undefined,
+    isPremium: boolean
+  ): Promise<string | undefined> {
+    if (!isPremium || !workspacePath) {
+      return undefined;
+    }
+
+    try {
+      const enhancedPromptsService =
+        this.container.resolve<EnhancedPromptsService>(
+          SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE
+        );
+      const content = await enhancedPromptsService.getEnhancedPromptContent(
+        workspacePath
+      );
+      return content ?? undefined;
+    } catch (error) {
+      this.logger.debug(
+        'Failed to resolve enhanced prompts content, using fallback',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -135,6 +177,10 @@ export class ChatRpcHandlers {
             mcpServerRunning,
           });
 
+          // TASK_2025_151: Resolve enhanced prompt content for premium users
+          const enhancedPromptsContent =
+            await this.resolveEnhancedPromptsContent(workspacePath, isPremium);
+
           // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
           const currentModel =
             options?.model ||
@@ -171,6 +217,7 @@ export class ChatRpcHandlers {
             files,
             isPremium, // TASK_2025_108: Enable premium features for licensed users
             mcpServerRunning, // TASK_2025_108: MCP server availability check
+            enhancedPromptsContent, // TASK_2025_151: AI-generated system prompt for premium users
           });
 
           // Stream ExecutionNodes to webview (background - don't await)
@@ -226,6 +273,13 @@ export class ChatRpcHandlers {
               sessionId,
             });
 
+            // TASK_2025_151: Resolve enhanced prompt content for premium users
+            const enhancedPromptsContent =
+              await this.resolveEnhancedPromptsContent(
+                workspacePath,
+                isPremium
+              );
+
             // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
             const currentModel =
               params.model ||
@@ -236,11 +290,13 @@ export class ChatRpcHandlers {
 
             // Resume the session to reconnect to Claude's conversation context
             // TASK_2025_108: Pass isPremium and mcpServerRunning to maintain premium features in resumed sessions
+            // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
             const stream = await this.sdkAdapter.resumeSession(sessionId, {
               projectPath: workspacePath,
               model: currentModel,
               isPremium,
               mcpServerRunning,
+              enhancedPromptsContent,
             });
 
             // Start streaming responses to webview (background - don't await)

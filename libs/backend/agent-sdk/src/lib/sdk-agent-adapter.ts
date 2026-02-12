@@ -346,6 +346,12 @@ export class SdkAgentAdapter implements IAIProvider {
        * Defaults to true for backward compatibility.
        */
       mcpServerRunning?: boolean;
+      /**
+       * Enhanced prompt content for system prompt (TASK_2025_151)
+       * AI-generated guidance resolved from EnhancedPromptsService.
+       * When provided, appended to system prompt instead of PTAH_CORE_SYSTEM_PROMPT.
+       */
+      enhancedPromptsContent?: string;
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -354,7 +360,12 @@ export class SdkAgentAdapter implements IAIProvider {
       );
     }
 
-    const { tabId, isPremium = false, mcpServerRunning = true } = config;
+    const {
+      tabId,
+      isPremium = false,
+      mcpServerRunning = true,
+      enhancedPromptsContent,
+    } = config;
     const trackingId = tabId as SessionId;
 
     this.logger.info(
@@ -375,6 +386,7 @@ export class SdkAgentAdapter implements IAIProvider {
         onCompactionStart: this.compactionStartCallback || undefined,
         isPremium,
         mcpServerRunning,
+        enhancedPromptsContent,
       }
     );
 
@@ -433,6 +445,12 @@ export class SdkAgentAdapter implements IAIProvider {
        * Defaults to true for backward compatibility.
        */
       mcpServerRunning?: boolean;
+      /**
+       * Enhanced prompt content for system prompt (TASK_2025_151)
+       * AI-generated guidance resolved from EnhancedPromptsService.
+       * When provided, appended to system prompt instead of PTAH_CORE_SYSTEM_PROMPT.
+       */
+      enhancedPromptsContent?: string;
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -455,9 +473,10 @@ export class SdkAgentAdapter implements IAIProvider {
       });
     }
 
-    // Extract isPremium and mcpServerRunning from config (TASK_2025_108)
+    // Extract isPremium, mcpServerRunning, and enhancedPromptsContent from config (TASK_2025_108, TASK_2025_151)
     const isPremium = config?.isPremium ?? false;
     const mcpServerRunning = config?.mcpServerRunning ?? true;
+    const enhancedPromptsContent = config?.enhancedPromptsContent;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
       isPremium,
@@ -467,6 +486,7 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
+    // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId,
@@ -475,6 +495,7 @@ export class SdkAgentAdapter implements IAIProvider {
         onCompactionStart: this.compactionStartCallback || undefined,
         isPremium,
         mcpServerRunning,
+        enhancedPromptsContent,
       }
     );
 

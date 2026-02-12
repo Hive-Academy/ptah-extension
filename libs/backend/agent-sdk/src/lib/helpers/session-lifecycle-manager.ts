@@ -103,6 +103,13 @@ export interface ExecuteQueryConfig {
    * Defaults to true for backward compatibility.
    */
   mcpServerRunning?: boolean;
+  /**
+   * Enhanced prompt content to use as system prompt (TASK_2025_151)
+   * When provided, this AI-generated guidance is appended to the system prompt
+   * instead of the default PTAH_CORE_SYSTEM_PROMPT.
+   * Resolved by the caller (ChatRpcHandlers) from EnhancedPromptsService.
+   */
+  enhancedPromptsContent?: string;
 }
 
 /**
@@ -437,6 +444,7 @@ export class SessionLifecycleManager {
       onCompactionStart,
       isPremium = false,
       mcpServerRunning = true,
+      enhancedPromptsContent,
     } = config;
 
     this.logger.info(
@@ -494,6 +502,7 @@ export class SessionLifecycleManager {
       onCompactionStart,
       isPremium,
       mcpServerRunning,
+      enhancedPromptsContent,
     });
 
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {
