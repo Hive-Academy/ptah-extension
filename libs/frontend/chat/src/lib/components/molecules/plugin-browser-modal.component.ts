@@ -84,10 +84,10 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
               />
             </div>
             <div>
-              <h3 class="font-bold text-lg">Configure Ptah Skills</h3>
-              <p class="text-sm text-base-content/60">
+              <span class="block font-bold text-lg">Configure Ptah Skills</span>
+              <span class="block text-sm text-base-content/60">
                 Select plugins to enhance your AI sessions
-              </p>
+              </span>
             </div>
           </div>
           <button
@@ -110,9 +110,9 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
           <div class="flex justify-center">
             <span class="loading loading-spinner loading-md text-primary"></span>
           </div>
-          <p class="text-sm text-base-content/60 text-center">
+          <span class="block text-sm text-base-content/60 text-center">
             Loading available plugins...
-          </p>
+          </span>
         </div>
         } @else {
         <!-- Search input -->
@@ -141,27 +141,26 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
           @for (group of groupedPlugins(); track group.key) {
           <div>
             <!-- Category header -->
-            <h4
-              class="text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
+            <span
+              class="block text-xs font-semibold uppercase tracking-wider text-base-content/50 mb-2"
             >
               {{ group.label }}
-            </h4>
+            </span>
 
             <!-- Plugin cards -->
             <div class="space-y-2">
               @for (plugin of group.plugins; track plugin.id) {
-              <label
-                class="flex items-start gap-3 p-3 rounded-lg border border-base-300 bg-base-200/30 cursor-pointer transition-all duration-150 hover:bg-base-200/60 hover:border-primary/20"
-                [class.border-primary/40]="isSelected(plugin.id)"
-                [class.bg-primary/5]="isSelected(plugin.id)"
+              <div
+                class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-150"
+                [class]="isSelected(plugin.id) ? 'border-primary bg-primary/5' : 'border-base-300 bg-base-200/30 hover:bg-base-200/60'"
                 role="listitem"
+                (click)="togglePlugin(plugin.id)"
               >
                 <!-- Checkbox -->
                 <input
                   type="checkbox"
                   class="checkbox checkbox-primary checkbox-sm mt-0.5"
                   [checked]="isSelected(plugin.id)"
-                  (change)="togglePlugin(plugin.id)"
                   [attr.aria-label]="'Enable ' + plugin.name"
                 />
 
@@ -182,11 +181,11 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                     </span>
                     }
                   </div>
-                  <p
-                    class="text-xs text-base-content/60 mt-0.5 leading-relaxed"
+                  <span
+                    class="block text-xs text-base-content/60 mt-0.5 leading-relaxed"
                   >
                     {{ plugin.description }}
-                  </p>
+                  </span>
                   <!-- Badges: skill count, command count -->
                   <div class="flex gap-1.5 mt-1.5">
                     @if (plugin.skillCount > 0) {
@@ -220,13 +219,13 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                   aria-hidden="true"
                 />
                 }
-              </label>
+              </div>
               }
             </div>
           </div>
           } @empty {
           <div class="text-center py-6 text-base-content/50">
-            <p class="text-sm">No plugins match your search.</p>
+            <span class="block text-sm">No plugins match your search.</span>
           </div>
           }
         </div>
@@ -266,9 +265,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
       </div>
 
       <!-- Backdrop - click outside to close -->
-      <form method="dialog" class="modal-backdrop">
-        <button (click)="handleClose()" type="button">close</button>
-      </form>
+      <div class="modal-backdrop" (click)="handleClose()"></div>
     </dialog>
   `,
   styles: [
