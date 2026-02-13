@@ -6,6 +6,7 @@ import { AdminController } from './controllers/admin.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { EmailModule } from '../email/email.module';
 import { AuthModule } from '../app/auth/auth.module';
+import { EventsModule } from '../events/events.module';
 
 /**
  * LicenseModule - License verification and management
@@ -25,6 +26,7 @@ import { AuthModule } from '../app/auth/auth.module';
     PrismaModule,
     EmailModule,
     ConfigModule,
+    EventsModule,
     forwardRef(() => AuthModule),
   ],
   controllers: [LicenseController, AdminController],

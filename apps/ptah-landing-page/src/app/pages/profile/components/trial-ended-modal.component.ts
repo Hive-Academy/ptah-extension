@@ -1,6 +1,7 @@
 import {
   Component,
   input,
+  output,
   signal,
   inject,
   ChangeDetectionStrategy,
@@ -60,7 +61,10 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
           <div>
             <h3 class="font-bold text-lg">Your Pro Trial Has Ended</h3>
             <p class="text-sm text-base-content/70">
-              Your {{ trialDurationDays }}-day Pro trial period has concluded
+              @if (daysRemaining() === 0) { Your {{ trialDurationDays }}-day Pro
+              trial has expired } @else { Your Pro trial ends in
+              {{ daysRemaining() }} day{{ daysRemaining() !== 1 ? 's' : '' }}
+              }
             </p>
           </div>
         </div>
@@ -134,16 +138,24 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
         </div>
       </div>
 
-      <!-- Backdrop -->
+      <!-- Backdrop (only dismissible if daysRemaining > 0) -->
+      @if (daysRemaining() > 0) {
       <form method="dialog" class="modal-backdrop">
         <button (click)="continueWithCommunity()" type="button">close</button>
       </form>
+      }
     </dialog>
   `,
 })
 export class TrialEndedModalComponent {
   // Input: License status reason
   readonly reason = input<string | undefined>(undefined);
+
+  // Input: Days remaining in trial (0 if fully expired)
+  readonly daysRemaining = input<number>(0);
+
+  // Output: Event when user clicks "Continue with Community" and trial has ended (daysRemaining === 0)
+  readonly downgradeToCommunity = output<void>();
 
   // Internal state
   readonly isOpen = signal(false);
@@ -158,53 +170,23 @@ export class TrialEndedModalComponent {
   // TASK_2025_143: Use constant instead of hardcoded value
   protected readonly trialDurationDays = TRIAL_DURATION_DAYS;
 
-  // LocalStorage key and TTL (24 hours)
-  private readonly DISMISS_KEY = 'ptah_trial_ended_dismissed_at';
-  private readonly DISMISS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
   private readonly router = inject(Router);
 
   constructor() {
-    // Use effect to watch for reason changes (e.g., when license status is fetched async)
-    // Effect runs on initial value AND subsequent changes, so no ngOnInit needed
+    // TASK_2025_143: Watch for reason changes to show/hide modal
+    // No localStorage dismissal logic - modal shows every time when reason='trial_ended'
     effect(() => {
       const currentReason = this.reason();
-      this.checkAndShowModal(currentReason);
+      const days = this.daysRemaining();
+      console.log('[TrialEndedModal] Effect triggered:', {
+        currentReason,
+        days,
+      });
+      // Only show if reason is 'trial_ended'
+      const shouldOpen = currentReason === 'trial_ended';
+      console.log('[TrialEndedModal] Setting isOpen to:', shouldOpen);
+      this.isOpen.set(shouldOpen);
     });
-  }
-
-  /**
-   * Check if modal should be shown based on reason and dismissal TTL
-   */
-  private checkAndShowModal(currentReason: string | undefined): void {
-    // Only show if reason is 'trial_ended'
-    if (currentReason !== 'trial_ended') {
-      this.isOpen.set(false);
-      return;
-    }
-
-    // Check if dismissed within TTL
-    if (typeof localStorage !== 'undefined') {
-      const dismissedAt = localStorage.getItem(this.DISMISS_KEY);
-      if (dismissedAt) {
-        const dismissedTime = parseInt(dismissedAt, 10);
-        // Handle corrupted localStorage value (NaN check)
-        if (isNaN(dismissedTime)) {
-          localStorage.removeItem(this.DISMISS_KEY);
-          // Show modal if data corrupted - fall through to show
-        } else {
-          const now = Date.now();
-          if (now - dismissedTime < this.DISMISS_TTL_MS) {
-            // Still within 24-hour cooldown
-            this.isOpen.set(false);
-            return;
-          }
-        }
-      }
-    }
-
-    // Show modal
-    this.isOpen.set(true);
   }
 
   /**
@@ -218,18 +200,25 @@ export class TrialEndedModalComponent {
 
   /**
    * Dismiss modal and continue with Community tier
+   *
+   * TASK_2025_143: When trial has fully expired (daysRemaining === 0),
+   * emit event to trigger downgrade API call before dismissing.
    */
   continueWithCommunity(): void {
-    this.dismiss();
+    // If trial fully expired, trigger downgrade before dismissing
+    if (this.daysRemaining() === 0) {
+      this.downgradeToCommunity.emit();
+    }
+
+    // Just close modal - no localStorage needed
+    this.isOpen.set(false);
   }
 
   /**
-   * Dismiss modal and set localStorage timestamp for 24-hour cooldown
+   * Dismiss modal without storing timestamp
+   * TASK_2025_143: Removed 24-hour localStorage logic
    */
   private dismiss(): void {
     this.isOpen.set(false);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(this.DISMISS_KEY, Date.now().toString());
-    }
   }
 }

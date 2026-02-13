@@ -22,16 +22,18 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah MCP Server - 13 Namespaces:
+  overview: `Ptah MCP Server - 15 Namespaces:
 
-WORKSPACE: workspace, search, symbols, files, diagnostics, git
+WORKSPACE: workspace, search, symbols, files, diagnostics, git, commands
 ANALYSIS: context, project, relevance, ast
 AI: ptah.ai.* (chat, tokens, tools, specialized tasks)
-IDE: ptah.ai.ide.* (lsp, editor, actions, testing)
+IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
+LLM: ptah.llm.* (multi-provider: Anthropic, OpenAI, Google, OpenRouter, VS Code LM)
+ORCHESTRATION: ptah.orchestration.* (workflow state management)
 
 Use ptah.help('namespace') for details on any namespace.`,
 
-  ai: `ptah.ai - Enhanced LLM Capabilities
+  ai: `ptah.ai - Enhanced LLM Capabilities (VS Code Language Model API)
 
 CHAT:
 - chat(message, model?) - Single message
@@ -62,7 +64,17 @@ COST OPTIMIZATION:
 Use invokeAgent() with 'gpt-4o-mini' for routine tasks (150x cheaper than Opus).
 Example: ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', 'gpt-4o-mini')`,
 
-  'ai.ide.lsp': `ptah.ai.ide.lsp - Language Server Protocol
+  ide: `ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
+
+Sub-namespaces:
+- ptah.ide.lsp - Language Server Protocol (go-to-definition, references, hover, type info)
+- ptah.ide.editor - Editor state (active file, open files, dirty files, visible range)
+- ptah.ide.actions - Code actions (rename, organize imports, fix all, refactoring)
+- ptah.ide.testing - Test execution (discover, run, coverage)
+
+Use ptah.help('ide.lsp'), ptah.help('ide.editor'), etc. for method details.`,
+
+  'ide.lsp': `ptah.ide.lsp - Language Server Protocol
 
 - getDefinition(file, line, col) - Go to definition
 - getReferences(file, line, col) - Find all references
@@ -72,7 +84,7 @@ Example: ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', '
 
 All methods use 0-based line/column. Returns [] if unavailable.`,
 
-  'ai.ide.editor': `ptah.ai.ide.editor - Editor State
+  'ide.editor': `ptah.ide.editor - Editor State
 
 - getActive() - Active file, cursor, selection
 - getOpenFiles() - All open file paths
@@ -82,7 +94,7 @@ All methods use 0-based line/column. Returns [] if unavailable.`,
 
 Returns null/[] when no editor active.`,
 
-  'ai.ide.actions': `ptah.ai.ide.actions - Refactoring Operations
+  'ide.actions': `ptah.ide.actions - Refactoring Operations
 
 - getAvailable(file, line) - List code actions at position
 - apply(file, line, actionTitle) - Apply code action by title
@@ -92,7 +104,7 @@ Returns null/[] when no editor active.`,
 
 Returns false if action unavailable, true on success.`,
 
-  'ai.ide.testing': `ptah.ai.ide.testing - Test Operations
+  'ide.testing': `ptah.ide.testing - Test Operations
 
 - discover() - Discover tests (requires TestController)
 - run(options?) - Run tests (requires TestController)
@@ -103,21 +115,63 @@ Note: Requires test framework extension. Returns graceful defaults when unavaila
 
   workspace: `ptah.workspace - Project Analysis
 
-- analyze() - Full workspace analysis
+- analyze() - Full workspace analysis ({info, structure})
+- getInfo() - Get workspace metadata
 - getProjectType() - Detect project type
-- getFrameworks() - Detect frameworks
-- getDependencies() - Get package.json dependencies`,
+- getFrameworks() - Detect frameworks`,
+
+  search: `ptah.search - File Discovery
+
+- findFiles(pattern, limit?) - Glob pattern search (returns string[] file paths)
+- getRelevantFiles(query, maxFiles?) - Semantic file search (returns string[] file paths)`,
 
   context: `ptah.context - Token Budget Management
 
-- calculateBudget(files[], model?) - Calculate token budget
-- optimizeContext(files[], maxTokens) - Prioritize files
-- estimateTokens(content) - Estimate token count`,
+- optimize(query, maxTokens?) - Select files within token budget
+- countTokens(text) - Count tokens in text
+- getRecommendedBudget(projectType) - Get recommended budget for project type`,
 
   relevance: `ptah.relevance - File Scoring
 
-- scoreFiles(query, files[]) - Score files by relevance
-- explainScore(file, query) - Explain relevance score`,
+- scoreFile(filePath, query) - Score a single file's relevance (0-100 with reasons)
+- rankFiles(query, limit?) - Rank files by relevance to a query`,
+
+  files: `ptah.files - File Operations
+
+- read(path) - Read file as UTF-8 string
+- readJson(path) - Read and parse JSON (handles comments and trailing commas)
+- list(directory) - List directory contents
+
+Use readJson() for config files like tsconfig.json, package.json which may have comments.`,
+
+  llm: `ptah.llm - Multi-Provider LLM (Langchain Abstraction)
+
+PROVIDERS:
+- ptah.llm.anthropic - Claude models
+- ptah.llm.openai - GPT models
+- ptah.llm.google - Gemini models
+- ptah.llm.openrouter - Multi-provider gateway
+- ptah.llm.vscodeLm - VS Code Language Model API (always available)
+
+Each provider has:
+- chat(message, options?) - Send message
+- isAvailable() - Check if API key is configured
+- getDefaultModel() - Get default model name
+- getDisplayName() - Get provider display name
+
+TOP-LEVEL:
+- ptah.llm.chat(message, options?) - Use default provider
+- ptah.llm.getConfiguredProviders() - List available providers
+- ptah.llm.getDefaultProvider() - Get default provider name
+- ptah.llm.getConfiguration() - Get full config state`,
+
+  orchestration: `ptah.orchestration - Workflow State Management
+
+- getState(taskId) - Get current orchestration state for a task
+- setState(taskId, partialState) - Update orchestration state
+- getNextAction(taskId) - Get recommended next action
+
+Used for persisting workflow state across sessions (planning, design, implementation, QA, complete).`,
 };
 
 /**
@@ -751,6 +805,79 @@ ${code}`;
 }
 
 /**
+ * Strip comments from JSON string (supports single-line and multi-line comments)
+ * Also handles trailing commas before closing braces.
+ *
+ * Uses character-by-character parsing to correctly skip string literals,
+ * preventing corruption of URLs (e.g., "https://...") and other strings
+ * that contain // or /* sequences.
+ */
+function stripJsonComments(jsonString: string): string {
+  let result = '';
+  let i = 0;
+  const len = jsonString.length;
+
+  while (i < len) {
+    const ch = jsonString[i];
+
+    // Handle string literals — pass through unchanged
+    if (ch === '"') {
+      result += '"';
+      i++;
+      while (i < len && jsonString[i] !== '"') {
+        if (jsonString[i] === '\\') {
+          // Escaped character — copy both backslash and next char
+          result += jsonString[i] + (jsonString[i + 1] || '');
+          i += 2;
+        } else {
+          result += jsonString[i];
+          i++;
+        }
+      }
+      if (i < len) {
+        result += '"'; // closing quote
+        i++;
+      }
+      continue;
+    }
+
+    // Handle single-line comments (// ...)
+    if (ch === '/' && i + 1 < len && jsonString[i + 1] === '/') {
+      // Skip until end of line
+      i += 2;
+      while (i < len && jsonString[i] !== '\n') {
+        i++;
+      }
+      continue;
+    }
+
+    // Handle multi-line comments (/* ... */)
+    if (ch === '/' && i + 1 < len && jsonString[i + 1] === '*') {
+      i += 2;
+      while (
+        i < len - 1 &&
+        !(jsonString[i] === '*' && jsonString[i + 1] === '/')
+      ) {
+        i++;
+      }
+      if (i < len - 1) {
+        i += 2; // skip closing */
+      }
+      continue;
+    }
+
+    // Regular character
+    result += ch;
+    i++;
+  }
+
+  // Remove trailing commas before } or ]
+  result = result.replace(/,(\s*[}\]])/g, '$1');
+
+  return result;
+}
+
+/**
  * Build files namespace
  * Delegates to FileSystemManager
  */
@@ -762,11 +889,46 @@ export function buildFilesNamespace(
   return {
     read: async (path: string) => {
       const uri = vscode.Uri.file(path);
+      // Check if file exists before reading
+      try {
+        await fileSystemManager.stat(uri);
+      } catch (error) {
+        throw new Error(`File not found: ${path}`);
+      }
       const content = await fileSystemManager.readFile(uri);
       return new TextDecoder('utf-8').decode(content);
     },
+    readJson: async (path: string) => {
+      const uri = vscode.Uri.file(path);
+      // Check if file exists before reading
+      try {
+        await fileSystemManager.stat(uri);
+      } catch (error) {
+        throw new Error(`File not found: ${path}`);
+      }
+      const content = await fileSystemManager.readFile(uri);
+      const text = new TextDecoder('utf-8').decode(content);
+
+      // Try standard JSON.parse first (most files like package.json are valid JSON)
+      try {
+        return JSON.parse(text);
+      } catch {
+        // Fallback: strip comments for files like tsconfig.json, .eslintrc.json
+        const cleaned = stripJsonComments(text);
+        return JSON.parse(cleaned);
+      }
+    },
     list: async (directory: string) => {
       const uri = vscode.Uri.file(directory);
+      // Check if directory exists before listing
+      try {
+        const stat = await fileSystemManager.stat(uri);
+        if (stat.type !== vscode.FileType.Directory) {
+          throw new Error(`Path is not a directory: ${directory}`);
+        }
+      } catch (error) {
+        throw new Error(`Directory not found: ${directory}`);
+      }
       const entries = await fileSystemManager.readDirectory(uri);
       return entries.map(([name, type]) => ({
         name,
@@ -802,7 +964,10 @@ export function buildHelpMethod() {
       return HELP_DOCS['overview'];
     }
 
-    const doc = HELP_DOCS[topic];
+    // Support old ai.ide.* prefix for backward compatibility
+    const normalizedTopic = topic.replace(/^ai\.ide\./, 'ide.');
+
+    const doc = HELP_DOCS[normalizedTopic];
     if (!doc) {
       const available = Object.keys(HELP_DOCS)
         .filter((k) => k !== 'overview')

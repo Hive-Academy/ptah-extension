@@ -1,60 +1,49 @@
 
-HostMessaging.channel.port1.onmessage @ index.html?id=1685b0e2-6b14-4b71-bb0b-48c7b19ec75d&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:342
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="scripts.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/scripts.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Transforming src="main.js" -> "https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser/main.js" (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] Base URI set to: https://file%2B.vscode-resource.vscode-cdn.net/d%3A/projects/ptah-extension/dist/apps/ptah-extension-vscode/webview/browser (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
-console.ts:139 [Extension Host] [WebviewHtmlGenerator] All assets transformed to webview URIs (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
-requestImpl.ts:33  GET https://api.github.com/copilot/mcp_registry 404 (Not Found)
-pTn @ requestImpl.ts:33
-(anonymous) @ requestService.ts:38
-c @ request.ts:81
-request @ requestService.ts:38
-bb @ defaultAccount.ts:655
-await in bb
-ab @ defaultAccount.ts:621
-U @ defaultAccount.ts:472
-await in U
-S @ defaultAccount.ts:450
-VM18:44 Ptah WebView: VS Code API initialized {isVSCode: true, isLicensed: true, theme: 'dark', workspaceRoot: 'd:\\projects\\brand_force', workspaceName: 'brand_force', …}
-index.html?id=1685b0e2-6b14-4b71-bb0b-48c7b19ec75d&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:4 ===================================================
-index.html?id=1685b0e2-6b14-4b71-bb0b-48c7b19ec75d&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:5 PTAH STARTUP SCRIPT EXECUTING
-index.html?id=1685b0e2-6b14-4b71-bb0b-48c7b19ec75d&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:6 window.vscode exists: true
-index.html?id=1685b0e2-6b14-4b71-bb0b-48c7b19ec75d&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:7 window.ptahConfig exists: true
-index.html?id=1685b0e2-6b14-4b71-bb0b-48c7b19ec75d&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:8 ===================================================
-main.js:44 === PTAH WEBVIEW BOOTSTRAP STARTING ===
-main.js:44 Window globals: {hasVscode: true, hasPtahConfig: true, mode: 'VS Code Extension'}
-chunk-J7UM7UEE.js:88 [AppStateManager] Initializing with view: chat, isLicensed: true
-main.js:44 =================================================
-main.js:44 PTAH APP NGONINIT STARTING
-main.js:44 =================================================
-main.js:44 Setting up initial view with pure signal navigation
-main.js:44 Initial view target: chat {fromConfig: false, wasValid: null}
-main.js:44 🔍 [App] isReady computed: {initializationStatus: 'initializing', isReady: false}
-main.js:44 🔍 [App] isReady computed: {initializationStatus: 'ready', isReady: true}
-main.js:44 [KeyboardShortcuts] Global shortcuts initialized
-chunk-J7UM7UEE.js:88 [VSCodeService] RPC service registered for response routing
-chunk-J7UM7UEE.js:88 [ClaudeRpcService] Registered with VSCodeService for RPC routing
-chunk-J7UM7UEE.js:88 [VSCodeService] ChatStore registered for message routing
-chunk-J7UM7UEE.js:88 [AgentDiscoveryFacade] fetchAgents called
-main.js:44 === PTAH WEBVIEW BOOTSTRAP COMPLETE ===
-index.html?id=1685b0e2-6b14-4b71-bb0b-48c7b19ec75d&parentId=2&origin=2c831653-284f-43f3-8dbd-a084a262163c&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app&purpose=webviewView:13 Sending webview-ready message to extension...
-log.ts:460   ERR [Extension Host] [ERROR] Failed to resolve SetupStatusService
-error @ log.ts:460
-error @ log.ts:565
-error @ logService.ts:51
-HTs @ remoteConsoleUtil.ts:58
-$logExtensionHostMessage @ mainThreadConsole.ts:38
-S @ rpcProtocol.ts:458
-Q @ rpcProtocol.ts:443
-M @ rpcProtocol.ts:373
-L @ rpcProtocol.ts:299
-(anonymous) @ rpcProtocol.ts:161
-C @ event.ts:1295
-fire @ event.ts:1326
-fire @ ipc.net.ts:652
-(anonymous) @ localProcessExtensionHost.ts:385
-console.ts:139 [Extension Host] [ERROR] Failed to resolve SetupStatusService  (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
-VTs @ console.ts:139
+console.ts:139 [Extension Host] [INFO] [SubagentHookHandler] Creating hooks for workspace: {"workspacePath":"d:\\projects\\brand_force"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] [CompactionHookHandler] Creating hooks for session: {"sessionId":"internal-query-1770936969819","hasCallback":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] [InternalQuery] SDK options built: {"model":"default","permissionMode":"bypassPermissions","maxTurns":25,"hasMcpServers":false,"hasSystemPromptAppend":true,"systemPromptAppendLength":11794} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"backend-developer","contentLength":25112,"dynamicSectionsProcessed":4} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting LLM-driven content generation: {"templateId":"devops-engineer","templateVersion":"1.0.0"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"devops-engineer","contentLength":10075,"dynamicSectionsProcessed":0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting LLM-driven content generation: {"templateId":"senior-tester","templateVersion":"2.0.0"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"senior-tester","contentLength":32015,"dynamicSectionsProcessed":0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting LLM-driven content generation: {"templateId":"code-style-reviewer","templateVersion":"2.0.0"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"code-style-reviewer","contentLength":11084,"dynamicSectionsProcessed":0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting LLM-driven content generation: {"templateId":"code-logic-reviewer","templateVersion":"2.0.0"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"code-logic-reviewer","contentLength":14232,"dynamicSectionsProcessed":0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting LLM-driven content generation: {"templateId":"researcher-expert","templateVersion":"2.0.0"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"researcher-expert","contentLength":11218,"dynamicSectionsProcessed":0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting LLM-driven content generation: {"templateId":"modernization-detector","templateVersion":"2.0.0"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"modernization-detector","contentLength":10569,"dynamicSectionsProcessed":0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting LLM-driven content generation: {"templateId":"ui-ux-designer","templateVersion":"2.0.0"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"ui-ux-designer","contentLength":49009,"dynamicSectionsProcessed":0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting LLM-driven content generation: {"templateId":"technical-content-writer","templateVersion":"1.0.0"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Content generation complete: {"templateId":"technical-content-writer","contentLength":11409,"dynamicSectionsProcessed":0} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Rendered 13 agents (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Phase 4: Writing agent files (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\project-manager.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\software-architect.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\team-leader.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\frontend-developer.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\backend-developer.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\devops-engineer.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\senior-tester.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\code-style-reviewer.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\code-logic-reviewer.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\researcher-expert.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\modernization-detector.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\ui-ux-designer.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent written successfully: {"filePath":"d:\\projects\\brand_force\\.claude\\agents\\technical-content-writer.md","backupCreated":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Agent generation complete: {"successful":13,"durationSec":"113.4"} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] RPC: wizard:submit-selection completed: {"successful":13,"failed":0,"durationMs":113458} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] RPC: enhancedPrompts:runWizard started: {"workspacePath":"d:\\projects\\brand_force","rawPath":"."} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Built PromptDesignerInput from wizard analysis for enhanced prompts: {"projectType":"react","framework":"react","isMonorepo":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] EnhancedPromptsService: Starting wizard: {"workspacePath":"d:\\projects\\brand_force","hasPreComputedInput":true,"hasSdkConfig":true} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] EnhancedPromptsService: Using pre-computed input from wizard analysis (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] PromptDesignerAgent: Building prompts: {"projectType":"react","framework":"react","isMonorepo":false} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [INFO] Starting quality assessment: {"workspacePath":"d:\\projects\\brand_force","config":{"maxFiles":15,"entryPointCount":3,"highRelevanceCount":8,"randomCount":4,"priorityPatterns":["service","component","controller","repository","model"],"excludePatterns":["*.spec.ts","*.test.ts","*.d.ts","index.ts"]}} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+console.ts:139 [Extension Host] [WARN] RPC: License verification timed out: {"timeoutMs":10000} (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/591199df40/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
+WTs @ console.ts:139
 $logExtensionHostMessage @ mainThreadConsole.ts:39
 S @ rpcProtocol.ts:458
 Q @ rpcProtocol.ts:443
@@ -65,134 +54,74 @@ C @ event.ts:1295
 fire @ event.ts:1326
 fire @ ipc.net.ts:652
 (anonymous) @ localProcessExtensionHost.ts:385
-chunk-J7UM7UEE.js:88 [VSCodeService] Received RPC response: {type: 'rpc:response', correlationId: '2a30c350-90dd-469d-b00c-5918ab134dfc', success: true, data: {…}}
-log.ts:460   ERR [Extension Host] [ERROR] RpcHandler: Method "setup-status:get-status" failed Error: SetupStatusService not available. Ensure the agent-generation module is properly initialized. Details: Cannot read properties of undefined (reading 'resolve')
-	at SetupRpcHandlers.resolveService (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4471:19)
-	at SetupRpcHandlers.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4506:45)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4497:81
-	at RpcHandler.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:34542:36)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at RpcHandler.handleMessage (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:34514:24)
-	at WebviewMessageHandlerService.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37723:56)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at WebviewMessageHandlerService.handleRpcMessage (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37713:24)
-	at WebviewMessageHandlerService.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37677:36)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at WebviewMessageHandlerService.handleMessage (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37652:24)
-	at WebviewMessageHandlerService.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37641:24)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at Xd.value (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37640:84)
-	at I.C (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2328)
-	at I.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2546)
-	at vJ.$onMessage (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:144:109713)
-	at kE.S (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:125501)
-	at kE.Q (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:125281)
-	at kE.M (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:124370)
-	at kE.L (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:123608)
-	at Xd.value (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:122272)
-	at I.C (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2328)
-	at I.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2546)
-	at Go.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:9471)
-	at Xd.value (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:405:9336)
-	at I.C (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2328)
-	at I.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2546)
-	at Go.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:9471)
-	at MessagePortMain.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:405:7570)
-	at MessagePortMain.emit (node:events:519:28)
-	at MessagePortMain._internalPort.emit (node:electron/js2c/utility_init:2:2959)
-	at Object.callbackTrampoline (node:internal/async_hooks:130:17)
-error @ log.ts:460
-error @ log.ts:565
-error @ logService.ts:51
-HTs @ remoteConsoleUtil.ts:58
-$logExtensionHostMessage @ mainThreadConsole.ts:38
-S @ rpcProtocol.ts:458
-Q @ rpcProtocol.ts:443
-M @ rpcProtocol.ts:373
-L @ rpcProtocol.ts:299
-(anonymous) @ rpcProtocol.ts:161
-C @ event.ts:1295
-fire @ event.ts:1326
-fire @ ipc.net.ts:652
-(anonymous) @ localProcessExtensionHost.ts:385
-console.ts:139 [Extension Host] [ERROR] RpcHandler: Method "setup-status:get-status" failed Error: SetupStatusService not available. Ensure the agent-generation module is properly initialized. Details: Cannot read properties of undefined (reading 'resolve')
-	at SetupRpcHandlers.resolveService (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4471:19)
-	at SetupRpcHandlers.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4506:45)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:4497:81
-	at RpcHandler.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:34542:36)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at RpcHandler.handleMessage (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:34514:24)
-	at WebviewMessageHandlerService.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37723:56)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at WebviewMessageHandlerService.handleRpcMessage (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37713:24)
-	at WebviewMessageHandlerService.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37677:36)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at WebviewMessageHandlerService.handleMessage (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37652:24)
-	at WebviewMessageHandlerService.<anonymous> (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37641:24)
-	at Generator.next (<anonymous>)
-	at d:\projects\ptah-extension\node_modules\tslib\tslib.js:170:75
-	at new Promise (<anonymous>)
-	at Object.__awaiter (d:\projects\ptah-extension\node_modules\tslib\tslib.js:166:16)
-	at Xd.value (d:\projects\ptah-extension\dist\apps\ptah-extension-vscode\main.js:37640:84)
-	at I.C (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2328)
-	at I.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2546)
-	at vJ.$onMessage (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:144:109713)
-	at kE.S (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:125501)
-	at kE.Q (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:125281)
-	at kE.M (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:124370)
-	at kE.L (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:123608)
-	at Xd.value (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:122272)
-	at I.C (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2328)
-	at I.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2546)
-	at Go.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:9471)
-	at Xd.value (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:405:9336)
-	at I.C (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2328)
-	at I.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:27:2546)
-	at Go.fire (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:29:9471)
-	at MessagePortMain.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:405:7570)
-	at MessagePortMain.emit (node:events:519:28)
-	at MessagePortMain._internalPort.emit (node:electron/js2c/utility_init:2:2959)
-	at Object.callbackTrampoline (node:internal/async_hooks:130:17) (at console.<anonymous> (file:///c:/Users/abdal/AppData/Local/Programs/Microsoft%20VS%20Code/bdd88df003/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:215:30112))
-VTs @ console.ts:139
-$logExtensionHostMessage @ mainThreadConsole.ts:39
-S @ rpcProtocol.ts:458
-Q @ rpcProtocol.ts:443
-M @ rpcProtocol.ts:373
-L @ rpcProtocol.ts:299
-(anonymous) @ rpcProtocol.ts:161
-C @ event.ts:1295
-fire @ event.ts:1326
-fire @ ipc.net.ts:652
-(anonymous) @ localProcessExtensionHost.ts:385
-chunk-J7UM7UEE.js:88 [VSCodeService] Received RPC response: {type: 'rpc:response', correlationId: '43c22843-1d06-4840-88b4-3d79998d3c2e', success: true, data: {…}}
-chunk-J7UM7UEE.js:88 [VSCodeService] Received RPC response: {type: 'rpc:response', correlationId: 'a1a18eff-b02e-4ac1-b085-3b3c58ed586b', success: true, data: {…}}
-chunk-J7UM7UEE.js:88 [VSCodeService] Received RPC response: {type: 'rpc:response', correlationId: '0b011798-dd53-4759-bb1f-d6234c1e3b54', success: false, error: {…}}
+chunk-WZO35DTE.js:88 [ClaudeRpcService] RPC timeout for method: enhancedPrompts:runWizard
+(anonymous) @ chunk-WZO35DTE.js:88
+P.<computed> @ polyfills.js:1
+invokeTask @ polyfills.js:1
+onInvokeTask @ chunk-WZO35DTE.js:4
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+E.useG.invoke @ polyfills.js:1
+T._.args.<computed> @ polyfills.js:1
+setTimeout
+T @ polyfills.js:1
+scheduleTask @ polyfills.js:1
+onScheduleTask @ polyfills.js:1
+scheduleTask @ polyfills.js:1
+scheduleTask @ polyfills.js:1
+scheduleMacroTask @ polyfills.js:1
+xe @ polyfills.js:1
+(anonymous) @ polyfills.js:1
+e.<computed> @ polyfills.js:1
+(anonymous) @ chunk-WZO35DTE.js:88
+M @ polyfills.js:2
+(anonymous) @ chunk-WZO35DTE.js:88
+(anonymous) @ chunk-JKOY2XUY.js:1
+M @ polyfills.js:2
+v @ chunk-JKOY2XUY.js:1
+call @ chunk-WZO35DTE.js:88
+(anonymous) @ main.js:40
+(anonymous) @ chunk-JKOY2XUY.js:1
+M @ polyfills.js:2
+v @ chunk-JKOY2XUY.js:1
+runEnhancedPromptsWizard @ main.js:40
+(anonymous) @ main.js:49
+(anonymous) @ chunk-JKOY2XUY.js:1
+M @ polyfills.js:2
+v @ chunk-JKOY2XUY.js:1
+triggerEnhancedPrompts @ main.js:49
+(anonymous) @ main.js:49
+invokeTask @ polyfills.js:1
+onInvokeTask @ chunk-WZO35DTE.js:4
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+$ @ polyfills.js:1
+invokeTask @ polyfills.js:1
+E.useG.invoke @ polyfills.js:1
+T._.args.<computed> @ polyfills.js:1
+setTimeout
+T @ polyfills.js:1
+scheduleTask @ polyfills.js:1
+scheduleTask @ polyfills.js:1
+scheduleMacroTask @ polyfills.js:1
+xe @ polyfills.js:1
+(anonymous) @ polyfills.js:1
+e.<computed> @ polyfills.js:1
+u5 @ chunk-WZO35DTE.js:4
+t @ chunk-WZO35DTE.js:4
+(anonymous) @ chunk-WZO35DTE.js:4
+invoke @ polyfills.js:1
+run @ polyfills.js:1
+CS @ chunk-WZO35DTE.js:4
+t @ chunk-WZO35DTE.js:4
+onInvokeTask @ chunk-WZO35DTE.js:4
+invokeTask @ polyfills.js:1
+runTask @ polyfills.js:1
+invokeTask @ polyfills.js:1
+L @ polyfills.js:1
+H @ polyfills.js:1
+z @ polyfills.js:1
+postMessage
+(anonymous) @ index.html?id=eac28a43-590c-484f-b83e-c13bb09fa7d1&parentId=8&origin=d08ae0e6-a313-4e28-8703-26d2e170a3db&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app:1282
+HostMessaging.channel.port1.onmessage @ index.html?id=eac28a43-590c-484f-b83e-c13bb09fa7d1&parentId=8&origin=d08ae0e6-a313-4e28-8703-26d2e170a3db&swVersion=4&extensionId=ptah-extensions.ptah-extension-vscode&platform=electron&vscode-resource-base-authority=vscode-resource.vscode-cdn.net&parentOrigin=vscode-file%3A%2F%2Fvscode-app:342

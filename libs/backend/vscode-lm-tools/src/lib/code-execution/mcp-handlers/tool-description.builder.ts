@@ -21,7 +21,7 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 12 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 15 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
@@ -32,8 +32,8 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         timeout: {
           type: 'number',
           description:
-            'Execution timeout in milliseconds (default: 5000, max: 30000)',
-          default: 5000,
+            'Execution timeout in milliseconds (default: 15000, max: 30000)',
+          default: 15000,
         },
       },
       required: ['code'],
@@ -73,14 +73,15 @@ export function buildApprovalPromptTool(): MCPToolDefinition {
 }
 
 /**
- * Build comprehensive execute_code tool description with full API reference
+ * Build comprehensive execute_code tool description with full API reference.
+ * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
  */
 function buildExecuteCodeDescription(): string {
   return `Execute TypeScript/JavaScript code with access to VS Code extension APIs via the global "ptah" object.
 
 ${PTAH_SYSTEM_PROMPT}
 
-## Available Namespaces (12 total)
+## Top Namespaces (15 total — use ptah.help(topic) for full details)
 
 ### ptah.workspace - Workspace Analysis
 - analyze(): Promise<{info, structure}> - Full workspace analysis
@@ -89,54 +90,44 @@ ${PTAH_SYSTEM_PROMPT}
 - getFrameworks(): Promise<string[]> - Detected frameworks
 
 ### ptah.search - File Discovery
-- findFiles(pattern: string, limit?: number): Promise<FileInfo[]> - Glob pattern search
-- getRelevantFiles(query: string, maxFiles?: number): Promise<FileInfo[]> - Semantic file search
-
-### ptah.symbols - Code Symbol Search
-- find(name: string, type?: string): Promise<SymbolInfo[]> - Find symbols (class, function, method, interface, variable)
+- findFiles(pattern: string, limit?: number): Promise<string[]> - Glob pattern search (returns file paths)
+- getRelevantFiles(query: string, maxFiles?: number): Promise<string[]> - Semantic file search (returns file paths)
 
 ### ptah.diagnostics - Errors & Warnings
-- getErrors(): Promise<DiagnosticInfo[]> - All error-level diagnostics
-- getWarnings(): Promise<DiagnosticInfo[]> - All warning-level diagnostics
-- getAll(): Promise<DiagnosticInfo[]> - All diagnostics with severity
+- getErrors(): Promise<{file, message, line}[]> - All error-level diagnostics
+- getWarnings(): Promise<{file, message, line}[]> - All warning-level diagnostics
+- getAll(): Promise<{file, message, line, severity}[]> - All diagnostics with severity
 
 ### ptah.git - Repository Status
 - getStatus(): Promise<{branch, modified, staged, untracked}> - Git working tree status
 
-### ptah.ai - VS Code Language Model API
-- chat(message: string, model?: string): Promise<string> - Send message to VS Code LM
-- selectModel(family?: string): Promise<ModelInfo[]> - List available models
+### ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
+- ide.lsp.getDefinition(file, line, col) - Go to definition
+- ide.lsp.getReferences(file, line, col) - Find all references
+- ide.lsp.getHover(file, line, col) - Get type info and docs
+- ide.editor.getActive() - Active file, cursor, selection
+- ide.editor.getOpenFiles() - All open file paths
+- ide.actions.rename(file, line, col, newName) - Rename symbol workspace-wide
+- ide.actions.organizeImports(file) - Clean imports
+- ide.testing.run(options?) - Run tests
 
-### ptah.files - File Operations
-- read(path: string): Promise<string> - Read file contents as UTF-8
-- list(directory: string): Promise<{name, type}[]> - List directory contents
+### Other Namespaces (use ptah.help('topic') for details)
+- ptah.ai.* - VS Code LM API (chat, tokens, tools, specialized tasks, invokeAgent)
+- ptah.llm.* - Multi-provider LLM (Anthropic, OpenAI, Google, OpenRouter, VS Code LM)
+- ptah.files.* - File operations (read, readJson, list)
+- ptah.symbols.* - Code symbol search
+- ptah.commands.* - VS Code command execution
+- ptah.context.* - Token budget optimization
+- ptah.project.* - Project type detection, monorepo detection
+- ptah.relevance.* - File relevance scoring
+- ptah.ast.* - Code structure analysis (tree-sitter)
+- ptah.orchestration.* - Workflow state management
 
-### ptah.commands - VS Code Commands
-- execute(commandId: string, ...args): Promise<any> - Execute VS Code command
-- list(): Promise<string[]> - List ptah.* commands
-
-### ptah.context - Token Budget Management
-- optimize(query: string, maxTokens?: number): Promise<OptimizedContext> - Select files within token budget
-- countTokens(text: string): Promise<number> - Count tokens in text
-- getRecommendedBudget(projectType): number - Get recommended budget for project type
-
-### ptah.project - Project Analysis
-- detectMonorepo(): Promise<{isMonorepo, type, workspaceFiles, packageCount}> - Detect monorepo tool
-- detectType(): Promise<string> - Detect project type
-- analyzeDependencies(): Promise<{name, version, isDev}[]> - Analyze package dependencies
-
-### ptah.relevance - File Ranking
-- scoreFile(filePath: string, query: string): Promise<{file, score, reasons}> - Score single file relevance
-- rankFiles(query: string, limit?: number): Promise<{file, score, reasons}[]> - Rank files by relevance
-
-### ptah.ast - Code Structure Analysis (tree-sitter)
-- analyze(filePath: string): Promise<CodeInsights> - Extract functions, classes, imports, exports from file
-- parse(filePath: string, maxDepth?: number): Promise<AstParseResult> - Get full AST structure
-- queryFunctions(filePath: string): Promise<FunctionInfo[]> - List all functions/methods
-- queryClasses(filePath: string): Promise<ClassInfo[]> - List all classes
-- queryImports(filePath: string): Promise<ImportInfo[]> - List all imports
-- queryExports(filePath: string): Promise<ExportInfo[]> - List all exports
-- getSupportedLanguages(): string[] - Returns ['javascript', 'typescript']
+## Error Handling
+If a call fails, it returns an error message. Use try-catch for robustness:
+\`\`\`typescript
+try { const files = await ptah.search.findFiles('**/*.ts'); } catch(e) { return 'Error: ' + e.message; }
+\`\`\`
 
 ## Usage Examples
 
@@ -145,36 +136,23 @@ ${PTAH_SYSTEM_PROMPT}
 const {info, structure} = await ptah.workspace.analyze();
 return {projectType: info.projectType, frameworks: info.frameworks};
 
-// Find authentication-related files with relevance scores
-const files = await ptah.relevance.rankFiles('authentication handler', 10);
-return files.map(f => ({file: f.file, score: f.score, why: f.reasons}));
+// Find files and filter (findFiles returns string paths)
+const files = await ptah.search.findFiles('**/*', 500);
+return files.filter(f => f.endsWith('.ts'));
 
-// Optimize context for a task within token budget
-const optimized = await ptah.context.optimize('implement user auth', 100000);
-return {selected: optimized.selectedFiles.length, tokens: optimized.totalTokens};
+// Find references before refactoring
+const refs = await ptah.ide.lsp.getReferences('src/app.ts', 10, 5);
+return refs.map(r => r.file + ':' + r.line);
+
+// Delegate routine task to cheap model (150x cheaper)
+const review = await ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', 'gpt-4o-mini');
 
 // Check for TypeScript errors
 const errors = await ptah.diagnostics.getErrors();
 return errors.filter(e => e.file.endsWith('.ts'));
 
-// Detect monorepo structure
-const mono = await ptah.project.detectMonorepo();
-if (mono.isMonorepo) return {type: mono.type, packages: mono.packageCount};
-
-// Analyze code structure (AST) - get all functions in a file
+// Analyze code structure (AST)
 const insights = await ptah.ast.analyze('src/services/auth.service.ts');
-return {
-  functions: insights.functions.map(f => f.name),
-  classes: insights.classes.map(c => c.name),
-  imports: insights.imports.length
-};
-
-// Query specific code elements
-const functions = await ptah.ast.queryFunctions('src/app.ts');
-return functions.map(f => ({name: f.name, params: f.parameters, line: f.startLine}));
-
-// Get imports from a file
-const imports = await ptah.ast.queryImports('src/index.ts');
-return imports.map(i => ({from: i.source, symbols: i.importedSymbols}));
+return { functions: insights.functions.map(f => f.name), classes: insights.classes.map(c => c.name) };
 \`\`\``;
 }

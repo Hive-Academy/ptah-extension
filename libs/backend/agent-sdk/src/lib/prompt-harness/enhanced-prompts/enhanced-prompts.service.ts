@@ -70,6 +70,8 @@ export interface EnhancedPromptsSdkConfig {
   isPremium: boolean;
   mcpServerRunning: boolean;
   mcpPort?: number;
+  /** Model to use for generation. Overrides the `model.selected` config when provided. */
+  model?: string;
   /** Callback for real-time stream events (text, tool calls, thinking) */
   onStreamEvent?: (event: AnalysisStreamPayload) => void;
 }
@@ -549,8 +551,10 @@ export class EnhancedPromptsService {
     onProgress?: (progress: PromptGenerationProgress) => void
   ): Promise<PromptDesignerOutput | null> {
     const isPremium = sdkConfig?.isPremium ?? false;
-    const mcpServerRunning = sdkConfig?.mcpServerRunning ?? false;
-    const mcpPort = sdkConfig?.mcpPort;
+    // Disable MCP for enhanced prompts generation — the LLM should generate
+    // guidance from the provided analysis data, not re-explore the workspace.
+    const mcpServerRunning = false;
+    const mcpPort = undefined;
 
     try {
       // 1. Build prompts + schema via PromptDesignerAgent
@@ -563,11 +567,13 @@ export class EnhancedPromptsService {
         progress: 40,
       });
 
-      // 2. Get model from config
-      const model = this.config.getWithDefault<string>(
-        'model.selected',
-        'claude-sonnet-4-5-20250929'
-      );
+      // 2. Get model: prefer frontend selection, fall back to config
+      const model =
+        sdkConfig?.model ||
+        this.config.getWithDefault<string>(
+          'model.selected',
+          'claude-sonnet-4-5-20250929'
+        );
 
       // 3. Execute SDK query with structured output
       const abortController = new AbortController();

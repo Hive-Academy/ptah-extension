@@ -10,6 +10,7 @@ import {
   GenerationProgressPayload,
   GenerationStreamPayload,
   ProjectAnalysisResult,
+  SavedAnalysisMetadata,
   ScanProgressPayload,
   WizardErrorPayload,
   WizardMessage,
@@ -134,16 +135,16 @@ export interface ErrorState {
 }
 
 /**
- * Skill generation progress item.
- * Tracks progress of individual items during skill/command generation.
+ * Generation progress item.
+ * Tracks progress of individual items during agent generation.
  */
 export interface SkillGenerationProgressItem {
   /** Unique item identifier */
   id: string;
   /** Display name */
   name: string;
-  /** Item type: agent, command, skill file, or enhanced-prompt */
-  type: 'agent' | 'command' | 'skill-file' | 'enhanced-prompt';
+  /** Item type: agent or enhanced-prompt */
+  type: 'agent' | 'enhanced-prompt';
   /** Current status */
   status: 'pending' | 'in-progress' | 'complete' | 'error';
   /** Progress percentage 0-100 (optional) */
@@ -272,8 +273,8 @@ export class SetupWizardStateService {
   private readonly recommendationsSignal = signal<AgentRecommendation[]>([]);
 
   /**
-   * Private writable signal for skill generation progress.
-   * Tracks progress of agents, commands, and skill files during generation.
+   * Private writable signal for generation progress.
+   * Tracks progress of agents during generation.
    */
   private readonly skillGenerationProgressSignal = signal<
     SkillGenerationProgressItem[]
@@ -317,6 +318,20 @@ export class SetupWizardStateService {
   private readonly enhancedPromptsDetectedStackSignal = signal<string[] | null>(
     null
   );
+
+  // === Saved Analysis History State Signals ===
+
+  /**
+   * Private writable signal for saved analyses list (metadata only).
+   * Populated from backend via wizard:list-analyses RPC.
+   */
+  private readonly savedAnalysesSignal = signal<SavedAnalysisMetadata[]>([]);
+
+  /**
+   * Private writable signal tracking whether current analysis was loaded from history.
+   * When true, the analysis was loaded (not scanned fresh).
+   */
+  private readonly analysisLoadedFromHistorySignal = signal(false);
 
   /**
    * Public readonly signal for current wizard step
@@ -391,8 +406,8 @@ export class SetupWizardStateService {
   readonly recommendations = this.recommendationsSignal.asReadonly();
 
   /**
-   * Public readonly signal for skill generation progress.
-   * Tracks individual progress of agents, commands, and skill files.
+   * Public readonly signal for generation progress.
+   * Tracks individual progress of agents.
    */
   readonly skillGenerationProgress =
     this.skillGenerationProgressSignal.asReadonly();
@@ -429,6 +444,20 @@ export class SetupWizardStateService {
    */
   readonly enhancedPromptsDetectedStack =
     this.enhancedPromptsDetectedStackSignal.asReadonly();
+
+  // === Saved Analysis History Public Signals ===
+
+  /**
+   * Public readonly signal for saved analyses metadata.
+   * Used by the welcome component to display analysis history cards.
+   */
+  readonly savedAnalyses = this.savedAnalysesSignal.asReadonly();
+
+  /**
+   * Public readonly signal for whether the current analysis was loaded from history.
+   */
+  readonly analysisLoadedFromHistory =
+    this.analysisLoadedFromHistorySignal.asReadonly();
 
   constructor() {
     this.ensureMessageListenerRegistered();
@@ -498,8 +527,8 @@ export class SetupWizardStateService {
       scan: 20,
       analysis: 35,
       selection: 50,
-      enhance: 55,
-      generation: progress?.percentComplete ?? 65,
+      generation: progress?.percentComplete ?? 55,
+      enhance: 85,
       completion: 100,
     };
 
@@ -517,8 +546,8 @@ export class SetupWizardStateService {
       'scan',
       'analysis',
       'selection',
-      'enhance',
       'generation',
+      'enhance',
       'completion',
     ];
     // 'premium-check' maps to -1 (not shown in stepper)
@@ -539,20 +568,11 @@ export class SetupWizardStateService {
 
   /**
    * Computed signal for total generation items count.
-   * Includes selected agents + commands (5) + skill files (7).
-   *
-   * Command count: 5 (review-code, review-logic, review-security, orchestrate, orchestrate-help)
-   * Skill file count: 7 (SKILL.md + 6 references)
+   * Counts selected agents only.
    */
   readonly totalGenerationItems = computed(() => {
     const selectedAgents = this.selectedAgentsMapSignal();
-    const selectedAgentCount =
-      Object.values(selectedAgents).filter(Boolean).length;
-
-    const COMMAND_COUNT = 5; // Fixed: review-code, review-logic, review-security, orchestrate, orchestrate-help
-    const SKILL_FILE_COUNT = 7; // Fixed: SKILL.md + 6 reference files
-
-    return selectedAgentCount + COMMAND_COUNT + SKILL_FILE_COUNT;
+    return Object.values(selectedAgents).filter(Boolean).length;
   });
 
   /**
@@ -589,6 +609,31 @@ export class SetupWizardStateService {
       (item) => item.status === 'error'
     );
   });
+
+  // === Prerequisite-Based Navigation (Persistent Analysis History) ===
+
+  /**
+   * Check if a step can be jumped to based on prerequisites.
+   * Used by the wizard view stepper to enable forward-jumps
+   * when a saved analysis is loaded.
+   *
+   * - 'selection': requires deepAnalysis + recommendations loaded
+   * - 'enhance': requires deepAnalysis loaded
+   * - Others: only accessible via normal flow
+   */
+  canJumpToStep(step: WizardStep): boolean {
+    const hasAnalysis = this.deepAnalysisSignal() !== null;
+    const hasRecommendations = this.recommendationsSignal().length > 0;
+
+    switch (step) {
+      case 'selection':
+        return hasAnalysis && hasRecommendations;
+      case 'enhance':
+        return hasAnalysis;
+      default:
+        return false;
+    }
+  }
 
   // === State Mutations ===
 
@@ -656,6 +701,8 @@ export class SetupWizardStateService {
     this.enhancedPromptsStatusSignal.set('idle');
     this.enhancedPromptsErrorSignal.set(null);
     this.enhancedPromptsDetectedStackSignal.set(null);
+    // Reset analysis history state (keep savedAnalyses list intact)
+    this.analysisLoadedFromHistorySignal.set(false);
   }
 
   // === Deep Analysis State Mutations (TASK_2025_111) ===
@@ -767,6 +814,43 @@ export class SetupWizardStateService {
    */
   setEnhancedPromptsDetectedStack(stack: string[] | null): void {
     this.enhancedPromptsDetectedStackSignal.set(stack);
+  }
+
+  // === Saved Analysis History State Mutations ===
+
+  /**
+   * Set saved analyses list from backend.
+   * Called when the welcome component fetches the list.
+   */
+  setSavedAnalyses(analyses: SavedAnalysisMetadata[]): void {
+    this.savedAnalysesSignal.set(analyses);
+  }
+
+  /**
+   * Load a saved analysis into state.
+   * Sets deepAnalysis, recommendations, and marks as loaded from history.
+   * Auto-selects agents with score >= 80 (reuses existing logic).
+   *
+   * @param analysis - Full project analysis result
+   * @param recommendations - Agent recommendations
+   */
+  loadSavedAnalysis(
+    analysis: ProjectAnalysisResult,
+    recommendations: AgentRecommendation[]
+  ): void {
+    this.deepAnalysisSignal.set(analysis);
+    this.setRecommendations(recommendations);
+    this.analysisLoadedFromHistorySignal.set(true);
+
+    // Also set projectContext for backward compatibility
+    this.projectContextSignal.set({
+      type:
+        analysis.projectTypeDescription || analysis.projectType || 'Unknown',
+      techStack: analysis.frameworks || [],
+      architecture: analysis.architecturePatterns?.[0]?.name,
+      isMonorepo: !!analysis.monorepoType,
+      monorepoType: analysis.monorepoType,
+    });
   }
 
   /**
@@ -1047,8 +1131,8 @@ export class SetupWizardStateService {
           const isCurrentAgent =
             item.name === currentAgent || item.id === currentAgent;
 
-          if (isCurrentAgent) {
-            // Mark this item as in-progress
+          if (isCurrentAgent && item.status !== 'complete') {
+            // Mark this item as in-progress (but don't flip completed items back)
             return {
               ...item,
               status: 'in-progress' as const,
@@ -1091,13 +1175,12 @@ export class SetupWizardStateService {
     // Always store completion data so it's available when generation step mounts
     this.completionDataSignal.set(completionData);
 
-    // Only auto-transition to completion if we're on the generation step.
-    // If we're on the enhance step (or earlier), generation runs in the background
-    // and the user should complete the enhance step first. The generation-progress
-    // component will pick up completionData when it mounts.
+    // Auto-transition to enhance step when generation completes on the generation step.
+    // The user will proceed through the enhance step for Enhanced Prompts before
+    // reaching the completion step.
     const currentStep = this.currentStepSignal();
     if (currentStep === 'generation') {
-      this.currentStepSignal.set('completion');
+      this.currentStepSignal.set('enhance');
     }
   }
 

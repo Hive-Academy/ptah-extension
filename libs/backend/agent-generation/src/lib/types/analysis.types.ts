@@ -123,16 +123,30 @@ import type {
  */
 export interface DeepProjectAnalysis {
   /**
-   * Detected project type from workspace analysis.
-   * Primary factor in template selection and agent recommendations.
+   * Detected project type enum — best-effort mapping for infrastructure code
+   * (framework detection, dependency parsing, context optimization).
+   * NOT used for agent recommendations or template selection.
    */
   projectType: ProjectType;
 
   /**
+   * Agent's original rich project type description (e.g., "React SPA with Supabase Backend",
+   * "Angular Nx Monorepo with NestJS API"). Preserves the agent's intelligent analysis
+   * without forcing it into a limited enum. This is what the frontend displays
+   * and what agent recommendations should consider.
+   */
+  projectTypeDescription?: string;
+
+  /**
    * Detected frameworks used in the project.
    * Used for specialized agent recommendations and LLM customization.
+   *
+   * Supports both known Framework enum values and dynamically discovered
+   * frameworks (e.g., 'tailwindcss', 'redux', 'zustand') that the agent
+   * discovers during analysis. Using string[] allows flexibility while
+   * maintaining backward compatibility with Framework enum values.
    */
-  frameworks: Framework[];
+  frameworks: string[];
 
   /**
    * Monorepo type if the project is a monorepo.

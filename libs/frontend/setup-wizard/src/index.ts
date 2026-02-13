@@ -12,6 +12,7 @@ export { AnalysisResultsComponent } from './lib/components/analysis-results.comp
 
 // Wizard Components (Steps 4-6)
 export { AgentSelectionComponent } from './lib/components/agent-selection.component';
+export { PromptEnhancementComponent } from './lib/components/prompt-enhancement.component';
 export { GenerationProgressComponent } from './lib/components/generation-progress.component';
 export { CompletionComponent } from './lib/components/completion.component';
 

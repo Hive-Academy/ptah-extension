@@ -30,6 +30,7 @@ export { AgenticAnalysisService } from './agentic-analysis.service';
 export {
   ProjectAnalysisZodSchema,
   normalizeAgentOutput,
+  resolveProjectType,
 } from './analysis-schema';
 export type { ProjectAnalysisZodOutput } from './analysis-schema';
 

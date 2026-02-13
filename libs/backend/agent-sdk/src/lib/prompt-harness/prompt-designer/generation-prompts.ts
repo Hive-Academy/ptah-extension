@@ -7,6 +7,10 @@
  *
  * These prompts are carefully crafted to produce consistent, actionable
  * output that integrates well with PTAH_CORE_SYSTEM_PROMPT.
+ *
+ * NOTE: All framework-specific and tooling-specific hard-coded guidance has been
+ * removed. The LLM receives the full dependency list and generates guidance
+ * dynamically based on what it discovers — no pre-built dictionaries.
  */
 
 import type { PromptDesignerInput } from './prompt-designer.types';
@@ -21,6 +25,12 @@ import type {
  * This establishes the agent's role and output expectations.
  */
 export const PROMPT_DESIGNER_SYSTEM_PROMPT = `You are a Prompt Designer Agent. Your task is to generate concise, actionable guidance for an AI assistant that will help developers in a specific project.
+
+CRITICAL CONSTRAINTS:
+- Do NOT attempt to call any tools or explore the filesystem.
+- ALL project information you need is provided in the PROJECT ANALYSIS DATA in the user prompt.
+- Base every piece of generated guidance EXCLUSIVELY on the provided analysis data.
+- Do NOT fabricate, guess, or assume any project details not present in the analysis data.
 
 ## Your Role
 
@@ -50,8 +60,12 @@ Prioritize the most impactful guidance over comprehensive coverage.`;
  * Formats quality assessment data into a concise prompt section that helps
  * the LLM generate quality-specific guidance.
  *
- * @param assessment - Quality assessment from ProjectIntelligenceService
- * @param guidance - Prescriptive guidance from ProjectIntelligenceService
+ * Supports two data sources:
+ * - antiPatterns: Line-level anti-patterns from file-sampling analysis (legacy)
+ * - gaps: Area-level quality gaps from agentic analysis (current)
+ *
+ * @param assessment - Quality assessment (from agentic analysis or legacy pipeline)
+ * @param guidance - Prescriptive guidance with prioritized recommendations
  * @returns Formatted quality context string (under 300 tokens) or empty string if no data
  * @since TASK_2025_141
  */
@@ -59,8 +73,10 @@ export function buildQualityContextPrompt(
   assessment: QualityAssessment | undefined,
   guidance: PrescriptiveGuidance | undefined
 ): string {
-  // Return empty if no assessment or no detected issues
-  if (!assessment || assessment.antiPatterns.length === 0) {
+  // Return empty if no assessment or no detected issues from either source
+  const hasAntiPatterns = assessment?.antiPatterns?.length ?? 0;
+  const hasGaps = assessment?.gaps?.length ?? 0;
+  if (!assessment || (hasAntiPatterns === 0 && hasGaps === 0)) {
     return '';
   }
 
@@ -70,24 +86,22 @@ export function buildQualityContextPrompt(
   parts.push(`## Code Quality Context (Score: ${assessment.score}/100)`);
   parts.push('');
 
-  // Top 5 detected issues (by frequency, then severity)
-  const sortedPatterns = [...assessment.antiPatterns].sort((a, b) => {
-    // Sort by frequency descending, then severity (error > warning > info)
-    if (b.frequency !== a.frequency) {
-      return b.frequency - a.frequency;
-    }
-    // Defensive severity lookup: unknown severities default to 0
-    const severityOrder: Record<string, number> = {
-      error: 3,
-      warning: 2,
-      info: 1,
-    };
-    const getSeverityScore = (s: string): number => severityOrder[s] ?? 0;
-    return getSeverityScore(b.severity) - getSeverityScore(a.severity);
-  });
+  // Top 5 detected anti-patterns (by frequency, then severity) — legacy source
+  if (assessment.antiPatterns.length > 0) {
+    const sortedPatterns = [...assessment.antiPatterns].sort((a, b) => {
+      if (b.frequency !== a.frequency) {
+        return b.frequency - a.frequency;
+      }
+      const severityOrder: Record<string, number> = {
+        error: 3,
+        warning: 2,
+        info: 1,
+      };
+      const getSeverityScore = (s: string): number => severityOrder[s] ?? 0;
+      return getSeverityScore(b.severity) - getSeverityScore(a.severity);
+    });
 
-  const topIssues = sortedPatterns.slice(0, 5);
-  if (topIssues.length > 0) {
+    const topIssues = sortedPatterns.slice(0, 5);
     parts.push('### Detected Issues:');
     for (const pattern of topIssues) {
       const severityBadge =
@@ -99,6 +113,42 @@ export function buildQualityContextPrompt(
       parts.push(
         `- ${severityBadge} ${pattern.message} (${pattern.frequency} occurrences)`
       );
+    }
+    parts.push('');
+  }
+
+  // Top 5 quality gaps (by priority) — agentic analysis source
+  if (assessment.gaps.length > 0) {
+    const priorityOrder: Record<string, number> = {
+      high: 3,
+      medium: 2,
+      low: 1,
+    };
+    const sortedGaps = [...assessment.gaps].sort(
+      (a, b) =>
+        (priorityOrder[b.priority] ?? 0) - (priorityOrder[a.priority] ?? 0)
+    );
+
+    const topGaps = sortedGaps.slice(0, 5);
+    parts.push('### Quality Gaps:');
+    for (const gap of topGaps) {
+      const badge =
+        gap.priority === 'high'
+          ? '[HIGH]'
+          : gap.priority === 'medium'
+          ? '[MEDIUM]'
+          : '[LOW]';
+      parts.push(`- ${badge} **${gap.area}**: ${gap.description}`);
+    }
+    parts.push('');
+  }
+
+  // Strengths (from agentic analysis)
+  if (assessment.strengths.length > 0) {
+    const topStrengths = assessment.strengths.slice(0, 3);
+    parts.push('### Strengths:');
+    for (const strength of topStrengths) {
+      parts.push(`- ${strength}`);
     }
     parts.push('');
   }
@@ -203,9 +253,12 @@ ${qualityContext}`;
 }
 
 /**
- * Prompt for generating minimal guidance when LLM is unavailable
+ * Build fallback guidance when LLM is unavailable.
  *
- * Used as a fallback to generate basic guidance from templates.
+ * Generates generic guidance from the project metadata without
+ * any hard-coded framework-specific advice. The guidance is basic
+ * but accurate — it lists what was detected and provides universal
+ * software engineering best practices.
  */
 export function buildFallbackGuidance(input: PromptDesignerInput): string {
   const parts: string[] = [];
@@ -221,21 +274,39 @@ This is a ${input.projectType} project${
       : ''
   }`);
 
-  // Framework guidelines fallback based on detected framework
-  const frameworkGuidance = getFrameworkFallbackGuidance(input.framework);
-  if (frameworkGuidance) {
+  // Framework guidelines — list detected dependencies for context
+  if (input.framework) {
+    const deps = input.dependencies.slice(0, 10);
+    const depsText =
+      deps.length > 0 ? `\n\nKey dependencies: ${deps.join(', ')}` : '';
     parts.push(`## Framework Guidelines
 
-${frameworkGuidance}`);
+Follow established patterns and best practices for ${input.framework}.
+Reference the project's existing code for conventions and patterns.${depsText}`);
   }
 
-  // Coding standards fallback based on detected tooling
-  const toolingGuidance = getToolingFallbackGuidance(input.devDependencies);
+  // Coding standards — universal best practices
+  const standards: string[] = [
+    '- Follow consistent naming conventions used in the existing codebase',
+    '- Keep functions small and focused on a single responsibility',
+    '- Handle errors explicitly at system boundaries',
+  ];
+
+  if (input.devDependencies.some((d) => d.includes('typescript'))) {
+    standards.push('- Use TypeScript strict mode features; avoid `any` types');
+  }
+  if (input.devDependencies.some((d) => d.includes('eslint'))) {
+    standards.push('- Follow the configured ESLint rules');
+  }
+  if (input.devDependencies.some((d) => d.includes('prettier'))) {
+    standards.push('- Use Prettier for consistent formatting');
+  }
+
   parts.push(`## Coding Standards
 
-${toolingGuidance}`);
+${standards.join('\n')}`);
 
-  // Architecture notes fallback
+  // Architecture notes
   if (input.isMonorepo) {
     parts.push(`## Architecture Notes
 
@@ -246,127 +317,3 @@ This is a ${
 
   return parts.join('\n\n');
 }
-
-/**
- * Get framework-specific fallback guidance
- */
-function getFrameworkFallbackGuidance(framework?: string): string | null {
-  if (!framework) return null;
-
-  const frameworkMap: Record<string, string> = {
-    angular: `- Use standalone components (Angular 14+)
-- Prefer signals over BehaviorSubject for state
-- Follow the Angular style guide for naming
-- Use dependency injection for services
-- Organize features by domain, not type`,
-
-    react: `- Use functional components with hooks
-- Prefer useState and useReducer for local state
-- Use React Query or SWR for server state
-- Keep components small and focused
-- Co-locate tests with components`,
-
-    vue: `- Use Composition API over Options API
-- Prefer script setup syntax
-- Use Pinia for state management
-- Follow Vue style guide priority A rules
-- Keep components single-responsibility`,
-
-    nestjs: `- Use modules to organize features
-- Prefer constructor injection
-- Use DTOs for validation
-- Follow the repository pattern for data access
-- Handle errors with exception filters`,
-
-    express: `- Use middleware for cross-cutting concerns
-- Validate input with express-validator or Zod
-- Handle errors with error middleware
-- Keep routes thin, logic in services
-- Use async/await with proper error handling`,
-
-    nextjs: `- Use App Router (Next.js 13+) patterns
-- Prefer Server Components where possible
-- Use Server Actions for mutations
-- Follow the loading/error UI patterns
-- Optimize images with next/image`,
-  };
-
-  return frameworkMap[framework.toLowerCase()] || null;
-}
-
-/**
- * Get tooling-based fallback guidance
- */
-function getToolingFallbackGuidance(devDependencies: string[]): string {
-  const guidance: string[] = [];
-
-  if (devDependencies.includes('typescript')) {
-    guidance.push('- Use TypeScript strict mode features');
-    guidance.push('- Avoid `any` types; prefer `unknown` with type guards');
-    guidance.push('- Export types alongside implementations');
-  }
-
-  if (devDependencies.includes('eslint')) {
-    guidance.push('- Follow the configured ESLint rules');
-    guidance.push('- Run linting before commits');
-  }
-
-  if (devDependencies.includes('prettier')) {
-    guidance.push('- Use Prettier for consistent formatting');
-  }
-
-  if (devDependencies.includes('jest')) {
-    guidance.push('- Write tests using Jest');
-    guidance.push('- Follow AAA pattern (Arrange-Act-Assert)');
-  }
-
-  if (devDependencies.includes('vitest')) {
-    guidance.push('- Write tests using Vitest');
-    guidance.push('- Use vi.mock for module mocking');
-  }
-
-  if (guidance.length === 0) {
-    guidance.push('- Follow consistent naming conventions');
-    guidance.push('- Keep functions small and focused');
-    guidance.push('- Document public APIs');
-  }
-
-  return guidance.join('\n');
-}
-
-/**
- * Framework-specific prompt additions for enhanced guidance
- */
-export const FRAMEWORK_PROMPT_ADDITIONS: Record<string, string> = {
-  angular: `
-Pay special attention to Angular-specific patterns:
-- Signal-based reactivity (Angular 16+)
-- Zoneless change detection strategies
-- Standalone component patterns
-- Dependency injection best practices
-- RxJS usage patterns (when to use vs signals)`,
-
-  react: `
-Pay special attention to React-specific patterns:
-- Hooks composition and custom hooks
-- State management choices (Context, Zustand, Redux)
-- Server Components vs Client Components (if Next.js)
-- Performance optimization (memo, useMemo, useCallback)
-- Error boundaries and Suspense`,
-
-  nestjs: `
-Pay special attention to NestJS-specific patterns:
-- Module organization and feature modules
-- Guards, interceptors, and pipes
-- TypeORM or Prisma repository patterns
-- Exception filters and error handling
-- Swagger/OpenAPI documentation`,
-
-  nextjs: `
-Pay special attention to Next.js-specific patterns:
-- App Router vs Pages Router
-- Server Components and Client Components
-- Data fetching strategies (Server Actions, Route Handlers)
-- Metadata and SEO optimization
-- Image and font optimization`,
-};

@@ -14,7 +14,10 @@
  * @module @ptah-extension/agent-sdk
  */
 
-import type { SDKMessage } from '../types/sdk-types/claude-sdk.types';
+import type {
+  SDKMessage,
+  OutputFormat,
+} from '../types/sdk-types/claude-sdk.types';
 
 /**
  * Configuration for an internal one-shot query.
@@ -50,6 +53,14 @@ export interface InternalQueryConfig {
 
   /** Maximum number of agent turns (default: 25) */
   maxTurns?: number;
+
+  /**
+   * Structured output format (JSON Schema).
+   * When provided, the SDK constrains the agent's final response to match the schema.
+   * The result is returned in `SDKResultMessageSuccess.structured_output`.
+   * The SDK automatically retries if the agent fails to produce valid output.
+   */
+  outputFormat?: OutputFormat;
 
   /** Abort controller for cancellation (created internally if not provided) */
   abortController?: AbortController;

@@ -52,8 +52,9 @@ const MALICIOUS_PATTERNS = [
   /\bFunction\s*\(/gi,
   // Data URIs with scripts
   /data:text\/html[^,]*,/gi,
-  // Event handlers in HTML
-  /\bon\w+\s*=/gi,
+  // Event handlers in HTML attributes (e.g., <div onclick="...">)
+  // Excludes markdown/code references like `onClick`, `onChange` which are common in agent templates
+  /<[^>]+\bon\w+\s*=/gi,
 ];
 
 /**
@@ -352,17 +353,10 @@ export class OutputValidationService implements IOutputValidationService {
       score -= 5;
     }
 
-    // Check for YAML frontmatter
+    // Check for YAML frontmatter (optional — section content won't have it)
     const hasFrontmatter = /^---\s*\n[\s\S]*?\n---\s*\n/.test(content);
-    if (!hasFrontmatter) {
-      issues.push({
-        severity: 'error',
-        message: 'Missing YAML frontmatter',
-        suggestion: 'Add frontmatter with metadata (---\\n...\\n---)',
-      });
-      score -= 15;
-    } else {
-      // Validate frontmatter structure
+    if (hasFrontmatter) {
+      // Validate frontmatter structure if present
       const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
       if (frontmatterMatch) {
         const frontmatter = frontmatterMatch[1];
@@ -384,32 +378,36 @@ export class OutputValidationService implements IOutputValidationService {
       }
     }
 
-    // Check for template markers (LLM sections)
-    const llmMarkerPattern = /<!-- LLM:(\w+) -->/g;
-    const llmOpenMarkers = Array.from(content.matchAll(llmMarkerPattern));
-    const llmCloseMarkers = (content.match(/<!-- \/LLM -->/g) || []).length;
+    // Check for template markers (LLM sections): <!-- LLM:ID --> ... <!-- /LLM:ID -->
+    const llmOpenMarkers = Array.from(content.matchAll(/<!-- LLM:(\w+) -->/g));
+    const llmCloseMarkers = Array.from(
+      content.matchAll(/<!-- \/LLM:(\w+) -->/g)
+    );
 
-    if (llmOpenMarkers.length !== llmCloseMarkers) {
+    if (llmOpenMarkers.length !== llmCloseMarkers.length) {
       issues.push({
         severity: 'error',
-        message: `Mismatched LLM markers (${llmOpenMarkers.length} open, ${llmCloseMarkers} close)`,
+        message: `Mismatched LLM markers (${llmOpenMarkers.length} open, ${llmCloseMarkers.length} close)`,
         suggestion:
-          'Ensure all <!-- LLM:id --> markers have matching <!-- /LLM -->',
+          'Ensure all <!-- LLM:ID --> markers have matching <!-- /LLM:ID -->',
       });
       score -= 10;
     }
 
-    // Check for static markers
-    const staticOpenMarkers = (content.match(/<!-- STATIC -->/g) || []).length;
-    const staticCloseMarkers = (content.match(/<!-- \/STATIC -->/g) || [])
-      .length;
+    // Check for static markers: <!-- STATIC:ID --> ... <!-- /STATIC:ID -->
+    const staticOpenMarkers = Array.from(
+      content.matchAll(/<!-- STATIC:(\w+) -->/g)
+    );
+    const staticCloseMarkers = Array.from(
+      content.matchAll(/<!-- \/STATIC:(\w+) -->/g)
+    );
 
-    if (staticOpenMarkers !== staticCloseMarkers) {
+    if (staticOpenMarkers.length !== staticCloseMarkers.length) {
       issues.push({
         severity: 'warning',
-        message: `Mismatched STATIC markers (${staticOpenMarkers} open, ${staticCloseMarkers} close)`,
+        message: `Mismatched STATIC markers (${staticOpenMarkers.length} open, ${staticCloseMarkers.length} close)`,
         suggestion:
-          'Ensure all <!-- STATIC --> markers have matching <!-- /STATIC -->',
+          'Ensure all <!-- STATIC:ID --> markers have matching <!-- /STATIC:ID -->',
       });
       score -= 5;
     }

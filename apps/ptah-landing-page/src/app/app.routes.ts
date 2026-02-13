@@ -3,8 +3,10 @@ import { LandingPageComponent } from './pages/landing-page.component';
 import { PricingPageComponent } from './pages/pricing/pricing-page.component';
 import { AuthPageComponent } from './pages/auth/auth-page.component';
 import { ProfilePageComponent } from './pages/profile/profile-page.component';
+import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.component';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
+import { TrialStatusGuard } from './guards/trial-status.guard';
 
 /**
  * Application Routes
@@ -13,15 +15,17 @@ import { GuestGuard } from './guards/guest.guard';
  *
  * Routes:
  * - `/` → Landing page (home)
- * - `/pricing` → Pricing plans page
+ * - `/pricing` → Pricing plans page (protected by TrialStatusGuard)
  * - `/login` → Unified auth page (Sign In mode) - GuestGuard redirects to /profile if already logged in
  * - `/signup` → Unified auth page (Sign Up mode) - GuestGuard redirects to /profile if already logged in
- * - `/profile` → User license dashboard (protected by AuthGuard)
+ * - `/profile` → User license dashboard (protected by AuthGuard + TrialStatusGuard)
+ * - `/trial-ended` → Trial expired page (protected by AuthGuard only)
  * - `/**` → Wildcard redirects to home (404 handling)
  *
  * Guards:
  * - AuthGuard: Protects authenticated routes, redirects guests to /login
  * - GuestGuard: Protects guest-only routes, redirects authenticated users to /profile
+ * - TrialStatusGuard: Redirects users with expired trials to /trial-ended
  *
  * Authentication:
  * Uses unified AuthPageComponent with child components:
@@ -43,6 +47,7 @@ export const routes: Routes = [
   {
     path: 'pricing',
     component: PricingPageComponent,
+    canActivate: [TrialStatusGuard], // Redirect expired trials to /trial-ended
   },
   {
     path: 'login',
@@ -57,7 +62,12 @@ export const routes: Routes = [
   {
     path: 'profile',
     component: ProfilePageComponent,
-    canActivate: [AuthGuard],
+    canActivate: [AuthGuard, TrialStatusGuard], // Auth + trial status check
+  },
+  {
+    path: 'trial-ended',
+    component: TrialEndedPageComponent,
+    canActivate: [AuthGuard], // Must be logged in, but no trial check
   },
   {
     path: '**',

@@ -27,3 +27,4 @@ export {
 
 // Service
 export { EnhancedPromptsService } from './enhanced-prompts.service';
+export type { EnhancedPromptsSdkConfig } from './enhanced-prompts.service';

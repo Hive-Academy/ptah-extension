@@ -365,37 +365,81 @@ USER: ${userPrompt.trim()}`;
   }
 
   /**
-   * Parse JSON from LLM response, handling markdown code blocks.
+   * Parse JSON from LLM response, handling markdown code blocks
+   * and JSON embedded in explanatory text.
+   *
+   * Extraction order:
+   * 1. Try parsing the full text as JSON directly
+   * 2. Strip markdown code blocks (```json ... ```)
+   * 3. Extract first JSON object ({...}) from mixed content
    *
    * @private
    */
   private _parseJson(text: string): Result<any, LlmProviderError> {
+    const jsonText = text.trim();
+
+    // 1. Try direct parse first (model returned pure JSON)
     try {
-      // Remove markdown code blocks if present
-      let jsonText = text.trim();
-
-      // Strip markdown json code blocks
-      const codeBlockMatch = jsonText.match(
-        /```(?:json)?\s*\n?([\s\S]*?)\n?```/
-      );
-      if (codeBlockMatch) {
-        jsonText = codeBlockMatch[1].trim();
-      }
-
-      const parsed = JSON.parse(jsonText);
-      return Result.ok(parsed);
-    } catch (error) {
-      return Result.err(
-        new LlmProviderError(
-          `Failed to parse JSON response: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          'PARSING_ERROR',
-          this.name,
-          { rawResponse: text }
-        )
-      );
+      return Result.ok(JSON.parse(jsonText));
+    } catch {
+      // Continue to fallback strategies
     }
+
+    // 2. Strip markdown code blocks
+    const codeBlockMatch = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (codeBlockMatch) {
+      try {
+        return Result.ok(JSON.parse(codeBlockMatch[1].trim()));
+      } catch {
+        // Continue to next strategy
+      }
+    }
+
+    // 3. Extract first JSON object from mixed text
+    // Find the first '{' and match to its closing '}'
+    const firstBrace = jsonText.indexOf('{');
+    if (firstBrace !== -1) {
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      for (let i = firstBrace; i < jsonText.length; i++) {
+        const ch = jsonText[i];
+        if (escape) {
+          escape = false;
+          continue;
+        }
+        if (ch === '\\' && inString) {
+          escape = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
+        if (ch === '{') depth++;
+        if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            const candidate = jsonText.slice(firstBrace, i + 1);
+            try {
+              return Result.ok(JSON.parse(candidate));
+            } catch {
+              break; // Malformed JSON object
+            }
+          }
+        }
+      }
+    }
+
+    return Result.err(
+      new LlmProviderError(
+        `Failed to parse JSON response: no valid JSON found in ${jsonText.length} chars of output`,
+        'PARSING_ERROR',
+        this.name,
+        { rawResponse: jsonText.slice(0, 500) }
+      )
+    );
   }
 
   /**

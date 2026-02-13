@@ -67,21 +67,33 @@ export function buildSearchNamespace(
 
   return {
     findFiles: async (pattern: string, limit = 20) => {
-      const result = await contextOrchestration.searchFiles({
-        requestId: `mcp-search-${Date.now()}` as CorrelationId,
-        query: pattern,
-        includeImages: false,
-        maxResults: limit,
-      });
-      return result.results || [];
+      try {
+        const result = await contextOrchestration.searchFiles({
+          requestId: `mcp-search-${Date.now()}` as CorrelationId,
+          query: pattern,
+          includeImages: false,
+          maxResults: limit,
+        });
+        return (result.results || [])
+          .filter((r: any) => r != null)
+          .map((r: any) => r.relativePath || r.path || String(r));
+      } catch {
+        return [];
+      }
     },
     getRelevantFiles: async (query: string, maxFiles = 10) => {
-      const result = await contextOrchestration.getFileSuggestions({
-        requestId: `mcp-relevant-${Date.now()}` as CorrelationId,
-        query,
-        limit: maxFiles,
-      });
-      return result.suggestions || [];
+      try {
+        const result = await contextOrchestration.getFileSuggestions({
+          requestId: `mcp-relevant-${Date.now()}` as CorrelationId,
+          query,
+          limit: maxFiles,
+        });
+        return (result.suggestions || [])
+          .filter((s: any) => s != null)
+          .map((s: any) => s.relativePath || s.path || String(s));
+      } catch {
+        return [];
+      }
     },
   };
 }
@@ -136,6 +148,9 @@ export function buildDiagnosticsNamespace(): DiagnosticsNamespace {
   };
 }
 
+/** Git extension status code for untracked files */
+const GIT_STATUS_UNTRACKED = 7;
+
 /**
  * Build git status namespace
  * Uses VS Code's git extension API
@@ -143,26 +158,36 @@ export function buildDiagnosticsNamespace(): DiagnosticsNamespace {
 export function buildGitNamespace(): GitNamespace {
   return {
     getStatus: async () => {
-      const gitExtension =
-        vscode.extensions.getExtension('vscode.git')?.exports;
-      if (!gitExtension) {
-        throw new Error('Git extension not available');
-      }
-      const git = gitExtension.getAPI(1);
-      const repo = git.repositories[0];
-      if (!repo) {
-        throw new Error('No git repository found');
-      }
+      try {
+        const gitExtension =
+          vscode.extensions.getExtension('vscode.git')?.exports;
+        if (!gitExtension) {
+          return { branch: 'unknown', modified: [], staged: [], untracked: [] };
+        }
+        const git = gitExtension.getAPI(1);
+        const repo = git.repositories[0];
+        if (!repo) {
+          return { branch: 'unknown', modified: [], staged: [], untracked: [] };
+        }
 
-      const status: GitStatus = {
-        branch: repo.state.HEAD?.name || 'unknown',
-        modified: repo.state.workingTreeChanges.map((c: any) => c.uri.fsPath),
-        staged: repo.state.indexChanges.map((c: any) => c.uri.fsPath),
-        untracked: repo.state.workingTreeChanges
-          .filter((c: any) => c.status === 7) // Untracked = 7
-          .map((c: any) => c.uri.fsPath),
-      };
-      return status;
+        const status: GitStatus = {
+          branch: repo.state.HEAD?.name || 'unknown',
+          modified: (repo.state.workingTreeChanges || [])
+            .filter((c: any) => c?.uri?.fsPath)
+            .map((c: any) => c.uri.fsPath),
+          staged: (repo.state.indexChanges || [])
+            .filter((c: any) => c?.uri?.fsPath)
+            .map((c: any) => c.uri.fsPath),
+          untracked: (repo.state.workingTreeChanges || [])
+            .filter(
+              (c: any) => c?.status === GIT_STATUS_UNTRACKED && c?.uri?.fsPath
+            )
+            .map((c: any) => c.uri.fsPath),
+        };
+        return status;
+      } catch {
+        return { branch: 'unknown', modified: [], staged: [], untracked: [] };
+      }
     },
   };
 }

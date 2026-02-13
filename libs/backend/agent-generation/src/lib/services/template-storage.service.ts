@@ -371,6 +371,34 @@ export class TemplateStorageService implements ITemplateStorageService {
       const frontmatter = parsed.data;
       const content = parsed.content;
 
+      // Normalize frontmatter fields:
+      // Templates use a dual-YAML-block format where gray-matter only parses the
+      // first block. The first block uses `templateId` / `templateVersion` while
+      // the validator expects `name` / `version`. Normalize here before validation.
+      if (!frontmatter['name'] && frontmatter['templateId']) {
+        // Derive agent name from templateId by stripping version suffix (e.g. "project-manager-v2" → "project-manager")
+        frontmatter['name'] = (frontmatter['templateId'] as string).replace(
+          /-v\d+$/,
+          ''
+        );
+      }
+      if (!frontmatter['version'] && frontmatter['templateVersion']) {
+        frontmatter['version'] = frontmatter['templateVersion'];
+      }
+
+      // Normalize applicabilityRules — templates may omit optional array fields
+      const rules = frontmatter['applicabilityRules'] as
+        | Record<string, unknown>
+        | undefined;
+      if (rules) {
+        if (!Array.isArray(rules['frameworks'])) {
+          rules['frameworks'] = [];
+        }
+        if (!Array.isArray(rules['monorepoTypes'])) {
+          rules['monorepoTypes'] = [];
+        }
+      }
+
       // Validate required fields
       const validationResult = this.validateTemplate(
         templateId,

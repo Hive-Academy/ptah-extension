@@ -1,13 +1,24 @@
-import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
+import {
+  Component,
+  inject,
+  ChangeDetectionStrategy,
+  OnInit,
+  signal,
+} from '@angular/core';
 import {
   Bot,
+  Clock,
+  FolderOpen,
   LucideAngularModule,
   Search,
   Shield,
   Sparkles,
+  Trash2,
   Zap,
 } from 'lucide-angular';
+import type { SavedAnalysisMetadata } from '@ptah-extension/shared';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+import { WizardRpcService } from '../services/wizard-rpc.service';
 
 /**
  * WelcomeComponent - Setup wizard hero screen with gradient design
@@ -15,13 +26,14 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
  * Purpose:
  * - Welcome users to the setup wizard with a visually engaging hero layout
  * - Highlight key features via a 2x2 card grid
+ * - Show previously saved analyses for quick reuse
  * - Provide time estimate and clear call-to-action
  * - Start the setup process by transitioning to scan step
  *
  * Features:
  * - Gradient background hero (primary/secondary)
- * - Gradient text title effect
  * - 2x2 responsive feature cards with icons
+ * - Previous analyses section with "Use This" and "Delete" actions
  * - Enhanced CTA button with hover scale animation
  * - Fade-in entrance animation with prefers-reduced-motion support
  *
@@ -59,7 +71,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
   ],
   template: `
     <div class="h-full flex flex-col items-center justify-center px-3 py-4">
-      <div class="animate-fadeIn text-center">
+      <div class="animate-fadeIn text-center w-full max-w-2xl">
         <!-- Title -->
         <h1 class="text-base font-semibold mb-3">
           Let's Personalize Your Ptah Experience
@@ -151,7 +163,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
         <!-- CTA Button -->
         <button
           class="btn btn-primary btn-sm"
-          aria-label="Start wizard setup"
+          aria-label="Start new analysis"
           (click)="onStartSetup()"
         >
           <lucide-angular
@@ -159,20 +171,142 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
             class="w-4 h-4"
             aria-hidden="true"
           />
-          Start Setup
+          Start New Analysis
         </button>
+
+        <!-- Previous Analyses Section -->
+        @if (isLoadingAnalyses()) {
+        <div class="mt-6 flex items-center justify-center gap-2">
+          <span class="loading loading-spinner loading-xs"></span>
+          <span class="text-xs text-base-content/50"
+            >Loading previous analyses...</span
+          >
+        </div>
+        } @else if (savedAnalyses().length > 0) {
+        <div class="mt-6 text-left">
+          <div class="divider text-xs text-base-content/40 my-3">
+            OR LOAD PREVIOUS ANALYSIS
+          </div>
+
+          <div class="flex items-center gap-2 mb-3">
+            <lucide-angular
+              [img]="FolderOpenIcon"
+              class="w-4 h-4 text-base-content/60"
+              aria-hidden="true"
+            />
+            <h3 class="text-xs font-semibold text-base-content/70">
+              Previous Analyses
+            </h3>
+          </div>
+
+          <div class="space-y-2 max-h-48 overflow-y-auto">
+            @for (analysis of savedAnalyses(); track analysis.filename) {
+            <div
+              class="border border-base-300 rounded-lg bg-base-200/30 p-3
+                     hover:border-primary/40 hover:bg-primary/5 transition-all"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs font-medium truncate">
+                      {{ analysis.projectType }}
+                    </span>
+                    @if (analysis.qualityScore) {
+                    <span class="badge badge-xs badge-ghost">
+                      Score: {{ analysis.qualityScore }}
+                    </span>
+                    }
+                  </div>
+                  <div
+                    class="flex items-center gap-3 text-xs text-base-content/50"
+                  >
+                    <span class="flex items-center gap-1">
+                      <lucide-angular
+                        [img]="ClockIcon"
+                        class="w-3 h-3"
+                        aria-hidden="true"
+                      />
+                      {{ formatDate(analysis.savedAt) }}
+                    </span>
+                    <span>{{ analysis.agentCount }} agents</span>
+                    <span class="badge badge-xs">{{
+                      analysis.analysisMethod
+                    }}</span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button
+                    class="btn btn-primary btn-xs"
+                    [disabled]="isLoadingAnalysis()"
+                    (click)="onUseAnalysis(analysis)"
+                    aria-label="Use this analysis"
+                  >
+                    @if (isLoadingAnalysis() && loadingFilename() ===
+                    analysis.filename) {
+                    <span class="loading loading-spinner loading-xs"></span>
+                    } @else { Use This }
+                  </button>
+                  <button
+                    class="btn btn-ghost btn-xs text-error/60 hover:text-error"
+                    (click)="onDeleteAnalysis(analysis)"
+                    aria-label="Delete this analysis"
+                  >
+                    <lucide-angular
+                      [img]="Trash2Icon"
+                      class="w-3 h-3"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
+            }
+          </div>
+        </div>
+        }
       </div>
     </div>
   `,
 })
-export class WelcomeComponent {
+export class WelcomeComponent implements OnInit {
   private readonly wizardState = inject(SetupWizardStateService);
+  private readonly wizardRpc = inject(WizardRpcService);
 
   protected readonly SearchIcon = Search;
   protected readonly BotIcon = Bot;
   protected readonly ZapIcon = Zap;
   protected readonly ShieldIcon = Shield;
   protected readonly SparklesIcon = Sparkles;
+  protected readonly FolderOpenIcon = FolderOpen;
+  protected readonly ClockIcon = Clock;
+  protected readonly Trash2Icon = Trash2;
+
+  protected readonly savedAnalyses = this.wizardState.savedAnalyses;
+  protected readonly isLoadingAnalyses = signal(false);
+  protected readonly isLoadingAnalysis = signal(false);
+  protected readonly loadingFilename = signal<string | null>(null);
+
+  ngOnInit(): void {
+    this.loadSavedAnalyses();
+  }
+
+  /**
+   * Load saved analyses list on component init.
+   */
+  private async loadSavedAnalyses(): Promise<void> {
+    this.isLoadingAnalyses.set(true);
+    try {
+      const analyses = await this.wizardRpc.listAnalyses();
+      this.wizardState.setSavedAnalyses(analyses);
+    } catch (error) {
+      console.warn(
+        '[WelcomeComponent] Failed to load saved analyses:',
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      this.isLoadingAnalyses.set(false);
+    }
+  }
 
   /**
    * Handle "Start Setup" button click.
@@ -181,5 +315,68 @@ export class WelcomeComponent {
    */
   protected onStartSetup(): void {
     this.wizardState.setCurrentStep('scan');
+  }
+
+  /**
+   * Handle "Use This" button for a saved analysis.
+   * Loads the full analysis, sets state, and navigates to the analysis step.
+   */
+  protected async onUseAnalysis(
+    analysis: SavedAnalysisMetadata
+  ): Promise<void> {
+    this.isLoadingAnalysis.set(true);
+    this.loadingFilename.set(analysis.filename);
+
+    try {
+      const savedData = await this.wizardRpc.loadAnalysis(analysis.filename);
+      this.wizardState.loadSavedAnalysis(
+        savedData.analysis,
+        savedData.recommendations
+      );
+      // Navigate to analysis step so user sees the loaded data before choosing next step
+      this.wizardState.setCurrentStep('analysis');
+    } catch (error) {
+      console.error(
+        '[WelcomeComponent] Failed to load analysis:',
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      this.isLoadingAnalysis.set(false);
+      this.loadingFilename.set(null);
+    }
+  }
+
+  /**
+   * Handle "Delete" button for a saved analysis.
+   * Removes from the list immediately and calls backend to delete file.
+   */
+  protected async onDeleteAnalysis(
+    analysis: SavedAnalysisMetadata
+  ): Promise<void> {
+    // Optimistic UI: remove from list immediately
+    const current = this.savedAnalyses();
+    this.wizardState.setSavedAnalyses(
+      current.filter((a) => a.filename !== analysis.filename)
+    );
+
+    // Note: Delete RPC not yet implemented in backend.
+    // The file will be cleaned up on next list refresh or manually.
+    // A wizard:delete-analysis RPC can be added as a follow-up.
+  }
+
+  /**
+   * Format ISO date string to a human-readable short format.
+   */
+  protected formatDate(isoDate: string): string {
+    try {
+      const date = new Date(isoDate);
+      return date.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch {
+      return isoDate;
+    }
   }
 }

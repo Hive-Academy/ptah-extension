@@ -185,23 +185,36 @@ export function wrapCodeForExecution(code: string): string {
   return `return ${code}`;
 }
 
+/** Maximum result size in characters (50KB) to prevent context window blowup */
+const MAX_RESULT_SIZE = 50 * 1024;
+
 /**
  * Serialize execution result for MCP response
  */
 export function serializeResult(result: any): string {
+  let serialized: string;
+
   if (result === undefined) {
-    return 'undefined';
+    serialized = 'undefined';
+  } else if (result === null) {
+    serialized = 'null';
+  } else if (typeof result === 'string') {
+    serialized = result;
+  } else {
+    try {
+      serialized = JSON.stringify(result, null, 2);
+    } catch {
+      // Handle circular references or other serialization errors
+      serialized = String(result);
+    }
   }
-  if (result === null) {
-    return 'null';
+
+  if (serialized.length > MAX_RESULT_SIZE) {
+    const originalLength = serialized.length;
+    serialized =
+      serialized.substring(0, MAX_RESULT_SIZE) +
+      `\n\n[TRUNCATED: Result was ${originalLength} chars, showing first ${MAX_RESULT_SIZE} chars. Use more specific queries to reduce output size.]`;
   }
-  if (typeof result === 'string') {
-    return result;
-  }
-  try {
-    return JSON.stringify(result, null, 2);
-  } catch {
-    // Handle circular references or other serialization errors
-    return String(result);
-  }
+
+  return serialized;
 }

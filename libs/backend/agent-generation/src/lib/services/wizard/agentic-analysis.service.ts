@@ -1,15 +1,16 @@
 /**
  * AgenticAnalysisService - Claude Agent SDK-powered workspace analysis
  *
- * Replaces the hardcoded file-scanning approach in DeepProjectAnalysisService
- * with an intelligent Claude Agent session that uses MCP tools (ptah.* API)
- * to analyze the workspace. Streams progress in real-time to the frontend.
+ * Uses the Claude Agent SDK with structured output (JSON Schema) to analyze
+ * a workspace. The agent uses MCP tools to inspect the codebase, and the SDK
+ * constrains the final response to valid JSON matching our analysis schema.
  *
  * Architecture:
  * - Delegates SDK query execution to InternalQueryService (agent-sdk)
  * - InternalQueryService handles all SDK plumbing: enhanced prompts, MCP,
  *   identity prompts, hooks, compaction, permissions, env vars, settings
- * - This service owns: analysis prompt, progress extraction, JSON parsing, broadcast
+ * - SDK `outputFormat` enforces structured JSON output (no regex parsing)
+ * - Zod normalization maps LLM strings to enum values (case-insensitive)
  *
  * @module @ptah-extension/agent-generation
  */
@@ -31,11 +32,13 @@ import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
   SDKMessage,
+  ToolResultBlock,
 } from '@ptah-extension/agent-sdk';
 import type { DeepProjectAnalysis } from '../../types/analysis.types';
 import {
   ProjectAnalysisZodSchema,
   normalizeAgentOutput,
+  buildAnalysisJsonSchema,
 } from './analysis-schema';
 
 // ============================================================================
@@ -43,14 +46,9 @@ import {
 // ============================================================================
 
 const SERVICE_TAG = '[AgenticAnalysis]';
-const DEFAULT_TIMEOUT_MS = 90_000;
+const DEFAULT_TIMEOUT_MS = 3_600_000; // 1 hour
 const MAX_AGENT_TURNS = 25;
 
-/**
- * Typed abort reasons for distinguishing timeout from user cancellation.
- * Passed to AbortController.abort(reason) so the catch block can inspect
- * signal.reason and produce distinct error messages for each case.
- */
 const ABORT_REASONS = {
   TIMEOUT: 'analysis_timeout',
   USER_CANCELLED: 'user_cancelled',
@@ -65,20 +63,8 @@ const PHASE_LABELS: Record<AnalysisPhase, string> = {
 };
 
 /**
- * Valid phase names for runtime validation.
- * Prevents invalid strings from being cast to AnalysisPhase.
- */
-const VALID_PHASES: readonly AnalysisPhase[] = [
-  'discovery',
-  'architecture',
-  'health',
-  'quality',
-];
-
-/**
  * Heuristic mapping from tool call count to implicit analysis phase.
- * Used when the agent fails to emit explicit [PHASE:X] markers.
- * Only applied when currentPhase is undefined (explicit markers take priority).
+ * Provides progress UX without requiring markers in the agent's text.
  */
 const TOOL_COUNT_PHASE_HEURISTIC: Record<number, AnalysisPhase> = {
   1: 'discovery',
@@ -95,92 +81,42 @@ const TOOL_COUNT_PHASE_HEURISTIC: Record<number, AnalysisPhase> = {
 // ============================================================================
 
 function buildAnalysisSystemPrompt(): string {
-  return `You are an expert workspace analyzer. Analyze a codebase using MCP tools and produce a JSON analysis.
+  return `You are an expert workspace analyzer and code quality assessor. Analyze the codebase using the available MCP tools and gather comprehensive information about the project, including a thorough quality assessment.
 
-## Phase Markers — CRITICAL
+## Analysis Steps
 
-Before starting each phase, output exactly this text as a standalone line in your direct text output (NOT inside any tool call, code block, or execute_code input):
+1. **Discovery**: Call \`ptah.workspace.analyze()\` to get project type, frameworks, and file count. Use \`ptah.search.findFiles({pattern})\` to locate key files (entry points, configs, tests).
 
-\`[PHASE:discovery]\`
-\`[PHASE:architecture]\`
-\`[PHASE:health]\`
-\`[PHASE:quality]\`
+2. **Architecture**: Examine folder structures for patterns (DDD, Layered, MVC, Microservices, Hexagonal, Component-Based). Check for monorepo tools (Nx, Lerna, Turborepo, pnpm/yarn workspaces).
 
-DO NOT put phase markers inside execute_code tool input parameters. Phase markers MUST appear as your direct text response before each phase.
+3. **Health**: Call \`ptah.diagnostics.getProblems()\` for error/warning counts. Check linter/formatter configs (.eslintrc, .prettierrc, biome.json).
 
-Similarly, emit \`[DETECTED:X]\` (e.g. \`[DETECTED:Angular]\`) in your direct text output for each technology or framework you find.
+4. **Testing**: Find test files and estimate coverage. Identify test frameworks (jest, mocha, vitest, pytest, etc.).
 
-## Phases
+5. **Quality Assessment** (CRITICAL — be thorough):
+   Read several representative source files using \`ptah.files.readFile()\` to assess code quality. Sample at least 3-5 key files (services, controllers, components).
 
-Phase 1 - Discovery: Output \`[PHASE:discovery]\` then:
-- Call \`ptah.workspace.analyze()\` EXACTLY ONCE to get project type, frameworks, file count
-- Use \`ptah.search.findFiles({pattern})\` for key files (entry points, configs, tests)
-- Output \`[DETECTED:X]\` for each technology found
+   Evaluate the following quality dimensions:
+   - **Type Safety**: Use of \`any\`, \`@ts-ignore\`, non-null assertions, proper interface/type usage
+   - **Error Handling**: Empty catch blocks, console-only error handling, unhandled promises, proper error boundaries
+   - **Architecture Adherence**: Separation of concerns, dependency direction, layer violations
+   - **Code Organization**: File size, function complexity, naming conventions, dead code
+   - **Security Practices**: Input validation, SQL injection risks, XSS vulnerabilities, hardcoded secrets
+   - **Dependency Management**: Outdated deps, unused deps, version pinning strategy
+   - **Testing Quality**: Test coverage ratio, assertion quality, mock patterns, edge case coverage
+   - **Performance**: N+1 queries, unnecessary re-renders, memory leaks, missing caching
 
-Phase 2 - Architecture: Output \`[PHASE:architecture]\` then:
-- Examine folder structures for patterns (DDD, Layered, MVC, Microservices, Hexagonal)
-- Identify monorepo type if applicable (Nx, Lerna, Turborepo)
-
-Phase 3 - Health: Output \`[PHASE:health]\` then:
-- Call \`ptah.diagnostics.getProblems()\` for error/warning counts
-- Check linter/formatter configs (.eslintrc, .prettierrc)
-
-Phase 4 - Quality: Output \`[PHASE:quality]\` then:
-- Find test files and estimate coverage
-- Identify test frameworks (jest, mocha, vitest, etc.)
+   Produce a quality score (0-100), list specific issues found with severity, and identify strengths.
 
 ## Tool Usage Rules
 
-- Call each MCP tool EXACTLY ONCE. Do NOT call \`ptah.workspace.analyze()\` more than once.
-- The execute_code tool returns the value of the last expression directly. Do NOT use \`console.log()\` to wrap return values.
-- When analyzing results, summarize key findings concisely in your text output. Do NOT reproduce entire JSON objects in your response text.
-- If a tool call fails, continue with remaining analysis.
+- Call \`ptah.workspace.analyze()\` EXACTLY ONCE.
+- Read at least 3-5 representative source files for quality assessment.
+- The execute_code tool returns the value of the last expression directly. Do NOT wrap return values in \`console.log()\`.
+- If a tool call fails, continue with the remaining analysis.
+- Be thorough but efficient — gather all needed data, then produce your final output.
 
-## Final Output
-
-After all phases, emit your result as a JSON object in a \`\`\`json code block matching this schema:
-
-\`\`\`typescript
-{
-  projectType: string,
-  frameworks: string[],
-  monorepoType?: string,
-  architecturePatterns: Array<{
-    name: string, confidence: number, evidence: string[], description?: string
-  }>,
-  keyFileLocations: {
-    entryPoints: string[], configs: string[], testDirectories: string[],
-    apiRoutes: string[], components: string[], services: string[],
-    models?: string[], repositories?: string[], utilities?: string[]
-  },
-  languageDistribution: Array<{
-    language: string, percentage: number, fileCount: number, linesOfCode?: number
-  }>,
-  existingIssues: {
-    errorCount: number, warningCount: number, infoCount: number,
-    errorsByType: Record<string, number>, warningsByType: Record<string, number>,
-    topErrors?: Array<{ message: string, count: number, source: string }>
-  },
-  codeConventions?: {
-    indentation: "tabs" | "spaces", indentSize: number,
-    quoteStyle: "single" | "double", semicolons: boolean,
-    trailingComma?: "none" | "es5" | "all",
-    namingConventions?: {
-      files?: string, classes?: string, functions?: string,
-      variables?: string, constants?: string, interfaces?: string, types?: string
-    },
-    maxLineLength?: number, usePrettier?: boolean, useEslint?: boolean,
-    additionalTools?: string[]
-  },
-  testCoverage: {
-    percentage: number, hasTests: boolean, testFramework?: string,
-    hasUnitTests: boolean, hasIntegrationTests: boolean, hasE2eTests: boolean,
-    testFileCount?: number, sourceFileCount?: number, testToSourceRatio?: number
-  }
-}
-\`\`\`
-
-If you cannot determine a value, use sensible defaults (0, [], false).`;
+Your response will be automatically constrained to the required JSON schema. Just focus on gathering accurate data.`;
 }
 
 // ============================================================================
@@ -190,16 +126,12 @@ If you cannot determine a value, use sensible defaults (0, [], false).`;
 /**
  * AgenticAnalysisService
  *
- * Uses InternalQueryService (agent-sdk) for SDK execution.
- * Owns: analysis prompt, progress extraction, JSON parsing, frontend broadcast.
+ * Uses InternalQueryService (agent-sdk) with structured output for SDK execution.
+ * The SDK enforces JSON Schema on the agent's final response and auto-retries
+ * on validation failure. Zod normalization handles enum resolution after.
  */
 @injectable()
 export class AgenticAnalysisService {
-  /**
-   * Active AbortController for the currently running analysis.
-   * Stored as a class member so that external callers (e.g., the cancel RPC)
-   * can trigger abort on long-running SDK queries.
-   */
   private activeAbortController: AbortController | null = null;
 
   constructor(
@@ -212,7 +144,8 @@ export class AgenticAnalysisService {
   ) {}
 
   /**
-   * Analyze workspace using a Claude Agent SDK session with MCP tools.
+   * Analyze workspace using a Claude Agent SDK session with MCP tools
+   * and structured output (JSON Schema).
    */
   async analyzeWorkspace(
     workspaceUri: vscode.Uri,
@@ -243,7 +176,6 @@ export class AgenticAnalysisService {
       mcpServerRunning,
     });
 
-    // MCP tools are required for agentic analysis
     if (!isPremium || !mcpServerRunning) {
       return Result.err(
         new Error(
@@ -256,35 +188,33 @@ export class AgenticAnalysisService {
     this.activeAbortController = abortController;
 
     try {
-      // Execute query via InternalQueryService
-      // The service handles: enhanced prompts, MCP, identity, hooks, compaction, env, settings
       const handle = await this.internalQueryService.execute({
         cwd: workspaceUri.fsPath,
         model,
         prompt:
-          'Analyze this workspace thoroughly and produce the comprehensive JSON analysis as described in your system prompt. Start with [PHASE:discovery] and work through all 4 phases.',
+          'Analyze this workspace thoroughly. Inspect the project structure, frameworks, architecture patterns, code health, and test coverage using the available tools.',
         systemPromptAppend: buildAnalysisSystemPrompt(),
         isPremium,
         mcpServerRunning,
         mcpPort,
         maxTurns: MAX_AGENT_TURNS,
         abortController,
+        outputFormat: {
+          type: 'json_schema',
+          schema: buildAnalysisJsonSchema(),
+        },
       });
 
-      // Process stream with timeout; guarantee handle cleanup via finally
       try {
-        const result = await this.processStream(
+        return await this.processStream(
           handle.stream,
           abortController,
           timeout
         );
-
-        return result;
       } finally {
         handle.close();
       }
     } catch (error) {
-      // Inspect abort reason to produce distinct error messages for timeout vs user cancellation
       const abortReason = abortController.signal.reason as
         | AbortReason
         | undefined;
@@ -295,17 +225,18 @@ export class AgenticAnalysisService {
         );
         this.broadcastStreamMessage({
           kind: 'error',
-          content: 'Analysis timed out. Falling back to quick analysis...',
+          content: `Analysis timed out after ${Math.round(
+            timeout / 1000
+          )} seconds. Falling back to quick analysis...`,
           timestamp: Date.now(),
         });
-        this.broadcastProgress({
-          filesScanned: 0,
-          totalFiles: 0,
-          detections: [],
-          agentReasoning:
-            'Analysis timed out. Falling back to quick analysis...',
-        });
-        return Result.err(new Error('Analysis timed out'));
+        return Result.err(
+          new Error(
+            `Analysis timed out after ${Math.round(
+              timeout / 1000
+            )}s. Quick analysis mode will be used instead.`
+          )
+        );
       } else if (abortReason === ABORT_REASONS.USER_CANCELLED) {
         this.logger.info(`${SERVICE_TAG} Analysis cancelled by user`);
         this.broadcastStreamMessage({
@@ -316,15 +247,11 @@ export class AgenticAnalysisService {
         return Result.err(new Error('Analysis cancelled by user'));
       }
 
-      // Generic error (not an abort)
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(`${SERVICE_TAG} Agentic analysis failed`, errorObj);
       return Result.err(errorObj);
     } finally {
-      // Only clear if this call's controller is still the active one.
-      // Prevents a race condition where cancel-then-retry causes the first
-      // call's finally block to null out the second call's new controller.
       if (this.activeAbortController === abortController) {
         this.activeAbortController = null;
       }
@@ -333,11 +260,6 @@ export class AgenticAnalysisService {
 
   /**
    * Cancel a running workspace analysis.
-   *
-   * Aborts the active AbortController, which terminates the SDK query stream.
-   * Safe to call even if no analysis is running (no-op in that case).
-   * Handles the race condition where cancel arrives after analysis completes:
-   * the activeAbortController will already be null, so abort() is never called.
    */
   cancelAnalysis(): void {
     if (this.activeAbortController) {
@@ -352,46 +274,32 @@ export class AgenticAnalysisService {
   }
 
   /**
-   * Process the SDK message stream, extract progress, and parse the final result.
+   * Process the SDK message stream for progress UX and extract the final result.
    *
-   * Extracts phase/detection markers from three sources (defense-in-depth):
-   * 1. text_delta events (primary - agent's direct text output)
-   * 2. input_json_delta events (fallback - markers inside tool call code)
-   * 3. assistant messages (final sweep - markers in complete content blocks)
-   *
-   * Also broadcasts real-time stream messages via broadcastStreamMessage for
-   * the frontend analysis transcript component.
+   * With structured output, the SDK returns pre-validated JSON in
+   * `result.structured_output`. This method only needs to:
+   * 1. Track tool calls for progress display (phase heuristics)
+   * 2. Broadcast text/thinking/tool events for the live transcript
+   * 3. Read structured_output from the result message
    */
   private async processStream(
     stream: AsyncIterable<SDKMessage>,
     abortController: AbortController,
     timeoutMs: number
   ): Promise<Result<DeepProjectAnalysis, Error>> {
-    // -- Text accumulation and marker extraction state --
-    let fullText = '';
-    const detections: string[] = [];
-    const completedPhases: AnalysisPhase[] = [];
-    let currentPhase: AnalysisPhase | undefined;
-    let lastPhaseCheckPos = 0;
-    let lastDetectionCheckPos = 0;
-
-    // -- Task 2.1: Tool input buffer for input_json_delta marker extraction --
-    let toolInputBuffer = '';
-    let lastPhaseCheckPosToolInput = 0;
-    let lastDetectionCheckPosToolInput = 0;
-
-    // -- Task 2.3: Tool call heuristics and active block tracking --
+    // -- Progress tracking state --
     let toolCallCount = 0;
+    let currentPhase: AnalysisPhase | undefined;
+    const completedPhases: AnalysisPhase[] = [];
     const activeToolBlocks = new Map<
       number,
-      { name: string; inputBuffer: string }
+      { name: string; inputBuffer: string; toolCallId: string }
     >();
+    const completedToolNames = new Map<string, string>();
 
-    // -- Task 2.5: Throttle state for text_delta broadcasts --
+    // -- Throttle state --
     let lastTextBroadcastTime = 0;
     const TEXT_BROADCAST_THROTTLE_MS = 100;
-
-    // -- Throttle state for thinking_delta broadcasts --
     let lastThinkingBroadcastTime = 0;
     const THINKING_BROADCAST_THROTTLE_MS = 100;
 
@@ -404,7 +312,9 @@ export class AgenticAnalysisService {
 
     try {
       for await (const message of stream) {
-        // Handle result message (final output)
+        // ==============================================================
+        // Result message — extract structured_output
+        // ==============================================================
         if (message.type === 'result') {
           clearTimeout(timeoutId);
 
@@ -414,19 +324,34 @@ export class AgenticAnalysisService {
               cost: message.total_cost_usd,
               inputTokens: message.usage.input_tokens,
               outputTokens: message.usage.output_tokens,
+              hasStructuredOutput: !!message.structured_output,
             });
 
-            // Broadcast completion status for live transcript
             this.broadcastStreamMessage({
               kind: 'status',
               content: 'Analysis complete',
               timestamp: Date.now(),
             });
 
-            const resultText = message.result || fullText;
-            return this.parseAnalysisResponse(resultText);
+            // Primary path: SDK structured output (pre-validated JSON)
+            if (message.structured_output) {
+              return this.normalizeStructuredOutput(message.structured_output);
+            }
+
+            // Fallback: parse from result text (shouldn't happen with outputFormat)
+            if (message.result) {
+              this.logger.warn(
+                `${SERVICE_TAG} No structured_output in result, falling back to text parsing`
+              );
+              return this.parseJsonFromText(message.result);
+            }
+
+            return Result.err(
+              new Error('Analysis completed but produced no output')
+            );
           }
 
+          // Error result
           const errorResult = message as {
             subtype: string;
             errors?: string[];
@@ -440,179 +365,47 @@ export class AgenticAnalysisService {
           );
         }
 
-        // Extract text from stream events for live progress
+        // ==============================================================
+        // Stream events — progress UX only (no marker extraction)
+        // ==============================================================
         if (message.type === 'stream_event') {
           const event = message.event;
 
-          // ================================================================
-          // Text deltas -- extract progress markers (primary extraction path)
-          // ================================================================
+          // Text deltas — broadcast for live transcript
           if (
             event.type === 'content_block_delta' &&
             event.delta.type === 'text_delta'
           ) {
-            const text = event.delta.text;
-            fullText += text;
-
-            // Task 2.5: Throttled text broadcast for live transcript
             const now = Date.now();
             if (now - lastTextBroadcastTime >= TEXT_BROADCAST_THROTTLE_MS) {
-              lastTextBroadcastTime = now;
-              this.broadcastStreamMessage({
-                kind: 'text',
-                content: text,
-                timestamp: now,
-              });
-            }
-
-            // Phase markers: [PHASE:discovery], [PHASE:architecture], etc.
-            // Match against accumulated fullText (not individual chunks) to handle
-            // markers split across stream boundaries (e.g. "[PHASE:disc" + "overy]").
-            // Use a cursor to avoid re-processing already-matched regions.
-            const phaseSearchRegion = fullText.substring(lastPhaseCheckPos);
-            const phaseMatch = phaseSearchRegion.match(/\[PHASE:(\w+)\]/);
-            if (phaseMatch) {
-              const rawPhase = phaseMatch[1];
-              lastPhaseCheckPos =
-                lastPhaseCheckPos +
-                (phaseMatch.index ?? 0) +
-                phaseMatch[0].length;
-              if (VALID_PHASES.includes(rawPhase as AnalysisPhase)) {
-                const phase = rawPhase as AnalysisPhase;
-                if (currentPhase && !completedPhases.includes(currentPhase)) {
-                  completedPhases.push(currentPhase);
-                }
-                currentPhase = phase;
-                this.broadcastProgress({
-                  filesScanned: 0,
-                  totalFiles: 0,
-                  detections,
-                  currentPhase: phase,
-                  phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
-                  completedPhases: [...completedPhases],
+              const trimmed = event.delta.text.trim();
+              if (trimmed.length > 0) {
+                lastTextBroadcastTime = now;
+                this.broadcastStreamMessage({
+                  kind: 'text',
+                  content: event.delta.text,
+                  timestamp: now,
                 });
               }
-            }
-
-            // Detection markers: [DETECTED:Angular], [DETECTED:TypeScript], etc.
-            // Same approach: match against accumulated fullText with cursor.
-            // Collect all matches first, then update cursor to end of last match
-            // to avoid stale index values when cursor moves inside the loop.
-            const detectionSearchRegion = fullText.substring(
-              lastDetectionCheckPos
-            );
-            const detectionMatches = [
-              ...detectionSearchRegion.matchAll(/\[DETECTED:(.+?)\]/g),
-            ];
-            for (const match of detectionMatches) {
-              const detection = match[1];
-              if (!detections.includes(detection)) {
-                detections.push(detection);
-                this.broadcastProgress({
-                  filesScanned: 0,
-                  totalFiles: 0,
-                  detections: [...detections],
-                  currentPhase,
-                  phaseLabel: currentPhase
-                    ? PHASE_LABELS[currentPhase]
-                    : undefined,
-                  completedPhases: [...completedPhases],
-                });
-              }
-            }
-            if (detectionMatches.length > 0) {
-              const lastMatch = detectionMatches[detectionMatches.length - 1];
-              lastDetectionCheckPos =
-                lastDetectionCheckPos +
-                (lastMatch.index ?? 0) +
-                lastMatch[0].length;
             }
           }
 
-          // ================================================================
-          // Task 2.1: input_json_delta -- extract markers from tool call code
-          // (defense-in-depth: catches markers agent puts inside MCP tool input)
-          // ================================================================
+          // Tool input accumulation (for tool naming in progress UX)
           if (
             event.type === 'content_block_delta' &&
             event.delta.type === 'input_json_delta'
           ) {
-            toolInputBuffer += event.delta.partial_json;
-
-            // Task 2.3: Accumulate input in per-block tracker for tool naming
             const activeBlock = activeToolBlocks.get(event.index);
             if (activeBlock) {
               activeBlock.inputBuffer += event.delta.partial_json;
             }
-
-            // Phase markers in tool input
-            const phaseSearchRegion = toolInputBuffer.substring(
-              lastPhaseCheckPosToolInput
-            );
-            const phaseMatch = phaseSearchRegion.match(/\[PHASE:(\w+)\]/);
-            if (phaseMatch) {
-              const rawPhase = phaseMatch[1];
-              lastPhaseCheckPosToolInput =
-                lastPhaseCheckPosToolInput +
-                (phaseMatch.index ?? 0) +
-                phaseMatch[0].length;
-              if (VALID_PHASES.includes(rawPhase as AnalysisPhase)) {
-                const phase = rawPhase as AnalysisPhase;
-                if (currentPhase && !completedPhases.includes(currentPhase)) {
-                  completedPhases.push(currentPhase);
-                }
-                currentPhase = phase;
-                this.broadcastProgress({
-                  filesScanned: 0,
-                  totalFiles: 0,
-                  detections,
-                  currentPhase: phase,
-                  phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
-                  completedPhases: [...completedPhases],
-                });
-              }
-            }
-
-            // Detection markers in tool input
-            const detectionSearchRegion = toolInputBuffer.substring(
-              lastDetectionCheckPosToolInput
-            );
-            const detectionMatches = [
-              ...detectionSearchRegion.matchAll(/\[DETECTED:(.+?)\]/g),
-            ];
-            for (const match of detectionMatches) {
-              const detection = match[1];
-              if (!detections.includes(detection)) {
-                detections.push(detection);
-                this.broadcastProgress({
-                  filesScanned: 0,
-                  totalFiles: 0,
-                  detections: [...detections],
-                  currentPhase,
-                  phaseLabel: currentPhase
-                    ? PHASE_LABELS[currentPhase]
-                    : undefined,
-                  completedPhases: [...completedPhases],
-                });
-              }
-            }
-            if (detectionMatches.length > 0) {
-              const lastMatch = detectionMatches[detectionMatches.length - 1];
-              lastDetectionCheckPosToolInput =
-                lastDetectionCheckPosToolInput +
-                (lastMatch.index ?? 0) +
-                lastMatch[0].length;
-            }
           }
 
-          // ================================================================
-          // Task 2.3: thinking_delta -- broadcast thinking previews
-          // ================================================================
+          // Thinking deltas — broadcast for live transcript
           if (
             event.type === 'content_block_delta' &&
             event.delta.type === 'thinking_delta'
           ) {
-            // Throttle thinking_delta broadcasts to avoid flooding the frontend
             const now = Date.now();
             if (
               now - lastThinkingBroadcastTime >=
@@ -623,7 +416,7 @@ export class AgenticAnalysisService {
               this.broadcastProgress({
                 filesScanned: 0,
                 totalFiles: 0,
-                detections: [...detections],
+                detections: [],
                 currentPhase,
                 phaseLabel: currentPhase
                   ? PHASE_LABELS[currentPhase]
@@ -631,8 +424,6 @@ export class AgenticAnalysisService {
                 agentReasoning: `Thinking: ${thinkingPreview}...`,
                 completedPhases: [...completedPhases],
               });
-
-              // Broadcast thinking for live transcript
               this.broadcastStreamMessage({
                 kind: 'thinking',
                 content: event.delta.thinking,
@@ -641,48 +432,37 @@ export class AgenticAnalysisService {
             }
           }
 
-          // ================================================================
-          // Task 2.3: Enhanced tool_use content_block_start with heuristics
-          // ================================================================
+          // Tool use start — phase heuristic + progress broadcast
           if (
             event.type === 'content_block_start' &&
             event.content_block.type === 'tool_use'
           ) {
             toolCallCount++;
-
-            // Track active tool block by index for input accumulation
             activeToolBlocks.set(event.index, {
               name: event.content_block.name,
               inputBuffer: '',
+              toolCallId: event.content_block.id,
             });
 
-            // Apply implicit phase heuristic if no explicit marker has been seen
-            if (!currentPhase) {
-              const implicitPhase =
-                TOOL_COUNT_PHASE_HEURISTIC[toolCallCount] || 'quality';
-              currentPhase = implicitPhase;
-              this.broadcastProgress({
-                filesScanned: 0,
-                totalFiles: 0,
-                detections,
-                currentPhase: implicitPhase,
-                phaseLabel: PHASE_LABELS[implicitPhase],
-                completedPhases: [...completedPhases],
-              });
+            // Advance phase based on tool count heuristic
+            const newPhase =
+              TOOL_COUNT_PHASE_HEURISTIC[toolCallCount] || 'quality';
+            if (newPhase !== currentPhase) {
+              if (currentPhase && !completedPhases.includes(currentPhase)) {
+                completedPhases.push(currentPhase);
+              }
+              currentPhase = newPhase;
             }
 
-            // Broadcast tool name for progress display
             this.broadcastProgress({
               filesScanned: 0,
               totalFiles: 0,
-              detections: [...detections],
+              detections: [],
               currentPhase,
               phaseLabel: currentPhase ? PHASE_LABELS[currentPhase] : undefined,
               agentReasoning: `Using: ${event.content_block.name}...`,
               completedPhases: [...completedPhases],
             });
-
-            // Task 2.5: Broadcast tool_start for live transcript
             this.broadcastStreamMessage({
               kind: 'tool_start',
               content: `Calling ${event.content_block.name}`,
@@ -692,125 +472,76 @@ export class AgenticAnalysisService {
             });
           }
 
-          // ================================================================
-          // Task 2.3: content_block_stop -- improved tool naming + cleanup
-          // ================================================================
+          // Tool use stop — extract API name for progress display
           if (event.type === 'content_block_stop') {
             const completedBlock = activeToolBlocks.get(event.index);
             if (completedBlock) {
-              // Try to extract ptah.* API call from accumulated input
               const ptahApiMatch =
                 completedBlock.inputBuffer.match(/ptah\.(\w+)\.(\w+)\(/);
               if (ptahApiMatch) {
-                const apiLabel = `ptah.${ptahApiMatch[1]}.${ptahApiMatch[2]}()`;
                 this.broadcastProgress({
                   filesScanned: 0,
                   totalFiles: 0,
-                  detections: [...detections],
+                  detections: [],
                   currentPhase,
                   phaseLabel: currentPhase
                     ? PHASE_LABELS[currentPhase]
                     : undefined,
-                  agentReasoning: `Analyzing: ${apiLabel}`,
+                  agentReasoning: `Analyzing: ptah.${ptahApiMatch[1]}.${ptahApiMatch[2]}()`,
                   completedPhases: [...completedPhases],
                 });
               }
 
-              // Task 2.5: Broadcast tool_input for live transcript (truncated to 2000 chars)
               this.broadcastStreamMessage({
                 kind: 'tool_input',
                 content: completedBlock.inputBuffer.substring(0, 2000),
                 toolName: completedBlock.name,
+                toolCallId: completedBlock.toolCallId,
                 timestamp: Date.now(),
               });
 
-              // Cleanup: remove completed block from tracking map
+              completedToolNames.set(
+                completedBlock.toolCallId,
+                completedBlock.name
+              );
               activeToolBlocks.delete(event.index);
-
-              // Reset tool input buffer for next tool call to prevent
-              // cross-tool accumulation of input data and stale cursor positions
-              toolInputBuffer = '';
-              lastPhaseCheckPosToolInput = 0;
-              lastDetectionCheckPosToolInput = 0;
             }
           }
         }
 
-        // ================================================================
-        // Task 2.2: Extract markers from complete assistant message content blocks
-        // (final sweep: catches markers after a complete turn finishes)
-        // ================================================================
+        // ==============================================================
+        // Assistant messages — log only
+        // ==============================================================
         if (message.type === 'assistant') {
           this.logger.debug(`${SERVICE_TAG} Assistant message`, {
             contentBlocks: message.message.content.length,
             stopReason: message.message.stop_reason,
           });
+        }
 
-          for (const block of message.message.content) {
-            let blockText = '';
-            if (block.type === 'text') {
-              blockText = block.text;
-            } else if (block.type === 'tool_use') {
-              blockText = JSON.stringify(block.input);
-              // Note: tool_input broadcast handled by content_block_stop handler
-              // to avoid duplicate broadcasts (real-time accumulated data is preferred)
-            } else if (block.type === 'tool_result') {
-              // Broadcast tool_result for live transcript
-              const resultContent =
-                typeof block.content === 'string'
-                  ? block.content.substring(0, 2000)
-                  : JSON.stringify(block.content).substring(0, 2000);
-              this.broadcastStreamMessage({
-                kind: 'tool_result',
-                content: resultContent,
-                toolCallId: block.tool_use_id,
-                isError: block.is_error ?? false,
-                timestamp: Date.now(),
-              });
-              blockText = resultContent;
-            }
-
-            if (!blockText) continue;
-
-            // Phase markers in complete content blocks
-            const phaseMatches = [...blockText.matchAll(/\[PHASE:(\w+)\]/g)];
-            for (const match of phaseMatches) {
-              const rawPhase = match[1];
-              if (!VALID_PHASES.includes(rawPhase as AnalysisPhase)) continue;
-              const phase = rawPhase as AnalysisPhase;
-              if (currentPhase && !completedPhases.includes(currentPhase)) {
-                completedPhases.push(currentPhase);
-              }
-              if (currentPhase !== phase) {
-                currentPhase = phase;
-                this.broadcastProgress({
-                  filesScanned: 0,
-                  totalFiles: 0,
-                  detections,
-                  currentPhase: phase,
-                  phaseLabel: PHASE_LABELS[phase] || `Phase: ${phase}`,
-                  completedPhases: [...completedPhases],
-                });
-              }
-            }
-
-            // Detection markers in complete content blocks
-            const detectionMatches = [
-              ...blockText.matchAll(/\[DETECTED:(.+?)\]/g),
-            ];
-            for (const match of detectionMatches) {
-              const detection = match[1];
-              if (!detections.includes(detection)) {
-                detections.push(detection);
-                this.broadcastProgress({
-                  filesScanned: 0,
-                  totalFiles: 0,
-                  detections: [...detections],
-                  currentPhase,
-                  phaseLabel: currentPhase
-                    ? PHASE_LABELS[currentPhase]
-                    : undefined,
-                  completedPhases: [...completedPhases],
+        // ==============================================================
+        // Tool results — broadcast for live transcript
+        // ==============================================================
+        if (message.type === 'user') {
+          const content = (message as { message?: { content?: unknown } })
+            .message?.content;
+          if (Array.isArray(content)) {
+            for (const block of content) {
+              const typedBlock = block as { type?: string };
+              if (typedBlock.type === 'tool_result') {
+                const resultBlock = block as ToolResultBlock;
+                const resultContent =
+                  typeof resultBlock.content === 'string'
+                    ? resultBlock.content.substring(0, 2000)
+                    : JSON.stringify(resultBlock.content).substring(0, 2000);
+                this.broadcastStreamMessage({
+                  kind: 'tool_result',
+                  content: resultContent,
+                  toolName:
+                    completedToolNames.get(resultBlock.tool_use_id) || 'tool',
+                  toolCallId: resultBlock.tool_use_id,
+                  isError: resultBlock.is_error ?? false,
+                  timestamp: Date.now(),
                 });
               }
             }
@@ -818,81 +549,89 @@ export class AgenticAnalysisService {
         }
       }
 
-      // Stream ended without result — try to parse accumulated text
-      if (fullText.trim()) {
-        this.logger.warn(
-          `${SERVICE_TAG} Stream ended without result message, parsing accumulated text`
-        );
-        return this.parseAnalysisResponse(fullText);
-      }
-
-      return Result.err(new Error('Analysis produced no output'));
+      return Result.err(new Error('Analysis stream ended without result'));
     } finally {
       clearTimeout(timeoutId);
     }
   }
 
   /**
-   * Parse and validate the JSON analysis from the agent's response text.
+   * Normalize SDK structured output into a DeepProjectAnalysis.
+   *
+   * The SDK has already validated the JSON structure. We run Zod for:
+   * - Case-insensitive enum resolution (e.g. "React" → "react")
+   * - Default filling for optional fields
+   * - monorepoType boolean → null conversion
+   * - Percentage clamping
    */
-  private parseAnalysisResponse(
-    fullText: string
+  private normalizeStructuredOutput(
+    structuredOutput: unknown
   ): Result<DeepProjectAnalysis, Error> {
-    // Try 1: Extract from ```json code block (use LAST match, not first).
-    // The agent may produce intermediate reasoning JSON blocks before the final answer.
-    const jsonMatches = [...fullText.matchAll(/```json\s*\n([\s\S]*?)\n```/g)];
-    if (jsonMatches.length > 0) {
-      const lastJsonMatch = jsonMatches[jsonMatches.length - 1];
-      return this.validateJson(lastJsonMatch[1]);
-    }
+    try {
+      const validation = ProjectAnalysisZodSchema.safeParse(structuredOutput);
 
-    // Try 2: Extract from ``` code block without json tag (use LAST match).
-    const codeMatches = [...fullText.matchAll(/```\s*\n([\s\S]*?)\n```/g)];
-    if (codeMatches.length > 0) {
-      const lastCodeMatch = codeMatches[codeMatches.length - 1];
-      const parsed = this.validateJson(lastCodeMatch[1]);
-      if (parsed.isOk()) return parsed;
-    }
+      if (validation.success) {
+        return Result.ok(normalizeAgentOutput(validation.data));
+      }
 
-    // Try 3: Find JSON object delimiters
-    const firstBrace = fullText.indexOf('{');
-    const lastBrace = fullText.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace > firstBrace) {
-      return this.validateJson(fullText.substring(firstBrace, lastBrace + 1));
+      // SDK already validated structure, but Zod preprocess handles edge cases
+      // (boolean monorepoType, percentage clamping, enum normalization).
+      // If Zod still fails, report the issues.
+      const errors = validation.error.issues
+        .map((e) => `${String(e.path.join('.'))}: ${e.message}`)
+        .join('; ');
+      this.logger.warn(
+        `${SERVICE_TAG} Structured output normalization failed: ${errors}`
+      );
+      return Result.err(
+        new Error(`Failed to normalize structured output: ${errors}`)
+      );
+    } catch (error) {
+      return Result.err(
+        new Error(
+          `Structured output normalization failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        )
+      );
     }
-
-    // Try 4: Direct parse
-    return this.validateJson(fullText);
   }
 
   /**
-   * Validate and normalize JSON string into a DeepProjectAnalysis.
-   *
-   * Uses the shared ProjectAnalysisZodSchema for validation and
-   * normalizeAgentOutput for case-insensitive enum mapping.
+   * Fallback: parse JSON from text when structured_output is not available.
+   * This should rarely be needed with outputFormat enabled.
    */
-  private validateJson(jsonStr: string): Result<DeepProjectAnalysis, Error> {
+  private parseJsonFromText(text: string): Result<DeepProjectAnalysis, Error> {
     try {
-      const parsed = JSON.parse(jsonStr);
-      const validation = ProjectAnalysisZodSchema.safeParse(parsed);
-
-      if (!validation.success) {
-        const errors = validation.error.issues
-          .map((e) => `${String(e.path.join('.'))}: ${e.message}`)
-          .join('; ');
-        return Result.err(new Error(`Schema validation failed: ${errors}`));
+      // Try to parse as direct JSON first
+      const parsed = JSON.parse(text);
+      return this.normalizeStructuredOutput(parsed);
+    } catch {
+      // Try to extract from code blocks
+      const jsonMatch = text.match(/```json\s*\n([\s\S]*?)\n```/);
+      if (jsonMatch) {
+        try {
+          const parsed = JSON.parse(jsonMatch[1]);
+          return this.normalizeStructuredOutput(parsed);
+        } catch {
+          // fall through
+        }
       }
 
-      return Result.ok(normalizeAgentOutput(validation.data));
-    } catch (parseError) {
+      // Try brace extraction
+      const firstBrace = text.indexOf('{');
+      const lastBrace = text.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace > firstBrace) {
+        try {
+          const parsed = JSON.parse(text.substring(firstBrace, lastBrace + 1));
+          return this.normalizeStructuredOutput(parsed);
+        } catch {
+          // fall through
+        }
+      }
+
       return Result.err(
-        new Error(
-          `JSON parse failed: ${
-            parseError instanceof Error
-              ? parseError.message
-              : String(parseError)
-          }`
-        )
+        new Error('Could not extract JSON from agent response')
       );
     }
   }
@@ -923,8 +662,6 @@ export class AgenticAnalysisService {
 
   /**
    * Broadcast a stream message to the frontend for real-time transcript display.
-   * Uses the SETUP_WIZARD_ANALYSIS_STREAM message type (separate from scan progress).
-   * Failures are silently caught (best-effort broadcasting).
    */
   private broadcastStreamMessage(payload: AnalysisStreamPayload): void {
     try {

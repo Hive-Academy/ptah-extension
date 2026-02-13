@@ -242,15 +242,37 @@ export class ContentGenerationService implements IContentGenerationService {
           'claude-sonnet-4-5-20250929'
         );
 
-      // Execute SDK call with structured output
+      // Build system prompt with optional enhanced prompt content
+      let systemPrompt = `You are a content generation specialist for developer tooling configuration files.
+
+CRITICAL CONSTRAINTS:
+- You have NO tools available. Do NOT attempt to call any tools or explore the filesystem.
+- ALL project information you need is provided in the PROJECT ANALYSIS DATA below.
+- Base every piece of generated content EXCLUSIVELY on the provided analysis data.
+- Do NOT fabricate, guess, or assume any project details not present in the analysis data.
+- If the analysis data lacks information for a section, generate sensible defaults based on the project type and frameworks listed.
+
+OUTPUT FORMAT:
+- Return a JSON object with a "sections" property containing each section ID mapped to its content.
+- Each section value must be pure markdown (no wrapping markers, code fences, or section headers).
+- Do NOT include any {{VARIABLE}}, {{GENERATED_*}}, or template markers in your output.`;
+
+      if (sdkConfig?.enhancedPromptContent) {
+        systemPrompt += `\n\n--- Enhanced Project Guidance ---\n${sdkConfig.enhancedPromptContent}`;
+      }
+
+      // Execute SDK call with structured output.
+      // MCP is explicitly DISABLED here — the analysis data is already embedded
+      // in the prompt, so the LLM should NOT re-explore the workspace via MCP tools.
+      // Allowing MCP access wastes tokens/time and can produce inconsistent results.
       const handle = await this.internalQueryService.execute({
         cwd: context.rootPath,
         model,
         prompt,
+        systemPromptAppend: systemPrompt,
         isPremium: sdkConfig?.isPremium ?? false,
-        mcpServerRunning: sdkConfig?.mcpServerRunning ?? false,
-        mcpPort: sdkConfig?.mcpPort,
-        maxTurns: 5,
+        mcpServerRunning: false,
+        maxTurns: 25,
         outputFormat: { type: 'json_schema', schema: outputSchema },
       });
 
@@ -342,24 +364,25 @@ ${section.content}`;
       })
       .join('\n\n');
 
-    return `You are generating project-specific content for the "${templateName}" agent configuration file.
+    return `Generate project-specific content for the "${templateName}" agent configuration file.
 
-PROJECT ANALYSIS DATA:
+ALL project information is provided below. Use ONLY this data — do not attempt to explore, search, or analyze the project yourself.
+
+## PROJECT ANALYSIS DATA (source of truth)
 ${analysisData}
 
-SECTIONS TO FILL:
+## SECTIONS TO FILL
 ${sectionDescriptions}
 
-INSTRUCTIONS:
-- For each section, generate intelligent, project-specific content
-- DATA sections: replace all {{VARIABLE}} placeholders with actual values from the analysis data
-- GUIDANCE sections: generate real, specific content based on the project's tech stack — no generic advice
-- Use the template blueprint as guidance for the KIND of content expected
-- Do NOT include any {{VARIABLE}}, {{GENERATED_*}}, or section markers in your output
-- Each section should be pure markdown content (no wrapping markers, section headers, or code fences)
-- Keep each section under 500 words
+## INSTRUCTIONS
+1. For each section, generate content that is specific to THIS project based on the analysis data above.
+2. DATA sections: replace all {{VARIABLE}} placeholders with actual values extracted from the analysis data.
+3. GUIDANCE sections: generate actionable, project-specific guidance referencing the exact frameworks, languages, and patterns from the analysis data — no generic advice.
+4. Use the template blueprint as guidance for the KIND and STRUCTURE of content expected, but tailor all details to the analysis data.
+5. Reference concrete details from the analysis: specific framework names, file paths, architecture patterns, testing frameworks, and conventions.
+6. Keep each section under 500 words.
 
-Return a JSON object with a "sections" property containing each section ID mapped to its generated content.`;
+Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... } }`;
   }
 
   /**
@@ -646,6 +669,62 @@ Return a JSON object with a "sections" property containing each section ID mappe
           .map((f) => f.relativePath)
           .join(', ')}`
       );
+    }
+
+    // Include full analysis data when available (from wizard deep analysis)
+    const analysis = context.fullAnalysis;
+    if (analysis) {
+      if (analysis.projectTypeDescription) {
+        parts.push(`Project Description: ${analysis.projectTypeDescription}`);
+      }
+
+      if (analysis.architecturePatterns?.length > 0) {
+        parts.push(
+          `Architecture Patterns: ${analysis.architecturePatterns
+            .map((p) => `${p.name} (${p.confidence}% confidence)`)
+            .join(', ')}`
+        );
+      }
+
+      if (analysis.languageDistribution?.length) {
+        parts.push(
+          `Language Distribution: ${analysis.languageDistribution
+            .map((l) => `${l.language} ${l.percentage}%`)
+            .join(', ')}`
+        );
+      }
+
+      if (analysis.testCoverage) {
+        parts.push(
+          `Test Coverage: ${
+            analysis.testCoverage.percentage
+          }% estimated (framework: ${
+            analysis.testCoverage.testFramework || 'unknown'
+          }, unit: ${analysis.testCoverage.hasUnitTests}, integration: ${
+            analysis.testCoverage.hasIntegrationTests
+          })`
+        );
+      }
+
+      if (analysis.existingIssues) {
+        parts.push(
+          `Code Issues: ${analysis.existingIssues.errorCount} errors, ${analysis.existingIssues.warningCount} warnings`
+        );
+      }
+
+      if (analysis.keyFileLocations) {
+        const locations = analysis.keyFileLocations;
+        const keyFiles = [
+          ...locations.entryPoints.slice(0, 3),
+          ...locations.configs.slice(0, 3),
+          ...locations.apiRoutes.slice(0, 2),
+          ...locations.components.slice(0, 2),
+          ...locations.services.slice(0, 2),
+        ].slice(0, 10);
+        if (keyFiles.length > 0) {
+          parts.push(`Key File Locations: ${keyFiles.join(', ')}`);
+        }
+      }
     }
 
     return parts.join('\n');

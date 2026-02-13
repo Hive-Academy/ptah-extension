@@ -18,8 +18,8 @@
  * 2. Scan - Codebase scanning progress
  * 3. Analysis - Project analysis results
  * 4. Selection - Agent selection
- * 5. Enhance - Enhanced prompts generation
- * 6. Generation - Rule generation progress
+ * 5. Generation - Rule generation progress
+ * 6. Enhance - Enhanced prompts generation
  * 7. Completion - Success confirmation
  *
  * **Premium Gating**:
@@ -168,9 +168,9 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             [class.pointer-events-none]="!canNavigateToStep(4)"
             [class.opacity-50]="!canNavigateToStep(4)"
             (click)="navigateToStep(4)"
-            title="Go to Enhance"
+            title="Go to Generation"
           >
-            Enhance
+            Generate
           </li>
           <li
             class="step cursor-pointer hover:opacity-80 transition-opacity"
@@ -178,9 +178,9 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             [class.pointer-events-none]="!canNavigateToStep(5)"
             [class.opacity-50]="!canNavigateToStep(5)"
             (click)="navigateToStep(5)"
-            title="Go to Generation"
+            title="Go to Enhance"
           >
-            Generate
+            Enhance
           </li>
           <li
             class="step cursor-pointer hover:opacity-80 transition-opacity"
@@ -233,20 +233,26 @@ export class WizardViewComponent {
     'scan',
     'analysis',
     'selection',
-    'enhance',
     'generation',
+    'enhance',
     'completion',
   ];
 
   /**
-   * Check if user can navigate to a specific step
-   * Only allow navigation to current or completed steps, not future steps
+   * Check if user can navigate to a specific step.
+   * Allows backward navigation to any completed step,
+   * and forward-jumps when prerequisites are met (e.g., after loading a saved analysis).
    */
   protected canNavigateToStep(targetIndex: number): boolean {
     const currentIdx = this.stepIndex();
-    // Can navigate to current step or any completed step (index <= current)
-    // Cannot navigate to future steps (index > current)
-    return targetIndex <= currentIdx;
+    // Can always go back
+    if (targetIndex <= currentIdx) return true;
+    // Can jump forward if prerequisites are met
+    const targetStep = this.stepOrder[targetIndex];
+    if (targetStep) {
+      return this.wizardState.canJumpToStep(targetStep);
+    }
+    return false;
   }
 
   /**

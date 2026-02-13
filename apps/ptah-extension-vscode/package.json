@@ -229,6 +229,12 @@
           "default": "openrouter",
           "description": "Selected Anthropic-compatible provider for API key authentication."
         },
+        "ptah.enhancedPrompts.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable project-specific enhanced prompts (requires Pro license). When enabled, Ptah generates custom guidance based on your codebase to improve AI responses.",
+          "scope": "resource"
+        },
         "ptah.compaction.enabled": {
           "type": "boolean",
           "default": true,

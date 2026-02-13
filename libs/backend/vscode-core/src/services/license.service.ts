@@ -283,6 +283,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
           const communityFallback: LicenseStatus = {
             valid: true,
             tier: 'community',
+            reason: status.reason, // Preserve reason so frontend can prompt re-entry
           };
           this.updateCache(communityFallback);
           this.emit('license:updated', communityFallback);

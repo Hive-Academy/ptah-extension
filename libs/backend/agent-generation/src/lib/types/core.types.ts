@@ -129,8 +129,11 @@ export interface ApplicabilityRules {
    * Frameworks this template applies to.
    * If empty, applies to all frameworks.
    * Multiple frameworks indicate the template is useful for any of these frameworks.
+   *
+   * Supports both known Framework enum values and dynamically discovered
+   * frameworks as strings (e.g., 'tailwindcss', 'redux').
    */
-  frameworks: Framework[];
+  frameworks: string[];
 
   /**
    * Monorepo types this template applies to.
@@ -299,8 +302,11 @@ export interface AgentProjectContext {
   /**
    * Detected frameworks used in the project.
    * Used for template selection and LLM customization.
+   *
+   * Supports both known Framework enum values and dynamically discovered
+   * frameworks as strings (e.g., 'tailwindcss', 'redux', 'zustand').
    */
-  frameworks: Framework[];
+  frameworks: string[];
 
   /**
    * Monorepo type if the project is a monorepo.
@@ -331,6 +337,13 @@ export interface AgentProjectContext {
    * Used in LLM prompts to ensure generated content matches project style.
    */
   codeConventions: CodeConventions;
+
+  /**
+   * Full wizard analysis data when available.
+   * Carries all deep analysis fields (architecture patterns, test coverage,
+   * language distribution, code conventions, etc.) for rich LLM prompting.
+   */
+  fullAnalysis?: import('@ptah-extension/shared').ProjectAnalysisResult;
 }
 
 /**
@@ -588,6 +601,13 @@ export interface GenerationSummary {
    * All successfully generated agents.
    */
   agents: GeneratedAgent[];
+
+  /**
+   * Whether enhanced prompts were used during Phase 3 customization.
+   * True when project-specific enhanced prompt content was provided and
+   * prepended to the LLM system prompt for section customization.
+   */
+  enhancedPromptsUsed?: boolean;
 }
 
 /**

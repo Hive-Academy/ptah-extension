@@ -27,6 +27,7 @@ import {
   stopHttpServer,
   getConfiguredPort,
   handleMCPRequest,
+  type ToolResultCallback,
 } from './mcp-handlers';
 
 @injectable()
@@ -34,6 +35,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
   private server: http.Server | null = null;
   private port: number | null = null;
   private ptahAPI: PtahAPI;
+  private toolResultCallback: ToolResultCallback | undefined;
 
   constructor(
     @inject(TOKENS.PTAH_API_BUILDER)
@@ -77,6 +79,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
           permissionPromptService: this.permissionPromptService,
           webviewManager: this.webviewManager,
           logger: this.logger,
+          onToolResult: this.toolResultCallback,
         }),
     });
 
@@ -100,6 +103,21 @@ export class CodeExecutionMCP implements vscode.Disposable {
    */
   getPort(): number | null {
     return this.port;
+  }
+
+  /**
+   * Set callback for tool result notifications.
+   * Used by agentic analysis to stream tool results to the frontend.
+   */
+  setToolResultCallback(callback: ToolResultCallback): void {
+    this.toolResultCallback = callback;
+  }
+
+  /**
+   * Clear the tool result callback.
+   */
+  clearToolResultCallback(): void {
+    this.toolResultCallback = undefined;
   }
 
   /**

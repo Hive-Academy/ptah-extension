@@ -39,14 +39,10 @@ import type {
   GenerationCompletePayload,
   GenerationStreamPayload,
 } from '@ptah-extension/shared';
-import type {
-  GenerationSummary,
-  AgentProjectContext,
-} from '@ptah-extension/agent-generation';
+import type { GenerationSummary } from '@ptah-extension/agent-generation';
 import { Result } from '@ptah-extension/shared';
+import type { ProjectAnalysisResult } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
-import { mapAnalysisToAgentContext } from './analysis-mapper';
-import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
 
 /**
  * Progress update callback payload from AgentGenerationOrchestratorService.
@@ -79,12 +75,14 @@ interface OrchestratorGenerationOptions {
   userOverrides?: string[];
   variableOverrides?: Record<string, string>;
   enhancedPromptContent?: string;
-  preComputedContext?: AgentProjectContext;
+  preComputedAnalysis?: ProjectAnalysisResult;
   isPremium?: boolean;
   mcpServerRunning?: boolean;
   mcpPort?: number;
   /** Callback for real-time stream events during content generation */
   onStreamEvent?: (event: GenerationStreamPayload) => void;
+  /** Model to use for content generation (from frontend selection) */
+  model?: string;
 }
 
 /**
@@ -148,6 +146,12 @@ export class WizardGenerationRpcHandlers {
    * Prevents multiple simultaneous agent generation runs.
    */
   private isGenerating = false;
+
+  /**
+   * Stored options from the last successful generation submission.
+   * Reused by the retry handler to preserve rich context (analysis, SDK config, etc.).
+   */
+  private lastGenerationOptions: OrchestratorGenerationOptions | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -313,40 +317,16 @@ export class WizardGenerationRpcHandlers {
           );
         }
 
-        // Map wizard analysis to AgentProjectContext (skip Phase 1 re-analysis)
-        let preComputedContext: AgentProjectContext | undefined;
-        if (params.analysisData) {
-          try {
-            const workspaceAnalyzer =
-              this.resolveService<WorkspaceAnalyzerService>(
-                TOKENS.WORKSPACE_ANALYZER_SERVICE,
-                'WorkspaceAnalyzerService'
-              );
-            const projectInfo = await workspaceAnalyzer.getProjectInfo();
-            preComputedContext = mapAnalysisToAgentContext(
-              params.analysisData,
-              workspaceFolder.uri.fsPath,
-              projectInfo
-            );
-            this.logger.info(
-              'Mapped wizard analysis to AgentProjectContext for generation pipeline',
-              {
-                projectType: preComputedContext.projectType,
-                frameworkCount: preComputedContext.frameworks.length,
-                relevantFileCount: preComputedContext.relevantFiles.length,
-              }
-            );
-          } catch (mapError) {
-            this.logger.warn(
-              'Failed to map wizard analysis, generation will run its own analysis',
-              {
-                error:
-                  mapError instanceof Error
-                    ? mapError.message
-                    : String(mapError),
-              }
-            );
-          }
+        // Pass full wizard analysis data directly (skip Phase 1 re-analysis)
+        const preComputedAnalysis = params.analysisData ?? undefined;
+        if (preComputedAnalysis) {
+          this.logger.info(
+            'Passing full wizard analysis to generation pipeline',
+            {
+              projectType: preComputedAnalysis.projectType,
+              frameworkCount: preComputedAnalysis.frameworks?.length ?? 0,
+            }
+          );
         }
 
         // Resolve license + MCP status for SDK config
@@ -401,6 +381,9 @@ export class WizardGenerationRpcHandlers {
           }
         };
 
+        // Resolve model from frontend selection (consistent with chat:start pattern)
+        const currentModel = params.model || undefined;
+
         // Build orchestrator options
         const options: OrchestratorGenerationOptions = {
           workspaceUri: workspaceFolder.uri,
@@ -408,12 +391,16 @@ export class WizardGenerationRpcHandlers {
           threshold: params.threshold,
           variableOverrides: params.variableOverrides,
           enhancedPromptContent,
-          preComputedContext,
+          preComputedAnalysis,
           isPremium,
           mcpServerRunning,
           mcpPort,
           onStreamEvent,
+          model: currentModel,
         };
+
+        // Store options for retry handler to reuse rich context
+        this.lastGenerationOptions = options;
 
         // Progress callback - broadcasts progress to frontend
         const progressCallback = (progress: GenerationProgress): void => {
@@ -459,24 +446,59 @@ export class WizardGenerationRpcHandlers {
           }
         };
 
-        // Run generation pipeline
-        const result = await orchestrator.generateAgents(
+        // Fire-and-forget: Run generation pipeline in the background.
+        // Return the RPC response immediately so the frontend can transition
+        // to the generation progress step. Progress/completion are sent via broadcasts.
+        this.runGenerationInBackground(
+          orchestrator,
           options,
-          progressCallback
+          progressCallback,
+          webviewManager,
+          startTime
         );
 
+        return { success: true };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'RPC: wizard:submit-selection unexpected error',
+          error instanceof Error ? error : new Error(errorMessage)
+        );
+        this.isGenerating = false;
+        return {
+          success: false,
+          error: `Agent generation failed: ${errorMessage}`,
+        };
+      }
+    });
+  }
+
+  /**
+   * Run the generation pipeline in the background.
+   * Broadcasts progress and completion/failure to the frontend via webview messages.
+   * Resets the isGenerating flag when done.
+   */
+  private runGenerationInBackground(
+    orchestrator: OrchestratorServiceInterface,
+    options: OrchestratorGenerationOptions,
+    progressCallback: (progress: GenerationProgress) => void,
+    webviewManager: WebviewBroadcaster | null,
+    startTime: number
+  ): void {
+    orchestrator
+      .generateAgents(options, progressCallback)
+      .then((result) => {
         const durationMs = Date.now() - startTime;
 
         if (result.isOk()) {
           const summary = result.value!;
-
           this.logger.info('RPC: wizard:submit-selection completed', {
             successful: summary.successful,
             failed: summary.failed,
             durationMs,
           });
 
-          // Broadcast generation complete
           if (webviewManager) {
             const completePayload: GenerationCompletePayload = {
               success: true,
@@ -503,55 +525,59 @@ export class WizardGenerationRpcHandlers {
                 });
               });
           }
+        } else {
+          const errorMessage =
+            result.error?.message || 'Agent generation failed';
+          this.logger.error('RPC: wizard:submit-selection failed', {
+            error: errorMessage,
+            durationMs,
+          });
 
-          return { success: true };
-        }
+          if (webviewManager) {
+            const failPayload: GenerationCompletePayload = {
+              success: false,
+              generatedCount: 0,
+              duration: durationMs,
+              errors: [errorMessage],
+            };
 
-        // Generation failed
-        const errorMessage = result.error?.message || 'Agent generation failed';
-        this.logger.error('RPC: wizard:submit-selection failed', {
-          error: errorMessage,
-          durationMs,
-        });
-
-        // Broadcast generation complete with failure
-        if (webviewManager) {
-          const failPayload: GenerationCompletePayload = {
-            success: false,
-            generatedCount: 0,
-            duration: durationMs,
-            errors: [errorMessage],
-          };
-
-          webviewManager
-            .broadcastMessage('setup-wizard:generation-complete', failPayload)
-            .catch((broadcastError) => {
-              this.logger.warn('Failed to broadcast generation failure', {
-                error:
-                  broadcastError instanceof Error
-                    ? broadcastError.message
-                    : String(broadcastError),
+            webviewManager
+              .broadcastMessage('setup-wizard:generation-complete', failPayload)
+              .catch((broadcastError) => {
+                this.logger.warn('Failed to broadcast generation failure', {
+                  error:
+                    broadcastError instanceof Error
+                      ? broadcastError.message
+                      : String(broadcastError),
+                });
               });
-            });
+          }
         }
-
-        return { success: false, error: errorMessage };
-      } catch (error) {
+      })
+      .catch((error) => {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: wizard:submit-selection unexpected error',
           error instanceof Error ? error : new Error(errorMessage)
         );
-        return {
-          success: false,
-          error: `Agent generation failed: ${errorMessage}`,
-        };
-      } finally {
-        // CRITICAL: Always reset the generation guard
+
+        if (webviewManager) {
+          webviewManager
+            .broadcastMessage('setup-wizard:generation-complete', {
+              success: false,
+              generatedCount: 0,
+              duration: Date.now() - startTime,
+              errors: [`Agent generation failed: ${errorMessage}`],
+            })
+            .catch(() => {
+              // Swallow broadcast errors
+            });
+        }
+      })
+      .finally(() => {
         this.isGenerating = false;
-      }
-    });
+      });
   }
 
   /**
@@ -748,8 +774,10 @@ export class WizardGenerationRpcHandlers {
           }
         };
 
-        // Run generation for the single item
+        // Reuse stored options from original generation to preserve rich context
+        // (analysis data, premium status, MCP config, enhanced prompts)
         const options: OrchestratorGenerationOptions = {
+          ...(this.lastGenerationOptions ?? {}),
           workspaceUri: workspaceFolder.uri,
           userOverrides: [params.itemId],
           onStreamEvent,

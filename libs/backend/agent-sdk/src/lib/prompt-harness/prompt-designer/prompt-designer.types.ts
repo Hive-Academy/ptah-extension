@@ -42,6 +42,9 @@ export interface PromptDesignerInput {
   /** Sample file paths for context */
   sampleFilePaths?: string[];
 
+  /** Detected languages (e.g. ['TypeScript', 'JavaScript', 'CSS']) */
+  languages?: string[];
+
   /** Optional token budget for generated content */
   tokenBudget?: number;
 
@@ -107,6 +110,12 @@ export interface PromptDesignerOutput {
    * @since TASK_2025_141
    */
   qualityAssessment?: QualityAssessment;
+
+  /** Whether template-based fallback guidance was used instead of LLM-generated guidance */
+  usedFallback?: boolean;
+
+  /** Reason for fallback (e.g., 'LLM service not available', error message) */
+  fallbackReason?: string;
 
   /** When this guidance was generated */
   generatedAt: number;
@@ -182,7 +191,8 @@ export type PromptGenerationStatus =
   | 'analyzing'
   | 'generating'
   | 'complete'
-  | 'error';
+  | 'error'
+  | 'fallback';
 
 /**
  * Event emitted during prompt generation for progress tracking

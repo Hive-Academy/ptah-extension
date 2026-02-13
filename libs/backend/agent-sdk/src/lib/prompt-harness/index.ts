@@ -27,7 +27,6 @@ export {
   PROMPT_DESIGNER_SYSTEM_PROMPT,
   buildGenerationUserPrompt,
   buildFallbackGuidance,
-  FRAMEWORK_PROMPT_ADDITIONS,
   parseStructuredResponse,
   parseTextResponse,
   validateOutput,
@@ -85,3 +84,5 @@ export {
   createInitialEnhancedPromptsState,
   EnhancedPromptsService,
 } from './enhanced-prompts';
+
+export type { EnhancedPromptsSdkConfig } from './enhanced-prompts';

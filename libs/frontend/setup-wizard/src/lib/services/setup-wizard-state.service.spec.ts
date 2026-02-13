@@ -22,11 +22,13 @@ describe('SetupWizardStateService', () => {
       postMessage: jest.fn(),
       config: signal({
         isVSCode: true,
-        theme: 'dark',
+        theme: 'dark' as const,
         workspaceRoot: '/test/workspace',
         workspaceName: 'test-workspace',
         extensionUri: 'file:///test/extension',
-        extensionVersion: '1.0.0',
+        baseUri: 'file:///test/base',
+        iconUri: 'file:///test/icons',
+        userIconUri: 'file:///test/user-icons',
       }),
     };
 
@@ -371,7 +373,29 @@ describe('SetupWizardStateService', () => {
       expect(service.generationProgress()).toEqual(progress);
     });
 
-    it('should handle generation complete message', () => {
+    it('should handle generation complete message and store completion data', () => {
+      const payload: CompletionData = {
+        success: true,
+        generatedCount: 5,
+        duration: 120000,
+      };
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:generation-complete', payload },
+        })
+      );
+
+      // Completion data should always be stored
+      expect(service.completionData()).toEqual(payload);
+      // Auto-transition to completion only occurs when on the 'generation' step.
+      // From 'welcome' step it should NOT auto-transition (prevents skipping enhance step).
+      expect(service.currentStep()).toBe('welcome');
+    });
+
+    it('should auto-transition to completion when on generation step', () => {
+      service.setCurrentStep('generation');
+
       const payload: CompletionData = {
         success: true,
         generatedCount: 5,
@@ -493,6 +517,163 @@ describe('SetupWizardStateService', () => {
     it('should handle empty agents array for selected count', () => {
       service.setAvailableAgents([]);
       expect(service.selectedCount()).toBe(0);
+    });
+  });
+
+  describe('Fallback Warning Routing (TASK_2025_149)', () => {
+    it('should set fallbackWarning when error type is fallback-warning', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:error',
+            payload: {
+              type: 'fallback-warning',
+              message:
+                'AI-powered analysis unavailable. Using quick analysis mode.',
+            },
+          },
+        })
+      );
+
+      expect(service.fallbackWarning()).toBe(
+        'AI-powered analysis unavailable. Using quick analysis mode.'
+      );
+      expect(service.errorState()).toBeNull();
+    });
+
+    it('should set errorState when error type is error', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:error',
+            payload: {
+              type: 'error',
+              message: 'Fatal error occurred',
+              details: 'Stack trace details',
+            },
+          },
+        })
+      );
+
+      expect(service.errorState()).toEqual({
+        message: 'Fatal error occurred',
+        details: 'Stack trace details',
+      });
+      expect(service.fallbackWarning()).toBeNull();
+    });
+
+    it('should set errorState when error type is undefined', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:error',
+            payload: {
+              message: 'Some error without type',
+            },
+          },
+        })
+      );
+
+      expect(service.errorState()).toEqual({
+        message: 'Some error without type',
+        details: undefined,
+      });
+      expect(service.fallbackWarning()).toBeNull();
+    });
+
+    it('should clear fallbackWarning on reset', () => {
+      service.setFallbackWarning('Test warning');
+      expect(service.fallbackWarning()).toBe('Test warning');
+
+      service.reset();
+
+      expect(service.fallbackWarning()).toBeNull();
+    });
+  });
+
+  describe('Enhance Step Integration (TASK_2025_149)', () => {
+    it('should include enhance in step order and return correct stepIndex', () => {
+      service.setCurrentStep('enhance');
+      // 'enhance' is at index 5 in: premium-check(0), welcome(1), scan(2), analysis(3), selection(4), enhance(5), generation(6), completion(7)
+      expect(service.stepIndex()).toBe(5);
+    });
+
+    it('should return correct percentComplete for enhance step', () => {
+      service.setCurrentStep('enhance');
+      expect(service.percentComplete()).toBe(55);
+    });
+
+    it('should return canProceed=false for enhance step', () => {
+      service.setCurrentStep('enhance');
+      expect(service.canProceed()).toBe(false);
+    });
+  });
+
+  describe('CompletionData Warnings Mapping (TASK_2025_149)', () => {
+    it('should map warnings from GenerationCompletePayload to CompletionData', () => {
+      const warnings = [
+        "Section 'examples' for agent 'backend-developer' customization failed (validation): using generic content",
+        "Section 'patterns' for agent 'frontend-developer' customization failed (infrastructure): using generic content",
+      ];
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:generation-complete',
+            payload: {
+              success: true,
+              generatedCount: 3,
+              duration: 45000,
+              warnings,
+              enhancedPromptsUsed: true,
+            },
+          },
+        })
+      );
+
+      const completionData = service.completionData();
+      expect(completionData).not.toBeNull();
+      expect(completionData!.warnings).toEqual(warnings);
+      expect(completionData!.enhancedPromptsUsed).toBe(true);
+    });
+
+    it('should handle GenerationCompletePayload without warnings', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:generation-complete',
+            payload: {
+              success: true,
+              generatedCount: 5,
+              duration: 30000,
+            },
+          },
+        })
+      );
+
+      const completionData = service.completionData();
+      expect(completionData).not.toBeNull();
+      expect(completionData!.warnings).toBeUndefined();
+      expect(completionData!.enhancedPromptsUsed).toBeUndefined();
+    });
+
+    it('should map enhancedPromptsUsed=false from payload', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:generation-complete',
+            payload: {
+              success: true,
+              generatedCount: 2,
+              enhancedPromptsUsed: false,
+            },
+          },
+        })
+      );
+
+      const completionData = service.completionData();
+      expect(completionData).not.toBeNull();
+      expect(completionData!.enhancedPromptsUsed).toBe(false);
     });
   });
 });

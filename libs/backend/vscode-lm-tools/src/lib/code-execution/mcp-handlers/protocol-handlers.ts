@@ -24,6 +24,16 @@ import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
 
 /**
+ * Callback invoked when a tool execution completes (success or error).
+ * Used to broadcast tool results to the frontend for live transcript display.
+ */
+export type ToolResultCallback = (
+  toolCallId: string,
+  content: string,
+  isError: boolean
+) => void;
+
+/**
  * Dependencies for protocol handlers
  */
 export interface ProtocolHandlerDependencies {
@@ -31,6 +41,7 @@ export interface ProtocolHandlerDependencies {
   permissionPromptService: PermissionPromptService;
   webviewManager: WebviewManager;
   logger: Logger;
+  onToolResult?: ToolResultCallback;
 }
 
 /**
@@ -149,13 +160,16 @@ async function handleToolsCall(
 
 /**
  * Handle execute_code tool call
+ *
+ * Per MCP spec, tool execution errors are returned as successful responses
+ * with isError: true content, not as JSON-RPC error objects.
  */
 async function handleExecuteCodeCall(
   request: MCPRequest,
   params: ExecuteCodeParams,
   deps: ProtocolHandlerDependencies
 ): Promise<MCPResponse> {
-  const { code, timeout = 5000 } = params;
+  const { code, timeout = 15000 } = params;
   const { ptahAPI, logger } = deps;
 
   // Validate timeout (cap at 30000ms)
@@ -164,6 +178,9 @@ async function handleExecuteCodeCall(
   try {
     const result = await executeCode(code, actualTimeout, { ptahAPI, logger });
     const textResult = serializeResult(result);
+
+    // Notify callback for live transcript streaming
+    deps.onToolResult?.(request.id.toString(), textResult, false);
 
     return {
       jsonrpc: '2.0',
@@ -180,15 +197,53 @@ async function handleExecuteCodeCall(
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : undefined;
 
-    return createErrorResponse(
-      request.id,
-      -32000,
-      `Code execution failed: ${errorMessage}`,
-      errorStack
-    );
+    // Log full stack trace server-side for debugging
+    if (error instanceof Error && error.stack) {
+      logger.error('Code execution failed', error);
+    }
+
+    // Build agent-friendly error message with recovery hints
+    const agentMessage = buildAgentFriendlyError(errorMessage);
+
+    // Notify callback for live transcript streaming
+    deps.onToolResult?.(request.id.toString(), agentMessage, true);
+
+    // Per MCP spec: return tool errors as successful response with isError flag
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: agentMessage,
+          },
+        ],
+        isError: true,
+      },
+    };
   }
+}
+
+/**
+ * Build agent-friendly error message with recovery hints.
+ * Removes raw stack traces and adds actionable guidance.
+ */
+function buildAgentFriendlyError(errorMessage: string): string {
+  if (errorMessage.includes('Execution timeout')) {
+    return `${errorMessage}. Try breaking the operation into smaller steps or increasing the timeout parameter.`;
+  }
+  if (
+    errorMessage.includes('is not a function') ||
+    errorMessage.includes('is not defined')
+  ) {
+    return `${errorMessage}. Check the method signature with ptah.help() — the API may have changed.`;
+  }
+  if (errorMessage.includes('Cannot read properties of')) {
+    return `${errorMessage}. A method returned null/undefined. Use optional chaining (?.) or check the return value before accessing properties.`;
+  }
+  return `Code execution failed: ${errorMessage}. Try wrapping in try-catch for more details.`;
 }
 
 /**

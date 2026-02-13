@@ -137,18 +137,18 @@ version: 1.0.0
 
 This is a test agent for the project.
 
-<!-- LLM:introduction -->
+<!-- LLM:INTRODUCTION -->
 This section contains LLM-generated content about the agent.
-<!-- /LLM -->
+<!-- /LLM:INTRODUCTION -->
 
 ## Features
 
 - Feature 1
 - Feature 2
 
-<!-- STATIC -->
+<!-- STATIC:CORE -->
 This is static content that should not be modified.
-<!-- /STATIC -->
+<!-- /STATIC:CORE -->
 `;
 
       const result = await service.validate(validContent, mockContext);
@@ -175,7 +175,7 @@ This is static content that should not be modified.
       );
     });
 
-    it('should fail validation for content missing YAML frontmatter', async () => {
+    it('should pass validation for content without YAML frontmatter (section content)', async () => {
       const contentNoFrontmatter = `# Test Agent
 
 This content has no YAML frontmatter.
@@ -187,11 +187,9 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor i
 
       expect(result.isOk()).toBe(true);
       const validation = result.value!;
-      // Schema will be reduced by 15 points (40 - 15 = 25), so total might still be over 70
-      // if safety and factual are perfect
-      expect(validation.issues).toContainEqual(
+      // Without frontmatter, no penalty — section content is valid without it
+      expect(validation.issues).not.toContainEqual(
         expect.objectContaining({
-          severity: 'error',
           message: 'Missing YAML frontmatter',
         })
       );
@@ -265,7 +263,7 @@ version: 1.0.0
 
 <!-- LLM:section1 -->
 Content 1
-<!-- /LLM -->
+<!-- /LLM:test -->
 
 <!-- LLM:section2 -->
 Content 2 with missing close marker
@@ -297,7 +295,7 @@ version: 1.0.0
 # Test
 <!-- LLM:test -->
 Test content
-<!-- /LLM -->
+<!-- /LLM:test -->
 
 Some content here but missing name field in frontmatter and minimal structure. Adding more text to meet minimum requirements for testing purposes.
 `;
@@ -328,7 +326,7 @@ version: 1.0.0
 
 <!-- LLM:test -->
 Content
-<!-- /LLM -->
+<!-- /LLM:test -->
 
 <!-- LLM:unclosed -->
 This section is not closed properly
@@ -394,11 +392,11 @@ version: 1.0.0
 
 <!-- LLM:intro -->
 Introduction content
-<!-- /LLM -->
+<!-- /LLM:intro -->
 
-<!-- STATIC -->
+<!-- STATIC:CORE -->
 Static content
-<!-- /STATIC -->
+<!-- /STATIC:CORE -->
 
 ## Features
 

@@ -18,7 +18,10 @@ export {
 } from './agent-selection.interface';
 
 // Content Generation
-export { IContentGenerationService } from './content-generation.interface';
+export {
+  IContentGenerationService,
+  type ContentGenerationSdkConfig,
+} from './content-generation.interface';
 
 // Output Validation
 export { IOutputValidationService } from './output-validation.interface';
@@ -40,10 +43,3 @@ export {
   IAgentCustomizationService,
   CustomizationRequest,
 } from './agent-customization.interface';
-
-// Skill Generator Service
-export {
-  ISkillGeneratorService,
-  SkillGenerationOptions,
-  SkillGenerationResult,
-} from './skill-generator.interface';

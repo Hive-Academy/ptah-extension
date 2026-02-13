@@ -230,7 +230,18 @@ export class DIContainer {
     container.registerSingleton(CommandRpcHandlers);
 
     // TASK_2025_137: Enhanced Prompts RPC handlers
-    container.registerSingleton(EnhancedPromptsRpcHandlers);
+    // Must use factory pattern because DependencyContainer is an interface (no reflection metadata)
+    // Same pattern as SetupRpcHandlers and WizardGenerationRpcHandlers
+    container.register(EnhancedPromptsRpcHandlers, {
+      useFactory: (c) =>
+        new EnhancedPromptsRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
+          c.resolve(TOKENS.LICENSE_SERVICE),
+          c
+        ),
+    });
 
     // TASK_2025_144: Quality Dashboard RPC handlers
     container.registerSingleton(QualityRpcHandlers);
@@ -309,7 +320,7 @@ export class DIContainer {
     // ========================================
     // SetupStatusService, SetupWizardService, and supporting services
     // Required for setup wizard functionality
-    registerAgentGenerationServices(container, logger);
+    registerAgentGenerationServices(container, logger, context.extensionPath);
 
     // ========================================
     // PHASE 2.9: LLM Abstraction Services (TASK_2025_071 - CRITICAL FIX)

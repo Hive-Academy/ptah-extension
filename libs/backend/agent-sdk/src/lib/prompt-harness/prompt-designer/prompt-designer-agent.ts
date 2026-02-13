@@ -4,26 +4,29 @@
  * TASK_2025_137 Batch 2: Intelligent agent that analyzes workspaces and generates
  * project-specific guidance to append to PTAH_CORE_SYSTEM_PROMPT.
  *
- * This agent leverages:
- * - workspace-intelligence for project analysis
- * - llm-abstraction for structured LLM completions
+ * This agent is now a pure prompt builder + result parser with NO LLM dependency.
+ * The actual LLM call is handled by EnhancedPromptsService via InternalQueryService.
  *
- * The generated guidance is cached to avoid regeneration overhead.
+ * Public API:
+ * - buildPrompts(input, qualityContext?): returns system + user prompts and JSON Schema
+ * - parseAndValidateOutput(structuredOutput, onProgress?): parses SDK output into PromptDesignerOutput
+ * - enforceTokenBudgets(output): truncates sections exceeding token budgets
+ * - generateFallbackGuidance(input, qualityAssessment?, fallbackReason?): template-based fallback
+ * - formatAsPrompt(output): formats PromptDesignerOutput for system prompt
  */
 
 import { inject, injectable } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import type { z } from 'zod';
 import type {
   QualityAssessment,
   PrescriptiveGuidance,
 } from '@ptah-extension/shared';
-import type { IProjectIntelligenceService } from '@ptah-extension/workspace-intelligence';
 import {
   type PromptDesignerInput,
   type PromptDesignerOutput,
   type PromptDesignerConfig,
   type PromptGenerationProgress,
+  type PromptDesignerResponse,
   PromptDesignerResponseSchema,
   DEFAULT_PROMPT_DESIGNER_CONFIG,
 } from './prompt-designer.types';
@@ -32,101 +35,31 @@ import {
   buildGenerationUserPrompt,
   buildFallbackGuidance,
   buildQualityContextPrompt,
-  FRAMEWORK_PROMPT_ADDITIONS,
 } from './generation-prompts';
 import {
   parseStructuredResponse,
-  parseTextResponse,
   validateOutput,
   formatAsPromptSection,
   truncateToTokenBudget,
 } from './response-parser';
 
 /**
- * LLM Service interface for Prompt Designer
+ * PromptDesignerAgent - Pure prompt builder + result parser
  *
- * This is a minimal interface matching llm-abstraction's LlmService.
- * The actual service is injected at runtime.
- */
-interface IPromptDesignerLlmService {
-  hasProvider(): boolean;
-  getCompletion(
-    systemPrompt: string,
-    userPrompt: string
-  ): Promise<LlmResult<string>>;
-  getStructuredCompletion<T extends z.ZodTypeAny>(
-    prompt: string,
-    schema: T,
-    config?: { temperature?: number; maxTokens?: number }
-  ): Promise<LlmResult<z.infer<T>>>;
-  countTokens(text: string): Promise<number>;
-}
-
-/**
- * Result type (matching llm-abstraction pattern)
- */
-interface LlmResult<T> {
-  isOk(): boolean;
-  isErr(): boolean;
-  value?: T;
-  error?: { message: string; code: string; provider: string };
-}
-
-/**
- * PromptDesignerAgent - Generates project-specific guidance
+ * Responsibilities:
+ * 1. Build prompts + JSON Schema for SDK structured output
+ * 2. Parse and validate SDK structured output into PromptDesignerOutput
+ * 3. Enforce token budgets on generated sections
+ * 4. Generate fallback guidance when LLM is unavailable
+ * 5. Format output as prompt sections
  *
- * This agent orchestrates:
- * 1. Receiving project analysis from workspace-intelligence
- * 2. Building context-aware prompts
- * 3. Calling LLM for structured generation
- * 4. Parsing and validating responses
- * 5. Returning ready-to-use prompt sections
+ * The actual SDK call is handled by the caller (EnhancedPromptsService).
  */
 @injectable()
 export class PromptDesignerAgent {
   private config: PromptDesignerConfig = DEFAULT_PROMPT_DESIGNER_CONFIG;
-  /**
-   * Cached reference to ProjectIntelligenceService.
-   * Resolved lazily to avoid DI errors when service is not registered.
-   */
-  private _projectIntelligence?: IProjectIntelligenceService;
-  private _projectIntelligenceResolved = false;
 
-  constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.LLM_SERVICE)
-    private readonly llmService: IPromptDesignerLlmService
-  ) {}
-
-  /**
-   * Get the ProjectIntelligenceService if available.
-   * Uses lazy resolution to handle optional dependency without breaking DI.
-   *
-   * @returns The service instance if registered, undefined otherwise
-   */
-  private getProjectIntelligenceService():
-    | IProjectIntelligenceService
-    | undefined {
-    if (!this._projectIntelligenceResolved) {
-      this._projectIntelligenceResolved = true;
-      try {
-        // Dynamic import to avoid circular dependency issues
-
-        const { container } = require('tsyringe');
-        if (container.isRegistered(TOKENS.PROJECT_INTELLIGENCE_SERVICE)) {
-          this._projectIntelligence = container.resolve(
-            TOKENS.PROJECT_INTELLIGENCE_SERVICE
-          );
-        }
-      } catch {
-        // Service not available, continue without it
-        this.logger.debug(
-          'PromptDesignerAgent: ProjectIntelligenceService not available'
-        );
-      }
-    }
-    return this._projectIntelligence;
-  }
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
    * Configure the agent
@@ -138,151 +71,121 @@ export class PromptDesignerAgent {
   }
 
   /**
-   * Generate project-specific guidance
+   * Build prompts and JSON Schema for the SDK structured output call.
    *
-   * @param input - Project analysis data
-   * @param onProgress - Optional callback for progress updates
-   * @returns Generated guidance or null if generation fails
+   * Quality data is expected to be pre-computed and passed via input.qualityAssessment
+   * and input.prescriptiveGuidance (populated by the agentic analysis in Step 1).
+   *
+   * @param input - Project analysis data (including pre-computed quality assessment)
+   * @param qualityContext - Optional pre-built quality context string
+   * @returns Object with systemPrompt, userPrompt, outputSchema, and quality data
    */
-  async generateGuidance(
+  async buildPrompts(
     input: PromptDesignerInput,
-    onProgress?: (progress: PromptGenerationProgress) => void
-  ): Promise<PromptDesignerOutput | null> {
-    this.logger.info('PromptDesignerAgent: Starting guidance generation', {
+    qualityContext?: string
+  ): Promise<{
+    systemPrompt: string;
+    userPrompt: string;
+    outputSchema: Record<string, unknown>;
+    qualityAssessment?: QualityAssessment;
+    prescriptiveGuidance?: PrescriptiveGuidance;
+  }> {
+    this.logger.info('PromptDesignerAgent: Building prompts', {
       projectType: input.projectType,
       framework: input.framework,
       isMonorepo: input.isMonorepo,
+      hasQualityData: !!input.qualityAssessment,
     });
 
-    onProgress?.({
-      status: 'analyzing',
-      message: 'Analyzing project structure...',
-      progress: 10,
-    });
-
-    // Fetch quality assessment if needed and available (TASK_2025_141)
-    let qualityAssessment: QualityAssessment | undefined =
+    // Quality data comes pre-computed from the agentic analysis (Step 1).
+    // No separate quality assessment pipeline needed.
+    const qualityAssessment: QualityAssessment | undefined =
       input.qualityAssessment;
-    let prescriptiveGuidance: PrescriptiveGuidance | undefined =
+    const prescriptiveGuidance: PrescriptiveGuidance | undefined =
       input.prescriptiveGuidance;
 
-    const projectIntelligenceService = this.getProjectIntelligenceService();
-    if (
-      input.includeQualityGuidance !== false &&
-      !qualityAssessment &&
-      projectIntelligenceService &&
-      input.workspacePath
-    ) {
-      try {
-        const vscodeApi = await import('vscode');
-        const result = await projectIntelligenceService.getIntelligence(
-          vscodeApi.Uri.file(input.workspacePath)
-        );
-        qualityAssessment = result.qualityAssessment;
-        prescriptiveGuidance = result.prescriptiveGuidance;
-        this.logger.debug(
-          'PromptDesignerAgent: Fetched quality assessment from ProjectIntelligenceService',
-          {
-            score: qualityAssessment.score,
-            antiPatternCount: qualityAssessment.antiPatterns.length,
-          }
-        );
-      } catch (error) {
-        this.logger.warn(
-          'PromptDesignerAgent: Failed to fetch quality assessment',
-          {
-            error: error instanceof Error ? error.message : String(error),
-          }
-        );
-        // Continue without quality context - graceful degradation
-      }
-    }
-
-    // Build quality context for prompt if assessment available
-    const qualityContext =
-      qualityAssessment && prescriptiveGuidance
+    // Build quality context for prompt if not provided and assessment available
+    const effectiveQualityContext =
+      qualityContext ??
+      (qualityAssessment && prescriptiveGuidance
         ? buildQualityContextPrompt(qualityAssessment, prescriptiveGuidance)
-        : undefined;
+        : undefined);
 
-    // Check if LLM service is available
-    if (!this.llmService.hasProvider()) {
-      this.logger.warn(
-        'PromptDesignerAgent: LLM service not available, using fallback'
-      );
-      return this.generateFallbackGuidance(input, qualityAssessment);
-    }
+    const systemPrompt = PROMPT_DESIGNER_SYSTEM_PROMPT;
+    const userPrompt = buildGenerationUserPrompt(
+      input,
+      effectiveQualityContext
+    );
 
-    onProgress?.({
-      status: 'generating',
-      message: 'Generating project-specific guidance...',
-      progress: 30,
-    });
+    // Build JSON Schema from the Zod schema for SDK outputFormat
+    const outputSchema = this.buildJsonSchema();
 
+    return {
+      systemPrompt,
+      userPrompt,
+      outputSchema,
+      qualityAssessment,
+      prescriptiveGuidance,
+    };
+  }
+
+  /**
+   * Parse and validate structured output from SDK into PromptDesignerOutput.
+   *
+   * Takes the raw structured_output from an SDK result message and:
+   * 1. Parses it via parseStructuredResponse
+   * 2. Enforces token budgets on each section
+   * 3. Validates output quality
+   *
+   * @param structuredOutput - Raw structured output from SDK
+   * @param onProgress - Optional progress callback
+   * @returns Parsed and validated PromptDesignerOutput, or null on failure
+   */
+  async parseAndValidateOutput(
+    structuredOutput: unknown,
+    onProgress?: (progress: PromptGenerationProgress) => void
+  ): Promise<PromptDesignerOutput | null> {
     try {
-      // Build the enhanced system prompt
-      const systemPrompt = this.buildEnhancedSystemPrompt(input.framework);
-
-      // Build the user prompt with project details and quality context
-      const userPrompt = buildGenerationUserPrompt(input, qualityContext);
-
-      // Try structured completion first
-      let output = await this.tryStructuredCompletion(
-        systemPrompt,
-        userPrompt,
-        onProgress
-      );
-
-      if (output) {
-        // Enhance output with quality data (TASK_2025_141)
-        if (qualityAssessment) {
-          output.qualityScore = qualityAssessment.score;
-          output.qualityAssessment = qualityAssessment;
-        }
-
-        // Validate output quality
-        const validation = validateOutput(output);
-        if (!validation.valid) {
-          this.logger.warn('PromptDesignerAgent: Output validation issues', {
-            issues: validation.issues,
-          });
-        }
-
-        onProgress?.({
-          status: 'complete',
-          message: 'Guidance generated successfully',
-          progress: 100,
-        });
-
-        return output;
-      }
-
-      // Fall back to text completion
-      output = await this.tryTextCompletion(
-        systemPrompt,
-        userPrompt,
-        onProgress
-      );
-
-      // Enhance fallback output with quality data (TASK_2025_141)
-      if (output && qualityAssessment) {
-        output.qualityScore = qualityAssessment.score;
-        output.qualityAssessment = qualityAssessment;
-      }
-
-      return output;
-    } catch (error) {
-      this.logger.error('PromptDesignerAgent: Generation failed', {
-        error: error instanceof Error ? error.message : String(error),
+      onProgress?.({
+        status: 'generating',
+        message: 'Parsing response...',
+        progress: 70,
       });
+
+      // Use a simple token estimator (4 chars per token)
+      const countTokens = async (text: string) => Math.ceil(text.length / 4);
+
+      const output = await parseStructuredResponse(
+        structuredOutput as PromptDesignerResponse,
+        countTokens
+      );
+
+      // Enforce token budgets
+      const budgeted = this.enforceTokenBudgets(output);
+
+      // Validate output quality
+      const validation = validateOutput(budgeted);
+      if (!validation.valid) {
+        this.logger.warn('PromptDesignerAgent: Output validation issues', {
+          issues: validation.issues,
+        });
+      }
 
       onProgress?.({
-        status: 'error',
-        message: 'Generation failed, using fallback',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        status: 'complete',
+        message: 'Guidance generated successfully',
+        progress: 100,
       });
 
-      // Return fallback guidance on error
-      return this.generateFallbackGuidance(input, qualityAssessment);
+      return budgeted;
+    } catch (error) {
+      this.logger.error(
+        'PromptDesignerAgent: Failed to parse structured output',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+      return null;
     }
   }
 
@@ -297,124 +200,9 @@ export class PromptDesignerAgent {
   }
 
   /**
-   * Build enhanced system prompt with framework-specific additions
-   */
-  private buildEnhancedSystemPrompt(framework?: string): string {
-    let prompt = PROMPT_DESIGNER_SYSTEM_PROMPT;
-
-    if (framework) {
-      const frameworkKey = framework.toLowerCase();
-      const addition = FRAMEWORK_PROMPT_ADDITIONS[frameworkKey];
-      if (addition) {
-        prompt += `\n\n## Framework-Specific Notes\n${addition}`;
-      }
-    }
-
-    return prompt;
-  }
-
-  /**
-   * Try structured completion with Zod schema
-   */
-  private async tryStructuredCompletion(
-    systemPrompt: string,
-    userPrompt: string,
-    onProgress?: (progress: PromptGenerationProgress) => void
-  ): Promise<PromptDesignerOutput | null> {
-    try {
-      // Create the full prompt
-      const fullPrompt = `${systemPrompt}\n\n---\n\n${userPrompt}`;
-
-      const result = await this.llmService.getStructuredCompletion(
-        fullPrompt,
-        PromptDesignerResponseSchema,
-        {
-          temperature: this.config.temperature,
-          maxTokens: this.config.maxTotalTokens * 2, // Allow headroom
-        }
-      );
-
-      if (result.isErr() || !result.value) {
-        this.logger.warn('PromptDesignerAgent: Structured completion failed', {
-          error: result.error?.message ?? 'Unknown error',
-        });
-        return null;
-      }
-
-      onProgress?.({
-        status: 'generating',
-        message: 'Parsing response...',
-        progress: 70,
-      });
-
-      // Parse the structured response
-      const countTokens = async (text: string) =>
-        this.llmService.countTokens(text);
-      const output = await parseStructuredResponse(result.value, countTokens);
-
-      // Truncate sections if needed
-      return this.enforceTokenBudgets(output);
-    } catch (error) {
-      this.logger.warn('PromptDesignerAgent: Structured completion error', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  /**
-   * Try text completion (fallback for models without structured output)
-   */
-  private async tryTextCompletion(
-    systemPrompt: string,
-    userPrompt: string,
-    onProgress?: (progress: PromptGenerationProgress) => void
-  ): Promise<PromptDesignerOutput | null> {
-    try {
-      const result = await this.llmService.getCompletion(
-        systemPrompt,
-        userPrompt
-      );
-
-      if (result.isErr() || !result.value) {
-        this.logger.warn('PromptDesignerAgent: Text completion failed', {
-          error: result.error?.message ?? 'Unknown error',
-        });
-        return null;
-      }
-
-      onProgress?.({
-        status: 'generating',
-        message: 'Parsing text response...',
-        progress: 70,
-      });
-
-      // Parse the text response
-      const countTokens = async (text: string) =>
-        this.llmService.countTokens(text);
-      const output = await parseTextResponse(result.value, countTokens);
-
-      if (!output) {
-        this.logger.warn('PromptDesignerAgent: Could not parse text response');
-        return null;
-      }
-
-      // Truncate sections if needed
-      return this.enforceTokenBudgets(output);
-    } catch (error) {
-      this.logger.warn('PromptDesignerAgent: Text completion error', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }
-  }
-
-  /**
    * Enforce token budgets on each section
    */
-  private enforceTokenBudgets(
-    output: PromptDesignerOutput
-  ): PromptDesignerOutput {
+  enforceTokenBudgets(output: PromptDesignerOutput): PromptDesignerOutput {
     const maxSection = this.config.maxSectionTokens;
 
     // Truncate sections that exceed budget
@@ -464,11 +252,13 @@ export class PromptDesignerAgent {
    *
    * @param input - Project analysis data
    * @param qualityAssessment - Optional quality assessment for quality guidance generation
-   * @returns Fallback guidance output
+   * @param fallbackReason - Reason for using fallback guidance
+   * @returns Fallback guidance output with usedFallback flag set
    */
-  private generateFallbackGuidance(
+  generateFallbackGuidance(
     input: PromptDesignerInput,
-    qualityAssessment?: QualityAssessment
+    qualityAssessment?: QualityAssessment,
+    fallbackReason?: string
   ): PromptDesignerOutput {
     const fallbackText = buildFallbackGuidance(input);
 
@@ -486,6 +276,8 @@ export class PromptDesignerAgent {
         fallbackText,
         'Architecture Notes'
       ),
+      usedFallback: true,
+      fallbackReason: fallbackReason ?? 'Fallback guidance generated',
       generatedAt: Date.now(),
       totalTokens: estimatedTokens,
       tokenBreakdown: {
@@ -496,7 +288,7 @@ export class PromptDesignerAgent {
       },
     };
 
-    // Generate quality guidance from assessment if score indicates issues (TASK_2025_141)
+    // Generate quality guidance from assessment if score indicates issues
     if (qualityAssessment && qualityAssessment.score < 70) {
       const topIssues = qualityAssessment.antiPatterns
         .slice(0, 3)
@@ -520,6 +312,51 @@ export class PromptDesignerAgent {
     }
 
     return output;
+  }
+
+  /**
+   * Build JSON Schema from PromptDesignerResponseSchema for SDK outputFormat.
+   *
+   * Converts the Zod schema to a JSON Schema object that the SDK can use
+   * to constrain the agent's output format.
+   */
+  private buildJsonSchema(): Record<string, unknown> {
+    return {
+      type: 'object',
+      properties: {
+        projectContext: {
+          type: 'string',
+          description:
+            'Brief description of what this project is and its key technologies (under 400 tokens)',
+        },
+        frameworkGuidelines: {
+          type: 'string',
+          description:
+            'Specific patterns and best practices for the detected frameworks (under 500 tokens)',
+        },
+        codingStandards: {
+          type: 'string',
+          description:
+            'SOLID principles, naming conventions, error handling derived from the project (under 400 tokens)',
+        },
+        architectureNotes: {
+          type: 'string',
+          description:
+            'Library boundaries, dependency rules, import patterns, key abstractions (under 400 tokens)',
+        },
+        qualityGuidance: {
+          type: 'string',
+          description:
+            'Quality-specific guidance based on detected code issues (under 300 tokens)',
+        },
+      },
+      required: [
+        'projectContext',
+        'frameworkGuidelines',
+        'codingStandards',
+        'architectureNotes',
+      ],
+    };
   }
 
   /**

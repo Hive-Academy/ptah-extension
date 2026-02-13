@@ -25,6 +25,8 @@ export interface ContentGenerationSdkConfig {
   model?: string;
   /** Callback for real-time stream events (text, tool calls, thinking) */
   onStreamEvent?: (event: GenerationStreamPayload) => void;
+  /** Enhanced prompt content to include in the generation system prompt */
+  enhancedPromptContent?: string;
 }
 
 /**

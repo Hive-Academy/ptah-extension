@@ -8,6 +8,7 @@ import {
 import {
   SetupWizardStateService,
   AgentRecommendation,
+  SkillGenerationProgressItem,
 } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { AgentCategory } from '@ptah-extension/shared';
@@ -575,11 +576,36 @@ export class AgentSelectionComponent {
     );
 
     if (result) {
-      // Transition to enhanced prompts step before generation.
-      // The backend generation runs in the background while enhanced prompts
-      // execute. When the user completes the enhance step, they proceed to
-      // the generation step to see progress.
-      this.wizardState.setCurrentStep('enhance');
+      // Initialize generation progress items from selected agents.
+      // This MUST happen before transitioning so handleGenerationProgress()
+      // can update per-item status (it silently ignores updates when items.length === 0).
+      const selectedAgentIds = Object.entries(
+        this.wizardState.selectedAgentsMap()
+      )
+        .filter(([_, isSelected]) => isSelected)
+        .map(([agentId]) => agentId);
+
+      const progressItems: SkillGenerationProgressItem[] = selectedAgentIds.map(
+        (agentId) => {
+          const recommendation = this.sortedRecommendations().find(
+            (r) => r.agentId === agentId
+          );
+          return {
+            id: agentId,
+            name: recommendation?.agentName ?? agentId,
+            type: 'agent' as const,
+            status: 'pending' as const,
+            progress: 0,
+          };
+        }
+      );
+
+      this.wizardState.setSkillGenerationProgress(progressItems);
+
+      // Transition to generation step. Backend generation runs and the user
+      // sees real-time progress. After generation completes, they proceed
+      // to the enhance step for Enhanced Prompts.
+      this.wizardState.setCurrentStep('generation');
     }
 
     // Always reset loading state

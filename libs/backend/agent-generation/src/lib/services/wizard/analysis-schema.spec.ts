@@ -165,17 +165,20 @@ describe('ProjectAnalysisZodSchema', () => {
     }
   });
 
-  it('should reject invalid codeConventions values', () => {
+  it('should recover from invalid codeConventions values using .catch() defaults', () => {
     const result = ProjectAnalysisZodSchema.safeParse({
       projectType: 'node',
       codeConventions: {
-        indentation: 'mixed', // invalid
+        indentation: 'mixed', // invalid — should fall back to 'spaces'
         indentSize: 2,
         quoteStyle: 'single',
         semicolons: true,
       },
     });
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.codeConventions.indentation).toBe('spaces');
+    }
   });
 });
 
@@ -309,20 +312,27 @@ describe('normalizeAgentOutput', () => {
       expect(result.frameworks).toEqual(['nestjs']);
     });
 
-    it('should filter out unrecognized framework "Unknown"', () => {
+    it('should preserve unrecognized frameworks as strings', () => {
       const result = parseAndNormalize(
         buildMinimalInput({ frameworks: ['Unknown'] })
       );
-      expect(result.frameworks).toEqual([]);
+      expect(result.frameworks).toEqual(['Unknown']);
     });
 
-    it('should log a warning when frameworks are filtered out', () => {
-      parseAndNormalize(
-        buildMinimalInput({ frameworks: ['Angular', 'UnknownFramework'] })
-      );
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('UnknownFramework')
-      );
+    it('should log discovered dynamic frameworks', () => {
+      const consoleLogSpy = jest
+        .spyOn(console, 'log')
+        .mockImplementation(() => {});
+      try {
+        parseAndNormalize(
+          buildMinimalInput({ frameworks: ['Angular', 'UnknownFramework'] })
+        );
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+          expect.stringContaining('UnknownFramework')
+        );
+      } finally {
+        consoleLogSpy.mockRestore();
+      }
     });
 
     it('should resolve multiple mixed-case frameworks', () => {
@@ -382,6 +392,76 @@ describe('normalizeAgentOutput', () => {
         buildMinimalInput({ monorepoType: 'SomeUnknownMonorepo' })
       );
       expect(result.monorepoType).toBeUndefined();
+    });
+
+    it('should handle monorepoType: false (LLM returns boolean instead of null)', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ monorepoType: false })
+      );
+      expect(result.monorepoType).toBeUndefined();
+    });
+
+    it('should handle monorepoType: true (LLM returns boolean instead of string)', () => {
+      // true is converted to "unknown" which doesn't match any MonorepoType enum
+      const zodResult = ProjectAnalysisZodSchema.safeParse(
+        buildMinimalInput({ monorepoType: true })
+      );
+      expect(zodResult.success).toBe(true);
+    });
+
+    it('should handle monorepoType: "none" as null', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({ monorepoType: 'none' })
+      );
+      expect(result.monorepoType).toBeUndefined();
+    });
+
+    it('should handle monorepoType: "" (empty string) as null', () => {
+      const result = parseAndNormalize(buildMinimalInput({ monorepoType: '' }));
+      expect(result.monorepoType).toBeUndefined();
+    });
+  });
+
+  // ========================================================================
+  // Language Distribution Resilience
+  // ========================================================================
+
+  describe('languageDistribution resilience', () => {
+    it('should clamp percentages > 100 to 100', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({
+          languageDistribution: [
+            { language: 'TypeScript', percentage: 250, fileCount: 250 },
+            { language: 'CSS', percentage: 50, fileCount: 50 },
+          ],
+        })
+      );
+      expect(result.languageDistribution[0].percentage).toBe(100);
+      expect(result.languageDistribution[1].percentage).toBe(50);
+    });
+
+    it('should clamp negative percentages to 0', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({
+          languageDistribution: [
+            { language: 'TypeScript', percentage: -10, fileCount: 0 },
+          ],
+        })
+      );
+      expect(result.languageDistribution[0].percentage).toBe(0);
+    });
+
+    it('should handle object-format language distribution from LLM', () => {
+      const result = parseAndNormalize(
+        buildMinimalInput({
+          languageDistribution: { TypeScript: 80, CSS: 20 },
+        })
+      );
+      expect(result.languageDistribution).toHaveLength(2);
+      expect(
+        result.languageDistribution.find((l) => l.language === 'TypeScript')
+          ?.percentage
+      ).toBe(80);
     });
   });
 
@@ -492,10 +572,10 @@ describe('normalizeAgentOutput', () => {
       expect(result.projectType).toBe('angular');
       expect(result.monorepoType).toBe('nx');
 
-      // NestJS and Angular resolved, TailwindCSS filtered out
+      // NestJS and Angular resolved to enum values, TailwindCSS preserved as dynamic string
       expect(result.frameworks).toContain('nestjs');
       expect(result.frameworks).toContain('angular');
-      expect(result.frameworks).not.toContain('TailwindCSS');
+      expect(result.frameworks).toContain('TailwindCSS');
 
       // Data preserved
       expect(result.architecturePatterns).toHaveLength(1);

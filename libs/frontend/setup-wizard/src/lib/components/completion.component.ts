@@ -22,7 +22,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
  *
  * Purpose:
  * - Celebrate successful agent generation
- * - Display generated files organized by category
+ * - Display generated agent files
  * - Show quick start guide with example commands
  * - Include /orchestrate example usage
  * - Add "Open Files" button to reveal .claude folder
@@ -30,9 +30,8 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
  *
  * Features:
  * - Hero success layout with checkmark icon
- * - Generated files organized by category (Agents, Commands, Skill Files)
+ * - Generated agent files list
  * - Quick start guide with code blocks
- * - Example orchestration commands
  * - Action buttons (Open .claude Folder, Test Orchestration, Start New Chat)
  * - Signal-based reactive statistics
  *
@@ -61,9 +60,8 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
           </div>
           <h1 class="text-xl font-bold mb-3">Setup Complete!</h1>
           <p class="text-sm text-base-content/70 max-w-2xl mx-auto">
-            Your personalized agents and orchestration skill have been
-            generated. You're ready to start using intelligent development
-            workflows.
+            Your personalized agents have been generated. You're ready to start
+            using intelligent development workflows.
           </p>
         </div>
 
@@ -73,16 +71,6 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
             <div class="stat-title">Agents Generated</div>
             <div class="stat-value text-primary">{{ agentCount() }}</div>
             <div class="stat-desc">.claude/agents/</div>
-          </div>
-          <div class="stat place-items-center">
-            <div class="stat-title">Commands Created</div>
-            <div class="stat-value text-secondary">{{ commandCount() }}</div>
-            <div class="stat-desc">.claude/commands/</div>
-          </div>
-          <div class="stat place-items-center">
-            <div class="stat-title">Skill Files</div>
-            <div class="stat-value text-accent">{{ skillFileCount() }}</div>
-            <div class="stat-desc">.claude/skills/orchestration/</div>
           </div>
           <div class="stat place-items-center">
             <div class="stat-title">Enhanced Prompts</div>
@@ -115,85 +103,30 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                 Generated Files
               </h2>
 
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <!-- Agents Column -->
-                @if (agentFiles().length > 0) {
-                <div>
-                  <h3
-                    class="font-semibold text-primary mb-2 flex items-center gap-2"
-                  >
-                    <span>🤖</span> Agents
-                  </h3>
-                  <ul class="space-y-1 text-sm">
-                    @for (file of agentFiles(); track file.id) {
-                    <li class="flex items-center gap-2">
-                      <lucide-angular
-                        [img]="CheckIcon"
-                        class="h-4 w-4 text-success"
-                      />
-                      <span
-                        class="font-mono text-xs truncate"
-                        [title]="file.name"
-                        >{{ file.name }}</span
-                      >
-                    </li>
-                    }
-                  </ul>
-                </div>
-                }
-
-                <!-- Commands Column -->
-                @if (commandFiles().length > 0) {
-                <div>
-                  <h3
-                    class="font-semibold text-secondary mb-2 flex items-center gap-2"
-                  >
-                    <span>⌨️</span> Commands
-                  </h3>
-                  <ul class="space-y-1 text-sm">
-                    @for (file of commandFiles(); track file.id) {
-                    <li class="flex items-center gap-2">
-                      <lucide-angular
-                        [img]="CheckIcon"
-                        class="h-4 w-4 text-success"
-                      />
-                      <span
-                        class="font-mono text-xs truncate"
-                        [title]="file.name"
-                        >{{ file.name }}</span
-                      >
-                    </li>
-                    }
-                  </ul>
-                </div>
-                }
-
-                <!-- Skill Files Column -->
-                @if (skillFiles().length > 0) {
-                <div>
-                  <h3
-                    class="font-semibold text-accent mb-2 flex items-center gap-2"
-                  >
-                    <span>📝</span> Skill Files
-                  </h3>
-                  <ul class="space-y-1 text-sm">
-                    @for (file of skillFiles(); track file.id) {
-                    <li class="flex items-center gap-2">
-                      <lucide-angular
-                        [img]="CheckIcon"
-                        class="h-4 w-4 text-success"
-                      />
-                      <span
-                        class="font-mono text-xs truncate"
-                        [title]="file.name"
-                        >{{ file.name }}</span
-                      >
-                    </li>
-                    }
-                  </ul>
-                </div>
-                }
+              @if (agentFiles().length > 0) {
+              <div>
+                <h3
+                  class="font-semibold text-primary mb-2 flex items-center gap-2"
+                >
+                  <span>🤖</span> Agents
+                </h3>
+                <ul class="space-y-1 text-sm">
+                  @for (file of agentFiles(); track file.id) {
+                  <li class="flex items-center gap-2">
+                    <lucide-angular
+                      [img]="CheckIcon"
+                      class="h-4 w-4 text-success"
+                    />
+                    <span
+                      class="font-mono text-xs truncate"
+                      [title]="file.name"
+                      >{{ file.name }}</span
+                    >
+                  </li>
+                  }
+                </ul>
               </div>
+              }
             </div>
           </div>
 
@@ -339,13 +272,6 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                   >)
                 </li>
                 <li>
-                  Check
-                  <code class="bg-base-300 px-1 py-0.5 rounded"
-                    >.claude/skills/orchestration/SKILL.md</code
-                  >
-                  for the complete workflow reference
-                </li>
-                <li>
                   Task progress is saved in
                   <code class="bg-base-300 px-1 py-0.5 rounded"
                     >task-tracking/</code
@@ -443,38 +369,10 @@ export class CompletionComponent {
   });
 
   /**
-   * Command files that were generated.
-   */
-  protected readonly commandFiles = computed(() => {
-    return this.completedItems().filter((item) => item.type === 'command');
-  });
-
-  /**
-   * Skill files that were generated.
-   */
-  protected readonly skillFiles = computed(() => {
-    return this.completedItems().filter((item) => item.type === 'skill-file');
-  });
-
-  /**
    * Count of generated agents.
    */
   protected readonly agentCount = computed(() => {
     return this.agentFiles().length;
-  });
-
-  /**
-   * Count of generated commands.
-   */
-  protected readonly commandCount = computed(() => {
-    return this.commandFiles().length;
-  });
-
-  /**
-   * Count of generated skill files.
-   */
-  protected readonly skillFileCount = computed(() => {
-    return this.skillFiles().length;
   });
 
   /**

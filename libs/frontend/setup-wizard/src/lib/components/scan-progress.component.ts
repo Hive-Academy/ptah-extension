@@ -511,15 +511,34 @@ export class ScanProgressComponent implements OnInit {
         this.wizardState.setDeepAnalysis(analysis);
       }
 
-      const cachedRecommendations = this.wizardState.recommendations();
-      if (cachedRecommendations.length > 0) {
+      let recommendations = this.wizardState.recommendations();
+      if (recommendations.length > 0) {
         // Use cached recommendations (skip re-fetch)
       } else {
         this.statusText.set('Calculating agent recommendations...');
-        const recommendations = await this.wizardRpc.recommendAgents(analysis);
+        recommendations = await this.wizardRpc.recommendAgents(analysis);
         if (this.isDestroyed) return; // Component was destroyed during async call
         this.wizardState.setRecommendations(recommendations);
       }
+
+      // Auto-save analysis for future reuse (non-blocking)
+      const analysisMethod = this.wizardState.fallbackWarning()
+        ? 'fallback'
+        : 'agentic';
+      try {
+        await this.wizardRpc.saveAnalysis(
+          analysis,
+          recommendations,
+          analysisMethod as 'agentic' | 'fallback'
+        );
+      } catch (saveError) {
+        // Non-blocking: log warning but don't fail the wizard flow
+        console.warn(
+          '[ScanProgressComponent] Failed to auto-save analysis:',
+          saveError
+        );
+      }
+
       this.wizardState.setCurrentStep('analysis');
     } catch (error) {
       if (this.isDestroyed) return;

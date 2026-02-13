@@ -21,6 +21,7 @@ import {
   LicenseService,
   type LicenseStatus,
   type WebviewManager,
+  ConfigManager,
 } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -34,7 +35,13 @@ import {
   ProjectAnalysisZodSchema,
   normalizeAgentOutput,
   AgentRecommendationService,
+  AnalysisStorageService,
 } from '@ptah-extension/agent-generation';
+import type {
+  ProjectAnalysisResult,
+  SavedAnalysisFile,
+  SavedAnalysisMetadata,
+} from '@ptah-extension/shared';
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -102,6 +109,9 @@ export class SetupRpcHandlers {
     this.registerDeepAnalyze();
     this.registerRecommendAgents();
     this.registerCancelAnalysis();
+    this.registerSaveAnalysis();
+    this.registerListAnalyses();
+    this.registerLoadAnalysis();
 
     this.logger.debug('Setup RPC handlers registered', {
       methods: [
@@ -110,6 +120,9 @@ export class SetupRpcHandlers {
         'wizard:deep-analyze',
         'wizard:recommend-agents',
         'wizard:cancel-analysis',
+        'wizard:save-analysis',
+        'wizard:list-analyses',
+        'wizard:load-analysis',
       ],
     });
   }
@@ -219,9 +232,9 @@ export class SetupRpcHandlers {
    * - Any unexpected error occurs
    */
   private registerDeepAnalyze(): void {
-    this.rpcHandler.registerMethod<void, DeepProjectAnalysis>(
+    this.rpcHandler.registerMethod<{ model?: string }, DeepProjectAnalysis>(
       'wizard:deep-analyze',
-      async () => {
+      async (params) => {
         this.logger.debug('RPC: wizard:deep-analyze called');
 
         // Get workspace folder
@@ -265,11 +278,13 @@ export class SetupRpcHandlers {
           );
         }
 
-        // Resolve current model from config (same pattern as chat:start)
-        const currentModel = this.configManager.getWithDefault<string>(
-          'model.selected',
-          'claude-sonnet-4-5-20250929'
-        );
+        // Resolve current model: prefer frontend selection, fall back to config
+        const currentModel =
+          params?.model ||
+          this.configManager.getWithDefault<string>(
+            'model.selected',
+            'claude-sonnet-4-5-20250929'
+          );
 
         // Try agentic analysis first
         try {
@@ -310,7 +325,39 @@ export class SetupRpcHandlers {
               patternCount:
                 agenticResult.value.architecturePatterns?.length || 0,
             });
-            return agenticResult.value;
+
+            // Map quality fields from DeepProjectAnalysis to ProjectAnalysisResult
+            // format so the frontend (which types this as ProjectAnalysisResult)
+            // sees the correct field names.
+            const result = agenticResult.value as DeepProjectAnalysis &
+              Record<string, unknown>;
+
+            if (result.qualityScore !== undefined) {
+              result['qualityIssues'] = (result.qualityGaps ?? []).map(
+                (gap) => ({
+                  area: gap.area,
+                  severity: gap.priority,
+                  description: gap.description,
+                  recommendation: gap.recommendation,
+                })
+              );
+            }
+
+            if (result.qualityAssessment?.strengths) {
+              result['qualityStrengths'] = result.qualityAssessment.strengths;
+            }
+
+            if (result.prescriptiveGuidance?.recommendations) {
+              result['qualityRecommendations'] =
+                result.prescriptiveGuidance.recommendations.map((r) => ({
+                  priority: r.priority,
+                  category: r.category,
+                  issue: r.issue,
+                  solution: r.solution,
+                }));
+            }
+
+            return result as DeepProjectAnalysis;
           }
 
           this.logger.warn(
@@ -334,6 +381,30 @@ export class SetupRpcHandlers {
           );
         } catch {
           /* ignore - broadcasts will be skipped if unavailable */
+        }
+
+        // Notify user about fallback via VS Code warning notification
+        vscode.window.showWarningMessage(
+          'AI-powered analysis unavailable. Using quick analysis mode \u2014 results may be less detailed.'
+        );
+
+        // Broadcast fallback warning to webview (best-effort)
+        if (webviewManager) {
+          try {
+            (
+              webviewManager as unknown as {
+                broadcastMessage(type: string, payload: unknown): Promise<void>;
+              }
+            ).broadcastMessage('setup-wizard:error', {
+              type: 'fallback-warning',
+              message:
+                'AI-powered analysis unavailable. Using quick analysis mode \u2014 results may be less detailed.',
+              details:
+                'The agentic analysis service was unavailable. Falling back to quick project analysis.',
+            });
+          } catch {
+            /* best-effort broadcast */
+          }
         }
 
         // Broadcast fallback transition to frontend (best-effort)
@@ -538,6 +609,96 @@ export class SetupRpcHandlers {
           // Return success anyway -- the analysis may have already completed
           return { cancelled: false };
         }
+      }
+    );
+  }
+
+  // ============================================================
+  // Analysis History Handlers (Persistent Analysis)
+  // ============================================================
+
+  /**
+   * wizard:save-analysis - Save analysis results to .claude/analysis/
+   */
+  private registerSaveAnalysis(): void {
+    this.rpcHandler.registerMethod<
+      {
+        analysis: ProjectAnalysisResult;
+        recommendations: AgentRecommendation[];
+        method: 'agentic' | 'fallback';
+      },
+      { success: boolean; filename: string }
+    >('wizard:save-analysis', async (params) => {
+      this.logger.debug('RPC: wizard:save-analysis called');
+
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        throw new Error('No workspace folder open.');
+      }
+
+      const storageService = this.resolveService<AnalysisStorageService>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        'AnalysisStorageService'
+      );
+
+      const filename = await storageService.save(
+        workspaceFolder.uri.fsPath,
+        params.analysis,
+        params.recommendations,
+        params.method
+      );
+
+      return { success: true, filename };
+    });
+  }
+
+  /**
+   * wizard:list-analyses - List saved analyses from .claude/analysis/
+   */
+  private registerListAnalyses(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      { analyses: SavedAnalysisMetadata[] }
+    >('wizard:list-analyses', async () => {
+      this.logger.debug('RPC: wizard:list-analyses called');
+
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        return { analyses: [] };
+      }
+
+      const storageService = this.resolveService<AnalysisStorageService>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        'AnalysisStorageService'
+      );
+
+      const analyses = await storageService.list(workspaceFolder.uri.fsPath);
+      return { analyses };
+    });
+  }
+
+  /**
+   * wizard:load-analysis - Load a specific saved analysis
+   */
+  private registerLoadAnalysis(): void {
+    this.rpcHandler.registerMethod<{ filename: string }, SavedAnalysisFile>(
+      'wizard:load-analysis',
+      async (params) => {
+        this.logger.debug('RPC: wizard:load-analysis called', {
+          filename: params.filename,
+        });
+
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+          throw new Error('No workspace folder open.');
+        }
+
+        const storageService = this.resolveService<AnalysisStorageService>(
+          AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+          'AnalysisStorageService'
+        );
+
+        return storageService.load(workspaceFolder.uri.fsPath, params.filename);
       }
     );
   }

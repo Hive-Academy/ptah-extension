@@ -18,9 +18,13 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import * as path from 'path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import type { GenerationStreamPayload } from '@ptah-extension/shared';
+import type {
+  GenerationStreamPayload,
+  ProjectAnalysisResult,
+} from '@ptah-extension/shared';
 import type * as vscode from 'vscode';
 import {
   ProjectType,
@@ -33,9 +37,11 @@ import {
 import { IAgentSelectionService } from '../interfaces/agent-selection.interface';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
 import { IContentGenerationService } from '../interfaces/content-generation.interface';
+import { resolveProjectType } from './wizard/analysis-schema';
 import { IAgentFileWriterService } from '../interfaces/agent-file-writer.interface';
 import {
   AgentProjectContext,
+  AgentTemplate,
   GeneratedAgent,
   GenerationSummary,
 } from '../types/core.types';
@@ -75,11 +81,11 @@ export interface OrchestratorGenerationOptions {
   enhancedPromptContent?: string;
 
   /**
-   * Pre-computed project context from the wizard analysis (Step 1).
-   * When provided, Phase 1 (workspace analysis) is skipped entirely
-   * and this context is used as the single source of truth.
+   * Pre-computed full analysis from the wizard deep analysis (Step 1).
+   * When provided, Phase 1 builds AgentProjectContext from this data
+   * instead of running independent workspace analysis.
    */
-  preComputedContext?: AgentProjectContext;
+  preComputedAnalysis?: ProjectAnalysisResult;
 
   /**
    * Whether user has premium features (enables MCP server + enhanced prompts in SDK calls).
@@ -95,6 +101,12 @@ export interface OrchestratorGenerationOptions {
    * Port the Ptah MCP server is listening on.
    */
   mcpPort?: number;
+
+  /**
+   * Model to use for content generation.
+   * When provided, overrides the default `model.selected` config.
+   */
+  model?: string;
 
   /**
    * Callback for real-time stream events during content generation.
@@ -223,15 +235,59 @@ export class AgentGenerationOrchestratorService {
       // Phase 1: Workspace Analysis (0% → 20%)
       let projectContext: AgentProjectContext;
 
-      if (options.preComputedContext) {
-        // Use pre-computed context from wizard analysis — skip independent analysis
-        projectContext = options.preComputedContext;
+      if (options.preComputedAnalysis) {
+        // Build AgentProjectContext from full wizard analysis data
+        const analysis = options.preComputedAnalysis;
+        const languages = analysis.languageDistribution?.length
+          ? analysis.languageDistribution
+              .sort((a, b) => b.percentage - a.percentage)
+              .map((l) => l.language)
+          : analysis.languages;
+
+        // Use workspace-intelligence for build tools and package manager detection
+        let projectInfo: ProjectInfo | null = null;
+        try {
+          projectInfo = await this.workspaceAnalyzer.getProjectInfo();
+        } catch {
+          this.logger.debug(
+            'Could not get projectInfo for pre-computed context'
+          );
+        }
+
+        projectContext = {
+          rootPath: options.workspaceUri.fsPath,
+          projectType: resolveProjectType(analysis.projectType),
+          frameworks: analysis.frameworks ?? [],
+          monorepoType: undefined,
+          relevantFiles: [],
+          techStack: {
+            languages,
+            frameworks: analysis.frameworks ?? [],
+            buildTools: projectInfo ? this.detectBuildTools(projectInfo) : [],
+            testingFrameworks: projectInfo
+              ? this.detectTestingFrameworks(projectInfo.devDependencies)
+              : [],
+            packageManager: this.detectPackageManager(
+              options.workspaceUri.fsPath
+            ),
+          },
+          codeConventions: analysis.codeConventions ?? {
+            indentation: 'spaces' as const,
+            indentSize: 2,
+            quoteStyle: 'single' as const,
+            semicolons: true,
+            trailingComma: 'es5' as const,
+          },
+          fullAnalysis: analysis,
+        };
+
         this.logger.info(
-          'Phase 1: Using pre-computed context from wizard analysis',
+          'Phase 1: Using pre-computed wizard analysis with full data',
           {
-            projectType: projectContext.projectType,
-            frameworkCount: projectContext.frameworks.length,
-            relevantFileCount: projectContext.relevantFiles.length,
+            projectType: analysis.projectType,
+            frameworkCount: (analysis.frameworks ?? []).length,
+            hasArchPatterns: (analysis.architecturePatterns ?? []).length > 0,
+            hasTestCoverage: !!analysis.testCoverage,
           }
         );
         progressCallback?.({
@@ -239,10 +295,12 @@ export class AgentGenerationOrchestratorService {
           percentComplete: 20,
           currentOperation: 'Using wizard analysis results',
           detectedCharacteristics: [
-            `Project Type: ${projectContext.projectType}`,
-            `Frameworks: ${projectContext.frameworks.join(', ') || 'None'}`,
-            projectContext.monorepoType
-              ? `Monorepo: ${projectContext.monorepoType}`
+            `Project: ${
+              analysis.projectTypeDescription || analysis.projectType
+            }`,
+            `Frameworks: ${(analysis.frameworks ?? []).join(', ') || 'None'}`,
+            analysis.monorepoType
+              ? `Monorepo: ${analysis.monorepoType}`
               : 'Single package',
           ],
         });
@@ -331,22 +389,41 @@ export class AgentGenerationOrchestratorService {
       const renderedAgents = renderedResult.value!;
       this.logger.info(`Rendered ${renderedAgents.length} agents`);
 
-      // Phase 4: Atomic File Writing (95% → 100%)
+      // Phase 4: Per-agent file writing with progress (95% → 100%)
       this.logger.info('Phase 4: Writing agent files');
-      progressCallback?.({
-        phase: 'writing',
-        percentComplete: 97,
-        currentOperation: 'Writing agents to .claude directory',
-      });
+      let writeFailures = 0;
 
-      const writeResult = await this.fileWriter.writeAgentsBatch(
-        renderedAgents
-      );
+      for (let i = 0; i < renderedAgents.length; i++) {
+        const agent = renderedAgents[i];
 
-      if (writeResult.isErr()) {
-        this.logger.error('File writing failed', writeResult.error!);
-        // Rollback is handled by AgentFileWriterService
-        return Result.err(writeResult.error!);
+        // Signal which agent file is being written — use sourceTemplateId
+        // to match the frontend's item.id for per-agent progress tracking.
+        progressCallback?.({
+          phase: 'writing',
+          percentComplete:
+            95 + Math.floor(((i + 1) / renderedAgents.length) * 5),
+          currentOperation: agent.sourceTemplateId,
+          agentsProcessed: i + 1,
+          totalAgents: renderedAgents.length,
+        });
+
+        const writeResult = await this.fileWriter.writeAgent(agent);
+        if (writeResult.isErr()) {
+          this.logger.error(
+            `Failed to write agent ${agent.sourceTemplateId}`,
+            writeResult.error!
+          );
+          warnings.push(
+            `Failed to write ${agent.sourceTemplateId}: ${
+              writeResult.error!.message
+            }`
+          );
+          writeFailures++;
+        }
+      }
+
+      if (writeFailures === renderedAgents.length) {
+        return Result.err(new Error('All agent file writes failed'));
       }
 
       // Success
@@ -359,8 +436,8 @@ export class AgentGenerationOrchestratorService {
 
       const summary: GenerationSummary = {
         totalAgents: renderedAgents.length,
-        successful: renderedAgents.length,
-        failed: 0,
+        successful: renderedAgents.length - writeFailures,
+        failed: writeFailures,
         durationMs,
         warnings,
         agents: renderedAgents,
@@ -627,11 +704,24 @@ export class AgentGenerationOrchestratorService {
         mcpServerRunning: options.mcpServerRunning ?? false,
         mcpPort: options.mcpPort,
         onStreamEvent: options.onStreamEvent,
+        enhancedPromptContent: options.enhancedPromptContent,
+        model: options.model,
       };
 
       for (let i = 0; i < agentIds.length; i++) {
         const agentId = agentIds[i];
         this.logger.debug(`Rendering agent: ${agentId}`);
+
+        // Signal "starting" for this agent — frontend uses currentOperation
+        // to match against item.id for per-agent progress tracking.
+        // MUST be the raw agentId (e.g., "backend-developer") to match frontend items.
+        progressCallback?.({
+          phase: 'rendering',
+          percentComplete: 30 + Math.floor((i / agentIds.length) * 65),
+          currentOperation: agentId,
+          agentsProcessed: i,
+          totalAgents: agentIds.length,
+        });
 
         // Load template
         const templateResult = await this.templateStorage.loadTemplate(agentId);
@@ -653,15 +743,32 @@ export class AgentGenerationOrchestratorService {
         );
 
         if (contentResult.isOk()) {
-          // Construct GeneratedAgent object manually
+          // Strip any template output frontmatter from the generated content
+          // and replace with properly constructed frontmatter from actual data.
+          // This ensures correctness regardless of template processing or LLM behavior.
+          const rawContent = contentResult.value!;
+          const finalContent = this.buildAgentFileContent(
+            rawContent,
+            template,
+            context
+          );
+
+          // Construct GeneratedAgent object with absolute workspace path.
+          // Using context.rootPath (workspace URI) ensures files are written
+          // to the user's workspace, NOT process.cwd() (VS Code install dir).
           const generatedAgent: GeneratedAgent = {
             sourceTemplateId: template.id,
             sourceTemplateVersion: template.version,
-            content: contentResult.value!,
+            content: finalContent,
             variables: this.buildVariables(context, options.variableOverrides),
             customizations: [],
             generatedAt: new Date(),
-            filePath: `.claude/agents/${template.id}.md`,
+            filePath: path.join(
+              context.rootPath,
+              '.claude',
+              'agents',
+              `${template.id}.md`
+            ),
           };
 
           rendered.push(generatedAgent);
@@ -677,17 +784,6 @@ export class AgentGenerationOrchestratorService {
             }`
           );
         }
-
-        // Progress update
-        const percentComplete =
-          30 + Math.floor(((i + 1) / agentIds.length) * 65);
-        progressCallback?.({
-          phase: 'rendering',
-          percentComplete,
-          currentOperation: `Rendered ${agentId}`,
-          agentsProcessed: i + 1,
-          totalAgents: agentIds.length,
-        });
       }
 
       if (rendered.length === 0) {
@@ -700,6 +796,50 @@ export class AgentGenerationOrchestratorService {
         new Error(`Agent rendering failed: ${(error as Error).message}`)
       );
     }
+  }
+
+  /**
+   * Build final agent file content with proper frontmatter.
+   *
+   * Strips any template output frontmatter (the second `---` block that comes
+   * from the template content) and prepends a correctly constructed frontmatter
+   * from actual template metadata + analysis context.
+   *
+   * This ensures generated agent files always have correct, predictable frontmatter
+   * regardless of how template processing or LLM content generation handled it.
+   *
+   * @param rawContent - Content from ContentGenerationService
+   * @param template - Source template with metadata
+   * @param context - Project analysis context
+   * @returns Content with proper frontmatter prepended
+   */
+  private buildAgentFileContent(
+    rawContent: string,
+    template: AgentTemplate,
+    context: AgentProjectContext
+  ): string {
+    // Strip leading template output frontmatter if present.
+    // The template content starts with \n---\n...---\n (the second YAML block
+    // from the dual-block template format). Remove it so we can replace with
+    // a programmatically constructed version.
+    const strippedContent = rawContent.replace(
+      /^\s*---\s*\n[\s\S]*?\n---\s*\n/,
+      ''
+    );
+
+    // Build frontmatter with only the fields Claude Code recognizes
+    const frameworkName =
+      context.frameworks[0]?.toString() || context.projectType.toString();
+
+    const frontmatter = [
+      '---',
+      `name: ${template.name}`,
+      `description: ${template.name} focused on ${context.projectType} with ${frameworkName}`,
+      '---',
+      '',
+    ].join('\n');
+
+    return frontmatter + strippedContent.trimStart();
   }
 
   /**

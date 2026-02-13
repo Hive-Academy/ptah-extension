@@ -84,12 +84,6 @@ export const AGENT_RECOMMENDATION_SERVICE = Symbol.for(
   'AgentRecommendationService'
 );
 
-/**
- * SkillGeneratorService - Orchestration skill generation
- * Responsibilities: Generate SKILL.md and reference files, handle template variable substitution, project customization
- */
-export const SKILL_GENERATOR_SERVICE = Symbol.for('SkillGeneratorService');
-
 // ========================================
 // Content Generation Services
 // ========================================
@@ -190,6 +184,12 @@ export const WIZARD_CONTEXT_MAPPER = Symbol.for('WizardContextMapperService');
  */
 export const AGENTIC_ANALYSIS_SERVICE = Symbol.for('AgenticAnalysisService');
 
+/**
+ * AnalysisStorageService - Persistent analysis file I/O
+ * Responsibilities: Save, list, load, delete analysis results from .claude/analysis/
+ */
+export const ANALYSIS_STORAGE_SERVICE = Symbol.for('AnalysisStorageService');
+
 // ========================================
 // Token Registry (Type-Safe Access)
 // ========================================
@@ -211,9 +211,6 @@ export const AGENT_GENERATION_TOKENS = {
   // Agent Selection
   AGENT_SELECTION_SERVICE,
   AGENT_RECOMMENDATION_SERVICE,
-
-  // Skill Generation
-  SKILL_GENERATOR_SERVICE,
 
   // Content Generation
   CONTENT_GENERATION_SERVICE,
@@ -237,6 +234,9 @@ export const AGENT_GENERATION_TOKENS = {
 
   // Agentic Analysis
   AGENTIC_ANALYSIS_SERVICE,
+
+  // Analysis Storage
+  ANALYSIS_STORAGE_SERVICE,
 } as const;
 
 /**

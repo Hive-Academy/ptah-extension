@@ -39,7 +39,6 @@ export {
   PROMPT_DESIGNER_SYSTEM_PROMPT,
   buildGenerationUserPrompt,
   buildFallbackGuidance,
-  FRAMEWORK_PROMPT_ADDITIONS,
 } from './generation-prompts';
 
 // Response parsing (for testing)

@@ -10,6 +10,7 @@
  * but may require additional dependencies to be fully functional.
  */
 
+import { join } from 'path';
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
@@ -19,6 +20,7 @@ import { SetupStatusService } from '../services/setup-status.service';
 import { SetupWizardService } from '../services/setup-wizard.service';
 import { AgentGenerationOrchestratorService } from '../services/orchestrator.service';
 import { AgentSelectionService } from '../services/agent-selection.service';
+import { AgentRecommendationService } from '../services/agent-recommendation.service';
 import { TemplateStorageService } from '../services/template-storage.service';
 import { ContentGenerationService } from '../services/content-generation.service';
 import { AgentFileWriterService } from '../services/file-writer.service';
@@ -33,6 +35,7 @@ import {
   WizardWebviewLifecycleService,
   AgenticAnalysisService,
 } from '../services/wizard';
+import { AnalysisStorageService } from '../services/analysis-storage.service';
 
 /**
  * Register all agent-generation services in DI container
@@ -45,7 +48,8 @@ import {
  */
 export function registerAgentGenerationServices(
   container: DependencyContainer,
-  logger: Logger
+  logger: Logger,
+  extensionPath?: string
 ): void {
   logger.info('[AgentGeneration] Registering agent-generation services...');
 
@@ -66,8 +70,10 @@ export function registerAgentGenerationServices(
   container.register(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE, {
     useFactory: (c) => {
       const loggerInstance = c.resolve<Logger>(TOKENS.LOGGER);
-      // templatesPath is optional - defaults to internal path in constructor
-      return new TemplateStorageService(loggerInstance);
+      const templatesPath = extensionPath
+        ? join(extensionPath, 'templates', 'agents')
+        : undefined;
+      return new TemplateStorageService(loggerInstance, templatesPath);
     },
   });
 
@@ -96,6 +102,13 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.CODE_HEALTH_ANALYSIS,
     { useClass: CodeHealthAnalysisService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Analysis storage service - persistent analysis file I/O
+  container.register(
+    AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+    { useClass: AnalysisStorageService },
     { lifecycle: Lifecycle.Singleton }
   );
 
@@ -138,6 +151,13 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_SELECTION_SERVICE,
     { useClass: AgentSelectionService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // Agent recommendation service - deep analysis-based agent recommendations
+  container.register(
+    AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
+    { useClass: AgentRecommendationService },
     { lifecycle: Lifecycle.Singleton }
   );
 
@@ -188,11 +208,13 @@ export function registerAgentGenerationServices(
       'WIZARD_STEP_MACHINE',
       'WIZARD_SESSION_MANAGER',
       'CODE_HEALTH_ANALYSIS',
+      'ANALYSIS_STORAGE_SERVICE',
       'DEEP_PROJECT_ANALYSIS',
       'AGENTIC_ANALYSIS_SERVICE',
       'WIZARD_WEBVIEW_LIFECYCLE',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
+      'AGENT_RECOMMENDATION_SERVICE',
       'CONTENT_GENERATION_SERVICE',
       'AGENT_FILE_WRITER_SERVICE',
       'AGENT_GENERATION_ORCHESTRATOR',

@@ -5,7 +5,6 @@ import {
   Get,
   UseGuards,
   Req,
-  Inject,
   Logger,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -176,30 +175,39 @@ export class LicenseController {
     }
 
     // Step 6: Get plan configuration for features
+    // Extract base plan from tier (e.g., 'trial_pro' → 'pro', 'community' → 'community')
+    const basePlan = (license.plan as string).replace('trial_', '');
     const planConfig =
-      license.plan === 'community' || license.plan === 'pro'
-        ? getPlanConfig(license.plan as PlanName)
+      basePlan === 'community' || basePlan === 'pro'
+        ? getPlanConfig(basePlan as PlanName)
         : PLANS.community; // Safe fallback for unknown plans
 
     // Step 7: Determine reason for license status (TASK_2025_143)
-    // Check if trial has ended (subscription is trialing but trialEnd < now)
+    // Check if trial has ended - handles BOTH scenarios:
+    // Case 1: Cron hasn't run yet - subscription is still 'trialing' but past trialEnd
+    // Case 2: Cron has run - subscription is 'expired' and plan downgraded to 'community'
     const isTrialEnded =
-      subscription?.status === 'trialing' &&
-      subscription?.trialEnd &&
-      new Date() > subscription.trialEnd;
+      (subscription?.status === 'trialing' &&
+        subscription?.trialEnd &&
+        new Date() > subscription.trialEnd) ||
+      (subscription?.status === 'expired' &&
+        license.plan === 'community' &&
+        license.expiresAt !== null);
 
-    // Check if license has expired
+    // Check if license has expired (separate from trial ending)
     const isExpired =
       license.status === 'expired' ||
       (license.expiresAt && new Date() > license.expiresAt);
 
     // Determine the reason field
-    // IMPORTANT: Only set reason when license is NOT active
-    // (user didn't upgrade to paid subscription after trial)
+    // TASK_2025_143: Set reason when trial has ended OR license is expired
+    // Important: Trial can end even when license.status is still 'active'
     let reason: 'trial_ended' | 'expired' | undefined;
-    if (isTrialEnded && license.status !== 'active') {
+    if (isTrialEnded) {
+      // Trial has ended (works before AND after cron runs)
       reason = 'trial_ended';
     } else if (isExpired) {
+      // License has expired (not trial-related)
       reason = 'expired';
     }
 
@@ -309,5 +317,147 @@ export class LicenseController {
       licenseKey: license.licenseKey,
       plan: license.plan,
     };
+  }
+
+  /**
+   * Downgrade to Community plan
+   *
+   * POST /api/v1/licenses/downgrade-to-community
+   *
+   * Authentication: Required (ptah_auth JWT cookie)
+   * Used by: Trial-ended modal when user clicks "Continue with Community"
+   * Rate Limit: 3 requests per minute (same as reveal-key)
+   *
+   * @param req - Express request with authenticated user
+   * @returns Downgrade result
+   *
+   * Response (success):
+   * {
+   *   success: true,
+   *   plan: "community",
+   *   status: "active",
+   *   message: "Successfully downgraded to Community plan"
+   * }
+   *
+   * Response (validation error):
+   * Status: 400 Bad Request
+   * {
+   *   success: false,
+   *   message: "Trial has not ended yet. You have 3 days remaining."
+   * }
+   *
+   * Response (no active license):
+   * Status: 404 Not Found
+   * {
+   *   success: false,
+   *   message: "No active license found"
+   * }
+   *
+   * Security:
+   * - Requires JWT authentication via JwtAuthGuard
+   * - Strict rate limiting (3 req/min) to prevent abuse
+   * - Validates trial has ended before allowing downgrade
+   * - All downgrade events logged for audit trail
+   *
+   * Real-Time Update:
+   * - Emits SSE event 'license.updated' for instant UI refresh
+   * - Frontend profile page auto-updates via SSE listener
+   */
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Post('downgrade-to-community')
+  @UseGuards(JwtAuthGuard)
+  async downgradeToCommunity(@Req() req: Request) {
+    const user = req.user as { id: string; email: string };
+
+    // Step 1: Get current license state to validate trial has ended
+    const fullUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      include: {
+        subscriptions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!fullUser) {
+      this.logger.warn(
+        `Downgrade denied: userId=${user.id}, reason=user_not_found`
+      );
+      return {
+        success: false,
+        message: 'User not found',
+      };
+    }
+
+    const subscription = fullUser.subscriptions[0];
+
+    // Step 2: Validate trial has actually ended
+    // Case 1: Subscription still 'trialing' but past trialEnd (cron hasn't run yet)
+    // Case 2: Subscription already 'expired' (cron ran, or previous partial downgrade)
+    const isTrialEnded =
+      (subscription?.status === 'trialing' &&
+        subscription?.trialEnd &&
+        new Date() > subscription.trialEnd) ||
+      subscription?.status === 'expired';
+
+    if (!isTrialEnded) {
+      // Calculate days remaining if trial is still active
+      let daysRemaining: number | undefined;
+      if (subscription?.trialEnd) {
+        const now = Date.now();
+        const trialEndMs = new Date(subscription.trialEnd).getTime();
+        daysRemaining = Math.ceil((trialEndMs - now) / (24 * 60 * 60 * 1000));
+      }
+
+      this.logger.warn(
+        `Downgrade denied: userId=${
+          user.id
+        }, reason=trial_not_ended, daysRemaining=${daysRemaining || 'N/A'}`
+      );
+
+      return {
+        success: false,
+        message: daysRemaining
+          ? `Trial has not ended yet. You have ${daysRemaining} day${
+              daysRemaining !== 1 ? 's' : ''
+            } remaining.`
+          : 'Trial has not ended yet',
+      };
+    }
+
+    // Step 3: Perform downgrade
+    try {
+      const result = await this.licenseService.downgradeToCommunity(user.id);
+
+      this.logger.log(
+        `Downgrade successful: userId=${user.id}, email=${user.email}, plan=${result.plan}`
+      );
+
+      return {
+        ...result,
+        message: 'Successfully downgraded to Community plan',
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+
+      this.logger.error(
+        `Downgrade failed: userId=${user.id}, error=${errorMessage}`
+      );
+
+      // Return user-friendly errors
+      if (errorMessage.includes('No active license')) {
+        return {
+          success: false,
+          message: 'No active license found',
+        };
+      }
+
+      return {
+        success: false,
+        message: 'Failed to downgrade. Please try again or contact support.',
+      };
+    }
   }
 }

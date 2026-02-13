@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { EventsService } from '../../events/events.service';
 import { PLANS, getPlanConfig, PlanName } from '../../config/plans.config';
 import {
   calculateTrialExpirationDate,
@@ -81,7 +82,10 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
 export class LicenseService {
   private readonly logger = new Logger(LicenseService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventsService: EventsService
+  ) {}
 
   /**
    * Verify a license key's validity and return plan details
@@ -397,6 +401,98 @@ export class LicenseService {
     );
 
     return { licenseKey, expiresAt };
+  }
+
+  /**
+   * Manually downgrade user to Community plan
+   *
+   * Used when user explicitly chooses to downgrade from expired Pro trial
+   * to Community plan via the trial-ended modal.
+   *
+   * Process:
+   * 1. Validate user exists and has expired trial
+   * 2. Update database in transaction:
+   *    - License: plan → 'community'
+   *    - Subscription: status → 'expired'
+   * 3. Emit SSE event for real-time frontend update
+   *
+   * @param userId - Paddle ID of the user to downgrade
+   * @returns Updated license data
+   * @throws Error if user not found or no active license
+   */
+  async downgradeToCommunity(userId: string): Promise<{
+    success: boolean;
+    plan: string;
+    status: string;
+  }> {
+    this.logger.log(`Manual downgrade initiated for userId: ${userId}`);
+
+    // Step 1: Find user with license and subscription
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        licenses: {
+          where: { status: 'active' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+        subscriptions: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!user) {
+      this.logger.error(`User not found: ${userId}`);
+      throw new Error('User not found');
+    }
+
+    const activeLicense = user.licenses[0];
+    if (!activeLicense) {
+      this.logger.error(`No active license found for userId: ${userId}`);
+      throw new Error('No active license found');
+    }
+
+    const subscription = user.subscriptions[0];
+
+    // Step 2: Perform downgrade in transaction (reuse pattern from trial-reminder)
+    await this.prisma.$transaction(async (tx) => {
+      // Update license to Community plan
+      await tx.license.update({
+        where: { id: activeLicense.id },
+        data: {
+          plan: 'community',
+          expiresAt: null, // Community plan never expires
+        },
+      });
+
+      // Update subscription status to 'expired' (if exists)
+      if (subscription && subscription.status === 'trialing') {
+        await tx.subscription.update({
+          where: { id: subscription.id },
+          data: { status: 'expired' },
+        });
+      }
+    });
+
+    this.logger.log(
+      `Successfully downgraded ${user.email} to Community plan (manual)`
+    );
+
+    // Step 3: Emit SSE event for real-time frontend update
+    this.eventsService.emitLicenseUpdated({
+      email: user.email,
+      plan: 'community',
+      status: 'active',
+      expiresAt: null, // Community plan never expires
+    });
+
+    return {
+      success: true,
+      plan: 'community',
+      status: 'active',
+    };
   }
 
   /**

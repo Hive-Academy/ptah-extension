@@ -170,14 +170,14 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
           class="btn btn-primary btn-sm"
           [disabled]="!canContinue()"
           (click)="onContinue()"
-          aria-label="Continue to generation step"
+          aria-label="Continue to completion"
         >
           <lucide-angular
             [img]="SparklesIcon"
             class="h-4 w-4"
             aria-hidden="true"
           />
-          Continue to Generation
+          Continue to Completion
         </button>
       </div>
     </div>
@@ -293,18 +293,18 @@ export class PromptEnhancementComponent {
   }
 
   /**
-   * Skip enhanced prompts generation and advance to generation step.
+   * Skip enhanced prompts generation and advance to completion step.
    */
   protected onSkip(): void {
     this.wizardState.setEnhancedPromptsStatus('skipped');
-    this.wizardState.setCurrentStep('generation');
+    this.wizardState.setCurrentStep('completion');
   }
 
   /**
-   * Continue to the generation step.
+   * Continue to the completion step.
    */
   protected onContinue(): void {
-    this.wizardState.setCurrentStep('generation');
+    this.wizardState.setCurrentStep('completion');
   }
 
   /**

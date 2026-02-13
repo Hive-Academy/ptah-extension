@@ -43,8 +43,6 @@ import type {
   EnhancedPromptsRegenerateResponse,
   AnalysisStreamPayload,
 } from '@ptah-extension/shared';
-import type { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
-import { mapAnalysisToDesignerInput } from './analysis-mapper';
 import * as vscode from 'vscode';
 
 /**
@@ -83,8 +81,6 @@ export class EnhancedPromptsRpcHandlers {
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
-    @inject(TOKENS.WORKSPACE_ANALYZER_SERVICE)
-    private readonly workspaceAnalyzer: WorkspaceAnalyzerService,
     private readonly container: DependencyContainer
   ) {}
 
@@ -232,44 +228,112 @@ export class EnhancedPromptsRpcHandlers {
           };
         }
 
-        // Map wizard analysis to PromptDesignerInput if available
+        // Pass full wizard analysis data directly to enhanced prompts
         let preComputedInput: PromptDesignerInput | undefined;
         if (params.analysisData) {
-          try {
-            const projectInfo = await this.workspaceAnalyzer.getProjectInfo();
+          preComputedInput = {
+            workspacePath,
+            projectType: params.analysisData.projectType,
+            framework: params.analysisData.frameworks?.[0],
+            isMonorepo: !!params.analysisData.monorepoType,
+            monorepoType: params.analysisData.monorepoType,
+            dependencies: [],
+            devDependencies: [],
+            sampleFilePaths: [
+              ...(params.analysisData.keyFileLocations?.entryPoints ?? []),
+              ...(params.analysisData.keyFileLocations?.configs ?? []),
+              ...(params.analysisData.keyFileLocations?.apiRoutes ?? []).slice(
+                0,
+                3
+              ),
+              ...(params.analysisData.keyFileLocations?.components ?? []).slice(
+                0,
+                3
+              ),
+              ...(params.analysisData.keyFileLocations?.services ?? []).slice(
+                0,
+                3
+              ),
+            ].slice(0, 15),
+            languages: params.analysisData.languageDistribution?.length
+              ? params.analysisData.languageDistribution
+                  .sort((a, b) => b.percentage - a.percentage)
+                  .map((l) => l.language)
+              : params.analysisData.languages,
+            // Quality data flows from agentic analysis (Step 1) via analysisData.
+            // When quality data is present, pass it through to avoid re-running
+            // the separate ProjectIntelligenceService quality assessment pipeline.
+            includeQualityGuidance:
+              params.analysisData.qualityScore !== undefined,
+            ...(params.analysisData.qualityScore !== undefined && {
+              qualityAssessment: {
+                score: params.analysisData.qualityScore,
+                antiPatterns: [],
+                gaps: (params.analysisData.qualityIssues ?? []).map(
+                  (issue: {
+                    area: string;
+                    severity: string;
+                    description: string;
+                    recommendation: string;
+                  }) => ({
+                    area: issue.area,
+                    priority: issue.severity as 'high' | 'medium' | 'low',
+                    description: issue.description,
+                    recommendation: issue.recommendation,
+                  })
+                ),
+                strengths: params.analysisData.qualityStrengths ?? [],
+                sampledFiles: [],
+                analysisTimestamp: Date.now(),
+                analysisDurationMs: 0,
+              },
+              prescriptiveGuidance: params.analysisData.qualityRecommendations
+                ?.length
+                ? {
+                    summary: params.analysisData.qualityRecommendations
+                      .slice(0, 3)
+                      .map((r: { issue: string }) => r.issue)
+                      .join('; '),
+                    recommendations:
+                      params.analysisData.qualityRecommendations.map(
+                        (r: {
+                          priority: number;
+                          category: string;
+                          issue: string;
+                          solution: string;
+                        }) => ({
+                          priority: r.priority,
+                          category: r.category,
+                          issue: r.issue,
+                          solution: r.solution,
+                        })
+                      ),
+                    totalTokens: 0,
+                    wasTruncated: false,
+                  }
+                : undefined,
+            }),
+          };
 
-            preComputedInput = mapAnalysisToDesignerInput(
-              params.analysisData,
-              workspacePath,
-              projectInfo
-            );
-
-            this.logger.info(
-              'Mapped wizard analysis to PromptDesignerInput for enhanced prompts',
-              {
-                projectType: preComputedInput.projectType,
-                framework: preComputedInput.framework,
-                isMonorepo: preComputedInput.isMonorepo,
-              }
-            );
-          } catch (mapError) {
-            this.logger.warn(
-              'Failed to map wizard analysis for enhanced prompts, will run independent analysis',
-              {
-                error:
-                  mapError instanceof Error
-                    ? mapError.message
-                    : String(mapError),
-              }
-            );
-          }
+          this.logger.info(
+            'Built PromptDesignerInput from wizard analysis for enhanced prompts',
+            {
+              projectType: preComputedInput.projectType,
+              framework: preComputedInput.framework,
+              isMonorepo: preComputedInput.isMonorepo,
+            }
+          );
         }
 
         // Create stream event broadcaster for enhanced prompts pipeline
         const onStreamEvent = this.createEnhanceStreamBroadcaster();
 
-        // Resolve MCP status for SDK config
-        const sdkConfig = this.resolveSdkConfig(isPremium, onStreamEvent);
+        // Resolve MCP status for SDK config (pass frontend model override)
+        const sdkConfig = this.resolveSdkConfig(
+          isPremium,
+          onStreamEvent,
+          params.model
+        );
 
         // Run the wizard
         const result = await this.enhancedPromptsService.runWizard(
@@ -653,7 +717,8 @@ export class EnhancedPromptsRpcHandlers {
    */
   private resolveSdkConfig(
     isPremium: boolean,
-    onStreamEvent?: (event: AnalysisStreamPayload) => void
+    onStreamEvent?: (event: AnalysisStreamPayload) => void,
+    model?: string
   ): EnhancedPromptsSdkConfig {
     let mcpServerRunning = false;
     let mcpPort: number | undefined;
@@ -671,7 +736,13 @@ export class EnhancedPromptsRpcHandlers {
       this.logger.debug('Could not resolve CodeExecutionMCP for SDK config');
     }
 
-    return { isPremium, mcpServerRunning, mcpPort, onStreamEvent };
+    return {
+      isPremium,
+      mcpServerRunning,
+      mcpPort,
+      onStreamEvent,
+      model: model || undefined,
+    };
   }
 
   /**

@@ -122,14 +122,15 @@ export class DeepProjectAnalysisService {
 
       let projectType: (typeof ProjectType)[keyof typeof ProjectType] =
         ProjectType.Unknown;
-      let frameworks: (typeof Framework)[keyof typeof Framework][] = [];
+      let frameworks: string[] = [];
       let monorepoType:
         | (typeof MonorepoType)[keyof typeof MonorepoType]
         | undefined;
 
       if (basicResult.isOk() && basicResult.value) {
         projectType = basicResult.value.projectType;
-        frameworks = basicResult.value.frameworks;
+        // Convert Framework enum values to strings for flexibility
+        frameworks = basicResult.value.frameworks.map((f) => f.toString());
         monorepoType = basicResult.value.monorepoType;
       }
 

@@ -21,7 +21,6 @@ import {
   ProfileDetailsComponent,
   ProfileFeaturesComponent,
   ProfileHeaderComponent,
-  TrialEndedModalComponent,
 } from './components';
 import { LicenseData } from './models/license-data.interface';
 
@@ -60,15 +59,11 @@ import { LicenseData } from './models/license-data.interface';
     ProfileDetailsComponent,
     ProfileFeaturesComponent,
     NavigationComponent,
-    TrialEndedModalComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100">
       <!-- Navigation Header -->
       <ptah-navigation />
-
-      <!-- Trial Ended Modal (TASK_2025_143) -->
-      <ptah-trial-ended-modal [reason]="license()?.reason" />
 
       <!-- Loading State -->
       @if (isLoading()) {
@@ -200,6 +195,9 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   public readonly licenseKey = signal<string | null>(null);
   public readonly isRevealingKey = signal(false);
   public readonly revealKeyError = signal<string | null>(null);
+
+  // TASK_2025_143: Downgrade state
+  public readonly isDowngrading = signal(false);
 
   // Animation config for actions
   public readonly actionsConfig: ViewportAnimationConfig = {
@@ -469,6 +467,58 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
               error.error?.message ||
                 'Failed to retrieve license key. Please try again.'
             );
+          }
+        },
+      });
+  }
+
+  /**
+   * Handle trial downgrade to Community plan
+   *
+   * TASK_2025_143: Called when user clicks "Continue with Community" and trial has expired
+   *
+   * Process:
+   * 1. Call POST /api/v1/licenses/downgrade-to-community
+   * 2. Backend updates database + emits SSE event
+   * 3. SSE listener auto-refreshes license data
+   * 4. Modal auto-dismisses
+   *
+   * No manual refresh needed - SSE handles it!
+   */
+  public handleDowngradeToCommunity(): void {
+    this.isDowngrading.set(true);
+
+    this.http
+      .post<{
+        success: boolean;
+        plan: string;
+        status: string;
+        message: string;
+      }>('/api/v1/licenses/downgrade-to-community', {})
+      .subscribe({
+        next: (response) => {
+          console.log('[Profile] Downgrade successful:', response);
+          this.isDowngrading.set(false);
+
+          // SSE listener will auto-refresh license data when backend emits license.updated event
+          // No need to manually call refreshLicenseData() here
+        },
+        error: (error) => {
+          console.error('[Profile] Downgrade failed:', error);
+          this.isDowngrading.set(false);
+
+          // Show user-friendly error message
+          const errorMsg =
+            error.error?.message ||
+            'Failed to downgrade. Please try again or contact support.';
+
+          // For validation errors (trial not ended yet), just log
+          // The user shouldn't see this error since modal validates daysRemaining
+          if (error.status === 400) {
+            console.warn('[Profile] Validation error:', errorMsg);
+          } else {
+            // For other errors, could show toast/alert (future enhancement)
+            console.error('[Profile] Unexpected error:', errorMsg);
           }
         },
       });

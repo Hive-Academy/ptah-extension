@@ -13,7 +13,7 @@
  * create coupling that risks breaking the working chat flow.
  *
  * FEATURES INTEGRATED:
- * - Enhanced prompts (from EnhancedPromptsService) or PTAH_CORE_SYSTEM_PROMPT fallback
+ * - PTAH_CORE_SYSTEM_PROMPT for premium users (NOT enhanced prompts - this is the GENERATION workflow)
  * - MCP server configuration (premium + running check)
  * - Model identity clarification for third-party providers (OpenRouter, Moonshot, etc.)
  * - Subagent hooks (for proper lifecycle tracking)
@@ -29,6 +29,10 @@
  * - No canUseTool callback (bypassed)
  * - No session metadata tracking
  *
+ * IMPORTANT: InternalQueryService is used to GENERATE enhanced prompts (via setup wizard),
+ * so it should NOT try to USE enhanced prompts (that would create circular dependency).
+ * Enhanced prompts are only used in the chat workflow via ChatRpcHandlers.
+ *
  * @module @ptah-extension/agent-sdk
  */
 
@@ -40,7 +44,6 @@ import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import { CompactionConfigProvider } from '../helpers/compaction-config-provider';
 import { CompactionHookHandler } from '../helpers/compaction-hook-handler';
-import { EnhancedPromptsService } from '../prompt-harness';
 import { getAnthropicProvider } from '../helpers/anthropic-provider-registry';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import type {
@@ -100,8 +103,6 @@ export class InternalQueryService {
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     private readonly moduleLoader: SdkModuleLoader,
-    @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
-    private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
     private readonly subagentHookHandler: SubagentHookHandler,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
@@ -213,7 +214,7 @@ export class InternalQueryService {
     abortController: AbortController
   ): Promise<SdkQueryOptions> {
     // Assemble system prompt with all enhancements
-    const systemPrompt = await this.buildSystemPrompt(config);
+    const systemPrompt = this.buildSystemPrompt(config);
 
     // Build MCP server configuration
     const mcpServers = this.buildMcpServers(
@@ -233,7 +234,7 @@ export class InternalQueryService {
       `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`
     );
 
-    return {
+    const options: SdkQueryOptions = {
       abortController,
       cwd: config.cwd,
       model: config.model,
@@ -277,21 +278,34 @@ export class InternalQueryService {
       // Lifecycle hooks (subagent + compaction)
       hooks,
     };
+
+    // Structured output format (JSON Schema) — constrains the agent's final response
+    if (config.outputFormat) {
+      options.outputFormat = config.outputFormat;
+    }
+
+    return options;
   }
 
   /**
    * Build system prompt with all enhancements.
    *
-   * Assembly order:
+   * Constructs system prompt by appending (in order):
    * 1. Model identity clarification (for third-party providers like OpenRouter)
-   * 2. Enhanced prompts content (AI-generated) OR PTAH_CORE_SYSTEM_PROMPT (premium fallback)
+   * 2. PTAH_CORE_SYSTEM_PROMPT for premium users (NOT enhanced prompts - this is the GENERATION workflow)
    * 3. Custom system prompt append (task-specific instructions)
    *
    * Uses preset 'claude_code' as base, then appends all parts.
+   *
+   * IMPORTANT: InternalQueryService is used to GENERATE enhanced prompts (via setup wizard),
+   * so it should NOT try to USE enhanced prompts (that would be circular). Enhanced prompts
+   * are only used in the chat workflow via ChatRpcHandlers → SdkAgentAdapter → SessionLifecycleManager.
    */
-  private async buildSystemPrompt(
-    config: InternalQueryConfig
-  ): Promise<{ type: 'preset'; preset: 'claude_code'; append?: string }> {
+  private buildSystemPrompt(config: InternalQueryConfig): {
+    type: 'preset';
+    preset: 'claude_code';
+    append?: string;
+  } {
     const appendParts: string[] = [];
 
     // 1. Model identity clarification for third-party providers
@@ -303,20 +317,14 @@ export class InternalQueryService {
       );
     }
 
-    // 2. Enhanced prompts or PTAH_CORE_SYSTEM_PROMPT for premium users
+    // 2. ALWAYS use PTAH_CORE_SYSTEM_PROMPT for internal queries (setup wizard, workspace analysis)
+    // InternalQueryService is part of the GENERATION workflow, not the USAGE workflow.
+    // Enhanced prompts are used in chat sessions via ChatRpcHandlers, not here.
     if (config.isPremium) {
-      const enhancedContent = await this.resolveEnhancedPrompts(config.cwd);
-      if (enhancedContent) {
-        appendParts.push(enhancedContent);
-        this.logger.debug(`${SERVICE_TAG} Using enhanced prompts`, {
-          contentLength: enhancedContent.length,
-        });
-      } else {
-        appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
-        this.logger.debug(
-          `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT (no enhanced prompts)`
-        );
-      }
+      appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+      this.logger.debug(
+        `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT for internal query`
+      );
     }
 
     // 3. Task-specific system prompt instructions
@@ -329,26 +337,6 @@ export class InternalQueryService {
       preset: 'claude_code',
       append: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
     };
-  }
-
-  /**
-   * Resolve enhanced prompts content for the workspace.
-   *
-   * Returns the AI-generated enhanced prompt if available and enabled,
-   * or null to fall back to PTAH_CORE_SYSTEM_PROMPT.
-   */
-  private async resolveEnhancedPrompts(cwd: string): Promise<string | null> {
-    try {
-      return await this.enhancedPromptsService.getEnhancedPromptContent(cwd);
-    } catch (error) {
-      this.logger.debug(
-        `${SERVICE_TAG} Failed to resolve enhanced prompts, using fallback`,
-        {
-          error: error instanceof Error ? error.message : String(error),
-        }
-      );
-      return null;
-    }
   }
 
   /**

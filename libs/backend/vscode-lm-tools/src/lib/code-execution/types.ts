@@ -100,7 +100,7 @@ export interface SearchNamespace {
    * @param limit - Maximum results (default: 20)
    * @returns Array of matching file paths
    */
-  findFiles: (pattern: string, limit?: number) => Promise<any[]>;
+  findFiles: (pattern: string, limit?: number) => Promise<string[]>;
 
   /**
    * Get files most relevant to a semantic query
@@ -108,7 +108,7 @@ export interface SearchNamespace {
    * @param maxFiles - Maximum results (default: 10)
    * @returns Array of relevant file metadata
    */
-  getRelevantFiles: (query: string, maxFiles?: number) => Promise<any[]>;
+  getRelevantFiles: (query: string, maxFiles?: number) => Promise<string[]>;
 }
 
 /**
@@ -452,6 +452,13 @@ export interface FilesNamespace {
   read: (path: string) => Promise<string>;
 
   /**
+   * Read and parse JSON file, handling comments and trailing commas
+   * @param path - Absolute file path
+   * @returns Parsed JSON object
+   */
+  readJson: (path: string) => Promise<any>;
+
+  /**
    * List directory contents
    * @param directory - Directory path
    * @returns Array of directory entries
@@ -561,7 +568,7 @@ export interface ExecuteCodeParams {
   /** TypeScript code to execute */
   code: string;
 
-  /** Execution timeout in milliseconds (default: 5000, max: 30000) */
+  /** Execution timeout in milliseconds (default: 15000, max: 30000) */
   timeout?: number;
 }
 

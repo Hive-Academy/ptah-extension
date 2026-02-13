@@ -1,10 +1,12 @@
 import { Injectable, inject } from '@angular/core';
-import { ClaudeRpcService } from '@ptah-extension/core';
+import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
 import type {
   AgentRecommendation,
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
   ProjectAnalysisResult,
+  SavedAnalysisMetadata,
+  SavedAnalysisFile,
 } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
@@ -36,12 +38,17 @@ export interface AgentSelectionResponse {
  * - wizard:recommend-agents - Get agent recommendations
  * - enhancedPrompts:runWizard - Run Enhanced Prompts wizard
  * - enhancedPrompts:getStatus - Get Enhanced Prompts status
+ * - enhancedPrompts:toggle - Toggle enhanced prompts on/off
+ * - enhancedPrompts:regenerate - Force regenerate enhanced prompts
+ * - enhancedPrompts:getPromptContent - Get generated prompt content
+ * - enhancedPrompts:download - Download prompt as .md file
  */
 @Injectable({
   providedIn: 'root',
 })
 export class WizardRpcService {
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly modelState = inject(ModelStateService);
 
   /**
    * Launch the setup wizard webview
@@ -62,14 +69,22 @@ export class WizardRpcService {
    * The caller should check response.success before transitioning to generation step.
    *
    * Uses a 5-minute timeout since agent generation is a long-running operation.
+   *
+   * @param selections - Agent selections from the wizard
+   * @param analysisData - Pre-computed analysis from wizard Step 1 (single source of truth)
    */
   async submitAgentSelection(
-    selections: AgentSelection[]
+    selections: AgentSelection[],
+    analysisData: ProjectAnalysisResult
   ): Promise<AgentSelectionResponse> {
     const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
     const result = await this.rpcService.call(
       'wizard:submit-selection',
-      { selectedAgentIds: selectedIds },
+      {
+        selectedAgentIds: selectedIds,
+        analysisData,
+        model: this.modelState.currentModel() || undefined,
+      },
       { timeout: 300_000 }
     );
 
@@ -96,7 +111,7 @@ export class WizardRpcService {
 
   /**
    * Retry a failed generation item.
-   * Triggers regeneration of a specific agent, command, or skill file.
+   * Triggers regeneration of a specific agent.
    *
    * @param itemId - Identifier of the generation item to retry
    */
@@ -142,7 +157,7 @@ export class WizardRpcService {
   async deepAnalyze(): Promise<ProjectAnalysisResult> {
     const result = await this.rpcService.call(
       'wizard:deep-analyze',
-      {},
+      { model: this.modelState.currentModel() || undefined },
       { timeout: 3_660_000 } // 1 hour + 1 minute buffer (timeout disabled for now until analysis is stable)
     );
     if (result.isSuccess() && result.data) {
@@ -177,14 +192,22 @@ export class WizardRpcService {
    * Uses the existing enhancedPrompts:runWizard RPC handler.
    *
    * @param workspacePath - Workspace path to analyze
+   * @param analysisData - Pre-computed analysis from wizard Step 1 (single source of truth)
    * @returns Enhanced Prompts wizard response
    */
   async runEnhancedPromptsWizard(
-    workspacePath: string
+    workspacePath: string,
+    analysisData: ProjectAnalysisResult
   ): Promise<EnhancedPromptsRunWizardResponse> {
-    const result = await this.rpcService.call('enhancedPrompts:runWizard', {
-      workspacePath,
-    });
+    const result = await this.rpcService.call(
+      'enhancedPrompts:runWizard',
+      {
+        workspacePath,
+        analysisData,
+        model: this.modelState.currentModel() || undefined,
+      },
+      { timeout: 300_000 } // 5 minutes: LLM generation via SDK
+    );
 
     if (result.isSuccess() && result.data) {
       return result.data as EnhancedPromptsRunWizardResponse;
@@ -222,5 +245,175 @@ export class WizardRpcService {
       cacheValid: false,
       error: result.error || 'Failed to get Enhanced Prompts status',
     };
+  }
+
+  // === Enhanced Prompts Settings Methods (TASK_2025_149 Batch 5) ===
+
+  /**
+   * Toggle enhanced prompts on or off for a workspace.
+   * Calls the enhancedPrompts:setEnabled RPC handler.
+   *
+   * @param workspacePath - Workspace path to toggle for
+   * @param enabled - Whether to enable or disable enhanced prompts
+   */
+  async toggleEnhancedPrompts(
+    workspacePath: string,
+    enabled: boolean
+  ): Promise<void> {
+    const result = await this.rpcService.call('enhancedPrompts:setEnabled', {
+      workspacePath,
+      enabled,
+    });
+
+    if (!result.isSuccess()) {
+      throw new Error(result.error || 'Failed to toggle enhanced prompts');
+    }
+  }
+
+  /**
+   * Regenerate enhanced prompts for a workspace.
+   * Calls the enhancedPrompts:regenerate RPC handler.
+   * Uses a 5-minute timeout since regeneration is a long-running operation.
+   *
+   * @param workspacePath - Workspace path to regenerate for
+   * @returns Regeneration response with success status
+   */
+  async regenerateEnhancedPrompts(
+    workspacePath: string
+  ): Promise<EnhancedPromptsRunWizardResponse> {
+    const result = await this.rpcService.call(
+      'enhancedPrompts:regenerate',
+      { workspacePath, force: true },
+      { timeout: 300_000 }
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data as EnhancedPromptsRunWizardResponse;
+    }
+
+    return {
+      success: false,
+      error: result.error || 'Failed to regenerate enhanced prompts',
+    };
+  }
+
+  /**
+   * Get the generated enhanced prompt content for a workspace.
+   * Returns the full prompt text for preview, or null if not available.
+   *
+   * @param workspacePath - Workspace path to get content for
+   * @returns The prompt content string, or null if no prompt exists
+   */
+  async getEnhancedPromptContent(
+    workspacePath: string
+  ): Promise<string | null> {
+    const result = await this.rpcService.call(
+      'enhancedPrompts:getPromptContent',
+      { workspacePath }
+    );
+
+    if (result.isSuccess() && result.data) {
+      return (result.data as { content: string | null }).content;
+    }
+
+    return null;
+  }
+
+  /**
+   * Download the generated enhanced prompt as a .md file.
+   * Opens a native VS Code save dialog and writes the prompt content.
+   *
+   * @param workspacePath - Workspace path to download prompt for
+   * @returns Download result with success status and optional file path
+   */
+  async downloadEnhancedPrompt(
+    workspacePath: string
+  ): Promise<{ success: boolean; filePath?: string; error?: string }> {
+    const result = await this.rpcService.call('enhancedPrompts:download', {
+      workspacePath,
+    });
+
+    if (result.isSuccess() && result.data) {
+      return result.data as {
+        success: boolean;
+        filePath?: string;
+        error?: string;
+      };
+    }
+
+    return {
+      success: false,
+      error: result.error || 'Failed to download enhanced prompt',
+    };
+  }
+
+  // === Analysis History Methods (Persistent Analysis) ===
+
+  /**
+   * Save analysis results for future reuse.
+   * Auto-called after successful analysis + recommendations.
+   *
+   * @param analysis - Project analysis result
+   * @param recommendations - Agent recommendations
+   * @param method - 'agentic' or 'fallback'
+   * @returns The generated filename
+   */
+  async saveAnalysis(
+    analysis: ProjectAnalysisResult,
+    recommendations: AgentRecommendation[],
+    method: 'agentic' | 'fallback'
+  ): Promise<{ success: boolean; filename: string }> {
+    const result = await this.rpcService.call(
+      'wizard:save-analysis',
+      { analysis, recommendations, method },
+      { timeout: 10_000 }
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data as { success: boolean; filename: string };
+    }
+
+    throw new Error(result.error || 'Failed to save analysis');
+  }
+
+  /**
+   * List all saved analyses from .claude/analysis/ directory.
+   * Returns metadata only (lightweight, for listing cards).
+   *
+   * @returns Array of saved analysis metadata sorted by date (newest first)
+   */
+  async listAnalyses(): Promise<SavedAnalysisMetadata[]> {
+    const result = await this.rpcService.call(
+      'wizard:list-analyses',
+      {},
+      { timeout: 10_000 }
+    );
+
+    if (result.isSuccess() && result.data) {
+      return (result.data as { analyses: SavedAnalysisMetadata[] }).analyses;
+    }
+
+    return [];
+  }
+
+  /**
+   * Load a specific saved analysis by filename.
+   * Returns the full analysis data including recommendations.
+   *
+   * @param filename - Filename to load from .claude/analysis/
+   * @returns Full saved analysis file data
+   */
+  async loadAnalysis(filename: string): Promise<SavedAnalysisFile> {
+    const result = await this.rpcService.call(
+      'wizard:load-analysis',
+      { filename },
+      { timeout: 10_000 }
+    );
+
+    if (result.isSuccess() && result.data) {
+      return result.data as SavedAnalysisFile;
+    }
+
+    throw new Error(result.error || 'Failed to load analysis');
   }
 }
