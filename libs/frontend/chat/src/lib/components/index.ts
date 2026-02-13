@@ -51,6 +51,9 @@ export * from './molecules/trial-ended-modal.component';
 export * from './molecules/community-upgrade-banner.component';
 // Notification bell for header (replaces inline trial/community banners)
 export * from './molecules/notification-bell.component';
+// TASK_2025_153: Plugin configuration UI components
+export * from './molecules/plugin-status-widget.component';
+export * from './molecules/plugin-browser-modal.component';
 
 // ============================================================================
 // ORGANISMS - Complex sections

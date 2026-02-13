@@ -1,7 +1,14 @@
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  signal,
+} from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
-import { LucideAngularModule, ScanSearch } from 'lucide-angular';
+import { LucideAngularModule, ScanSearch, Puzzle } from 'lucide-angular';
 import { SetupStatusWidgetComponent } from './setup-status-widget.component';
+import { PluginStatusWidgetComponent } from './plugin-status-widget.component';
+import { PluginBrowserModalComponent } from './plugin-browser-modal.component';
 import { VSCodeService } from '@ptah-extension/core';
 
 /**
@@ -15,6 +22,7 @@ import { VSCodeService } from '@ptah-extension/core';
  * - Hieroglyphic Unicode symbols for visual flair
  * - Ptah (Divine Creator) branding with Cinzel font
  * - Integrated setup-status-widget component
+ * - Integrated plugin-status-widget and plugin-browser-modal (TASK_2025_153)
  * - Professional AI capabilities showcase
  * - Sacred command invocation guide (/orchestrate)
  *
@@ -34,7 +42,13 @@ import { VSCodeService } from '@ptah-extension/core';
  */
 @Component({
   selector: 'ptah-chat-empty-state',
-  imports: [SetupStatusWidgetComponent, NgOptimizedImage, LucideAngularModule],
+  imports: [
+    SetupStatusWidgetComponent,
+    PluginStatusWidgetComponent,
+    PluginBrowserModalComponent,
+    NgOptimizedImage,
+    LucideAngularModule,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!--
@@ -129,6 +143,43 @@ import { VSCodeService } from '@ptah-extension/core';
         </div>
       </div>
 
+      <!-- Plugin Configuration Card (TASK_2025_153) -->
+      <div class="w-full max-w-md mb-5">
+        <div
+          class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
+        >
+          <div class="p-4">
+            <div class="flex items-start gap-3 mb-3">
+              <div
+                class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0"
+              >
+                <lucide-angular
+                  [img]="PuzzleIcon"
+                  class="w-5 h-5 md:w-6 md:h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="flex-1">
+                <h3
+                  class="text-sm md:text-base font-semibold text-primary mb-0.5"
+                >
+                  Ptah Skills
+                  <span class="badge badge-primary badge-xs ml-1">Pro</span>
+                </h3>
+                <p class="text-xs text-base-content/60 leading-relaxed">
+                  Enhance your sessions with specialized skills for
+                  orchestration, frontend patterns, backend architecture, and
+                  more.
+                </p>
+              </div>
+            </div>
+            <ptah-plugin-status-widget
+              (configureClicked)="openPluginBrowser()"
+            />
+          </div>
+        </div>
+      </div>
+
       <!-- Capabilities Section -->
       <div class="w-full max-w-md mb-5">
         <div class="flex items-center gap-2 mb-3">
@@ -214,6 +265,13 @@ import { VSCodeService } from '@ptah-extension/core';
         <span class="text-sm tracking-[0.5em]">𓀀𓂀𓁹𓂀𓀀</span>
       </div>
     </div>
+
+    <!-- Plugin Browser Modal (TASK_2025_153) -->
+    <ptah-plugin-browser-modal
+      [isOpen]="isPluginBrowserOpen()"
+      (closed)="closePluginBrowser()"
+      (saved)="onPluginsSaved($event)"
+    />
   `,
   styles: [
     `
@@ -246,9 +304,29 @@ import { VSCodeService } from '@ptah-extension/core';
 export class ChatEmptyStateComponent {
   private readonly vscodeService = inject(VSCodeService);
 
-  /** Lucide icon reference for template binding */
+  /** Lucide icon references for template binding */
   protected readonly ScanSearchIcon = ScanSearch;
+  protected readonly PuzzleIcon = Puzzle;
 
   /** Ptah icon URI - uses same method as app-shell component */
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
+
+  /** Whether the plugin browser modal is open (TASK_2025_153) */
+  protected readonly isPluginBrowserOpen = signal(false);
+
+  /** Open the plugin browser modal */
+  protected openPluginBrowser(): void {
+    this.isPluginBrowserOpen.set(true);
+  }
+
+  /** Close the plugin browser modal */
+  protected closePluginBrowser(): void {
+    this.isPluginBrowserOpen.set(false);
+  }
+
+  /** Handle plugins saved event from modal */
+  protected onPluginsSaved(enabledIds: string[]): void {
+    this.isPluginBrowserOpen.set(false);
+    // Plugin config saved via RPC in the modal - no additional action needed
+  }
 }

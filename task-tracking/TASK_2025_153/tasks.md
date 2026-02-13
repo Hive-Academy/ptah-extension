@@ -668,12 +668,12 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-## Batch 4: Frontend Components (Phase 6) PENDING
+## Batch 4: Frontend Components (Phase 6) IMPLEMENTED
 
 **Developer**: frontend-developer
 **Tasks**: 5 | **Dependencies**: Batch 2 (RPC handlers must exist)
 
-### Task 4.1: Create PluginStatusWidgetComponent PENDING
+### Task 4.1: Create PluginStatusWidgetComponent IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\plugin-status-widget.component.ts`
 **Pattern to Follow**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\setup-status-widget.component.ts`
@@ -705,7 +705,7 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-### Task 4.2: Create PluginBrowserModalComponent PENDING
+### Task 4.2: Create PluginBrowserModalComponent IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\plugin-browser-modal.component.ts`
 **Pattern to Follow**: DaisyUI modal pattern (`dialog` element with `.modal` class), similar to confirmation-dialog.component.ts
@@ -751,7 +751,7 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-### Task 4.3: Integrate into ChatEmptyStateComponent PENDING
+### Task 4.3: Integrate into ChatEmptyStateComponent IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\chat-empty-state.component.ts`
 **Pattern to Follow**: How `SetupStatusWidgetComponent` is integrated (import at line 4, template at line 127)
@@ -821,7 +821,7 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-### Task 4.4: Export new components from chat library barrel PENDING
+### Task 4.4: Export new components from chat library barrel IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\index.ts`
 **Pattern to Follow**: Check how existing molecule components are exported
@@ -842,7 +842,7 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-### Task 4.5: Import PluginInfo type in frontend components PENDING
+### Task 4.5: Import PluginInfo type in frontend components IMPLEMENTED
 
 **File**: Multiple frontend component files from Tasks 4.1 and 4.2
 
