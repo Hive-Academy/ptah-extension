@@ -2,7 +2,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
-  effect,
   inject,
   OnDestroy,
 } from '@angular/core';
@@ -12,7 +11,6 @@ import {
   CircleCheck,
   LucideAngularModule,
   RotateCw,
-  Sparkles,
   TriangleAlert,
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
@@ -23,15 +21,13 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
  * GenerationProgressComponent - Detailed generation progress with grouped items and retry
  *
  * Purpose:
- * - Track agents, commands, and skill files separately
+ * - Track agent generation progress
  * - Show individual progress for each item
- * - Display total progress (agents + commands + skill)
+ * - Display total progress
  * - Handle partial failures with retry per item
- * - Group items by type for clear organization
  *
  * Features:
  * - Overall progress bar at top with percentage
- * - Grouped sections: Agents, Commands, Skill Files
  * - Per-item progress cards with status badges
  * - Loading spinner for in-progress items
  * - Checkmark for completed items
@@ -51,453 +47,14 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="container mx-auto px-3 py-4">
-      <div class="max-w-4xl mx-auto">
+      <div class="max-w-6xl mx-auto">
         <div class="mb-4">
           <h2 class="text-lg font-bold mb-2">Generating Your Configuration</h2>
-          <p class="text-base-content/70">
-            Creating customized agents, commands, and orchestration skill
-            files...
-          </p>
+          <p class="text-base-content/70">Creating customized agent files...</p>
         </div>
 
-        <!-- Overall progress section -->
-        <div class="card bg-base-200 shadow-xl mb-4">
-          <div class="card-body">
-            <div class="flex justify-between items-center mb-2">
-              <span class="text-lg font-semibold"> Overall Progress </span>
-              <span class="text-lg font-bold text-primary">
-                {{ completionPercentage() }}%
-              </span>
-            </div>
-            <progress
-              class="progress progress-primary w-full h-4"
-              [value]="completionPercentage()"
-              max="100"
-              role="progressbar"
-              [attr.aria-valuenow]="completionPercentage()"
-              [attr.aria-valuemin]="0"
-              [attr.aria-valuemax]="100"
-              aria-label="Overall generation progress"
-            ></progress>
-            <div class="flex justify-between text-sm text-base-content/60 mt-2">
-              <span
-                >{{ completedCount() }} of {{ totalCount() }} items
-                completed</span
-              >
-              @if (failedCount() > 0) {
-              <span class="text-error">{{ failedCount() }} failed</span>
-              }
-            </div>
-          </div>
-        </div>
-
-        <!-- Agent Activity Log (collapsible stream transcript) -->
-        @if (hasStreamMessages()) {
-        <div class="collapse collapse-arrow bg-base-200 mb-4">
-          <input type="checkbox" aria-label="Toggle agent activity log" />
-          <div class="collapse-title text-sm font-medium uppercase">
-            Agent Activity Log
-            <span class="badge badge-sm ml-2">{{ streamMessageCount() }}</span>
-          </div>
-          <div class="collapse-content">
-            <ptah-analysis-transcript [messages]="generationStream()" />
-          </div>
-        </div>
-        }
-
-        <!-- Agents Section -->
-        @if (agentItems().length > 0) {
-        <div class="mb-4">
-          <h3
-            class="text-sm font-medium uppercase mb-4 flex items-center gap-2"
-          >
-            <span class="badge badge-primary badge-lg">🤖</span>
-            Agent Files
-            <span class="text-sm text-base-content/60 font-normal">
-              ({{ getCompletedCountByType('agent') }}/{{ agentItems().length }})
-            </span>
-          </h3>
-          <div class="space-y-3">
-            @for (item of agentItems(); track item.id) {
-            <div
-              class="card card-compact bg-base-100 shadow-md"
-              [class.border-error]="item.status === 'error'"
-              [class.border-l-4]="item.status === 'error'"
-            >
-              <div class="card-body">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-3 flex-1 min-w-0">
-                    <!-- Status indicator -->
-                    @switch (item.status) { @case ('pending') {
-                    <div class="badge badge-outline badge-sm">Pending</div>
-                    } @case ('in-progress') {
-                    <span
-                      class="loading loading-spinner loading-sm text-primary"
-                    ></span>
-                    } @case ('complete') {
-                    <lucide-angular
-                      [img]="CircleCheckIcon"
-                      class="h-4 w-4 text-success"
-                      aria-hidden="true"
-                    />
-                    } @case ('error') {
-                    <lucide-angular
-                      [img]="CircleAlertIcon"
-                      class="h-4 w-4 text-error"
-                      aria-hidden="true"
-                    />
-                    } }
-
-                    <!-- Item name and progress -->
-                    <div class="flex-1 min-w-0">
-                      <div class="font-semibold truncate" [title]="item.name">
-                        {{ item.name }}
-                      </div>
-                      @if (item.status === 'in-progress' && item.progress !==
-                      undefined) {
-                      <div class="flex items-center gap-2 mt-1">
-                        <progress
-                          class="progress progress-primary w-32 h-1"
-                          [value]="item.progress"
-                          max="100"
-                        ></progress>
-                        <span class="text-xs text-base-content/60"
-                          >{{ item.progress }}%</span
-                        >
-                      </div>
-                      } @if (item.status === 'error' && item.errorMessage) {
-                      <p class="text-sm text-error mt-1">
-                        {{ item.errorMessage }}
-                      </p>
-                      }
-                    </div>
-                  </div>
-
-                  <!-- Retry button for failed items -->
-                  @if (item.status === 'error') { @if (canRetry(item.id)) {
-                  <button
-                    class="btn btn-error btn-sm"
-                    (click)="onRetryItem(item.id)"
-                    [attr.aria-label]="
-                      'Retry ' +
-                      item.name +
-                      ' (' +
-                      getRemainingRetries(item.id) +
-                      ' attempts remaining)'
-                    "
-                  >
-                    <lucide-angular
-                      [img]="RotateCwIcon"
-                      class="h-4 w-4"
-                      aria-hidden="true"
-                    />
-                    Retry ({{ getRemainingRetries(item.id) }} left)
-                  </button>
-                  } @else {
-                  <span class="text-error text-sm font-medium"
-                    >Max retries reached</span
-                  >
-                  } }
-                </div>
-              </div>
-            </div>
-            }
-          </div>
-        </div>
-        }
-
-        <!-- Commands Section -->
-        @if (commandItems().length > 0) {
-        <div class="mb-4">
-          <h3
-            class="text-sm font-medium uppercase mb-4 flex items-center gap-2"
-          >
-            <span class="badge badge-secondary badge-lg">⌨️</span>
-            Command Files
-            <span class="text-sm text-base-content/60 font-normal">
-              ({{ getCompletedCountByType('command') }}/{{
-                commandItems().length
-              }})
-            </span>
-          </h3>
-          <div class="space-y-3">
-            @for (item of commandItems(); track item.id) {
-            <div
-              class="card card-compact bg-base-100 shadow-md"
-              [class.border-error]="item.status === 'error'"
-              [class.border-l-4]="item.status === 'error'"
-            >
-              <div class="card-body">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-3 flex-1 min-w-0">
-                    <!-- Status indicator -->
-                    @switch (item.status) { @case ('pending') {
-                    <div class="badge badge-outline badge-sm">Pending</div>
-                    } @case ('in-progress') {
-                    <span
-                      class="loading loading-spinner loading-sm text-secondary"
-                    ></span>
-                    } @case ('complete') {
-                    <lucide-angular
-                      [img]="CircleCheckIcon"
-                      class="h-6 w-6 text-success"
-                      aria-hidden="true"
-                    />
-                    } @case ('error') {
-                    <lucide-angular
-                      [img]="CircleAlertIcon"
-                      class="h-6 w-6 text-error"
-                      aria-hidden="true"
-                    />
-                    } }
-
-                    <!-- Item name and progress -->
-                    <div class="flex-1 min-w-0">
-                      <div class="font-semibold truncate" [title]="item.name">
-                        {{ item.name }}
-                      </div>
-                      @if (item.status === 'in-progress' && item.progress !==
-                      undefined) {
-                      <div class="flex items-center gap-2 mt-1">
-                        <progress
-                          class="progress progress-secondary w-32 h-1"
-                          [value]="item.progress"
-                          max="100"
-                        ></progress>
-                        <span class="text-xs text-base-content/60"
-                          >{{ item.progress }}%</span
-                        >
-                      </div>
-                      } @if (item.status === 'error' && item.errorMessage) {
-                      <p class="text-sm text-error mt-1">
-                        {{ item.errorMessage }}
-                      </p>
-                      }
-                    </div>
-                  </div>
-
-                  <!-- Retry button for failed items -->
-                  @if (item.status === 'error') { @if (canRetry(item.id)) {
-                  <button
-                    class="btn btn-error btn-sm"
-                    (click)="onRetryItem(item.id)"
-                    [attr.aria-label]="
-                      'Retry ' +
-                      item.name +
-                      ' (' +
-                      getRemainingRetries(item.id) +
-                      ' attempts remaining)'
-                    "
-                  >
-                    <lucide-angular
-                      [img]="RotateCwIcon"
-                      class="h-4 w-4"
-                      aria-hidden="true"
-                    />
-                    Retry ({{ getRemainingRetries(item.id) }} left)
-                  </button>
-                  } @else {
-                  <span class="text-error text-sm font-medium"
-                    >Max retries reached</span
-                  >
-                  } }
-                </div>
-              </div>
-            </div>
-            }
-          </div>
-        </div>
-        }
-
-        <!-- Skill Files Section -->
-        @if (skillFileItems().length > 0) {
-        <div class="mb-4">
-          <h3
-            class="text-sm font-medium uppercase mb-4 flex items-center gap-2"
-          >
-            <span class="badge badge-accent badge-lg">📝</span>
-            Orchestration Skill Files
-            <span class="text-sm text-base-content/60 font-normal">
-              ({{ getCompletedCountByType('skill-file') }}/{{
-                skillFileItems().length
-              }})
-            </span>
-          </h3>
-          <div class="space-y-3">
-            @for (item of skillFileItems(); track item.id) {
-            <div
-              class="card card-compact bg-base-100 shadow-md"
-              [class.border-error]="item.status === 'error'"
-              [class.border-l-4]="item.status === 'error'"
-            >
-              <div class="card-body">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-3 flex-1 min-w-0">
-                    <!-- Status indicator -->
-                    @switch (item.status) { @case ('pending') {
-                    <div class="badge badge-outline badge-sm">Pending</div>
-                    } @case ('in-progress') {
-                    <span
-                      class="loading loading-spinner loading-sm text-accent"
-                    ></span>
-                    } @case ('complete') {
-                    <lucide-angular
-                      [img]="CircleCheckIcon"
-                      class="h-4 w-4 text-success"
-                      aria-hidden="true"
-                    />
-                    } @case ('error') {
-                    <lucide-angular
-                      [img]="CircleAlertIcon"
-                      class="h-4 w-4 text-error"
-                      aria-hidden="true"
-                    />
-                    } }
-
-                    <!-- Item name and progress -->
-                    <div class="flex-1 min-w-0">
-                      <div class="font-semibold truncate" [title]="item.name">
-                        {{ item.name }}
-                      </div>
-                      @if (item.status === 'in-progress' && item.progress !==
-                      undefined) {
-                      <div class="flex items-center gap-2 mt-1">
-                        <progress
-                          class="progress progress-accent w-32 h-1"
-                          [value]="item.progress"
-                          max="100"
-                        ></progress>
-                        <span class="text-xs text-base-content/60"
-                          >{{ item.progress }}%</span
-                        >
-                      </div>
-                      } @if (item.status === 'error' && item.errorMessage) {
-                      <p class="text-sm text-error mt-1">
-                        {{ item.errorMessage }}
-                      </p>
-                      }
-                    </div>
-                  </div>
-
-                  <!-- Retry button for failed items -->
-                  @if (item.status === 'error') { @if (canRetry(item.id)) {
-                  <button
-                    class="btn btn-error btn-sm"
-                    (click)="onRetryItem(item.id)"
-                    [attr.aria-label]="
-                      'Retry ' +
-                      item.name +
-                      ' (' +
-                      getRemainingRetries(item.id) +
-                      ' attempts remaining)'
-                    "
-                  >
-                    <lucide-angular
-                      [img]="RotateCwIcon"
-                      class="h-4 w-4"
-                      aria-hidden="true"
-                    />
-                    Retry ({{ getRemainingRetries(item.id) }} left)
-                  </button>
-                  } @else {
-                  <span class="text-error text-sm font-medium"
-                    >Max retries reached</span
-                  >
-                  } }
-                </div>
-              </div>
-            </div>
-            }
-          </div>
-        </div>
-        }
-
-        <!-- Enhanced Prompts Section -->
-        @if (isAgentGenerationComplete()) {
-        <div class="mb-4">
-          <h3
-            class="text-sm font-medium uppercase mb-4 flex items-center gap-2"
-          >
-            <span class="badge badge-warning badge-lg">
-              <lucide-angular
-                [img]="SparklesIcon"
-                class="h-4 w-4"
-                aria-hidden="true"
-              />
-            </span>
-            Enhanced Prompts @if (enhancedPromptsStatus() === 'complete') {
-            <span class="text-sm text-base-content/60 font-normal">
-              (Generated)
-            </span>
-            } @else if (enhancedPromptsStatus() === 'error') {
-            <span class="text-sm text-error font-normal"> (Failed) </span>
-            }
-          </h3>
-          <div
-            class="card card-compact bg-base-100 shadow-md"
-            [class.border-error]="enhancedPromptsStatus() === 'error'"
-            [class.border-l-4]="enhancedPromptsStatus() === 'error'"
-          >
-            <div class="card-body">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3 flex-1 min-w-0">
-                  <!-- Status indicator -->
-                  @switch (enhancedPromptsStatus()) { @case ('idle') {
-                  <div class="badge badge-outline badge-sm">Pending</div>
-                  } @case ('generating') {
-                  <span
-                    class="loading loading-spinner loading-sm text-warning"
-                  ></span>
-                  } @case ('complete') {
-                  <lucide-angular
-                    [img]="CircleCheckIcon"
-                    class="h-4 w-4 text-success"
-                    aria-hidden="true"
-                  />
-                  } @case ('error') {
-                  <lucide-angular
-                    [img]="CircleAlertIcon"
-                    class="h-4 w-4 text-error"
-                    aria-hidden="true"
-                  />
-                  } @case ('skipped') {
-                  <div class="badge badge-ghost badge-sm">Skipped</div>
-                  } }
-
-                  <div class="flex-1 min-w-0">
-                    <div class="font-semibold">
-                      Project-Specific Prompt Guidance
-                    </div>
-                    <p class="text-sm text-base-content/60 mt-0.5">
-                      @switch (enhancedPromptsStatus()) { @case ('idle') {
-                      Waiting for agent generation to complete... } @case
-                      ('generating') { Analyzing workspace and generating
-                      project-specific guidance... } @case ('complete') {
-                      Enhanced prompts generated and enabled for your workspace.
-                      @if (enhancedPromptsStack().length > 0) {
-                      <span class="block mt-1">
-                        Detected:
-                        {{ enhancedPromptsStack().join(', ') }}
-                      </span>
-                      } } @case ('error') {
-                      {{ enhancedPromptsErrorMsg() }}
-                      } @case ('skipped') { Skipped (requires Pro license). } }
-                    </p>
-                  </div>
-                </div>
-
-                @if (enhancedPromptsStatus() === 'error') {
-                <span class="badge badge-error badge-sm">Failed</span>
-                }
-              </div>
-            </div>
-          </div>
-        </div>
-        }
-
-        <!-- Empty state -->
+        <!-- Empty/initializing state (full-width, no grid) -->
         @if (totalCount() === 0) { @if (hasCompletedWithError()) {
-        <!-- Generation failed before items were created (e.g. template loading error) -->
         <div class="card bg-base-200 shadow-xl">
           <div class="card-body items-center text-center py-12">
             <lucide-angular
@@ -526,12 +83,177 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
             </p>
           </div>
         </div>
-        } }
+        } } @else {
 
-        <!-- Completion section (visible when agents AND Enhanced Prompts are done) -->
+        <!-- Two-column grid layout -->
+        <div class="grid grid-cols-5 gap-4">
+          <!-- LEFT COLUMN: Agent Activity Log (60%) -->
+          <div class="col-span-3">
+            <div class="bg-base-200 rounded-box p-4">
+              <div
+                class="text-sm font-medium uppercase mb-3 flex items-center gap-2"
+              >
+                Agent Activity Log @if (hasStreamMessages()) {
+                <span class="badge badge-sm">{{ streamMessageCount() }}</span>
+                }
+              </div>
+              <div class="max-h-[70vh] overflow-y-auto">
+                <ptah-analysis-transcript [messages]="generationStream()" />
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT COLUMN: Progress + Item Status (40%, sticky) -->
+          <div
+            class="col-span-2 sticky top-0 self-start max-h-screen overflow-y-auto"
+          >
+            <div class="space-y-3">
+              <!-- Overall Progress Card -->
+              <div class="card bg-base-200 shadow-xl">
+                <div class="card-body">
+                  <div class="flex justify-between items-center mb-2">
+                    <span class="text-lg font-semibold">Overall Progress</span>
+                    <span class="text-lg font-bold text-primary">
+                      {{ completionPercentage() }}%
+                    </span>
+                  </div>
+                  <progress
+                    class="progress progress-primary w-full h-4"
+                    [value]="completionPercentage()"
+                    max="100"
+                    role="progressbar"
+                    [attr.aria-valuenow]="completionPercentage()"
+                    [attr.aria-valuemin]="0"
+                    [attr.aria-valuemax]="100"
+                    aria-label="Overall generation progress"
+                  ></progress>
+                  <div
+                    class="flex justify-between text-sm text-base-content/60 mt-2"
+                  >
+                    <span
+                      >{{ completedCount() }} of {{ totalCount() }} items
+                      completed</span
+                    >
+                    @if (failedCount() > 0) {
+                    <span class="text-error">{{ failedCount() }} failed</span>
+                    }
+                  </div>
+                </div>
+              </div>
+
+              <!-- Agents Section -->
+              @if (agentItems().length > 0) {
+              <div>
+                <h3
+                  class="text-sm font-medium uppercase mb-3 flex items-center gap-2"
+                >
+                  <span class="badge badge-primary badge-lg">🤖</span>
+                  Agent Files
+                  <span class="text-sm text-base-content/60 font-normal">
+                    ({{ getCompletedCountByType('agent') }}/{{
+                      agentItems().length
+                    }})
+                  </span>
+                </h3>
+                <div class="space-y-2">
+                  @for (item of agentItems(); track item.id) {
+                  <div
+                    class="card card-compact bg-base-100 shadow-md"
+                    [class.border-error]="item.status === 'error'"
+                    [class.border-l-4]="item.status === 'error'"
+                  >
+                    <div class="card-body">
+                      <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3 flex-1 min-w-0">
+                          @switch (item.status) { @case ('pending') {
+                          <div class="badge badge-outline badge-sm">
+                            Pending
+                          </div>
+                          } @case ('in-progress') {
+                          <span
+                            class="loading loading-spinner loading-sm text-primary"
+                          ></span>
+                          } @case ('complete') {
+                          <lucide-angular
+                            [img]="CircleCheckIcon"
+                            class="h-4 w-4 text-success"
+                            aria-hidden="true"
+                          />
+                          } @case ('error') {
+                          <lucide-angular
+                            [img]="CircleAlertIcon"
+                            class="h-4 w-4 text-error"
+                            aria-hidden="true"
+                          />
+                          } }
+                          <div class="flex-1 min-w-0">
+                            <div
+                              class="font-semibold truncate"
+                              [title]="item.name"
+                            >
+                              {{ item.name }}
+                            </div>
+                            @if (item.status === 'in-progress' && item.progress
+                            !== undefined) {
+                            <div class="flex items-center gap-2 mt-1">
+                              <progress
+                                class="progress progress-primary w-24 h-1"
+                                [value]="item.progress"
+                                max="100"
+                              ></progress>
+                              <span class="text-xs text-base-content/60"
+                                >{{ item.progress }}%</span
+                              >
+                            </div>
+                            } @if (item.status === 'error' && item.errorMessage)
+                            {
+                            <p class="text-sm text-error mt-1">
+                              {{ item.errorMessage }}
+                            </p>
+                            }
+                          </div>
+                        </div>
+                        @if (item.status === 'error') { @if (canRetry(item.id))
+                        {
+                        <button
+                          class="btn btn-error btn-xs"
+                          (click)="onRetryItem(item.id)"
+                          [attr.aria-label]="
+                            'Retry ' +
+                            item.name +
+                            ' (' +
+                            getRemainingRetries(item.id) +
+                            ' attempts remaining)'
+                          "
+                        >
+                          <lucide-angular
+                            [img]="RotateCwIcon"
+                            class="h-3 w-3"
+                            aria-hidden="true"
+                          />
+                          Retry
+                        </button>
+                        } @else {
+                        <span class="text-error text-xs font-medium"
+                          >Max retries</span
+                        >
+                        } }
+                      </div>
+                    </div>
+                  </div>
+                  }
+                </div>
+              </div>
+              }
+            </div>
+          </div>
+        </div>
+        <!-- End two-column grid -->
+
+        <!-- Completion section (full-width below grid) -->
         @if (isFullyComplete()) {
         <div
-          class="alert mb-6"
+          class="alert mt-4 mb-6"
           [class.alert-success]="failedCount() === 0"
           [class.alert-warning]="failedCount() > 0"
         >
@@ -571,10 +293,10 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
               class="h-5 w-5"
               aria-hidden="true"
             />
-            Continue to Completion
+            Continue to Enhance
           </button>
         </div>
-        }
+        } }
       </div>
     </div>
   `,
@@ -589,7 +311,6 @@ export class GenerationProgressComponent implements OnDestroy {
   protected readonly RotateCwIcon = RotateCw;
   protected readonly CheckIcon = Check;
   protected readonly TriangleAlertIcon = TriangleAlert;
-  protected readonly SparklesIcon = Sparkles;
 
   /**
    * Maximum retry attempts per item.
@@ -648,20 +369,6 @@ export class GenerationProgressComponent implements OnDestroy {
   });
 
   /**
-   * Items filtered by type: command.
-   */
-  protected readonly commandItems = computed(() => {
-    return this.progressItems().filter((item) => item.type === 'command');
-  });
-
-  /**
-   * Items filtered by type: skill-file.
-   */
-  protected readonly skillFileItems = computed(() => {
-    return this.progressItems().filter((item) => item.type === 'skill-file');
-  });
-
-  /**
    * Total count of all items.
    */
   protected readonly totalCount = computed(() => {
@@ -691,35 +398,16 @@ export class GenerationProgressComponent implements OnDestroy {
   });
 
   /**
-   * Whether all agent/command/skill items are complete (success or error).
+   * Whether all agent items are complete (success or error).
    */
   protected readonly isAgentGenerationComplete = computed(() => {
     return this.wizardState.isGenerationComplete();
   });
 
   /**
-   * Enhanced Prompts generation status from state service.
-   */
-  protected readonly enhancedPromptsStatus =
-    this.wizardState.enhancedPromptsStatus;
-
-  /**
-   * Enhanced Prompts error message.
-   */
-  protected readonly enhancedPromptsErrorMsg =
-    this.wizardState.enhancedPromptsError;
-
-  /**
-   * Enhanced Prompts detected stack labels.
-   */
-  protected readonly enhancedPromptsStack = computed(() => {
-    return this.wizardState.enhancedPromptsDetectedStack() ?? [];
-  });
-
-  /**
    * Whether generation is fully complete.
-   * The "Continue to Completion" button only appears when this is true.
-   * Enhanced Prompts generation now runs in the preceding Enhance step.
+   * The "Continue to Enhance" button only appears when this is true.
+   * Enhanced Prompts generation runs in the subsequent Enhance step.
    */
   protected readonly isFullyComplete = computed(() => {
     return this.wizardState.isGenerationComplete();
@@ -744,26 +432,13 @@ export class GenerationProgressComponent implements OnDestroy {
     return this.wizardState.completionData()?.errors ?? [];
   });
 
-  /**
-   * Auto-transition to completion when generation finished during a prior step.
-   * If the user arrives at the generation step and completionData already exists
-   * with progress items tracked, transition to completion immediately.
-   */
-  private readonly autoCompleteEffect = effect(() => {
-    const completion = this.wizardState.completionData();
-    const items = this.progressItems();
-    // Only auto-transition if generation produced tracked items that are all done
-    if (completion && items.length > 0 && this.isFullyComplete()) {
-      queueMicrotask(() => this.wizardState.setCurrentStep('completion'));
-    }
-  });
+  // Auto-transition handled by SetupWizardStateService.handleGenerationComplete()
+  // to avoid duplicate navigation to 'enhance' step.
 
   /**
    * Get completed count for a specific item type.
    */
-  protected getCompletedCountByType(
-    type: 'agent' | 'command' | 'skill-file'
-  ): number {
+  protected getCompletedCountByType(type: 'agent'): number {
     return this.progressItems().filter(
       (item) => item.type === type && item.status === 'complete'
     ).length;
@@ -856,10 +531,10 @@ export class GenerationProgressComponent implements OnDestroy {
   }
 
   /**
-   * Continue to completion step.
+   * Continue to enhance step.
    */
   protected onContinue(): void {
-    this.wizardState.setCurrentStep('completion');
+    this.wizardState.setCurrentStep('enhance');
   }
 
   /**

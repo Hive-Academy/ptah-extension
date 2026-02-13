@@ -1,0 +1,11 @@
+{
+  "name": "hive-academy-core",
+  "description": "Core development skills - Workflow orchestration, cloud tools, DDD architecture, content creation, and UI/UX design",
+  "version": "1.0.0",
+  "author": {
+    "name": "Hive Academy"
+  },
+  "repository": "https://github.com/Hive-Academy/ptah-claude-plugins",
+  "homepage": "https://github.com/Hive-Academy/ptah-claude-plugins",
+  "license": "MIT"
+}

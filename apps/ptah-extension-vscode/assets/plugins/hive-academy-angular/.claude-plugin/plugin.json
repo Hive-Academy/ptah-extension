@@ -1,0 +1,11 @@
+{
+  "name": "hive-academy-angular",
+  "description": "Angular development toolkit - Modern patterns, GSAP scroll animations, and Three.js 3D scenes",
+  "version": "1.0.0",
+  "author": {
+    "name": "Hive Academy"
+  },
+  "repository": "https://github.com/Hive-Academy/ptah-claude-plugins",
+  "homepage": "https://github.com/Hive-Academy/ptah-claude-plugins",
+  "license": "MIT"
+}

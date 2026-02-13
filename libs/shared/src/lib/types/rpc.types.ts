@@ -18,7 +18,12 @@ import type {
   SubagentQueryParams,
   SubagentQueryResult,
 } from './subagent-registry.types';
-import type { AgentRecommendation } from './setup-wizard.types';
+import type {
+  ProjectAnalysisResult,
+  AgentRecommendation,
+  SavedAnalysisMetadata,
+  SavedAnalysisFile,
+} from './setup-wizard.types';
 import type {
   ProjectIntelligence,
   QualityHistoryEntry,
@@ -630,7 +635,10 @@ export interface SetupWizardLaunchResponse {
 }
 
 /** Parameters for wizard:deep-analyze RPC method */
-export type WizardDeepAnalyzeParams = Record<string, never>;
+export interface WizardDeepAnalyzeParams {
+  /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
+  model?: string;
+}
 
 /**
  * Response from wizard:deep-analyze RPC method
@@ -678,6 +686,10 @@ export interface WizardSubmitSelectionParams {
   threshold?: number;
   /** Variable overrides for template rendering */
   variableOverrides?: Record<string, string>;
+  /** Pre-computed analysis from wizard Step 1 — used as single source of truth for generation */
+  analysisData: ProjectAnalysisResult;
+  /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
+  model?: string;
 }
 
 /** Response from wizard:submit-selection RPC method */
@@ -847,6 +859,10 @@ export interface EnhancedPromptsRunWizardParams {
   workspacePath: string;
   /** Optional configuration overrides */
   config?: EnhancedPromptsConfigOptions;
+  /** Pre-computed analysis from wizard Step 1 — used as single source of truth for prompt generation */
+  analysisData: ProjectAnalysisResult;
+  /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
+  model?: string;
 }
 
 /** Response from enhancedPrompts:runWizard RPC method */
@@ -1033,6 +1049,38 @@ export interface QualityExportResult {
 }
 
 // ============================================================
+// Plugin Configuration RPC Types (TASK_2025_153)
+// ============================================================
+
+/** Plugin metadata for UI display */
+export interface PluginInfo {
+  /** Unique plugin identifier (directory name, e.g., 'hive-academy-core') */
+  id: string;
+  /** Human-readable plugin name */
+  name: string;
+  /** Plugin description */
+  description: string;
+  /** Plugin category for grouping in UI */
+  category: 'core-tools' | 'backend-tools' | 'frontend-tools';
+  /** Number of skills in this plugin */
+  skillCount: number;
+  /** Number of commands in this plugin */
+  commandCount: number;
+  /** Whether this plugin is recommended as default */
+  isDefault: boolean;
+  /** Search keywords for filtering */
+  keywords: string[];
+}
+
+/** Per-workspace plugin configuration state */
+export interface PluginConfigState {
+  /** Array of enabled plugin IDs */
+  enabledPluginIds: string[];
+  /** ISO timestamp of last configuration change */
+  lastUpdated?: string;
+}
+
+// ============================================================
 // RPC Method Registry (Compile-Time Enforcement)
 // ============================================================
 
@@ -1164,6 +1212,23 @@ export interface RpcMethodRegistry {
     params: WizardRetryItemParams;
     result: WizardRetryItemResponse;
   };
+  // Wizard Analysis History Methods (Persistent Analysis)
+  'wizard:save-analysis': {
+    params: {
+      analysis: ProjectAnalysisResult;
+      recommendations: AgentRecommendation[];
+      method: 'agentic' | 'fallback';
+    };
+    result: { success: boolean; filename: string };
+  };
+  'wizard:list-analyses': {
+    params: Record<string, never>;
+    result: { analyses: SavedAnalysisMetadata[] };
+  };
+  'wizard:load-analysis': {
+    params: { filename: string };
+    result: SavedAnalysisFile;
+  };
 
   // ---- License Methods ----
   'license:getStatus': {
@@ -1246,6 +1311,15 @@ export interface RpcMethodRegistry {
     params: EnhancedPromptsRegenerateParams;
     result: EnhancedPromptsRegenerateResponse;
   };
+  // TASK_2025_149 Batch 5: Settings UI prompt content & download
+  'enhancedPrompts:getPromptContent': {
+    params: { workspacePath: string };
+    result: { content: string | null; error?: string };
+  };
+  'enhancedPrompts:download': {
+    params: { workspacePath: string };
+    result: { success: boolean; filePath?: string; error?: string };
+  };
 
   // ---- Quality Dashboard Methods (TASK_2025_144) ----
   'quality:getAssessment': {
@@ -1259,6 +1333,20 @@ export interface RpcMethodRegistry {
   'quality:export': {
     params: QualityExportParams;
     result: QualityExportResult;
+  };
+
+  // ---- Plugin Methods (TASK_2025_153) ----
+  'plugins:list-available': {
+    params: Record<string, never>;
+    result: { plugins: PluginInfo[] };
+  };
+  'plugins:get-config': {
+    params: Record<string, never>;
+    result: PluginConfigState;
+  };
+  'plugins:save-config': {
+    params: { enabledPluginIds: string[] };
+    result: { success: boolean; error?: string };
   };
 }
 
@@ -1323,6 +1411,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'wizard:submit-selection',
   'wizard:cancel',
   'wizard:retry-item',
+  // Wizard Analysis History Methods (Persistent Analysis)
+  'wizard:save-analysis',
+  'wizard:list-analyses',
+  'wizard:load-analysis',
 
   // License Methods
   'license:getStatus',
@@ -1354,11 +1446,19 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'enhancedPrompts:runWizard',
   'enhancedPrompts:setEnabled',
   'enhancedPrompts:regenerate',
+  // TASK_2025_149 Batch 5: Settings UI prompt content & download
+  'enhancedPrompts:getPromptContent',
+  'enhancedPrompts:download',
 
   // Quality Dashboard Methods (TASK_2025_144)
   'quality:getAssessment',
   'quality:getHistory',
   'quality:export',
+
+  // Plugin Methods (TASK_2025_153)
+  'plugins:list-available',
+  'plugins:get-config',
+  'plugins:save-config',
 ] as const;
 
 /**

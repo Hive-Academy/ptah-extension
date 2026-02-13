@@ -1,0 +1,11 @@
+{
+  "name": "hive-academy-react",
+  "description": "React/Next.js development toolkit - Performance patterns, composition architecture, and Nx monorepo integration",
+  "version": "1.0.0",
+  "author": {
+    "name": "Hive Academy"
+  },
+  "repository": "https://github.com/Hive-Academy/ptah-claude-plugins",
+  "homepage": "https://github.com/Hive-Academy/ptah-claude-plugins",
+  "license": "MIT"
+}
