@@ -69,3 +69,6 @@ export {
 
 // Prompt constants (TASK_2025_135)
 export { PTAH_BEHAVIORAL_PROMPT } from './prompt-constants';
+
+// Plugin loader (TASK_2025_153)
+export { PluginLoaderService } from './plugin-loader.service';

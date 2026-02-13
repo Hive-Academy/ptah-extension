@@ -200,12 +200,12 @@
 
 ---
 
-## Batch 2: Backend Service + RPC Handlers (Phase 3 + 4) PENDING
+## Batch 2: Backend Service + RPC Handlers (Phase 3 + 4) IMPLEMENTED
 
 **Developer**: backend-developer
 **Tasks**: 5 | **Dependencies**: Batch 1
 
-### Task 2.1: Create PluginLoaderService PENDING
+### Task 2.1: Create PluginLoaderService IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\plugin-loader.service.ts`
 **Spec Reference**: implementation-plan.md Phase 3.1
@@ -241,7 +241,7 @@
 
 ---
 
-### Task 2.2: Register PluginLoaderService in DI PENDING
+### Task 2.2: Register PluginLoaderService in DI IMPLEMENTED
 
 **Files**:
 
@@ -300,7 +300,7 @@ And re-export the token:
 
 ---
 
-### Task 2.3: Initialize PluginLoaderService from main.ts PENDING
+### Task 2.3: Initialize PluginLoaderService from main.ts IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\main.ts`
 **Pattern to Follow**: How `registerAgentGenerationServices` passes `context.extensionPath` (in container.ts line 323)
@@ -326,7 +326,7 @@ pluginLoader.initialize(context.extensionPath, context.workspaceState);
 
 ---
 
-### Task 2.4: Create PluginRpcHandlers PENDING
+### Task 2.4: Create PluginRpcHandlers IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\plugin-rpc.handlers.ts`
 **Pattern to Follow**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\license-rpc.handlers.ts` (simple handler with DI injection)
@@ -353,7 +353,7 @@ pluginLoader.initialize(context.extensionPath, context.workspaceState);
 
 ---
 
-### Task 2.5: Register PluginRpcHandlers in container and RPC registration PENDING
+### Task 2.5: Register PluginRpcHandlers in container and RPC registration IMPLEMENTED
 
 **Files**:
 

@@ -81,6 +81,10 @@ export const SDK_TOKENS = {
   // Internal Query Service (TASK_2025_145)
   // One-shot SDK query execution, separate from interactive chat path
   SDK_INTERNAL_QUERY_SERVICE: Symbol.for('SdkInternalQueryService'),
+
+  // Plugin Loader Service (TASK_2025_153)
+  // Manages plugin metadata and per-workspace plugin configuration
+  SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader'),
 } as const;
 
 /**

@@ -47,6 +47,7 @@ import {
   EnhancedPromptsService,
 } from '../prompt-harness';
 import { InternalQueryService } from '../internal-query';
+import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -291,6 +292,16 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
     { useClass: InternalQueryService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Plugin Loader Service (TASK_2025_153)
+  // Manages plugin discovery and per-workspace configuration
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_PLUGIN_LOADER,
+    { useClass: PluginLoaderService },
     { lifecycle: Lifecycle.Singleton }
   );
 

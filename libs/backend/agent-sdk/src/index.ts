@@ -142,11 +142,29 @@ export type {
   EnhancedPromptsStatus,
   EnhancedPromptsConfig,
   EnhancedPromptsWizardResult,
+  EnhancedPromptsSummary,
   EnhancedPromptsSdkConfig,
   DetectedStack,
   RegeneratePromptsRequest,
   RegeneratePromptsResponse,
 } from './lib/prompt-harness';
+
+// ============================================================
+// Plugin Loader Service (TASK_2025_153)
+// ============================================================
+export { PluginLoaderService } from './lib/helpers';
+
+// ============================================================
+// Stream Processing (shared SDK stream processor)
+// ============================================================
+export { SdkStreamProcessor } from './lib/stream-processing';
+export type {
+  SdkStreamProcessorConfig,
+  StreamEventEmitter,
+  StreamEvent,
+  PhaseTracker,
+  StreamProcessorResult,
+} from './lib/stream-processing';
 
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';

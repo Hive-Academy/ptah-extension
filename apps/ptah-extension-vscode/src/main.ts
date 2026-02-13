@@ -442,6 +442,25 @@ export async function activate(
       '[Activate] Step 7: SDK authentication initialization complete'
     );
 
+    // Step 7.1.5: Initialize plugin loader with extension path (TASK_2025_153)
+    console.log('[Activate] Step 7.1.5: Initializing plugin loader...');
+    try {
+      const { SDK_TOKENS, PluginLoaderService } = require('@ptah-extension/agent-sdk');
+      const pluginLoader = DIContainer.getContainer().resolve<InstanceType<typeof PluginLoaderService>>(
+        SDK_TOKENS.SDK_PLUGIN_LOADER
+      );
+      pluginLoader.initialize(context.extensionPath, context.workspaceState);
+      logger.info('Plugin loader initialized');
+    } catch (pluginLoaderError) {
+      logger.debug('Plugin loader initialization failed', {
+        error:
+          pluginLoaderError instanceof Error
+            ? pluginLoaderError.message
+            : String(pluginLoaderError),
+      });
+    }
+    console.log('[Activate] Step 7.1.5: Plugin loader initialized');
+
     // Step 7.2: Pre-fetch model pricing from OpenRouter (non-blocking, no auth needed)
     // OpenRouter's /api/v1/models endpoint is publicly accessible and returns
     // pricing data for 200+ models. This replaces hardcoded pricing with live data.
