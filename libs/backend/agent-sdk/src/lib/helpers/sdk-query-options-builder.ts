@@ -31,6 +31,7 @@ import {
   HookEvent,
   HookCallbackMatcher,
   McpHttpServerConfig,
+  SdkPluginConfig,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import { getAnthropicProvider } from './anthropic-provider-registry';
@@ -155,6 +156,12 @@ export interface QueryOptionsInput {
    * instead of the default PTAH_CORE_SYSTEM_PROMPT.
    */
   enhancedPromptsContent?: string;
+  /**
+   * Plugin paths to load for this session (TASK_2025_153)
+   * Absolute paths to plugin directories resolved by PluginLoaderService.
+   * Only populated for premium users with configured plugins.
+   */
+  pluginPaths?: string[];
 }
 
 /**
@@ -184,6 +191,8 @@ export interface SdkQueryOptions {
   env?: Record<string, string | undefined>;
   stderr?: (data: string) => void;
   hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  /** Plugins to load for this session (TASK_2025_153) */
+  plugins?: SdkPluginConfig[];
   /** SDK compaction control configuration (TASK_2025_098) */
   compactionControl?: {
     enabled: boolean;
@@ -255,6 +264,7 @@ export class SdkQueryOptionsBuilder {
       isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
+      pluginPaths,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -308,6 +318,7 @@ export class SdkQueryOptionsBuilder {
       isPremium,
       mcpEnabled: isPremium,
       hasEnhancedPrompts: !!enhancedPromptsContent,
+      pluginCount: pluginPaths?.length ?? 0,
     });
 
     return {
@@ -339,6 +350,8 @@ export class SdkQueryOptionsBuilder {
           this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
         },
         hooks,
+        // Plugins for this session (TASK_2025_153)
+        plugins: this.buildPlugins(pluginPaths),
         // SDK compaction control (TASK_2025_098)
         // Only include when enabled to avoid sending unnecessary options
         compactionControl: compactionConfig.enabled
@@ -481,6 +494,23 @@ export class SdkQueryOptionsBuilder {
       return Math.floor(sessionConfig.maxTokens / 1000);
     }
     return undefined;
+  }
+
+  /**
+   * Build SDK plugin configuration from resolved paths
+   *
+   * Converts absolute directory paths to SdkPluginConfig format expected by the SDK.
+   * Returns undefined (not empty array) when no plugins are configured,
+   * avoiding sending unnecessary empty arrays to the SDK.
+   *
+   * @param pluginPaths - Absolute paths to plugin directories (from PluginLoaderService)
+   * @returns Array of SdkPluginConfig for SDK, or undefined if no plugins
+   */
+  private buildPlugins(pluginPaths?: string[]): SdkPluginConfig[] | undefined {
+    if (!pluginPaths || pluginPaths.length === 0) {
+      return undefined;
+    }
+    return pluginPaths.map((p) => ({ type: 'local' as const, path: p }));
   }
 
   /**

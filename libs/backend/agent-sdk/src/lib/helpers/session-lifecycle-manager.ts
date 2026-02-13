@@ -110,6 +110,12 @@ export interface ExecuteQueryConfig {
    * Resolved by the caller (ChatRpcHandlers) from EnhancedPromptsService.
    */
   enhancedPromptsContent?: string;
+  /**
+   * Plugin paths to load for this session (TASK_2025_153)
+   * Absolute paths to plugin directories resolved by PluginLoaderService.
+   * Passed through to SdkQueryOptionsBuilder.
+   */
+  pluginPaths?: string[];
 }
 
 /**
@@ -445,6 +451,7 @@ export class SessionLifecycleManager {
       isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
+      pluginPaths,
     } = config;
 
     this.logger.info(
@@ -503,6 +510,7 @@ export class SessionLifecycleManager {
       isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
+      pluginPaths,
     });
 
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {

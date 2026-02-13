@@ -22,6 +22,7 @@ import {
   SdkAgentAdapter,
   SessionHistoryReaderService,
   SDK_TOKENS,
+  PluginLoaderService,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-sdk';
 
@@ -68,7 +69,9 @@ export class ChatRpcHandlers {
     @inject(TOKENS.CODE_EXECUTION_MCP)
     private readonly codeExecutionMcp: CodeExecutionMCP,
     @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
-    private readonly enhancedPromptsService: EnhancedPromptsService
+    private readonly enhancedPromptsService: EnhancedPromptsService,
+    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
+    private readonly pluginLoader: PluginLoaderService
   ) {}
 
   /**
@@ -133,6 +136,44 @@ export class ChatRpcHandlers {
   }
 
   /**
+   * Resolve plugin paths for premium users (TASK_2025_153)
+   *
+   * Reads workspace plugin configuration and resolves to absolute paths.
+   * Only returns paths for premium users. Non-premium users get no plugins.
+   *
+   * @param isPremium - Whether the user has premium features
+   * @returns Resolved plugin directory paths, or undefined if none
+   */
+  private resolvePluginPaths(isPremium: boolean): string[] | undefined {
+    if (!isPremium) {
+      return undefined;
+    }
+
+    try {
+      const config = this.pluginLoader.getWorkspacePluginConfig();
+      if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
+        return undefined;
+      }
+      const paths = this.pluginLoader.resolvePluginPaths(
+        config.enabledPluginIds
+      );
+      if (paths.length === 0) {
+        return undefined;
+      }
+      this.logger.debug('Resolved plugin paths for session', {
+        enabledCount: config.enabledPluginIds.length,
+        resolvedCount: paths.length,
+      });
+      return paths;
+    } catch (error) {
+      this.logger.debug('Failed to resolve plugin paths', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  }
+
+  /**
    * Register all chat RPC methods
    */
   register(): void {
@@ -177,6 +218,9 @@ export class ChatRpcHandlers {
           const enhancedPromptsContent =
             await this.resolveEnhancedPromptsContent(workspacePath, isPremium);
 
+          // TASK_2025_153: Resolve plugin paths for premium users
+          const pluginPaths = this.resolvePluginPaths(isPremium);
+
           // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
           const currentModel =
             options?.model ||
@@ -214,6 +258,7 @@ export class ChatRpcHandlers {
             isPremium, // TASK_2025_108: Enable premium features for licensed users
             mcpServerRunning, // TASK_2025_108: MCP server availability check
             enhancedPromptsContent, // TASK_2025_151: AI-generated system prompt for premium users
+            pluginPaths, // TASK_2025_153: Plugin directory paths for SDK
           });
 
           // Stream ExecutionNodes to webview (background - don't await)
@@ -276,6 +321,9 @@ export class ChatRpcHandlers {
                 isPremium
               );
 
+            // TASK_2025_153: Resolve plugin paths for premium users
+            const pluginPaths = this.resolvePluginPaths(isPremium);
+
             // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
             const currentModel =
               params.model ||
@@ -287,12 +335,14 @@ export class ChatRpcHandlers {
             // Resume the session to reconnect to Claude's conversation context
             // TASK_2025_108: Pass isPremium and mcpServerRunning to maintain premium features in resumed sessions
             // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
+            // TASK_2025_153: Pass pluginPaths for session plugin loading
             const stream = await this.sdkAdapter.resumeSession(sessionId, {
               projectPath: workspacePath,
               model: currentModel,
               isPremium,
               mcpServerRunning,
               enhancedPromptsContent,
+              pluginPaths,
             });
 
             // Start streaming responses to webview (background - don't await)

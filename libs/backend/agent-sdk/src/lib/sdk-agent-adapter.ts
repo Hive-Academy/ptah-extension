@@ -352,6 +352,11 @@ export class SdkAgentAdapter implements IAIProvider {
        * When provided, appended to system prompt instead of PTAH_CORE_SYSTEM_PROMPT.
        */
       enhancedPromptsContent?: string;
+      /**
+       * Plugin directory paths for this session (TASK_2025_153)
+       * Resolved by PluginLoaderService for premium users.
+       */
+      pluginPaths?: string[];
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -365,6 +370,7 @@ export class SdkAgentAdapter implements IAIProvider {
       isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
+      pluginPaths,
     } = config;
     const trackingId = tabId as SessionId;
 
@@ -387,6 +393,7 @@ export class SdkAgentAdapter implements IAIProvider {
         isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
+        pluginPaths,
       }
     );
 
@@ -451,6 +458,11 @@ export class SdkAgentAdapter implements IAIProvider {
        * When provided, appended to system prompt instead of PTAH_CORE_SYSTEM_PROMPT.
        */
       enhancedPromptsContent?: string;
+      /**
+       * Plugin directory paths for this session (TASK_2025_153)
+       * Resolved by PluginLoaderService for premium users.
+       */
+      pluginPaths?: string[];
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -473,10 +485,11 @@ export class SdkAgentAdapter implements IAIProvider {
       });
     }
 
-    // Extract isPremium, mcpServerRunning, and enhancedPromptsContent from config (TASK_2025_108, TASK_2025_151)
+    // Extract isPremium, mcpServerRunning, enhancedPromptsContent, and pluginPaths from config (TASK_2025_108, TASK_2025_151, TASK_2025_153)
     const isPremium = config?.isPremium ?? false;
     const mcpServerRunning = config?.mcpServerRunning ?? true;
     const enhancedPromptsContent = config?.enhancedPromptsContent;
+    const pluginPaths = config?.pluginPaths;
 
     this.logger.info(`[SdkAgentAdapter] Resuming session: ${sessionId}`, {
       isPremium,
@@ -487,6 +500,7 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
+    // TASK_2025_153: Pass pluginPaths for session plugin loading
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId,
@@ -496,6 +510,7 @@ export class SdkAgentAdapter implements IAIProvider {
         isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
+        pluginPaths,
       }
     );
 

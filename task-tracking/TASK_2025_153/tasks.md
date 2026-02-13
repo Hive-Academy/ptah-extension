@@ -402,12 +402,12 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-## Batch 3: SDK Query Wiring (Phase 5) PENDING
+## Batch 3: SDK Query Wiring (Phase 5) IMPLEMENTED
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 2
 
-### Task 3.1: Add pluginPaths to SdkQueryOptionsBuilder PENDING
+### Task 3.1: Add pluginPaths to SdkQueryOptionsBuilder IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts`
 **Pattern to Follow**: How `isPremium` is threaded through the builder (lines 144, 255-258, 310)
@@ -476,7 +476,7 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-### Task 3.2: Thread pluginPaths through SessionLifecycleManager PENDING
+### Task 3.2: Thread pluginPaths through SessionLifecycleManager IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\session-lifecycle-manager.ts`
 **Pattern to Follow**: How `enhancedPromptsContent` is threaded (lines 107-113, 447-449, 505)
@@ -508,7 +508,7 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-### Task 3.3: Thread pluginPaths through SdkAgentAdapter PENDING
+### Task 3.3: Thread pluginPaths through SdkAgentAdapter IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\sdk-agent-adapter.ts`
 **Pattern to Follow**: How `enhancedPromptsContent` is threaded in `startChatSession` (line 349-351) and `resumeSession` (line 448-451)
@@ -565,7 +565,7 @@ export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 
 ---
 
-### Task 3.4: Wire plugin loading in ChatRpcHandlers PENDING
+### Task 3.4: Wire plugin loading in ChatRpcHandlers IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\chat-rpc.handlers.ts`
 **Pattern to Follow**: How `enhancedPromptsContent` is resolved and passed (lines 110-133, 177-178, 215-216)
