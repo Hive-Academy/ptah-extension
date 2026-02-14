@@ -29,7 +29,8 @@ interface CategoryGroup {
   plugins: PluginInfo[];
 }
 
-/** Ordered category definitions for display grouping */
+/** Ordered category definitions for display grouping.
+ * MUST match categories defined in plugin-loader.service.ts AVAILABLE_PLUGINS */
 const CATEGORY_LABELS: Record<PluginInfo['category'], string> = {
   'core-tools': 'Core Tools',
   'backend-tools': 'Backend Tools',
@@ -113,6 +114,14 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
           <span class="block text-sm text-base-content/60 text-center">
             Loading available plugins...
           </span>
+        </div>
+        } @else if (error()) {
+        <!-- Error state -->
+        <div class="flex flex-col items-center gap-3 py-8">
+          <span class="text-error text-sm text-center">{{ error() }}</span>
+          <button class="btn btn-sm btn-ghost" (click)="loadPlugins()" type="button">
+            Try Again
+          </button>
         </div>
         } @else {
         <!-- Search input -->
@@ -225,7 +234,13 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
           </div>
           } @empty {
           <div class="text-center py-6 text-base-content/50">
-            <span class="block text-sm">No plugins match your search.</span>
+            <span class="block text-sm">
+              @if (searchQuery()) {
+                No plugins match your search.
+              } @else {
+                No plugins available.
+              }
+            </span>
           </div>
           }
         </div>
@@ -235,6 +250,9 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
           <span class="text-xs text-base-content/50 flex-1">
             {{ selectedIds().size }} of {{ availablePlugins().length }} selected
           </span>
+          @if (saveError()) {
+          <span class="text-error text-xs">{{ saveError() }}</span>
+          }
           <button
             class="btn btn-ghost btn-sm"
             (click)="handleClose()"
@@ -310,6 +328,12 @@ export class PluginBrowserModalComponent {
 
   /** Whether save is in progress */
   readonly isSaving = signal(false);
+
+  /** Error message from loading plugins */
+  readonly error = signal<string | null>(null);
+
+  /** Error message from saving configuration */
+  readonly saveError = signal<string | null>(null);
 
   /**
    * Filtered plugins based on search query.
@@ -414,6 +438,7 @@ export class PluginBrowserModalComponent {
    */
   async saveConfiguration(): Promise<void> {
     this.isSaving.set(true);
+    this.saveError.set(null);
 
     try {
       const enabledPluginIds = Array.from(this.selectedIds());
@@ -432,9 +457,11 @@ export class PluginBrowserModalComponent {
           '[PluginBrowserModal] Failed to save config:',
           result.error
         );
+        this.saveError.set('Failed to save configuration.');
       }
     } catch (err) {
       console.error('[PluginBrowserModal] Error saving config:', err);
+      this.saveError.set('Failed to save configuration.');
     } finally {
       this.isSaving.set(false);
     }
@@ -442,10 +469,12 @@ export class PluginBrowserModalComponent {
 
   /**
    * Load available plugins and current configuration from backend.
-   * Called via effect when isOpen becomes true.
+   * Called via effect when isOpen becomes true, and by error retry button.
    */
-  private async loadPlugins(): Promise<void> {
+  async loadPlugins(): Promise<void> {
     this.isLoading.set(true);
+    this.error.set(null);
+    this.saveError.set(null);
 
     try {
       const [listResult, configResult] = await Promise.all([
@@ -472,6 +501,7 @@ export class PluginBrowserModalComponent {
       }
     } catch (err) {
       console.error('[PluginBrowserModal] Error loading plugins:', err);
+      this.error.set('Failed to load plugins. Please try again.');
       this.availablePlugins.set([]);
       this.selectedIds.set(new Set());
     } finally {

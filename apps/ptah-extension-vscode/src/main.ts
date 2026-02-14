@@ -8,43 +8,12 @@ import {
   TOKENS,
 } from '@ptah-extension/vscode-core';
 import * as vscode from 'vscode';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
 
 let ptahExtension: PtahExtension | undefined;
-
-/**
- * Show license required UI with blocking modal (TASK_2025_121 Batch 3)
- *
- * Displays a modal dialog when license is invalid, offering options to:
- * - Start Trial: Opens pricing page
- * - Enter License Key: Triggers license entry command
- * - View Pricing: Opens pricing page
- *
- * @param status - Current license status with reason
- * @returns Selected action or undefined if dismissed
- */
-async function showLicenseRequiredUI(
-  status: LicenseStatus
-): Promise<string | undefined> {
-  const message =
-    status.reason === 'expired'
-      ? 'Your Ptah subscription has expired. Please renew to continue using the extension.'
-      : status.reason === 'trial_ended'
-      ? 'Your Ptah trial has ended. Subscribe to continue using the extension.'
-      : 'Ptah requires a subscription to use. Start your 14-day free trial today!';
-
-  const selection = await vscode.window.showWarningMessage(
-    message,
-    { modal: true },
-    'Start Trial',
-    'Enter License Key',
-    'View Pricing'
-  );
-
-  return selection;
-}
 
 /**
  * Register only license-related commands when extension is blocked (TASK_2025_121 Batch 3)
@@ -445,14 +414,13 @@ export async function activate(
     // Step 7.1.5: Initialize plugin loader with extension path (TASK_2025_153)
     console.log('[Activate] Step 7.1.5: Initializing plugin loader...');
     try {
-      const { SDK_TOKENS, PluginLoaderService } = require('@ptah-extension/agent-sdk');
-      const pluginLoader = DIContainer.getContainer().resolve<InstanceType<typeof PluginLoaderService>>(
+      const pluginLoader = DIContainer.resolve<PluginLoaderService>(
         SDK_TOKENS.SDK_PLUGIN_LOADER
       );
       pluginLoader.initialize(context.extensionPath, context.workspaceState);
       logger.info('Plugin loader initialized');
     } catch (pluginLoaderError) {
-      logger.debug('Plugin loader initialization failed', {
+      logger.warn('Plugin loader initialization failed', {
         error:
           pluginLoaderError instanceof Error
             ? pluginLoaderError.message
@@ -466,7 +434,6 @@ export async function activate(
     // pricing data for 200+ models. This replaces hardcoded pricing with live data.
     console.log('[Activate] Step 7.2: Pre-fetching model pricing...');
     try {
-      const { SDK_TOKENS } = require('@ptah-extension/agent-sdk');
       const providerModels = DIContainer.getContainer().resolve(
         SDK_TOKENS.SDK_PROVIDER_MODELS
       ) as { prefetchPricing: () => Promise<number> };
@@ -490,7 +457,6 @@ export async function activate(
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (workspacePath) {
       try {
-        const { SDK_TOKENS } = require('@ptah-extension/agent-sdk');
         const sessionImporter = DIContainer.getContainer().resolve(
           SDK_TOKENS.SDK_SESSION_IMPORTER
         ) as {

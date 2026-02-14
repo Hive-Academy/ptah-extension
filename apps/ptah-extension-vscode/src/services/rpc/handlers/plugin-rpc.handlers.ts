@@ -139,7 +139,19 @@ export class PluginRpcHandlers {
       { success: boolean; error?: string }
     >('plugins:save-config', async (params) => {
       try {
-        const enabledPluginIds = params?.enabledPluginIds ?? [];
+        // Validate and sanitize input
+        const rawIds = params?.enabledPluginIds ?? [];
+        const knownPluginIds = this.pluginLoader
+          .getAvailablePlugins()
+          .map((p) => p.id);
+        const enabledPluginIds = [
+          ...new Set(
+            rawIds.filter(
+              (id): id is string =>
+                typeof id === 'string' && knownPluginIds.includes(id)
+            )
+          ),
+        ];
 
         this.logger.debug('RPC: plugins:save-config called', {
           enabledPluginIds,
@@ -147,7 +159,6 @@ export class PluginRpcHandlers {
 
         await this.pluginLoader.saveWorkspacePluginConfig({
           enabledPluginIds,
-          lastUpdated: new Date().toISOString(),
         });
 
         this.logger.debug('RPC: plugins:save-config success', {

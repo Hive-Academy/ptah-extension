@@ -15,6 +15,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { PluginInfo, PluginConfigState } from '@ptah-extension/shared';
@@ -74,7 +75,7 @@ const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
     isDefault: false,
     keywords: ['react', 'frontend', 'hooks', 'components'],
   },
-] as const;
+];
 
 /** Set of valid plugin IDs for path validation */
 const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
@@ -165,7 +166,7 @@ export class PluginLoaderService {
     const stored =
       this.workspaceState.get<PluginConfigState>(PLUGIN_CONFIG_KEY);
 
-    if (!stored) {
+    if (!stored || !Array.isArray(stored.enabledPluginIds)) {
       return { enabledPluginIds: [], lastUpdated: undefined };
     }
 
@@ -181,7 +182,7 @@ export class PluginLoaderService {
    * @param config - Plugin configuration to save (enabledPluginIds will be persisted)
    * @throws Error if workspaceState is not initialized
    */
-  async saveWorkspacePluginConfig(config: PluginConfigState): Promise<void> {
+  async saveWorkspacePluginConfig(config: Pick<PluginConfigState, 'enabledPluginIds'>): Promise<void> {
     if (!this.workspaceState) {
       throw new Error(
         'PluginLoaderService not initialized: workspaceState is null'
@@ -220,6 +221,8 @@ export class PluginLoaderService {
       return [];
     }
 
+    const extensionPath = this.extensionPath;
+
     const validIds = enabledPluginIds.filter((id) => {
       const isValid = KNOWN_PLUGIN_IDS.has(id);
       if (!isValid) {
@@ -231,9 +234,18 @@ export class PluginLoaderService {
       return isValid;
     });
 
-    const paths = validIds.map((id) =>
-      path.join(this.extensionPath!, 'assets', 'plugins', id)
-    );
+    const paths = validIds
+      .map((id) => path.join(extensionPath, 'assets', 'plugins', id))
+      .filter((pluginPath) => {
+        if (!fs.existsSync(pluginPath)) {
+          this.logger.warn(
+            '[PluginLoaderService] Plugin directory not found, skipping',
+            { path: pluginPath }
+          );
+          return false;
+        }
+        return true;
+      });
 
     this.logger.debug('[PluginLoaderService] Resolved plugin paths', {
       requestedCount: enabledPluginIds.length,

@@ -3,6 +3,8 @@ import {
   ChangeDetectionStrategy,
   inject,
   signal,
+  computed,
+  ViewChild,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
 import { LucideAngularModule, ScanSearch, Puzzle } from 'lucide-angular';
@@ -10,6 +12,7 @@ import { SetupStatusWidgetComponent } from './setup-status-widget.component';
 import { PluginStatusWidgetComponent } from './plugin-status-widget.component';
 import { PluginBrowserModalComponent } from './plugin-browser-modal.component';
 import { VSCodeService } from '@ptah-extension/core';
+import { ChatStore } from '../../services/chat.store';
 
 /**
  * ChatEmptyStateComponent - Egyptian-themed empty state for chat view
@@ -173,9 +176,16 @@ import { VSCodeService } from '@ptah-extension/core';
                 </p>
               </div>
             </div>
+            @if (isPremium()) {
             <ptah-plugin-status-widget
               (configureClicked)="openPluginBrowser()"
             />
+            } @else {
+            <div class="flex items-center justify-between p-2 rounded-md bg-base-200/50 border border-base-300">
+              <span class="text-xs text-base-content/60">Available with Pro plan</span>
+              <span class="badge badge-xs badge-primary">Upgrade</span>
+            </div>
+            }
           </div>
         </div>
       </div>
@@ -303,6 +313,10 @@ import { VSCodeService } from '@ptah-extension/core';
 })
 export class ChatEmptyStateComponent {
   private readonly vscodeService = inject(VSCodeService);
+  private readonly chatStore = inject(ChatStore);
+
+  @ViewChild(PluginStatusWidgetComponent)
+  private pluginWidget?: PluginStatusWidgetComponent;
 
   /** Lucide icon references for template binding */
   protected readonly ScanSearchIcon = ScanSearch;
@@ -311,11 +325,17 @@ export class ChatEmptyStateComponent {
   /** Ptah icon URI - uses same method as app-shell component */
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
 
+  /** Whether the current user has a premium license */
+  protected readonly isPremium = computed(
+    () => this.chatStore.licenseStatus()?.isPremium ?? false
+  );
+
   /** Whether the plugin browser modal is open (TASK_2025_153) */
   protected readonly isPluginBrowserOpen = signal(false);
 
-  /** Open the plugin browser modal */
+  /** Open the plugin browser modal (premium only) */
   protected openPluginBrowser(): void {
+    if (!this.isPremium()) return;
     this.isPluginBrowserOpen.set(true);
   }
 
@@ -324,9 +344,9 @@ export class ChatEmptyStateComponent {
     this.isPluginBrowserOpen.set(false);
   }
 
-  /** Handle plugins saved event from modal */
-  protected onPluginsSaved(enabledIds: string[]): void {
+  /** Handle plugins saved event from modal - refresh widget count */
+  protected onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
-    // Plugin config saved via RPC in the modal - no additional action needed
+    this.pluginWidget?.fetchPluginStatus();
   }
 }
