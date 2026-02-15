@@ -641,14 +641,53 @@ export interface WizardDeepAnalyzeParams {
 }
 
 /**
+ * Multi-phase analysis response from wizard:deep-analyze RPC method.
+ *
+ * TASK_2025_154: When multi-phase pipeline is used, the handler returns
+ * the manifest + phase file contents (markdown) instead of a JSON blob.
+ */
+export interface MultiPhaseAnalysisResponse {
+  /** Discriminator: always true for multi-phase responses */
+  isMultiPhase: true;
+  /** Manifest with phase statuses */
+  manifest: {
+    slug: string;
+    analyzedAt: string;
+    model: string;
+    totalDurationMs: number;
+    phases: Record<
+      string,
+      { status: string; file: string; durationMs: number; error?: string }
+    >;
+  };
+  /** Phase file contents (markdown) keyed by phase ID */
+  phaseContents: Record<string, string>;
+  /** Analysis directory path for downstream consumers (generation, enhanced prompts) */
+  analysisDir: string;
+}
+
+/**
+ * Type guard for MultiPhaseAnalysisResponse.
+ * Use this to discriminate between multi-phase and legacy responses.
+ */
+export function isMultiPhaseResponse(
+  value: unknown
+): value is MultiPhaseAnalysisResponse {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'isMultiPhase' in value &&
+    (value as MultiPhaseAnalysisResponse).isMultiPhase === true
+  );
+}
+
+/**
  * Response from wizard:deep-analyze RPC method
  *
- * TASK_2025_111: Deep project analysis result
- * Returns the full DeepProjectAnalysis from agent-generation.
- * Using 'unknown' here to avoid coupling shared types to agent-generation.
- * Frontend components should type-cast based on their needs.
+ * TASK_2025_154: Returns MultiPhaseAnalysisResponse for premium users with MCP,
+ * or ProjectAnalysisResult (as unknown) for the fallback path.
  */
-export type WizardDeepAnalyzeResponse = unknown;
+export type WizardDeepAnalyzeResponse = MultiPhaseAnalysisResponse | unknown;
 
 /** Parameters for wizard:recommend-agents RPC method */
 export type WizardRecommendAgentsParams = unknown; // DeepProjectAnalysis input
@@ -687,9 +726,11 @@ export interface WizardSubmitSelectionParams {
   /** Variable overrides for template rendering */
   variableOverrides?: Record<string, string>;
   /** Pre-computed analysis from wizard Step 1 — used as single source of truth for generation */
-  analysisData: ProjectAnalysisResult;
+  analysisData?: ProjectAnalysisResult;
   /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
   model?: string;
+  /** Multi-phase analysis directory path (alternative to analysisData for v2 pipeline) */
+  analysisDir?: string;
 }
 
 /** Response from wizard:submit-selection RPC method */
@@ -729,6 +770,10 @@ export interface WizardRetryItemResponse {
   /** Error message if retry failed */
   error?: string;
 }
+
+// Multi-Phase Analysis RPC Types removed (TASK_2025_154 wiring):
+// wizard:start-multi-phase-analysis and wizard:cancel-multi-phase-analysis
+// are now integrated into wizard:deep-analyze and wizard:cancel-analysis.
 
 // ============================================================
 // License RPC Types
@@ -859,10 +904,34 @@ export interface EnhancedPromptsRunWizardParams {
   workspacePath: string;
   /** Optional configuration overrides */
   config?: EnhancedPromptsConfigOptions;
-  /** Pre-computed analysis from wizard Step 1 — used as single source of truth for prompt generation */
-  analysisData: ProjectAnalysisResult;
+  /** Pre-computed analysis from wizard Step 1 (optional; omitted for multi-phase analysis path) */
+  analysisData?: ProjectAnalysisResult;
+  /** Multi-phase analysis directory path (e.g., '.claude/analysis/my-project'). When provided, the backend reads all phase markdown files for richer context. */
+  analysisDir?: string;
   /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
   model?: string;
+}
+
+/** Summary section for enhanced prompts generation result */
+export interface EnhancedPromptsSummarySection {
+  /** Section display name (e.g., 'Project Context') */
+  name: string;
+  /** Approximate word count of the generated section */
+  wordCount: number;
+  /** Whether this section was successfully generated */
+  generated: boolean;
+}
+
+/** Summary of generated enhanced prompts (metadata only, no actual content) */
+export interface EnhancedPromptsSummary {
+  /** Individual guidance sections with metadata */
+  sections: EnhancedPromptsSummarySection[];
+  /** Total token count across all sections */
+  totalTokens: number;
+  /** Quality score from code quality assessment (0-100), if available */
+  qualityScore?: number;
+  /** Whether template-based fallback guidance was used */
+  usedFallback: boolean;
 }
 
 /** Response from enhancedPrompts:runWizard RPC method */
@@ -875,6 +944,8 @@ export interface EnhancedPromptsRunWizardResponse {
   generatedAt?: string | null;
   /** Detected stack (on success) */
   detectedStack?: EnhancedPromptsDetectedStack | null;
+  /** Summary of what was generated (sections, token counts). Never includes actual prompt content. */
+  summary?: EnhancedPromptsSummary | null;
 }
 
 /** Parameters for enhancedPrompts:setEnabled RPC method */

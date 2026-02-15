@@ -17,7 +17,6 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   SdkAgentAdapter,
   SDK_TOKENS,

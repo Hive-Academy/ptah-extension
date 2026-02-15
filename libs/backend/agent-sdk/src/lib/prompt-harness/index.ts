@@ -77,6 +77,7 @@ export {
   EnhancedPromptsState,
   EnhancedPromptsConfig,
   EnhancedPromptsWizardResult,
+  EnhancedPromptsSummary,
   EnhancedPromptsStatus,
   RegeneratePromptsRequest,
   RegeneratePromptsResponse,
@@ -85,4 +86,7 @@ export {
   EnhancedPromptsService,
 } from './enhanced-prompts';
 
-export type { EnhancedPromptsSdkConfig } from './enhanced-prompts';
+export type {
+  EnhancedPromptsSdkConfig,
+  IMultiPhaseAnalysisReader,
+} from './enhanced-prompts';

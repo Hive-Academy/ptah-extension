@@ -11,14 +11,8 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
-import {
-  SDK_TOKENS,
-  PluginLoaderService,
-} from '@ptah-extension/agent-sdk';
-import type {
-  PluginInfo,
-  PluginConfigState,
-} from '@ptah-extension/shared';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
+import type { PluginInfo, PluginConfigState } from '@ptah-extension/shared';
 
 /**
  * RPC handlers for plugin configuration operations.

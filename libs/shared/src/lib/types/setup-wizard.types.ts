@@ -755,7 +755,16 @@ export type WizardMessageType =
  * Analysis phase identifiers for agentic workspace analysis.
  * Used by the frontend to display phase stepper progress.
  */
-export type AnalysisPhase = 'discovery' | 'architecture' | 'health' | 'quality';
+export type AnalysisPhase =
+  | 'discovery'
+  | 'architecture'
+  | 'health'
+  | 'quality' // v1 phases (kept for backward compat)
+  | 'project-profile'
+  | 'architecture-assessment'
+  | 'quality-audit'
+  | 'elevation-plan'
+  | 'synthesis'; // v2 multi-phase
 
 /**
  * Payload for scan progress updates.
@@ -780,6 +789,15 @@ export interface ScanProgressPayload {
   agentReasoning?: string;
   /** List of completed phase identifiers (agentic analysis only) */
   completedPhases?: AnalysisPhase[];
+  /** Multi-phase analysis: current phase number (1-based) */
+  currentPhaseNumber?: number;
+  /** Multi-phase analysis: total phase count */
+  totalPhaseCount?: number;
+  /** Multi-phase analysis: per-phase status tracking */
+  phaseStatuses?: Array<{
+    id: string;
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  }>;
 }
 
 /**

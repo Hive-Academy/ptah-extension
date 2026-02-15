@@ -27,6 +27,7 @@ import {
   type ConfigManager,
 } from '@ptah-extension/vscode-core';
 import * as path from 'path';
+import { readFileSync } from 'fs';
 import {
   IContentGenerationService,
   type ContentGenerationSdkConfig,
@@ -37,20 +38,13 @@ import {
   LlmCustomization,
 } from '../types/core.types';
 import { ContentGenerationError } from '../errors/generation.error';
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import {
-  SDK_TOKENS,
-  isContentBlockDelta,
-  isContentBlockStart,
-  isContentBlockStop,
-  isTextDelta,
-  isInputJsonDelta,
-  isThinkingDelta,
-} from '@ptah-extension/agent-sdk';
-// eslint-disable-next-line @nx/enforce-module-boundaries
+import { SDK_TOKENS, SdkStreamProcessor } from '@ptah-extension/agent-sdk';
 import type { InternalQueryService } from '@ptah-extension/agent-sdk';
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import type { SDKMessage, ToolResultBlock } from '@ptah-extension/agent-sdk';
+import type {
+  SDKMessage,
+  StreamEventEmitter,
+  StreamEvent,
+} from '@ptah-extension/agent-sdk';
 
 /**
  * Represents a dynamic section extracted from a template.
@@ -351,7 +345,17 @@ OUTPUT FORMAT:
     context: AgentProjectContext,
     templateName: string
   ): string {
-    const analysisData = this.formatAnalysisData(context);
+    // Use multi-phase analysis if available, otherwise fall back to formatAnalysisData
+    let analysisData: string;
+    if (context.analysisDir) {
+      const roleSpecificContext = this.readRoleSpecificContext(
+        context.analysisDir,
+        templateName
+      );
+      analysisData = roleSpecificContext || this.formatAnalysisData(context);
+    } else {
+      analysisData = this.formatAnalysisData(context);
+    }
 
     const sectionDescriptions = sections
       .map((section) => {
@@ -388,8 +392,8 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
   /**
    * Process SDK message stream to extract structured output.
    *
-   * Follows the same pattern as AgenticAnalysisService and EnhancedPromptsService.
-   * Optionally broadcasts stream events (text, tool calls, thinking) for live
+   * Delegates to SdkStreamProcessor for stream iteration, throttling,
+   * and event emission. Optionally broadcasts stream events for live
    * UI updates when an onStreamEvent callback is provided.
    *
    * @param stream - SDK message async iterable
@@ -401,182 +405,25 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
     onStreamEvent?: (event: GenerationStreamPayload) => void,
     agentId?: string
   ): Promise<unknown | null> {
-    // Throttle state for text and thinking deltas (100ms)
-    let lastTextEmit = 0;
-    let lastThinkingEmit = 0;
-    const THROTTLE_MS = 100;
+    const emitter: StreamEventEmitter = {
+      emit: (event: StreamEvent) => {
+        if (onStreamEvent) {
+          onStreamEvent({ ...event, agentId });
+        }
+      },
+    };
 
-    // Track active tool blocks for tool call grouping
-    const activeToolBlocks = new Map<
-      number,
-      { name: string; inputBuffer: string; toolCallId: string }
-    >();
-
-    // Track completed tool names by toolCallId for tool_result attribution
-    const completedToolNames = new Map<string, string>();
+    const processor = new SdkStreamProcessor({
+      emitter,
+      toolCallIdFactory: (_name, index) =>
+        `gen-${agentId || 'unknown'}-${index}-${Date.now()}`,
+      logger: this.logger,
+      serviceTag: 'ContentGenerationService',
+    });
 
     try {
-      for await (const message of stream) {
-        // ==============================================================
-        // Stream events -- broadcast for live UI updates
-        // ==============================================================
-        if (message.type === 'stream_event' && onStreamEvent) {
-          const event = message.event;
-
-          // Content block deltas: text, tool input, thinking
-          if (isContentBlockDelta(event)) {
-            if (isTextDelta(event.delta)) {
-              const now = Date.now();
-              if (now - lastTextEmit >= THROTTLE_MS) {
-                const trimmed = event.delta.text.trim();
-                if (trimmed.length > 0) {
-                  lastTextEmit = now;
-                  try {
-                    onStreamEvent({
-                      kind: 'text',
-                      content: event.delta.text,
-                      agentId,
-                      timestamp: now,
-                    });
-                  } catch {
-                    // Fire-and-forget: swallow callback errors
-                  }
-                }
-              }
-            }
-
-            if (isInputJsonDelta(event.delta)) {
-              const activeBlock = activeToolBlocks.get(event.index);
-              if (activeBlock) {
-                activeBlock.inputBuffer += event.delta.partial_json;
-              }
-            }
-
-            if (isThinkingDelta(event.delta)) {
-              const now = Date.now();
-              if (now - lastThinkingEmit >= THROTTLE_MS) {
-                lastThinkingEmit = now;
-                try {
-                  onStreamEvent({
-                    kind: 'thinking',
-                    content: event.delta.thinking,
-                    agentId,
-                    timestamp: now,
-                  });
-                } catch {
-                  // Fire-and-forget: swallow callback errors
-                }
-              }
-            }
-          }
-
-          // Tool use start -- track active tool blocks
-          if (
-            isContentBlockStart(event) &&
-            event.content_block.type === 'tool_use'
-          ) {
-            const toolCallId = `gen-${agentId || 'unknown'}-${
-              event.index
-            }-${Date.now()}`;
-            activeToolBlocks.set(event.index, {
-              name: event.content_block.name,
-              inputBuffer: '',
-              toolCallId,
-            });
-
-            try {
-              onStreamEvent({
-                kind: 'tool_start',
-                content: `Calling ${event.content_block.name}`,
-                toolName: event.content_block.name,
-                toolCallId,
-                agentId,
-                timestamp: Date.now(),
-              });
-            } catch {
-              // Fire-and-forget: swallow callback errors
-            }
-          }
-
-          // Tool use stop -- emit accumulated tool input
-          if (isContentBlockStop(event)) {
-            const completedBlock = activeToolBlocks.get(event.index);
-            if (completedBlock) {
-              try {
-                onStreamEvent({
-                  kind: 'tool_input',
-                  content: completedBlock.inputBuffer.substring(0, 2000),
-                  toolName: completedBlock.name,
-                  toolCallId: completedBlock.toolCallId,
-                  agentId,
-                  timestamp: Date.now(),
-                });
-              } catch {
-                // Fire-and-forget: swallow callback errors
-              }
-              completedToolNames.set(
-                completedBlock.toolCallId,
-                completedBlock.name
-              );
-              activeToolBlocks.delete(event.index);
-            }
-          }
-        }
-
-        // ==============================================================
-        // Tool results — broadcast for live transcript
-        // ==============================================================
-        if (message.type === 'user' && onStreamEvent) {
-          const content = (message as { message?: { content?: unknown } })
-            .message?.content;
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              const typedBlock = block as { type?: string };
-              if (typedBlock.type === 'tool_result') {
-                const resultBlock = block as ToolResultBlock;
-                const resultContent =
-                  typeof resultBlock.content === 'string'
-                    ? resultBlock.content.substring(0, 2000)
-                    : JSON.stringify(resultBlock.content).substring(0, 2000);
-                try {
-                  onStreamEvent({
-                    kind: 'tool_result',
-                    content: resultContent,
-                    toolName:
-                      completedToolNames.get(resultBlock.tool_use_id) || 'tool',
-                    toolCallId: resultBlock.tool_use_id,
-                    isError: resultBlock.is_error ?? false,
-                    agentId,
-                    timestamp: Date.now(),
-                  });
-                } catch {
-                  // Fire-and-forget: swallow callback errors
-                }
-              }
-            }
-          }
-        }
-
-        // ==============================================================
-        // Result message -- extract structured_output
-        // ==============================================================
-        if (
-          message.type === 'result' &&
-          message.subtype === 'success' &&
-          'structured_output' in message &&
-          message.structured_output
-        ) {
-          this.logger.debug(
-            'ContentGenerationService: Extracted structured output from SDK result'
-          );
-          return message.structured_output;
-        }
-      }
-
-      this.logger.warn(
-        'ContentGenerationService: No structured output in SDK stream'
-      );
-      return null;
+      const result = await processor.process(stream);
+      return result.structuredOutput;
     } catch (error) {
       this.logger.warn('ContentGenerationService: Stream processing error', {
         error: error instanceof Error ? error.message : String(error),
@@ -802,5 +649,120 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
         return condition ? conditionalContent : '';
       }
     );
+  }
+
+  // ==========================================================================
+  // Multi-Phase Analysis Integration (TASK_2025_154)
+  // ==========================================================================
+
+  /**
+   * Read role-specific context from 05-agent-context.md.
+   *
+   * Extracts the "For All Agents" section (always included) and the role-specific
+   * section based on the template name. Falls back to empty string if the file
+   * is missing or unreadable, allowing the caller to use formatAnalysisData().
+   *
+   * Caches the file content per analysisDir so it's only read once even when
+   * called 13 times for 13 agent templates.
+   *
+   * @param analysisDir - Path to the multi-phase analysis slug directory
+   * @param templateName - Template name used to determine role-specific section
+   * @returns Combined analysis context, or empty string if unavailable
+   */
+  private analysisContextCache: { dir: string; content: string } | null = null;
+
+  private readRoleSpecificContext(
+    analysisDir: string,
+    templateName: string
+  ): string {
+    try {
+      let content: string;
+      if (this.analysisContextCache?.dir === analysisDir) {
+        content = this.analysisContextCache.content;
+      } else {
+        const contextFile = path.join(analysisDir, '05-agent-context.md');
+        content = readFileSync(contextFile, 'utf-8');
+        this.analysisContextCache = { dir: analysisDir, content };
+      }
+
+      const allAgentsContent = this.extractAnalysisSection(
+        content,
+        'For All Agents'
+      );
+      const roleSection = this.getRoleSectionForTemplate(templateName);
+      const roleContent = roleSection
+        ? this.extractAnalysisSection(content, roleSection)
+        : '';
+
+      const combined = [allAgentsContent, roleContent]
+        .filter(Boolean)
+        .join('\n\n');
+
+      // Token budget: if too large, truncate "For All Agents" content first
+      if (combined.length > 50_000) {
+        return this.truncateForTokenBudget(allAgentsContent, roleContent);
+      }
+
+      return combined;
+    } catch {
+      // File not available - caller falls back to formatAnalysisData()
+      return '';
+    }
+  }
+
+  /**
+   * Map template name to the corresponding role section in 05-agent-context.md.
+   *
+   * @param templateName - Agent template name (e.g., 'backend-developer', 'frontend-architect')
+   * @returns Section heading name, or null for "For All Agents" only
+   */
+  private getRoleSectionForTemplate(templateName: string): string | null {
+    const name = templateName.toLowerCase();
+    if (name.includes('backend')) return 'For Backend Agents';
+    if (name.includes('frontend')) return 'For Frontend Agents';
+    if (name.includes('tester') || name.includes('qa')) return 'For QA Agents';
+    if (name.includes('architect')) return 'For Architecture Agents';
+    return null;
+  }
+
+  /**
+   * Extract a named section from the agent context markdown.
+   *
+   * Matches `## Section Name` headers and extracts content until the next
+   * `## ` header or end of file.
+   *
+   * @param content - Full markdown content
+   * @param sectionName - Section heading to extract (without ## prefix)
+   * @returns Extracted section content trimmed, or empty string
+   */
+  private extractAnalysisSection(content: string, sectionName: string): string {
+    const regex = new RegExp(`## ${sectionName}\\n([\\s\\S]*?)(?=\\n## |$)`);
+    const match = content.match(regex);
+    return match ? match[1].trim() : '';
+  }
+
+  /**
+   * Truncate content to fit within a ~50,000 character token budget.
+   *
+   * Prioritizes role-specific content over "For All Agents" content.
+   * Role-specific content is preserved in full; "For All Agents" is truncated
+   * to fill the remaining budget.
+   *
+   * @param allAgentsContent - "For All Agents" section content
+   * @param roleContent - Role-specific section content
+   * @returns Combined content within token budget
+   */
+  private truncateForTokenBudget(
+    allAgentsContent: string,
+    roleContent: string
+  ): string {
+    // Prioritize role-specific content, truncate "For All Agents"
+    const maxAllAgents = Math.max(10_000, 50_000 - roleContent.length);
+    const truncatedAll =
+      allAgentsContent.length > maxAllAgents
+        ? allAgentsContent.substring(0, maxAllAgents) +
+          '\n\n...(truncated for token budget)'
+        : allAgentsContent;
+    return [truncatedAll, roleContent].filter(Boolean).join('\n\n');
   }
 }

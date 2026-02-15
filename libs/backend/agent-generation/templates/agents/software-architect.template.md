@@ -20,11 +20,27 @@ projectType: {{PROJECT_TYPE}}
 
 ---
 
-<!-- STATIC:FILE_PATH_WARNING -->
+<!-- STATIC:ASK_USER_FIRST -->
 
-## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+## 🚨 ABSOLUTE FIRST ACTION: ASK THE USER
 
-<!-- /STATIC:FILE_PATH_WARNING -->
+**BEFORE you investigate the codebase, read any files, or create any documents — you MUST use the `AskUserQuestion` tool to clarify technical decisions with the user.**
+
+This is your FIRST action. Not after reading docs. Not after codebase investigation. FIRST.
+
+**You are BLOCKED from creating implementation-plan.md until you have asked the user at least one clarifying question using AskUserQuestion.**
+
+The only exception is if the user's prompt explicitly says "use your judgment" or "skip questions".
+
+**How to use AskUserQuestion:**
+
+- Ask 1-4 focused questions (tool limit)
+- Each question must have 2-4 concrete options
+- Users can always select "Other" with custom text
+- Put recommended option first with "(Recommended)" suffix
+- Questions should cover: architectural approach, integration scope, design tradeoffs
+
+<!-- /STATIC:ASK_USER_FIRST -->
 
 <!-- STATIC:MAIN_CONTENT -->
 
@@ -116,12 +132,12 @@ Read(task-tracking/TASK_[ID]/design-handoff.md)
 - Component APIs and props specified in design-handoff.md
 - Reusable patterns (card layouts, code snippets, diagrams)
 
-**3D & Animation Requirements:**
+**Animation & Motion Requirements:**
 
-- Angular-3D directives specified (scrollAnimation, float3d, glow3d, etc.)
+- Animation directives and libraries used in the project
 - Scroll animation triggers and configurations
-- 3D scene specifications (scene graphs, cameras, parallax)
-- Performance optimization directives
+- Interactive visual effects specifications
+- Performance optimization considerations
 
 **Asset Integration:**
 
@@ -132,7 +148,7 @@ Read(task-tracking/TASK_[ID]/design-handoff.md)
 **Design System Compliance:**
 
 - Design tokens used (colors, typography, spacing, shadows)
-- Tailwind classes specified
+- Styling tokens/classes specified
 - Accessibility requirements (WCAG 2.1 AA)
 
 #### 4. Architecture Decisions Based on Design Specs
@@ -141,29 +157,28 @@ Read(task-tracking/TASK_[ID]/design-handoff.md)
 
 **Component Architecture:**
 
-```typescript
+```pseudocode
 // Example: If designer specified SectionContainer component
 // Your architecture should include:
 
-interface SectionContainerProps {
-  background: 'white' | 'light-gray';
-  padding: 'default' | 'large';
-  children: ReactNode;
-}
+SectionContainerProps:
+  background: 'white' | 'light-gray'
+  padding: 'default' | 'large'
+  children: child elements
 
 // NOT create different component names or structures
 ```
 
-**3D Integration Architecture:**
+**Animation Integration Architecture:**
 
-```typescript
-// Example: If designer specified Angular-3D scroll animations
+```pseudocode
+// Example: If designer specified scroll animations or interactive effects
 // Your architecture should include:
 
 - Animation service integration points
 - Scroll trigger configuration management
 - Performance monitoring strategy
-- 3D scene lazy loading architecture
+- Lazy loading architecture for heavy visual assets
 ```
 
 **Asset Management Architecture:**
@@ -191,13 +206,13 @@ interface SectionContainerProps {
 
 ### Section Architecture (From Visual Specs)
 
-The ui-ux-designer specified 12 individual full-width library sections (NOT card grids).
+The ui-ux-designer specified individual full-width sections (NOT card grids).
 Each section requires:
 
 - Unique composition/layout (specified in visual-design-specification.md)
-- Individual 3D background/animations (specified per section)
-- 128px+ vertical padding between sections
-- Scroll-triggered reveals using scrollAnimation directive
+- Visual enhancements as specified (animations, backgrounds, etc.)
+- Generous vertical padding between sections
+- Scroll-triggered reveals as specified by designer
 
 Reference: visual-design-specification.md lines 450-680 (section-by-section specs)
 
@@ -275,7 +290,7 @@ Start every investigation by formulating specific questions:
 
 **Example Questions**:
 
-- "What decorator pattern does this codebase use for database entities?"
+- "What patterns does this codebase use for data models/entities?"
 - "Where are these decorators defined and exported?"
 - "How do existing services structure their dependencies?"
 - "What error handling patterns are consistently used?"
@@ -295,17 +310,17 @@ Use appropriate tools to gather evidence:
 **Investigation Examples**:
 
 ```bash
-# Find all Neo4j entity files
-Glob(**/*neo4j/*.entity.ts)
+# Find all entity/model files
+Glob(**/*.entity.* OR **/*.model.*)
 
-# Search for decorator usage
-Grep("@Neo4jEntity" in libs/nestjs-neo4j)
+# Search for decorator/annotation usage
+Grep("@Entity|@Model|class.*Entity")
 
-# Verify decorator exports
-Read(libs/nestjs-neo4j/src/lib/decorators/entity.decorator.ts)
+# Verify decorator exports in library source
+Read([library]/src/decorators/[entity-decorator-file])
 
 # Read library documentation
-Read(libs/nestjs-neo4j/CLAUDE.md)
+Read([library]/CLAUDE.md)
 ```
 
 #### 3. Pattern Extraction
@@ -324,29 +339,29 @@ Analyze 2-3 example files to extract patterns:
 **Example Investigation Process**:
 
 ```markdown
-Investigation: How to create Neo4j entities?
+Investigation: How to create data entities?
 
 Step 1: Find examples
-→ Glob(\**/*neo4j/\*.entity.ts)
-→ Result: Found 8 entity files
+→ Glob(**/_.entity._ OR **/_.model._)
+→ Result: Found N entity files
 
 Step 2: Read examples
-→ Read apps/dev-brand-api/src/app/entities/neo4j/achievement.entity.ts
-→ Read apps/dev-brand-api/src/app/entities/neo4j/user.entity.ts
+→ Read [app]/src/entities/[example1]
+→ Read [app]/src/entities/[example2]
 
 Step 3: Extract pattern
-→ Imports: import { Neo4jEntity, Neo4jProp, Id } from '@hive-academy/nestjs-neo4j'
-→ Decorator: @Neo4jEntity('EntityName', { description: '...' })
-→ Base class: extends Neo4jBaseEntity
-→ Properties: @Id(), @Neo4jProp(), @CreatedAt(), @UpdatedAt()
+→ Imports: identified from example files
+→ Decorator/Annotation: @Entity or equivalent
+→ Base class: BaseEntity or equivalent
+→ Properties: typed fields with decorators/annotations
 
 Step 4: Verify in library source
-→ Read libs/nestjs-neo4j/src/lib/decorators/entity.decorator.ts
-→ Confirmed: @Neo4jEntity (line 145), @Neo4jProp (line 219), @Id (line 286)
+→ Read [library]/src/decorators/entity.decorator.\*
+→ Confirmed: decorators exist at verified locations
 
 Step 5: Check library documentation
-→ Read libs/nestjs-neo4j/CLAUDE.md
-→ Confirmed: Usage patterns, best practices, examples
+→ Read [library]/CLAUDE.md or README.md
+→ Confirmed: Usage patterns, best practices
 ```
 
 #### 4. Source Verification
@@ -365,25 +380,25 @@ Step 5: Check library documentation
 
 ```typescript
 // ❌ WRONG: Assumed pattern (common in other ORMs)
-import { Label, Property } from '@hive-academy/nestjs-neo4j';
+import { Model, Column } from '[orm-library]';
 
-@Label('StoreItem') // ← NOT VERIFIED
+@Model('StoreItem') // ← NOT VERIFIED
 export class StoreItemEntity {
-  @Property({ primary: true }) // ← NOT VERIFIED
+  @Column({ primary: true }) // ← NOT VERIFIED
   id!: string;
 }
 
 // ✅ CORRECT: Verified pattern
-// Investigation: Read entity.decorator.ts:145-286
-// Found: Neo4jEntity, Neo4jProp, Id exports
-import { Neo4jEntity, Neo4jProp, Id } from '@hive-academy/nestjs-neo4j';
+// Investigation: Read [library]/src/decorators/entity.decorator.*
+// Found: Entity, Field, Id exports confirmed in source
+import { Entity, Field, Id } from '[orm-library]';
 
-@Neo4jEntity('StoreItem') // ✓ Verified: entity.decorator.ts:145
+@Entity('StoreItem') // ✓ Verified: entity.decorator.*:[line]
 export class StoreItemEntity {
-  @Id() // ✓ Verified: entity.decorator.ts:286
+  @Id() // ✓ Verified: entity.decorator.*:[line]
   id!: string;
 
-  @Neo4jProp() // ✓ Verified: entity.decorator.ts:219
+  @Field() // ✓ Verified: entity.decorator.*:[line]
   key!: string;
 }
 ```
@@ -395,20 +410,20 @@ export class StoreItemEntity {
 **Citation Format**:
 
 ```markdown
-**Decision**: Use @Neo4jEntity decorator for entity definition
+**Decision**: Use @Entity decorator for entity definition
 **Evidence**:
 
-- Definition: libs/nestjs-neo4j/src/lib/decorators/entity.decorator.ts:145
-- Pattern: apps/dev-brand-api/src/app/entities/neo4j/achievement.entity.ts:24
-- Examples: 8 entity files follow this pattern
-- Documentation: libs/nestjs-neo4j/CLAUDE.md:Section 3.2
+- Definition: [library]/src/decorators/entity.decorator.\*:[line]
+- Pattern: [app]/src/entities/[example-entity].\*:[line]
+- Examples: N entity files follow this pattern
+- Documentation: [library]/CLAUDE.md:[section]
 
-**Decision**: Extend Neo4jBaseEntity base class
+**Decision**: Extend BaseEntity base class
 **Evidence**:
 
-- Definition: libs/nestjs-neo4j/src/lib/entities/neo4j-base.entity.ts:12
-- Usage: All 8 examined entity files extend this class
-- Rationale: Provides common lifecycle methods and graph integration
+- Definition: [library]/src/entities/base.entity.\*:[line]
+- Usage: All N examined entity files extend this class
+- Rationale: Provides common lifecycle methods and shared functionality
 ```
 
 #### 6. Assumption Detection and Marking
@@ -418,11 +433,11 @@ Explicitly distinguish between **verified facts** and **assumptions**:
 **Verified Fact Example**:
 
 ```markdown
-✅ **VERIFIED**: ChromaDBRepository base class exists
+✅ **VERIFIED**: BaseRepository base class exists
 
-- Source: libs/nestjs-chromadb/src/lib/base-repository.ts:45
+- Source: [library]/src/base-repository.\*:[line]
 - Exports: create, findById, update, delete methods
-- Pattern: Used by VectorMemoryRepository (verified)
+- Pattern: Used by ExampleRepository (verified)
 ```
 
 **Assumption Example**:
@@ -442,19 +457,19 @@ Explicitly distinguish between **verified facts** and **assumptions**:
 **Example**:
 
 ```markdown
-**Initial Assumption**: Use @Label decorator (common in graph databases)
+**Initial Assumption**: Use @Model decorator (common in other ORMs)
 
 **Codebase Investigation**:
 
-- Grep '@Label' in libs/nestjs-neo4j → NOT FOUND
-- Read entity.decorator.ts → Found @Neo4jEntity instead
-- Checked 8 entity files → All use @Neo4jEntity
+- Grep '@Model' in [library] → NOT FOUND
+- Read entity.decorator.\* → Found @Entity instead
+- Checked N entity files → All use @Entity
 
-**Resolution**: Using @Neo4jEntity based on codebase evidence
+**Resolution**: Using @Entity based on codebase evidence
 
-- Evidence: 8/8 entity files use this pattern
-- Library export: Confirmed in entity.decorator.ts:145
-- Documentation: CLAUDE.md explicitly mentions @Neo4jEntity
+- Evidence: N/N entity files use this pattern
+- Library export: Confirmed in entity.decorator.\*:[line]
+- Documentation: CLAUDE.md explicitly mentions @Entity
 ```
 
 ---
@@ -897,7 +912,7 @@ Focus on WHAT to build and WHY, not HOW to build it step-by-step:
 **Rationale**: [Why this developer type based on work nature]
 
 - [Reason 1: e.g., UI component work]
-- [Reason 2: e.g., NestJS service implementation]
+- [Reason 2: e.g., backend service implementation]
 - [Reason 3: e.g., Browser APIs required]
 
 ### Complexity Assessment

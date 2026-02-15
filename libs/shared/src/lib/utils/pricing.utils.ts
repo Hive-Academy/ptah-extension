@@ -54,7 +54,16 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   // Anthropic Claude Models (Claude Code CLI)
   // ============================================================================
 
-  // Claude 4.5 Opus (latest flagship)
+  // Claude 4.6 Opus (latest flagship)
+  'claude-opus-4-6-20250623': {
+    inputCostPerToken: 5e-6, // $5.00 per 1M tokens
+    outputCostPerToken: 25e-6, // $25.00 per 1M tokens
+    cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
+    cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // Claude 4.5 Opus (previous flagship)
   'claude-opus-4-5-20251101': {
     inputCostPerToken: 5e-6, // $5.00 per 1M tokens
     outputCostPerToken: 25e-6, // $25.00 per 1M tokens
@@ -356,6 +365,8 @@ export function formatModelDisplayName(modelId: string): string {
 
   // Anthropic Claude models
   if (withoutDate.includes('opus')) {
+    if (withoutDate.includes('4.6') || withoutDate.includes('4-6'))
+      return 'Opus 4.6';
     if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
       return 'Opus 4.5';
     if (withoutDate.includes('opus-4') || withoutDate.includes('opus 4'))

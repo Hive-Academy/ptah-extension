@@ -23,6 +23,7 @@ import {
 } from 'lucide-angular';
 import { MarkdownModule } from 'ngx-markdown';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
+import { ToolOutputFormatterService } from '../services/tool-output-formatter.service';
 
 /**
  * Grouped message for display in the transcript.
@@ -159,7 +160,7 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
               [class.text-error]="item.isError"
               aria-hidden="true"
             />
-            <span class="font-medium">{{ item.toolName }}</span>
+            <span class="font-medium">{{ getToolGroupLabel(item) }}</span>
             @if (!item.isComplete) {
             <span class="badge badge-xs badge-info badge-outline animate-pulse"
               >running</span
@@ -386,6 +387,7 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
 })
 export class AnalysisTranscriptComponent {
   private readonly wizardState = inject(SetupWizardStateService);
+  private readonly formatter = inject(ToolOutputFormatterService);
 
   /** Stream messages to display. Falls back to analysis stream from state service if not provided. */
   readonly messages = input<AnalysisStreamPayload[]>();
@@ -428,33 +430,6 @@ export class AnalysisTranscriptComponent {
   protected readonly messageCount = computed(
     () => this.effectiveMessages().length
   );
-
-  /**
-   * Language extension mapping for tool input language detection.
-   * Pattern source: tool-input-display.component.ts:120-141
-   */
-  private readonly languageMap: Record<string, string> = {
-    '.ts': 'typescript',
-    '.tsx': 'tsx',
-    '.js': 'javascript',
-    '.jsx': 'jsx',
-    '.json': 'json',
-    '.html': 'html',
-    '.css': 'css',
-    '.scss': 'scss',
-    '.py': 'python',
-    '.java': 'java',
-    '.go': 'go',
-    '.rs': 'rust',
-    '.md': 'markdown',
-    '.yaml': 'yaml',
-    '.yml': 'yaml',
-    '.xml': 'xml',
-    '.sql': 'sql',
-    '.sh': 'bash',
-    '.bash': 'bash',
-    '.zsh': 'bash',
-  };
 
   /**
    * Processed transcript items with text merging and tool call grouping.
@@ -671,146 +646,29 @@ export class AnalysisTranscriptComponent {
 
   /**
    * Format tool input as markdown with language detection.
-   * Pattern source: tool-input-display.component.ts:217-240
+   * Delegates to ToolOutputFormatterService.
    */
   protected getFormattedToolInput(item: GroupedMessage): string {
     const content = this.getToolInputContent(item);
-
-    // Try to parse as JSON to detect file paths for language detection
-    try {
-      const parsed = JSON.parse(item.content);
-      if (parsed && typeof parsed === 'object') {
-        // Check for file_path parameter to detect language
-        const filePath = parsed.file_path || parsed.path || '';
-        if (filePath) {
-          const language = this.getLanguageFromPath(filePath);
-          if (language !== 'text') {
-            // If there's a content/command field, wrap it with detected language
-            const codeContent =
-              parsed.content || parsed.command || parsed.pattern || '';
-            if (codeContent) {
-              return '```' + language + '\n' + codeContent + '\n```';
-            }
-          }
-        }
-        // Default: format entire JSON with syntax highlighting
-        return '```json\n' + JSON.stringify(parsed, null, 2) + '\n```';
-      }
-    } catch {
-      // Not JSON, try to detect language from content
-    }
-
-    // Fallback: wrap in generic code block
-    return '```\n' + content + '\n```';
+    return this.formatter.formatToolInput(content, item.content);
   }
 
   /**
    * Format tool result content as markdown.
-   * Applies the same processing pipeline as chat's CodeOutputComponent:
-   * 1. Extract MCP content blocks
-   * 2. Strip system-reminder tags
-   * 3. Strip line number prefixes
-   * 4. Auto-detect JSON and code
+   * Delegates to ToolOutputFormatterService with tool-type-aware formatting.
    */
   protected getFormattedToolResult(item: GroupedMessage): string {
-    let content = item.content;
-    if (!content) return '_No output_';
-
-    // Processing pipeline (ported from code-output.component.ts)
-    content = this.extractMCPContent(content);
-    content = this.stripSystemReminders(content);
-    content = this.stripLineNumbers(content);
-
-    // JSON auto-detect
-    if (content.trim().startsWith('{') || content.trim().startsWith('[')) {
-      try {
-        JSON.parse(content);
-        return '```json\n' + content + '\n```';
-      } catch {
-        // Not valid JSON
-      }
-    }
-
-    // Code detection heuristic
-    if (
-      content.includes('\n') &&
-      (content.includes('{') ||
-        content.includes('import ') ||
-        content.includes('const '))
-    ) {
-      return '```\n' + content + '\n```';
-    }
-
-    // Otherwise render as markdown
-    return content;
+    return this.formatter.formatToolResult(item.content, item.toolName);
   }
 
   /**
-   * Extract text content from MCP-style content blocks.
-   * Converts [{type: "text", text: "..."}] → "..."
-   * Ported from chat's code-output.component.ts
+   * Get a human-readable label for a tool group.
+   * Searches the group's messages for a tool_input to extract ptah API call patterns.
+   * Falls back to the raw tool name.
    */
-  private extractMCPContent(content: string): string {
-    const trimmed = content.trim();
-    if (!trimmed.startsWith('[')) return content;
-
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (!Array.isArray(parsed)) return content;
-
-      const isMCPContent = parsed.every(
-        (item: unknown) =>
-          typeof item === 'object' &&
-          item !== null &&
-          'type' in item &&
-          (item as { type: string }).type === 'text' &&
-          'text' in item
-      );
-
-      if (isMCPContent) {
-        return parsed
-          .map((item: { type: string; text: string }) => item.text)
-          .join('\n');
-      }
-
-      return content;
-    } catch {
-      return content;
-    }
-  }
-
-  /**
-   * Strip <system-reminder>...</system-reminder> tags from content.
-   * Ported from chat's code-output.component.ts
-   */
-  private stripSystemReminders(content: string): string {
-    return content
-      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
-      .trim();
-  }
-
-  /**
-   * Strip line number prefixes from Read tool output.
-   * Converts "     1→import { Module }" → "import { Module }"
-   * Ported from chat's code-output.component.ts
-   */
-  private stripLineNumbers(content: string): string {
-    return content
-      .split('\n')
-      .map((line) => {
-        const match = line.match(/^\s*\d+→(.*)$/);
-        return match ? match[1] : line;
-      })
-      .join('\n');
-  }
-
-  /**
-   * Get language identifier from a file path extension.
-   * Pattern source: tool-input-display.component.ts:262-266
-   */
-  private getLanguageFromPath(filePath: string): string {
-    const normalized = filePath.replace(/\\/g, '/');
-    const ext = '.' + normalized.split('.').pop()?.toLowerCase();
-    return this.languageMap[ext] || 'text';
+  protected getToolGroupLabel(group: ToolCallGroup): string {
+    const toolInputMsg = group.messages.find((m) => m.kind === 'tool_input');
+    const toolInputContent = toolInputMsg?.content;
+    return this.formatter.getToolGroupLabel(group.toolName, toolInputContent);
   }
 }

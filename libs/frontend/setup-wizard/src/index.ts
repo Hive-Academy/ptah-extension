@@ -1,6 +1,7 @@
 // Wizard Services
 export { SetupWizardStateService } from './lib/services/setup-wizard-state.service';
 export { WizardRpcService } from './lib/services/wizard-rpc.service';
+export { ToolOutputFormatterService } from './lib/services/tool-output-formatter.service';
 
 // Main Wizard Container
 export { WizardViewComponent } from './lib/components/wizard-view.component';
@@ -21,6 +22,10 @@ export { ConfirmationModalComponent } from './lib/components/confirmation-modal.
 export { PremiumUpsellComponent } from './lib/components/premium-upsell.component';
 export { AnalysisTranscriptComponent } from './lib/components/analysis-transcript.component';
 export { AnalysisStatsDashboardComponent } from './lib/components/analysis-stats-dashboard.component';
+
+// Summary Cards
+export { QualityScoreCardComponent } from './lib/components/cards/quality-score-card.component';
+export { EnhancedPromptsSummaryCardComponent } from './lib/components/cards/enhanced-prompts-summary-card.component';
 
 // Wizard Types
 export type {

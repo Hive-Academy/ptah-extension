@@ -542,18 +542,20 @@ export class AgentSelectionComponent {
     const result = await withErrorHandling(
       async () => {
         const selectedAgents = this.buildSelectedAgents();
+        const multiPhase = this.wizardState.multiPhaseResult();
         const analysis = this.wizardState.deepAnalysis();
 
-        if (!analysis) {
+        if (!multiPhase && !analysis) {
           throw new Error(
             'No analysis data available. Please re-run the wizard scan.'
           );
         }
 
-        // Submit selection with analysis data and verify acknowledgment
+        // Submit selection: multi-phase passes analysisDir, legacy passes analysisData
         const response = await this.wizardRpc.submitAgentSelection(
           selectedAgents,
-          analysis
+          multiPhase ? undefined : analysis ?? undefined,
+          multiPhase?.analysisDir
         );
 
         // Verify backend acknowledgment before transitioning

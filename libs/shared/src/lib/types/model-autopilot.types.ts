@@ -68,7 +68,7 @@ export const MODEL_DISPLAY_NAMES: Record<
   Exclude<ClaudeModel, 'default'>,
   string
 > = {
-  opus: 'Opus 4.5',
+  opus: 'Opus 4.6',
   sonnet: 'Sonnet 4.5',
   haiku: 'Haiku 4.5',
 } as const;
@@ -110,19 +110,19 @@ export const AVAILABLE_MODELS: readonly ModelInfo[] = [
     name: 'Sonnet 4.5',
     description: 'Best for everyday tasks',
     isRecommended: true,
-    apiName: 'claude-sonnet-4-20250514',
+    apiName: 'claude-sonnet-4-5-20250929',
   },
   {
     id: 'opus',
-    name: 'Opus 4.5',
+    name: 'Opus 4.6',
     description: 'Most capable for complex work',
-    apiName: 'claude-opus-4-20250514',
+    apiName: 'claude-opus-4-6-20250623',
   },
   {
     id: 'haiku',
     name: 'Haiku 4.5',
     description: 'Fastest for quick answers',
-    apiName: 'claude-haiku-3-20240307',
+    apiName: 'claude-haiku-4-5-20251001',
   },
 ] as const;
 

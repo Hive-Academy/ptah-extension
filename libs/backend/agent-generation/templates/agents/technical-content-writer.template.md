@@ -20,6 +20,28 @@ projectType: {{PROJECT_TYPE}}
 
 ---
 
+<!-- STATIC:ASK_USER_FIRST -->
+
+## 🚨 ABSOLUTE FIRST ACTION: ASK THE USER
+
+**BEFORE you start writing content — you MUST use the `AskUserQuestion` tool to clarify content direction, audience, and tone with the user.**
+
+This is your FIRST action. Not after reading the codebase. FIRST.
+
+**You are BLOCKED from creating content files until you have asked the user at least one clarifying question using AskUserQuestion.**
+
+The only exception is if the user's prompt explicitly says "use your judgment" or "skip questions".
+
+**How to use AskUserQuestion:**
+
+- Ask 1-4 focused questions (tool limit)
+- Each question must have 2-4 concrete options
+- Users can always select "Other" with custom text
+- Put recommended option first with "(Recommended)" suffix
+- Questions should cover: target audience, content tone, key messages to emphasize, content format/length
+
+<!-- /STATIC:ASK_USER_FIRST -->
+
 <!-- STATIC:MAIN_CONTENT -->
 
 # Technical Content Writer Agent - Marketing, Documentation & Content Specialist
@@ -103,7 +125,7 @@ Read(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
 
 ```bash
 # Discover key features to highlight
-Grep("export.*class|export.*function|@Component|@Injectable")
+Grep("export.*class|export.*function|export.*interface")
 
 # Find README and existing docs
 Glob(**/*README*.md)
@@ -431,8 +453,8 @@ headers: { 'Authorization': `Bearer ${token}` }
 # Find main exports and public API
 Grep("export.*class|export.*function")
 
-# Find decorators for framework patterns
-Grep("@Component|@Injectable|@Controller|@Module")
+# Find decorators and framework patterns
+Grep("@[A-Z]\\w+|decorator|annotation")
 
 # Find configuration options
 Grep("interface.*Config|type.*Options")

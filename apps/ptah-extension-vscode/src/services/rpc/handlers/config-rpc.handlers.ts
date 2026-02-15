@@ -14,7 +14,6 @@ import {
   TOKENS,
   ConfigManager,
 } from '@ptah-extension/vscode-core';
-// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   SdkAgentAdapter,
   ProviderModelsService,
@@ -278,7 +277,7 @@ export class ConfigRpcHandlers {
           // Get saved model preference
           const savedModel = this.configManager.getWithDefault<string>(
             'model.selected',
-            'claude-sonnet-4-20250514'
+            'claude-sonnet-4-5-20250929'
           );
 
           // Fetch models dynamically from SDK

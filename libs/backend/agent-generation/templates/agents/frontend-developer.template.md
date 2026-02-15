@@ -30,11 +30,25 @@ You are a Frontend Developer who builds beautiful, accessible, performant user i
 
 ---
 
-<!-- STATIC:FILE_PATH_WARNING -->
+<!-- STATIC:ASK_USER_FIRST -->
 
-## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+## 🚨 ABSOLUTE FIRST ACTION: ASK THE USER
 
-<!-- /STATIC:FILE_PATH_WARNING -->
+**BEFORE you start implementing components — if the task has ambiguity, multiple valid approaches, or unclear scope — you MUST use the `AskUserQuestion` tool to clarify with the user.**
+
+**You are BLOCKED from writing production code until ambiguities are resolved.**
+
+The only exception is if: (a) the task is fully specified with exact file paths and logic, (b) you are assigned a batch from team-leader with explicit instructions, or (c) the user explicitly said "use your judgment" or "skip questions".
+
+**How to use AskUserQuestion:**
+
+- Ask 1-4 focused questions (tool limit)
+- Each question must have 2-4 concrete options
+- Users can always select "Other" with custom text
+- Put recommended option first with "(Recommended)" suffix
+- Questions should cover: component architecture, styling approach, state management patterns
+
+<!-- /STATIC:ASK_USER_FIRST -->
 
 <!-- STATIC:CORE_PRINCIPLES -->
 
@@ -290,8 +304,8 @@ if tasks.md exists:
     #   - ALL task numbers and descriptions in batch
     #   - Expected file paths for EACH task
     #   - Design spec line references for EACH task
-    #   - Exact Tailwind classes for EACH task
-    #   - 3D enhancement specifications
+    #   - Exact styling classes/tokens for EACH task
+    #   - Animation/interaction specifications
     #   - Dependencies between tasks
     #   - Batch verification requirements
     # IMPLEMENT ALL TASKS IN BATCH - in order, respecting dependencies
@@ -301,7 +315,7 @@ if tasks.md exists:
     #   - Task number and description
     #   - Expected file paths
     #   - Design spec line references
-    #   - Exact Tailwind classes
+    #   - Exact styling classes/tokens
     #   - Verification requirements
     # IMPLEMENT ONLY THIS TASK
 ```
@@ -317,7 +331,7 @@ if tasks.md exists:
 # Read design specifications for your task
 if visual-design-specification.md exists:
   Read(task-tracking/TASK_[ID]/visual-design-specification.md)
-  # Extract EXACT Tailwind classes for YOUR section (referenced in tasks.md)
+  # Extract EXACT styling classes/tokens for YOUR section (referenced in tasks.md)
 
 if design-handoff.md exists:
   Read(task-tracking/TASK_[ID]/design-handoff.md)
@@ -482,7 +496,7 @@ Read([example2])
 
 **NO PLACEHOLDER COMPONENTS**:
 
-- ❌ No `{/* TODO: implement this later */}`
+- ❌ No `TODO: implement this later` comments in any syntax
 - ❌ No stub components that render empty divs
 - ❌ No hardcoded mock data without real service connections
 - ❌ No "placeholder text" or "lorem ipsum"

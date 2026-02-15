@@ -21,18 +21,18 @@ import { SdkModuleLoader } from './sdk-module-loader';
  */
 const FALLBACK_MODELS: ModelInfo[] = [
   {
-    value: 'claude-sonnet-4-20250514',
-    displayName: 'Claude Sonnet 4',
+    value: 'claude-sonnet-4-5-20250929',
+    displayName: 'Claude Sonnet 4.5',
     description: 'Best for everyday tasks',
   },
   {
-    value: 'claude-opus-4-20250514',
-    displayName: 'Claude Opus 4',
+    value: 'claude-opus-4-6-20250623',
+    displayName: 'Claude Opus 4.6',
     description: 'Most capable for complex work',
   },
   {
-    value: 'claude-haiku-3-20240307',
-    displayName: 'Claude Haiku 3',
+    value: 'claude-haiku-4-5-20251001',
+    displayName: 'Claude Haiku 4.5',
     description: 'Fastest for quick answers',
   },
 ];
@@ -117,7 +117,7 @@ export class SdkModelService {
    */
   async getDefaultModel(): Promise<string> {
     const models = await this.getSupportedModels();
-    return models[0]?.value || 'claude-sonnet-4-20250514';
+    return models[0]?.value || 'claude-sonnet-4-5-20250929';
   }
 
   /**

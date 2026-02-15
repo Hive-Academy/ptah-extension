@@ -5,9 +5,11 @@ import type {
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
   ProjectAnalysisResult,
+  MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
   SavedAnalysisFile,
 } from '@ptah-extension/shared';
+import { isMultiPhaseResponse } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
 /**
@@ -71,11 +73,13 @@ export class WizardRpcService {
    * Uses a 5-minute timeout since agent generation is a long-running operation.
    *
    * @param selections - Agent selections from the wizard
-   * @param analysisData - Pre-computed analysis from wizard Step 1 (single source of truth)
+   * @param analysisData - Pre-computed analysis from wizard Step 1 (for legacy path)
+   * @param analysisDir - Multi-phase analysis directory path (for v2 path)
    */
   async submitAgentSelection(
     selections: AgentSelection[],
-    analysisData: ProjectAnalysisResult
+    analysisData?: ProjectAnalysisResult,
+    analysisDir?: string
   ): Promise<AgentSelectionResponse> {
     const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
     const result = await this.rpcService.call(
@@ -83,6 +87,7 @@ export class WizardRpcService {
       {
         selectedAgentIds: selectedIds,
         analysisData,
+        analysisDir,
         model: this.modelState.currentModel() || undefined,
       },
       { timeout: 300_000 }
@@ -152,31 +157,51 @@ export class WizardRpcService {
   /**
    * Deep analyze the workspace project structure.
    * Calls wizard:deep-analyze backend handler (registered in RpcMethodRegistry).
-   * Returns comprehensive project analysis (architecture, key files, code health).
+   *
+   * TASK_2025_154 wiring: Returns either MultiPhaseAnalysisResponse (premium + MCP)
+   * or ProjectAnalysisResult (fallback). Use isMultiPhaseResponse() to discriminate.
    */
-  async deepAnalyze(): Promise<ProjectAnalysisResult> {
+  async deepAnalyze(): Promise<
+    MultiPhaseAnalysisResponse | ProjectAnalysisResult
+  > {
     const result = await this.rpcService.call(
       'wizard:deep-analyze',
       { model: this.modelState.currentModel() || undefined },
-      { timeout: 3_660_000 } // 1 hour + 1 minute buffer (timeout disabled for now until analysis is stable)
+      { timeout: 3_660_000 } // 1 hour + 1 minute buffer
     );
     if (result.isSuccess() && result.data) {
-      return result.data as ProjectAnalysisResult;
+      // Return as-is — caller checks with isMultiPhaseResponse()
+      return result.data as MultiPhaseAnalysisResponse | ProjectAnalysisResult;
     }
     throw new Error(result.error || 'Deep analysis failed');
   }
 
   /**
-   * Get agent recommendations based on deep analysis results.
+   * Type guard re-export for convenience.
+   * Checks if a deep-analyze result is a multi-phase response.
+   */
+  isMultiPhaseResponse(value: unknown): value is MultiPhaseAnalysisResponse {
+    return isMultiPhaseResponse(value);
+  }
+
+  /**
+   * Get agent recommendations based on analysis results.
    * Calls wizard:recommend-agents backend handler (registered in RpcMethodRegistry).
-   * Returns scored recommendations for all 13 agents.
+   *
+   * For multi-phase: passes { isMultiPhase: true } to trigger all-agents-recommended path.
+   * For legacy: passes the full ProjectAnalysisResult for Zod validation + scoring.
    */
   async recommendAgents(
-    analysis: ProjectAnalysisResult
+    analysis: ProjectAnalysisResult | MultiPhaseAnalysisResponse
   ): Promise<AgentRecommendation[]> {
+    // For multi-phase, send a lightweight indicator instead of full markdown contents
+    const payload = isMultiPhaseResponse(analysis)
+      ? { isMultiPhase: true, analysisDir: analysis.analysisDir }
+      : (analysis as unknown as Record<string, unknown>);
+
     const result = await this.rpcService.call(
       'wizard:recommend-agents',
-      analysis as unknown as Record<string, unknown>,
+      payload,
       { timeout: 60000 }
     );
     if (result.isSuccess() && result.data) {
@@ -192,18 +217,20 @@ export class WizardRpcService {
    * Uses the existing enhancedPrompts:runWizard RPC handler.
    *
    * @param workspacePath - Workspace path to analyze
-   * @param analysisData - Pre-computed analysis from wizard Step 1 (single source of truth)
+   * @param analysisData - Pre-computed analysis from wizard Step 1 (optional; omit for multi-phase)
    * @returns Enhanced Prompts wizard response
    */
   async runEnhancedPromptsWizard(
     workspacePath: string,
-    analysisData: ProjectAnalysisResult
+    analysisData?: ProjectAnalysisResult,
+    analysisDir?: string
   ): Promise<EnhancedPromptsRunWizardResponse> {
     const result = await this.rpcService.call(
       'enhancedPrompts:runWizard',
       {
         workspacePath,
-        analysisData,
+        ...(analysisData ? { analysisData } : {}),
+        ...(analysisDir ? { analysisDir } : {}),
         model: this.modelState.currentModel() || undefined,
       },
       { timeout: 300_000 } // 5 minutes: LLM generation via SDK

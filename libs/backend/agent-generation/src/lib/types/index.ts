@@ -41,6 +41,15 @@ export type {
   AgentCategory,
 } from './analysis.types';
 
+// Multi-phase analysis types (TASK_2025_154)
+export type {
+  MultiPhaseId,
+  PhaseResult,
+  MultiPhaseManifest,
+  MultiPhaseAnalysisOptions,
+} from './multi-phase.types';
+export { PHASE_CONFIGS } from './multi-phase.types';
+
 // Re-export commonly used types from workspace-intelligence for convenience
 // This prevents consumers from having to import from multiple libraries
 export type {

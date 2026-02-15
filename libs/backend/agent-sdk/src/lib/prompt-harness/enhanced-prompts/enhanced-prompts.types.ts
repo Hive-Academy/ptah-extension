@@ -167,6 +167,28 @@ export function createInitialEnhancedPromptsState(
 }
 
 /**
+ * Summary of generated enhanced prompts sections.
+ * Used by the frontend to display what was generated without exposing actual content (IP protection).
+ */
+export interface EnhancedPromptsSummary {
+  /** Individual guidance sections with metadata */
+  sections: Array<{
+    /** Section display name (e.g., 'Project Context') */
+    name: string;
+    /** Approximate word count of the generated section */
+    wordCount: number;
+    /** Whether this section was successfully generated */
+    generated: boolean;
+  }>;
+  /** Total token count across all sections */
+  totalTokens: number;
+  /** Quality score from code quality assessment (0-100), if available */
+  qualityScore?: number;
+  /** Whether template-based fallback guidance was used */
+  usedFallback: boolean;
+}
+
+/**
  * Result of Enhanced Prompts wizard execution
  */
 export interface EnhancedPromptsWizardResult {
@@ -184,6 +206,12 @@ export interface EnhancedPromptsWizardResult {
    * Updated state after wizard completion
    */
   state?: EnhancedPromptsState;
+
+  /**
+   * Summary of what was generated (sections, token counts).
+   * Available when success is true. Never includes actual prompt content.
+   */
+  summary?: EnhancedPromptsSummary;
 }
 
 /**

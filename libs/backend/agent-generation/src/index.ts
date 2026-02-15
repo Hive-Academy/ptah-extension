@@ -46,6 +46,9 @@ export {
 // Analysis storage service (Persistent Analysis History)
 export { AnalysisStorageService } from './lib/services/analysis-storage.service';
 
+// Orchestrator types (exported for RPC handler consumption)
+export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
+
 // Wizard child services (TASK_2025_115) and shared analysis schema (TASK_2025_145)
 export {
   WizardWebviewLifecycleService,
@@ -55,6 +58,7 @@ export {
   CodeHealthAnalysisService,
   WizardContextMapperService,
   AgenticAnalysisService,
+  MultiPhaseAnalysisService,
   ProjectAnalysisZodSchema,
   normalizeAgentOutput,
   resolveProjectType,

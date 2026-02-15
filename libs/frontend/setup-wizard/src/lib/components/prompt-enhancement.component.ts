@@ -16,6 +16,7 @@ import {
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
 import { AnalysisTranscriptComponent } from './analysis-transcript.component';
+import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-summary-card.component';
 
 /**
  * PromptEnhancementComponent - Dedicated wizard step for Enhanced Prompts generation
@@ -35,7 +36,11 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 @Component({
   selector: 'ptah-prompt-enhancement',
   standalone: true,
-  imports: [LucideAngularModule, AnalysisTranscriptComponent],
+  imports: [
+    LucideAngularModule,
+    AnalysisTranscriptComponent,
+    EnhancedPromptsSummaryCardComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="px-3 py-4">
@@ -92,6 +97,11 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
               </div>
               }
             </div>
+            @if (enhancedPromptsSummary(); as summary) {
+            <div class="mt-3 w-full max-w-md mx-auto">
+              <ptah-enhanced-prompts-summary-card [summary]="summary" />
+            </div>
+            }
           </div>
           } @case ('error') {
           <div class="flex flex-col items-center gap-2 py-3">
@@ -200,6 +210,9 @@ export class PromptEnhancementComponent {
     return this.wizardState.enhancedPromptsDetectedStack() ?? [];
   });
 
+  protected readonly enhancedPromptsSummary =
+    this.wizardState.enhancedPromptsSummary;
+
   protected readonly canContinue = computed(() => {
     const s = this.status();
     return s === 'complete' || s === 'error' || s === 'skipped';
@@ -238,15 +251,18 @@ export class PromptEnhancementComponent {
   /**
    * Trigger Enhanced Prompts generation via RPC.
    * Forwards the stored deep analysis from wizard Step 1 as the single source of truth.
+   * For multi-phase analysis, lets the backend run its own workspace analysis
+   * since multi-phase produces markdown files (not ProjectAnalysisResult JSON).
    */
   private async triggerEnhancedPrompts(): Promise<void> {
     this.wizardState.setEnhancedPromptsStatus('generating');
 
     try {
       const workspacePath = '.';
+      const multiPhase = this.wizardState.multiPhaseResult();
       const analysis = this.wizardState.deepAnalysis();
 
-      if (!analysis) {
+      if (!multiPhase && !analysis) {
         this.wizardState.setEnhancedPromptsStatus('error');
         this.wizardState.setEnhancedPromptsError(
           'No analysis data available. Please re-run the wizard scan.'
@@ -254,9 +270,12 @@ export class PromptEnhancementComponent {
         return;
       }
 
+      // Multi-phase: pass analysisDir so backend reads all phase markdown files.
+      // Legacy: forward the stored ProjectAnalysisResult as pre-computed input.
       const result = await this.wizardRpc.runEnhancedPromptsWizard(
         workspacePath,
-        analysis
+        analysis ?? undefined,
+        multiPhase?.analysisDir
       );
 
       if (result.success) {
@@ -268,6 +287,10 @@ export class PromptEnhancementComponent {
             ...(result.detectedStack.languages ?? []),
           ].filter(Boolean);
           this.wizardState.setEnhancedPromptsDetectedStack(stackLabels);
+        }
+
+        if (result.summary) {
+          this.wizardState.setEnhancedPromptsSummary(result.summary);
         }
       } else {
         const isPremiumError =

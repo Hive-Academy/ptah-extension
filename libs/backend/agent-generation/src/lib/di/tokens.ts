@@ -190,6 +190,14 @@ export const AGENTIC_ANALYSIS_SERVICE = Symbol.for('AgenticAnalysisService');
  */
 export const ANALYSIS_STORAGE_SERVICE = Symbol.for('AnalysisStorageService');
 
+/**
+ * MultiPhaseAnalysisService - Multi-phase workspace analysis orchestrator
+ * Responsibilities: Execute 4 LLM phases + 1 deterministic synthesis, write markdown outputs, manage manifests
+ */
+export const MULTI_PHASE_ANALYSIS_SERVICE = Symbol.for(
+  'MultiPhaseAnalysisService'
+);
+
 // ========================================
 // Token Registry (Type-Safe Access)
 // ========================================
@@ -237,6 +245,9 @@ export const AGENT_GENERATION_TOKENS = {
 
   // Analysis Storage
   ANALYSIS_STORAGE_SERVICE,
+
+  // Multi-Phase Analysis
+  MULTI_PHASE_ANALYSIS_SERVICE,
 } as const;
 
 /**

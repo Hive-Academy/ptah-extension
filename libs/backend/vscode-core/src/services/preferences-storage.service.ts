@@ -32,7 +32,7 @@ export type PreferenceKey =
  * Default values for preferences
  */
 const PREFERENCE_DEFAULTS: Record<PreferenceKey, unknown> = {
-  'model.selected': 'claude-sonnet-4-20250514',
+  'model.selected': 'claude-sonnet-4-5-20250929',
   'autopilot.enabled': false,
   'autopilot.permissionLevel': 'ask',
 };

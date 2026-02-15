@@ -149,11 +149,7 @@ export class PluginStatusWidgetComponent implements OnInit {
     try {
       const [configResult, listResult] = await Promise.all([
         this.rpcService.call('plugins:get-config', {}, { timeout: 10000 }),
-        this.rpcService.call(
-          'plugins:list-available',
-          {},
-          { timeout: 10000 }
-        ),
+        this.rpcService.call('plugins:list-available', {}, { timeout: 10000 }),
       ]);
 
       if (listResult.isSuccess() && listResult.data) {

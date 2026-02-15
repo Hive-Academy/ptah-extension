@@ -19,6 +19,7 @@ import {
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type { PluginInfo } from '@ptah-extension/shared';
+import { NgClass } from '@angular/common';
 
 /**
  * Category display metadata for grouping plugins in the browser.
@@ -67,7 +68,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
 @Component({
   selector: 'ptah-plugin-browser-modal',
   standalone: true,
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, NgClass],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <dialog class="modal" [class.modal-open]="isOpen()">
@@ -97,11 +98,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
             type="button"
             aria-label="Close plugin browser"
           >
-            <lucide-angular
-              [img]="XIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
+            <lucide-angular [img]="XIcon" class="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -109,7 +106,9 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
         <!-- Loading state -->
         <div class="flex flex-col gap-3 py-8">
           <div class="flex justify-center">
-            <span class="loading loading-spinner loading-md text-primary"></span>
+            <span
+              class="loading loading-spinner loading-md text-primary"
+            ></span>
           </div>
           <span class="block text-sm text-base-content/60 text-center">
             Loading available plugins...
@@ -119,7 +118,11 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
         <!-- Error state -->
         <div class="flex flex-col items-center gap-3 py-8">
           <span class="text-error text-sm text-center">{{ error() }}</span>
-          <button class="btn btn-sm btn-ghost" (click)="loadPlugins()" type="button">
+          <button
+            class="btn btn-sm btn-ghost"
+            (click)="loadPlugins()"
+            type="button"
+          >
             Try Again
           </button>
         </div>
@@ -161,7 +164,11 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
               @for (plugin of group.plugins; track plugin.id) {
               <div
                 class="flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-150"
-                [class]="isSelected(plugin.id) ? 'border-primary bg-primary/5' : 'border-base-300 bg-base-200/30 hover:bg-base-200/60'"
+                [ngClass]="
+                  isSelected(plugin.id)
+                    ? 'border-primary bg-primary/5'
+                    : 'border-base-300 bg-base-200/30 hover:bg-base-200/60'
+                "
                 role="listitem"
                 (click)="togglePlugin(plugin.id)"
               >
@@ -178,9 +185,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                   <div class="flex items-center gap-2 flex-wrap">
                     <span class="text-sm font-medium">{{ plugin.name }}</span>
                     @if (plugin.isDefault) {
-                    <span
-                      class="badge badge-xs badge-primary gap-1"
-                    >
+                    <span class="badge badge-xs badge-primary gap-1">
                       <lucide-angular
                         [img]="StarIcon"
                         class="w-2.5 h-2.5"
@@ -198,9 +203,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                   <!-- Badges: skill count, command count -->
                   <div class="flex gap-1.5 mt-1.5">
                     @if (plugin.skillCount > 0) {
-                    <span
-                      class="badge badge-xs badge-ghost gap-1"
-                    >
+                    <span class="badge badge-xs badge-ghost gap-1">
                       <lucide-angular
                         [img]="PackageIcon"
                         class="w-2.5 h-2.5"
@@ -210,9 +213,7 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
                       skill{{ plugin.skillCount !== 1 ? 's' : '' }}
                     </span>
                     } @if (plugin.commandCount > 0) {
-                    <span
-                      class="badge badge-xs badge-ghost gap-1"
-                    >
+                    <span class="badge badge-xs badge-ghost gap-1">
                       {{ plugin.commandCount }}
                       command{{ plugin.commandCount !== 1 ? 's' : '' }}
                     </span>
@@ -235,11 +236,8 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
           } @empty {
           <div class="text-center py-6 text-base-content/50">
             <span class="block text-sm">
-              @if (searchQuery()) {
-                No plugins match your search.
-              } @else {
-                No plugins available.
-              }
+              @if (searchQuery()) { No plugins match your search. } @else { No
+              plugins available. }
             </span>
           </div>
           }
@@ -268,15 +266,13 @@ const CATEGORY_ORDER: PluginInfo['category'][] = [
           >
             @if (isSaving()) {
             <span class="loading loading-spinner loading-xs"></span>
-            Saving...
-            } @else {
+            Saving... } @else {
             <lucide-angular
               [img]="CheckIcon"
               class="w-4 h-4"
               aria-hidden="true"
             />
-            Save Configuration
-            }
+            Save Configuration }
           </button>
         </div>
         }
@@ -478,11 +474,7 @@ export class PluginBrowserModalComponent {
 
     try {
       const [listResult, configResult] = await Promise.all([
-        this.rpcService.call(
-          'plugins:list-available',
-          {},
-          { timeout: 10000 }
-        ),
+        this.rpcService.call('plugins:list-available', {}, { timeout: 10000 }),
         this.rpcService.call('plugins:get-config', {}, { timeout: 10000 }),
       ]);
 
@@ -493,9 +485,7 @@ export class PluginBrowserModalComponent {
       }
 
       if (configResult.isSuccess() && configResult.data) {
-        this.selectedIds.set(
-          new Set(configResult.data.enabledPluginIds)
-        );
+        this.selectedIds.set(new Set(configResult.data.enabledPluginIds));
       } else {
         this.selectedIds.set(new Set());
       }

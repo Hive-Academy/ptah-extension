@@ -25,7 +25,6 @@ import {
   LicenseService,
 } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
-// eslint-disable-next-line @nx/enforce-module-boundaries
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
@@ -39,7 +38,10 @@ import type {
   GenerationCompletePayload,
   GenerationStreamPayload,
 } from '@ptah-extension/shared';
-import type { GenerationSummary } from '@ptah-extension/agent-generation';
+import type {
+  GenerationSummary,
+  OrchestratorGenerationOptions,
+} from '@ptah-extension/agent-generation';
 import { Result } from '@ptah-extension/shared';
 import type { ProjectAnalysisResult } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
@@ -64,26 +66,7 @@ interface GenerationProgress {
   detectedCharacteristics?: string[];
 }
 
-/**
- * Generation options for the orchestrator.
- * Defined locally because this type is not barrel-exported from agent-generation.
- * Mirrors the OrchestratorGenerationOptions interface in orchestrator.service.ts.
- */
-interface OrchestratorGenerationOptions {
-  workspaceUri: vscode.Uri;
-  threshold?: number;
-  userOverrides?: string[];
-  variableOverrides?: Record<string, string>;
-  enhancedPromptContent?: string;
-  preComputedAnalysis?: ProjectAnalysisResult;
-  isPremium?: boolean;
-  mcpServerRunning?: boolean;
-  mcpPort?: number;
-  /** Callback for real-time stream events during content generation */
-  onStreamEvent?: (event: GenerationStreamPayload) => void;
-  /** Model to use for content generation (from frontend selection) */
-  model?: string;
-}
+// OrchestratorGenerationOptions imported from @ptah-extension/agent-generation barrel
 
 /**
  * Local interface for webview broadcasting.
@@ -135,6 +118,8 @@ interface EnhancedPromptsServiceInterface {
  * TASK_2025_148: Connects the frontend Angular SPA to the backend
  * AgentGenerationOrchestratorService via RPC, replacing the old
  * postMessage-based webview panel handlers.
+ *
+ * TASK_2025_154: Added multi-phase analysis RPC handlers.
  *
  * Concurrency: Only one generation can run at a time. The `isGenerating`
  * flag prevents concurrent submissions and is always reset in finally blocks.
@@ -193,6 +178,10 @@ export class WizardGenerationRpcHandlers {
 
   /**
    * Register all wizard generation RPC methods.
+   *
+   * TASK_2025_154 wiring: Removed wizard:start-multi-phase-analysis and
+   * wizard:cancel-multi-phase-analysis — these are now integrated into
+   * wizard:deep-analyze and wizard:cancel-analysis in SetupRpcHandlers.
    */
   register(): void {
     this.registerSubmitSelection();
@@ -317,9 +306,17 @@ export class WizardGenerationRpcHandlers {
           );
         }
 
-        // Pass full wizard analysis data directly (skip Phase 1 re-analysis)
+        // Pass analysis data to generation pipeline
+        // Multi-phase: use analysisDir (markdown files on disk)
+        // Legacy: use preComputedAnalysis (JSON blob)
         const preComputedAnalysis = params.analysisData ?? undefined;
-        if (preComputedAnalysis) {
+        const analysisDir = params.analysisDir ?? undefined;
+        if (analysisDir) {
+          this.logger.info(
+            'Passing multi-phase analysisDir to generation pipeline',
+            { analysisDir }
+          );
+        } else if (preComputedAnalysis) {
           this.logger.info(
             'Passing full wizard analysis to generation pipeline',
             {
@@ -397,6 +394,7 @@ export class WizardGenerationRpcHandlers {
           mcpPort,
           onStreamEvent,
           model: currentModel,
+          analysisDir,
         };
 
         // Store options for retry handler to reuse rich context
@@ -842,4 +840,9 @@ export class WizardGenerationRpcHandlers {
       }
     });
   }
+
+  // TASK_2025_154 wiring: wizard:start-multi-phase-analysis and
+  // wizard:cancel-multi-phase-analysis removed. Multi-phase analysis is now
+  // integrated into wizard:deep-analyze (SetupRpcHandlers) and
+  // wizard:cancel-analysis (SetupRpcHandlers).
 }

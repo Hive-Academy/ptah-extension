@@ -67,8 +67,7 @@ const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
   {
     id: 'hive-academy-react',
     name: 'Hive Academy React',
-    description:
-      'Frontend tools for React development with modern patterns',
+    description: 'Frontend tools for React development with modern patterns',
     category: 'frontend-tools',
     skillCount: 3,
     commandCount: 0,
@@ -111,9 +110,7 @@ export class PluginLoaderService {
   /** VS Code Memento for per-workspace persistent state */
   private workspaceState: vscode.Memento | null = null;
 
-  constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
-  ) {}
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
    * Initialize the plugin loader with extension context values.
@@ -182,7 +179,9 @@ export class PluginLoaderService {
    * @param config - Plugin configuration to save (enabledPluginIds will be persisted)
    * @throws Error if workspaceState is not initialized
    */
-  async saveWorkspacePluginConfig(config: Pick<PluginConfigState, 'enabledPluginIds'>): Promise<void> {
+  async saveWorkspacePluginConfig(
+    config: Pick<PluginConfigState, 'enabledPluginIds'>
+  ): Promise<void> {
     if (!this.workspaceState) {
       throw new Error(
         'PluginLoaderService not initialized: workspaceState is null'

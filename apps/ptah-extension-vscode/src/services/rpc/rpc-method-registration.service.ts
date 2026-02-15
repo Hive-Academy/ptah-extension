@@ -24,7 +24,6 @@ import {
   CommandManager,
   verifyRpcRegistration,
 } from '@ptah-extension/vscode-core';
-// eslint-disable-next-line @nx/enforce-module-boundaries
 import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   SessionId,

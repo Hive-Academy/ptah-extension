@@ -69,6 +69,14 @@ export interface PromptDesignerInput {
    * @since TASK_2025_141
    */
   includeQualityGuidance?: boolean;
+
+  /**
+   * Additional analysis context from multi-phase analysis.
+   * When present, includes quality audit findings and elevation plan priorities
+   * for richer prompt generation.
+   * @since TASK_2025_154
+   */
+  additionalContext?: string;
 }
 
 /**

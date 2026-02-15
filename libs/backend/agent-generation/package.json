@@ -11,6 +11,11 @@
     "@ptah-extension/vscode-core": "0.0.1",
     "gray-matter": "^4.0.3",
     "@ptah-extension/llm-abstraction": "0.0.1",
-    "@ptah-extension/workspace-intelligence": "0.0.1"
+    "@ptah-extension/workspace-intelligence": "0.0.1",
+    "@types/vscode": "^1.103.0",
+    "@ptah-extension/vscode-lm-tools": "0.0.1",
+    "@ptah-extension/agent-sdk": "0.0.1",
+    "zod": "^4.1.12",
+    "uuid": "^11.1.0"
   }
 }

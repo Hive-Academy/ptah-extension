@@ -61,6 +61,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'command:', // TASK_2025_126: Webview command execution (ptah.* commands only)
   'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts system (status, wizard, regenerate)
   'quality:', // TASK_2025_144: Quality Dashboard (assessment, history, export)
+  'plugins:', // TASK_2025_153: Plugin configuration (list, get-config, save-config)
 ] as const;
 
 /**

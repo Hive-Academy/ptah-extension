@@ -141,13 +141,14 @@ export class WizardStepMachineService {
         // Complete → (terminal): No automatic transition, user closes wizard
         return 'complete';
 
-      default:
+      default: {
         const errorMsg = `Unknown wizard step: ${currentStep}`;
         this.logger.error('[WizardStepMachine] Invalid step', {
           currentStep,
           validSteps: this.STEP_ORDER,
         });
         throw new Error(errorMsg);
+      }
     }
   }
 

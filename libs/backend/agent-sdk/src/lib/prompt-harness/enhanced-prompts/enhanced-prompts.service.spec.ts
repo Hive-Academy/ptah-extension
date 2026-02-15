@@ -34,6 +34,8 @@ describe('EnhancedPromptsService - getEnhancedPromptContent', () => {
   };
   let mockContext: { globalState: { get: jest.Mock; update: jest.Mock } };
   let mockWorkspaceIntelligence: { analyzeWorkspace: jest.Mock };
+  let mockInternalQueryService: { query: jest.Mock };
+  let mockConfig: { get: jest.Mock };
 
   const testWorkspacePath = '/test/workspace';
 
@@ -68,12 +70,22 @@ describe('EnhancedPromptsService - getEnhancedPromptContent', () => {
       analyzeWorkspace: jest.fn(),
     };
 
+    mockInternalQueryService = {
+      query: jest.fn(),
+    };
+
+    mockConfig = {
+      get: jest.fn().mockReturnValue(undefined),
+    };
+
     service = new EnhancedPromptsService(
       mockLogger as any,
       mockPromptDesignerAgent as any,
       mockCacheService as any,
       mockContext as any,
-      mockWorkspaceIntelligence as any
+      mockWorkspaceIntelligence as any,
+      mockInternalQueryService as any,
+      mockConfig as any
     );
   });
 

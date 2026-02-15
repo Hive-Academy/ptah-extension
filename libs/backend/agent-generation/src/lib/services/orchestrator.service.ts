@@ -113,6 +113,13 @@ export interface OrchestratorGenerationOptions {
    * Receives text deltas, tool calls, and thinking events for live UI updates.
    */
   onStreamEvent?: (event: GenerationStreamPayload) => void;
+
+  /**
+   * Multi-phase analysis directory path (alternative to preComputedAnalysis).
+   * When provided, ContentGenerationService reads rich markdown analysis files
+   * from this directory instead of using formatAnalysisData().
+   */
+  analysisDir?: string;
 }
 
 /**
@@ -279,6 +286,7 @@ export class AgentGenerationOrchestratorService {
             trailingComma: 'es5' as const,
           },
           fullAnalysis: analysis,
+          analysisDir: options.analysisDir,
         };
 
         this.logger.info(
@@ -323,9 +331,14 @@ export class AgentGenerationOrchestratorService {
         }
 
         projectContext = contextResult.value!;
+        // Propagate analysisDir even when using fresh workspace analysis
+        if (options.analysisDir) {
+          projectContext.analysisDir = options.analysisDir;
+        }
         this.logger.info('Workspace analysis complete', {
           projectType: projectContext.projectType,
           frameworkCount: projectContext.frameworks.length,
+          hasAnalysisDir: !!options.analysisDir,
         });
       }
 

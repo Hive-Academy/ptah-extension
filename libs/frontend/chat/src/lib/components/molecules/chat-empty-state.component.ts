@@ -181,8 +181,12 @@ import { ChatStore } from '../../services/chat.store';
               (configureClicked)="openPluginBrowser()"
             />
             } @else {
-            <div class="flex items-center justify-between p-2 rounded-md bg-base-200/50 border border-base-300">
-              <span class="text-xs text-base-content/60">Available with Pro plan</span>
+            <div
+              class="flex items-center justify-between p-2 rounded-md bg-base-200/50 border border-base-300"
+            >
+              <span class="text-xs text-base-content/60"
+                >Available with Pro plan</span
+              >
               <span class="badge badge-xs badge-primary">Upgrade</span>
             </div>
             }

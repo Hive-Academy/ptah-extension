@@ -57,12 +57,19 @@ import {
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
-// eslint-disable-next-line @nx/enforce-module-boundaries
-import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  registerSdkServices,
+  SDK_TOKENS,
+  EnhancedPromptsService,
+} from '@ptah-extension/agent-sdk';
+import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
 
 // Import agent-generation services (TASK_2025_069)
 
-import { registerAgentGenerationServices } from '@ptah-extension/agent-generation';
+import {
+  registerAgentGenerationServices,
+  AGENT_GENERATION_TOKENS,
+} from '@ptah-extension/agent-generation';
 
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 
@@ -326,6 +333,24 @@ export class DIContainer {
     // SetupStatusService, SetupWizardService, and supporting services
     // Required for setup wizard functionality
     registerAgentGenerationServices(container, logger, context.extensionPath);
+
+    // TASK_2025_154: Wire multi-phase analysis reader into EnhancedPromptsService
+    // Both SDK and agent-generation services are now registered, so we can
+    // safely resolve and connect them for optional multi-phase enrichment.
+    try {
+      const enhancedPrompts = container.resolve<EnhancedPromptsService>(
+        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE
+      );
+      const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE
+      );
+      enhancedPrompts.setAnalysisReader(analysisStorage);
+    } catch (error) {
+      logger.warn(
+        '[DI] Failed to wire multi-phase analysis reader into EnhancedPromptsService',
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    }
 
     // ========================================
     // PHASE 2.9: LLM Abstraction Services (TASK_2025_071 - CRITICAL FIX)

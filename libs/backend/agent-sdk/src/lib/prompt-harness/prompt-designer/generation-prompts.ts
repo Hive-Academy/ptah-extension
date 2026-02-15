@@ -238,8 +238,9 @@ ${
 Include: key abstractions, import patterns, layer boundaries.`;
 
   // Add quality guidance section if quality context is provided
+  let prompt = basePrompt;
   if (qualityContext) {
-    return `${basePrompt}
+    prompt += `
 
 ### 5. Quality Guidance (Optional)
 Based on the Code Quality Context below, provide specific guidance for addressing the detected issues.
@@ -249,7 +250,19 @@ Keep this section under 300 tokens.
 ${qualityContext}`;
   }
 
-  return basePrompt;
+  // Append additional analysis context from multi-phase analysis (TASK_2025_154)
+  if (input.additionalContext) {
+    prompt += `
+
+## Additional Analysis Context
+
+The following analysis data provides deeper insight into the project's quality and improvement opportunities.
+Use this to generate more specific, actionable guidance in all sections above.
+
+${input.additionalContext}`;
+  }
+
+  return prompt;
 }
 
 /**

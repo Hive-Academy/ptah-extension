@@ -17,7 +17,6 @@ import {
   LicenseService,
   type LicenseStatus,
 } from '@ptah-extension/vscode-core';
-// eslint-disable-next-line @nx/enforce-module-boundaries
 import {
   SdkAgentAdapter,
   SessionHistoryReaderService,
@@ -226,7 +225,7 @@ export class ChatRpcHandlers {
             options?.model ||
             this.configManager.getWithDefault<string>(
               'model.selected',
-              'claude-sonnet-4-20250514'
+              'claude-sonnet-4-5-20250929'
             );
 
           // TASK_2025_093: tabId is now the primary tracking key
@@ -329,7 +328,7 @@ export class ChatRpcHandlers {
               params.model ||
               this.configManager.getWithDefault<string>(
                 'model.selected',
-                'claude-sonnet-4-20250514'
+                'claude-sonnet-4-5-20250929'
               );
 
             // Resume the session to reconnect to Claude's conversation context

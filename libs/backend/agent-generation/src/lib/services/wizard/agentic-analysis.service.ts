@@ -28,11 +28,13 @@ import type {
   AnalysisPhase,
   AnalysisStreamPayload,
 } from '@ptah-extension/shared';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, SdkStreamProcessor } from '@ptah-extension/agent-sdk';
 import type {
   InternalQueryService,
   SDKMessage,
-  ToolResultBlock,
+  StreamEventEmitter,
+  PhaseTracker,
+  StreamEvent,
 } from '@ptah-extension/agent-sdk';
 import type { DeepProjectAnalysis } from '../../types/analysis.types';
 import {
@@ -55,7 +57,7 @@ const ABORT_REASONS = {
 } as const;
 type AbortReason = (typeof ABORT_REASONS)[keyof typeof ABORT_REASONS];
 
-const PHASE_LABELS: Record<AnalysisPhase, string> = {
+const PHASE_LABELS: Partial<Record<AnalysisPhase, string>> = {
   discovery: 'Discovering project structure...',
   architecture: 'Analyzing architecture patterns...',
   health: 'Assessing code health...',
@@ -287,272 +289,85 @@ export class AgenticAnalysisService {
     abortController: AbortController,
     timeoutMs: number
   ): Promise<Result<DeepProjectAnalysis, Error>> {
-    // -- Progress tracking state --
-    let toolCallCount = 0;
+    // Phase tracking state for progress heuristics
     let currentPhase: AnalysisPhase | undefined;
     const completedPhases: AnalysisPhase[] = [];
-    const activeToolBlocks = new Map<
-      number,
-      { name: string; inputBuffer: string; toolCallId: string }
-    >();
-    const completedToolNames = new Map<string, string>();
 
-    // -- Throttle state --
-    let lastTextBroadcastTime = 0;
-    const TEXT_BROADCAST_THROTTLE_MS = 100;
-    let lastThinkingBroadcastTime = 0;
-    const THINKING_BROADCAST_THROTTLE_MS = 100;
+    const emitter: StreamEventEmitter = {
+      emit: (event: StreamEvent) => this.broadcastStreamMessage(event),
+    };
 
-    const timeoutId = setTimeout(() => {
-      this.logger.warn(
-        `${SERVICE_TAG} Analysis timed out after ${timeoutMs}ms`
-      );
-      abortController.abort(ABORT_REASONS.TIMEOUT);
-    }, timeoutMs);
-
-    try {
-      for await (const message of stream) {
-        // ==============================================================
-        // Result message — extract structured_output
-        // ==============================================================
-        if (message.type === 'result') {
-          clearTimeout(timeoutId);
-
-          if (message.subtype === 'success') {
-            this.logger.info(`${SERVICE_TAG} Query completed`, {
-              turns: message.num_turns,
-              cost: message.total_cost_usd,
-              inputTokens: message.usage.input_tokens,
-              outputTokens: message.usage.output_tokens,
-              hasStructuredOutput: !!message.structured_output,
-            });
-
-            this.broadcastStreamMessage({
-              kind: 'status',
-              content: 'Analysis complete',
-              timestamp: Date.now(),
-            });
-
-            // Primary path: SDK structured output (pre-validated JSON)
-            if (message.structured_output) {
-              return this.normalizeStructuredOutput(message.structured_output);
-            }
-
-            // Fallback: parse from result text (shouldn't happen with outputFormat)
-            if (message.result) {
-              this.logger.warn(
-                `${SERVICE_TAG} No structured_output in result, falling back to text parsing`
-              );
-              return this.parseJsonFromText(message.result);
-            }
-
-            return Result.err(
-              new Error('Analysis completed but produced no output')
-            );
+    const phaseTracker: PhaseTracker = {
+      onToolStart: (toolCallCount: number, toolName: string) => {
+        const newPhase = TOOL_COUNT_PHASE_HEURISTIC[toolCallCount] || 'quality';
+        if (newPhase !== currentPhase) {
+          if (currentPhase && !completedPhases.includes(currentPhase)) {
+            completedPhases.push(currentPhase);
           }
-
-          // Error result
-          const errorResult = message as {
-            subtype: string;
-            errors?: string[];
-          };
-          return Result.err(
-            new Error(
-              `Analysis query failed: ${
-                errorResult.errors?.join('; ') || errorResult.subtype
-              }`
-            )
-          );
+          currentPhase = newPhase;
         }
-
-        // ==============================================================
-        // Stream events — progress UX only (no marker extraction)
-        // ==============================================================
-        if (message.type === 'stream_event') {
-          const event = message.event;
-
-          // Text deltas — broadcast for live transcript
-          if (
-            event.type === 'content_block_delta' &&
-            event.delta.type === 'text_delta'
-          ) {
-            const now = Date.now();
-            if (now - lastTextBroadcastTime >= TEXT_BROADCAST_THROTTLE_MS) {
-              const trimmed = event.delta.text.trim();
-              if (trimmed.length > 0) {
-                lastTextBroadcastTime = now;
-                this.broadcastStreamMessage({
-                  kind: 'text',
-                  content: event.delta.text,
-                  timestamp: now,
-                });
-              }
-            }
-          }
-
-          // Tool input accumulation (for tool naming in progress UX)
-          if (
-            event.type === 'content_block_delta' &&
-            event.delta.type === 'input_json_delta'
-          ) {
-            const activeBlock = activeToolBlocks.get(event.index);
-            if (activeBlock) {
-              activeBlock.inputBuffer += event.delta.partial_json;
-            }
-          }
-
-          // Thinking deltas — broadcast for live transcript
-          if (
-            event.type === 'content_block_delta' &&
-            event.delta.type === 'thinking_delta'
-          ) {
-            const now = Date.now();
-            if (
-              now - lastThinkingBroadcastTime >=
-              THINKING_BROADCAST_THROTTLE_MS
-            ) {
-              lastThinkingBroadcastTime = now;
-              const thinkingPreview = event.delta.thinking.substring(0, 120);
-              this.broadcastProgress({
-                filesScanned: 0,
-                totalFiles: 0,
-                detections: [],
-                currentPhase,
-                phaseLabel: currentPhase
-                  ? PHASE_LABELS[currentPhase]
-                  : 'Analyzing...',
-                agentReasoning: `Thinking: ${thinkingPreview}...`,
-                completedPhases: [...completedPhases],
-              });
-              this.broadcastStreamMessage({
-                kind: 'thinking',
-                content: event.delta.thinking,
-                timestamp: now,
-              });
-            }
-          }
-
-          // Tool use start — phase heuristic + progress broadcast
-          if (
-            event.type === 'content_block_start' &&
-            event.content_block.type === 'tool_use'
-          ) {
-            toolCallCount++;
-            activeToolBlocks.set(event.index, {
-              name: event.content_block.name,
-              inputBuffer: '',
-              toolCallId: event.content_block.id,
-            });
-
-            // Advance phase based on tool count heuristic
-            const newPhase =
-              TOOL_COUNT_PHASE_HEURISTIC[toolCallCount] || 'quality';
-            if (newPhase !== currentPhase) {
-              if (currentPhase && !completedPhases.includes(currentPhase)) {
-                completedPhases.push(currentPhase);
-              }
-              currentPhase = newPhase;
-            }
-
-            this.broadcastProgress({
-              filesScanned: 0,
-              totalFiles: 0,
-              detections: [],
-              currentPhase,
-              phaseLabel: currentPhase ? PHASE_LABELS[currentPhase] : undefined,
-              agentReasoning: `Using: ${event.content_block.name}...`,
-              completedPhases: [...completedPhases],
-            });
-            this.broadcastStreamMessage({
-              kind: 'tool_start',
-              content: `Calling ${event.content_block.name}`,
-              toolName: event.content_block.name,
-              toolCallId: event.content_block.id,
-              timestamp: Date.now(),
-            });
-          }
-
-          // Tool use stop — extract API name for progress display
-          if (event.type === 'content_block_stop') {
-            const completedBlock = activeToolBlocks.get(event.index);
-            if (completedBlock) {
-              const ptahApiMatch =
-                completedBlock.inputBuffer.match(/ptah\.(\w+)\.(\w+)\(/);
-              if (ptahApiMatch) {
-                this.broadcastProgress({
-                  filesScanned: 0,
-                  totalFiles: 0,
-                  detections: [],
-                  currentPhase,
-                  phaseLabel: currentPhase
-                    ? PHASE_LABELS[currentPhase]
-                    : undefined,
-                  agentReasoning: `Analyzing: ptah.${ptahApiMatch[1]}.${ptahApiMatch[2]}()`,
-                  completedPhases: [...completedPhases],
-                });
-              }
-
-              this.broadcastStreamMessage({
-                kind: 'tool_input',
-                content: completedBlock.inputBuffer.substring(0, 2000),
-                toolName: completedBlock.name,
-                toolCallId: completedBlock.toolCallId,
-                timestamp: Date.now(),
-              });
-
-              completedToolNames.set(
-                completedBlock.toolCallId,
-                completedBlock.name
-              );
-              activeToolBlocks.delete(event.index);
-            }
-          }
-        }
-
-        // ==============================================================
-        // Assistant messages — log only
-        // ==============================================================
-        if (message.type === 'assistant') {
-          this.logger.debug(`${SERVICE_TAG} Assistant message`, {
-            contentBlocks: message.message.content.length,
-            stopReason: message.message.stop_reason,
+        this.broadcastProgress({
+          filesScanned: 0,
+          totalFiles: 0,
+          detections: [],
+          currentPhase,
+          phaseLabel: currentPhase ? PHASE_LABELS[currentPhase] : undefined,
+          agentReasoning: `Using: ${toolName}...`,
+          completedPhases: [...completedPhases],
+        });
+      },
+      onToolStop: (_toolCallId: string, inputBuffer: string) => {
+        const ptahApiMatch = inputBuffer.match(/ptah\.(\w+)\.(\w+)\(/);
+        if (ptahApiMatch) {
+          this.broadcastProgress({
+            filesScanned: 0,
+            totalFiles: 0,
+            detections: [],
+            currentPhase,
+            phaseLabel: currentPhase ? PHASE_LABELS[currentPhase] : undefined,
+            agentReasoning: `Analyzing: ptah.${ptahApiMatch[1]}.${ptahApiMatch[2]}()`,
+            completedPhases: [...completedPhases],
           });
         }
+      },
+      onThinking: (thinkingPreview: string) => {
+        this.broadcastProgress({
+          filesScanned: 0,
+          totalFiles: 0,
+          detections: [],
+          currentPhase,
+          phaseLabel: currentPhase
+            ? PHASE_LABELS[currentPhase]
+            : 'Analyzing...',
+          agentReasoning: `Thinking: ${thinkingPreview}...`,
+          completedPhases: [...completedPhases],
+        });
+      },
+    };
 
-        // ==============================================================
-        // Tool results — broadcast for live transcript
-        // ==============================================================
-        if (message.type === 'user') {
-          const content = (message as { message?: { content?: unknown } })
-            .message?.content;
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              const typedBlock = block as { type?: string };
-              if (typedBlock.type === 'tool_result') {
-                const resultBlock = block as ToolResultBlock;
-                const resultContent =
-                  typeof resultBlock.content === 'string'
-                    ? resultBlock.content.substring(0, 2000)
-                    : JSON.stringify(resultBlock.content).substring(0, 2000);
-                this.broadcastStreamMessage({
-                  kind: 'tool_result',
-                  content: resultContent,
-                  toolName:
-                    completedToolNames.get(resultBlock.tool_use_id) || 'tool',
-                  toolCallId: resultBlock.tool_use_id,
-                  isError: resultBlock.is_error ?? false,
-                  timestamp: Date.now(),
-                });
-              }
-            }
-          }
-        }
-      }
+    const processor = new SdkStreamProcessor({
+      emitter,
+      timeout: { ms: timeoutMs, abortController },
+      phaseTracker,
+      logger: this.logger,
+      serviceTag: SERVICE_TAG,
+    });
 
-      return Result.err(new Error('Analysis stream ended without result'));
-    } finally {
-      clearTimeout(timeoutId);
+    const result = await processor.process(stream);
+
+    this.broadcastStreamMessage({
+      kind: 'status',
+      content: 'Analysis complete',
+      timestamp: Date.now(),
+    });
+
+    if (result.structuredOutput) {
+      return this.normalizeStructuredOutput(result.structuredOutput);
     }
+
+    // No structured output — try text parsing from result meta context
+    // (the processor already attempted JSON.parse on result text internally)
+    return Result.err(new Error('Analysis completed but produced no output'));
   }
 
   /**

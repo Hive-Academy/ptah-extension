@@ -9,17 +9,19 @@ import {
   viewChild,
 } from '@angular/core';
 import type { AnalysisPhase } from '@ptah-extension/shared';
+import { isMultiPhaseResponse } from '@ptah-extension/shared';
 import {
   Bot,
   Building2,
   CheckCircle,
   CircleDot,
-  HeartPulse,
   Info,
+  Lightbulb,
   LucideAngularModule,
   LucideIconData,
   Search,
   ShieldCheck,
+  Sparkles,
   XCircle,
   Zap,
 } from 'lucide-angular';
@@ -115,7 +117,7 @@ interface PhaseStep {
         @if (progress(); as progressData) {
         <!-- Phase Cards (agentic analysis) -->
         @if (progressData.currentPhase) {
-        <div class="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+        <div class="shrink-0 grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
           @for (phase of phases; track phase.id) {
           <div
             class="card transition-all duration-500"
@@ -377,12 +379,13 @@ export class ScanProgressComponent implements OnInit {
   protected readonly ZapIcon = Zap;
   protected readonly CircleDotIcon = CircleDot;
 
-  /** Phase steps for the stepper UI */
+  /** Phase steps for the stepper UI (v2 multi-phase pipeline) */
   protected readonly phases: PhaseStep[] = [
-    { id: 'discovery', label: 'Discovery', icon: Search },
-    { id: 'architecture', label: 'Architecture', icon: Building2 },
-    { id: 'health', label: 'Health', icon: HeartPulse },
-    { id: 'quality', label: 'Quality', icon: ShieldCheck },
+    { id: 'project-profile', label: 'Profile', icon: Search },
+    { id: 'architecture-assessment', label: 'Architecture', icon: Building2 },
+    { id: 'quality-audit', label: 'Quality', icon: ShieldCheck },
+    { id: 'elevation-plan', label: 'Elevation', icon: Lightbulb },
+    { id: 'synthesis', label: 'Synthesis', icon: Sparkles },
   ];
 
   readonly confirmModal =
@@ -491,6 +494,8 @@ export class ScanProgressComponent implements OnInit {
    * Trigger deep analysis and agent recommendations.
    * Skips deep analysis if results are already cached (smart retry for partial failures).
    * Guarded against re-entry and stale component mutations.
+   *
+   * TASK_2025_154 wiring: Handles both multi-phase and legacy analysis responses.
    */
   private async startAnalysis(): Promise<void> {
     if (this.isAnalyzing()) {
@@ -501,14 +506,51 @@ export class ScanProgressComponent implements OnInit {
     this.errorMessage.set(null);
 
     try {
-      // Smart retry: skip deep analysis if already cached in state
-      let analysis = this.wizardState.deepAnalysis();
+      // Check if we already have a multi-phase result cached
+      const existingMultiPhase = this.wizardState.multiPhaseResult();
+      if (existingMultiPhase) {
+        // Skip to recommendations with cached multi-phase result
+        let recommendations = this.wizardState.recommendations();
+        if (recommendations.length === 0) {
+          this.statusText.set('Calculating agent recommendations...');
+          recommendations = await this.wizardRpc.recommendAgents(
+            existingMultiPhase
+          );
+          if (this.isDestroyed) return;
+          this.wizardState.setRecommendations(recommendations);
+        }
+        this.wizardState.setCurrentStep('analysis');
+        return;
+      }
 
-      if (!analysis) {
+      // Smart retry: skip deep analysis if legacy results are already cached
+      let legacyAnalysis = this.wizardState.deepAnalysis();
+
+      if (!legacyAnalysis) {
         this.statusText.set('Analyzing project structure...');
-        analysis = await this.wizardRpc.deepAnalyze();
-        if (this.isDestroyed) return; // Component was destroyed during async call
-        this.wizardState.setDeepAnalysis(analysis);
+        const rawResult = await this.wizardRpc.deepAnalyze();
+        if (this.isDestroyed) return;
+
+        // Check if this is a multi-phase response
+        if (isMultiPhaseResponse(rawResult)) {
+          this.wizardState.setMultiPhaseResult(rawResult);
+
+          // Get recommendations for multi-phase
+          this.statusText.set('Calculating agent recommendations...');
+          const recommendations = await this.wizardRpc.recommendAgents(
+            rawResult
+          );
+          if (this.isDestroyed) return;
+          this.wizardState.setRecommendations(recommendations);
+
+          this.wizardState.setCurrentStep('analysis');
+          return;
+        }
+
+        // Legacy path: store as ProjectAnalysisResult
+        legacyAnalysis =
+          rawResult as import('@ptah-extension/shared').ProjectAnalysisResult;
+        this.wizardState.setDeepAnalysis(legacyAnalysis);
       }
 
       let recommendations = this.wizardState.recommendations();
@@ -516,23 +558,22 @@ export class ScanProgressComponent implements OnInit {
         // Use cached recommendations (skip re-fetch)
       } else {
         this.statusText.set('Calculating agent recommendations...');
-        recommendations = await this.wizardRpc.recommendAgents(analysis);
-        if (this.isDestroyed) return; // Component was destroyed during async call
+        recommendations = await this.wizardRpc.recommendAgents(legacyAnalysis);
+        if (this.isDestroyed) return;
         this.wizardState.setRecommendations(recommendations);
       }
 
-      // Auto-save analysis for future reuse (non-blocking)
+      // Auto-save analysis for future reuse (non-blocking, legacy only)
       const analysisMethod = this.wizardState.fallbackWarning()
         ? 'fallback'
         : 'agentic';
       try {
         await this.wizardRpc.saveAnalysis(
-          analysis,
+          legacyAnalysis,
           recommendations,
           analysisMethod as 'agentic' | 'fallback'
         );
       } catch (saveError) {
-        // Non-blocking: log warning but don't fail the wizard flow
         console.warn(
           '[ScanProgressComponent] Failed to auto-save analysis:',
           saveError

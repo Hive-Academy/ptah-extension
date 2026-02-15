@@ -34,6 +34,7 @@ import {
   DeepProjectAnalysisService,
   WizardWebviewLifecycleService,
   AgenticAnalysisService,
+  MultiPhaseAnalysisService,
 } from '../services/wizard';
 import { AnalysisStorageService } from '../services/analysis-storage.service';
 
@@ -132,6 +133,13 @@ export function registerAgentGenerationServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
+  // Multi-phase analysis service - 4 LLM phases + deterministic synthesis
+  container.register(
+    AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
+    { useClass: MultiPhaseAnalysisService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
   // Wizard webview lifecycle service - panel creation, message handling, progress emission
   // Note: Depends on WEBVIEW_MANAGER, WEBVIEW_MESSAGE_HANDLER, WEBVIEW_HTML_GENERATOR from vscode-core
   container.register(
@@ -211,6 +219,7 @@ export function registerAgentGenerationServices(
       'ANALYSIS_STORAGE_SERVICE',
       'DEEP_PROJECT_ANALYSIS',
       'AGENTIC_ANALYSIS_SERVICE',
+      'MULTI_PHASE_ANALYSIS_SERVICE',
       'WIZARD_WEBVIEW_LIFECYCLE',
       'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',

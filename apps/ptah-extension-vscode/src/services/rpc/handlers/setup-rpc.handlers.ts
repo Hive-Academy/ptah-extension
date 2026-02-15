@@ -39,9 +39,13 @@ import {
 } from '@ptah-extension/agent-generation';
 import type {
   ProjectAnalysisResult,
+  MultiPhaseAnalysisResponse,
   SavedAnalysisFile,
   SavedAnalysisMetadata,
+  AgentCategory,
 } from '@ptah-extension/shared';
+import { Result } from '@ptah-extension/shared';
+import type { MultiPhaseManifest } from '@ptah-extension/agent-generation';
 
 /**
  * SetupStatus response type for setup-status:get-status RPC method
@@ -217,98 +221,89 @@ export class SetupRpcHandlers {
   /**
    * wizard:deep-analyze - Perform deep project analysis
    *
-   * Uses agentic analysis (Claude Agent SDK + MCP tools) as the primary path,
-   * with automatic fallback to the hardcoded DeepProjectAnalysisService.
+   * TASK_2025_154 wiring: Uses MultiPhaseAnalysisService as the primary path
+   * (premium + MCP). Returns MultiPhaseAnalysisResponse with manifest + phase
+   * markdown contents. Falls back to the hardcoded DeepProjectAnalysisService
+   * for non-premium users or when MCP is unavailable.
    *
-   * Agentic analysis provides:
-   * - Intelligent, LLM-driven workspace investigation
-   * - Real-time progress streaming to frontend
-   * - Sub-agent delegation for large projects
-   *
-   * Fallback triggers when:
-   * - SDK is not initialized or unavailable
-   * - Agent session fails to start
-   * - Response parsing/validation fails
-   * - Any unexpected error occurs
+   * The multi-phase service streams progress to the frontend via broadcastMessage.
+   * The RPC response returns the final results synchronously (awaited).
    */
   private registerDeepAnalyze(): void {
-    this.rpcHandler.registerMethod<{ model?: string }, DeepProjectAnalysis>(
-      'wizard:deep-analyze',
-      async (params) => {
-        this.logger.debug('RPC: wizard:deep-analyze called');
+    this.rpcHandler.registerMethod<
+      { model?: string },
+      MultiPhaseAnalysisResponse | DeepProjectAnalysis
+    >('wizard:deep-analyze', async (params) => {
+      this.logger.debug('RPC: wizard:deep-analyze called');
 
-        // Get workspace folder
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          throw new Error(
-            'No workspace folder open. Please open a folder to analyze.'
-          );
-        }
+      // Get workspace folder
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        throw new Error(
+          'No workspace folder open. Please open a folder to analyze.'
+        );
+      }
 
-        // Resolve license + MCP status (same pattern as ChatRpcHandlers)
-        let isPremium = false;
-        let mcpServerRunning = false;
-        let mcpPort: number | undefined;
+      // Resolve license + MCP status (same pattern as ChatRpcHandlers)
+      let isPremium = false;
+      let mcpServerRunning = false;
+      let mcpPort: number | undefined;
+      try {
+        const licenseService = this.resolveService<LicenseService>(
+          TOKENS.LICENSE_SERVICE,
+          'LicenseService'
+        );
+        const licenseStatus: LicenseStatus =
+          await licenseService.verifyLicense();
+        isPremium =
+          licenseStatus.valid &&
+          (licenseStatus.plan?.isPremium === true ||
+            licenseStatus.tier === 'pro' ||
+            licenseStatus.tier === 'trial_pro');
+
+        const codeExecutionMcp = this.resolveService<CodeExecutionMCP>(
+          TOKENS.CODE_EXECUTION_MCP,
+          'CodeExecutionMCP'
+        );
+        const actualPort = codeExecutionMcp.getPort();
+        mcpServerRunning = actualPort !== null;
+        mcpPort = actualPort ?? undefined;
+      } catch (error) {
+        this.logger.debug(
+          'Could not resolve license/MCP services for analysis',
+          {
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+      }
+
+      // Resolve current model: prefer frontend selection, fall back to config
+      const currentModel =
+        params?.model ||
+        this.configManager.getWithDefault<string>(
+          'model.selected',
+          'claude-sonnet-4-5-20250929'
+        );
+
+      // ---- Primary path: Multi-phase analysis (premium + MCP) ----
+      if (isPremium && mcpServerRunning) {
         try {
-          const licenseService = this.resolveService<LicenseService>(
-            TOKENS.LICENSE_SERVICE,
-            'LicenseService'
-          );
-          const licenseStatus: LicenseStatus =
-            await licenseService.verifyLicense();
-          isPremium =
-            licenseStatus.valid &&
-            (licenseStatus.plan?.isPremium === true ||
-              licenseStatus.tier === 'pro' ||
-              licenseStatus.tier === 'trial_pro');
-
-          const codeExecutionMcp = this.resolveService<CodeExecutionMCP>(
-            TOKENS.CODE_EXECUTION_MCP,
-            'CodeExecutionMCP'
-          );
-          const actualPort = codeExecutionMcp.getPort();
-          mcpServerRunning = actualPort !== null;
-          mcpPort = actualPort ?? undefined;
-        } catch (error) {
-          this.logger.debug(
-            'Could not resolve license/MCP services for agentic analysis',
-            {
-              error: error instanceof Error ? error.message : String(error),
-            }
-          );
-        }
-
-        // Resolve current model: prefer frontend selection, fall back to config
-        const currentModel =
-          params?.model ||
-          this.configManager.getWithDefault<string>(
-            'model.selected',
-            'claude-sonnet-4-5-20250929'
-          );
-
-        // Try agentic analysis first
-        try {
-          const agenticService = this.resolveService<{
+          const multiPhaseService = this.resolveService<{
             analyzeWorkspace: (
               uri: vscode.Uri,
               options?: {
-                timeout?: number;
                 model?: string;
                 isPremium?: boolean;
                 mcpServerRunning?: boolean;
                 mcpPort?: number;
               }
-            ) => Promise<{
-              isOk: () => boolean;
-              value?: DeepProjectAnalysis;
-              error?: Error;
-            }>;
+            ) => Promise<Result<MultiPhaseManifest, Error>>;
           }>(
-            AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE,
-            'AgenticAnalysisService'
+            AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
+            'MultiPhaseAnalysisService'
           );
 
-          const agenticResult = await agenticService.analyzeWorkspace(
+          const multiPhaseResult = await multiPhaseService.analyzeWorkspace(
             workspaceFolder.uri,
             {
               model: currentModel,
@@ -318,176 +313,194 @@ export class SetupRpcHandlers {
             }
           );
 
-          if (agenticResult.isOk() && agenticResult.value) {
-            this.logger.info('Agentic analysis completed successfully', {
-              projectType:
-                agenticResult.value.projectType?.toString() || 'unknown',
-              patternCount:
-                agenticResult.value.architecturePatterns?.length || 0,
+          if (multiPhaseResult.isOk() && multiPhaseResult.value) {
+            const manifest = multiPhaseResult.value;
+
+            // Read completed phase markdown files
+            const storageService = this.resolveService<AnalysisStorageService>(
+              AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+              'AnalysisStorageService'
+            );
+
+            const slugDir = storageService.getSlugDir(
+              workspaceFolder.uri.fsPath,
+              manifest.slug
+            );
+
+            const phaseContents: Record<string, string> = {};
+            for (const [phaseId, phaseResult] of Object.entries(
+              manifest.phases
+            )) {
+              if (phaseResult.status === 'completed') {
+                const content = await storageService.readPhaseFile(
+                  slugDir,
+                  phaseResult.file
+                );
+                if (content) {
+                  phaseContents[phaseId] = content;
+                }
+              }
+            }
+
+            this.logger.info('Multi-phase analysis completed successfully', {
+              slug: manifest.slug,
+              totalDurationMs: manifest.totalDurationMs,
+              completedPhases: Object.entries(manifest.phases)
+                .filter(([, r]) => r.status === 'completed')
+                .map(([id]) => id),
+              phaseContentCount: Object.keys(phaseContents).length,
             });
 
-            // Map quality fields from DeepProjectAnalysis to ProjectAnalysisResult
-            // format so the frontend (which types this as ProjectAnalysisResult)
-            // sees the correct field names.
-            const result = agenticResult.value as DeepProjectAnalysis &
-              Record<string, unknown>;
+            const response: MultiPhaseAnalysisResponse = {
+              isMultiPhase: true,
+              manifest: {
+                slug: manifest.slug,
+                analyzedAt: manifest.analyzedAt,
+                model: manifest.model,
+                totalDurationMs: manifest.totalDurationMs,
+                phases: manifest.phases,
+              },
+              phaseContents,
+              analysisDir: slugDir,
+            };
 
-            if (result.qualityScore !== undefined) {
-              result['qualityIssues'] = (result.qualityGaps ?? []).map(
-                (gap) => ({
-                  area: gap.area,
-                  severity: gap.priority,
-                  description: gap.description,
-                  recommendation: gap.recommendation,
-                })
-              );
-            }
-
-            if (result.qualityAssessment?.strengths) {
-              result['qualityStrengths'] = result.qualityAssessment.strengths;
-            }
-
-            if (result.prescriptiveGuidance?.recommendations) {
-              result['qualityRecommendations'] =
-                result.prescriptiveGuidance.recommendations.map((r) => ({
-                  priority: r.priority,
-                  category: r.category,
-                  issue: r.issue,
-                  solution: r.solution,
-                }));
-            }
-
-            return result as DeepProjectAnalysis;
+            return response;
           }
 
           this.logger.warn(
-            'Agentic analysis returned error, falling back to hardcoded',
+            'Multi-phase analysis returned error, falling back',
             {
-              error: agenticResult.error?.message || 'Unknown error',
+              error: multiPhaseResult.error?.message || 'Unknown error',
             }
           );
         } catch (error) {
-          this.logger.warn('Agentic analysis unavailable, using fallback', {
+          this.logger.warn('Multi-phase analysis unavailable, using fallback', {
             error: error instanceof Error ? error.message : String(error),
           });
         }
+      }
 
-        // Resolve WebviewManager once for fallback broadcasts (best-effort)
-        let webviewManager: WebviewManager | null = null;
+      // ---- Fallback path: hardcoded DeepProjectAnalysisService ----
+
+      // Resolve WebviewManager once for fallback broadcasts (best-effort)
+      let webviewManager: WebviewManager | null = null;
+      try {
+        webviewManager = this.resolveService<WebviewManager>(
+          TOKENS.WEBVIEW_MANAGER,
+          'WebviewManager'
+        );
+      } catch {
+        /* ignore - broadcasts will be skipped if unavailable */
+      }
+
+      // Notify user about fallback via VS Code warning notification
+      vscode.window.showWarningMessage(
+        'AI-powered analysis unavailable. Using quick analysis mode \u2014 results may be less detailed.'
+      );
+
+      // Broadcast fallback warning to webview (best-effort)
+      if (webviewManager) {
         try {
-          webviewManager = this.resolveService<WebviewManager>(
-            TOKENS.WEBVIEW_MANAGER,
-            'WebviewManager'
+          (
+            webviewManager as unknown as {
+              broadcastMessage(type: string, payload: unknown): Promise<void>;
+            }
+          ).broadcastMessage('setup-wizard:error', {
+            type: 'fallback-warning',
+            message:
+              'AI-powered analysis unavailable. Using quick analysis mode \u2014 results may be less detailed.',
+            details:
+              'The multi-phase analysis service was unavailable. Falling back to quick project analysis.',
+          });
+        } catch {
+          /* best-effort broadcast */
+        }
+      }
+
+      // Broadcast fallback transition to frontend (best-effort)
+      if (webviewManager) {
+        try {
+          webviewManager.broadcastMessage(
+            MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
+            {
+              filesScanned: 0,
+              totalFiles: 0,
+              detections: [],
+              agentReasoning: 'Switching to quick analysis mode...',
+              currentPhase: undefined,
+              completedPhases: [],
+            }
           );
         } catch {
-          /* ignore - broadcasts will be skipped if unavailable */
+          /* best-effort broadcast */
         }
-
-        // Notify user about fallback via VS Code warning notification
-        vscode.window.showWarningMessage(
-          'AI-powered analysis unavailable. Using quick analysis mode \u2014 results may be less detailed.'
-        );
-
-        // Broadcast fallback warning to webview (best-effort)
-        if (webviewManager) {
-          try {
-            (
-              webviewManager as unknown as {
-                broadcastMessage(type: string, payload: unknown): Promise<void>;
-              }
-            ).broadcastMessage('setup-wizard:error', {
-              type: 'fallback-warning',
-              message:
-                'AI-powered analysis unavailable. Using quick analysis mode \u2014 results may be less detailed.',
-              details:
-                'The agentic analysis service was unavailable. Falling back to quick project analysis.',
-            });
-          } catch {
-            /* best-effort broadcast */
-          }
-        }
-
-        // Broadcast fallback transition to frontend (best-effort)
-        if (webviewManager) {
-          try {
-            webviewManager.broadcastMessage(
-              MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
-              {
-                filesScanned: 0,
-                totalFiles: 0,
-                detections: [],
-                agentReasoning: 'Switching to quick analysis mode...',
-                currentPhase: undefined,
-                completedPhases: [],
-              }
-            );
-          } catch {
-            /* best-effort broadcast */
-          }
-        }
-
-        // Fallback: Use existing hardcoded DeepProjectAnalysisService
-        const setupWizardService = this.resolveService<{
-          performDeepAnalysis: (uri: vscode.Uri) => Promise<{
-            isErr: () => boolean;
-            isOk: () => boolean;
-            value?: DeepProjectAnalysis;
-            error?: Error;
-          }>;
-        }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
-
-        // Broadcast that quick analysis is starting (best-effort)
-        if (webviewManager) {
-          try {
-            webviewManager.broadcastMessage(
-              MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
-              {
-                filesScanned: 0,
-                totalFiles: 0,
-                detections: [],
-                agentReasoning: 'Running quick project analysis...',
-              }
-            );
-          } catch {
-            /* best-effort broadcast */
-          }
-        }
-
-        const result = await setupWizardService.performDeepAnalysis(
-          workspaceFolder.uri
-        );
-
-        // Handle error result
-        if (result.isErr()) {
-          this.logger.error('Failed to perform deep analysis', result.error);
-          throw new Error(
-            result.error?.message || 'Failed to perform deep project analysis'
-          );
-        }
-
-        this.logger.info('Deep analysis completed successfully (fallback)', {
-          projectType: result.value?.projectType?.toString() || 'unknown',
-          patternCount: result.value?.architecturePatterns?.length || 0,
-        });
-
-        // Return the analysis data
-        return result.value as DeepProjectAnalysis;
       }
-    );
+
+      // Fallback: Use existing hardcoded DeepProjectAnalysisService
+      const setupWizardService = this.resolveService<{
+        performDeepAnalysis: (uri: vscode.Uri) => Promise<{
+          isErr: () => boolean;
+          isOk: () => boolean;
+          value?: DeepProjectAnalysis;
+          error?: Error;
+        }>;
+      }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
+
+      // Broadcast that quick analysis is starting (best-effort)
+      if (webviewManager) {
+        try {
+          webviewManager.broadcastMessage(
+            MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
+            {
+              filesScanned: 0,
+              totalFiles: 0,
+              detections: [],
+              agentReasoning: 'Running quick project analysis...',
+            }
+          );
+        } catch {
+          /* best-effort broadcast */
+        }
+      }
+
+      const result = await setupWizardService.performDeepAnalysis(
+        workspaceFolder.uri
+      );
+
+      // Handle error result
+      if (result.isErr()) {
+        this.logger.error('Failed to perform deep analysis', result.error);
+        throw new Error(
+          result.error?.message || 'Failed to perform deep project analysis'
+        );
+      }
+
+      this.logger.info('Deep analysis completed successfully (fallback)', {
+        projectType: result.value?.projectType?.toString() || 'unknown',
+        patternCount: result.value?.architecturePatterns?.length || 0,
+      });
+
+      // Return the analysis data
+      return result.value as DeepProjectAnalysis;
+    });
   }
 
   /**
    * wizard:recommend-agents - Calculate agent recommendations
    *
-   * Accepts a DeepProjectAnalysis and returns scored recommendations
-   * for all 13 agents based on project characteristics.
+   * Accepts a DeepProjectAnalysis (or multi-phase indicator) and returns
+   * scored recommendations for all 13 agents.
    *
-   * Input is validated using the shared ProjectAnalysisZodSchema and normalized
-   * via normalizeAgentOutput for proper enum mapping.
+   * For multi-phase results: returns all agents with score=100 and
+   * recommended=true since the analysis quality is in the markdown files
+   * that agents will read during generation.
+   *
+   * For legacy results: validates with Zod schema and runs scoring.
    *
    * @remarks
    * TASK_2025_113 T3.3: Added comprehensive Zod input validation
    * TASK_2025_145: Use shared schema from analysis-schema.ts (SERIOUS-7, CRITICAL-1)
+   * TASK_2025_154: Multi-phase path returns all 13 agents recommended
    */
   private registerRecommendAgents(): void {
     this.rpcHandler.registerMethod<unknown, AgentRecommendation[]>(
@@ -502,12 +515,81 @@ export class SetupRpcHandlers {
           );
         }
 
-        // Validate input structure with shared Zod schema
+        // ---- Multi-phase path: all 13 agents recommended ----
+        const input = rawAnalysis as Record<string, unknown>;
+        if (input['isMultiPhase'] === true) {
+          this.logger.info(
+            'Multi-phase analysis detected, returning all agents recommended'
+          );
+
+          // Resolve recommendation service to get the agent catalog
+          type RecommendationServiceType = {
+            calculateRecommendations: (
+              analysis: DeepProjectAnalysis
+            ) => AgentRecommendation[];
+          };
+
+          let recommendationService: RecommendationServiceType;
+          try {
+            recommendationService =
+              this.resolveService<RecommendationServiceType>(
+                AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
+                'AgentRecommendationService'
+              );
+          } catch {
+            recommendationService =
+              this.resolveService<RecommendationServiceType>(
+                AgentRecommendationService as unknown as symbol,
+                'AgentRecommendationService (direct)'
+              );
+          }
+
+          // Get all agents by running with a dummy analysis, then override scores
+          const agentCatalog: Array<{ id: string; category: AgentCategory }> = [
+            { id: 'project-manager', category: 'planning' },
+            { id: 'software-architect', category: 'planning' },
+            { id: 'team-leader', category: 'planning' },
+            { id: 'backend-developer', category: 'development' },
+            { id: 'frontend-developer', category: 'development' },
+            { id: 'devops-engineer', category: 'development' },
+            { id: 'senior-tester', category: 'qa' },
+            { id: 'code-style-reviewer', category: 'qa' },
+            { id: 'code-logic-reviewer', category: 'qa' },
+            { id: 'researcher-expert', category: 'specialist' },
+            { id: 'modernization-detector', category: 'specialist' },
+            { id: 'technical-content-writer', category: 'creative' },
+            { id: 'ui-ux-designer', category: 'creative' },
+          ];
+
+          const recommendations: AgentRecommendation[] = agentCatalog.map(
+            ({ id: agentId, category }) => ({
+              agentId,
+              agentName: agentId
+                .split('-')
+                .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                .join(' '),
+              category,
+              relevanceScore: 100,
+              recommended: true,
+              matchedCriteria: [
+                'Multi-phase analysis (all agents recommended)',
+              ],
+              description: `Agent for ${agentId.replace(/-/g, ' ')} tasks`,
+            })
+          );
+
+          this.logger.info('All 13 agents recommended (multi-phase)', {
+            totalAgents: recommendations.length,
+          });
+
+          return recommendations;
+        }
+
+        // ---- Legacy path: Zod validation + scoring ----
         const validationResult =
           ProjectAnalysisZodSchema.safeParse(rawAnalysis);
 
         if (!validationResult.success) {
-          // Format error messages with field paths for debugging
           const errors = validationResult.error.issues
             .map((e) => `${String(e.path.join('.'))}: ${e.message}`)
             .join('; ');
@@ -530,25 +612,21 @@ export class SetupRpcHandlers {
           hasKeyFileLocations: !!analysis.keyFileLocations,
         });
 
-        // Define the service interface type for reuse
         type RecommendationServiceType = {
           calculateRecommendations: (
             analysis: DeepProjectAnalysis
           ) => AgentRecommendation[];
         };
 
-        // Try to resolve from container first, fallback to direct instantiation
         let recommendationService: RecommendationServiceType;
 
         try {
-          // First attempt: resolve via token with validation
           recommendationService =
             this.resolveService<RecommendationServiceType>(
               AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
               'AgentRecommendationService'
             );
         } catch {
-          // If token resolution fails, fallback to direct class resolution
           this.logger.debug(
             'AgentRecommendationService not registered via token, using direct class resolution'
           );
@@ -559,7 +637,6 @@ export class SetupRpcHandlers {
             );
         }
 
-        // Calculate recommendations using normalized analysis
         const recommendations =
           recommendationService.calculateRecommendations(analysis);
 
@@ -574,14 +651,11 @@ export class SetupRpcHandlers {
   }
 
   /**
-   * wizard:cancel-analysis - Cancel a running agentic workspace analysis
+   * wizard:cancel-analysis - Cancel a running workspace analysis
    *
-   * Aborts the active AbortController in AgenticAnalysisService, which
-   * terminates the SDK query stream. Safe to call even if no analysis
-   * is running (no-op in that case).
-   *
-   * TASK_2025_145 SERIOUS-6: Ensures "Cancel Scan" button actually stops
-   * the backend SDK query, not just the frontend state.
+   * TASK_2025_154 wiring: Cancels both MultiPhaseAnalysisService and
+   * AgenticAnalysisService (whichever is active). Safe to call even
+   * if no analysis is running (no-op in that case).
    */
   private registerCancelAnalysis(): void {
     this.rpcHandler.registerMethod<void, { cancelled: boolean }>(
@@ -589,8 +663,31 @@ export class SetupRpcHandlers {
       async () => {
         this.logger.debug('RPC: wizard:cancel-analysis called');
 
+        let cancelled = false;
+
+        // Cancel multi-phase analysis (primary path)
         try {
-          // Resolve AgenticAnalysisService and call cancelAnalysis()
+          const multiPhaseService = this.resolveService<{
+            cancelAnalysis: () => void;
+          }>(
+            AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
+            'MultiPhaseAnalysisService'
+          );
+
+          multiPhaseService.cancelAnalysis();
+          cancelled = true;
+          this.logger.info('Multi-phase analysis cancellation requested');
+        } catch (error) {
+          this.logger.debug(
+            'Could not cancel multi-phase analysis (may not be running)',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            }
+          );
+        }
+
+        // Also cancel legacy agentic analysis (fallback path)
+        try {
           const agenticService = this.resolveService<{
             cancelAnalysis: () => void;
           }>(
@@ -599,16 +696,18 @@ export class SetupRpcHandlers {
           );
 
           agenticService.cancelAnalysis();
-
+          cancelled = true;
           this.logger.info('Agentic analysis cancellation requested');
-          return { cancelled: true };
         } catch (error) {
-          this.logger.warn('Could not cancel agentic analysis', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-          // Return success anyway -- the analysis may have already completed
-          return { cancelled: false };
+          this.logger.debug(
+            'Could not cancel agentic analysis (may not be running)',
+            {
+              error: error instanceof Error ? error.message : String(error),
+            }
+          );
         }
+
+        return { cancelled };
       }
     );
   }

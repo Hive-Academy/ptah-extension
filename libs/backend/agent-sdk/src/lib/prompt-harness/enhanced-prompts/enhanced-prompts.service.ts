@@ -41,6 +41,7 @@ import {
   EnhancedPromptsState,
   EnhancedPromptsStatus,
   EnhancedPromptsWizardResult,
+  EnhancedPromptsSummary,
   DetectedStack,
   EnhancedPromptsConfig,
   RegeneratePromptsRequest,
@@ -50,18 +51,12 @@ import {
 } from './enhanced-prompts.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../ptah-core-prompt';
 import type { InternalQueryService } from '../../internal-query/internal-query.service';
+import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
+import { SdkStreamProcessor } from '../../stream-processing/sdk-stream-processor';
 import type {
-  SDKMessage,
-  ToolResultBlock,
-} from '../../types/sdk-types/claude-sdk.types';
-import {
-  isContentBlockDelta,
-  isContentBlockStart,
-  isContentBlockStop,
-  isTextDelta,
-  isInputJsonDelta,
-  isThinkingDelta,
-} from '../../types/sdk-types/claude-sdk.types';
+  StreamEventEmitter,
+  StreamEvent,
+} from '../../stream-processing/sdk-stream-processor.types';
 
 /**
  * SDK configuration for internal query execution
@@ -77,6 +72,21 @@ export interface EnhancedPromptsSdkConfig {
 }
 
 /**
+ * Minimal interface for reading multi-phase analysis data.
+ * Avoids tight coupling to AnalysisStorageService from agent-generation.
+ * @since TASK_2025_154
+ */
+export interface IMultiPhaseAnalysisReader {
+  findLatestMultiPhaseAnalysis(workspacePath: string): Promise<{
+    slugDir: string;
+    manifest: {
+      phases: Record<string, { status: string; file: string }>;
+    };
+  } | null>;
+  readPhaseFile(slugDir: string, filename: string): Promise<string | null>;
+}
+
+/**
  * VS Code ExtensionContext interface (minimal)
  */
 interface IExtensionContext {
@@ -87,14 +97,33 @@ interface IExtensionContext {
 }
 
 /**
- * Workspace Intelligence service interface
+ * Workspace Intelligence service interface.
+ *
+ * Maps to WorkspaceAnalyzerService which exposes getProjectInfo() and
+ * getCurrentWorkspaceInfo() — NOT analyzeWorkspace().
  */
 interface IWorkspaceIntelligence {
-  analyzeWorkspace(workspacePath: string): Promise<WorkspaceAnalysisResult>;
+  getProjectInfo(): Promise<{
+    name: string;
+    type: string;
+    path: string;
+    dependencies: string[];
+    devDependencies: string[];
+    fileStatistics: Record<string, number>;
+    totalFiles: number;
+  }>;
+  getCurrentWorkspaceInfo():
+    | {
+        name: string;
+        path: string;
+        projectType: string;
+        frameworks?: readonly string[];
+      }
+    | undefined;
 }
 
 /**
- * Result from workspace analysis
+ * Result from workspace analysis (assembled from getProjectInfo + getCurrentWorkspaceInfo)
  */
 interface WorkspaceAnalysisResult {
   projectType: string;
@@ -143,6 +172,14 @@ export class EnhancedPromptsService {
   private isGenerating = false;
   private generationLockTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * Optional multi-phase analysis reader for enriching prompts with
+   * quality audit and elevation plan data. Set via setAnalysisReader()
+   * from the application's DI setup to avoid cross-library constructor coupling.
+   * @since TASK_2025_154
+   */
+  private analysisReader: IMultiPhaseAnalysisReader | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT)
@@ -173,6 +210,19 @@ export class EnhancedPromptsService {
         state.configHash = null; // Mark as stale
       }
     });
+  }
+
+  /**
+   * Set the optional multi-phase analysis reader.
+   * Called from the application's DI container setup after both agent-sdk
+   * and agent-generation services are registered.
+   *
+   * @param reader - AnalysisStorageService instance (or compatible reader)
+   * @since TASK_2025_154
+   */
+  setAnalysisReader(reader: IMultiPhaseAnalysisReader): void {
+    this.analysisReader = reader;
+    this.logger.info(`${SERVICE_TAG} Multi-phase analysis reader configured`);
   }
 
   /**
@@ -258,7 +308,8 @@ export class EnhancedPromptsService {
     config?: Partial<EnhancedPromptsConfig>,
     onProgress?: (progress: PromptGenerationProgress) => void,
     preComputedInput?: PromptDesignerInput,
-    sdkConfig?: EnhancedPromptsSdkConfig
+    sdkConfig?: EnhancedPromptsSdkConfig,
+    analysisDir?: string
   ): Promise<EnhancedPromptsWizardResult> {
     if (!this.acquireGenerationLock()) {
       return {
@@ -292,21 +343,58 @@ export class EnhancedPromptsService {
         });
       } else {
         // Step 1: Analyze workspace (original path)
+        // Uses getProjectInfo() + getCurrentWorkspaceInfo() from WorkspaceAnalyzerService
         onProgress?.({
           status: 'analyzing',
           message: 'Analyzing workspace...',
           progress: 0.1,
         });
 
-        const analysis = await this.workspaceIntelligence.analyzeWorkspace(
-          workspacePath
-        );
+        let analysis: WorkspaceAnalysisResult;
+        try {
+          const projectInfo = await this.workspaceIntelligence.getProjectInfo();
+          const wsInfo = this.workspaceIntelligence.getCurrentWorkspaceInfo();
 
-        // Validate workspace analysis result
-        if (!analysis) {
+          // Derive languages from file statistics keys (e.g., ".ts" → "TypeScript")
+          const languageMap: Record<string, string> = {
+            '.ts': 'TypeScript',
+            '.tsx': 'TypeScript',
+            '.js': 'JavaScript',
+            '.jsx': 'JavaScript',
+            '.py': 'Python',
+            '.java': 'Java',
+            '.rs': 'Rust',
+            '.go': 'Go',
+            '.cs': 'C#',
+            '.php': 'PHP',
+            '.rb': 'Ruby',
+          };
+          const detectedLangs = new Set<string>();
+          for (const ext of Object.keys(projectInfo.fileStatistics)) {
+            const lang = languageMap[ext];
+            if (lang) detectedLangs.add(lang);
+          }
+
+          analysis = {
+            projectType: String(projectInfo.type),
+            framework: wsInfo?.frameworks?.[0],
+            isMonorepo: projectInfo.dependencies.some(
+              (d) =>
+                d.includes('nx') || d.includes('lerna') || d.includes('turbo')
+            ),
+            monorepoType: undefined,
+            dependencies: projectInfo.dependencies,
+            devDependencies: projectInfo.devDependencies,
+            configFiles: [],
+            languages: [...detectedLangs],
+          };
+        } catch (err) {
           this.logger.error(
-            'EnhancedPromptsService: Workspace analysis returned null',
-            { workspacePath }
+            'EnhancedPromptsService: Workspace analysis failed',
+            {
+              workspacePath,
+              error: err instanceof Error ? err.message : String(err),
+            }
           );
           return {
             success: false,
@@ -327,6 +415,13 @@ export class EnhancedPromptsService {
         // Step 3: Build input for PromptDesignerAgent
         input = this.buildDesignerInput(workspacePath, analysis, config);
       }
+
+      // Step 3.5: Enrich with multi-phase analysis if available (TASK_2025_154)
+      await this.enrichWithMultiPhaseAnalysis(
+        input,
+        workspacePath,
+        analysisDir
+      );
 
       // Step 4: Generate guidance via InternalQueryService (Agent SDK)
       onProgress?.({
@@ -387,6 +482,9 @@ export class EnhancedPromptsService {
         progress: 1.0,
       });
 
+      // Step 9: Build summary for frontend display (no actual content exposed)
+      const summary = this.buildSummary(output);
+
       this.logger.info(
         'EnhancedPromptsService: Wizard completed successfully',
         {
@@ -399,6 +497,7 @@ export class EnhancedPromptsService {
       return {
         success: true,
         state: newState,
+        summary,
       };
     } catch (error) {
       this.logger.error('EnhancedPromptsService: Wizard failed', {
@@ -647,9 +746,8 @@ export class EnhancedPromptsService {
   /**
    * Process the SDK message stream to extract structured_output.
    *
-   * Follows the same pattern as AgenticAnalysisService.processStream():
-   * iterates the stream looking for a 'result' message with structured_output.
-   * Optionally broadcasts stream events for live UI updates.
+   * Delegates to SdkStreamProcessor for stream iteration, throttling,
+   * and event emission. Optionally broadcasts stream events for live UI updates.
    *
    * @param stream - SDK message async iterable
    * @param abortController - Controller for cancellation
@@ -660,212 +758,159 @@ export class EnhancedPromptsService {
     abortController: AbortController,
     onStreamEvent?: (event: AnalysisStreamPayload) => void
   ): Promise<unknown | null> {
-    // Throttle state for text and thinking deltas (100ms)
-    let lastTextEmit = 0;
-    let lastThinkingEmit = 0;
-    const THROTTLE_MS = 100;
+    const emitter: StreamEventEmitter = {
+      emit: (event: StreamEvent) => {
+        if (onStreamEvent) {
+          onStreamEvent(event);
+        }
+      },
+    };
 
-    // Track active tool blocks for tool call grouping
-    const activeToolBlocks = new Map<
-      number,
-      { name: string; inputBuffer: string; toolCallId: string }
-    >();
-
-    // Track completed tool names by toolCallId for tool_result attribution
-    const completedToolNames = new Map<string, string>();
+    const processor = new SdkStreamProcessor({
+      emitter,
+      toolCallIdFactory: (_name, index) => `enhance-${index}-${Date.now()}`,
+      logger: this.logger,
+      serviceTag: SERVICE_TAG,
+    });
 
     try {
-      for await (const message of stream) {
-        // ==============================================================
-        // Stream events -- broadcast for live UI updates
-        // ==============================================================
-        if (message.type === 'stream_event' && onStreamEvent) {
-          const event = message.event;
-
-          // Content block deltas: text, tool input, thinking
-          if (isContentBlockDelta(event)) {
-            if (isTextDelta(event.delta)) {
-              const now = Date.now();
-              if (now - lastTextEmit >= THROTTLE_MS) {
-                const trimmed = event.delta.text.trim();
-                if (trimmed.length > 0) {
-                  lastTextEmit = now;
-                  try {
-                    onStreamEvent({
-                      kind: 'text',
-                      content: event.delta.text,
-                      timestamp: now,
-                    });
-                  } catch {
-                    // Fire-and-forget: swallow callback errors
-                  }
-                }
-              }
-            }
-
-            if (isInputJsonDelta(event.delta)) {
-              const activeBlock = activeToolBlocks.get(event.index);
-              if (activeBlock) {
-                activeBlock.inputBuffer += event.delta.partial_json;
-              }
-            }
-
-            if (isThinkingDelta(event.delta)) {
-              const now = Date.now();
-              if (now - lastThinkingEmit >= THROTTLE_MS) {
-                lastThinkingEmit = now;
-                try {
-                  onStreamEvent({
-                    kind: 'thinking',
-                    content: event.delta.thinking,
-                    timestamp: now,
-                  });
-                } catch {
-                  // Fire-and-forget: swallow callback errors
-                }
-              }
-            }
-          }
-
-          // Tool use start -- track active tool blocks
-          if (
-            isContentBlockStart(event) &&
-            event.content_block.type === 'tool_use'
-          ) {
-            const toolCallId = `enhance-${event.index}-${Date.now()}`;
-            activeToolBlocks.set(event.index, {
-              name: event.content_block.name,
-              inputBuffer: '',
-              toolCallId,
-            });
-
-            try {
-              onStreamEvent({
-                kind: 'tool_start',
-                content: `Calling ${event.content_block.name}`,
-                toolName: event.content_block.name,
-                toolCallId,
-                timestamp: Date.now(),
-              });
-            } catch {
-              // Fire-and-forget: swallow callback errors
-            }
-          }
-
-          // Tool use stop -- emit accumulated tool input
-          if (isContentBlockStop(event)) {
-            const completedBlock = activeToolBlocks.get(event.index);
-            if (completedBlock) {
-              try {
-                onStreamEvent({
-                  kind: 'tool_input',
-                  content: completedBlock.inputBuffer.substring(0, 2000),
-                  toolName: completedBlock.name,
-                  toolCallId: completedBlock.toolCallId,
-                  timestamp: Date.now(),
-                });
-              } catch {
-                // Fire-and-forget: swallow callback errors
-              }
-              completedToolNames.set(
-                completedBlock.toolCallId,
-                completedBlock.name
-              );
-              activeToolBlocks.delete(event.index);
-            }
-          }
-        }
-
-        // ==============================================================
-        // Tool results — broadcast for live transcript
-        // ==============================================================
-        if (message.type === 'user' && onStreamEvent) {
-          const content = (message as { message?: { content?: unknown } })
-            .message?.content;
-          if (Array.isArray(content)) {
-            for (const block of content) {
-              const typedBlock = block as { type?: string };
-              if (typedBlock.type === 'tool_result') {
-                const resultBlock = block as ToolResultBlock;
-                const resultContent =
-                  typeof resultBlock.content === 'string'
-                    ? resultBlock.content.substring(0, 2000)
-                    : JSON.stringify(resultBlock.content).substring(0, 2000);
-                try {
-                  onStreamEvent({
-                    kind: 'tool_result',
-                    content: resultContent,
-                    toolName:
-                      completedToolNames.get(resultBlock.tool_use_id) || 'tool',
-                    toolCallId: resultBlock.tool_use_id,
-                    isError: resultBlock.is_error ?? false,
-                    timestamp: Date.now(),
-                  });
-                } catch {
-                  // Fire-and-forget: swallow callback errors
-                }
-              }
-            }
-          }
-        }
-
-        // ==============================================================
-        // Result message -- extract structured_output
-        // ==============================================================
-        if (message.type === 'result') {
-          if (message.subtype === 'success') {
-            this.logger.info(`${SERVICE_TAG} SDK query completed`, {
-              turns: message.num_turns,
-              cost: message.total_cost_usd,
-              hasStructuredOutput: !!message.structured_output,
-            });
-
-            if (message.structured_output) {
-              return message.structured_output;
-            }
-
-            // Try to parse from result text as fallback
-            if (message.result) {
-              try {
-                return JSON.parse(message.result);
-              } catch {
-                this.logger.warn(
-                  `${SERVICE_TAG} Could not parse result text as JSON`
-                );
-              }
-            }
-
-            return null;
-          }
-
-          // Error result
-          const errorResult = message as {
-            subtype: string;
-            errors?: string[];
-          };
-          this.logger.error(`${SERVICE_TAG} SDK query failed`, {
-            subtype: errorResult.subtype,
-            errors: errorResult.errors,
-          });
-          return null;
-        }
-
-        // Log assistant messages for debugging
-        if (message.type === 'assistant') {
-          this.logger.debug(`${SERVICE_TAG} Assistant message`, {
-            contentBlocks: message.message.content.length,
-          });
-        }
-      }
-
-      this.logger.warn(`${SERVICE_TAG} Stream ended without result`);
-      return null;
+      const result = await processor.process(stream);
+      return result.structuredOutput;
     } catch (error) {
       if (abortController.signal.aborted) {
         this.logger.warn(`${SERVICE_TAG} Stream aborted`);
         return null;
       }
       throw error;
+    }
+  }
+
+  // ==========================================================================
+  // Private — Multi-Phase Analysis Enrichment (TASK_2025_154)
+  // ==========================================================================
+
+  /**
+   * Enrich PromptDesignerInput with multi-phase analysis data when available.
+   *
+   * Reads all 4 LLM-generated phase files from the multi-phase analysis:
+   * - 01-project-profile.md: Project type, stack, architecture overview
+   * - 02-architecture-assessment.md: Patterns, boundaries, dependency flow
+   * - 03-quality-audit.md: Code quality findings, anti-patterns
+   * - 04-elevation-plan.md: Improvement priorities and recommendations
+   *
+   * These are set as `additionalContext` on the input, giving the
+   * PromptDesignerAgent much richer context for generating project-specific
+   * enhanced prompts.
+   *
+   * Non-critical: any failure is logged and the flow continues without enrichment.
+   *
+   * @param input - PromptDesignerInput to enrich (mutated in place)
+   * @param workspacePath - Workspace path to search for analysis data
+   * @param explicitAnalysisDir - Optional explicit analysis directory path (from wizard state)
+   */
+  private async enrichWithMultiPhaseAnalysis(
+    input: PromptDesignerInput,
+    workspacePath: string,
+    explicitAnalysisDir?: string
+  ): Promise<void> {
+    if (!this.analysisReader) {
+      return;
+    }
+
+    try {
+      let slugDir: string;
+      let manifest: {
+        phases: Record<string, { status: string; file: string }>;
+      };
+
+      if (explicitAnalysisDir) {
+        // Use the explicit analysis directory from the wizard flow
+        // Read the manifest to get phase file names
+        const manifestContent = await this.analysisReader.readPhaseFile(
+          explicitAnalysisDir,
+          'manifest.json'
+        );
+        if (!manifestContent) {
+          this.logger.warn(
+            `${SERVICE_TAG} No manifest found in explicit analysis dir`,
+            { explicitAnalysisDir }
+          );
+          return;
+        }
+        slugDir = explicitAnalysisDir;
+        manifest = JSON.parse(manifestContent);
+      } else {
+        // Auto-discover latest analysis
+        const multiPhase =
+          await this.analysisReader.findLatestMultiPhaseAnalysis(workspacePath);
+        if (!multiPhase) {
+          return;
+        }
+        slugDir = multiPhase.slugDir;
+        manifest = multiPhase.manifest;
+      }
+
+      // Read all 4 LLM-generated phase files for comprehensive context
+      // Keys match MultiPhaseId values used in the manifest
+      const phaseFiles = [
+        { key: 'project-profile', label: 'Project Profile', limit: 8_000 },
+        {
+          key: 'architecture-assessment',
+          label: 'Architecture Assessment',
+          limit: 8_000,
+        },
+        {
+          key: 'quality-audit',
+          label: 'Quality Audit Findings',
+          limit: 10_000,
+        },
+        {
+          key: 'elevation-plan',
+          label: 'Elevation Plan Priorities',
+          limit: 5_000,
+        },
+      ];
+
+      const sections: string[] = [];
+
+      for (const phase of phaseFiles) {
+        const phaseEntry = manifest.phases?.[phase.key];
+        if (!phaseEntry || phaseEntry.status !== 'completed') {
+          continue;
+        }
+
+        const content = await this.analysisReader.readPhaseFile(
+          slugDir,
+          phaseEntry.file
+        );
+
+        if (content) {
+          sections.push(
+            `## ${phase.label}\n${content.substring(0, phase.limit)}`
+          );
+        }
+      }
+
+      if (sections.length > 0) {
+        const newContext = sections.join('\n\n');
+        input.additionalContext = input.additionalContext
+          ? `${input.additionalContext}\n\n${newContext}`
+          : newContext;
+
+        this.logger.info(
+          `${SERVICE_TAG} Enriched input with multi-phase analysis`,
+          {
+            phasesLoaded: sections.length,
+            usedExplicitDir: !!explicitAnalysisDir,
+            additionalContextLength: input.additionalContext.length,
+          }
+        );
+      }
+    } catch (error) {
+      // Non-critical: log and continue without multi-phase data
+      this.logger.warn(`${SERVICE_TAG} Failed to read multi-phase analysis`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -1086,6 +1131,53 @@ export class EnhancedPromptsService {
       dependencies: analysis.dependencies,
       devDependencies: analysis.devDependencies,
       tokenBudget: finalConfig.maxTokens,
+    };
+  }
+
+  /**
+   * Build a summary of what was generated for frontend display.
+   * Never includes actual prompt content (IP protection).
+   */
+  private buildSummary(output: PromptDesignerOutput): EnhancedPromptsSummary {
+    const wordCount = (text: string) =>
+      text.split(/\s+/).filter(Boolean).length;
+
+    const sections: EnhancedPromptsSummary['sections'] = [
+      {
+        name: 'Project Context',
+        wordCount: wordCount(output.projectContext),
+        generated: !!output.projectContext,
+      },
+      {
+        name: 'Framework Guidelines',
+        wordCount: wordCount(output.frameworkGuidelines),
+        generated: !!output.frameworkGuidelines,
+      },
+      {
+        name: 'Coding Standards',
+        wordCount: wordCount(output.codingStandards),
+        generated: !!output.codingStandards,
+      },
+      {
+        name: 'Architecture Notes',
+        wordCount: wordCount(output.architectureNotes),
+        generated: !!output.architectureNotes,
+      },
+    ];
+
+    if (output.qualityGuidance) {
+      sections.push({
+        name: 'Quality Guidance',
+        wordCount: wordCount(output.qualityGuidance),
+        generated: true,
+      });
+    }
+
+    return {
+      sections,
+      totalTokens: output.totalTokens,
+      qualityScore: output.qualityScore,
+      usedFallback: output.usedFallback ?? false,
     };
   }
 

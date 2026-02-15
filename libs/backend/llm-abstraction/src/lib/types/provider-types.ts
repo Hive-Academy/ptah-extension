@@ -64,7 +64,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<LlmProviderName, string> = {
  * This allows the provider to correctly select models from VS Code's LM API.
  */
 export const DEFAULT_MODELS: Record<LlmProviderName, string> = {
-  anthropic: 'claude-sonnet-4-20250514',
+  anthropic: 'claude-sonnet-4-5-20250929',
   openai: 'gpt-4o',
   'google-genai': 'gemini-1.5-pro',
   openrouter: 'anthropic/claude-sonnet-4',

@@ -25,6 +25,7 @@ export { DeepProjectAnalysisService } from './deep-analysis.service';
 export { CodeHealthAnalysisService } from './code-health.service';
 export { WizardContextMapperService } from './context-mapper.service';
 export { AgenticAnalysisService } from './agentic-analysis.service';
+export { MultiPhaseAnalysisService } from './multi-phase-analysis.service';
 
 // Shared analysis schema and normalization (TASK_2025_145)
 export {

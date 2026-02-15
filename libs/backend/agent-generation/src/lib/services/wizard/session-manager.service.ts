@@ -351,7 +351,7 @@ export class WizardSessionManagerService {
   async updateStep(
     session: WizardSession,
     step: WizardStep,
-    persist: boolean = false
+    persist = false
   ): Promise<WizardSession> {
     const previousStep = session.currentStep;
     session.currentStep = step;

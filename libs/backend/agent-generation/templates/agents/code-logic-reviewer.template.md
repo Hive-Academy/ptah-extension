@@ -142,35 +142,32 @@ Don't just verify it works - find how it fails:
 
 **Silent Failures:**
 
-```typescript
-// ISSUE: Silent failure - user thinks it worked but it didn't
-async function savePermission(response: PermissionResponse) {
-  try {
-    await this.api.sendResponse(response);
-  } catch (error) {
-    console.error(error); // Silently fails - UI shows success
-  }
-}
+```pseudocode
+// ISSUE: Silent failure - user thinks it worked but data wasn't saved
+function savePermission(response)
+  try:
+    api.sendResponse(response)
+  catch error:
+    log.error(error)  // Silently fails - UI shows success
 ```
 
 **Race Conditions:**
 
-```typescript
-// ISSUE: Race condition - permission could change between check and use
-const permission = this.getPermissionForTool(toolId);
+```pseudocode
+// ISSUE: Race condition - resource could change between check and use
+permission = getPermissionForTool(toolId)
 // ...time passes...
-if (permission) {
-  this.usePermission(permission); // Permission might be stale/removed
-}
+if permission:
+  usePermission(permission)  // Permission might be stale/removed
 ```
 
 **State Inconsistency:**
 
-```typescript
+```pseudocode
 // ISSUE: State can become inconsistent
-this.permissions.delete(toolId);
+permissions.delete(toolId)
 // If UI reads between delete and re-render, it sees stale data
-this.triggerUpdate();
+triggerUpdate()
 ```
 
 ### Dimension 2: Incomplete Requirements Analysis
@@ -425,52 +422,47 @@ Compare implementation to requirements:
 
 ### The "Happy Path Only" Smell
 
-```typescript
+```pseudocode
 // RED FLAG: No error handling
-const permission = getPermission(toolId);
-doSomething(permission.data); // What if permission is null?
+permission = getPermission(toolId)
+doSomething(permission.data)  // What if permission is null?
 ```
 
 ### The "Trust the Data" Smell
 
-```typescript
+```pseudocode
 // RED FLAG: No validation
-function handleResponse(response: PermissionResponse) {
-  this.processResponse(response); // What if response is malformed?
-}
+function handleResponse(response)
+  processResponse(response)  // What if response is malformed?
 ```
 
 ### The "Fire and Forget" Smell
 
-```typescript
+```pseudocode
 // RED FLAG: Async without error handling
-async function sendResponse(response) {
-  await this.api.send(response); // What if this fails?
-  this.showSuccess(); // Shows success even on failure?
-}
+function sendResponse(response)
+  api.send(response)        // What if this fails?
+  showSuccess()             // Shows success even on failure?
 ```
 
 ### The "State Assumption" Smell
 
-```typescript
+```pseudocode
 // RED FLAG: Assuming state is current
-const permission = this.permissions.get(toolId);
-setTimeout(() => {
-  if (permission) {
-    // Permission might have changed
-    this.use(permission);
-  }
-}, 1000);
+permission = permissions.get(toolId)
+afterDelay(1000):
+  if permission:
+    // Permission might have changed since we read it
+    use(permission)
 ```
 
 ### The "Missing Cleanup" Smell
 
-```typescript
-// RED FLAG: Subscriptions/timers not cleaned up
-ngOnInit() {
-  this.interval = setInterval(() => this.update(), 1000);
-}
-// Where's ngOnDestroy?
+```pseudocode
+// RED FLAG: Resources not cleaned up
+function onInitialize()
+  this.interval = startTimer(this.update, 1000)
+// Where's the cleanup/dispose handler?
 ```
 
 ---

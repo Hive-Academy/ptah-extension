@@ -424,8 +424,8 @@ describe('Orchestration Patterns', () => {
 
       // Check for proper indentation (2 spaces)
       expect(userPrompt).toMatch(/"name": "test"/);
-      expect(userPrompt).toMatch(/  "id": 1/);
-      expect(userPrompt).toMatch(/  "tags": \[/);
+      expect(userPrompt).toMatch(/ {2}"id": 1/);
+      expect(userPrompt).toMatch(/ {2}"tags": \[/);
     });
   });
 

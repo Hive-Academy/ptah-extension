@@ -25,7 +25,6 @@ import {
   TOKENS,
   LicenseService,
 } from '@ptah-extension/vscode-core';
-// eslint-disable-next-line @nx/enforce-module-boundaries
 import { EnhancedPromptsService, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type {
   PromptDesignerInput,
@@ -335,13 +334,14 @@ export class EnhancedPromptsRpcHandlers {
           params.model
         );
 
-        // Run the wizard
+        // Run the wizard (pass analysisDir for multi-phase enrichment)
         const result = await this.enhancedPromptsService.runWizard(
           workspacePath,
           params.config,
           undefined,
           preComputedInput,
-          sdkConfig
+          sdkConfig,
+          params.analysisDir
         );
 
         if (result.success && result.state) {
@@ -354,6 +354,7 @@ export class EnhancedPromptsRpcHandlers {
             success: true,
             generatedAt: result.state.generatedAt,
             detectedStack: result.state.detectedStack,
+            summary: result.summary ?? null,
           };
         }
 

@@ -16,6 +16,10 @@ import {
   WizardMessage,
   WizardMessageType,
 } from '@ptah-extension/shared';
+import type {
+  EnhancedPromptsSummary,
+  MultiPhaseAnalysisResponse,
+} from '@ptah-extension/shared';
 
 // Re-export shared types for backward compatibility with existing consumers
 export type {
@@ -319,6 +323,41 @@ export class SetupWizardStateService {
     null
   );
 
+  /**
+   * Private writable signal for Enhanced Prompts generation summary.
+   * Contains section metadata (names, word counts) without actual content.
+   */
+  private readonly enhancedPromptsSummarySignal =
+    signal<EnhancedPromptsSummary | null>(null);
+
+  // === Multi-Phase Analysis State Signals (TASK_2025_154) ===
+
+  /**
+   * Private writable signal for current phase number in multi-phase analysis.
+   * 1-based index of the currently running phase.
+   */
+  private readonly _currentPhaseNumber = signal<number | null>(null);
+
+  /**
+   * Private writable signal for total number of phases in multi-phase analysis.
+   */
+  private readonly _totalPhaseCount = signal<number | null>(null);
+
+  /**
+   * Private writable signal for per-phase status tracking.
+   * Each entry tracks a phase's id and its current status.
+   */
+  private readonly _phaseStatuses = signal<
+    Array<{ id: string; status: string }>
+  >([]);
+
+  /**
+   * Private writable signal for multi-phase analysis result.
+   * Contains the full MultiPhaseAnalysisResponse when multi-phase pipeline was used.
+   */
+  private readonly multiPhaseResultSignal =
+    signal<MultiPhaseAnalysisResponse | null>(null);
+
   // === Saved Analysis History State Signals ===
 
   /**
@@ -445,6 +484,13 @@ export class SetupWizardStateService {
   readonly enhancedPromptsDetectedStack =
     this.enhancedPromptsDetectedStackSignal.asReadonly();
 
+  /**
+   * Public readonly signal for Enhanced Prompts generation summary.
+   * Contains section metadata (names, word counts) without actual content.
+   */
+  readonly enhancedPromptsSummary =
+    this.enhancedPromptsSummarySignal.asReadonly();
+
   // === Saved Analysis History Public Signals ===
 
   /**
@@ -458,6 +504,44 @@ export class SetupWizardStateService {
    */
   readonly analysisLoadedFromHistory =
     this.analysisLoadedFromHistorySignal.asReadonly();
+
+  // === Multi-Phase Analysis Public Signals (TASK_2025_154) ===
+
+  /**
+   * Public readonly signal for current phase number (1-based).
+   */
+  readonly currentPhaseNumber = this._currentPhaseNumber.asReadonly();
+
+  /**
+   * Public readonly signal for total number of phases.
+   */
+  readonly totalPhaseCount = this._totalPhaseCount.asReadonly();
+
+  /**
+   * Public readonly signal for per-phase status tracking.
+   */
+  readonly phaseStatuses = this._phaseStatuses.asReadonly();
+
+  /**
+   * Public readonly signal for multi-phase analysis result.
+   * Non-null when the wizard used the multi-phase pipeline.
+   */
+  readonly multiPhaseResult = this.multiPhaseResultSignal.asReadonly();
+
+  /**
+   * Computed signal indicating whether a multi-phase analysis is active.
+   * True when totalPhaseCount is set and greater than zero.
+   */
+  readonly isMultiPhaseAnalysis = computed(
+    () => this._totalPhaseCount() !== null && this._totalPhaseCount()! > 0
+  );
+
+  /**
+   * Computed signal indicating whether we have a completed multi-phase result.
+   */
+  readonly hasMultiPhaseResult = computed(
+    () => this.multiPhaseResultSignal() !== null
+  );
 
   constructor() {
     this.ensureMessageListenerRegistered();
@@ -701,6 +785,12 @@ export class SetupWizardStateService {
     this.enhancedPromptsStatusSignal.set('idle');
     this.enhancedPromptsErrorSignal.set(null);
     this.enhancedPromptsDetectedStackSignal.set(null);
+    this.enhancedPromptsSummarySignal.set(null);
+    // Reset multi-phase analysis state (TASK_2025_154)
+    this._currentPhaseNumber.set(null);
+    this._totalPhaseCount.set(null);
+    this._phaseStatuses.set([]);
+    this.multiPhaseResultSignal.set(null);
     // Reset analysis history state (keep savedAnalyses list intact)
     this.analysisLoadedFromHistorySignal.set(false);
   }
@@ -814,6 +904,24 @@ export class SetupWizardStateService {
    */
   setEnhancedPromptsDetectedStack(stack: string[] | null): void {
     this.enhancedPromptsDetectedStackSignal.set(stack);
+  }
+
+  /**
+   * Set Enhanced Prompts generation summary.
+   * Contains section metadata without actual prompt content (IP protection).
+   */
+  setEnhancedPromptsSummary(summary: EnhancedPromptsSummary | null): void {
+    this.enhancedPromptsSummarySignal.set(summary);
+  }
+
+  // === Multi-Phase Result State Mutation ===
+
+  /**
+   * Set multi-phase analysis result.
+   * Called when wizard:deep-analyze returns a MultiPhaseAnalysisResponse.
+   */
+  setMultiPhaseResult(result: MultiPhaseAnalysisResponse): void {
+    this.multiPhaseResultSignal.set(result);
   }
 
   // === Saved Analysis History State Mutations ===
@@ -1033,6 +1141,17 @@ export class SetupWizardStateService {
       totalFiles: payload.totalFiles,
       detections: payload.detections,
     });
+
+    // TASK_2025_154: Extract multi-phase analysis progress fields
+    if (payload.currentPhaseNumber !== undefined) {
+      this._currentPhaseNumber.set(payload.currentPhaseNumber);
+    }
+    if (payload.totalPhaseCount !== undefined) {
+      this._totalPhaseCount.set(payload.totalPhaseCount);
+    }
+    if (payload.phaseStatuses) {
+      this._phaseStatuses.set(payload.phaseStatuses);
+    }
   }
 
   /**

@@ -126,12 +126,12 @@ export class AgentFileWriterService implements IAgentFileWriterService {
       }
 
       // Backup existing file if present
-      let backupPath: string | undefined;
+
       const backupResult = await this.backupExisting(absolutePath);
       if (backupResult.isErr()) {
         return Result.err(backupResult.error!);
       }
-      backupPath = backupResult.value!;
+      const backupPath: string | undefined = backupResult.value!;
 
       // Write new content
       try {

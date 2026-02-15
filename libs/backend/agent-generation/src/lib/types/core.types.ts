@@ -344,6 +344,13 @@ export interface AgentProjectContext {
    * language distribution, code conventions, etc.) for rich LLM prompting.
    */
   fullAnalysis?: import('@ptah-extension/shared').ProjectAnalysisResult;
+
+  /**
+   * Path to the multi-phase analysis directory.
+   * When present, ContentGenerationService reads rich analysis files
+   * instead of using formatAnalysisData().
+   */
+  analysisDir?: string;
 }
 
 /**

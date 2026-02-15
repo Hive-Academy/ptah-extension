@@ -147,6 +147,7 @@ export type {
   DetectedStack,
   RegeneratePromptsRequest,
   RegeneratePromptsResponse,
+  IMultiPhaseAnalysisReader,
 } from './lib/prompt-harness';
 
 // ============================================================
