@@ -297,14 +297,29 @@ export class MessageFinalizationService {
       }
     }
 
+    // Safety net: Historical sessions can never have actively streaming agents.
+    // Mark any remaining agent nodes with status 'streaming' as 'interrupted'.
+    // This catches cases where correlation or tree building left stale streaming states.
+    const finalMessages = messages.map((msg) => {
+      if (msg.role === 'assistant' && msg.streamingState) {
+        const cleaned = this.markStreamingAgentsAsInterrupted(
+          msg.streamingState
+        );
+        if (cleaned !== msg.streamingState) {
+          return { ...msg, streamingState: cleaned };
+        }
+      }
+      return msg;
+    });
+
     // Update tab with finalized messages and clear streaming state
     this.tabManager.updateTab(tabId, {
-      messages,
+      messages: finalMessages,
       streamingState: null,
       status: 'loaded',
     });
 
-    return messages;
+    return finalMessages;
   }
 
   /**
@@ -363,6 +378,35 @@ export class MessageFinalizationService {
     }
 
     // No changes needed
+    return node;
+  }
+
+  /**
+   * Safety net: Mark any agent nodes still in 'streaming' status as 'interrupted'.
+   * Historical sessions can never have actively streaming agents — if a node is
+   * still 'streaming' after history finalization, it means correlation failed to
+   * properly resolve it. This prevents agents from being stuck as "Streaming" forever.
+   */
+  private markStreamingAgentsAsInterrupted(node: ExecutionNode): ExecutionNode {
+    const updatedChildren = node.children.map((child) =>
+      this.markStreamingAgentsAsInterrupted(child)
+    );
+
+    if (node.type === 'agent' && node.status === 'streaming') {
+      return {
+        ...node,
+        status: 'interrupted',
+        children: updatedChildren,
+      };
+    }
+
+    if (updatedChildren !== node.children) {
+      return {
+        ...node,
+        children: updatedChildren,
+      };
+    }
+
     return node;
   }
 

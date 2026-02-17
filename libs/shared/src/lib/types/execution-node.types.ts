@@ -727,7 +727,8 @@ export type StreamEventType =
   | 'message_complete'
   | 'message_delta'
   | 'signature_delta'
-  | 'compaction_start';
+  | 'compaction_start'
+  | 'compaction_complete';
 
 /**
  * Base flat event with common fields
@@ -906,6 +907,20 @@ export interface CompactionStartEvent extends FlatStreamEvent {
 }
 
 /**
+ * Compaction complete event - notifies UI that context compaction has finished
+ * Emitted when the SDK sends a compact_boundary system message after compaction.
+ * Used to dismiss the compaction banner, reset the execution tree, and clear
+ * deduplication state across the compaction boundary.
+ */
+export interface CompactionCompleteEvent extends FlatStreamEvent {
+  readonly eventType: 'compaction_complete';
+  /** Whether compaction was triggered manually or automatically */
+  readonly trigger: 'manual' | 'auto';
+  /** Token count before compaction (from SDK compact_metadata) */
+  readonly preTokens?: number;
+}
+
+/**
  * Union type for all flat events - enables discriminated unions
  */
 export type FlatStreamEventUnion =
@@ -920,4 +935,5 @@ export type FlatStreamEventUnion =
   | MessageCompleteEvent
   | MessageDeltaEvent
   | SignatureDeltaEvent
-  | CompactionStartEvent;
+  | CompactionStartEvent
+  | CompactionCompleteEvent;

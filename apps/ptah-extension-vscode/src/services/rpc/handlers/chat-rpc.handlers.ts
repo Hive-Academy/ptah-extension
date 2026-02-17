@@ -450,9 +450,13 @@ export class ChatRpcHandlers {
           // TASK_2025_109: Inject interrupted subagent context into prompt
           // This enables Claude to automatically resume interrupted agents
           // instead of requiring user to know agent IDs or click Resume buttons.
+          // Skip injection for slash commands (e.g., /compact, /clear) — the CLI
+          // detects commands via startsWith("/"), so any prefix breaks detection.
           let enhancedPrompt = prompt;
-          const allResumable =
-            this.subagentRegistry.getResumableBySession(sessionId);
+          const isSlashCommand = prompt.trim().startsWith('/');
+          const allResumable = isSlashCommand
+            ? []
+            : this.subagentRegistry.getResumableBySession(sessionId);
 
           // Filter to only agents whose transcript files exist on disk.
           // Without a transcript, the SDK can't resume — it reports "transcript was lost".

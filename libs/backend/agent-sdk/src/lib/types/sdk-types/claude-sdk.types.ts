@@ -745,6 +745,19 @@ export function isSystemInit(msg: SDKMessage): msg is SDKSystemMessage {
 }
 
 /**
+ * Check if message is a compact_boundary system message
+ */
+export function isCompactBoundary(
+  msg: SDKMessage
+): msg is SDKCompactBoundaryMessage {
+  return (
+    msg.type === 'system' &&
+    'subtype' in msg &&
+    msg.subtype === 'compact_boundary'
+  );
+}
+
+/**
  * Check if message is a user message (not replay)
  */
 export function isUserMessage(msg: SDKMessage): msg is SDKUserMessage {

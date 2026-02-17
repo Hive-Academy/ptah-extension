@@ -149,6 +149,8 @@ export interface TaskToolInput {
   prompt: string;
   /** The type of specialized agent to use for this task */
   subagent_type: string;
+  /** Optional agent ID to resume from a previous invocation */
+  resume?: string;
 }
 
 /**

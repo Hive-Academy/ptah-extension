@@ -747,10 +747,26 @@ export class ChatStore {
       sessionId
     );
 
-    // TASK_2025_098: Handle compaction notification via unified streaming path
+    // Handle compaction complete: dismiss banner, reset tree, clear finalized messages
+    if (result && result.compactionComplete && result.compactionSessionId) {
+      console.log('[ChatStore] Compaction complete, resetting frontend state', {
+        compactionSessionId: result.compactionSessionId,
+      });
+      this.clearCompactionState();
+      this.treeBuilder.clearCache();
+
+      // Clear finalized messages for the tab - stale pre-compaction messages
+      const activeTab = this.tabManager.activeTab();
+      if (activeTab && activeTab.id === result.tabId) {
+        this.tabManager.updateTab(result.tabId, { messages: [] });
+      }
+      return;
+    }
+
+    // TASK_2025_098: Handle compaction start notification via unified streaming path
     // Compaction events now flow through CHAT_CHUNK like all other streaming events
     if (result && result.compactionSessionId) {
-      console.log('[ChatStore] Handling compaction via streaming path', {
+      console.log('[ChatStore] Handling compaction start via streaming path', {
         compactionSessionId: result.compactionSessionId,
       });
       this.handleCompactionStart(result.compactionSessionId);

@@ -138,4 +138,6 @@ export interface TaskToolUse {
   toolUseId: string;
   timestamp: number;
   subagentType: string;
+  /** Agent ID from `resume` field in Task tool input — enables direct correlation */
+  resumeAgentId?: string;
 }

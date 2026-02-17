@@ -22,6 +22,7 @@ import {
   MessageCompleteEvent,
   MessageDeltaEvent,
   SignatureDeltaEvent,
+  CompactionCompleteEvent,
   SessionId,
   calculateMessageCost,
   EventSource,
@@ -45,6 +46,7 @@ import {
   isStreamEvent,
   isUserMessage,
   isAssistantMessage,
+  isCompactBoundary,
 } from './types/sdk-types/claude-sdk.types';
 
 // Re-export isResultMessage for backward compatibility with stream-transformer.ts
@@ -133,6 +135,29 @@ export class SdkMessageTransformer {
         // Skip system messages (init, etc.) - they contain metadata
         // that shouldn't be displayed as chat messages in the UI.
         return [];
+      }
+
+      if (isCompactBoundary(sdkMessage)) {
+        // Compact boundary signals compaction is complete.
+        // Reset internal streaming state (ID tracking maps) since
+        // pre-compaction messages are no longer relevant.
+        this.logger.info(
+          '[SdkMessageTransformer] Compact boundary received, resetting streaming state',
+          { trigger: sdkMessage.compact_metadata.trigger }
+        );
+        this.clearStreamingState();
+
+        const compactionCompleteEvent: CompactionCompleteEvent = {
+          id: generateEventId(),
+          eventType: 'compaction_complete',
+          timestamp: Date.now(),
+          sessionId: sessionId || sdkMessage.session_id || '',
+          messageId: `compaction-${Date.now()}`,
+          trigger: sdkMessage.compact_metadata.trigger,
+          preTokens: sdkMessage.compact_metadata.pre_tokens,
+        };
+
+        return [compactionCompleteEvent];
       }
 
       if (isResultMessage(sdkMessage)) {

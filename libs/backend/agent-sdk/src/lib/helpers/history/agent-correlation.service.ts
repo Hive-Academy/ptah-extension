@@ -142,13 +142,16 @@ export class AgentCorrelationService {
       for (const block of content as ContentBlock[]) {
         if (block.type === 'tool_use' && block.name === 'Task' && block.id) {
           let subagentType = 'unknown';
+          let resumeAgentId: string | undefined;
           if (block.input && isTaskToolInput(block.input)) {
             subagentType = block.input.subagent_type;
+            resumeAgentId = block.input.resume;
           }
           tasks.push({
             toolUseId: block.id,
             timestamp,
             subagentType,
+            resumeAgentId,
           });
         }
       }
@@ -179,6 +182,40 @@ export class AgentCorrelationService {
     const map = new Map<string, string>();
     const usedAgents = new Set<string>();
 
+    // === FIRST PASS: Direct mapping for resume Tasks ===
+    // Resume Tasks have a `resumeAgentId` that maps directly to the agent file.
+    // This avoids timestamp-based matching failures for resumed agents.
+    // We do NOT add to usedAgents here so the initial Task can still
+    // timestamp-match the same agent in the second pass.
+    for (const task of taskToolUses) {
+      if (!task.resumeAgentId) continue;
+
+      // The agent data map is keyed by agentId from the file name (e.g., "a329b32").
+      // The resume field stores the same agentId.
+      const agentKey = `agent-${task.resumeAgentId}`;
+      const directMatch =
+        agentDataMap.get(agentKey) ?? agentDataMap.get(task.resumeAgentId);
+
+      if (directMatch) {
+        map.set(task.toolUseId, directMatch.agentId);
+        this.logger.debug('[AgentCorrelation] Resume task directly mapped', {
+          toolUseId: task.toolUseId,
+          resumeAgentId: task.resumeAgentId,
+          matchedAgentId: directMatch.agentId,
+        });
+      } else {
+        this.logger.warn(
+          '[AgentCorrelation] Resume task agent not found in map',
+          {
+            toolUseId: task.toolUseId,
+            resumeAgentId: task.resumeAgentId,
+            availableKeys: [...agentDataMap.keys()].slice(0, 10),
+          }
+        );
+      }
+    }
+
+    // === SECOND PASS: Timestamp-based matching for non-resume Tasks ===
     const sortedTasks = [...taskToolUses].sort(
       (a, b) => a.timestamp - b.timestamp
     );
@@ -187,6 +224,9 @@ export class AgentCorrelationService {
     );
 
     for (const task of sortedTasks) {
+      // Skip resume tasks — already handled in first pass
+      if (task.resumeAgentId) continue;
+
       let bestMatch: string | null = null;
       let bestTimeDiff = Infinity;
 

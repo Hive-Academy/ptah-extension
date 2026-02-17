@@ -26,6 +26,7 @@ import {
   SDKResultMessage,
   isResultMessage,
   isSystemInit,
+  isCompactBoundary,
 } from '../types/sdk-types/claude-sdk.types';
 
 /**
@@ -337,10 +338,12 @@ export class StreamTransformer {
             // CRITICAL FIX (TASK_2025_092): Must process 'user' messages to extract tool_result!
             // SDK sends tool_result content blocks in user messages after tool execution.
             // Without this, tools remain in __streaming: true state forever.
+            // Also process compact_boundary (type: 'system') to emit compaction_complete events.
             if (
               sdkMessage.type === 'stream_event' ||
               sdkMessage.type === 'assistant' ||
-              sdkMessage.type === 'user'
+              sdkMessage.type === 'user' ||
+              isCompactBoundary(sdkMessage)
             ) {
               // TASK_2025_092: Use effectiveSessionId (real UUID) for events
               // This ensures events have the real sessionId for proper routing

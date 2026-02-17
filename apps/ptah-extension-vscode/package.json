@@ -1,7 +1,7 @@
 {
   "name": "ptah-extension-vscode",
-  "displayName": "Ptah - Claude Code GUI",
-  "description": "Complete visual interface for Claude Code CLI with chat, command building, and intelligent context management",
+  "displayName": "Ptah - Coding Orchestra",
+  "description": "A VS Code-native extension powered by the Claude Code Agent SDK. Intelligent workspace analysis, Code Execution MCP server, and project-adaptive AI agents.",
   "version": "0.1.0",
   "publisher": "ptah-extensions",
   "repository": {

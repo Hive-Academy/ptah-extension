@@ -455,11 +455,29 @@ export class ExecutionTreeBuilderService {
       return true;
     }) as ToolStartEvent[];
 
-    // TASK_2025_128 FIX: Track used agentIds to prevent duplicate agent nodes.
+    // Track used agent event IDs to prevent duplicate agent nodes.
     // When multiple tool_start events exist for the same logical agent (different
     // toolCallId formats), the agentType fallback matching could find the same
-    // agent_start multiple times. Track used agentIds to prevent this.
-    const usedAgentIds = new Set<string>();
+    // agent_start multiple times. Track used agent event IDs to prevent this.
+    // IMPORTANT: Do NOT deduplicate by agentType alone - parallel agents can share
+    // the same agentType (e.g., two "backend-developer" agents running concurrently).
+    const usedAgentEventIds = new Set<string>();
+    // Track toolCallIds that already have a placeholder or agent node
+    const usedToolCallIds = new Set<string>();
+
+    // DIAGNOSTIC: Log tool_starts for this message
+    console.log('[ExecutionTreeBuilder] collectTools:', {
+      messageId,
+      depth,
+      toolStartsCount: toolStarts.length,
+      toolStarts: toolStarts.map((t) => ({
+        toolCallId: t.toolCallId,
+        toolName: t.toolName,
+        isTaskTool: t.isTaskTool,
+        source: t.source,
+        parentToolUseId: t.parentToolUseId,
+      })),
+    });
 
     for (const toolStart of toolStarts) {
       // TASK_2025_095: For Task tools that spawn agents, show agent directly instead of Task wrapper
@@ -494,33 +512,52 @@ export class ExecutionTreeBuilderService {
                 e.eventType === 'agent_start' &&
                 (e as AgentStartEvent).agentType === agentType
             ) as AgentStartEvent[];
+
+            // BUGFIX: Sort by timestamp proximity to the tool_start.
+            // When multiple agents of the same type exist (e.g., 5 frontend-developer
+            // agents from history + 1 streaming), the closest by timestamp is most likely
+            // the correct match for this tool_start. Without sorting, Map iteration order
+            // (insertion order) picks the oldest historical agent, causing content block
+            // lookups to use the wrong agentId.
+            agentStarts.sort(
+              (a, b) =>
+                Math.abs(a.timestamp - toolStart.timestamp) -
+                Math.abs(b.timestamp - toolStart.timestamp)
+            );
           }
         }
 
         if (agentStarts.length > 0) {
-          // Build agent nodes directly (skip the Task tool wrapper)
+          // Build agent node directly (skip the Task tool wrapper).
+          // For parallel agents of the same type, only take the FIRST unused agent_start.
+          // Each tool_start should map to exactly one agent_start.
+          let matchedAgent: AgentStartEvent | null = null;
+
           for (const agentStart of agentStarts) {
-            // TASK_2025_128 FIX: Skip if we already built a node for this agentId OR agentType.
-            // This prevents duplicates when multiple tool_start events match
-            // the same agent_start via agentType fallback.
-            // Also deduplicate by agentType when agentId is unavailable (SDK events).
-            if (agentStart.agentId && usedAgentIds.has(agentStart.agentId)) {
+            // Skip if this specific agent_start event was already consumed by another tool_start
+            if (usedAgentEventIds.has(agentStart.id)) {
               continue;
             }
-            // TASK_2025_128 FIX: Also deduplicate by agentType for SDK events without agentId.
-            // Hook sends agentId, SDK complete does NOT. Without this check, both create nodes.
-            const agentTypeKey = `type:${agentStart.agentType}`;
-            if (!agentStart.agentId && usedAgentIds.has(agentTypeKey)) {
+            if (
+              agentStart.agentId &&
+              usedAgentEventIds.has(agentStart.agentId)
+            ) {
               continue;
             }
-            if (agentStart.agentId) {
-              usedAgentIds.add(agentStart.agentId);
+            matchedAgent = agentStart;
+            break; // Take the first unused match
+          }
+
+          if (matchedAgent) {
+            // Mark this agent_start as consumed so other tool_starts won't reuse it
+            usedAgentEventIds.add(matchedAgent.id);
+            if (matchedAgent.agentId) {
+              usedAgentEventIds.add(matchedAgent.agentId);
             }
-            // Also track by agentType to prevent SDK agent_start from creating duplicate
-            usedAgentIds.add(agentTypeKey);
+            usedToolCallIds.add(toolStart.toolCallId);
 
             const agentNode = this.buildAgentNode(
-              agentStart,
+              matchedAgent,
               toolStart.toolCallId,
               state,
               depth
@@ -531,6 +568,14 @@ export class ExecutionTreeBuilderService {
           }
           continue; // Skip building the Task tool node
         } else {
+          // DIAGNOSTIC: Log when no agent_start found for Task tool
+          console.log(
+            '[ExecutionTreeBuilder] No agent_start match for Task tool:',
+            {
+              toolCallId: toolStart.toolCallId,
+              toolSource: toolStart.source,
+            }
+          );
           // TASK_2025_099 FIX: Create streaming agent placeholder when no agent_start yet.
           // During streaming, agent_start events only arrive when the complete message comes.
           // Create a placeholder agent node from accumulated tool input to show the agent is working.
@@ -546,21 +591,9 @@ export class ExecutionTreeBuilderService {
             const inputKey = `${toolStart.toolCallId}-input`;
             const inputString = state.toolInputAccumulators.get(inputKey) || '';
 
-            // TASK_2025_128 FIX: Extract agentType early to check for duplicates.
-            // If we already built/placeholder'd an agent with this agentType, skip.
-            const earlyTypeMatch = inputString.match(
-              /"subagent_type"\s*:\s*"([^"]+)"/
-            );
-            if (earlyTypeMatch) {
-              const earlyAgentType = earlyTypeMatch[1];
-              // Check if we already processed this agentType (from agent_start or placeholder)
-              // Check both placeholder key AND type key (used by agent_start events)
-              if (
-                usedAgentIds.has(`placeholder:${earlyAgentType}`) ||
-                usedAgentIds.has(`type:${earlyAgentType}`)
-              ) {
-                continue; // Skip - agent already exists from agent_start or placeholder
-              }
+            // Skip if this specific toolCallId already has an agent node or placeholder
+            if (usedToolCallIds.has(toolStart.toolCallId)) {
+              continue;
             }
 
             // Extract agent type and description from partial JSON
@@ -608,16 +641,39 @@ export class ExecutionTreeBuilderService {
               }
             }
 
-            // TASK_2025_099: Try to find matching hook-based agent_start to get agentId
-            // Hook-based agent_start events have agentId for stable summary lookup
-            const hookAgentStart = [...state.events.values()].find(
-              (e) =>
+            // Try to find matching hook-based agent_start to get agentId.
+            // Hook-based agent_start events have agentId for stable summary lookup.
+            // Filter out already-consumed agent_starts to handle parallel agents of same type.
+            // BUGFIX: Use timestamp proximity instead of .find() to avoid matching
+            // historical agents when multiple agents of the same type exist.
+            let hookAgentStart: AgentStartEvent | undefined;
+            let bestPlaceholderTimeDiff = Infinity;
+            for (const e of state.events.values()) {
+              if (
                 e.eventType === 'agent_start' &&
                 e.source === 'hook' &&
-                (e as AgentStartEvent).agentType === agentType
-            ) as AgentStartEvent | undefined;
+                (e as AgentStartEvent).agentType === agentType &&
+                !usedAgentEventIds.has(e.id) &&
+                (!(e as AgentStartEvent).agentId ||
+                  !usedAgentEventIds.has((e as AgentStartEvent).agentId!))
+              ) {
+                const timeDiff = Math.abs(e.timestamp - toolStart.timestamp);
+                if (timeDiff < bestPlaceholderTimeDiff) {
+                  bestPlaceholderTimeDiff = timeDiff;
+                  hookAgentStart = e as AgentStartEvent;
+                }
+              }
+            }
 
-            // TASK_2025_099: Get summaryContent using agentId if available
+            // Mark this hook agent_start as consumed for parallel agent dedup
+            if (hookAgentStart) {
+              usedAgentEventIds.add(hookAgentStart.id);
+              if (hookAgentStart.agentId) {
+                usedAgentEventIds.add(hookAgentStart.agentId);
+              }
+            }
+
+            // Get summaryContent using agentId if available
             // Fallback to toolCallId for backward compatibility
             const placeholderAgentId = hookAgentStart?.agentId;
 
@@ -686,12 +742,8 @@ export class ExecutionTreeBuilderService {
               model: placeholderStats.agentModel, // TASK_2025_132: Also set model field for consistency
             });
 
-            // TASK_2025_128 FIX: Mark this agentType as used to prevent duplicates.
-            // Add both placeholder key and type key so:
-            // - Other placeholders are skipped (via placeholder: key)
-            // - SDK agent_start events are skipped (via type: key)
-            usedAgentIds.add(`placeholder:${agentType}`);
-            usedAgentIds.add(`type:${agentType}`);
+            // Mark this toolCallId as used to prevent duplicates
+            usedToolCallIds.add(toolStart.toolCallId);
 
             tools.push(placeholderAgent);
             continue; // Skip building the Task tool node
@@ -772,16 +824,30 @@ export class ExecutionTreeBuilderService {
     let effectiveAgentId = agentStart.agentId;
 
     if (!effectiveAgentId) {
-      // Find hook-based agent_start with matching agentType
-      const hookAgentStart = [...state.events.values()].find(
-        (e) =>
+      // Find hook-based agent_start with matching agentType.
+      // BUGFIX: When multiple agents of the same type exist in a session,
+      // we must find the CLOSEST hook agent_start by timestamp, not just the first.
+      // Using .find() returned the first (oldest) match, which was wrong.
+      let bestHookMatch: AgentStartEvent | undefined;
+      let bestTimeDiff = Infinity;
+
+      for (const e of state.events.values()) {
+        if (
           e.eventType === 'agent_start' &&
           e.source === 'hook' &&
-          (e as AgentStartEvent).agentType === agentStart.agentType
-      ) as AgentStartEvent | undefined;
+          (e as AgentStartEvent).agentType === agentStart.agentType &&
+          (e as AgentStartEvent).agentId
+        ) {
+          const timeDiff = Math.abs(e.timestamp - agentStart.timestamp);
+          if (timeDiff < bestTimeDiff) {
+            bestTimeDiff = timeDiff;
+            bestHookMatch = e as AgentStartEvent;
+          }
+        }
+      }
 
-      if (hookAgentStart?.agentId) {
-        effectiveAgentId = hookAgentStart.agentId;
+      if (bestHookMatch?.agentId) {
+        effectiveAgentId = bestHookMatch.agentId;
       }
     }
 
@@ -800,6 +866,19 @@ export class ExecutionTreeBuilderService {
     // We create text nodes for text blocks and find matching tool nodes for tool_ref blocks.
     let finalChildren: ExecutionNode[];
 
+    // DIAGNOSTIC: Log buildAgentNode inputs
+    console.log('[ExecutionTreeBuilder] buildAgentNode:', {
+      agentStartId: agentStart.id,
+      toolCallId,
+      effectiveAgentId,
+      agentMessageStartsCount: agentMessageStarts.length,
+      agentChildrenCount: agentChildren.length,
+      agentChildrenTypes: agentChildren.map((c) => c.type),
+      contentBlocksCount: contentBlocks.length,
+      contentBlockTypes: contentBlocks.map((b) => b.type),
+      summaryContentLength: summaryContent?.length ?? 0,
+    });
+
     if (contentBlocks.length > 0) {
       // Use structured content blocks for proper interleaving
       finalChildren = this.buildInterleavedChildren(
@@ -808,6 +887,15 @@ export class ExecutionTreeBuilderService {
         contentBlocks,
         agentChildren
       );
+      // DIAGNOSTIC: Log interleaved result
+      console.log('[ExecutionTreeBuilder] buildInterleavedChildren result:', {
+        resultCount: finalChildren.length,
+        resultTypes: finalChildren.map(
+          (c) => `${c.type}${c.toolCallId ? ':' + c.toolCallId : ''}`
+        ),
+        textNodes: finalChildren.filter((c) => c.type === 'text').length,
+        toolNodes: finalChildren.filter((c) => c.type === 'tool').length,
+      });
     } else if (summaryContent && summaryContent.trim()) {
       // Fallback: Use legacy summaryContent as single text node at beginning
       finalChildren = [...agentChildren];
@@ -1228,16 +1316,29 @@ export class ExecutionTreeBuilderService {
       let effectiveAgentId = agentStart.agentId;
 
       if (!effectiveAgentId) {
-        // Find hook-based agent_start with matching agentType
-        const hookAgentStart = [...state.events.values()].find(
-          (e) =>
+        // Find hook-based agent_start with matching agentType.
+        // BUGFIX: When multiple agents of the same type exist in a session,
+        // we must find the CLOSEST hook agent_start by timestamp, not just the first.
+        let bestHookMatch: AgentStartEvent | undefined;
+        let bestTimeDiff = Infinity;
+
+        for (const e of state.events.values()) {
+          if (
             e.eventType === 'agent_start' &&
             e.source === 'hook' &&
-            (e as AgentStartEvent).agentType === agentStart.agentType
-        ) as AgentStartEvent | undefined;
+            (e as AgentStartEvent).agentType === agentStart.agentType &&
+            (e as AgentStartEvent).agentId
+          ) {
+            const timeDiff = Math.abs(e.timestamp - agentStart.timestamp);
+            if (timeDiff < bestTimeDiff) {
+              bestTimeDiff = timeDiff;
+              bestHookMatch = e as AgentStartEvent;
+            }
+          }
+        }
 
-        if (hookAgentStart?.agentId) {
-          effectiveAgentId = hookAgentStart.agentId;
+        if (bestHookMatch?.agentId) {
+          effectiveAgentId = bestHookMatch.agentId;
         }
       }
 

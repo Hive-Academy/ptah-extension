@@ -80,6 +80,7 @@ export class StreamingHandlerService {
     tabId: string;
     queuedContent?: string;
     compactionSessionId?: string;
+    compactionComplete?: boolean;
   } | null {
     try {
       // Find target tab
@@ -171,6 +172,20 @@ export class StreamingHandlerService {
           state.events.set(event.id, event);
           this.indexEventByMessage(state, event);
           state.currentMessageId = event.messageId;
+
+          // Backfill agent_start parentToolUseId when we see a subagent message_start
+          // with a toolu_* format parentToolUseId. Hook-based agent_start events have
+          // UUID-format toolCallId/parentToolUseId which doesn't match the tool_start's
+          // toolCallId (toolu_* format). This causes the tree builder's primary matching
+          // path to fail. By updating the agent_start with the correct toolu_* ID,
+          // we fix the correlation at the source.
+          if (
+            event.parentToolUseId &&
+            event.parentToolUseId.startsWith('toolu_')
+          ) {
+            this.backfillAgentStartToolId(state, event.parentToolUseId);
+          }
+
           break;
         }
 
@@ -398,11 +413,17 @@ export class StreamingHandlerService {
 
           state.currentTokenUsage = event.tokenUsage || null;
 
-          // Check for queued content to auto-send
-          const queuedContent = targetTab.queuedContent;
-          if (queuedContent && queuedContent.trim()) {
-            this.batchedUpdate.scheduleUpdate(targetTab.id, state);
-            return { tabId: targetTab.id, queuedContent };
+          // Check for queued content to auto-send — but ONLY on root-level messages.
+          // Sub-agent messages have parentToolUseId set; triggering re-steer on sub-agent
+          // message_complete would immediately interrupt the sub-agent mid-execution.
+          // Queued content should wait for the main agent's turn to complete (handled
+          // either by a root message_complete or by handleSessionStats).
+          if (!event.parentToolUseId) {
+            const queuedContent = targetTab.queuedContent;
+            if (queuedContent && queuedContent.trim()) {
+              this.batchedUpdate.scheduleUpdate(targetTab.id, state);
+              return { tabId: targetTab.id, queuedContent };
+            }
           }
           break;
         }
@@ -433,6 +454,32 @@ export class StreamingHandlerService {
           return { tabId: targetTab.id, compactionSessionId: event.sessionId };
         }
 
+        case 'compaction_complete': {
+          // Compaction finished: reset streaming state and deduplication for clean slate
+          console.log(
+            '[StreamingHandlerService] Compaction complete, resetting streaming state',
+            {
+              sessionId: event.sessionId,
+              trigger: event.trigger,
+              preTokens: event.preTokens,
+            }
+          );
+
+          // Reset streaming state to fresh - pre-compaction events are stale
+          this.tabManager.updateTab(targetTab.id, {
+            streamingState: createEmptyStreamingState(),
+          });
+
+          // Clear deduplication state across compaction boundary
+          this.deduplication.cleanupSession(event.sessionId);
+
+          return {
+            tabId: targetTab.id,
+            compactionComplete: true,
+            compactionSessionId: event.sessionId,
+          };
+        }
+
         default:
           assertNever(
             event,
@@ -450,6 +497,63 @@ export class StreamingHandlerService {
         event
       );
       return null;
+    }
+  }
+
+  /**
+   * Backfill agent_start events with the correct toolu_* format parentToolUseId.
+   *
+   * Hook-based agent_start events arrive with UUID-format toolCallId/parentToolUseId
+   * because the SDK SubagentStart hook only provides a UUID. When the first stream
+   * message_start arrives from the subagent, it carries parentToolUseId in toolu_*
+   * format (the actual Anthropic API tool_use ID). This method finds the corresponding
+   * hook-based agent_start and replaces it with an updated copy carrying the correct ID.
+   *
+   * This fixes the tree builder's primary matching path:
+   *   tool_start.toolCallId (toolu_*) === agent_start.parentToolUseId (toolu_*)
+   */
+  private backfillAgentStartToolId(
+    state: StreamingState,
+    tooluParentToolUseId: string
+  ): void {
+    // Find a hook-based agent_start with UUID-format toolCallId (not toolu_*)
+    // that hasn't been backfilled yet
+    for (const [eventId, evt] of state.events) {
+      if (
+        evt.eventType === 'agent_start' &&
+        evt.source === 'hook' &&
+        evt.toolCallId &&
+        !evt.toolCallId.startsWith('toolu_')
+      ) {
+        // Check if this agent_start has already been backfilled
+        // (i.e., another message_start already updated it)
+        const alreadyBackfilled = [...state.events.values()].some(
+          (e) =>
+            e.eventType === 'agent_start' &&
+            e.parentToolUseId === tooluParentToolUseId
+        );
+        if (alreadyBackfilled) {
+          return; // Already have an agent_start with this toolu_* ID
+        }
+
+        // Replace the event with an updated copy carrying the correct toolu_* ID
+        const updatedEvent = {
+          ...evt,
+          toolCallId: tooluParentToolUseId,
+          parentToolUseId: tooluParentToolUseId,
+        };
+        state.events.set(eventId, updatedEvent as FlatStreamEventUnion);
+
+        console.log(
+          '[StreamingHandler] Backfilled agent_start with toolu_* ID:',
+          {
+            agentId: (evt as { agentId?: string }).agentId,
+            oldToolCallId: evt.toolCallId,
+            newToolCallId: tooluParentToolUseId,
+          }
+        );
+        return; // Only backfill one agent_start per message_start
+      }
     }
   }
 

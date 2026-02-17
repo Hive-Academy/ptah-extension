@@ -533,6 +533,44 @@ export class SubagentRegistryService {
         .map((e) => e.toolCallId)
     );
 
+    // Step 2b: Build superseded set — when the same agentId was spawned multiple
+    // times (initial + resume(s)), any earlier toolCallId that has a later successful
+    // resume is "superseded" and should NOT appear as interrupted.
+    // Algorithm: group toolCallIds by agentId, if ANY has a tool_result, all OTHERS
+    // without a tool_result are superseded (not truly interrupted — they were retried).
+    const agentIdToToolCallIds = new Map<string, string[]>();
+    for (const agentStart of agentStartEvents) {
+      if (!agentStart.agentId) continue;
+      const existing = agentIdToToolCallIds.get(agentStart.agentId) ?? [];
+      existing.push(agentStart.toolCallId);
+      agentIdToToolCallIds.set(agentStart.agentId, existing);
+    }
+
+    const supersededToolCallIds = new Set<string>();
+    for (const [agentId, toolCallIds] of agentIdToToolCallIds) {
+      if (toolCallIds.length <= 1) continue;
+
+      const hasCompleted = toolCallIds.some((tcId) =>
+        completedToolCallIds.has(tcId)
+      );
+      if (hasCompleted) {
+        // All non-completed toolCallIds for this agent are superseded
+        for (const tcId of toolCallIds) {
+          if (!completedToolCallIds.has(tcId)) {
+            supersededToolCallIds.add(tcId);
+            this.logger.debug(
+              '[SubagentRegistryService.registerFromHistoryEvents] Marking toolCallId as superseded',
+              {
+                toolCallId: tcId,
+                agentId,
+                reason: 'agent has a completed resume',
+              }
+            );
+          }
+        }
+      }
+    }
+
     // Step 3: Find agent_start events without corresponding tool_result
     let registeredCount = 0;
 
@@ -554,6 +592,15 @@ export class SubagentRegistryService {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent completed, skipping',
           { toolCallId, agentType }
+        );
+        continue;
+      }
+
+      // Skip superseded agents (earlier interrupted attempts that were successfully resumed later)
+      if (supersededToolCallIds.has(toolCallId)) {
+        this.logger.debug(
+          '[SubagentRegistryService.registerFromHistoryEvents] Agent superseded by successful resume, skipping',
+          { toolCallId, agentType, agentId }
         );
         continue;
       }
