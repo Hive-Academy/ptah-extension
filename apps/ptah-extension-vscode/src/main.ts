@@ -7,6 +7,7 @@ import {
   type LicenseStatus,
   TOKENS,
 } from '@ptah-extension/vscode-core';
+import { PtahUrls } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { PtahExtension } from './core/ptah-extension';
@@ -42,15 +43,11 @@ function registerLicenseOnlyCommands(
       await licenseCommands.checkLicenseStatus();
     }),
     vscode.commands.registerCommand('ptah.openPricing', () => {
-      // TODO: restore production URL: https://ptah.dev/pricing
-      vscode.env.openExternal(
-        vscode.Uri.parse('http://localhost:4200/pricing')
-      );
+      vscode.env.openExternal(vscode.Uri.parse(PtahUrls.PRICING_URL));
     }),
     vscode.commands.registerCommand('ptah.openSignup', () => {
-      // TODO: restore production URL: https://ptah.dev/signup?source=vscode
       vscode.env.openExternal(
-        vscode.Uri.parse('http://localhost:4200/signup?source=vscode')
+        vscode.Uri.parse(PtahUrls.SIGNUP_URL + '?source=vscode')
       );
     })
   );
@@ -419,6 +416,19 @@ export async function activate(
       );
       pluginLoader.initialize(context.extensionPath, context.workspaceState);
       logger.info('Plugin loader initialized');
+
+      // Wire plugin paths into command discovery for slash command autocomplete
+      const pluginConfig = pluginLoader.getWorkspacePluginConfig();
+      const pluginPaths = pluginLoader.resolvePluginPaths(
+        pluginConfig.enabledPluginIds
+      );
+      const cmdDiscovery = DIContainer.resolve(
+        TOKENS.COMMAND_DISCOVERY_SERVICE
+      ) as { setPluginPaths: (paths: string[]) => void };
+      cmdDiscovery.setPluginPaths(pluginPaths);
+      logger.info('Plugin paths wired into command discovery', {
+        pluginCount: pluginPaths.length,
+      });
     } catch (pluginLoaderError) {
       logger.warn('Plugin loader initialization failed', {
         error:
@@ -455,6 +465,10 @@ export async function activate(
     // Step 8: Import existing Claude Code sessions (TASK_2025_091)
     console.log('[Activate] Step 8: Importing existing sessions...');
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    console.log(
+      '[Activate] Step 8: workspacePath for session import:',
+      JSON.stringify(workspacePath)
+    );
     if (workspacePath) {
       try {
         const sessionImporter = DIContainer.getContainer().resolve(

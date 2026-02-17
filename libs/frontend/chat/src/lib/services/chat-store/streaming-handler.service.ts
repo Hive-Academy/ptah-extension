@@ -32,6 +32,7 @@ import {
 import { EventDeduplicationService } from './event-deduplication.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { MessageFinalizationService } from './message-finalization.service';
+import { PermissionHandlerService } from './permission-handler.service';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -42,6 +43,7 @@ export class StreamingHandlerService {
   private readonly deduplication = inject(EventDeduplicationService);
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly finalization = inject(MessageFinalizationService);
+  private readonly permissionHandler = inject(PermissionHandlerService);
 
   /**
    * Clean up deduplication state for a session.
@@ -127,9 +129,12 @@ export class StreamingHandlerService {
         }
       }
 
-      // If tab doesn't have claudeSessionId yet, set it
+      // If tab doesn't have claudeSessionId yet, set it and ensure streaming status
       if (targetTab && sessionId && !targetTab.claudeSessionId) {
-        this.tabManager.updateTab(targetTab.id, { claudeSessionId: sessionId });
+        this.tabManager.updateTab(targetTab.id, {
+          claudeSessionId: sessionId,
+          status: 'streaming', // Ensure tab is in streaming state when session starts
+        });
       }
 
       // Initialize streaming state if null
@@ -545,7 +550,12 @@ export class StreamingHandlerService {
     const targetTabId = targetTab.id;
 
     // Finalize streaming tab when stats arrive
-    if (targetTab.streamingState && targetTab.status === 'streaming') {
+    // Also finalize if tab has streamingState but status is 'loaded' (race condition safety net:
+    // when a session restarts on the same tab, status may not transition to 'streaming')
+    if (
+      targetTab.streamingState &&
+      (targetTab.status === 'streaming' || targetTab.status === 'loaded')
+    ) {
       const state = targetTab.streamingState;
 
       state.pendingStats = {
@@ -556,11 +566,23 @@ export class StreamingHandlerService {
 
       const queuedContent = targetTab.queuedContent;
 
+      // Check if a hard permission deny occurred
+      const wasHardDeny = this.permissionHandler.consumeHardDenyFlag();
+
       console.log(
         '[StreamingHandlerService] Finalizing streaming on stats received for tab:',
-        targetTabId
+        targetTabId,
+        { wasHardDeny }
       );
       this.finalization.finalizeCurrentMessage(targetTabId);
+
+      // For hard deny: the SDK sends all completion events before exiting,
+      // so markStreamingNodesAsInterrupted (used by isAborted) finds nothing
+      // to change. Instead, post-process the finalized message to mark the
+      // last agent node as interrupted.
+      if (wasHardDeny) {
+        this.finalization.markLastAgentAsInterrupted(targetTabId);
+      }
 
       this.tabManager.markTabIdle(targetTabId);
 

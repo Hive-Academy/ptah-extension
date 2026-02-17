@@ -13,6 +13,7 @@
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { LicenseService, TOKENS } from '@ptah-extension/vscode-core';
+import { PtahUrls } from '@ptah-extension/shared';
 
 /**
  * License Commands Implementation
@@ -201,7 +202,7 @@ export class LicenseCommands {
           `Reason: ${
             status.reason || 'License revoked or payment failed'
           }\n\n` +
-          'Renew at http://localhost:4200/pricing' // TODO: restore production URL: https://ptah.dev/pricing
+          `Renew at ${PtahUrls.PRICING_URL}`
       );
     }
   }
@@ -228,15 +229,11 @@ export class LicenseCommands {
         this.checkLicenseStatus()
       ),
       vscode.commands.registerCommand('ptah.openPricing', () => {
-        // TODO: restore production URL: https://ptah.dev/pricing
-        vscode.env.openExternal(
-          vscode.Uri.parse('http://localhost:4200/pricing')
-        );
+        vscode.env.openExternal(vscode.Uri.parse(PtahUrls.PRICING_URL));
       }),
       vscode.commands.registerCommand('ptah.openSignup', () => {
-        // TODO: restore production URL: https://ptah.dev/signup?source=vscode
         vscode.env.openExternal(
-          vscode.Uri.parse('http://localhost:4200/signup?source=vscode')
+          vscode.Uri.parse(PtahUrls.SIGNUP_URL + '?source=vscode')
         );
       })
     );

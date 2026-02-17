@@ -233,10 +233,13 @@ export class SubagentHookHandler {
 
       // TASK_2025_103: Register subagent with registry for resumption tracking
       // Only register if we have both toolUseId and parentSessionId
+      // NOTE: input.session_id from the hook IS the parent session ID, not the subagent's own.
+      // The subagent's own session ID is not exposed by the SDK hook.
+      // For resumption, we use agentId (short hex) with the Task tool's resume parameter.
       if (toolUseId && parentSessionId) {
         this.subagentRegistry.register({
           toolCallId: toolUseId,
-          sessionId: input.session_id,
+          sessionId: input.session_id, // Parent session ID (SDK hook doesn't expose subagent's own)
           agentType: input.agent_type,
           startedAt: Date.now(),
           parentSessionId,

@@ -19,6 +19,7 @@
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import EventEmitter from 'eventemitter3';
+import { PtahUrls } from '@ptah-extension/shared';
 import { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
 
@@ -35,6 +36,26 @@ interface PersistedLicenseCache {
   persistedAt: number;
   /** Timestamp when cache was last validated (ms since epoch) */
   lastValidatedAt: number;
+}
+
+/**
+ * Persisted user context for expired/trial-ended users
+ *
+ * When a license key is auto-cleared due to expiration or trial end,
+ * we persist the user's context so that on next restart they see
+ * an expiration notice instead of the new-user welcome screen.
+ */
+interface PreviousUserContext {
+  /** Reason the key was cleared */
+  reason: 'expired' | 'trial_ended';
+  /** User profile from the expired license */
+  user?: {
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  };
+  /** Timestamp when context was persisted (ms since epoch) - auto-expires after 90 days */
+  persistedAt: number;
 }
 
 /**
@@ -120,7 +141,9 @@ export interface LicenseEvents {
 export class LicenseService extends EventEmitter<LicenseEvents> {
   private static readonly SECRET_KEY = 'ptah.licenseKey';
   private static readonly PERSISTED_CACHE_KEY = 'ptah.licenseCache';
-  private static readonly LICENSE_SERVER_URL = 'http://localhost:3000'; // || 'https://api.ptah.dev';
+  private static readonly PREVIOUS_USER_CONTEXT_KEY =
+    'ptah.previousUserContext';
+  private static readonly LICENSE_SERVER_URL = PtahUrls.API_URL;
   private static readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
   private static readonly NETWORK_TIMEOUT_MS = 5000; // 5 seconds
 
@@ -133,6 +156,13 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    * - After grace period, license is treated as expired
    */
   private static readonly GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+  /**
+   * Maximum age for previousUserContext before auto-clearing (90 days)
+   * Prevents the expiration modal from persisting indefinitely
+   */
+  private static readonly PREVIOUS_CONTEXT_MAX_AGE_MS =
+    90 * 24 * 60 * 60 * 1000; // 90 days
 
   /**
    * In-memory cache for quick access (1-hour TTL)
@@ -215,7 +245,47 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       );
 
       if (!licenseKey) {
-        // No license key = prompt user to register
+        // Check for previousUserContext (returning user with expired/trial-ended license)
+        const previousContext =
+          this.context.globalState.get<PreviousUserContext>(
+            LicenseService.PREVIOUS_USER_CONTEXT_KEY
+          );
+
+        const isValidContext =
+          previousContext &&
+          (previousContext.reason === 'expired' ||
+            previousContext.reason === 'trial_ended') &&
+          typeof previousContext.persistedAt === 'number' &&
+          Date.now() - previousContext.persistedAt <
+            LicenseService.PREVIOUS_CONTEXT_MAX_AGE_MS;
+
+        if (isValidContext) {
+          // Returning user: activate as community with expiration reason
+          // This prevents the welcome screen and shows trial-ended modal instead
+          const communityWithContext: LicenseStatus = {
+            valid: true,
+            tier: 'community',
+            reason: previousContext.reason,
+            user: previousContext.user,
+          };
+          this.updateCache(communityWithContext);
+          this.logger.info(
+            '[LicenseService.verifyLicense] Returning user with expired context, activating as community',
+            { reason: previousContext.reason }
+          );
+          return communityWithContext;
+        } else if (previousContext) {
+          // Invalid structure - clear it
+          this.logger.warn(
+            '[LicenseService.verifyLicense] Invalid previousUserContext structure, clearing'
+          );
+          await this.context.globalState.update(
+            LicenseService.PREVIOUS_USER_CONTEXT_KEY,
+            undefined
+          );
+        }
+
+        // No license key and no previous context = prompt user to register
         const noAccountStatus: LicenseStatus = {
           valid: false,
           tier: 'community',
@@ -276,6 +346,24 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             }
           );
 
+          // Persist user context before clearing key so returning users
+          // see expiration notice instead of new-user welcome screen
+          if (status.reason === 'expired' || status.reason === 'trial_ended') {
+            const previousContext: PreviousUserContext = {
+              reason: status.reason,
+              user: status.user,
+              persistedAt: Date.now(),
+            };
+            await this.context.globalState.update(
+              LicenseService.PREVIOUS_USER_CONTEXT_KEY,
+              previousContext
+            );
+            this.logger.debug(
+              '[LicenseService.verifyLicense] Persisted previousUserContext',
+              { reason: status.reason }
+            );
+          }
+
           // Clear the expired/invalid license key so user gets Community tier
           await this.context.secrets.delete(LicenseService.SECRET_KEY);
           await this.clearPersistedCache();
@@ -284,6 +372,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             valid: true,
             tier: 'community',
             reason: status.reason, // Preserve reason so frontend can prompt re-entry
+            user: status.user, // Preserve user for this session
           };
           this.updateCache(communityFallback);
           this.emit('license:updated', communityFallback);
@@ -406,6 +495,12 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       keyPrefix: licenseKey.substring(0, 10) + '...',
     });
 
+    // Clear any stale previousUserContext (user is entering a fresh key)
+    await this.context.globalState.update(
+      LicenseService.PREVIOUS_USER_CONTEXT_KEY,
+      undefined
+    );
+
     // Invalidate cache and re-verify
     this.cache = { status: null, timestamp: null };
     const status = await this.verifyLicense();
@@ -433,6 +528,12 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
 
     // TASK_2025_121: Clear persisted cache as well (no grace period for manual removal)
     await this.clearPersistedCache();
+
+    // Clear previousUserContext (manual removal = voluntary, not expiration)
+    await this.context.globalState.update(
+      LicenseService.PREVIOUS_USER_CONTEXT_KEY,
+      undefined
+    );
 
     // No license key = prompt registration on next activation
     const noAccountStatus: LicenseStatus = {

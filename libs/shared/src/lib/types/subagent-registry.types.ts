@@ -31,9 +31,11 @@ export interface SubagentRecord {
   readonly toolCallId: string;
 
   /**
-   * The subagent's own session ID (SDK UUID).
-   * This is the session ID to pass to SDK's resume parameter.
-   * NOT the parent session ID.
+   * The session ID from the SubagentStart hook (input.session_id).
+   * NOTE: This is actually the PARENT session ID, not the subagent's own session.
+   * The SDK hook does not expose the subagent's own session ID.
+   * For subagent resumption, use `agentId` (short hex) with the Task tool's resume parameter.
+   * @deprecated Use parentSessionId for parent session lookups. This field is redundant.
    */
   readonly sessionId: string;
 

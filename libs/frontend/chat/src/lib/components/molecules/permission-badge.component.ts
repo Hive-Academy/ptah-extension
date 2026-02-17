@@ -34,7 +34,7 @@ import { LucideAngularModule, AlertTriangle, X } from 'lucide-angular';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (permissions().length > 0) {
-    <div class="fixed bottom-20 right-4 z-50">
+    <div class="fixed top-25 right-4 z-50">
       <!-- Badge button -->
       <button
         (click)="toggleExpanded()"

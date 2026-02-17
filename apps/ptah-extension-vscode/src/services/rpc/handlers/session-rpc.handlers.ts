@@ -1,7 +1,7 @@
 /**
  * Session RPC Handlers
  *
- * Handles session-related RPC methods: session:list, session:load, session:delete
+ * Handles session-related RPC methods: session:list, session:load, session:delete, session:validate
  * Uses SessionMetadataStore for lightweight UI metadata.
  * SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl
  *
@@ -19,6 +19,9 @@ import {
   SessionLoadParams,
   SessionLoadResult,
 } from '@ptah-extension/shared';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 
 /**
  * RPC handlers for session operations (SDK-based)
@@ -44,9 +47,15 @@ export class SessionRpcHandlers {
     this.registerSessionList();
     this.registerSessionLoad();
     this.registerSessionDelete();
+    this.registerSessionValidate();
 
     this.logger.debug('Session RPC handlers registered', {
-      methods: ['session:list', 'session:load', 'session:delete'],
+      methods: [
+        'session:list',
+        'session:load',
+        'session:delete',
+        'session:validate',
+      ],
     });
   }
 
@@ -189,5 +198,127 @@ export class SessionRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * session:validate - Check if session file exists on disk
+   *
+   * Validates that the actual .jsonl file exists in the Claude projects directory.
+   * This prevents "Claude Code process exited with code 1" errors when trying to
+   * resume sessions that exist in localStorage but not on disk.
+   *
+   * @param sessionId - Session ID to validate
+   * @param workspacePath - Workspace path to find the sessions directory
+   * @returns { exists: boolean, filePath?: string }
+   */
+  private registerSessionValidate(): void {
+    this.rpcHandler.registerMethod<
+      { sessionId: SessionId; workspacePath: string },
+      { exists: boolean; filePath?: string }
+    >(
+      'session:validate',
+      async (params: { sessionId: SessionId; workspacePath: string }) => {
+        try {
+          const { sessionId, workspacePath } = params;
+
+          this.logger.debug('RPC: session:validate called', {
+            sessionId,
+            workspacePath,
+          });
+
+          const filePath = await this.findSessionFile(
+            sessionId as string,
+            workspacePath
+          );
+
+          if (filePath) {
+            this.logger.debug('RPC: session:validate - session file exists', {
+              sessionId,
+              filePath,
+            });
+            return { exists: true, filePath };
+          }
+
+          this.logger.debug('RPC: session:validate - session file NOT found', {
+            sessionId,
+          });
+          return { exists: false };
+        } catch (error) {
+          this.logger.error(
+            'RPC: session:validate failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return { exists: false };
+        }
+      }
+    );
+  }
+
+  /**
+   * Find the session JSONL file on disk
+   *
+   * Looks for the session file in ~/.claude/projects/{workspace}/
+   * Returns the file path if it exists, null otherwise.
+   */
+  private async findSessionFile(
+    sessionId: string,
+    workspacePath: string
+  ): Promise<string | null> {
+    const homeDir = os.homedir();
+    const projectsDir = path.join(homeDir, '.claude', 'projects');
+
+    try {
+      await fs.access(projectsDir);
+    } catch {
+      // Projects directory doesn't exist
+      return null;
+    }
+
+    // Generate the escaped workspace path (Claude's format)
+    const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+    const dirs = await fs.readdir(projectsDir);
+
+    // Try exact match
+    let sessionDir: string | undefined = escapedPath;
+    if (!dirs.includes(escapedPath)) {
+      // Try case-insensitive match
+      const lowerEscaped = escapedPath.toLowerCase();
+      sessionDir = dirs.find((d) => d.toLowerCase() === lowerEscaped);
+
+      if (!sessionDir) {
+        // Try normalized match: treat hyphens and underscores as equivalent.
+        // Claude CLI may normalize path separators differently (e.g., replacing _ with -)
+        const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+        sessionDir = dirs.find((d) => normalize(d) === normalize(escapedPath));
+      }
+
+      if (!sessionDir) {
+        // Try partial match (workspace name only)
+        const workspaceName = path.basename(workspacePath);
+        const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+        sessionDir = dirs.find(
+          (d) =>
+            d.toLowerCase().includes(workspaceName.toLowerCase()) ||
+            normalize(d).includes(normalize(workspaceName))
+        );
+      }
+    }
+
+    if (!sessionDir) {
+      return null;
+    }
+
+    const sessionFilePath = path.join(
+      projectsDir,
+      sessionDir,
+      `${sessionId}.jsonl`
+    );
+
+    try {
+      await fs.access(sessionFilePath);
+      return sessionFilePath;
+    } catch {
+      return null;
+    }
   }
 }

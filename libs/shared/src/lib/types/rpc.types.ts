@@ -22,7 +22,6 @@ import type {
   ProjectAnalysisResult,
   AgentRecommendation,
   SavedAnalysisMetadata,
-  SavedAnalysisFile,
 } from './setup-wizard.types';
 import type {
   ProjectIntelligence,
@@ -51,6 +50,15 @@ export interface ChatStartParams {
     model?: string;
     systemPrompt?: string;
     files?: string[];
+    /**
+     * System prompt preset selection.
+     * - 'claude_code': Claude Code preset with minimal customization
+     * - 'enhanced': AI-generated project-specific guidance (requires enhanced prompts generated)
+     *
+     * If not specified, defaults to 'enhanced' if enhanced prompts are available,
+     * otherwise falls back to 'claude_code'.
+     */
+    preset?: 'claude_code' | 'enhanced';
   };
 }
 
@@ -215,6 +223,22 @@ export interface SessionDeleteResult {
   error?: string;
 }
 
+/** Parameters for session:validate RPC method */
+export interface SessionValidateParams {
+  /** Session ID to validate */
+  sessionId: SessionId;
+  /** Workspace path to find the sessions directory */
+  workspacePath: string;
+}
+
+/** Response from session:validate RPC method */
+export interface SessionValidateResult {
+  /** Whether the session file exists on disk */
+  exists: boolean;
+  /** Full path to the session file (if it exists) */
+  filePath?: string;
+}
+
 // ============================================================
 // Context RPC Types
 // ============================================================
@@ -294,7 +318,7 @@ export interface AutocompleteAgentsResult {
 export interface AutocompleteCommandInfo {
   name: string;
   description: string;
-  scope: 'builtin' | 'project' | 'user' | 'mcp';
+  scope: 'builtin' | 'project' | 'user' | 'mcp' | 'plugin';
   argumentHint?: string;
 }
 
@@ -683,11 +707,9 @@ export function isMultiPhaseResponse(
 
 /**
  * Response from wizard:deep-analyze RPC method
- *
- * TASK_2025_154: Returns MultiPhaseAnalysisResponse for premium users with MCP,
- * or ProjectAnalysisResult (as unknown) for the fallback path.
+ * Always returns MultiPhaseAnalysisResponse (premium + MCP required).
  */
-export type WizardDeepAnalyzeResponse = MultiPhaseAnalysisResponse | unknown;
+export type WizardDeepAnalyzeResponse = MultiPhaseAnalysisResponse;
 
 /** Parameters for wizard:recommend-agents RPC method */
 export type WizardRecommendAgentsParams = unknown; // DeepProjectAnalysis input
@@ -1185,6 +1207,10 @@ export interface RpcMethodRegistry {
     params: SessionDeleteParams;
     result: SessionDeleteResult;
   };
+  'session:validate': {
+    params: SessionValidateParams;
+    result: SessionValidateResult;
+  };
 
   // ---- Context Methods ----
   'context:getAllFiles': {
@@ -1283,22 +1309,14 @@ export interface RpcMethodRegistry {
     params: WizardRetryItemParams;
     result: WizardRetryItemResponse;
   };
-  // Wizard Analysis History Methods (Persistent Analysis)
-  'wizard:save-analysis': {
-    params: {
-      analysis: ProjectAnalysisResult;
-      recommendations: AgentRecommendation[];
-      method: 'agentic' | 'fallback';
-    };
-    result: { success: boolean; filename: string };
-  };
+  // Wizard Analysis History Methods (v2 Multi-Phase)
   'wizard:list-analyses': {
     params: Record<string, never>;
     result: { analyses: SavedAnalysisMetadata[] };
   };
   'wizard:load-analysis': {
     params: { filename: string };
-    result: SavedAnalysisFile;
+    result: MultiPhaseAnalysisResponse;
   };
 
   // ---- License Methods ----
@@ -1447,6 +1465,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'session:list',
   'session:load',
   'session:delete',
+  'session:validate',
 
   // Context Methods
   'context:getAllFiles',
@@ -1482,8 +1501,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'wizard:submit-selection',
   'wizard:cancel',
   'wizard:retry-item',
-  // Wizard Analysis History Methods (Persistent Analysis)
-  'wizard:save-analysis',
+  // Wizard Analysis History Methods (v2 Multi-Phase)
   'wizard:list-analyses',
   'wizard:load-analysis',
 

@@ -44,8 +44,8 @@ export const TrialStatusGuard: CanActivateFn = () => {
 
   return http.get<LicenseData>('/api/v1/licenses/me').pipe(
     map((license) => {
-      // If trial has ended, redirect to dedicated page
-      if (license.reason === 'trial_ended') {
+      // If trial has ended or subscription expired, redirect to dedicated page
+      if (license.reason === 'trial_ended' || license.reason === 'expired') {
         router.navigate(['/trial-ended']);
         return false;
       }

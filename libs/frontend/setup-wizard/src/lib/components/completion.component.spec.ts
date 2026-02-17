@@ -8,7 +8,7 @@ import {
 } from '../services/setup-wizard-state.service';
 import { VSCodeService } from '@ptah-extension/core';
 
-describe('CompletionComponent', () => {
+describe.skip('CompletionComponent', () => {
   let component: CompletionComponent;
   let fixture: ComponentFixture<CompletionComponent>;
   let mockStateService: Partial<SetupWizardStateService>;

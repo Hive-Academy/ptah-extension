@@ -20,15 +20,13 @@ import {
   TOKENS,
   LicenseService,
   type LicenseStatus,
-  type WebviewManager,
   ConfigManager,
 } from '@ptah-extension/vscode-core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import * as vscode from 'vscode';
 import type {
-  DeepProjectAnalysis,
   AgentRecommendation,
+  DeepProjectAnalysis,
 } from '@ptah-extension/agent-generation';
 import {
   AGENT_GENERATION_TOKENS,
@@ -37,10 +35,9 @@ import {
   AgentRecommendationService,
   AnalysisStorageService,
 } from '@ptah-extension/agent-generation';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import type {
-  ProjectAnalysisResult,
   MultiPhaseAnalysisResponse,
-  SavedAnalysisFile,
   SavedAnalysisMetadata,
   AgentCategory,
 } from '@ptah-extension/shared';
@@ -68,6 +65,8 @@ export class SetupRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CONFIG_MANAGER)
     private readonly configManager: ConfigManager,
+    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
+    private readonly pluginLoader: PluginLoaderService,
     private readonly container: DependencyContainer
   ) {}
 
@@ -105,6 +104,28 @@ export class SetupRpcHandlers {
   }
 
   /**
+   * Resolve plugin paths for premium users.
+   */
+  private resolvePluginPaths(isPremium: boolean): string[] | undefined {
+    if (!isPremium) return undefined;
+    try {
+      const config = this.pluginLoader.getWorkspacePluginConfig();
+      if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
+        return undefined;
+      }
+      const paths = this.pluginLoader.resolvePluginPaths(
+        config.enabledPluginIds
+      );
+      return paths.length > 0 ? paths : undefined;
+    } catch (error) {
+      this.logger.debug('Failed to resolve plugin paths for analysis', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  }
+
+  /**
    * Register all setup RPC methods
    */
   register(): void {
@@ -113,7 +134,6 @@ export class SetupRpcHandlers {
     this.registerDeepAnalyze();
     this.registerRecommendAgents();
     this.registerCancelAnalysis();
-    this.registerSaveAnalysis();
     this.registerListAnalyses();
     this.registerLoadAnalysis();
 
@@ -124,7 +144,6 @@ export class SetupRpcHandlers {
         'wizard:deep-analyze',
         'wizard:recommend-agents',
         'wizard:cancel-analysis',
-        'wizard:save-analysis',
         'wizard:list-analyses',
         'wizard:load-analysis',
       ],
@@ -221,18 +240,14 @@ export class SetupRpcHandlers {
   /**
    * wizard:deep-analyze - Perform deep project analysis
    *
-   * TASK_2025_154 wiring: Uses MultiPhaseAnalysisService as the primary path
-   * (premium + MCP). Returns MultiPhaseAnalysisResponse with manifest + phase
-   * markdown contents. Falls back to the hardcoded DeepProjectAnalysisService
-   * for non-premium users or when MCP is unavailable.
-   *
-   * The multi-phase service streams progress to the frontend via broadcastMessage.
-   * The RPC response returns the final results synchronously (awaited).
+   * Premium + MCP required. Uses MultiPhaseAnalysisService to execute
+   * multi-phase workspace analysis. Returns MultiPhaseAnalysisResponse
+   * with manifest + phase markdown contents.
    */
   private registerDeepAnalyze(): void {
     this.rpcHandler.registerMethod<
       { model?: string },
-      MultiPhaseAnalysisResponse | DeepProjectAnalysis
+      MultiPhaseAnalysisResponse
     >('wizard:deep-analyze', async (params) => {
       this.logger.debug('RPC: wizard:deep-analyze called');
 
@@ -244,7 +259,7 @@ export class SetupRpcHandlers {
         );
       }
 
-      // Resolve license + MCP status (same pattern as ChatRpcHandlers)
+      // Resolve license + MCP status
       let isPremium = false;
       let mcpServerRunning = false;
       let mcpPort: number | undefined;
@@ -277,6 +292,13 @@ export class SetupRpcHandlers {
         );
       }
 
+      // Premium + MCP required
+      if (!isPremium || !mcpServerRunning) {
+        throw new Error(
+          'Premium license and MCP server required for workspace analysis.'
+        );
+      }
+
       // Resolve current model: prefer frontend selection, fall back to config
       const currentModel =
         params?.model ||
@@ -285,203 +307,92 @@ export class SetupRpcHandlers {
           'claude-sonnet-4-5-20250929'
         );
 
-      // ---- Primary path: Multi-phase analysis (premium + MCP) ----
-      if (isPremium && mcpServerRunning) {
-        try {
-          const multiPhaseService = this.resolveService<{
-            analyzeWorkspace: (
-              uri: vscode.Uri,
-              options?: {
-                model?: string;
-                isPremium?: boolean;
-                mcpServerRunning?: boolean;
-                mcpPort?: number;
-              }
-            ) => Promise<Result<MultiPhaseManifest, Error>>;
-          }>(
-            AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
-            'MultiPhaseAnalysisService'
-          );
+      // Resolve plugin paths for premium users
+      const pluginPaths = this.resolvePluginPaths(isPremium);
 
-          const multiPhaseResult = await multiPhaseService.analyzeWorkspace(
-            workspaceFolder.uri,
-            {
-              model: currentModel,
-              isPremium,
-              mcpServerRunning,
-              mcpPort,
-            }
-          );
-
-          if (multiPhaseResult.isOk() && multiPhaseResult.value) {
-            const manifest = multiPhaseResult.value;
-
-            // Read completed phase markdown files
-            const storageService = this.resolveService<AnalysisStorageService>(
-              AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-              'AnalysisStorageService'
-            );
-
-            const slugDir = storageService.getSlugDir(
-              workspaceFolder.uri.fsPath,
-              manifest.slug
-            );
-
-            const phaseContents: Record<string, string> = {};
-            for (const [phaseId, phaseResult] of Object.entries(
-              manifest.phases
-            )) {
-              if (phaseResult.status === 'completed') {
-                const content = await storageService.readPhaseFile(
-                  slugDir,
-                  phaseResult.file
-                );
-                if (content) {
-                  phaseContents[phaseId] = content;
-                }
-              }
-            }
-
-            this.logger.info('Multi-phase analysis completed successfully', {
-              slug: manifest.slug,
-              totalDurationMs: manifest.totalDurationMs,
-              completedPhases: Object.entries(manifest.phases)
-                .filter(([, r]) => r.status === 'completed')
-                .map(([id]) => id),
-              phaseContentCount: Object.keys(phaseContents).length,
-            });
-
-            const response: MultiPhaseAnalysisResponse = {
-              isMultiPhase: true,
-              manifest: {
-                slug: manifest.slug,
-                analyzedAt: manifest.analyzedAt,
-                model: manifest.model,
-                totalDurationMs: manifest.totalDurationMs,
-                phases: manifest.phases,
-              },
-              phaseContents,
-              analysisDir: slugDir,
-            };
-
-            return response;
+      const multiPhaseService = this.resolveService<{
+        analyzeWorkspace: (
+          uri: vscode.Uri,
+          options?: {
+            model?: string;
+            isPremium?: boolean;
+            mcpServerRunning?: boolean;
+            mcpPort?: number;
+            pluginPaths?: string[];
           }
-
-          this.logger.warn(
-            'Multi-phase analysis returned error, falling back',
-            {
-              error: multiPhaseResult.error?.message || 'Unknown error',
-            }
-          );
-        } catch (error) {
-          this.logger.warn('Multi-phase analysis unavailable, using fallback', {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-
-      // ---- Fallback path: hardcoded DeepProjectAnalysisService ----
-
-      // Resolve WebviewManager once for fallback broadcasts (best-effort)
-      let webviewManager: WebviewManager | null = null;
-      try {
-        webviewManager = this.resolveService<WebviewManager>(
-          TOKENS.WEBVIEW_MANAGER,
-          'WebviewManager'
-        );
-      } catch {
-        /* ignore - broadcasts will be skipped if unavailable */
-      }
-
-      // Notify user about fallback via VS Code warning notification
-      vscode.window.showWarningMessage(
-        'AI-powered analysis unavailable. Using quick analysis mode \u2014 results may be less detailed.'
+        ) => Promise<Result<MultiPhaseManifest, Error>>;
+      }>(
+        AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
+        'MultiPhaseAnalysisService'
       );
 
-      // Broadcast fallback warning to webview (best-effort)
-      if (webviewManager) {
-        try {
-          (
-            webviewManager as unknown as {
-              broadcastMessage(type: string, payload: unknown): Promise<void>;
-            }
-          ).broadcastMessage('setup-wizard:error', {
-            type: 'fallback-warning',
-            message:
-              'AI-powered analysis unavailable. Using quick analysis mode \u2014 results may be less detailed.',
-            details:
-              'The multi-phase analysis service was unavailable. Falling back to quick project analysis.',
-          });
-        } catch {
-          /* best-effort broadcast */
+      const multiPhaseResult = await multiPhaseService.analyzeWorkspace(
+        workspaceFolder.uri,
+        {
+          model: currentModel,
+          isPremium,
+          mcpServerRunning,
+          mcpPort,
+          pluginPaths,
         }
-      }
-
-      // Broadcast fallback transition to frontend (best-effort)
-      if (webviewManager) {
-        try {
-          webviewManager.broadcastMessage(
-            MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
-            {
-              filesScanned: 0,
-              totalFiles: 0,
-              detections: [],
-              agentReasoning: 'Switching to quick analysis mode...',
-              currentPhase: undefined,
-              completedPhases: [],
-            }
-          );
-        } catch {
-          /* best-effort broadcast */
-        }
-      }
-
-      // Fallback: Use existing hardcoded DeepProjectAnalysisService
-      const setupWizardService = this.resolveService<{
-        performDeepAnalysis: (uri: vscode.Uri) => Promise<{
-          isErr: () => boolean;
-          isOk: () => boolean;
-          value?: DeepProjectAnalysis;
-          error?: Error;
-        }>;
-      }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
-
-      // Broadcast that quick analysis is starting (best-effort)
-      if (webviewManager) {
-        try {
-          webviewManager.broadcastMessage(
-            MESSAGE_TYPES.SETUP_WIZARD_SCAN_PROGRESS,
-            {
-              filesScanned: 0,
-              totalFiles: 0,
-              detections: [],
-              agentReasoning: 'Running quick project analysis...',
-            }
-          );
-        } catch {
-          /* best-effort broadcast */
-        }
-      }
-
-      const result = await setupWizardService.performDeepAnalysis(
-        workspaceFolder.uri
       );
 
-      // Handle error result
-      if (result.isErr()) {
-        this.logger.error('Failed to perform deep analysis', result.error);
+      if (multiPhaseResult.isErr() || !multiPhaseResult.value) {
         throw new Error(
-          result.error?.message || 'Failed to perform deep project analysis'
+          multiPhaseResult.error?.message ||
+            'Multi-phase analysis failed. Please try again.'
         );
       }
 
-      this.logger.info('Deep analysis completed successfully (fallback)', {
-        projectType: result.value?.projectType?.toString() || 'unknown',
-        patternCount: result.value?.architecturePatterns?.length || 0,
+      const manifest = multiPhaseResult.value;
+
+      // Read completed phase markdown files
+      const storageService = this.resolveService<AnalysisStorageService>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        'AnalysisStorageService'
+      );
+
+      const slugDir = storageService.getSlugDir(
+        workspaceFolder.uri.fsPath,
+        manifest.slug
+      );
+
+      const phaseContents: Record<string, string> = {};
+      for (const [phaseId, phaseResult] of Object.entries(manifest.phases)) {
+        if (phaseResult.status === 'completed') {
+          const content = await storageService.readPhaseFile(
+            slugDir,
+            phaseResult.file
+          );
+          if (content) {
+            phaseContents[phaseId] = content;
+          }
+        }
+      }
+
+      this.logger.info('Multi-phase analysis completed successfully', {
+        slug: manifest.slug,
+        totalDurationMs: manifest.totalDurationMs,
+        completedPhases: Object.entries(manifest.phases)
+          .filter(([, r]) => r.status === 'completed')
+          .map(([id]) => id),
+        phaseContentCount: Object.keys(phaseContents).length,
       });
 
-      // Return the analysis data
-      return result.value as DeepProjectAnalysis;
+      const response: MultiPhaseAnalysisResponse = {
+        isMultiPhase: true,
+        manifest: {
+          slug: manifest.slug,
+          analyzedAt: manifest.analyzedAt,
+          model: manifest.model,
+          totalDurationMs: manifest.totalDurationMs,
+          phases: manifest.phases,
+        },
+        phaseContents,
+        analysisDir: slugDir,
+      };
+
+      return response;
     });
   }
 
@@ -717,41 +628,6 @@ export class SetupRpcHandlers {
   // ============================================================
 
   /**
-   * wizard:save-analysis - Save analysis results to .claude/analysis/
-   */
-  private registerSaveAnalysis(): void {
-    this.rpcHandler.registerMethod<
-      {
-        analysis: ProjectAnalysisResult;
-        recommendations: AgentRecommendation[];
-        method: 'agentic' | 'fallback';
-      },
-      { success: boolean; filename: string }
-    >('wizard:save-analysis', async (params) => {
-      this.logger.debug('RPC: wizard:save-analysis called');
-
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
-        throw new Error('No workspace folder open.');
-      }
-
-      const storageService = this.resolveService<AnalysisStorageService>(
-        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-        'AnalysisStorageService'
-      );
-
-      const filename = await storageService.save(
-        workspaceFolder.uri.fsPath,
-        params.analysis,
-        params.recommendations,
-        params.method
-      );
-
-      return { success: true, filename };
-    });
-  }
-
-  /**
    * wizard:list-analyses - List saved analyses from .claude/analysis/
    */
   private registerListAnalyses(): void {
@@ -777,28 +653,31 @@ export class SetupRpcHandlers {
   }
 
   /**
-   * wizard:load-analysis - Load a specific saved analysis
+   * wizard:load-analysis - Load a specific saved multi-phase analysis
    */
   private registerLoadAnalysis(): void {
-    this.rpcHandler.registerMethod<{ filename: string }, SavedAnalysisFile>(
-      'wizard:load-analysis',
-      async (params) => {
-        this.logger.debug('RPC: wizard:load-analysis called', {
-          filename: params.filename,
-        });
+    this.rpcHandler.registerMethod<
+      { filename: string },
+      MultiPhaseAnalysisResponse
+    >('wizard:load-analysis', async (params) => {
+      this.logger.debug('RPC: wizard:load-analysis called', {
+        filename: params.filename,
+      });
 
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-          throw new Error('No workspace folder open.');
-        }
-
-        const storageService = this.resolveService<AnalysisStorageService>(
-          AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-          'AnalysisStorageService'
-        );
-
-        return storageService.load(workspaceFolder.uri.fsPath, params.filename);
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        throw new Error('No workspace folder open.');
       }
-    );
+
+      const storageService = this.resolveService<AnalysisStorageService>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
+        'AnalysisStorageService'
+      );
+
+      return storageService.loadMultiPhase(
+        workspaceFolder.uri.fsPath,
+        params.filename
+      );
+    });
   }
 }

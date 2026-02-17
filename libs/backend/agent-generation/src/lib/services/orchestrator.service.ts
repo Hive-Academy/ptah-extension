@@ -120,6 +120,9 @@ export interface OrchestratorGenerationOptions {
    * from this directory instead of using formatAnalysisData().
    */
   analysisDir?: string;
+
+  /** Absolute paths to plugin directories (for SDK queries during content generation) */
+  pluginPaths?: string[];
 }
 
 /**
@@ -719,6 +722,7 @@ export class AgentGenerationOrchestratorService {
         onStreamEvent: options.onStreamEvent,
         enhancedPromptContent: options.enhancedPromptContent,
         model: options.model,
+        pluginPaths: options.pluginPaths,
       };
 
       for (let i = 0; i < agentIds.length; i++) {

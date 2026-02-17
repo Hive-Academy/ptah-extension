@@ -83,6 +83,41 @@ export class MessageSenderService {
     return true;
   }
 
+  /**
+   * Validate that a session file exists on disk
+   *
+   * Prevents "Claude Code process exited with code 1" errors by checking
+   * if the actual .jsonl file exists before attempting to resume.
+   *
+   * @param sessionId - Session ID to validate
+   * @param workspacePath - Workspace path
+   * @returns Promise<{ exists: boolean; filePath?: string }>
+   */
+  private async validateSessionExists(
+    sessionId: SessionId,
+    workspacePath: string
+  ): Promise<{ exists: boolean; filePath?: string }> {
+    try {
+      const result = await this.claudeRpcService.call('session:validate', {
+        sessionId,
+        workspacePath,
+      });
+
+      if (result.success && result.data) {
+        return result.data;
+      }
+
+      console.warn(
+        '[MessageSender] Session validation RPC failed',
+        result.error
+      );
+      return { exists: false };
+    } catch (error) {
+      console.error('[MessageSender] Session validation error', error);
+      return { exists: false };
+    }
+  }
+
   // ============================================================================
   // PUBLIC API - Message Sending
   // ============================================================================
@@ -240,9 +275,12 @@ export class MessageSenderService {
       });
 
       // Update tab with user message (reuse activeTab from above)
+      // Also clear stale streamingState from any previous session on this tab
+      // to prevent handleSessionStats from seeing orphaned streaming state
       this.tabManager.updateTab(activeTabId, {
         messages: [...(activeTab?.messages ?? []), userMessage],
         currentMessageId: null, // Reset per-tab message ID for new conversation
+        streamingState: null, // Clear stale streaming state from previous session
       });
 
       // Session ID will be initialized by StreamingHandler on first event
@@ -331,6 +369,32 @@ export class MessageSenderService {
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
         console.warn('[MessageSender] No workspace path available');
+        return;
+      }
+
+      // ✅ VALIDATE: Check if session file actually exists on disk
+      const validationResult = await this.validateSessionExists(
+        sessionId,
+        workspacePath
+      );
+
+      if (!validationResult.exists) {
+        console.warn(
+          `[MessageSender] Session ${sessionId} file not found on disk - starting new session instead`,
+          { sessionId }
+        );
+
+        // Clear stale session ID from tab
+        const activeTabId = this.tabManager.activeTabId();
+        if (activeTabId) {
+          this.tabManager.updateTab(activeTabId, {
+            claudeSessionId: null,
+            status: 'loaded',
+          });
+        }
+
+        // Start new conversation instead
+        await this.startNewConversation(content, files);
         return;
       }
 

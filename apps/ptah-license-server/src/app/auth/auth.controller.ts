@@ -116,7 +116,7 @@ export class AuthController {
     this.isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
     this.frontendUrl =
-      this.configService.get<string>('FRONTEND_URL') || 'http://localhost:4200';
+      this.configService.get<string>('FRONTEND_URL') || 'https://ptah.live';
     this.logoutRedirectUri = this.configService.get<string>(
       'WORKOS_LOGOUT_REDIRECT_URI'
     );

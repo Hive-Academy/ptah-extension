@@ -32,6 +32,7 @@ import {
   type PermissionRequest as SharedPermissionRequest,
   type PermissionRule,
   type ISdkPermissionHandler,
+  type PermissionLevel,
 } from '@ptah-extension/shared';
 import {
   ContentBlock,
@@ -190,6 +191,14 @@ interface WebviewManager {
 @injectable()
 export class SdkPermissionHandler implements ISdkPermissionHandler {
   /**
+   * Current permission level controlling auto-approval behavior.
+   * - 'ask': Prompt for all dangerous/network/MCP tools (default)
+   * - 'auto-edit': Auto-approve Write/Edit/NotebookEdit, prompt for Bash/network/MCP
+   * - 'yolo': Auto-approve ALL tools unconditionally
+   */
+  private _permissionLevel: PermissionLevel = 'ask';
+
+  /**
    * Pending permission requests awaiting user response
    * Maps requestId → PendingRequest
    */
@@ -229,6 +238,27 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   ) {
     // Initialize permission emitter on construction
     this.initializePermissionEmitter();
+  }
+
+  /**
+   * Set the permission level for auto-approval behavior.
+   * Called when the user toggles autopilot settings.
+   *
+   * @param level - The permission level to set
+   */
+  setPermissionLevel(level: PermissionLevel): void {
+    const previous = this._permissionLevel;
+    this._permissionLevel = level;
+    this.logger.info(
+      `[SdkPermissionHandler] Permission level changed: ${previous} → ${level}`
+    );
+  }
+
+  /**
+   * Get the current permission level
+   */
+  getPermissionLevel(): PermissionLevel {
+    return this._permissionLevel;
   }
 
   /**
@@ -327,6 +357,33 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           behavior: 'allow' as const,
           updatedInput: input,
         };
+      }
+
+      // Permission-level-aware auto-approval
+      // 'yolo' mode: auto-approve ALL tools unconditionally
+      if (this._permissionLevel === 'yolo') {
+        this.logger.info(
+          `[SdkPermissionHandler] YOLO mode: auto-approved tool: ${toolName}`
+        );
+        return {
+          behavior: 'allow' as const,
+          updatedInput: input,
+        };
+      }
+
+      // 'auto-edit' mode: auto-approve file editing tools (Write, Edit, NotebookEdit)
+      // Bash is NOT auto-approved — it's code execution, not file editing
+      if (this._permissionLevel === 'auto-edit') {
+        const AUTO_EDIT_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
+        if (AUTO_EDIT_TOOLS.includes(toolName)) {
+          this.logger.info(
+            `[SdkPermissionHandler] Auto-edit mode: auto-approved file tool: ${toolName}`
+          );
+          return {
+            behavior: 'allow' as const,
+            updatedInput: input,
+          };
+        }
       }
 
       // Handle AskUserQuestion tool - prompt user with clarifying questions

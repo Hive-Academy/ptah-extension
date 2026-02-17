@@ -285,8 +285,12 @@ export class SessionReplayService {
                 );
 
                 // Then create agent_start with parentToolUseId linking to the tool
-                const agentId = block.id
+                const correlatedAgentFileId = block.id
                   ? taskToAgentMap.get(block.id) || null
+                  : null;
+                // Strip 'agent-' prefix from filename-based ID (e.g., "agent-a329b32" -> "a329b32")
+                const agentId = correlatedAgentFileId
+                  ? correlatedAgentFileId.replace(/^agent-/, '')
                   : null;
 
                 events.push(
@@ -297,13 +301,14 @@ export class SessionReplayService {
                     block.input,
                     eventIndex++,
                     currentMessageTimestamp + messageSequence++ * 0.001,
-                    toolCallId // parentToolUseId - links to parent Task tool
+                    toolCallId, // parentToolUseId - links to parent Task tool
+                    agentId ?? undefined // Real agentId from correlated agent file
                   )
                 );
 
                 // Add nested agent events if we have the agent data
-                const agentData = agentId
-                  ? agentDataMap.get(agentId)
+                const agentData = correlatedAgentFileId
+                  ? agentDataMap.get(correlatedAgentFileId)
                   : undefined;
 
                 if (agentData) {

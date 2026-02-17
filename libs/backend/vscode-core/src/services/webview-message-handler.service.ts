@@ -330,7 +330,7 @@ export class WebviewMessageHandlerService {
     try {
       const payload = message.payload;
 
-      const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
+      const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
       if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
         const permissionHandler = container.resolve<ISdkPermissionHandler>(
           SDK_PERMISSION_HANDLER
@@ -373,7 +373,7 @@ export class WebviewMessageHandlerService {
       const payload = message.payload || message.response;
       const requestId = payload?.id;
 
-      const SDK_PERMISSION_HANDLER = 'SdkPermissionHandler';
+      const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
       if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
         const permissionHandler = container.resolve<ISdkPermissionHandler>(
           SDK_PERMISSION_HANDLER

@@ -197,6 +197,23 @@ export class ToolOutputFormatterService {
   }
 
   /**
+   * Unescape JavaScript string literals (convert \\n to actual newlines, \\t to tabs, etc.).
+   * This handles cases where content contains literal escape sequences like "\n" instead of actual newlines.
+   *
+   * @param content - Content potentially containing escaped sequences
+   * @returns Content with escape sequences converted to actual characters
+   */
+  private unescapeStringLiterals(content: string): string {
+    return content
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\r/g, '\r')
+      .replace(/\\"/g, '"')
+      .replace(/\\'/g, "'")
+      .replace(/\\\\/g, '\\');
+  }
+
+  /**
    * Get language identifier from a file path extension.
    * Normalizes path separators and extracts the extension for lookup.
    *
@@ -229,6 +246,26 @@ export class ToolOutputFormatterService {
   }
 
   /**
+   * Format text content for markdown rendering.
+   * Applies minimal processing: unescape string literals and ensure proper markdown formatting.
+   *
+   * @param content - Raw text content from the stream
+   * @returns Markdown-formatted string
+   */
+  formatTextContent(content: string): string {
+    if (!content) return '';
+
+    const processed = this.unescapeStringLiterals(content);
+
+    // If the content looks like it's already in a code block format, preserve it
+    if (processed.trim().startsWith('```')) {
+      return processed;
+    }
+
+    return processed;
+  }
+
+  /**
    * Format execute_code tool result with MCP extraction and language detection.
    * Attempts to determine syntax highlighting language from tool input.
    */
@@ -237,6 +274,7 @@ export class ToolOutputFormatterService {
     let processed = this.extractMCPContent(content);
     processed = this.stripSystemReminders(processed);
     processed = this.stripLineNumbers(processed);
+    processed = this.unescapeStringLiterals(processed);
 
     // Try to detect language from tool input (e.g., ptah.files.readFile('path.ts'))
     const language = this.detectLanguageFromToolInput(toolInput);
@@ -277,6 +315,7 @@ export class ToolOutputFormatterService {
     let processed = this.extractMCPContent(content);
     processed = this.stripSystemReminders(processed);
     processed = this.stripLineNumbers(processed);
+    processed = this.unescapeStringLiterals(processed);
 
     // JSON auto-detect
     if (processed.trim().startsWith('{') || processed.trim().startsWith('[')) {

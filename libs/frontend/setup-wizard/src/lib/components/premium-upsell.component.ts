@@ -36,6 +36,7 @@ import {
   Info,
 } from 'lucide-angular';
 import { VSCodeService } from '@ptah-extension/core';
+import { PtahUrls } from '@ptah-extension/shared';
 
 @Component({
   selector: 'ptah-premium-upsell',
@@ -169,8 +170,7 @@ export class PremiumUpsellComponent {
   protected readonly InfoIcon = Info;
 
   /** Upgrade URL for the pricing page */
-  // TODO: restore production URL: https://ptah.dev/pricing
-  private static readonly UPGRADE_URL = 'http://localhost:4200/pricing';
+  private static readonly UPGRADE_URL = PtahUrls.PRICING_URL;
 
   /** Timeout before clearing loading state (assume success) */
   private static readonly LOADING_CLEAR_TIMEOUT_MS = 1000;

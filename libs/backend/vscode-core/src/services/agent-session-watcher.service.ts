@@ -144,8 +144,11 @@ export class AgentSessionWatcherService extends EventEmitter {
   /** Active watches by agentId (primary key) */
   private readonly activeWatches = new Map<string, ActiveWatch>();
 
-  /** Directory watcher instance */
+  /** Directory watcher instance (main sessions dir) */
   private directoryWatcher: fs.FSWatcher | null = null;
+
+  /** Subagent directory watchers (nested {sessionId}/subagents/) */
+  private readonly subagentDirWatchers = new Map<string, fs.FSWatcher>();
 
   /** Sessions directory being watched */
   private watchedSessionsDir: string | null = null;
@@ -358,6 +361,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     this.watchedSessionsDir = sessionsDir;
 
     try {
+      // Watch the main sessions directory (legacy flat layout)
       this.directoryWatcher = fs.watch(sessionsDir, (eventType, filename) => {
         // DIAGNOSTIC: Log ALL fs.watch events
         this.logger.info('[AgentSessionWatcher] fs.watch event', {
@@ -379,6 +383,10 @@ export class AgentSessionWatcherService extends EventEmitter {
         this.stopDirectoryWatcher();
       });
 
+      // Also watch nested subagents directories for active sessions.
+      // SDK stores agent files at {sessionsDir}/{sessionId}/subagents/agent-{id}.jsonl
+      this.watchSubagentDirectories(sessionsDir);
+
       // Also scan for existing agent files that may have been created
       // just before we started watching
       await this.scanForExistingAgentFiles(sessionsDir);
@@ -398,6 +406,130 @@ export class AgentSessionWatcherService extends EventEmitter {
       this.directoryWatcher.close();
       this.directoryWatcher = null;
       this.watchedSessionsDir = null;
+    }
+
+    // Stop all subagent directory watchers
+    for (const [dir, watcher] of this.subagentDirWatchers) {
+      watcher.close();
+      this.logger.debug('[AgentSessionWatcher] Stopped subagent dir watcher', {
+        dir,
+      });
+    }
+    this.subagentDirWatchers.clear();
+  }
+
+  /**
+   * Watch nested subagent directories for active sessions.
+   *
+   * SDK stores agent files at {sessionsDir}/{sessionId}/subagents/agent-{id}.jsonl.
+   * We need to watch these directories for new agent files during live streaming.
+   * Creates watchers for each active session's subagents directory.
+   */
+  private watchSubagentDirectories(sessionsDir: string): void {
+    // Get unique sessionIds from active watches
+    const sessionIds = new Set(
+      Array.from(this.activeWatches.values()).map((w) => w.sessionId)
+    );
+
+    for (const sessionId of sessionIds) {
+      const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
+
+      // Skip if already watching
+      if (this.subagentDirWatchers.has(subagentsDir)) continue;
+
+      // Try to watch (directory may not exist yet)
+      try {
+        // Ensure directory exists first
+        if (!fs.existsSync(subagentsDir)) {
+          // Watch the session directory for the creation of subagents/
+          const sessionDir = path.join(sessionsDir, sessionId);
+          if (fs.existsSync(sessionDir)) {
+            const sessionDirWatcher = fs.watch(
+              sessionDir,
+              (eventType, filename) => {
+                if (eventType === 'rename' && filename === 'subagents') {
+                  // subagents directory was created - now watch it
+                  sessionDirWatcher.close();
+                  this.subagentDirWatchers.delete(sessionDir);
+                  this.watchSubagentDir(sessionsDir, subagentsDir);
+                }
+              }
+            );
+            sessionDirWatcher.on('error', () => {
+              sessionDirWatcher.close();
+              this.subagentDirWatchers.delete(sessionDir);
+            });
+            this.subagentDirWatchers.set(sessionDir, sessionDirWatcher);
+
+            this.logger.debug(
+              '[AgentSessionWatcher] Watching session dir for subagents creation',
+              { sessionDir }
+            );
+          }
+          continue;
+        }
+
+        this.watchSubagentDir(sessionsDir, subagentsDir);
+      } catch (error) {
+        this.logger.debug(
+          '[AgentSessionWatcher] Failed to watch subagents dir',
+          {
+            subagentsDir,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+      }
+    }
+  }
+
+  /**
+   * Watch a specific subagents directory for new agent files
+   */
+  private watchSubagentDir(sessionsDir: string, subagentsDir: string): void {
+    if (this.subagentDirWatchers.has(subagentsDir)) return;
+
+    try {
+      const watcher = fs.watch(subagentsDir, (eventType, filename) => {
+        this.logger.info(
+          '[AgentSessionWatcher] fs.watch event (subagents dir)',
+          {
+            eventType,
+            filename,
+            subagentsDir,
+            isAgentFile: filename?.startsWith('agent-'),
+          }
+        );
+
+        if (eventType === 'rename' && filename?.startsWith('agent-')) {
+          // handleNewAgentFile expects the file to be in sessionsDir,
+          // but for nested layout we need to provide the full path.
+          // We pass the subagentsDir as the base directory.
+          this.handleNewAgentFile(subagentsDir, filename);
+        }
+      });
+
+      watcher.on('error', (error) => {
+        this.logger.debug('[AgentSessionWatcher] Subagent dir watcher error', {
+          subagentsDir,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        watcher.close();
+        this.subagentDirWatchers.delete(subagentsDir);
+      });
+
+      this.subagentDirWatchers.set(subagentsDir, watcher);
+
+      this.logger.info('[AgentSessionWatcher] Watching subagents directory', {
+        subagentsDir,
+      });
+    } catch (error) {
+      this.logger.debug(
+        '[AgentSessionWatcher] Failed to create subagent dir watcher',
+        {
+          subagentsDir,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
     }
   }
 
@@ -550,64 +682,61 @@ export class AgentSessionWatcherService extends EventEmitter {
    * Now we ONLY process files where filename agentId matches an active watch agentId.
    */
   private async scanForExistingAgentFiles(sessionsDir: string): Promise<void> {
-    try {
-      const files = await fs.promises.readdir(sessionsDir);
-      const agentFiles = files.filter((f) => f.startsWith('agent-'));
+    // TASK_2025_128 FIX: Build set of active watch agentIds for direct matching.
+    const activeAgentIds = new Set(this.activeWatches.keys());
+    const now = Date.now();
+    let recentCount = 0;
 
-      // DIAGNOSTIC: Log scan results
-      this.logger.info('[AgentSessionWatcher] Scanning for existing files', {
-        sessionsDir,
-        totalFiles: files.length,
-        agentFilesCount: agentFiles.length,
-      });
+    // Helper to scan a directory for agent files matching active watches
+    const scanDir = async (dir: string) => {
+      try {
+        const files = await fs.promises.readdir(dir);
+        const agentFiles = files.filter((f) => f.startsWith('agent-'));
 
-      // TASK_2025_128 FIX: Build set of active watch agentIds for direct matching.
-      // Only process files that directly match by agentId - no sessionId fallback.
-      const activeAgentIds = new Set(this.activeWatches.keys());
+        for (const filename of agentFiles) {
+          const filenameAgentId = filename
+            .replace('agent-', '')
+            .replace('.jsonl', '');
 
-      // Get file stats to find recently created files
-      const now = Date.now();
-      let recentCount = 0;
-      for (const filename of agentFiles) {
-        // TASK_2025_128 FIX: Extract agentId from filename and check for direct match.
-        // Filename format: agent-{agentId}.jsonl (e.g., agent-aeb6610.jsonl)
-        const filenameAgentId = filename
-          .replace('agent-', '')
-          .replace('.jsonl', '');
+          if (!activeAgentIds.has(filenameAgentId)) continue;
 
-        // ONLY process if this file directly matches an active watch by agentId.
-        // This prevents wrong matches via sessionId fallback.
-        if (!activeAgentIds.has(filenameAgentId)) {
-          continue;
-        }
-
-        const filePath = path.join(sessionsDir, filename);
-        try {
-          const stats = await fs.promises.stat(filePath);
-          // Only consider files created within MATCH_WINDOW_MS
-          const age = now - stats.mtimeMs;
-          if (age < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
-            recentCount++;
-            this.logger.info('[AgentSessionWatcher] Found recent agent file', {
-              filename,
-              ageMs: age,
-              directAgentIdMatch: true,
-            });
-            await this.handleNewAgentFile(sessionsDir, filename);
+          const filePath = path.join(dir, filename);
+          try {
+            const stats = await fs.promises.stat(filePath);
+            const age = now - stats.mtimeMs;
+            if (age < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
+              recentCount++;
+              this.logger.info(
+                '[AgentSessionWatcher] Found recent agent file',
+                { filename, dir, ageMs: age, directAgentIdMatch: true }
+              );
+              await this.handleNewAgentFile(dir, filename);
+            }
+          } catch {
+            // Skip files that can't be read
           }
-        } catch {
-          // Skip files that can't be read
         }
+      } catch {
+        // Directory doesn't exist or not readable
       }
+    };
 
-      this.logger.info('[AgentSessionWatcher] Scan complete', {
-        recentFilesProcessed: recentCount,
-      });
-    } catch (error) {
-      this.logger.warn('[AgentSessionWatcher] Failed to scan for files', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+    // 1. Scan flat layout: {sessionsDir}/agent-*.jsonl
+    await scanDir(sessionsDir);
+
+    // 2. Scan nested layout: {sessionsDir}/{sessionId}/subagents/agent-*.jsonl
+    const sessionIds = new Set(
+      Array.from(this.activeWatches.values()).map((w) => w.sessionId)
+    );
+    for (const sessionId of sessionIds) {
+      const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
+      await scanDir(subagentsDir);
     }
+
+    this.logger.info('[AgentSessionWatcher] Scan complete', {
+      recentFilesProcessed: recentCount,
+      scannedDirs: 1 + sessionIds.size,
+    });
   }
 
   /**
@@ -960,13 +1089,27 @@ export class AgentSessionWatcherService extends EventEmitter {
       return path.join(projectsDir, lowerMatch);
     }
 
+    // Try normalized match: treat hyphens and underscores as equivalent.
+    // Claude CLI may normalize path separators differently (e.g., replacing _ with -)
+    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+    const normalizedEscaped = normalize(escapedPath);
+    const normalizedMatch = dirs.find(
+      (d) => normalize(d) === normalizedEscaped
+    );
+    if (normalizedMatch) {
+      return path.join(projectsDir, normalizedMatch);
+    }
+
     // Try without leading hyphen
     const withoutLeading = escapedPath.replace(/^-+/, '');
     const withoutLeadingLower = withoutLeading.toLowerCase();
+    const normalizedWithoutLeading = normalize(withoutLeading);
     const partialMatch = dirs.find(
       (d) =>
         d.toLowerCase() === withoutLeadingLower ||
-        d.toLowerCase().endsWith(withoutLeadingLower)
+        d.toLowerCase().endsWith(withoutLeadingLower) ||
+        normalize(d) === normalizedWithoutLeading ||
+        normalize(d).endsWith(normalizedWithoutLeading)
     );
     if (partialMatch) {
       return path.join(projectsDir, partialMatch);

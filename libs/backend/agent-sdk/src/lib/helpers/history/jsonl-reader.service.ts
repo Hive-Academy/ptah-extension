@@ -58,13 +58,22 @@ export class JsonlReaderService {
     try {
       await fs.access(projectsDir);
     } catch {
-      // Projects directory doesn't exist
+      this.logger.warn('[JsonlReader] Projects directory does not exist', {
+        projectsDir,
+      });
       return null;
     }
 
     // Generate the escaped path pattern
     const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
     const dirs = await fs.readdir(projectsDir);
+
+    this.logger.debug('[JsonlReader] findSessionsDirectory', {
+      workspacePath,
+      escapedPath,
+      dirCount: dirs.length,
+      sampleDirs: dirs.slice(0, 10),
+    });
 
     // Try exact match first
     if (dirs.includes(escapedPath)) {
@@ -78,14 +87,39 @@ export class JsonlReaderService {
       return path.join(projectsDir, match);
     }
 
+    // Try normalized match: treat hyphens and underscores as equivalent.
+    // Claude CLI may normalize path separators differently (e.g., replacing _ with -)
+    // so "d--projects-brand_force" should match "d--projects-brand-force" on disk.
+    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+    const normalizedEscaped = normalize(escapedPath);
+    const normalizedMatch = dirs.find(
+      (d) => normalize(d) === normalizedEscaped
+    );
+    if (normalizedMatch) {
+      return path.join(projectsDir, normalizedMatch);
+    }
+
     // Try partial match (workspace name only)
     const workspaceName = path.basename(workspacePath);
-    const partialMatch = dirs.find((d) =>
-      d.toLowerCase().includes(workspaceName.toLowerCase())
+    const normalizedWorkspaceName = normalize(workspaceName);
+    const partialMatch = dirs.find(
+      (d) =>
+        d.toLowerCase().includes(workspaceName.toLowerCase()) ||
+        normalize(d).includes(normalizedWorkspaceName)
     );
     if (partialMatch) {
       return path.join(projectsDir, partialMatch);
     }
+
+    this.logger.warn(
+      '[JsonlReader] Sessions directory not found after all match attempts',
+      {
+        workspacePath,
+        escapedPath,
+        lowerEscaped,
+        workspaceName,
+      }
+    );
 
     return null;
   }
@@ -175,10 +209,12 @@ export class JsonlReaderService {
   /**
    * Load agent session files (agent-*.jsonl) for a parent session.
    *
-   * Agent files are stored in the same directory as the main session file.
+   * Agent files can be stored in two locations (SDK version dependent):
+   * 1. Legacy: {sessionsDir}/agent-{id}.jsonl (flat, same directory as main session)
+   * 2. Current: {sessionsDir}/{parentSessionId}/subagents/agent-{id}.jsonl (nested)
+   *
    * Each agent file contains messages from a subagent spawned by Task tool.
-   * Files are filtered to only include agents belonging to the parent session
-   * by checking the sessionId in the first message.
+   * Files are filtered to only include agents belonging to the parent session.
    *
    * @param sessionsDir - Path to the sessions directory
    * @param parentSessionId - ID of the parent session to filter by
@@ -190,48 +226,79 @@ export class JsonlReaderService {
   ): Promise<AgentSessionData[]> {
     const agentSessions: AgentSessionData[] = [];
 
+    // Collect agent files from both legacy flat layout and current nested layout
+    const agentFilePaths: { filePath: string; agentId: string }[] = [];
+
+    // 1. Check nested layout: {sessionsDir}/{parentSessionId}/subagents/
+    const subagentsDir = path.join(sessionsDir, parentSessionId, 'subagents');
     try {
-      const files = await fs.readdir(sessionsDir);
-      const agentFiles = files.filter(
+      const subagentFiles = await fs.readdir(subagentsDir);
+      const agentFiles = subagentFiles.filter(
         (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
       );
-
-      this.logger.info('[JsonlReader] Scanning for agent files', {
-        sessionsDir,
-        parentSessionId,
-        agentFilesFound: agentFiles.length,
-      });
-
       for (const file of agentFiles) {
-        const filePath = path.join(sessionsDir, file);
-        const agentId = file.replace('.jsonl', '');
-
-        try {
-          const messages = await this.readJsonlMessages(filePath);
-
-          // Check if this agent belongs to parent session by checking sessionId in first message
-          // Agent files have sessionId pointing to their parent main session
-          const firstMsg = messages[0];
-
-          if (firstMsg?.sessionId === parentSessionId) {
-            agentSessions.push({
-              agentId,
-              filePath,
-              messages,
-            });
-          }
-        } catch {
-          // Skip unreadable agent files
-          this.logger.debug('[JsonlReader] Skipping unreadable agent file', {
-            filePath,
-          });
-        }
+        agentFilePaths.push({
+          filePath: path.join(subagentsDir, file),
+          agentId: file.replace('.jsonl', ''),
+        });
       }
     } catch {
-      // No agent files found or directory not readable
-      this.logger.debug('[JsonlReader] Could not read sessions directory', {
-        sessionsDir,
-      });
+      // Nested subagents directory doesn't exist - try legacy layout
+    }
+
+    // 2. Check legacy flat layout: {sessionsDir}/agent-*.jsonl
+    if (agentFilePaths.length === 0) {
+      try {
+        const files = await fs.readdir(sessionsDir);
+        const agentFiles = files.filter(
+          (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
+        );
+        for (const file of agentFiles) {
+          agentFilePaths.push({
+            filePath: path.join(sessionsDir, file),
+            agentId: file.replace('.jsonl', ''),
+          });
+        }
+      } catch {
+        // Directory not readable
+      }
+    }
+
+    this.logger.info('[JsonlReader] Scanning for agent files', {
+      sessionsDir,
+      parentSessionId,
+      agentFilesFound: agentFilePaths.length,
+      source:
+        agentFilePaths.length > 0 &&
+        agentFilePaths[0].filePath.includes('subagents')
+          ? 'nested'
+          : 'legacy',
+    });
+
+    for (const { filePath, agentId } of agentFilePaths) {
+      try {
+        const messages = await this.readJsonlMessages(filePath);
+
+        // For nested layout, all files in the session's subagents dir belong to it.
+        // For legacy layout, check sessionId in first message.
+        const isNested = filePath.includes(
+          path.join(parentSessionId, 'subagents')
+        );
+        const firstMsg = messages[0];
+
+        if (isNested || firstMsg?.sessionId === parentSessionId) {
+          agentSessions.push({
+            agentId,
+            filePath,
+            messages,
+          });
+        }
+      } catch {
+        // Skip unreadable agent files
+        this.logger.debug('[JsonlReader] Skipping unreadable agent file', {
+          filePath,
+        });
+      }
     }
 
     return agentSessions;

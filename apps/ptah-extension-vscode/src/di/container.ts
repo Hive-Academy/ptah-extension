@@ -213,6 +213,7 @@ export class DIContainer {
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(TOKENS.CONFIG_MANAGER),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c
         ),
     });
@@ -247,6 +248,7 @@ export class DIContainer {
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
           c.resolve(TOKENS.LICENSE_SERVICE),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c
         ),
     });
@@ -263,6 +265,7 @@ export class DIContainer {
         new WizardGenerationRpcHandlers(
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c
         ),
     });

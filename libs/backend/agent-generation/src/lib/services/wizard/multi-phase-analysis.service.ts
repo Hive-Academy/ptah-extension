@@ -2,8 +2,7 @@
  * MultiPhaseAnalysisService - Multi-phase workspace analysis orchestrator
  *
  * TASK_2025_154: Executes 4 sequential LLM phases (project profile, architecture
- * assessment, quality audit, elevation plan) followed by 1 deterministic synthesis
- * phase that combines outputs into role-specific agent context.
+ * assessment, quality audit, elevation plan).
  *
  * Architecture:
  * - Delegates SDK query execution to InternalQueryService (agent-sdk)
@@ -17,7 +16,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
-import { readFile, access } from 'fs/promises';
+import { access } from 'fs/promises';
 import { join } from 'path';
 import {
   Logger,
@@ -54,6 +53,10 @@ import {
   buildPhase3Prompts,
   buildPhase4Prompts,
 } from './multi-phase-prompts';
+import {
+  discoverPluginSkills,
+  formatSkillsForPrompt,
+} from '@ptah-extension/agent-sdk';
 
 // ============================================================================
 // Constants
@@ -64,17 +67,20 @@ const DEFAULT_TIMEOUT_MS = 3_600_000; // 1 hour total pipeline
 const PER_PHASE_TIMEOUT_MS = 900_000; // 15 minutes per phase
 const MAX_AGENT_TURNS = 50;
 const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
-const LLM_PHASE_COUNT = 4; // Phases 1-4 are LLM-based; Phase 5 is deterministic
+const LLM_PHASE_COUNT = 4; // Phases 1-4 are LLM-based
 
 /**
  * Prompt builder functions indexed by phase position (0-3).
- * Phase 5 (synthesis) does not use prompts.
  */
 const PROMPT_BUILDERS = [
-  (slugDir: string) => buildPhase1Prompts(slugDir),
-  (slugDir: string) => buildPhase2Prompts(slugDir),
-  (slugDir: string) => buildPhase3Prompts(slugDir),
-  (slugDir: string) => buildPhase4Prompts(slugDir),
+  (slugDir: string, _pluginSkillsContext?: string) =>
+    buildPhase1Prompts(slugDir),
+  (slugDir: string, _pluginSkillsContext?: string) =>
+    buildPhase2Prompts(slugDir),
+  (slugDir: string, _pluginSkillsContext?: string) =>
+    buildPhase3Prompts(slugDir),
+  (slugDir: string, pluginSkillsContext?: string) =>
+    buildPhase4Prompts(slugDir, pluginSkillsContext),
 ] as const;
 
 // ============================================================================
@@ -84,9 +90,8 @@ const PROMPT_BUILDERS = [
 /**
  * MultiPhaseAnalysisService
  *
- * Orchestrates a 5-phase workspace analysis pipeline:
+ * Orchestrates a 4-phase workspace analysis pipeline:
  * - Phases 1-4: LLM-powered analysis via InternalQueryService
- * - Phase 5: Deterministic synthesis combining phase outputs into role-specific context
  *
  * Follows the established AgenticAnalysisService pattern for DI, streaming,
  * abort handling, and progress broadcasting.
@@ -120,6 +125,7 @@ export class MultiPhaseAnalysisService {
     const isPremium = options?.isPremium ?? false;
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;
+    const pluginPaths = options?.pluginPaths;
     const model =
       options?.model ||
       this.config.getWithDefault<string>('model.selected', DEFAULT_MODEL);
@@ -224,7 +230,8 @@ export class MultiPhaseAnalysisService {
             mcpServerRunning,
             mcpPort,
             masterAbortController,
-            phaseStatuses
+            phaseStatuses,
+            pluginPaths
           );
 
           // The agent writes the phase file directly via prompts.
@@ -318,43 +325,21 @@ export class MultiPhaseAnalysisService {
             ? `${phaseConfig.label.replace('...', '')} complete`
             : phaseConfig.label
         );
-      }
 
-      // ---- Phase 5: Deterministic Synthesis ----
-      if (!masterAbortController.signal.aborted) {
-        phaseStatuses[4].status = 'running';
-        this.broadcastPhaseProgress(
-          'synthesis' as AnalysisPhase,
-          4,
-          PHASE_CONFIGS.length,
-          phaseStatuses,
-          PHASE_CONFIGS[4].label
-        );
-
-        try {
-          await this.synthesizeAgentContext(slugDir, manifest);
-          phaseStatuses[4].status = 'completed';
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          this.logger.error(`${SERVICE_TAG} Phase 5 synthesis failed`, {
-            error: errorMessage,
+        // Broadcast inter-phase transition status so the UI doesn't appear frozen
+        // between the end of one phase and the start of the next SDK session.
+        const nextPhaseIndex = i + 1;
+        if (
+          nextPhaseIndex < LLM_PHASE_COUNT &&
+          !masterAbortController.signal.aborted
+        ) {
+          const nextPhase = PHASE_CONFIGS[nextPhaseIndex];
+          this.broadcastStreamMessage({
+            kind: 'status',
+            content: `Preparing ${nextPhase.label}...`,
+            timestamp: Date.now(),
           });
-          manifest.phases['agent-context'] = {
-            status: 'failed',
-            file: '05-agent-context.md',
-            durationMs: 0,
-            error: errorMessage,
-          };
-          phaseStatuses[4].status = 'failed';
         }
-      } else {
-        manifest.phases['agent-context'] = {
-          status: 'skipped',
-          file: '05-agent-context.md',
-          durationMs: 0,
-        };
-        phaseStatuses[4].status = 'skipped';
       }
 
       // ---- Write manifest ----
@@ -372,7 +357,7 @@ export class MultiPhaseAnalysisService {
 
       // Final progress broadcast
       this.broadcastPhaseProgress(
-        'synthesis' as AnalysisPhase,
+        'elevation-plan' as AnalysisPhase,
         PHASE_CONFIGS.length - 1,
         PHASE_CONFIGS.length,
         phaseStatuses,
@@ -429,11 +414,25 @@ export class MultiPhaseAnalysisService {
     phaseStatuses: Array<{
       id: string;
       status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
-    }>
+    }>,
+    pluginPaths?: string[]
   ): Promise<string | null> {
     const phaseConfig = PHASE_CONFIGS[phaseIndex];
     const promptBuilder = PROMPT_BUILDERS[phaseIndex];
-    const { systemPrompt, userPrompt } = promptBuilder(slugDir);
+
+    // Discover plugin skills for Phase 4 prompt enrichment
+    let pluginSkillsContext: string | undefined;
+    if (pluginPaths && pluginPaths.length > 0) {
+      const skills = discoverPluginSkills(pluginPaths);
+      if (skills.length > 0) {
+        pluginSkillsContext = formatSkillsForPrompt(skills);
+      }
+    }
+
+    const { systemPrompt, userPrompt } = promptBuilder(
+      slugDir,
+      pluginSkillsContext
+    );
 
     this.logger.info(
       `${SERVICE_TAG} Executing phase ${phaseIndex + 1}: ${phaseConfig.id}`
@@ -457,6 +456,7 @@ export class MultiPhaseAnalysisService {
         mcpPort,
         maxTurns: MAX_AGENT_TURNS,
         abortController: phaseAbortController,
+        pluginPaths,
         // No outputFormat -- we want free-form markdown
       });
 
@@ -543,6 +543,7 @@ export class MultiPhaseAnalysisService {
       timeout: { ms: PER_PHASE_TIMEOUT_MS, abortController },
       logger: this.logger,
       serviceTag: `${SERVICE_TAG}:${phaseId}`,
+      skipStructuredOutput: true, // Multi-phase produces markdown, not JSON
     });
 
     const result = await processor.process(wrappedStream);
@@ -580,129 +581,6 @@ export class MultiPhaseAnalysisService {
       }
       yield message;
     }
-  }
-
-  // ==========================================================================
-  // Phase 5: Deterministic Synthesis
-  // ==========================================================================
-
-  /**
-   * Phase 5: Synthesize agent context from completed phase outputs.
-   *
-   * This is pure TypeScript -- no LLM call. It reads completed phase files
-   * and combines them into role-specific sections for downstream consumers
-   * (ContentGenerationService, EnhancedPromptsService).
-   */
-  private async synthesizeAgentContext(
-    slugDir: string,
-    manifest: MultiPhaseManifest
-  ): Promise<void> {
-    const startTime = Date.now();
-    const sections: string[] = [];
-
-    // Header
-    sections.push(`# Agent Context Synthesis\n`);
-    sections.push(`*Generated: ${new Date().toISOString()}*\n`);
-
-    // Phase file references
-    const phaseFiles = [
-      {
-        id: 'project-profile' as MultiPhaseId,
-        file: '01-project-profile.md',
-        label: 'Project Profile',
-      },
-      {
-        id: 'architecture-assessment' as MultiPhaseId,
-        file: '02-architecture-assessment.md',
-        label: 'Architecture Assessment',
-      },
-      {
-        id: 'quality-audit' as MultiPhaseId,
-        file: '03-quality-audit.md',
-        label: 'Quality Audit',
-      },
-      {
-        id: 'elevation-plan' as MultiPhaseId,
-        file: '04-elevation-plan.md',
-        label: 'Elevation Plan',
-      },
-    ];
-
-    // "For All Agents" section -- Project Profile + Architecture summary
-    sections.push(`## For All Agents\n`);
-    for (const pf of phaseFiles.slice(0, 2)) {
-      if (manifest.phases[pf.id]?.status === 'completed') {
-        try {
-          const content = await readFile(join(slugDir, pf.file), 'utf-8');
-          sections.push(`### ${pf.label}\n\n${content}\n`);
-        } catch {
-          sections.push(`### ${pf.label}\n\n*Phase file could not be read.*\n`);
-        }
-      } else {
-        sections.push(
-          `### ${pf.label}\n\n*Phase ${pf.id} was not completed.*\n`
-        );
-      }
-    }
-
-    // "For Backend Agents" -- reference to quality audit + elevation plan
-    sections.push(`## For Backend Agents\n`);
-    sections.push(
-      `*Refer to full quality audit and elevation plan for backend-specific findings.*\n`
-    );
-
-    // "For Frontend Agents" -- reference to quality audit + elevation plan
-    sections.push(`## For Frontend Agents\n`);
-    sections.push(
-      `*Refer to full quality audit and elevation plan for frontend-specific findings.*\n`
-    );
-
-    // "For QA Agents" -- Quality Audit content
-    sections.push(`## For QA Agents\n`);
-    if (manifest.phases['quality-audit']?.status === 'completed') {
-      try {
-        const auditContent = await readFile(
-          join(slugDir, '03-quality-audit.md'),
-          'utf-8'
-        );
-        sections.push(`### Quality Audit\n\n${auditContent}\n`);
-      } catch {
-        sections.push(`*Quality audit file could not be read.*\n`);
-      }
-    } else {
-      sections.push(`*Quality audit phase was not completed.*\n`);
-    }
-
-    // "For Architecture Agents" -- Architecture Assessment + Elevation Plan
-    sections.push(`## For Architecture Agents\n`);
-    for (const pf of [phaseFiles[1], phaseFiles[3]]) {
-      if (manifest.phases[pf.id]?.status === 'completed') {
-        try {
-          const content = await readFile(join(slugDir, pf.file), 'utf-8');
-          sections.push(`### ${pf.label}\n\n${content}\n`);
-        } catch {
-          sections.push(`### ${pf.label}\n\n*Phase file could not be read.*\n`);
-        }
-      }
-    }
-
-    const combined = sections.join('\n');
-    await this.storageService.writePhaseFile(
-      slugDir,
-      '05-agent-context.md',
-      combined
-    );
-
-    manifest.phases['agent-context'] = {
-      status: 'completed',
-      file: '05-agent-context.md',
-      durationMs: Date.now() - startTime,
-    };
-
-    this.logger.info(`${SERVICE_TAG} Phase 5 synthesis complete`, {
-      outputLength: combined.length,
-      durationMs: Date.now() - startTime,
-    });
   }
 
   // ==========================================================================

@@ -25,7 +25,7 @@ import {
   LicenseService,
 } from '@ptah-extension/vscode-core';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
-import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import type {
   WizardSubmitSelectionParams,
@@ -141,8 +141,32 @@ export class WizardGenerationRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
+    private readonly pluginLoader: PluginLoaderService,
     private readonly container: DependencyContainer
   ) {}
+
+  /**
+   * Resolve plugin paths for premium users.
+   */
+  private resolvePluginPaths(isPremium: boolean): string[] | undefined {
+    if (!isPremium) return undefined;
+    try {
+      const config = this.pluginLoader.getWorkspacePluginConfig();
+      if (!config.enabledPluginIds || config.enabledPluginIds.length === 0) {
+        return undefined;
+      }
+      const paths = this.pluginLoader.resolvePluginPaths(
+        config.enabledPluginIds
+      );
+      return paths.length > 0 ? paths : undefined;
+    } catch (error) {
+      this.logger.debug('Failed to resolve plugin paths for generation', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
+  }
 
   /**
    * Safely resolve a service from the DI container with validation.
@@ -381,6 +405,9 @@ export class WizardGenerationRpcHandlers {
         // Resolve model from frontend selection (consistent with chat:start pattern)
         const currentModel = params.model || undefined;
 
+        // Resolve plugin paths for premium users
+        const pluginPaths = this.resolvePluginPaths(isPremium);
+
         // Build orchestrator options
         const options: OrchestratorGenerationOptions = {
           workspaceUri: workspaceFolder.uri,
@@ -395,6 +422,7 @@ export class WizardGenerationRpcHandlers {
           onStreamEvent,
           model: currentModel,
           analysisDir,
+          pluginPaths,
         };
 
         // Store options for retry handler to reuse rich context

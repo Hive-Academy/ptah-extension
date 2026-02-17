@@ -9,7 +9,6 @@ import {
   viewChild,
 } from '@angular/core';
 import type { AnalysisPhase } from '@ptah-extension/shared';
-import { isMultiPhaseResponse } from '@ptah-extension/shared';
 import {
   Bot,
   Building2,
@@ -21,12 +20,12 @@ import {
   LucideIconData,
   Search,
   ShieldCheck,
-  Sparkles,
   XCircle,
   Zap,
 } from 'lucide-angular';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
 import { WizardRpcService } from '../services/wizard-rpc.service';
+import { AnalysisActivityIndicatorComponent } from './analysis-activity-indicator.component';
 import { AnalysisStatsDashboardComponent } from './analysis-stats-dashboard.component';
 import { AnalysisTranscriptComponent } from './analysis-transcript.component';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
@@ -68,6 +67,7 @@ interface PhaseStep {
   standalone: true,
   imports: [
     LucideAngularModule,
+    AnalysisActivityIndicatorComponent,
     AnalysisTranscriptComponent,
     ConfirmationModalComponent,
     AnalysisStatsDashboardComponent,
@@ -117,7 +117,7 @@ interface PhaseStep {
         @if (progress(); as progressData) {
         <!-- Phase Cards (agentic analysis) -->
         @if (progressData.currentPhase) {
-        <div class="shrink-0 grid grid-cols-2 md:grid-cols-5 gap-2 mb-3">
+        <div class="shrink-0 grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
           @for (phase of phases; track phase.id) {
           <div
             class="card transition-all duration-500"
@@ -251,7 +251,7 @@ interface PhaseStep {
               <span
                 class="loading loading-spinner loading-lg text-primary"
               ></span>
-              <p class="text-base-content/60">{{ statusText() }}</p>
+              <ptah-analysis-activity-indicator />
             </div>
             }
           </div>
@@ -309,7 +309,7 @@ interface PhaseStep {
         <!-- Fallback: No progress data yet -->
         <div class="h-full flex flex-col items-center justify-center gap-4">
           <span class="loading loading-spinner loading-lg text-primary"></span>
-          <p class="text-base-content/60">{{ statusText() }}</p>
+          <ptah-analysis-activity-indicator />
         </div>
         }
       </div>
@@ -339,7 +339,7 @@ interface PhaseStep {
         } @else {
         <button
           class="btn btn-ghost"
-          [disabled]="isAnalyzing()"
+          [disabled]="!isAnalyzing()"
           aria-label="Cancel scan"
           (click)="onCancel()"
         >
@@ -385,7 +385,6 @@ export class ScanProgressComponent implements OnInit {
     { id: 'architecture-assessment', label: 'Architecture', icon: Building2 },
     { id: 'quality-audit', label: 'Quality', icon: ShieldCheck },
     { id: 'elevation-plan', label: 'Elevation', icon: Lightbulb },
-    { id: 'synthesis', label: 'Synthesis', icon: Sparkles },
   ];
 
   readonly confirmModal =
@@ -523,62 +522,20 @@ export class ScanProgressComponent implements OnInit {
         return;
       }
 
-      // Smart retry: skip deep analysis if legacy results are already cached
-      let legacyAnalysis = this.wizardState.deepAnalysis();
+      // Run multi-phase deep analysis (premium + MCP required)
+      this.statusText.set('Analyzing project structure...');
+      const multiPhaseResult = await this.wizardRpc.deepAnalyze();
+      if (this.isDestroyed) return;
 
-      if (!legacyAnalysis) {
-        this.statusText.set('Analyzing project structure...');
-        const rawResult = await this.wizardRpc.deepAnalyze();
-        if (this.isDestroyed) return;
+      this.wizardState.setMultiPhaseResult(multiPhaseResult);
 
-        // Check if this is a multi-phase response
-        if (isMultiPhaseResponse(rawResult)) {
-          this.wizardState.setMultiPhaseResult(rawResult);
-
-          // Get recommendations for multi-phase
-          this.statusText.set('Calculating agent recommendations...');
-          const recommendations = await this.wizardRpc.recommendAgents(
-            rawResult
-          );
-          if (this.isDestroyed) return;
-          this.wizardState.setRecommendations(recommendations);
-
-          this.wizardState.setCurrentStep('analysis');
-          return;
-        }
-
-        // Legacy path: store as ProjectAnalysisResult
-        legacyAnalysis =
-          rawResult as import('@ptah-extension/shared').ProjectAnalysisResult;
-        this.wizardState.setDeepAnalysis(legacyAnalysis);
-      }
-
-      let recommendations = this.wizardState.recommendations();
-      if (recommendations.length > 0) {
-        // Use cached recommendations (skip re-fetch)
-      } else {
-        this.statusText.set('Calculating agent recommendations...');
-        recommendations = await this.wizardRpc.recommendAgents(legacyAnalysis);
-        if (this.isDestroyed) return;
-        this.wizardState.setRecommendations(recommendations);
-      }
-
-      // Auto-save analysis for future reuse (non-blocking, legacy only)
-      const analysisMethod = this.wizardState.fallbackWarning()
-        ? 'fallback'
-        : 'agentic';
-      try {
-        await this.wizardRpc.saveAnalysis(
-          legacyAnalysis,
-          recommendations,
-          analysisMethod as 'agentic' | 'fallback'
-        );
-      } catch (saveError) {
-        console.warn(
-          '[ScanProgressComponent] Failed to auto-save analysis:',
-          saveError
-        );
-      }
+      // Get recommendations
+      this.statusText.set('Calculating agent recommendations...');
+      const recommendations = await this.wizardRpc.recommendAgents(
+        multiPhaseResult
+      );
+      if (this.isDestroyed) return;
+      this.wizardState.setRecommendations(recommendations);
 
       this.wizardState.setCurrentStep('analysis');
     } catch (error) {

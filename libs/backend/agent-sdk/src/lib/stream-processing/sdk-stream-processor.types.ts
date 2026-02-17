@@ -69,6 +69,14 @@ export interface SdkStreamProcessorConfig {
     contentBlockId: string
   ) => string;
 
+  /**
+   * Skip structured_output extraction from the result message.
+   * When true, the processor returns { structuredOutput: null, resultMeta }
+   * without attempting to parse structured_output or JSON from result text.
+   * Use for pipelines that produce free-form markdown (e.g., MultiPhaseAnalysisService).
+   */
+  skipStructuredOutput?: boolean;
+
   /** Logger instance */
   logger: Logger;
 

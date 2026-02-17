@@ -136,12 +136,22 @@ Note: Requires test framework extension. Returns graceful defaults when unavaila
 - scoreFile(filePath, query) - Score a single file's relevance (0-100 with reasons)
 - rankFiles(query, limit?) - Rank files by relevance to a query`,
 
-  files: `ptah.files - File Operations
+  project: `ptah.project - Project Analysis
 
-- read(path) - Read file as UTF-8 string
+- detectMonorepo() - Detect if workspace is a monorepo ({isMonorepo, type, workspaceFiles})
+- detectType() - Detect project type (React, Angular, Node, etc.)
+- analyzeDependencies() - Analyze dependencies from package.json ({name, version, isDev}[])
+
+NOTE: There is NO getMonorepoInfo(). Use detectMonorepo() instead.`,
+
+  files: `ptah.files - File Operations (READ-ONLY)
+
+- read(path) - Read file as UTF-8 string (supports relative or absolute paths)
 - readJson(path) - Read and parse JSON (handles comments and trailing commas)
 - list(directory) - List directory contents
 
+Paths can be relative to workspace root (e.g., 'package.json') or absolute.
+This namespace is READ-ONLY. There is NO write(), delete(), or exists() method.
 Use readJson() for config files like tsconfig.json, package.json which may have comments.`,
 
   llm: `ptah.llm - Multi-Provider LLM (Langchain Abstraction)
@@ -878,6 +888,30 @@ function stripJsonComments(jsonString: string): string {
 }
 
 /**
+ * Resolve a file path relative to workspace root if it's not absolute
+ */
+function resolveWorkspacePath(path: string): vscode.Uri {
+  // Normalize path separators to forward slashes
+  const normalizedPath = path.replace(/\\/g, '/');
+
+  // Check if it's already an absolute path (starts with drive letter or /)
+  const isAbsolute =
+    /^[a-zA-Z]:/.test(normalizedPath) || normalizedPath.startsWith('/');
+
+  if (isAbsolute) {
+    return vscode.Uri.file(normalizedPath);
+  }
+
+  // Relative path - resolve to workspace root
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    throw new Error('No workspace folder open');
+  }
+
+  return vscode.Uri.joinPath(workspaceFolders[0].uri, normalizedPath);
+}
+
+/**
  * Build files namespace
  * Delegates to FileSystemManager
  */
@@ -888,23 +922,23 @@ export function buildFilesNamespace(
 
   return {
     read: async (path: string) => {
-      const uri = vscode.Uri.file(path);
+      const uri = resolveWorkspacePath(path);
       // Check if file exists before reading
       try {
         await fileSystemManager.stat(uri);
       } catch (error) {
-        throw new Error(`File not found: ${path}`);
+        throw new Error(`File not found: ${uri.fsPath}`);
       }
       const content = await fileSystemManager.readFile(uri);
       return new TextDecoder('utf-8').decode(content);
     },
     readJson: async (path: string) => {
-      const uri = vscode.Uri.file(path);
+      const uri = resolveWorkspacePath(path);
       // Check if file exists before reading
       try {
         await fileSystemManager.stat(uri);
       } catch (error) {
-        throw new Error(`File not found: ${path}`);
+        throw new Error(`File not found: ${uri.fsPath}`);
       }
       const content = await fileSystemManager.readFile(uri);
       const text = new TextDecoder('utf-8').decode(content);
@@ -919,15 +953,15 @@ export function buildFilesNamespace(
       }
     },
     list: async (directory: string) => {
-      const uri = vscode.Uri.file(directory);
+      const uri = resolveWorkspacePath(directory);
       // Check if directory exists before listing
       try {
         const stat = await fileSystemManager.stat(uri);
         if (stat.type !== vscode.FileType.Directory) {
-          throw new Error(`Path is not a directory: ${directory}`);
+          throw new Error(`Path is not a directory: ${uri.fsPath}`);
         }
       } catch (error) {
-        throw new Error(`Directory not found: ${directory}`);
+        throw new Error(`Directory not found: ${uri.fsPath}`);
       }
       const entries = await fileSystemManager.readDirectory(uri);
       return entries.map(([name, type]) => ({

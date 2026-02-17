@@ -98,7 +98,7 @@ export class MagicLinkService {
     // Step 4: Build full magic link URL
     // Note: Uses /api/auth/verify because backend has global '/api' prefix
     const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'http://localhost:4200';
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
     return `${frontendUrl}/api/auth/verify?token=${token}`;
   }
 

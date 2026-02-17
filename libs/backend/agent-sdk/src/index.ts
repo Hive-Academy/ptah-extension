@@ -154,6 +154,11 @@ export type {
 // Plugin Loader Service (TASK_2025_153)
 // ============================================================
 export { PluginLoaderService } from './lib/helpers';
+export {
+  discoverPluginSkills,
+  formatSkillsForPrompt,
+  type PluginSkillInfo,
+} from './lib/helpers';
 
 // ============================================================
 // Stream Processing (shared SDK stream processor)

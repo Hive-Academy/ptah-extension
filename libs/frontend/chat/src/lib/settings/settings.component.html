@@ -457,6 +457,42 @@
         </div>
         }
 
+        <!-- Preset selection (only show for premium with enhanced prompts) -->
+        @if (hasGeneratedPrompt() && enhancedPromptsEnabled()) {
+        <div class="mb-2 p-2 border border-base-300 rounded bg-base-200/30">
+          <div class="text-xs font-medium mb-1.5">
+            Default for new sessions:
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="flex items-center gap-2 cursor-pointer text-xs">
+              <input
+                type="radio"
+                name="systemPromptPreset"
+                value="enhanced"
+                [checked]="systemPromptPreset() === 'enhanced'"
+                (change)="setSystemPromptPreset('enhanced')"
+                class="radio radio-xs radio-primary"
+              />
+              <span>Enhanced (Project-specific)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-xs">
+              <input
+                type="radio"
+                name="systemPromptPreset"
+                value="claude_code"
+                [checked]="systemPromptPreset() === 'claude_code'"
+                (change)="setSystemPromptPreset('claude_code')"
+                class="radio radio-xs"
+              />
+              <span>Claude Code (Minimal)</span>
+            </label>
+          </div>
+          <div class="text-[10px] text-base-content/50 mt-1.5">
+            Both presets include MCP documentation for premium users.
+          </div>
+        </div>
+        }
+
         <!-- Error display -->
         @if (enhancedPromptsError()) {
         <div class="text-xs text-error mb-2">
@@ -482,14 +518,6 @@
             [title]="detectedStackSummary()!"
           >
             Stack: {{ detectedStackSummary() }}
-          </div>
-          }
-
-          <!-- Cache validity warning -->
-          @if (enhancedPromptsEnabled() && !enhancedPromptsCacheValid()) {
-          <div class="flex items-center gap-1 text-xs text-warning">
-            <lucide-angular [img]="AlertTriangleIcon" class="w-3 h-3" />
-            <span>Prompt may be outdated. Consider regenerating.</span>
           </div>
           }
         </div>
@@ -539,12 +567,9 @@
           </button>
           @if (promptPreviewExpanded() && promptPreviewContent()) {
           <div
-            class="mt-1.5 max-h-48 overflow-y-auto border border-base-300 rounded p-2 bg-base-200/50"
+            class="mt-1.5 max-h-96 overflow-y-auto border border-base-300 rounded p-3 bg-base-200/50"
           >
-            <pre
-              class="text-xs whitespace-pre-wrap break-words text-base-content/80"
-              >{{ promptPreviewContent() }}</pre
-            >
+            <ptah-markdown-block [content]="promptPreviewContent()!" />
           </div>
           }
         </div>

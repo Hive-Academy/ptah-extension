@@ -463,6 +463,12 @@ export class SdkAgentAdapter implements IAIProvider {
        * Resolved by PluginLoaderService for premium users.
        */
       pluginPaths?: string[];
+      /**
+       * Frontend tab ID for event routing
+       * Passed through to StreamTransformer so SESSION_ID_RESOLVED and
+       * SESSION_STATS can be routed to the correct frontend tab.
+       */
+      tabId?: string;
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -482,6 +488,8 @@ export class SdkAgentAdapter implements IAIProvider {
         sessionId,
         initialModel: existingSession.currentModel,
         onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+        onResultStats: this.resultStatsCallback || undefined,
+        tabId: config?.tabId,
       });
     }
 
@@ -532,6 +540,7 @@ export class SdkAgentAdapter implements IAIProvider {
       initialModel,
       onSessionIdResolved: resumeCallback,
       onResultStats: this.resultStatsCallback || undefined,
+      tabId: config?.tabId,
     });
   }
 

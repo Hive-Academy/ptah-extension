@@ -763,8 +763,7 @@ export type AnalysisPhase =
   | 'project-profile'
   | 'architecture-assessment'
   | 'quality-audit'
-  | 'elevation-plan'
-  | 'synthesis'; // v2 multi-phase
+  | 'elevation-plan'; // v2 multi-phase
 
 /**
  * Payload for scan progress updates.
@@ -989,39 +988,19 @@ export type WizardMessage =
 
 /**
  * Metadata for a saved analysis (lightweight, for listing).
- * Contains only the fields needed to display analysis cards
- * without loading the full analysis data.
+ * v2-only: represents multi-phase analysis slug directories.
  */
 export interface SavedAnalysisMetadata {
-  /** Filename in .claude/analysis/ directory */
+  /** Slug directory name in .claude/analysis/ */
   filename: string;
   /** ISO 8601 timestamp of when the analysis was saved */
   savedAt: string;
-  /** Human-readable project type description */
+  /** Human-readable project type description (from slug) */
   projectType: string;
-  /** Number of files detected during analysis */
-  fileCount: number;
-  /** Overall code quality score (0-100), if available */
-  qualityScore?: number;
-  /** Whether agentic or fallback analysis was used */
-  analysisMethod: 'agentic' | 'fallback';
-  /** Number of agent recommendations saved */
-  agentCount: number;
-}
-
-/**
- * Full saved analysis file structure.
- * Stored as JSON in .claude/analysis/*.json files.
- */
-export interface SavedAnalysisFile {
-  /** Schema version for forward compatibility */
-  version: 1;
-  /** ISO 8601 timestamp of when the analysis was saved */
-  savedAt: string;
-  /** Whether agentic or fallback analysis was used */
-  analysisMethod: 'agentic' | 'fallback';
-  /** Full project analysis result */
-  analysis: ProjectAnalysisResult;
-  /** Agent recommendations with scores */
-  recommendations: AgentRecommendation[];
+  /** Number of completed phases */
+  phaseCount: number;
+  /** Model used for analysis */
+  model: string;
+  /** Total analysis duration in milliseconds */
+  durationMs: number;
 }

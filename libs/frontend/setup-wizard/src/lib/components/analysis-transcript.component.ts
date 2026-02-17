@@ -238,7 +238,7 @@ type TranscriptItem = GroupedMessage | ToolCallGroup;
         @switch (item.kind) { @case ('text') {
         <div class="bg-base-100 rounded-md px-3 py-2">
           <markdown
-            [data]="item.content"
+            [data]="getFormattedTextContent(item)"
             class="prose prose-sm prose-invert max-w-none
                            [&_pre]:my-1 [&_pre]:text-xs [&_code]:text-xs
                            [&_p]:my-1 [&_p]:text-sm [&_p]:text-base-content/80
@@ -630,13 +630,24 @@ export class AnalysisTranscriptComponent {
     });
   }
 
-  /** Check if a tool group is collapsed. All groups collapsed by default. */
+  /** Check if a tool group is collapsed. Auto-expands the last incomplete group. */
   protected isToolGroupCollapsed(group: ToolCallGroup): boolean {
     // The set tracks user-expanded groups (toggled open)
     if (this.expandedToolGroups().has(group.toolCallId)) {
       return false; // User explicitly expanded
     }
-    return true; // Default: all collapsed
+    // Auto-expand the last incomplete tool group (shows live activity)
+    const items = this.transcriptItems();
+    const lastIncomplete = [...items]
+      .reverse()
+      .find(
+        (item): item is ToolCallGroup =>
+          this.isToolGroup(item) && !item.isComplete
+      );
+    if (lastIncomplete && lastIncomplete.toolCallId === group.toolCallId) {
+      return false;
+    }
+    return true; // Default: collapsed
   }
 
   /** Type guard to check if a transcript item is a ToolCallGroup */
@@ -670,5 +681,13 @@ export class AnalysisTranscriptComponent {
     const toolInputMsg = group.messages.find((m) => m.kind === 'tool_input');
     const toolInputContent = toolInputMsg?.content;
     return this.formatter.getToolGroupLabel(group.toolName, toolInputContent);
+  }
+
+  /**
+   * Format text content for markdown rendering.
+   * Delegates to ToolOutputFormatterService to unescape string literals.
+   */
+  protected getFormattedTextContent(item: GroupedMessage): string {
+    return this.formatter.formatTextContent(item.content);
   }
 }

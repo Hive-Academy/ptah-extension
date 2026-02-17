@@ -828,11 +828,21 @@ export class ExecutionTreeBuilderService {
     // TASK_2025_132: Aggregate stats from child message events for this agent
     const stats = this.aggregateAgentStats(toolCallId, state);
 
+    // BUGFIX: Determine agent status from Task tool_result, not children count.
+    // Previously `finalChildren.length > 0 ? 'complete' : 'streaming'` caused agents
+    // to be marked 'complete' as soon as they produced any output, which broke
+    // auto-scroll in inline-agent-bubble (scheduleScroll bails when !isStreaming).
+    const hasTaskToolResult = [...state.events.values()].some(
+      (e) =>
+        e.eventType === 'tool_result' &&
+        (e as ToolResultEvent).toolCallId === toolCallId
+    );
+
     // Create the AGENT node
     return createExecutionNode({
       id: agentStart.id,
       type: 'agent',
-      status: finalChildren.length > 0 ? 'complete' : 'streaming',
+      status: hasTaskToolResult ? 'complete' : 'streaming',
       content: agentStart.agentDescription || '',
       children: finalChildren,
       startTime: agentStart.timestamp,
@@ -1274,12 +1284,20 @@ export class ExecutionTreeBuilderService {
       // TASK_2025_132: Aggregate stats from child message events for this agent
       const toolChildStats = this.aggregateAgentStats(toolCallId, state);
 
+      // BUGFIX: Determine agent status from Task tool_result, not children count.
+      // Same fix as buildAgentNode - ensures auto-scroll works during streaming.
+      const hasAgentToolResult = [...state.events.values()].some(
+        (e) =>
+          e.eventType === 'tool_result' &&
+          (e as ToolResultEvent).toolCallId === toolCallId
+      );
+
       // Create the AGENT node from agent_start event
       // This wraps the nested content in a proper agent bubble
       const agentNode = createExecutionNode({
         id: agentStart.id,
         type: 'agent',
-        status: finalAgentChildren.length > 0 ? 'complete' : 'streaming',
+        status: hasAgentToolResult ? 'complete' : 'streaming',
         content: agentStart.agentDescription || '',
         children: finalAgentChildren,
         startTime: agentStart.timestamp,

@@ -4,7 +4,7 @@ import { ClaudeRpcService } from './claude-rpc.service';
 export interface CommandSuggestion {
   readonly name: string;
   readonly description: string;
-  readonly scope: 'builtin' | 'project' | 'user' | 'mcp';
+  readonly scope: 'builtin' | 'project' | 'user' | 'mcp' | 'plugin';
   readonly argumentHint?: string;
   readonly icon: string;
 }
@@ -124,6 +124,8 @@ export class CommandDiscoveryFacade {
         return '👤';
       case 'mcp':
         return '🔌';
+      case 'plugin':
+        return '🧩';
       default:
         return '❓';
     }

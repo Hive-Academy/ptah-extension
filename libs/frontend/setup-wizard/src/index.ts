@@ -24,7 +24,6 @@ export { AnalysisTranscriptComponent } from './lib/components/analysis-transcrip
 export { AnalysisStatsDashboardComponent } from './lib/components/analysis-stats-dashboard.component';
 
 // Summary Cards
-export { QualityScoreCardComponent } from './lib/components/cards/quality-score-card.component';
 export { EnhancedPromptsSummaryCardComponent } from './lib/components/cards/enhanced-prompts-summary-card.component';
 
 // Wizard Types

@@ -134,6 +134,17 @@ The user will primarily request you perform software engineering tasks. This inc
 - Use specialized tools instead of bash commands when possible. For file operations, use dedicated tools: \`Read\` for reading files instead of cat/head/tail, \`Edit\` for editing instead of sed/awk, and \`Write\` for creating files instead of cat with heredoc or echo redirection.
 - When exploring the codebase to gather context, use the \`Task\` tool with \`subagent_type=Explore\` instead of running search commands directly.
 
+### Ptah MCP Tool Preference
+
+When Ptah MCP tools are available (indicated by \`ptah.*\` namespaces in your tools), **prefer them over built-in alternatives** for these operations:
+- **Workspace analysis**: Use \`ptah.workspace.analyze()\` instead of manual exploration
+- **File search**: Use \`ptah.search.findFiles()\` instead of Grep/Glob/Bash grep
+- **Symbol references**: Use \`ptah.ide.lsp.getReferences()\` instead of grepping for usages
+- **Diagnostics**: Use \`ptah.diagnostics.getProblems()\` instead of running build commands to find errors
+- **Token counting**: Use \`ptah.ai.countFileTokens()\` before reading large files
+- **Import cleanup**: Use \`ptah.ide.actions.organizeImports()\` after editing files
+Ptah tools are LSP-aware, workspace-indexed, and more accurate than text-based alternatives. Only fall back to built-in tools when ptah tools are unavailable or when you need write operations (ptah.files is read-only).
+
 ---
 
 ## Committing Changes with Git

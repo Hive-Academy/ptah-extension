@@ -380,6 +380,24 @@ export class ChatStore {
       activeTab?.status === 'streaming' || activeTab?.status === 'resuming';
 
     if (isStreaming) {
+      // Auto-deny active permissions with the user's message as context.
+      // Uses deny_with_message (not hard deny) so the session continues
+      // rather than being killed — the user's intent is "no, do this instead".
+      const activePermissions = this.permissionHandler.permissionRequests();
+      if (activePermissions.length > 0) {
+        for (const perm of activePermissions) {
+          this.permissionHandler.handlePermissionResponse({
+            id: perm.id,
+            decision: 'deny_with_message',
+            reason: content,
+          });
+        }
+        console.log(
+          '[ChatStore] Auto-denied permissions on message send:',
+          activePermissions.length
+        );
+      }
+
       // Queue the message via ConversationService
       this.conversation.queueOrAppendMessage(content);
     } else {
@@ -871,12 +889,10 @@ export class ChatStore {
           : stats.modelUsage.reduce((best, current) =>
               current.outputTokens > best.outputTokens ? current : best
             );
-      // Bug 3 fix: Include cacheReadInputTokens in context calculation
-      // Cache read tokens count toward context window usage alongside input and output
-      const contextUsed =
-        primaryModel.inputTokens +
-        (primaryModel.cacheReadInputTokens ?? 0) +
-        primaryModel.outputTokens;
+      // Context usage = input + output tokens only.
+      // Cache-read tokens are NOT included: they represent prompt cache hits (a billing/perf metric)
+      // and do NOT consume additional context window space beyond the original input tokens.
+      const contextUsed = primaryModel.inputTokens + primaryModel.outputTokens;
       const contextPercent =
         primaryModel.contextWindow > 0
           ? Math.round((contextUsed / primaryModel.contextWindow) * 1000) / 10
@@ -1088,6 +1104,16 @@ export class ChatStore {
     if (!targetTabId || !targetTab) {
       console.warn('[ChatStore] No target tab for chat error');
       return;
+    }
+
+    // BUG FIX: Finalize streaming content BEFORE clearing state.
+    // When abort triggers, handleChatError fires via streaming error callback
+    // BEFORE abortCurrentMessage() can call finalizeCurrentMessage(tabId, true).
+    // If we clear currentMessageId first, finalization returns early and
+    // the interrupted badge never shows. By finalizing here, we ensure
+    // partial streaming content is preserved with 'interrupted' status.
+    if (targetTab.streamingState?.currentMessageId) {
+      this.streamingHandler.finalizeCurrentMessage(targetTabId, true);
     }
 
     // Reset streaming state (including per-tab currentMessageId)

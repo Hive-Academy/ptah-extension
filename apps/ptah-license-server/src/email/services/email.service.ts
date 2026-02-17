@@ -155,7 +155,7 @@ export class EmailService {
   }): string {
     const { licenseKey, plan, expiresAt } = params;
     const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
 
     const expirationText = expiresAt
       ? `<p><strong>Expires:</strong> ${expiresAt.toLocaleDateString('en-US', {
@@ -425,7 +425,7 @@ export class EmailService {
       day: 'numeric',
     });
     const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
 
     return `
       <!DOCTYPE html>
@@ -506,7 +506,7 @@ export class EmailService {
       day: 'numeric',
     });
     const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
 
     return `
       <!DOCTYPE html>
@@ -596,7 +596,7 @@ export class EmailService {
       day: 'numeric',
     });
     const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
 
     return `
       <!DOCTYPE html>
@@ -655,7 +655,7 @@ export class EmailService {
     const { firstName } = params;
     const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
     const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
 
     return `
       <!DOCTYPE html>
@@ -724,7 +724,7 @@ export class EmailService {
     const { firstName } = params;
     const greeting = firstName ? `Hi ${firstName}` : 'Hi there';
     const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') || 'https://ptah.dev';
+      this.config.get<string>('FRONTEND_URL') || 'https://ptah.live';
 
     return `
       <!DOCTYPE html>

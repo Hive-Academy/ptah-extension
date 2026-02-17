@@ -103,6 +103,12 @@ export class SdkStreamProcessor {
               outputTokens: message.usage.output_tokens,
             };
 
+            // When skipStructuredOutput is set (e.g., multi-phase markdown pipeline),
+            // skip JSON extraction entirely — the caller captures text via its own mechanism.
+            if (this.config.skipStructuredOutput) {
+              return { structuredOutput: null, resultMeta };
+            }
+
             // Primary: SDK structured output
             if (message.structured_output) {
               return {

@@ -72,6 +72,8 @@ export type SuggestionItem =
         }}</span>
         @if (isBuiltinCommand()) {
         <span class="badge badge-accent badge-xs">Built-in</span>
+        } @else if (isPluginCommand()) {
+        <span class="badge badge-info badge-xs">Plugin</span>
         }
       </div>
       <span class="text-[11px] opacity-70 truncate">{{
@@ -107,6 +109,14 @@ export class SuggestionOptionComponent {
   readonly isBuiltinCommand = computed(() => {
     const suggestion = this.suggestion();
     return suggestion.type === 'command' && suggestion.scope === 'builtin';
+  });
+
+  /**
+   * Computed signal to check if this is a plugin command/skill.
+   */
+  readonly isPluginCommand = computed(() => {
+    const suggestion = this.suggestion();
+    return suggestion.type === 'command' && suggestion.scope === 'plugin';
   });
 
   handleClick(): void {

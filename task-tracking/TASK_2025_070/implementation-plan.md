@@ -266,12 +266,12 @@ import { VSCodeService } from '@ptah-extension/core';
           <span class="text-2xl">𓀀</span>
         </div>
 
-        <!-- Ptah Icon (Divine Creator God) -->
+        <!-- Ptah Icon (Ancient Wisdom God) -->
         <div class="text-7xl mb-4 animate-pulse" style="animation-duration: 3s;">🏛️</div>
 
         <!-- Ancient Wisdom Title (Cinzel font for Egyptian elegance) -->
         <h1 class="text-4xl font-display font-bold text-secondary mb-2" style="text-shadow: 0 0 20px rgba(212, 175, 55, 0.3);">Ptah</h1>
-        <p class="text-sm text-base-content/60 font-display italic mb-1">Divine Creator • Master Craftsman</p>
+        <p class="text-sm text-base-content/60 font-display italic mb-1">Ancient Wisdom • Master Craftsman</p>
         <p class="text-base text-base-content/80 max-w-md mx-auto">Ancient AI wisdom meets modern development power</p>
       </div>
 

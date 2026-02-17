@@ -291,6 +291,11 @@ export class SessionImporterService {
     // Generate the escaped path pattern (replace : and /\ with -)
     const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
 
+    this.logger.debug('[SessionImporter] findSessionsDirectory', {
+      workspacePath,
+      escapedPath,
+    });
+
     const dirs = await fs.promises.readdir(projectsDir);
 
     // Try exact match first
@@ -305,13 +310,27 @@ export class SessionImporterService {
       return path.join(projectsDir, lowerMatch);
     }
 
+    // Try normalized match: treat hyphens and underscores as equivalent.
+    // Claude CLI may normalize path separators differently (e.g., replacing _ with -)
+    const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+    const normalizedEscaped = normalize(escapedPath);
+    const normalizedMatch = dirs.find(
+      (d) => normalize(d) === normalizedEscaped
+    );
+    if (normalizedMatch) {
+      return path.join(projectsDir, normalizedMatch);
+    }
+
     // Try without leading hyphen
     const withoutLeading = escapedPath.replace(/^-+/, '');
     const withoutLeadingLower = withoutLeading.toLowerCase();
+    const normalizedWithoutLeading = normalize(withoutLeading);
     const partialMatch = dirs.find(
       (d) =>
         d.toLowerCase() === withoutLeadingLower ||
-        d.toLowerCase().endsWith(withoutLeadingLower)
+        d.toLowerCase().endsWith(withoutLeadingLower) ||
+        normalize(d) === normalizedWithoutLeading ||
+        normalize(d).endsWith(normalizedWithoutLeading)
     );
     if (partialMatch) {
       return path.join(projectsDir, partialMatch);

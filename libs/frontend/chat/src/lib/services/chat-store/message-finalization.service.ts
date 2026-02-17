@@ -367,6 +367,78 @@ export class MessageFinalizationService {
   }
 
   /**
+   * Post-process the last finalized message to mark the last agent as interrupted.
+   *
+   * Used after a hard permission deny: the SDK sends all completion events before
+   * exiting gracefully, so all nodes are 'complete' and markStreamingNodesAsInterrupted
+   * is a no-op. This method finds the last (deepest, rightmost) agent node and marks
+   * it as 'interrupted' so the inline-agent-bubble shows the interrupted badge.
+   */
+  markLastAgentAsInterrupted(tabId: string): void {
+    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+    if (!tab || tab.messages.length === 0) return;
+
+    // Find the last assistant message (just finalized)
+    const messages = tab.messages;
+    let lastAssistantIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].streamingState) {
+        lastAssistantIndex = i;
+        break;
+      }
+    }
+    if (lastAssistantIndex === -1) return;
+
+    const msg = messages[lastAssistantIndex];
+    const tree = msg.streamingState;
+    if (!tree) return;
+
+    const updatedTree = this.findAndMarkLastAgent(tree);
+    if (updatedTree === tree) return; // No change
+
+    const updatedMessages = [...messages];
+    updatedMessages[lastAssistantIndex] = {
+      ...msg,
+      streamingState: updatedTree,
+    };
+
+    this.tabManager.updateTab(tabId, { messages: updatedMessages });
+    console.log(
+      '[MessageFinalizationService] Marked last agent as interrupted (hard deny)'
+    );
+  }
+
+  /**
+   * Recursively find the last (deepest, rightmost) complete agent node and mark it interrupted.
+   * Returns the same node reference if no change was needed.
+   */
+  private findAndMarkLastAgent(node: ExecutionNode): ExecutionNode {
+    // Search children in reverse (rightmost = last active agent)
+    const updatedChildren = [...node.children];
+    let foundInChild = false;
+
+    for (let i = updatedChildren.length - 1; i >= 0; i--) {
+      const updated = this.findAndMarkLastAgent(updatedChildren[i]);
+      if (updated !== updatedChildren[i]) {
+        updatedChildren[i] = updated;
+        foundInChild = true;
+        break; // Only mark the last one
+      }
+    }
+
+    if (foundInChild) {
+      return { ...node, children: updatedChildren };
+    }
+
+    // This node itself is the last complete agent — mark it
+    if (node.type === 'agent' && node.status === 'complete') {
+      return { ...node, status: 'interrupted' };
+    }
+
+    return node;
+  }
+
+  /**
    * TASK_2025_103 FIX: Recursively mark agent nodes with matching toolCallIds as 'interrupted'
    *
    * When loading a session from history, the tree is rebuilt but the 'interrupted' status

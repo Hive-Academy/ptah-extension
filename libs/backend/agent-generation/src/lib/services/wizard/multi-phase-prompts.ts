@@ -9,8 +9,6 @@
  * Phase 3: Quality Audit (reads phases 1-2 outputs)
  * Phase 4: Elevation Plan (reads phases 1-3 outputs)
  *
- * Phase 5 is deterministic synthesis (no prompts needed).
- *
  * IMPORTANT: Each phase prompt instructs the agent to write its full analysis
  * directly to a specific file path. The service does NOT re-write the output —
  * the agent's file is the single source of truth.
@@ -308,7 +306,10 @@ CRITICAL: No conversational text. Only tool calls. Final response: "Done."`,
  * Creates a prioritized, actionable improvement plan with concrete examples.
  * Reads all three previous phase outputs via MCP file access.
  */
-export function buildPhase4Prompts(slugDir: string): PhasePrompts {
+export function buildPhase4Prompts(
+  slugDir: string,
+  pluginSkillsContext?: string
+): PhasePrompts {
   const outputFile = `${slugDir}/04-elevation-plan.md`;
 
   return {
@@ -372,7 +373,20 @@ Read all three previous analysis files. Then use the \`execute_code\` tool with 
 Create a prioritized elevation plan specific to THIS codebase. Every recommendation must reference actual files and patterns found in the analysis — no generic advice. Include before/after code examples. Order by highest impact + lowest effort first. Be specific and actionable.
 
 CRITICAL: Write the FULL document to \`${outputFile}\` — do not just respond with it.
-CRITICAL: No conversational text. Only tool calls. Final response: "Done."`,
+CRITICAL: No conversational text. Only tool calls. Final response: "Done."${
+      pluginSkillsContext
+        ? `
+
+## Available Plugin Skills
+This workspace has specialized plugin skills loaded. Reference these in your
+recommendations where applicable — the user can invoke them for deeper guidance:
+${pluginSkillsContext}
+
+When recommending improvements, note which skill the user should invoke for
+detailed implementation guidance (e.g., "Use the react-best-practices skill
+for detailed memoization patterns").`
+        : ''
+    }`,
 
     userPrompt: `Read all three previous analysis files at ${slugDir}/, then create a prioritized elevation plan. Write the complete document to \`${outputFile}\`. Use the \`execute_code\` tool with \`ptah.*\` APIs. Every recommendation must reference specific files and patterns from the analysis. Do not emit any text — only make tool calls, then respond "Done." when finished.`,
   };

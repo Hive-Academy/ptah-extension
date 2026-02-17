@@ -57,6 +57,10 @@ import type {
   StreamEventEmitter,
   StreamEvent,
 } from '../../stream-processing/sdk-stream-processor.types';
+import {
+  discoverPluginSkills,
+  formatSkillsForPrompt,
+} from '../../helpers/plugin-skill-discovery';
 
 /**
  * SDK configuration for internal query execution
@@ -69,6 +73,8 @@ export interface EnhancedPromptsSdkConfig {
   model?: string;
   /** Callback for real-time stream events (text, tool calls, thinking) */
   onStreamEvent?: (event: AnalysisStreamPayload) => void;
+  /** Absolute paths to plugin directories */
+  pluginPaths?: string[];
 }
 
 /**
@@ -451,8 +457,8 @@ export class EnhancedPromptsService {
         };
       }
 
-      // Step 5: Build combined prompt content
-      const generatedPrompt = this.buildCombinedPrompt(output);
+      // Step 5: Build combined prompt content (with MCP docs for premium)
+      const generatedPrompt = this.buildCombinedPrompt(output, sdkConfig);
 
       // Step 6: Compute dependency hash for cache validation
       const configHash = await this.cacheService.computeDependencyHash(
@@ -657,8 +663,23 @@ export class EnhancedPromptsService {
 
     try {
       // 1. Build prompts + schema via PromptDesignerAgent
-      const { systemPrompt, userPrompt, outputSchema, qualityAssessment } =
-        await this.promptDesignerAgent.buildPrompts(input);
+      const {
+        systemPrompt: baseSystemPrompt,
+        userPrompt,
+        outputSchema,
+        qualityAssessment,
+      } = await this.promptDesignerAgent.buildPrompts(input);
+
+      // Enrich system prompt with plugin skill context when available
+      let systemPrompt = baseSystemPrompt;
+      if (sdkConfig?.pluginPaths && sdkConfig.pluginPaths.length > 0) {
+        const skills = discoverPluginSkills(sdkConfig.pluginPaths);
+        if (skills.length > 0) {
+          systemPrompt += `\n\n## Available Plugin Skills\nThe enhanced prompts should reference these skills where relevant:\n${formatSkillsForPrompt(
+            skills
+          )}`;
+        }
+      }
 
       onProgress?.({
         status: 'generating',
@@ -690,6 +711,7 @@ export class EnhancedPromptsService {
           type: 'json_schema',
           schema: outputSchema,
         },
+        pluginPaths: sdkConfig?.pluginPaths,
       });
 
       try {
@@ -1184,13 +1206,36 @@ export class EnhancedPromptsService {
   /**
    * Build combined prompt from PromptDesignerOutput
    *
-   * Combines the PTAH_CORE_SYSTEM_PROMPT with generated guidance
+   * Combines the PTAH_CORE_SYSTEM_PROMPT with generated guidance,
+   * and injects PTAH_SYSTEM_PROMPT (MCP documentation) for premium users with MCP server enabled.
+   *
+   * @param output - PromptDesignerOutput from generation
+   * @param sdkConfig - SDK configuration (isPremium, mcpServerRunning)
+   * @returns Combined prompt string with all sections
    */
-  private buildCombinedPrompt(output: PromptDesignerOutput): string {
+  private buildCombinedPrompt(
+    output: PromptDesignerOutput,
+    sdkConfig?: EnhancedPromptsSdkConfig
+  ): string {
     const sections: string[] = [];
 
     // Add core system prompt first
     sections.push(PTAH_CORE_SYSTEM_PROMPT);
+
+    // Add MCP documentation for premium users with MCP server enabled
+    if (sdkConfig?.isPremium && sdkConfig?.mcpServerRunning) {
+      // Import PTAH_SYSTEM_PROMPT dynamically to avoid circular dependencies
+
+      const { PTAH_SYSTEM_PROMPT } = require('@ptah-extension/vscode-lm-tools');
+      sections.push('\n' + PTAH_SYSTEM_PROMPT);
+      this.logger.debug(
+        'EnhancedPromptsService: Added MCP documentation to enhanced prompt',
+        {
+          isPremium: sdkConfig.isPremium,
+          mcpServerRunning: sdkConfig.mcpServerRunning,
+        }
+      );
+    }
 
     // Add project-specific context
     sections.push('\n## Project-Specific Guidance\n');

@@ -19,6 +19,13 @@ import type {
 import {
   buildExecuteCodeTool,
   buildApprovalPromptTool,
+  buildWorkspaceAnalyzeTool,
+  buildSearchFilesTool,
+  buildGetDiagnosticsTool,
+  buildLspReferencesTool,
+  buildLspDefinitionsTool,
+  buildGetDirtyFilesTool,
+  buildCountTokensTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -117,27 +124,48 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
 
 /**
  * Handle tools/list request
- * Returns available tools: execute_code and approval_prompt
+ * Returns all available tools: individual ptah_* tools, execute_code, and approval_prompt
  */
 function handleToolsList(request: MCPRequest): MCPResponse {
   return {
     jsonrpc: '2.0',
     id: request.id,
     result: {
-      tools: [buildExecuteCodeTool(), buildApprovalPromptTool()],
+      tools: [
+        // Individual first-class tools (simple params, high discoverability)
+        buildWorkspaceAnalyzeTool(),
+        buildSearchFilesTool(),
+        buildGetDiagnosticsTool(),
+        buildLspReferencesTool(),
+        buildLspDefinitionsTool(),
+        buildGetDirtyFilesTool(),
+        buildCountTokensTool(),
+        // Power-user tools
+        buildExecuteCodeTool(),
+        buildApprovalPromptTool(),
+      ],
     },
   };
 }
 
 /**
  * Handle tools/call request
- * Routes to execute_code or approval_prompt handlers
+ * Routes to individual ptah_* tools, execute_code, or approval_prompt
  */
 async function handleToolsCall(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies
 ): Promise<MCPResponse> {
   const { name, arguments: args } = request.params;
+
+  // Individual first-class tools — direct API calls, no sandbox
+  const individualResult = await handleIndividualTool(
+    name,
+    args || {},
+    request,
+    deps
+  );
+  if (individualResult) return individualResult;
 
   if (name === 'execute_code') {
     return await handleExecuteCodeCall(
@@ -156,6 +184,148 @@ async function handleToolsCall(
   }
 
   return createErrorResponse(request.id, -32602, `Unknown tool: ${name}`);
+}
+
+/**
+ * Handle individual ptah_* tool calls.
+ * Returns MCPResponse if the tool name matches, null otherwise.
+ * Each handler directly calls deps.ptahAPI — no sandbox, no code execution.
+ */
+async function handleIndividualTool(
+  name: string,
+  args: Record<string, unknown>,
+  request: MCPRequest,
+  deps: ProtocolHandlerDependencies
+): Promise<MCPResponse | null> {
+  const { ptahAPI, logger } = deps;
+
+  try {
+    switch (name) {
+      case 'ptah_workspace_analyze': {
+        const result = await ptahAPI.workspace.analyze();
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(result, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_search_files': {
+        const { pattern, limit } = args as { pattern: string; limit?: number };
+        const files = await ptahAPI.search.findFiles(pattern, limit ?? 50);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(files, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_get_diagnostics': {
+        const { severity } = args as { severity?: 'error' | 'warning' | 'all' };
+        let result;
+        if (severity === 'error') {
+          result = await ptahAPI.diagnostics.getErrors();
+        } else if (severity === 'warning') {
+          result = await ptahAPI.diagnostics.getWarnings();
+        } else {
+          result = await ptahAPI.diagnostics.getAll();
+        }
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(result, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_lsp_references': {
+        const { file, line, col } = args as {
+          file: string;
+          line: number;
+          col: number;
+        };
+        const refs = await ptahAPI.ide.lsp.getReferences(file, line, col);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(refs, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_lsp_definitions': {
+        const { file, line, col } = args as {
+          file: string;
+          line: number;
+          col: number;
+        };
+        const defs = await ptahAPI.ide.lsp.getDefinition(file, line, col);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(defs, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_get_dirty_files': {
+        const dirtyFiles = await ptahAPI.ide.editor.getDirtyFiles();
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(dirtyFiles, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_count_tokens': {
+        const { file } = args as { file: string };
+        const tokenCount = await ptahAPI.ai.countFileTokens(file);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({ file, tokens: tokenCount }, null, 2),
+          deps
+        );
+      }
+
+      default:
+        return null;
+    }
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+    logger.error(
+      `Individual tool ${name} failed: ${errorMessage}`,
+      error instanceof Error ? error : new Error(String(error))
+    );
+
+    deps.onToolResult?.(request.id.toString(), errorMessage, true);
+
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        content: [
+          { type: 'text', text: `Tool ${name} failed: ${errorMessage}` },
+        ],
+        isError: true,
+      },
+    };
+  }
+}
+
+/**
+ * Create a successful tool response with callback notification
+ */
+function createToolSuccessResponse(
+  request: MCPRequest,
+  text: string,
+  deps: ProtocolHandlerDependencies
+): MCPResponse {
+  deps.onToolResult?.(request.id.toString(), text, false);
+  return {
+    jsonrpc: '2.0',
+    id: request.id,
+    result: {
+      content: [{ type: 'text', text }],
+    },
+  };
 }
 
 /**
@@ -229,16 +399,50 @@ async function handleExecuteCodeCall(
 /**
  * Build agent-friendly error message with recovery hints.
  * Removes raw stack traces and adds actionable guidance.
+ *
+ * The runtime proxy now includes available methods directly in TypeError messages,
+ * so "is not available" errors from the proxy are already actionable.
  */
 function buildAgentFriendlyError(errorMessage: string): string {
   if (errorMessage.includes('Execution timeout')) {
     return `${errorMessage}. Try breaking the operation into smaller steps or increasing the timeout parameter.`;
   }
+
+  // File not found errors - guide to use search/discovery first
+  if (errorMessage.includes('File not found:')) {
+    const filePath = errorMessage.split('File not found:')[1]?.trim() || '';
+    return `File not found: ${filePath}
+
+SOLUTION: Don't guess file paths. Use discovery methods first:
+1. Use ptah.search.findFiles('**/*.ts') to find files by pattern
+2. Use ptah.files.list('directory') to list directory contents
+3. Use ptah.workspace.analyze() to understand project structure
+
+Example:
+  const tsFiles = await ptah.search.findFiles('**/*.ts', 100);
+  const packageFiles = tsFiles.filter(f => f.includes('package'));`;
+  }
+
+  // Directory not found errors
+  if (errorMessage.includes('Directory not found:')) {
+    return `${errorMessage}
+
+SOLUTION: Use ptah.workspace.analyze() to see project structure, then ptah.files.list() to explore directories.`;
+  }
+
+  // Proxy-generated errors already include available methods — pass through with minimal wrapping
+  if (errorMessage.includes('is not available. Available')) {
+    return `API Error: ${errorMessage}`;
+  }
+  if (errorMessage.includes('namespace does not exist. Available')) {
+    return `API Error: ${errorMessage}`;
+  }
+
   if (
     errorMessage.includes('is not a function') ||
     errorMessage.includes('is not defined')
   ) {
-    return `${errorMessage}. Check the method signature with ptah.help() — the API may have changed.`;
+    return `${errorMessage}. Use ptah.help('namespace') to see available methods. Common mistakes: ptah.files is read-only (no write/delete), use ptah.project.detectMonorepo() not getMonorepoInfo().`;
   }
   if (errorMessage.includes('Cannot read properties of')) {
     return `${errorMessage}. A method returned null/undefined. Use optional chaining (?.) or check the return value before accessing properties.`;

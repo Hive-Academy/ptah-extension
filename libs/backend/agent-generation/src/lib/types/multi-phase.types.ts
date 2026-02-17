@@ -3,8 +3,7 @@
  *
  * Defines the types for the multi-phase workspace analysis pipeline.
  * The pipeline runs 4 sequential LLM phases (project profile, architecture
- * assessment, quality audit, elevation plan) followed by 1 deterministic
- * synthesis phase that combines outputs into role-specific agent context.
+ * assessment, quality audit, elevation plan).
  *
  * @module @ptah-extension/agent-generation/types/multi-phase
  */
@@ -16,8 +15,7 @@ export type MultiPhaseId =
   | 'project-profile'
   | 'architecture-assessment'
   | 'quality-audit'
-  | 'elevation-plan'
-  | 'agent-context';
+  | 'elevation-plan';
 
 /**
  * Result of a single phase execution.
@@ -67,6 +65,8 @@ export interface MultiPhaseAnalysisOptions {
   mcpServerRunning?: boolean;
   /** Port the MCP server is listening on */
   mcpPort?: number;
+  /** Absolute paths to plugin directories (for SDK queries) */
+  pluginPaths?: string[];
 }
 
 /**
@@ -93,10 +93,5 @@ export const PHASE_CONFIGS = [
     id: 'elevation-plan' as const,
     file: '04-elevation-plan.md',
     label: 'Creating elevation plan...',
-  },
-  {
-    id: 'agent-context' as const,
-    file: '05-agent-context.md',
-    label: 'Synthesizing agent context...',
   },
 ] as const;

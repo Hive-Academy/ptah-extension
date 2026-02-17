@@ -27,11 +27,6 @@ import { AgentFileWriterService } from '../services/file-writer.service';
 import { OutputValidationService } from '../services/output-validation.service';
 import { VsCodeLmService } from '../services/vscode-lm.service';
 import {
-  WizardContextMapperService,
-  WizardStepMachineService,
-  WizardSessionManagerService,
-  CodeHealthAnalysisService,
-  DeepProjectAnalysisService,
   WizardWebviewLifecycleService,
   AgenticAnalysisService,
   MultiPhaseAnalysisService,
@@ -78,34 +73,6 @@ export function registerAgentGenerationServices(
     },
   });
 
-  // Wizard context mapper service - frontend-to-backend context transformation
-  container.register(
-    AGENT_GENERATION_TOKENS.WIZARD_CONTEXT_MAPPER,
-    { useClass: WizardContextMapperService },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // Wizard step machine service - step state machine and transition logic
-  container.register(
-    AGENT_GENERATION_TOKENS.WIZARD_STEP_MACHINE,
-    { useClass: WizardStepMachineService },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // Wizard session manager service - session CRUD and persistence
-  container.register(
-    AGENT_GENERATION_TOKENS.WIZARD_SESSION_MANAGER,
-    { useClass: WizardSessionManagerService },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // Code health analysis service - diagnostics, conventions, test coverage
-  container.register(
-    AGENT_GENERATION_TOKENS.CODE_HEALTH_ANALYSIS,
-    { useClass: CodeHealthAnalysisService },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
   // Analysis storage service - persistent analysis file I/O
   container.register(
     AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
@@ -116,14 +83,6 @@ export function registerAgentGenerationServices(
   // ============================================================
   // Mid-level Services (depend on foundation services)
   // ============================================================
-
-  // Deep project analysis service - architecture detection, key locations, language stats
-  // Note: Depends on AGENT_GENERATION_ORCHESTRATOR and CODE_HEALTH_ANALYSIS
-  container.register(
-    AGENT_GENERATION_TOKENS.DEEP_PROJECT_ANALYSIS,
-    { useClass: DeepProjectAnalysisService },
-    { lifecycle: Lifecycle.Singleton }
-  );
 
   // Agentic analysis service - Claude Agent SDK-powered workspace analysis
   // Note: Depends on SDK_AGENT_ADAPTER, SDK_MODULE_LOADER (registered in Phase 2.7), WEBVIEW_MANAGER
@@ -212,12 +171,7 @@ export function registerAgentGenerationServices(
     services: [
       'OUTPUT_VALIDATION_SERVICE',
       'TEMPLATE_STORAGE_SERVICE',
-      'WIZARD_CONTEXT_MAPPER',
-      'WIZARD_STEP_MACHINE',
-      'WIZARD_SESSION_MANAGER',
-      'CODE_HEALTH_ANALYSIS',
       'ANALYSIS_STORAGE_SERVICE',
-      'DEEP_PROJECT_ANALYSIS',
       'AGENTIC_ANALYSIS_SERVICE',
       'MULTI_PHASE_ANALYSIS_SERVICE',
       'WIZARD_WEBVIEW_LIFECYCLE',

@@ -392,6 +392,9 @@ export interface SDKUserMessage {
   message: APIUserMessage;
   parent_tool_use_id: string | null;
   isSynthetic?: boolean;
+  /** Metadata-only message (e.g., skill .md content injected into conversation context).
+   * These should NOT be displayed in the UI. */
+  isMeta?: boolean;
   tool_use_result?: unknown;
   uuid?: UUID;
   session_id: string;

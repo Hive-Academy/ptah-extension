@@ -1,6 +1,7 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, DestroyRef } from '@angular/core';
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationComponent } from '../../components/navigation.component';
 import {
   LucideAngularModule,
@@ -10,6 +11,9 @@ import {
   Shield,
   Bot,
 } from 'lucide-angular';
+import { PaddleCheckoutService } from '../../services/paddle-checkout.service';
+import { AuthService } from '../../services/auth.service';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'ptah-trial-ended-page',
@@ -94,6 +98,49 @@ import {
             </div>
           </div>
 
+          <!-- Paddle error -->
+          @if (paddleError()) {
+          <div class="alert alert-warning mb-4">
+            <span>{{ paddleError() }}</span>
+            <button class="btn btn-sm btn-secondary" (click)="retryPaddle()">
+              Retry
+            </button>
+          </div>
+          }
+
+          <!-- Billing toggle + price display -->
+          <div class="flex flex-col items-center gap-3 mb-6">
+            <div class="flex items-center gap-3">
+              <span
+                class="text-sm font-medium"
+                [class]="isYearly() ? 'text-base-content/50' : 'text-primary'"
+              >
+                Monthly
+              </span>
+              <input
+                type="checkbox"
+                class="toggle toggle-primary"
+                [checked]="isYearly()"
+                (change)="isYearly.set(!isYearly())"
+              />
+              <span
+                class="text-sm font-medium"
+                [class]="isYearly() ? 'text-primary' : 'text-base-content/50'"
+              >
+                Yearly
+              </span>
+              @if (isYearly()) {
+              <span class="badge badge-success badge-sm">-17%</span>
+              }
+            </div>
+            <p class="text-2xl font-bold">
+              {{ isYearly() ? '$50' : '$5' }}
+              <span class="text-base font-normal text-base-content/70">
+                / {{ isYearly() ? 'year' : 'month' }}
+              </span>
+            </p>
+          </div>
+
           <!-- Action buttons -->
           <div class="flex flex-col sm:flex-row gap-4">
             <button
@@ -108,9 +155,13 @@ import {
             <button
               class="btn btn-primary flex-1 gap-2"
               (click)="upgradeToPro()"
+              [disabled]="isCheckingOut()"
             >
+              @if (isCheckingOut()) {
+              <span class="loading loading-spinner loading-sm"></span>
+              Opening checkout... } @else {
               <lucide-angular [img]="SparklesIcon" class="w-4 h-4" />
-              Upgrade to Pro
+              Upgrade to Pro }
             </button>
           </div>
         </div>
@@ -121,9 +172,17 @@ import {
 export class TrialEndedPageComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly router = inject(Router);
+  private readonly paddleService = inject(PaddleCheckoutService);
+  private readonly authService = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
 
   public readonly daysRemaining = signal(0);
   public readonly isDowngrading = signal(false);
+  public readonly isYearly = signal(false);
+  public readonly isCheckingOut = signal(false);
+
+  // Expose Paddle error for template
+  public readonly paddleError = this.paddleService.error;
 
   // Icons
   public readonly ClockIcon = Clock;
@@ -133,6 +192,9 @@ export class TrialEndedPageComponent implements OnInit {
   public readonly BotIcon = Bot;
 
   public ngOnInit(): void {
+    // Initialize Paddle SDK
+    this.paddleService.initialize();
+
     // Fetch current license data to get daysRemaining
     this.http.get<{ daysRemaining?: number }>('/api/v1/licenses/me').subscribe({
       next: (data) => {
@@ -142,7 +204,34 @@ export class TrialEndedPageComponent implements OnInit {
   }
 
   public upgradeToPro(): void {
-    this.router.navigate(['/pricing']);
+    if (this.isCheckingOut()) return;
+    this.isCheckingOut.set(true);
+
+    const priceId = this.isYearly()
+      ? environment.paddle.proPriceIdYearly
+      : environment.paddle.proPriceIdMonthly;
+
+    // Get current user email for Paddle checkout
+    this.authService
+      .getCurrentUser()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (user) => {
+          this.isCheckingOut.set(false);
+          this.paddleService.openCheckout({
+            priceId,
+            customerEmail: user?.email,
+          });
+        },
+        error: () => {
+          this.isCheckingOut.set(false);
+          this.paddleService.openCheckout({ priceId });
+        },
+      });
+  }
+
+  public retryPaddle(): void {
+    this.paddleService.retryInitialization();
   }
 
   public async continueWithCommunity(): Promise<void> {

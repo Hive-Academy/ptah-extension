@@ -72,3 +72,10 @@ export { PTAH_BEHAVIORAL_PROMPT } from './prompt-constants';
 
 // Plugin loader (TASK_2025_153)
 export { PluginLoaderService } from './plugin-loader.service';
+
+// Plugin skill discovery
+export {
+  discoverPluginSkills,
+  formatSkillsForPrompt,
+  type PluginSkillInfo,
+} from './plugin-skill-discovery';

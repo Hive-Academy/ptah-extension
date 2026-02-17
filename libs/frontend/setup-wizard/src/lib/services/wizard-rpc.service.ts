@@ -4,12 +4,9 @@ import type {
   AgentRecommendation,
   EnhancedPromptsRunWizardResponse,
   EnhancedPromptsGetStatusResponse,
-  ProjectAnalysisResult,
   MultiPhaseAnalysisResponse,
   SavedAnalysisMetadata,
-  SavedAnalysisFile,
 } from '@ptah-extension/shared';
-import { isMultiPhaseResponse } from '@ptah-extension/shared';
 import { AgentSelection } from './setup-wizard-state.service';
 
 /**
@@ -73,12 +70,10 @@ export class WizardRpcService {
    * Uses a 5-minute timeout since agent generation is a long-running operation.
    *
    * @param selections - Agent selections from the wizard
-   * @param analysisData - Pre-computed analysis from wizard Step 1 (for legacy path)
-   * @param analysisDir - Multi-phase analysis directory path (for v2 path)
+   * @param analysisDir - Multi-phase analysis directory path
    */
   async submitAgentSelection(
     selections: AgentSelection[],
-    analysisData?: ProjectAnalysisResult,
     analysisDir?: string
   ): Promise<AgentSelectionResponse> {
     const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
@@ -86,7 +81,6 @@ export class WizardRpcService {
       'wizard:submit-selection',
       {
         selectedAgentIds: selectedIds,
-        analysisData,
         analysisDir,
         model: this.modelState.currentModel() || undefined,
       },
@@ -158,46 +152,30 @@ export class WizardRpcService {
    * Deep analyze the workspace project structure.
    * Calls wizard:deep-analyze backend handler (registered in RpcMethodRegistry).
    *
-   * TASK_2025_154 wiring: Returns either MultiPhaseAnalysisResponse (premium + MCP)
-   * or ProjectAnalysisResult (fallback). Use isMultiPhaseResponse() to discriminate.
+   * Returns MultiPhaseAnalysisResponse (premium + MCP required).
    */
-  async deepAnalyze(): Promise<
-    MultiPhaseAnalysisResponse | ProjectAnalysisResult
-  > {
+  async deepAnalyze(): Promise<MultiPhaseAnalysisResponse> {
     const result = await this.rpcService.call(
       'wizard:deep-analyze',
       { model: this.modelState.currentModel() || undefined },
       { timeout: 3_660_000 } // 1 hour + 1 minute buffer
     );
     if (result.isSuccess() && result.data) {
-      // Return as-is — caller checks with isMultiPhaseResponse()
-      return result.data as MultiPhaseAnalysisResponse | ProjectAnalysisResult;
+      return result.data as MultiPhaseAnalysisResponse;
     }
     throw new Error(result.error || 'Deep analysis failed');
-  }
-
-  /**
-   * Type guard re-export for convenience.
-   * Checks if a deep-analyze result is a multi-phase response.
-   */
-  isMultiPhaseResponse(value: unknown): value is MultiPhaseAnalysisResponse {
-    return isMultiPhaseResponse(value);
   }
 
   /**
    * Get agent recommendations based on analysis results.
    * Calls wizard:recommend-agents backend handler (registered in RpcMethodRegistry).
    *
-   * For multi-phase: passes { isMultiPhase: true } to trigger all-agents-recommended path.
-   * For legacy: passes the full ProjectAnalysisResult for Zod validation + scoring.
+   * Passes { isMultiPhase: true } to trigger all-agents-recommended path.
    */
   async recommendAgents(
-    analysis: ProjectAnalysisResult | MultiPhaseAnalysisResponse
+    analysis: MultiPhaseAnalysisResponse
   ): Promise<AgentRecommendation[]> {
-    // For multi-phase, send a lightweight indicator instead of full markdown contents
-    const payload = isMultiPhaseResponse(analysis)
-      ? { isMultiPhase: true, analysisDir: analysis.analysisDir }
-      : (analysis as unknown as Record<string, unknown>);
+    const payload = { isMultiPhase: true, analysisDir: analysis.analysisDir };
 
     const result = await this.rpcService.call(
       'wizard:recommend-agents',
@@ -217,19 +195,17 @@ export class WizardRpcService {
    * Uses the existing enhancedPrompts:runWizard RPC handler.
    *
    * @param workspacePath - Workspace path to analyze
-   * @param analysisData - Pre-computed analysis from wizard Step 1 (optional; omit for multi-phase)
+   * @param analysisDir - Multi-phase analysis directory path (optional)
    * @returns Enhanced Prompts wizard response
    */
   async runEnhancedPromptsWizard(
     workspacePath: string,
-    analysisData?: ProjectAnalysisResult,
     analysisDir?: string
   ): Promise<EnhancedPromptsRunWizardResponse> {
     const result = await this.rpcService.call(
       'enhancedPrompts:runWizard',
       {
         workspacePath,
-        ...(analysisData ? { analysisData } : {}),
         ...(analysisDir ? { analysisDir } : {}),
         model: this.modelState.currentModel() || undefined,
       },
@@ -377,33 +353,6 @@ export class WizardRpcService {
   // === Analysis History Methods (Persistent Analysis) ===
 
   /**
-   * Save analysis results for future reuse.
-   * Auto-called after successful analysis + recommendations.
-   *
-   * @param analysis - Project analysis result
-   * @param recommendations - Agent recommendations
-   * @param method - 'agentic' or 'fallback'
-   * @returns The generated filename
-   */
-  async saveAnalysis(
-    analysis: ProjectAnalysisResult,
-    recommendations: AgentRecommendation[],
-    method: 'agentic' | 'fallback'
-  ): Promise<{ success: boolean; filename: string }> {
-    const result = await this.rpcService.call(
-      'wizard:save-analysis',
-      { analysis, recommendations, method },
-      { timeout: 10_000 }
-    );
-
-    if (result.isSuccess() && result.data) {
-      return result.data as { success: boolean; filename: string };
-    }
-
-    throw new Error(result.error || 'Failed to save analysis');
-  }
-
-  /**
    * List all saved analyses from .claude/analysis/ directory.
    * Returns metadata only (lightweight, for listing cards).
    *
@@ -424,13 +373,13 @@ export class WizardRpcService {
   }
 
   /**
-   * Load a specific saved analysis by filename.
-   * Returns the full analysis data including recommendations.
+   * Load a specific saved analysis by slug directory name.
+   * Returns the full multi-phase analysis response.
    *
-   * @param filename - Filename to load from .claude/analysis/
-   * @returns Full saved analysis file data
+   * @param filename - Slug directory name from .claude/analysis/
+   * @returns Multi-phase analysis response with manifest and phase contents
    */
-  async loadAnalysis(filename: string): Promise<SavedAnalysisFile> {
+  async loadAnalysis(filename: string): Promise<MultiPhaseAnalysisResponse> {
     const result = await this.rpcService.call(
       'wizard:load-analysis',
       { filename },
@@ -438,7 +387,7 @@ export class WizardRpcService {
     );
 
     if (result.isSuccess() && result.data) {
-      return result.data as SavedAnalysisFile;
+      return result.data as MultiPhaseAnalysisResponse;
     }
 
     throw new Error(result.error || 'Failed to load analysis');

@@ -706,7 +706,9 @@ export class SetupWizardStateService {
    * - Others: only accessible via normal flow
    */
   canJumpToStep(step: WizardStep): boolean {
-    const hasAnalysis = this.deepAnalysisSignal() !== null;
+    const hasAnalysis =
+      this.multiPhaseResultSignal() !== null ||
+      this.deepAnalysisSignal() !== null;
     const hasRecommendations = this.recommendationsSignal().length > 0;
 
     switch (step) {
@@ -935,29 +937,25 @@ export class SetupWizardStateService {
   }
 
   /**
-   * Load a saved analysis into state.
-   * Sets deepAnalysis, recommendations, and marks as loaded from history.
-   * Auto-selects agents with score >= 80 (reuses existing logic).
+   * Load a saved multi-phase analysis into state.
+   * Sets multiPhaseResult and marks as loaded from history.
+   * Does NOT set recommendations — caller should fetch them separately
+   * via recommendAgents() after loading.
    *
-   * @param analysis - Full project analysis result
-   * @param recommendations - Agent recommendations
+   * @param multiPhase - Multi-phase analysis response
    */
-  loadSavedAnalysis(
-    analysis: ProjectAnalysisResult,
-    recommendations: AgentRecommendation[]
-  ): void {
-    this.deepAnalysisSignal.set(analysis);
-    this.setRecommendations(recommendations);
+  loadSavedAnalysis(multiPhase: MultiPhaseAnalysisResponse): void {
+    this.multiPhaseResultSignal.set(multiPhase);
     this.analysisLoadedFromHistorySignal.set(true);
 
-    // Also set projectContext for backward compatibility
+    // Set projectContext from slug for backward compatibility
+    const projectType = multiPhase.manifest.slug
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
     this.projectContextSignal.set({
-      type:
-        analysis.projectTypeDescription || analysis.projectType || 'Unknown',
-      techStack: analysis.frameworks || [],
-      architecture: analysis.architecturePatterns?.[0]?.name,
-      isMonorepo: !!analysis.monorepoType,
-      monorepoType: analysis.monorepoType,
+      type: projectType,
+      techStack: [],
+      isMonorepo: false,
     });
   }
 

@@ -29,6 +29,7 @@ import {
 import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
 import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
 import { ChatStore } from '../services/chat.store';
+import { MarkdownBlockComponent } from '../components/atoms/markdown-block.component';
 
 /**
  * SettingsComponent - Main settings page container
@@ -57,6 +58,7 @@ import { ChatStore } from '../services/chat.store';
     AuthConfigComponent,
     ProviderModelSelectorComponent,
     LucideAngularModule,
+    MarkdownBlockComponent,
   ],
   templateUrl: './settings.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -268,6 +270,13 @@ export class SettingsComponent implements OnInit {
     return !!name && name !== this.userEmail();
   });
 
+  /**
+   * Signal: System prompt preset preference for new sessions
+   * - 'claude_code': Minimal Claude Code preset
+   * - 'enhanced': AI-generated project-specific guidance
+   */
+  readonly systemPromptPreset = signal<'claude_code' | 'enhanced'>('enhanced');
+
   // ============================================================
   // TASK_2025_142: Enhanced Trial Status Computed Signals
   // ============================================================
@@ -440,6 +449,16 @@ export class SettingsComponent implements OnInit {
     } else {
       this.enhancedPromptsError.set(result.error ?? 'Failed to toggle');
     }
+  }
+
+  /**
+   * Change system prompt preset preference for new sessions.
+   * This affects which system prompt is used when creating new chat tabs.
+   */
+  setSystemPromptPreset(preset: 'claude_code' | 'enhanced'): void {
+    this.systemPromptPreset.set(preset);
+    // TODO: Persist preference to extension state via RPC
+    // For now, this is session-scoped (resets on reload)
   }
 
   /**

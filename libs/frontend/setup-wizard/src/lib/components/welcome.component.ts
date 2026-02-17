@@ -211,9 +211,9 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                     <span class="text-xs font-medium truncate">
                       {{ analysis.projectType }}
                     </span>
-                    @if (analysis.qualityScore) {
+                    @if (analysis.phaseCount) {
                     <span class="badge badge-xs badge-ghost">
-                      Score: {{ analysis.qualityScore }}
+                      {{ analysis.phaseCount }} phases
                     </span>
                     }
                   </div>
@@ -228,10 +228,10 @@ import { WizardRpcService } from '../services/wizard-rpc.service';
                       />
                       {{ formatDate(analysis.savedAt) }}
                     </span>
-                    <span>{{ analysis.agentCount }} agents</span>
-                    <span class="badge badge-xs">{{
-                      analysis.analysisMethod
-                    }}</span>
+                    <span>{{ analysis.model }}</span>
+                    @if (analysis.durationMs) {
+                    <span>{{ formatDuration(analysis.durationMs) }}</span>
+                    }
                   </div>
                 </div>
                 <div class="flex items-center gap-1 shrink-0">
@@ -328,11 +328,17 @@ export class WelcomeComponent implements OnInit {
     this.loadingFilename.set(analysis.filename);
 
     try {
-      const savedData = await this.wizardRpc.loadAnalysis(analysis.filename);
-      this.wizardState.loadSavedAnalysis(
-        savedData.analysis,
-        savedData.recommendations
+      const multiPhaseData = await this.wizardRpc.loadAnalysis(
+        analysis.filename
       );
+      this.wizardState.loadSavedAnalysis(multiPhaseData);
+
+      // Fetch recommendations for the loaded analysis
+      const recommendations = await this.wizardRpc.recommendAgents(
+        multiPhaseData
+      );
+      this.wizardState.setRecommendations(recommendations);
+
       // Navigate to analysis step so user sees the loaded data before choosing next step
       this.wizardState.setCurrentStep('analysis');
     } catch (error) {
@@ -362,6 +368,20 @@ export class WelcomeComponent implements OnInit {
     // Note: Delete RPC not yet implemented in backend.
     // The file will be cleaned up on next list refresh or manually.
     // A wizard:delete-analysis RPC can be added as a follow-up.
+  }
+
+  /**
+   * Format milliseconds to a readable duration string.
+   */
+  protected formatDuration(ms: number): string {
+    if (ms < 1000) return `${ms}ms`;
+    const seconds = Math.round(ms / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return remainingSeconds > 0
+      ? `${minutes}m ${remainingSeconds}s`
+      : `${minutes}m`;
   }
 
   /**

@@ -46,12 +46,12 @@ const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
     id: 'hive-academy-nx-saas',
     name: 'Hive Academy Nx SaaS',
     description:
-      'Backend tools for Nx monorepo, NestJS, Prisma, and Neon PostgreSQL workflows',
+      'Backend tools for Nx monorepo, NestJS, Prisma workflows, and SaaS workspace initialization',
     category: 'backend-tools',
-    skillCount: 4,
-    commandCount: 1,
+    skillCount: 3,
+    commandCount: 2,
     isDefault: false,
-    keywords: ['nx', 'nestjs', 'prisma', 'neon', 'backend', 'saas'],
+    keywords: ['nx', 'nestjs', 'prisma', 'backend', 'saas', 'init-saas'],
   },
   {
     id: 'hive-academy-angular',

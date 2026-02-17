@@ -236,6 +236,16 @@ export interface TabState {
   sessionModel?: string | null;
 
   /**
+   * System prompt preset selection for this tab.
+   * - 'claude_code': Claude Code preset with minimal customization
+   * - 'enhanced': AI-generated project-specific guidance
+   *
+   * When undefined, defaults to 'enhanced' if enhanced prompts are generated,
+   * otherwise falls back to 'claude_code'.
+   */
+  preset?: 'claude_code' | 'enhanced';
+
+  /**
    * Full per-model usage breakdown for collapsible display.
    * Contains all models used in the session with their individual stats.
    */

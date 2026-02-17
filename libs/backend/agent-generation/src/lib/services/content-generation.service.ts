@@ -38,7 +38,12 @@ import {
   LlmCustomization,
 } from '../types/core.types';
 import { ContentGenerationError } from '../errors/generation.error';
-import { SDK_TOKENS, SdkStreamProcessor } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  SdkStreamProcessor,
+  discoverPluginSkills,
+  formatSkillsForPrompt,
+} from '@ptah-extension/agent-sdk';
 import type { InternalQueryService } from '@ptah-extension/agent-sdk';
 import type {
   SDKMessage,
@@ -255,6 +260,16 @@ OUTPUT FORMAT:
         systemPrompt += `\n\n--- Enhanced Project Guidance ---\n${sdkConfig.enhancedPromptContent}`;
       }
 
+      // Add plugin skill context when available
+      if (sdkConfig?.pluginPaths && sdkConfig.pluginPaths.length > 0) {
+        const skills = discoverPluginSkills(sdkConfig.pluginPaths);
+        if (skills.length > 0) {
+          systemPrompt += `\n\n## Available Plugin Skills\nThe generated agent rules should reference these skills where relevant:\n${formatSkillsForPrompt(
+            skills
+          )}`;
+        }
+      }
+
       // Execute SDK call with structured output.
       // MCP is explicitly DISABLED here — the analysis data is already embedded
       // in the prompt, so the LLM should NOT re-explore the workspace via MCP tools.
@@ -268,6 +283,7 @@ OUTPUT FORMAT:
         mcpServerRunning: false,
         maxTurns: 25,
         outputFormat: { type: 'json_schema', schema: outputSchema },
+        pluginPaths: sdkConfig?.pluginPaths,
       });
 
       let structuredOutput: unknown | null;
@@ -348,11 +364,11 @@ OUTPUT FORMAT:
     // Use multi-phase analysis if available, otherwise fall back to formatAnalysisData
     let analysisData: string;
     if (context.analysisDir) {
-      const roleSpecificContext = this.readRoleSpecificContext(
+      const phaseContext = this.readPhaseContextForRole(
         context.analysisDir,
         templateName
       );
-      analysisData = roleSpecificContext || this.formatAnalysisData(context);
+      analysisData = phaseContext || this.formatAnalysisData(context);
     } else {
       analysisData = this.formatAnalysisData(context);
     }
@@ -656,113 +672,130 @@ Return a JSON object: { "sections": { "<sectionId>": "<markdown content>", ... }
   // ==========================================================================
 
   /**
-   * Read role-specific context from 05-agent-context.md.
+   * Cache for raw phase file reads per analysisDir.
+   * Files are read once and reused across 13 agent template calls.
+   */
+  private phaseFileCache: {
+    dir: string;
+    files: Record<string, string>;
+  } | null = null;
+
+  /**
+   * Read phase-specific context directly from analysis phase files.
    *
-   * Extracts the "For All Agents" section (always included) and the role-specific
-   * section based on the template name. Falls back to empty string if the file
-   * is missing or unreadable, allowing the caller to use formatAnalysisData().
+   * Reads phase files from the analysis directory and selects which phases
+   * to include based on the agent role (derived from templateName).
+   * Each phase is truncated to a per-phase token budget.
    *
-   * Caches the file content per analysisDir so it's only read once even when
-   * called 13 times for 13 agent templates.
+   * Role-based phase selection:
+   * - All agents: Phase 1 (project profile, 8K limit)
+   * - Backend agents: + Phase 3 (quality audit, 8K)
+   * - Frontend agents: + Phase 3 (quality audit, 8K)
+   * - QA/Tester agents: + Phase 3 (quality audit, 10K)
+   * - Architect agents: + Phase 2 (architecture assessment, 8K) + Phase 4 (elevation plan, 5K)
+   * - All others: Phase 1 only
    *
    * @param analysisDir - Path to the multi-phase analysis slug directory
-   * @param templateName - Template name used to determine role-specific section
+   * @param templateName - Template name used to determine role-specific phases
    * @returns Combined analysis context, or empty string if unavailable
    */
-  private analysisContextCache: { dir: string; content: string } | null = null;
-
-  private readRoleSpecificContext(
+  private readPhaseContextForRole(
     analysisDir: string,
     templateName: string
   ): string {
     try {
-      let content: string;
-      if (this.analysisContextCache?.dir === analysisDir) {
-        content = this.analysisContextCache.content;
+      // Read and cache all phase files
+      let files: Record<string, string>;
+      if (this.phaseFileCache?.dir === analysisDir) {
+        files = this.phaseFileCache.files;
       } else {
-        const contextFile = path.join(analysisDir, '05-agent-context.md');
-        content = readFileSync(contextFile, 'utf-8');
-        this.analysisContextCache = { dir: analysisDir, content };
+        files = {};
+        const phaseFiles = [
+          {
+            key: 'profile',
+            file: '01-project-profile.md',
+            label: 'Project Profile',
+          },
+          {
+            key: 'architecture',
+            file: '02-architecture-assessment.md',
+            label: 'Architecture Assessment',
+          },
+          {
+            key: 'quality',
+            file: '03-quality-audit.md',
+            label: 'Quality Audit',
+          },
+          {
+            key: 'elevation',
+            file: '04-elevation-plan.md',
+            label: 'Elevation Plan',
+          },
+        ];
+        for (const pf of phaseFiles) {
+          try {
+            files[pf.key] = readFileSync(
+              path.join(analysisDir, pf.file),
+              'utf-8'
+            );
+          } catch {
+            // Phase file not available - skip
+          }
+        }
+        this.phaseFileCache = { dir: analysisDir, files };
       }
 
-      const allAgentsContent = this.extractAnalysisSection(
-        content,
-        'For All Agents'
-      );
-      const roleSection = this.getRoleSectionForTemplate(templateName);
-      const roleContent = roleSection
-        ? this.extractAnalysisSection(content, roleSection)
-        : '';
+      // Determine which phases to include based on role
+      const name = templateName.toLowerCase();
+      const phasesToInclude: Array<{
+        key: string;
+        label: string;
+        budget: number;
+      }> = [{ key: 'profile', label: 'Project Profile', budget: 8_000 }];
 
-      const combined = [allAgentsContent, roleContent]
-        .filter(Boolean)
-        .join('\n\n');
-
-      // Token budget: if too large, truncate "For All Agents" content first
-      if (combined.length > 50_000) {
-        return this.truncateForTokenBudget(allAgentsContent, roleContent);
+      if (name.includes('backend') || name.includes('frontend')) {
+        phasesToInclude.push({
+          key: 'quality',
+          label: 'Quality Audit',
+          budget: 8_000,
+        });
+      } else if (name.includes('tester') || name.includes('qa')) {
+        phasesToInclude.push({
+          key: 'quality',
+          label: 'Quality Audit',
+          budget: 10_000,
+        });
+      } else if (name.includes('architect')) {
+        phasesToInclude.push({
+          key: 'architecture',
+          label: 'Architecture Assessment',
+          budget: 8_000,
+        });
+        phasesToInclude.push({
+          key: 'elevation',
+          label: 'Elevation Plan',
+          budget: 5_000,
+        });
       }
 
-      return combined;
+      // Build combined context with per-phase truncation
+      const sections: string[] = [];
+      for (const phase of phasesToInclude) {
+        const content = files[phase.key];
+        if (!content) continue;
+
+        const truncated =
+          content.length > phase.budget
+            ? content.substring(0, phase.budget) +
+              '\n\n...(truncated for token budget)'
+            : content;
+        sections.push(`## ${phase.label}\n\n${truncated}`);
+      }
+
+      return sections.join('\n\n');
     } catch {
-      // File not available - caller falls back to formatAnalysisData()
+      // Directory not available - caller falls back to formatAnalysisData()
       return '';
     }
-  }
-
-  /**
-   * Map template name to the corresponding role section in 05-agent-context.md.
-   *
-   * @param templateName - Agent template name (e.g., 'backend-developer', 'frontend-architect')
-   * @returns Section heading name, or null for "For All Agents" only
-   */
-  private getRoleSectionForTemplate(templateName: string): string | null {
-    const name = templateName.toLowerCase();
-    if (name.includes('backend')) return 'For Backend Agents';
-    if (name.includes('frontend')) return 'For Frontend Agents';
-    if (name.includes('tester') || name.includes('qa')) return 'For QA Agents';
-    if (name.includes('architect')) return 'For Architecture Agents';
-    return null;
-  }
-
-  /**
-   * Extract a named section from the agent context markdown.
-   *
-   * Matches `## Section Name` headers and extracts content until the next
-   * `## ` header or end of file.
-   *
-   * @param content - Full markdown content
-   * @param sectionName - Section heading to extract (without ## prefix)
-   * @returns Extracted section content trimmed, or empty string
-   */
-  private extractAnalysisSection(content: string, sectionName: string): string {
-    const regex = new RegExp(`## ${sectionName}\\n([\\s\\S]*?)(?=\\n## |$)`);
-    const match = content.match(regex);
-    return match ? match[1].trim() : '';
-  }
-
-  /**
-   * Truncate content to fit within a ~50,000 character token budget.
-   *
-   * Prioritizes role-specific content over "For All Agents" content.
-   * Role-specific content is preserved in full; "For All Agents" is truncated
-   * to fill the remaining budget.
-   *
-   * @param allAgentsContent - "For All Agents" section content
-   * @param roleContent - Role-specific section content
-   * @returns Combined content within token budget
-   */
-  private truncateForTokenBudget(
-    allAgentsContent: string,
-    roleContent: string
-  ): string {
-    // Prioritize role-specific content, truncate "For All Agents"
-    const maxAllAgents = Math.max(10_000, 50_000 - roleContent.length);
-    const truncatedAll =
-      allAgentsContent.length > maxAllAgents
-        ? allAgentsContent.substring(0, maxAllAgents) +
-          '\n\n...(truncated for token budget)'
-        : allAgentsContent;
-    return [truncatedAll, roleContent].filter(Boolean).join('\n\n');
   }
 }

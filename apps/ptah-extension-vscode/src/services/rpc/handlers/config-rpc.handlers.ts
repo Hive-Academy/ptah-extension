@@ -16,6 +16,7 @@ import {
 } from '@ptah-extension/vscode-core';
 import {
   SdkAgentAdapter,
+  SdkPermissionHandler,
   ProviderModelsService,
   SDK_TOKENS,
   DEFAULT_PROVIDER_ID,
@@ -46,7 +47,9 @@ export class ConfigRpcHandlers {
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
-    private readonly providerModels: ProviderModelsService
+    private readonly providerModels: ProviderModelsService,
+    @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
+    private readonly permissionHandler: SdkPermissionHandler
   ) {}
 
   /**
@@ -59,6 +62,20 @@ export class ConfigRpcHandlers {
     this.registerAutopilotGet();
     this.registerModelsList();
 
+    // Initialize permission handler with saved autopilot config
+    // This ensures canUseTool callback respects the permission level
+    // even for sessions started before any toggle RPC is received
+    const autopilotEnabled = this.configManager.getWithDefault<boolean>(
+      'autopilot.enabled',
+      false
+    );
+    const savedLevel = this.configManager.getWithDefault<PermissionLevel>(
+      'autopilot.permissionLevel',
+      'ask'
+    );
+    const effectiveLevel = autopilotEnabled ? savedLevel : 'ask';
+    this.permissionHandler.setPermissionLevel(effectiveLevel);
+
     this.logger.debug('Config RPC handlers registered', {
       methods: [
         'config:model-switch',
@@ -67,6 +84,7 @@ export class ConfigRpcHandlers {
         'config:autopilot-get',
         'config:models-list',
       ],
+      initialPermissionLevel: effectiveLevel,
     });
   }
 
@@ -196,6 +214,14 @@ export class ConfigRpcHandlers {
             target: vscode.ConfigurationTarget.Workspace,
           }
         );
+
+        // Sync permission level to canUseTool callback (defense-in-depth)
+        // This ensures the callback respects the level even if SDK's
+        // setPermissionMode fails or no active session exists
+        const effectiveLevel = enabled
+          ? (permissionLevel as PermissionLevel)
+          : 'ask';
+        this.permissionHandler.setPermissionLevel(effectiveLevel);
 
         // Sync to active SDK session if provided and autopilot is enabled
         if (sessionId && enabled) {

@@ -30,3 +30,4 @@ export * from './lib/types/setup-wizard.types';
 
 // Constants
 export * from './lib/constants/trial.constants';
+export * from './lib/constants/environment.constants';

@@ -64,6 +64,9 @@ export interface InternalQueryConfig {
 
   /** Abort controller for cancellation (created internally if not provided) */
   abortController?: AbortController;
+
+  /** Absolute paths to plugin directories (from PluginLoaderService) */
+  pluginPaths?: string[];
 }
 
 /**

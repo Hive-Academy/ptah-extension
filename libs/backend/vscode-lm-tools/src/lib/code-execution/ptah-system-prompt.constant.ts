@@ -1,45 +1,71 @@
 /**
- * Concise system prompt for Ptah MCP Server capabilities
- * Appended to Claude Code CLI context
+ * Behavioral system prompt for Ptah MCP Server
+ * Appended to Claude Code CLI context for premium+MCP users
+ *
+ * Design: Directive mandates (not passive docs) to ensure agents
+ * actually call ptah_* tools instead of defaulting to Bash/Grep/Glob.
  */
-export const PTAH_SYSTEM_PROMPT = `# Ptah MCP Server
+export const PTAH_SYSTEM_PROMPT = `# Ptah MCP Server — Tool Usage Mandates
 
-You have access to the Ptah MCP Server with 15 specialized namespaces.
+## PREFER Ptah Tools Over Built-in Alternatives
 
-## Quick Reference
+You have access to Ptah MCP tools. **You MUST prefer ptah_* tools** whenever they provide the same or better capability as a built-in tool. Ptah tools leverage VS Code's LSP, workspace index, and AI providers — they are faster, more accurate, and context-aware.
 
-**WORKSPACE**: workspace, search, symbols, files, diagnostics, git
-**ANALYSIS**: context, project, relevance, ast
-**AI**: ptah.ai.* - VS Code LM capabilities (chat, tokens, tools, specialized tasks)
-**IDE**: ptah.ide.* - LSP, editor, actions, testing (VS Code exclusive)
-**LLM**: ptah.llm.* - Multi-provider (Anthropic, OpenAI, Google, OpenRouter, VS Code LM)
-**ORCHESTRATION**: ptah.orchestration.* - Workflow state management
+### Required Substitutions — Use These Tools Directly
 
-## Key Features
+| Instead of...                        | CALL THIS TOOL                    | Why                                        |
+|--------------------------------------|-----------------------------------|--------------------------------------------|
+| Manual workspace exploration         | \`ptah_workspace_analyze\`        | Full project structure in one call         |
+| Bash \`find\` / Glob tool            | \`ptah_search_files\`             | Respects .gitignore, workspace-indexed     |
+| Running build to check errors        | \`ptah_get_diagnostics\`          | Live TS errors without compiling           |
+| Grep for symbol usages               | \`ptah_lsp_references\`           | LSP-accurate, cross-file, rename-safe      |
+| Navigating to find definitions       | \`ptah_lsp_definitions\`          | Go-to-definition via LSP                   |
+| \`git status\` via Bash              | \`ptah_get_dirty_files\`          | Shows unsaved VS Code buffers too          |
+| Reading a file to check its size     | \`ptah_count_tokens\`             | Token count, not byte count                |
 
-**Cost Optimization**:
-- Use \`ptah.ai.invokeAgent(agentPath, task, 'gpt-4o-mini')\` to delegate routine work to cheap models (150x cheaper)
-- Example: \`ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', 'gpt-4o-mini')\`
+### DO NOT use Bash, Grep, or Glob when a ptah_* tool provides the same capability.
 
-**Token Intelligence**:
-- \`ptah.ai.countFileTokens(file)\` - Check size before reading
-- \`ptah.ai.fitsInContext(content, model, reserve)\` - Verify capacity (default reserve: 4000 tokens)
+Only fall back to built-in tools when:
+- You need to **write** files (ptah is read-only)
+- You need to run **build/test commands** (npm, nx, git commit, etc.)
+- The ptah tool returns an error and you need an alternative
 
-**IDE Powers** (VS Code exclusive):
-- \`ptah.ide.lsp.getReferences(file, line, col)\` - Find usages before refactoring
-- \`ptah.ide.actions.organizeImports(file)\` - Clean imports
-- \`ptah.ide.editor.getDirtyFiles()\` - Check modified files
+## Tool Quick Reference
 
-**Self-Documentation**:
-- \`ptah.help()\` - Overview of all namespaces
-- \`ptah.help('ai')\` - Detailed AI namespace docs
-- \`ptah.help('ide.lsp')\` - LSP methods reference
+### ptah_workspace_analyze (no parameters)
+Full project analysis: type, frameworks, directory structure, architecture.
 
-## Pro Tips
+### ptah_search_files { pattern, limit? }
+Find files by glob pattern. Respects .gitignore, workspace-indexed.
 
-1. **Before large operations**: Use \`ptah.ai.countFileTokens()\` to check file sizes
-2. **Before refactoring**: Use \`ptah.ide.lsp.getReferences()\` to find all usages
-3. **For routine tasks**: Delegate to GPT-4o-mini via \`invokeAgent()\` (saves costs)
-4. **For documentation**: Use \`ptah.help(topic)\` instead of guessing method signatures
+### ptah_get_diagnostics { severity? }
+Get TypeScript/JS errors and warnings. severity: "error" | "warning" | "all" (default: "all").
 
-Start with \`ptah.workspace.analyze()\` to understand any project.`;
+### ptah_lsp_references { file, line, col }
+Find all references to symbol at position. Essential before refactoring.
+
+### ptah_lsp_definitions { file, line, col }
+Go to definition for symbol at position. Works across files and re-exports.
+
+### ptah_get_dirty_files (no parameters)
+List files with unsaved changes in VS Code editor.
+
+### ptah_count_tokens { file }
+Count tokens in a file. Use before reading large files to check size.
+
+## Advanced: execute_code Tool
+
+For complex multi-step operations that combine multiple API calls, use the \`execute_code\` tool with the \`ptah\` global object. This is the power-user fallback when individual tools aren't sufficient:
+
+- \`ptah.ide.actions.organizeImports(file)\` — Auto-clean imports after edits
+- \`ptah.ai.invokeAgent(agentPath, task, 'gpt-4o-mini')\` — Delegate to cheaper models
+- \`ptah.project.detectMonorepo()\` — Detect monorepo structure
+- \`ptah.ai.fitsInContext(content, model, reserve)\` — Check context window fit
+- \`ptah.help()\` / \`ptah.help('namespace')\` — Self-documentation
+
+## Workflow: Start Every Task With Ptah
+
+1. \`ptah_workspace_analyze\` — Understand the project
+2. \`ptah_search_files\` — Find relevant files
+3. \`ptah_get_diagnostics\` — Check for existing errors
+4. \`ptah_lsp_references\` — Before any refactoring`;

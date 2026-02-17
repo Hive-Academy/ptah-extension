@@ -1,11 +1,11 @@
 ---
 name: saas-workspace-initializer
-description: Orchestrated workflow for initializing a complete SaaS workspace with NestJS, Angular, and Nx; use when starting a new SaaS project, setting up monorepo structure, creating multi-tenant architecture, or needing full PRD-to-implementation workflow; integrates with orchestration to coordinate PM, Architect, and Development agents.
+description: Orchestrated workflow for initializing a complete SaaS workspace with NestJS, Nx, and your choice of Angular or React frontend; use when starting a new SaaS project, setting up monorepo structure, creating multi-tenant architecture, or needing full PRD-to-implementation workflow; integrates with orchestration to coordinate PM, Architect, and Development agents.
 ---
 
 # SaaS Workspace Initializer
 
-Orchestrated workflow for spinning up production-ready SaaS applications using Nx, NestJS, and Angular.
+Orchestrated workflow for spinning up production-ready SaaS applications using Nx, NestJS, and your chosen frontend framework (Angular or React).
 
 ## Trigger Keywords
 
@@ -13,12 +13,16 @@ When user mentions any of these, consider this skill:
 
 - "new SaaS project", "start SaaS", "create SaaS"
 - "multi-tenant", "multitenancy"
-- "Nx monorepo", "NestJS + Angular"
+- "Nx monorepo", "NestJS + Angular", "NestJS + React"
 - "initialize workspace", "scaffold workspace"
 
 ## Workflow Overview
 
 ```
+Phase 0: FRAMEWORK SELECTION (Orchestrator)
+         Ask user: Angular or React?
+         |
+         v
 Phase 1: SCOPE CLARIFICATION (Orchestrator)
          Ask critical SaaS-specific questions
          |
@@ -52,9 +56,34 @@ Phase 6: QA verification
          - Basic smoke tests
 ```
 
+## Phase 0: Framework Selection
+
+**CRITICAL**: Before any other questions, ask the user which frontend framework to use:
+
+```
+Which frontend framework would you like for this SaaS project?
+
+1. **Angular** — Signal-based reactive architecture, ideal for enterprise apps
+   - Uses: angular-frontend-patterns skill (from hive-academy-angular plugin)
+   - Best for: Complex forms, enterprise dashboards, admin panels
+
+2. **React** — Component composition with hooks, ideal for flexible UIs
+   - Uses: react-best-practices + react-nx-patterns skills (from hive-academy-react plugin)
+   - Best for: Rapid prototyping, consumer-facing apps, SSR with Next.js
+```
+
+Record the choice in `scope-decisions.md` under **Frontend Framework**.
+
+### Skill Loading Based on Choice
+
+| Choice  | Frontend Skill(s) to Load                   |
+| ------- | ------------------------------------------- |
+| Angular | `angular-frontend-patterns`                 |
+| React   | `react-best-practices`, `react-nx-patterns` |
+
 ## Phase 1: Scope Clarification Questions
 
-Before invoking PM, ask user these critical questions:
+After framework selection, ask user these critical questions:
 
 ### Business Context
 
@@ -89,6 +118,7 @@ When invoking project-manager, include:
 ADDITIONAL CONTEXT FOR SAAS PRD:
 
 Reference skill: saas-workspace-initializer
+Frontend Framework: [Angular|React] (from Phase 0)
 
 The task-description.md MUST include:
 
@@ -131,10 +161,12 @@ When invoking software-architect, include:
 ```
 ADDITIONAL CONTEXT FOR SAAS ARCHITECTURE:
 
+Frontend Framework: [Angular|React] (from Phase 0)
+
 Reference skills:
 - nx-workspace-architect (library structure)
 - nestjs-backend-patterns (backend patterns)
-- angular-frontend-patterns (frontend patterns)
+- [selected frontend skill] (frontend patterns)
 - ddd-architecture (domain patterns)
 
 The implementation-plan.md MUST include:
@@ -209,7 +241,7 @@ Tasks:
 2. Create [domain]/application library
 3. Create [domain]/infrastructure library
 4. Create [domain]/feature library (NestJS)
-5. Create [domain]/feature library (Angular)
+5. Create [domain]/feature library ([Angular|React])
 ```
 
 ### Batch 4: Verification
@@ -235,7 +267,8 @@ When team-leader assigns tasks, developers should reference:
 | Multitenancy        | nestjs-backend-patterns/references/multitenancy.md     |
 | Prisma/ZenStack     | nestjs-backend-patterns/references/prisma-zenstack.md  |
 | Entity design       | ddd-architecture/references/entities-aggregates.md     |
-| Angular patterns    | angular-frontend-patterns                              |
+| Frontend (Angular)  | angular-frontend-patterns                              |
+| Frontend (React)    | react-best-practices, react-nx-patterns                |
 
 ## Quick Commands
 
@@ -261,32 +294,30 @@ Orchestrator Response:
 ```
 Starting SaaS workspace initialization...
 
-Before we proceed, I need to understand your requirements:
+**Step 1: Frontend Framework**
 
-**Business Context:**
-1. Is this B2B, B2C, or both?
-2. Tenant model preference:
-   - [ ] Shared database (simpler, recommended for MVP)
-   - [ ] Database per tenant (stronger isolation)
-3. Core domains (e.g., Projects, Tasks, Teams)?
+Which frontend framework would you like?
 
-**Technical Context:**
-4. Authentication:
-   - [ ] Built-in JWT (we control everything)
-   - [ ] External provider (Clerk, Auth0 - faster to market)
-5. Payment integration needed for MVP?
+1. **Angular** — Signal-based, enterprise-grade (recommended for complex admin UIs)
+2. **React** — Composition-based, flexible (recommended for consumer-facing apps)
 
-**Scale Context:**
-6. Team size working on this?
-7. Timeline: Quick MVP or production-ready architecture?
+---
 
-Reply with your choices and I'll create the PRD.
+Once you choose, I'll ask about your business requirements:
+
+- SaaS type (B2B/B2C)
+- Tenant model
+- Core domains
+- Authentication approach
+- And more...
 ```
 
 ## References
 
 - [nx-workspace-architect](../nx-workspace-architect/SKILL.md) - Workspace structure
 - [nestjs-backend-patterns](../nestjs-backend-patterns/SKILL.md) - Backend patterns
-- [angular-frontend-patterns](../angular-frontend-patterns/SKILL.md) - Frontend patterns
-- [ddd-architecture](../ddd-architecture/SKILL.md) - Domain patterns
-- [orchestration](../orchestration/SKILL.md) - Workflow management
+- [ddd-architecture](../../hive-academy-core/skills/ddd-architecture/SKILL.md) - Domain patterns
+- [orchestration](../../hive-academy-core/skills/orchestration/SKILL.md) - Workflow management
+- [angular-frontend-patterns](../../hive-academy-angular/skills/angular-frontend-patterns/SKILL.md) - Angular patterns
+- [react-best-practices](../../hive-academy-react/skills/react-best-practices/SKILL.md) - React patterns
+- [react-nx-patterns](../../hive-academy-react/skills/react-nx-patterns/SKILL.md) - React + Nx patterns

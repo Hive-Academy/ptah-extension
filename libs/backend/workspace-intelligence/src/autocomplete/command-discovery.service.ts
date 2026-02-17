@@ -13,7 +13,7 @@ export interface CommandInfo {
   readonly name: string;
   readonly description: string;
   readonly argumentHint?: string;
-  readonly scope: 'builtin' | 'project' | 'user' | 'mcp';
+  readonly scope: 'builtin' | 'project' | 'user' | 'mcp' | 'plugin';
   readonly filePath?: string;
   readonly template?: string;
   readonly allowedTools?: string[];
@@ -51,10 +51,23 @@ export interface CommandSearchRequest {
 export class CommandDiscoveryService {
   private cache: CommandInfo[] = [];
   private watchers: vscode.FileSystemWatcher[] = [];
+  private pluginPaths: string[] = [];
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT) private context: vscode.ExtensionContext
   ) {}
+
+  /**
+   * Set plugin paths for command/skill discovery.
+   * Called after PluginLoaderService is initialized (late initialization pattern).
+   *
+   * @param pluginPaths - Absolute paths to enabled plugin directories
+   */
+  setPluginPaths(pluginPaths: string[]): void {
+    this.pluginPaths = pluginPaths;
+    // Invalidate cache so next search picks up plugin commands
+    this.cache = [];
+  }
 
   /**
    * Discover all commands (built-in + custom)
@@ -79,10 +92,14 @@ export class CommandDiscoveryService {
         path.join(os.homedir(), '.claude/commands')
       );
 
+      // Plugin commands and skills
+      const pluginCommands = await this.scanPluginDirectories();
+
       const allCommands = [
         ...builtins,
         ...projectCommands.map((c) => ({ ...c, scope: 'project' as const })),
         ...userCommands.map((c) => ({ ...c, scope: 'user' as const })),
+        ...pluginCommands,
       ];
 
       // Update cache
@@ -302,6 +319,74 @@ export class CommandDiscoveryService {
       );
       return null;
     }
+  }
+
+  /**
+   * Scan plugin directories for commands and skills
+   */
+  private async scanPluginDirectories(): Promise<CommandInfo[]> {
+    if (this.pluginPaths.length === 0) return [];
+
+    const commands: CommandInfo[] = [];
+
+    for (const pluginPath of this.pluginPaths) {
+      // Scan plugin commands/ directory (same format as .claude/commands/)
+      const pluginCommands = await this.scanCommandDirectory(
+        path.join(pluginPath, 'commands')
+      );
+      commands.push(
+        ...pluginCommands.map((c) => ({ ...c, scope: 'plugin' as const }))
+      );
+
+      // Scan plugin skills/ directory (SKILL.md with frontmatter)
+      const pluginSkills = await this.scanSkillsDirectory(pluginPath);
+      commands.push(...pluginSkills);
+    }
+
+    return commands;
+  }
+
+  /**
+   * Scan a plugin's skills/ directory for skill definitions
+   */
+  private async scanSkillsDirectory(
+    pluginPath: string
+  ): Promise<CommandInfo[]> {
+    const skillsDir = path.join(pluginPath, 'skills');
+    const skills: CommandInfo[] = [];
+
+    try {
+      const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
+        try {
+          const content = await fs.readFile(skillMdPath, 'utf-8');
+          const { data: frontmatter } = matter(content);
+
+          const name = frontmatter['name'] || entry.name;
+          const description = frontmatter['description'] || 'Plugin skill';
+
+          skills.push({
+            name,
+            description:
+              typeof description === 'string'
+                ? description.replace(/\s+/g, ' ').trim()
+                : String(description),
+            scope: 'plugin',
+            filePath: skillMdPath,
+          });
+        } catch {
+          // SKILL.md not readable — skip
+        }
+      }
+    } catch {
+      // skills/ directory not accessible — skip
+    }
+
+    return skills;
   }
 
   /**

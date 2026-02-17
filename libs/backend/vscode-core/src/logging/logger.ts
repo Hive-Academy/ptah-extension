@@ -12,6 +12,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { PtahProdDefaults, PtahDevDefaults } from '@ptah-extension/shared';
 import { OUTPUT_MANAGER } from '../di/tokens';
 import { OutputManager } from '../api-wrappers/output-manager';
 import type { LogLevel, LogContext, LogEntry } from './types';
@@ -35,6 +36,12 @@ export class Logger {
    */
   private readonly minLevel: LogLevel;
 
+  /**
+   * Whether to also log to the developer console.
+   * Enabled in development, disabled in production to reduce noise.
+   */
+  private readonly logToConsole: boolean;
+
   private static readonly LEVEL_ORDER: Record<LogLevel, number> = {
     debug: 0,
     info: 1,
@@ -48,11 +55,20 @@ export class Logger {
     // Ensure output channel is created for logging
     this.outputManager.createOutputChannel({ name: Logger.CHANNEL_NAME });
 
-    // Detect development mode - default to 'info' in production
-    // In development (F5 debugging), extensionMode is Development (2)
-    // In production (installed extension), extensionMode is Production (1)
-    const isDevelopment = this.detectDevelopmentMode();
-    this.minLevel = isDevelopment ? 'debug' : 'info';
+    // Detect development mode and apply centralized log level defaults.
+    // PTAH_LOG_LEVEL env var always takes priority for explicit overrides.
+    const explicitLevel = process.env['PTAH_LOG_LEVEL'] as LogLevel | undefined;
+    if (explicitLevel && Logger.LEVEL_ORDER[explicitLevel] !== undefined) {
+      this.minLevel = explicitLevel;
+    } else {
+      const isDevelopment = this.detectDevelopmentMode();
+      this.minLevel = isDevelopment
+        ? PtahDevDefaults.LOG_LEVEL
+        : PtahProdDefaults.LOG_LEVEL;
+    }
+    this.logToConsole = this.detectDevelopmentMode()
+      ? PtahDevDefaults.LOG_TO_CONSOLE
+      : PtahProdDefaults.LOG_TO_CONSOLE;
   }
 
   /**
@@ -298,8 +314,10 @@ export class Logger {
       this.outputManager.write(Logger.CHANNEL_NAME, entry.stackTrace);
     }
 
-    // Also log to console for debugging
-    this.logToConsole(entry);
+    // Also log to console when enabled (dev mode)
+    if (this.logToConsole) {
+      this.writeToConsole(entry);
+    }
   }
 
   /**
@@ -308,7 +326,7 @@ export class Logger {
    *
    * @param entry - Log entry to write to console
    */
-  private logToConsole(entry: LogEntry): void {
+  private writeToConsole(entry: LogEntry): void {
     const consoleMessage = `[${entry.level.toUpperCase()}] ${entry.message}`;
     const consoleArgs = entry.context?.metadata ? [entry.context.metadata] : [];
 

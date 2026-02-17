@@ -288,7 +288,8 @@ export class SdkQueryOptionsBuilder {
     const systemPrompt = this.buildSystemPrompt(
       sessionConfig,
       isPremium,
-      enhancedPromptsContent
+      enhancedPromptsContent,
+      mcpServerRunning
     );
 
     // Create permission callback
@@ -372,20 +373,27 @@ export class SdkQueryOptionsBuilder {
    * Assembles the system prompt from:
    * 1. Model identity clarification (for third-party providers)
    * 2. User's custom system prompt (from sessionConfig)
-   * 3. Enhanced prompts content (if provided) OR PTAH_CORE_SYSTEM_PROMPT (for premium)
+   * 3. Preset-based prompt (claude_code OR enhanced) based on user selection
+   * 4. PTAH_SYSTEM_PROMPT (MCP documentation) for premium users with MCP server
    *
-   * For free tier: Uses default claude_code preset only
-   * For premium: Appends PTAH_CORE_SYSTEM_PROMPT or enhanced prompts content
+   * Preset logic:
+   * - If sessionConfig.preset === 'enhanced' AND enhancedPromptsContent exists → Use enhanced prompts
+   * - If sessionConfig.preset === 'claude_code' OR no enhanced prompts → Use PTAH_CORE_SYSTEM_PROMPT (premium only)
+   * - If preset not specified → Auto-select (enhanced if available, otherwise claude_code for premium)
    *
-   * @param sessionConfig - Session configuration with optional custom system prompt
+   * MCP documentation is ALWAYS injected for premium users with MCP server, regardless of preset.
+   *
+   * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
    * @param isPremium - Whether user has premium features enabled
    * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
+   * @param mcpServerRunning - Whether MCP server is running
    * @returns System prompt configuration for SDK
    */
   private buildSystemPrompt(
     sessionConfig?: AISessionConfig,
     isPremium = false,
-    enhancedPromptsContent?: string
+    enhancedPromptsContent?: string,
+    mcpServerRunning = true
   ): SdkQueryOptions['systemPrompt'] {
     const appendParts: string[] = [];
 
@@ -406,35 +414,84 @@ export class SdkQueryOptionsBuilder {
       appendParts.push(sessionConfig.systemPrompt);
     }
 
-    // TASK_2025_137: Add enhanced prompts content or core system prompt for premium users
-    if (enhancedPromptsContent) {
-      // Enhanced prompts enabled - use AI-generated guidance
-      appendParts.push(enhancedPromptsContent);
+    // Determine which preset to use
+    // When no explicit preset is selected (userPreset undefined):
+    //   - If enhanced prompts are available → use them (auto-select enhanced)
+    //   - If premium but no enhanced prompts → use core prompt
+    //   - If free tier → no additional prompt
+    const userPreset = sessionConfig?.preset;
+    const useEnhanced =
+      (userPreset === 'enhanced' ||
+        (!userPreset && !!enhancedPromptsContent)) &&
+      !!enhancedPromptsContent;
+    const useCorePrompt =
+      userPreset === 'claude_code' || (!useEnhanced && isPremium);
+
+    // Add preset-based prompt
+    if (useEnhanced) {
+      // User explicitly selected enhanced OR auto-selected (enhanced available)
+      appendParts.push(enhancedPromptsContent!);
       this.logger.debug(
         '[SdkQueryOptionsBuilder] Using enhanced prompts content',
-        { contentLength: enhancedPromptsContent.length }
+        {
+          contentLength: enhancedPromptsContent!.length,
+          explicitSelection: userPreset === 'enhanced',
+        }
       );
-    } else if (isPremium) {
-      // Premium user without enhanced prompts - use core system prompt
+    } else if (useCorePrompt) {
+      // User explicitly selected claude_code OR auto-selected (premium without enhanced)
       appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
       this.logger.debug(
-        '[SdkQueryOptionsBuilder] Using PTAH_CORE_SYSTEM_PROMPT for premium user'
+        '[SdkQueryOptionsBuilder] Using PTAH_CORE_SYSTEM_PROMPT for premium user',
+        { explicitSelection: userPreset === 'claude_code' }
       );
     }
-    // Free tier: No additional prompt appended (uses default claude_code preset)
+    // Free tier without preset: No additional prompt (uses default claude_code preset)
 
-    this.logger.debug('[SdkQueryOptionsBuilder] System prompt assembled', {
+    // ALWAYS inject PTAH_SYSTEM_PROMPT (MCP documentation) for premium users with MCP server
+    // This applies to BOTH presets (enhanced AND claude_code)
+    if (isPremium && mcpServerRunning) {
+      // Import PTAH_SYSTEM_PROMPT dynamically to avoid circular dependencies
+
+      const { PTAH_SYSTEM_PROMPT } = require('@ptah-extension/vscode-lm-tools');
+      appendParts.push(PTAH_SYSTEM_PROMPT);
+      this.logger.debug(
+        '[SdkQueryOptionsBuilder] Added MCP documentation to system prompt',
+        {
+          isPremium,
+          mcpServerRunning,
+          preset: useEnhanced ? 'enhanced' : 'claude_code',
+        }
+      );
+    }
+
+    const assembledAppend =
+      appendParts.length > 0 ? appendParts.join('\n\n') : undefined;
+    this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
       isPremium,
+      mcpServerRunning,
+      preset: userPreset || 'auto',
+      selectedPreset: useEnhanced
+        ? 'enhanced'
+        : useCorePrompt
+        ? 'claude_code'
+        : 'none',
       hasEnhancedPrompts: !!enhancedPromptsContent,
+      enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
       hasIdentityPrompt: !!identityPrompt,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
-      totalAppendLength: appendParts.join('\n\n').length,
+      hasMcpDocs: isPremium && mcpServerRunning,
+      totalAppendLength: assembledAppend?.length ?? 0,
+      appendPreview: assembledAppend
+        ? assembledAppend.substring(0, 300) +
+          (assembledAppend.length > 300 ? '...' : '')
+        : '(none)',
     });
 
     return {
       type: 'preset' as const,
       preset: 'claude_code' as const,
-      append: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
+      append: assembledAppend,
     };
   }
 
@@ -458,8 +515,9 @@ export class SdkQueryOptionsBuilder {
   ): Record<string, McpHttpServerConfig> {
     // Free tier - disable MCP servers (TASK_2025_108)
     if (!isPremium) {
-      this.logger.debug(
-        '[SdkQueryOptionsBuilder] Free tier - MCP servers disabled'
+      this.logger.info(
+        '[SdkQueryOptionsBuilder] MCP servers disabled (not premium)',
+        { isPremium, mcpServerRunning }
       );
       return {};
     }
@@ -467,8 +525,9 @@ export class SdkQueryOptionsBuilder {
     // TASK_2025_108: Check if MCP server is running before configuring
     // This prevents configuring Claude with a dead endpoint
     if (!mcpServerRunning) {
-      this.logger.warn(
-        '[SdkQueryOptionsBuilder] Premium user but MCP server not running - skipping MCP config'
+      this.logger.info(
+        '[SdkQueryOptionsBuilder] MCP servers disabled (server not running)',
+        { isPremium, mcpServerRunning }
       );
       return {};
     }
@@ -476,12 +535,18 @@ export class SdkQueryOptionsBuilder {
     // Premium user - enable Ptah HTTP MCP server
     // Uses HTTP MCP server from vscode-lm-tools/CodeExecutionMCP
     // Provides execute_code tool with 11 Ptah API namespaces
-    return {
+    const mcpConfig = {
       ptah: {
-        type: 'http',
+        type: 'http' as const,
         url: `http://localhost:${PTAH_MCP_PORT}`,
       },
     };
+    this.logger.info('[SdkQueryOptionsBuilder] MCP servers ENABLED', {
+      isPremium,
+      mcpServerRunning,
+      mcpUrl: mcpConfig.ptah.url,
+    });
+    return mcpConfig;
   }
 
   /**

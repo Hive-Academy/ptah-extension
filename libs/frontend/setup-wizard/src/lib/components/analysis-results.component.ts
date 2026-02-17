@@ -15,11 +15,6 @@ import {
 } from 'lucide-angular';
 import { MarkdownModule } from 'ngx-markdown';
 import { SetupWizardStateService } from '../services/setup-wizard-state.service';
-import { ArchitecturePatternsCardComponent } from './analysis/architecture-patterns-card.component';
-import { CodeHealthCardComponent } from './analysis/code-health-card.component';
-import { KeyFileLocationsCardComponent } from './analysis/key-file-locations-card.component';
-import { TechStackSummaryComponent } from './analysis/tech-stack-summary.component';
-import { QualityScoreCardComponent } from './cards/quality-score-card.component';
 import { ConfirmationModalComponent } from './confirmation-modal.component';
 
 /**
@@ -50,16 +45,7 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
 @Component({
   selector: 'ptah-analysis-results',
   standalone: true,
-  imports: [
-    LucideAngularModule,
-    MarkdownModule,
-    ConfirmationModalComponent,
-    ArchitecturePatternsCardComponent,
-    KeyFileLocationsCardComponent,
-    CodeHealthCardComponent,
-    TechStackSummaryComponent,
-    QualityScoreCardComponent,
-  ],
+  imports: [LucideAngularModule, MarkdownModule, ConfirmationModalComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="px-3 py-4">
@@ -178,178 +164,8 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
       </div>
 
       } @else {
-      <!-- Legacy / Fallback paths -->
-      @if (deepAnalysis(); as analysis) {
-      <!-- Legacy Deep Analysis Results (fallback path) -->
-      <!-- 2-Column Grid Layout -->
-      <div class="grid grid-cols-2 gap-4 mb-4">
-        <!-- Left Column: Tech Stack Summary + Key File Locations -->
-        <div>
-          <ptah-tech-stack-summary
-            [projectType]="analysis.projectType"
-            [projectTypeDescription]="analysis.projectTypeDescription"
-            [fileCount]="analysis.fileCount"
-            [frameworks]="analysis.frameworks"
-            [monorepoType]="analysis.monorepoType"
-            [languageDistribution]="analysis.languageDistribution"
-          />
-
-          @if (analysis.keyFileLocations) {
-          <ptah-key-file-locations-card
-            [locations]="analysis.keyFileLocations"
-          />
-          }
-        </div>
-
-        <!-- Right Column: Architecture Patterns + Code Health -->
-        <div class="space-y-4">
-          @if (analysis.architecturePatterns &&
-          analysis.architecturePatterns.length > 0) {
-          <ptah-architecture-patterns-card
-            [patterns]="analysis.architecturePatterns"
-          />
-          } @if (analysis.existingIssues && analysis.testCoverage) {
-          <ptah-code-health-card
-            [issues]="analysis.existingIssues"
-            [testCoverage]="analysis.testCoverage"
-          />
-          } @if (analysis.qualityScore !== null && analysis.qualityScore !==
-          undefined) {
-          <ptah-quality-score-card
-            [qualityScore]="analysis.qualityScore"
-            [qualityStrengths]="analysis.qualityStrengths ?? []"
-            [qualityIssues]="analysis.qualityIssues ?? []"
-          />
-          }
-        </div>
-      </div>
-
-      <!-- Confirmation Warning -->
-      <div class="alert alert-warning text-xs mb-4">
-        <lucide-angular
-          [img]="TriangleAlertIcon"
-          class="stroke-current shrink-0 h-4 w-4"
-          aria-hidden="true"
-        />
-        <div>
-          <div class="font-semibold">Does this look correct?</div>
-          <div class="text-xs opacity-80">
-            The agents we generate will be tailored to these characteristics.
-          </div>
-        </div>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="flex gap-2 justify-center">
-        <button class="btn btn-ghost btn-sm" (click)="onManualAdjust()">
-          No, Let Me Adjust
-        </button>
-        <button class="btn btn-primary btn-sm" (click)="onContinue()">
-          Yes, Continue
-        </button>
-      </div>
-
-      } @else { @if (projectContext(); as context) {
-      <!-- Fallback: Show basic project context if deep analysis not available -->
-      <div class="border border-base-300 rounded-md bg-base-200/50 mb-4">
-        <div class="p-4">
-          <h3 class="text-sm font-medium uppercase tracking-wide mb-3">
-            Detected Project Details
-          </h3>
-
-          <div class="space-y-3">
-            <!-- Project Type -->
-            <div>
-              <span class="font-semibold text-base-content/80 text-xs"
-                >Project Type:</span
-              >
-              <span class="ml-2 badge badge-primary badge-sm">{{
-                context.type
-              }}</span>
-            </div>
-
-            <!-- Tech Stack -->
-            <div>
-              <span class="font-semibold text-base-content/80 text-xs"
-                >Tech Stack:</span
-              >
-              <div class="flex flex-wrap gap-2 mt-1">
-                @for (tech of context.techStack; track tech) {
-                <span class="badge badge-secondary badge-sm">{{ tech }}</span>
-                } @empty {
-                <span class="text-base-content/60 text-xs"
-                  >No tech stack detected</span
-                >
-                }
-              </div>
-            </div>
-
-            <!-- Architecture (if present) -->
-            @if (context.architecture) {
-            <div>
-              <span class="font-semibold text-base-content/80 text-xs"
-                >Architecture:</span
-              >
-              <span class="ml-2 text-base-content text-xs">{{
-                context.architecture
-              }}</span>
-            </div>
-            }
-
-            <!-- Monorepo Information -->
-            <div>
-              <span class="font-semibold text-base-content/80 text-xs"
-                >Monorepo:</span
-              >
-              @if (context.isMonorepo) {
-              <span class="ml-2 text-success text-xs">
-                Yes @if (context.monorepoType) {
-                <span class="text-base-content/60 text-xs"
-                  >({{ context.monorepoType }})</span
-                >
-                } @if (context.packageCount) {
-                <span class="text-base-content/60 text-xs"
-                  >- {{ context.packageCount }} packages</span
-                >
-                }
-              </span>
-              } @else {
-              <span class="ml-2 text-base-content/60 text-xs">No</span>
-              }
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Confirmation Warning -->
-      <div class="alert alert-warning text-xs mb-4">
-        <lucide-angular
-          [img]="TriangleAlertIcon"
-          class="stroke-current shrink-0 h-4 w-4"
-          aria-hidden="true"
-        />
-        <div>
-          <div class="font-semibold">Does this look correct?</div>
-          <div class="text-xs opacity-80">
-            The agents we generate will be tailored to these characteristics.
-          </div>
-        </div>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="flex gap-2 justify-center">
-        <button class="btn btn-ghost btn-sm" (click)="onManualAdjust()">
-          No, Let Me Adjust
-        </button>
-        <button class="btn btn-primary btn-sm" (click)="onContinue()">
-          Yes, Continue
-        </button>
-      </div>
-
-      } @else {
-      <!-- Skeleton loading state (no context available) -->
+      <!-- Skeleton loading state (no analysis available) -->
       <div class="space-y-4">
-        <!-- Skeleton: Tech Stack Summary -->
         <div class="border border-base-300 rounded-md bg-base-200/50">
           <div class="p-4">
             <div class="skeleton h-4 w-48 mb-2"></div>
@@ -362,25 +178,12 @@ import { ConfirmationModalComponent } from './confirmation-modal.component';
             <div class="skeleton h-3 w-3/4"></div>
           </div>
         </div>
-
-        <!-- Skeleton: Architecture Patterns -->
-        <div class="border border-base-300 rounded-md bg-base-200/50">
-          <div class="p-4">
-            <div class="skeleton h-4 w-56 mb-2"></div>
-            <div class="space-y-2">
-              <div class="skeleton h-6 w-full"></div>
-              <div class="skeleton h-6 w-full"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Skeleton: Action Buttons -->
         <div class="flex gap-2 justify-center">
           <div class="skeleton h-8 w-28 rounded-lg"></div>
           <div class="skeleton h-8 w-28 rounded-lg"></div>
         </div>
       </div>
-      } } }
+      }
     </div>
 
     <!-- Alert Modal for Future Enhancement -->
@@ -422,20 +225,6 @@ For now, you can:
    */
   protected readonly multiPhaseResult = computed(() => {
     return this.wizardState.multiPhaseResult();
-  });
-
-  /**
-   * Reactive deep analysis from state service (legacy fallback).
-   */
-  protected readonly deepAnalysis = computed(() => {
-    return this.wizardState.deepAnalysis();
-  });
-
-  /**
-   * Reactive project context from state service (basic fallback).
-   */
-  protected readonly projectContext = computed(() => {
-    return this.wizardState.projectContext();
   });
 
   /**

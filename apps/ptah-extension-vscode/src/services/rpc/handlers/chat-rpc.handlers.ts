@@ -8,6 +8,9 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 import {
   Logger,
   RpcHandler,
@@ -15,6 +18,7 @@ import {
   ConfigManager,
   SubagentRegistryService,
   LicenseService,
+  AgentSessionWatcherService,
   type LicenseStatus,
 } from '@ptah-extension/vscode-core';
 import {
@@ -70,7 +74,9 @@ export class ChatRpcHandlers {
     @inject(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE)
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
-    private readonly pluginLoader: PluginLoaderService
+    private readonly pluginLoader: PluginLoaderService,
+    @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
+    private readonly agentSessionWatcher: AgentSessionWatcherService
   ) {}
 
   /**
@@ -97,6 +103,50 @@ export class ChatRpcHandlers {
    */
   private isMcpServerRunning(): boolean {
     return this.codeExecutionMcp.getPort() !== null;
+  }
+
+  /**
+   * Check if a subagent's transcript file exists on disk.
+   * Without a transcript, the SDK cannot resume the subagent.
+   *
+   * Looks in: {projectDir}/{parentSessionId}/subagents/agent-{agentId}.jsonl
+   */
+  private async hasSubagentTranscript(
+    workspacePath: string,
+    parentSessionId: string,
+    agentId: string
+  ): Promise<boolean> {
+    try {
+      const homeDir = os.homedir();
+      const projectsDir = path.join(homeDir, '.claude', 'projects');
+      const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+
+      // Try exact match, lowercase match, and normalized match for project dir.
+      // Claude CLI may normalize path separators differently (e.g., replacing _ with -)
+      // so "d--projects-brand_force" should match "d--projects-brand-force" on disk.
+      // Must match the same logic as JsonlReaderService.findSessionsDirectory().
+      const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+      const dirs = await fs.readdir(projectsDir);
+      const projectDir =
+        dirs.find((d) => d === escapedPath) ??
+        dirs.find((d) => d.toLowerCase() === escapedPath.toLowerCase()) ??
+        dirs.find((d) => normalize(d) === normalize(escapedPath));
+
+      if (!projectDir) return false;
+
+      const transcriptPath = path.join(
+        projectsDir,
+        projectDir,
+        parentSessionId,
+        'subagents',
+        `agent-${agentId}.jsonl`
+      );
+
+      await fs.access(transcriptPath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -207,11 +257,17 @@ export class ChatRpcHandlers {
           const isPremium = this.isPremiumTier(licenseStatus);
           const mcpServerRunning = this.isMcpServerRunning();
 
-          this.logger.debug('RPC: chat:start - license check', {
+          this.logger.info('[ptah.main] chat:start - session config', {
             tier: licenseStatus.tier,
             isPremium,
             mcpServerRunning,
+            mcpPort: this.codeExecutionMcp.getPort(),
           });
+
+          // Register MCP server in .mcp.json for subagent discovery (premium only)
+          if (isPremium && mcpServerRunning) {
+            this.codeExecutionMcp.ensureRegisteredForSubagents();
+          }
 
           // TASK_2025_151: Resolve enhanced prompt content for premium users
           const enhancedPromptsContent =
@@ -219,6 +275,12 @@ export class ChatRpcHandlers {
 
           // TASK_2025_153: Resolve plugin paths for premium users
           const pluginPaths = this.resolvePluginPaths(isPremium);
+
+          this.logger.info('[ptah.main] chat:start - prompt config', {
+            hasEnhancedPrompts: !!enhancedPromptsContent,
+            enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
+            pluginCount: pluginPaths?.length ?? 0,
+          });
 
           // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
           const currentModel =
@@ -295,6 +357,15 @@ export class ChatRpcHandlers {
             sessionName: name,
           });
 
+          // Ensure MCP server is registered in .mcp.json for subagent discovery (premium only)
+          // Must run outside the resume block — active sessions also spawn subagents
+          if (this.isMcpServerRunning()) {
+            const licenseCheck = await this.licenseService.verifyLicense();
+            if (this.isPremiumTier(licenseCheck)) {
+              this.codeExecutionMcp.ensureRegisteredForSubagents();
+            }
+          }
+
           // Check if session is active in memory
           if (!this.sdkAdapter.isSessionActive(sessionId)) {
             this.logger.info(
@@ -306,12 +377,16 @@ export class ChatRpcHandlers {
             const isPremium = this.isPremiumTier(licenseStatus);
             const mcpServerRunning = this.isMcpServerRunning();
 
-            this.logger.debug('RPC: chat:continue - license check for resume', {
-              tier: licenseStatus.tier,
-              isPremium,
-              mcpServerRunning,
-              sessionId,
-            });
+            this.logger.info(
+              '[ptah.main] chat:continue resume - session config',
+              {
+                tier: licenseStatus.tier,
+                isPremium,
+                mcpServerRunning,
+                mcpPort: this.codeExecutionMcp.getPort(),
+                sessionId,
+              }
+            );
 
             // TASK_2025_151: Resolve enhanced prompt content for premium users
             const enhancedPromptsContent =
@@ -322,6 +397,15 @@ export class ChatRpcHandlers {
 
             // TASK_2025_153: Resolve plugin paths for premium users
             const pluginPaths = this.resolvePluginPaths(isPremium);
+
+            this.logger.info(
+              '[ptah.main] chat:continue resume - prompt config',
+              {
+                hasEnhancedPrompts: !!enhancedPromptsContent,
+                enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
+                pluginCount: pluginPaths?.length ?? 0,
+              }
+            );
 
             // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
             const currentModel =
@@ -342,6 +426,7 @@ export class ChatRpcHandlers {
               mcpServerRunning,
               enhancedPromptsContent,
               pluginPaths,
+              tabId,
             });
 
             // Start streaming responses to webview (background - don't await)
@@ -366,8 +451,57 @@ export class ChatRpcHandlers {
           // This enables Claude to automatically resume interrupted agents
           // instead of requiring user to know agent IDs or click Resume buttons.
           let enhancedPrompt = prompt;
-          const resumableSubagents =
+          const allResumable =
             this.subagentRegistry.getResumableBySession(sessionId);
+
+          // Filter to only agents whose transcript files exist on disk.
+          // Without a transcript, the SDK can't resume — it reports "transcript was lost".
+          const resumableSubagents: typeof allResumable = [];
+          for (const s of allResumable) {
+            const hasTranscript = workspacePath
+              ? await this.hasSubagentTranscript(
+                  workspacePath,
+                  sessionId,
+                  s.agentId
+                )
+              : false;
+            if (hasTranscript) {
+              resumableSubagents.push(s);
+            } else {
+              this.logger.warn(
+                'RPC: chat:continue - skipping agent without transcript on disk',
+                { agentId: s.agentId, agentType: s.agentType, sessionId }
+              );
+              // Remove from registry — can't resume without transcript
+              this.subagentRegistry.remove(s.toolCallId);
+            }
+          }
+
+          // Proactively start file watchers for resumable subagents.
+          // Without this, only subagents newly spawned by the SDK get watchers
+          // via SubagentStart hooks. Resumed subagents may start writing before
+          // a hook fires, so we set up watchers preemptively.
+          if (resumableSubagents.length > 0 && workspacePath) {
+            for (const subagent of resumableSubagents) {
+              try {
+                await this.agentSessionWatcher.startWatching(
+                  subagent.agentId,
+                  sessionId,
+                  workspacePath,
+                  subagent.agentType,
+                  subagent.toolCallId
+                );
+              } catch (err) {
+                this.logger.warn(
+                  'Failed to start proactive watcher for resumable subagent',
+                  {
+                    agentId: subagent.agentId,
+                    error: err instanceof Error ? err.message : String(err),
+                  }
+                );
+              }
+            }
+          }
 
           if (resumableSubagents.length > 0) {
             // Build detailed agent context with actionable instructions
@@ -376,9 +510,7 @@ export class ChatRpcHandlers {
                 const interruptedAgo = s.interruptedAt
                   ? Math.round((Date.now() - s.interruptedAt) / 1000 / 60)
                   : 0;
-                return `  - ${s.agentType} agent (ID: ${s.agentId}, session: ${
-                  s.sessionId
-                })${
+                return `  - ${s.agentType} agent (agentId: ${s.agentId})${
                   interruptedAgo > 0
                     ? ` - interrupted ${interruptedAgo} min ago`
                     : ''
@@ -387,12 +519,13 @@ export class ChatRpcHandlers {
               .join('\n');
 
             // Instructive context that tells Claude WHAT to do, not just what exists
+            // Uses agentId (short hex) which the SDK uses to identify the subagent for resumption
             const contextPrefix = `[SYSTEM CONTEXT - INTERRUPTED AGENTS]
 The following subagent(s) were interrupted and did not complete their work:
 ${agentDetails}
 
 IMPORTANT INSTRUCTIONS:
-1. Your FIRST action should be to resume these interrupted agents using the Task tool with the "resume" parameter set to the agent ID shown above.
+1. Your FIRST action should be to resume these interrupted agents using the Task tool with the "resume" parameter set to the agentId shown above (e.g., resume: "${resumableSubagents[0].agentId}").
 2. Resume agents in the order they were interrupted (continue their previous work).
 3. After resuming completes, address the user's current message if it requires additional work.
 4. If the user explicitly asks to start fresh or work on something completely unrelated, you may skip resumption and acknowledge the interrupted work was abandoned.
@@ -408,7 +541,7 @@ IMPORTANT INSTRUCTIONS:
               agents: resumableSubagents.map((s) => ({
                 agentId: s.agentId,
                 agentType: s.agentType,
-                sessionId: s.sessionId,
+                parentSessionId: s.parentSessionId,
               })),
             });
 
@@ -462,9 +595,13 @@ IMPORTANT INSTRUCTIONS:
       async (params) => {
         try {
           const { sessionId, workspacePath } = params;
-          this.logger.debug('RPC: chat:resume called', { sessionId });
-
           const resolvedWorkspacePath = workspacePath || process.cwd();
+          this.logger.info('RPC: chat:resume called', {
+            sessionId,
+            workspacePath: workspacePath || '(empty)',
+            resolvedWorkspacePath,
+            usedFallback: !workspacePath,
+          });
 
           // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
           // This includes tool calls, thinking blocks, agent spawns, etc.

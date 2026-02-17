@@ -13,7 +13,7 @@ export const environment = {
    * TODO: Update with production license server URL before deployment
    * Example: 'https://api.ptah.dev' or 'https://license.ptah.io'
    */
-  apiBaseUrl: '',
+  apiBaseUrl: 'https://api.ptah.live',
 
   /**
    * Paddle configuration (production)

@@ -47,6 +47,13 @@ export class PermissionHandlerService {
   private readonly _permissionRequests = signal<PermissionRequest[]>([]);
 
   /**
+   * Tracks whether the last permission deny was a hard "deny" (not deny_with_message).
+   * Used by StreamingHandlerService to pass isAborted=true on finalization,
+   * which marks streaming nodes as "interrupted" in the UI.
+   */
+  private readonly _lastDenyWasHardInterrupt = signal(false);
+
+  /**
    * Public readonly access to permission requests
    */
   readonly permissionRequests = this._permissionRequests.asReadonly();
@@ -241,6 +248,11 @@ export class PermissionHandlerService {
   handlePermissionResponse(response: PermissionResponse): void {
     console.log('[PermissionHandlerService] Permission response:', response);
 
+    // Track hard deny for interrupted badge display
+    if (response.decision === 'deny') {
+      this._lastDenyWasHardInterrupt.set(true);
+    }
+
     // Remove from pending requests
     this._permissionRequests.update((requests) =>
       requests.filter((r) => r.id !== response.id)
@@ -251,6 +263,21 @@ export class PermissionHandlerService {
       type: MESSAGE_TYPES.SDK_PERMISSION_RESPONSE,
       response,
     });
+  }
+
+  /**
+   * Consume the hard-deny flag (read and reset).
+   * Called by StreamingHandlerService when session stats arrive to determine
+   * whether to finalize with isAborted=true (shows "interrupted" badge).
+   *
+   * @returns true if a hard deny occurred since last consumption
+   */
+  consumeHardDenyFlag(): boolean {
+    const wasDenied = this._lastDenyWasHardInterrupt();
+    if (wasDenied) {
+      this._lastDenyWasHardInterrupt.set(false);
+    }
+    return wasDenied;
   }
 
   /**

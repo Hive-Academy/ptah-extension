@@ -27,6 +27,8 @@ export interface ContentGenerationSdkConfig {
   onStreamEvent?: (event: GenerationStreamPayload) => void;
   /** Enhanced prompt content to include in the generation system prompt */
   enhancedPromptContent?: string;
+  /** Absolute paths to plugin directories */
+  pluginPaths?: string[];
 }
 
 /**

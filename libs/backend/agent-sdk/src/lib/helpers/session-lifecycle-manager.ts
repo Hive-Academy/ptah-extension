@@ -277,18 +277,20 @@ export class SessionLifecycleManager {
       `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`
     );
 
-    // Abort the session
-    session.abortController.abort();
-
-    // Interrupt the SDK query (if initialized)
+    // Interrupt the SDK query BEFORE aborting (if initialized)
+    // IMPORTANT: interrupt() must come before abort() because abort() kills
+    // the underlying process, causing interrupt() to fail with empty error {}.
     if (session.query) {
       session.query.interrupt().catch((err) => {
-        this.logger.warn(
-          `[SessionLifecycle] Failed to interrupt session ${sessionId}`,
+        this.logger.debug(
+          `[SessionLifecycle] Interrupt cleanup for session ${sessionId}`,
           err
         );
       });
     }
+
+    // Abort the session (kills the process after interrupt signal sent)
+    session.abortController.abort();
 
     // Remove from active sessions
     this.activeSessions.delete(sessionId as string);

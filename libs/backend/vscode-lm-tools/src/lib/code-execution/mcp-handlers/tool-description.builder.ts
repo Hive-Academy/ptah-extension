@@ -72,6 +72,174 @@ export function buildApprovalPromptTool(): MCPToolDefinition {
   };
 }
 
+// ========================================
+// Individual First-Class MCP Tools
+// ========================================
+
+/**
+ * Build the ptah_workspace_analyze tool definition
+ * One-call project understanding — replaces manual exploration
+ */
+export function buildWorkspaceAnalyzeTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_workspace_analyze',
+    description:
+      'Analyze the entire workspace in one call. Returns project type, frameworks, directory structure, and architecture overview. Use this FIRST when starting any task to understand the project.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  };
+}
+
+/**
+ * Build the ptah_search_files tool definition
+ * .gitignore-aware, workspace-indexed file discovery
+ */
+export function buildSearchFilesTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_search_files',
+    description:
+      'Find files in the workspace by glob pattern. Respects .gitignore and is workspace-indexed. Faster and more accurate than Glob/find for file discovery.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description:
+            'Glob pattern (e.g., "**/*.ts", "src/**/auth*", "*.spec.ts")',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max results to return (default: 50)',
+        },
+      },
+      required: ['pattern'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_get_diagnostics tool definition
+ * Live TypeScript errors without compiling
+ */
+export function buildGetDiagnosticsTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_get_diagnostics',
+    description:
+      'Get all TypeScript/JavaScript errors and warnings from VS Code diagnostics. Returns live results from the language server — no need to run a build command. Each diagnostic includes file path, line number, severity, and message.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        severity: {
+          type: 'string',
+          enum: ['error', 'warning', 'all'],
+          description:
+            'Filter by severity level (default: "all"). Use "error" to see only errors.',
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Build the ptah_lsp_references tool definition
+ * LSP-accurate cross-file reference finding
+ */
+export function buildLspReferencesTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_lsp_references',
+    description:
+      'Find all references to a symbol at a specific file position using VS Code LSP. More accurate than Grep for finding usages — handles renames, re-exports, and type references. Essential before refactoring.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+        line: {
+          type: 'number',
+          description: 'Line number (0-indexed)',
+        },
+        col: {
+          type: 'number',
+          description: 'Column number (0-indexed)',
+        },
+      },
+      required: ['file', 'line', 'col'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_lsp_definitions tool definition
+ * Go-to-definition via LSP
+ */
+export function buildLspDefinitionsTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_lsp_definitions',
+    description:
+      'Go to definition for a symbol at a specific file position using VS Code LSP. Returns the source location where the symbol is defined. Works across files, through re-exports, and into node_modules.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+        line: {
+          type: 'number',
+          description: 'Line number (0-indexed)',
+        },
+        col: {
+          type: 'number',
+          description: 'Column number (0-indexed)',
+        },
+      },
+      required: ['file', 'line', 'col'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_get_dirty_files tool definition
+ * Unsaved VS Code buffers
+ */
+export function buildGetDirtyFilesTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_get_dirty_files',
+    description:
+      'Get all files with unsaved changes in VS Code. Unlike "git status", this shows files that have been modified in the editor but not yet saved to disk.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  };
+}
+
+/**
+ * Build the ptah_count_tokens tool definition
+ * Token count for files
+ */
+export function buildCountTokensTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_count_tokens',
+    description:
+      'Count tokens in a file using the model-specific tokenizer. Use this instead of reading a file just to check its size. Returns the token count, which is more useful than byte count for context window planning.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description: 'File path (absolute or relative to workspace root)',
+        },
+      },
+      required: ['file'],
+    },
+  };
+}
+
 /**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
@@ -111,14 +279,27 @@ ${PTAH_SYSTEM_PROMPT}
 - ide.actions.organizeImports(file) - Clean imports
 - ide.testing.run(options?) - Run tests
 
+### ptah.files - File Operations (READ-ONLY)
+- read(path: string): Promise<string> - Read file (path can be relative like 'package.json' or absolute)
+- readJson(path: string): Promise<any> - Read and parse JSON (handles comments/trailing commas)
+- list(directory: string): Promise<{name, type}[]> - List directory contents
+
+Relative paths are resolved from workspace root. Absolute paths work as-is.
+⚠️ IMPORTANT: Use ptah.search.findFiles() to discover files before reading.
+⚠️ NO write, delete, exists, or rename methods. This namespace is read-only.
+
+### ptah.project - Project Analysis
+- detectMonorepo(): Promise<{isMonorepo, type, workspaceFiles}> - Detect monorepo
+- detectType(): Promise<string> - Detect project type (React, Angular, Node, etc.)
+- analyzeDependencies(): Promise<{name, version, isDev}[]> - Analyze package dependencies
+⚠️ NO getMonorepoInfo(). Use detectMonorepo() instead.
+
 ### Other Namespaces (use ptah.help('topic') for details)
 - ptah.ai.* - VS Code LM API (chat, tokens, tools, specialized tasks, invokeAgent)
 - ptah.llm.* - Multi-provider LLM (Anthropic, OpenAI, Google, OpenRouter, VS Code LM)
-- ptah.files.* - File operations (read, readJson, list)
 - ptah.symbols.* - Code symbol search
 - ptah.commands.* - VS Code command execution
 - ptah.context.* - Token budget optimization
-- ptah.project.* - Project type detection, monorepo detection
 - ptah.relevance.* - File relevance scoring
 - ptah.ast.* - Code structure analysis (tree-sitter)
 - ptah.orchestration.* - Workflow state management
@@ -132,6 +313,18 @@ try { const files = await ptah.search.findFiles('**/*.ts'); } catch(e) { return 
 ## Usage Examples
 
 \`\`\`typescript
+// BEST: Discover files FIRST, then read them
+const tsFiles = await ptah.search.findFiles('**/*.ts', 100);
+const packageFiles = tsFiles.filter(f => f.includes('package'));
+if (packageFiles.length > 0) {
+  const packageJson = await ptah.files.readJson(packageFiles[0]); // Absolute path from search
+  return packageJson.dependencies;
+}
+
+// OK: If you KNOW the file exists, use relative path from workspace root
+const pkg = await ptah.files.readJson('package.json'); // Resolved to workspace root
+return pkg.version;
+
 // Get workspace overview
 const {info, structure} = await ptah.workspace.analyze();
 return {projectType: info.projectType, frameworks: info.frameworks};

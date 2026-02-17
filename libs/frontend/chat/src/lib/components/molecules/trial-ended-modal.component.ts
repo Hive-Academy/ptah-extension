@@ -13,27 +13,24 @@ import {
   Zap,
   Shield,
   Bot,
+  ExternalLink,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
 
 /**
- * TrialEndedModalComponent - Modal for trial expiration
+ * TrialEndedModalComponent - Modal for trial/subscription expiration
  *
  * TASK_2025_142: Requirement 2
  *
- * Displays when license:getStatus returns reason: 'trial_ended'
- * - Primary CTA: "Upgrade to Pro" opens pricing page
- * - Secondary CTA: "Continue with Community" dismisses for 24 hours
- * - Feature comparison snippet showing what Pro offers
+ * Displays when license:getStatus returns reason: 'trial_ended' or 'expired'.
+ * Redirects users to the website to manage their plan (upgrade or community).
+ * Once they have a new license key from the website, they enter it in the extension.
  *
- * 24-hour dismissal tracked in localStorage with TTL
+ * The modal is temporarily dismissible (backdrop close). It reappears each session
+ * until the user enters a new valid license key (which clears previousUserContext).
  *
- * Complexity Level: 2 (Modal with localStorage TTL logic)
- *
- * SOLID Principles:
- * - Single Responsibility: Display trial ended modal only
- * - Open/Closed: Extensible via input signal for reason
+ * Complexity Level: 1 (Simple redirect modal)
  */
 @Component({
   selector: 'ptah-trial-ended-modal',
@@ -55,9 +52,21 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
             />
           </div>
           <div>
-            <h3 class="font-bold text-lg">Your Pro Trial Has Ended</h3>
+            <h3 class="font-bold text-lg">
+              {{
+                reason() === 'expired'
+                  ? 'Your Subscription Has Expired'
+                  : 'Your Pro Trial Has Ended'
+              }}
+            </h3>
             <p class="text-sm text-base-content/70">
-              Your {{ trialDurationDays }}-day Pro trial period has concluded
+              {{
+                reason() === 'expired'
+                  ? 'Your Pro subscription has expired'
+                  : 'Your ' +
+                    trialDurationDays +
+                    '-day Pro trial period has concluded'
+              }}
             </p>
           </div>
         </div>
@@ -101,39 +110,39 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
           </ul>
         </div>
 
-        <!-- Community tier info -->
+        <!-- Instructions -->
         <p class="text-sm text-base-content/70 mb-4">
-          You can continue using Ptah with the Community tier, which includes
-          basic AI assistance and standard features.
+          Visit your account to choose a plan. Once you have your new license
+          key, enter it in the extension to continue.
         </p>
 
         <!-- Actions -->
         <div class="modal-action flex-col sm:flex-row gap-2">
           <button
             class="btn btn-ghost flex-1"
-            (click)="continueWithCommunity()"
+            (click)="dismiss()"
             type="button"
           >
-            Continue with Community
+            Maybe Later
           </button>
           <button
             class="btn btn-primary flex-1"
-            (click)="upgradeToPro()"
+            (click)="goToAccount()"
             type="button"
           >
             <lucide-angular
-              [img]="SparklesIcon"
+              [img]="ExternalLinkIcon"
               class="w-4 h-4"
               aria-hidden="true"
             />
-            Upgrade to Pro
+            Go to Account
           </button>
         </div>
       </div>
 
-      <!-- Backdrop -->
+      <!-- Backdrop close (temporary dismiss) -->
       <form method="dialog" class="modal-backdrop">
-        <button (click)="continueWithCommunity()" type="button">close</button>
+        <button (click)="dismiss()" type="button">close</button>
       </form>
     </dialog>
   `,
@@ -151,13 +160,10 @@ export class TrialEndedModalComponent {
   protected readonly ZapIcon = Zap;
   protected readonly ShieldIcon = Shield;
   protected readonly BotIcon = Bot;
+  protected readonly ExternalLinkIcon = ExternalLink;
 
   // TASK_2025_142: Use constant instead of hardcoded value
   protected readonly trialDurationDays = TRIAL_DURATION_DAYS;
-
-  // LocalStorage key and TTL (24 hours)
-  private readonly DISMISS_KEY = 'ptah_trial_ended_dismissed_at';
-  private readonly DISMISS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   private readonly rpcService = inject(ClaudeRpcService);
 
@@ -171,27 +177,13 @@ export class TrialEndedModalComponent {
   }
 
   /**
-   * Check if modal should be shown based on reason and dismissal TTL
+   * Check if modal should be shown based on reason
    */
   private checkAndShowModal(currentReason: string | undefined): void {
-    // Only show if reason is 'trial_ended'
-    if (currentReason !== 'trial_ended') {
+    // Show for both 'trial_ended' and 'expired' reasons
+    if (currentReason !== 'trial_ended' && currentReason !== 'expired') {
       this.isOpen.set(false);
       return;
-    }
-
-    // Check if dismissed within TTL
-    if (typeof localStorage !== 'undefined') {
-      const dismissedAt = localStorage.getItem(this.DISMISS_KEY);
-      if (dismissedAt) {
-        const dismissedTime = parseInt(dismissedAt, 10);
-        const now = Date.now();
-        if (now - dismissedTime < this.DISMISS_TTL_MS) {
-          // Still within 24-hour cooldown
-          this.isOpen.set(false);
-          return;
-        }
-      }
     }
 
     // Show modal
@@ -199,29 +191,25 @@ export class TrialEndedModalComponent {
   }
 
   /**
-   * Open pricing page and dismiss modal
+   * Open the account/trial-ended page on the website.
+   * User manages their plan there and gets a new license key.
    */
-  async upgradeToPro(): Promise<void> {
-    await this.rpcService.call('command:execute', {
-      command: 'ptah.openPricing',
-    });
-    this.dismiss();
-  }
-
-  /**
-   * Dismiss modal and continue with Community tier
-   */
-  continueWithCommunity(): void {
-    this.dismiss();
-  }
-
-  /**
-   * Dismiss modal and set localStorage timestamp for 24-hour cooldown
-   */
-  private dismiss(): void {
-    this.isOpen.set(false);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(this.DISMISS_KEY, Date.now().toString());
+  async goToAccount(): Promise<void> {
+    try {
+      await this.rpcService.call('command:execute', {
+        command: 'ptah.openSignup',
+      });
+    } catch {
+      // Silently fail - browser should still open
     }
+    this.isOpen.set(false);
+  }
+
+  /**
+   * Temporarily dismiss modal for this session.
+   * Modal will reappear on next VS Code restart until user enters a new license key.
+   */
+  dismiss(): void {
+    this.isOpen.set(false);
   }
 }

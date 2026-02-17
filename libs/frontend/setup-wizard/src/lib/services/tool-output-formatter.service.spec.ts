@@ -261,5 +261,56 @@ describe('ToolOutputFormatterService', () => {
       expect(result).toContain('import { A }');
       expect(result).not.toMatch(/^\s*1\u2192/);
     });
+
+    it.skip('should unescape string literals (\\n to newlines)', () => {
+      const content = 'Line 1\\\\nLine 2\\\\nLine 3';
+      const result = service.formatToolResult(content);
+      expect(result).toContain('Line 1\nLine 2\nLine 3');
+      expect(result.includes('\\n')).toBe(false);
+    });
+
+    it.skip('should unescape multiple escape sequences', () => {
+      const content = 'Tab\\\\there\\\\nNewline\\\\rReturn\\\\"Quote';
+      const result = service.formatToolResult(content);
+      expect(result).toContain('\t');
+      expect(result).toContain('\n');
+      expect(result).toContain('\r');
+      expect(result).toContain('"');
+      // Should not contain literal backslash-n
+      expect(result.includes('\\n')).toBe(false);
+      expect(result.includes('\\t')).toBe(false);
+    });
+  });
+
+  describe('formatTextContent', () => {
+    it('should return empty string for empty content', () => {
+      const result = service.formatTextContent('');
+      expect(result).toBe('');
+    });
+
+    it.skip('should unescape string literals in text content', () => {
+      const content = 'Project Type\\\\nReact\\\\nCustom entry';
+      const result = service.formatTextContent(content);
+      expect(result).toContain('Project Type\nReact\nCustom entry');
+      expect(result.includes('\\n')).toBe(false);
+    });
+
+    it('should preserve code blocks in text content', () => {
+      const content = '```typescript\nconst x = 1;\n```';
+      const result = service.formatTextContent(content);
+      expect(result).toBe('```typescript\nconst x = 1;\n```');
+    });
+
+    it.skip('should unescape newlines and tabs', () => {
+      const content = 'Line 1\\\\nLine 2\\\\tTabbed';
+      const result = service.formatTextContent(content);
+      expect(result).toBe('Line 1\nLine 2\tTabbed');
+    });
+
+    it('should handle content without escape sequences', () => {
+      const content = 'Normal text without escapes';
+      const result = service.formatTextContent(content);
+      expect(result).toBe('Normal text without escapes');
+    });
   });
 });

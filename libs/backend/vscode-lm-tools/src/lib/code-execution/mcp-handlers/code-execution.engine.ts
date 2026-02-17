@@ -3,6 +3,7 @@
  *
  * Executes TypeScript/JavaScript code with AsyncFunction and timeout protection.
  * Provides smart code wrapping for various execution patterns.
+ * Includes runtime API validation proxy to catch invalid method calls early.
  */
 
 import { Logger } from '@ptah-extension/vscode-core';
@@ -61,14 +62,32 @@ export async function executeCode(
 
   const asyncFunction = new AsyncFunction(
     'ptah',
+    'console',
+    'require',
     `
     'use strict';
     ${wrappedCode}
   `
-  ) as (ptah: PtahAPI) => Promise<any>;
+  ) as (ptah: PtahAPI, console: Console, require: NodeRequire) => Promise<any>;
+
+  // Wrap API with validation proxy to catch invalid method calls early
+  const validatedAPI = createValidatedProxy(ptahAPI);
+
+  // Provide console for logging and a guarded require that gives clear errors
+  const sandboxConsole = console;
+  const sandboxRequire = ((moduleName: string) => {
+    throw new Error(
+      `require('${moduleName}') is not available in the Ptah sandbox. ` +
+        `Use ptah.* APIs instead. For example: ptah.files.read(path), ptah.search.findFiles(pattern), ptah.workspace.analyze()`
+    );
+  }) as unknown as NodeRequire;
 
   // Execute with timeout protection
-  let executionPromise = asyncFunction(ptahAPI);
+  let executionPromise = asyncFunction(
+    validatedAPI,
+    sandboxConsole,
+    sandboxRequire
+  );
 
   // Handle nested Promises (from IIFEs that return Promises)
   // Keep unwrapping until we get a non-Promise value
@@ -183,6 +202,115 @@ export function wrapCodeForExecution(code: string): string {
   // Pattern 6: Simple expression - just add return
   // This handles: ptah.workspace.getInfo(), "hello", 42, etc.
   return `return ${code}`;
+}
+
+// ========================================
+// Runtime API Validation Proxy
+// ========================================
+
+/**
+ * Create a validated proxy around the PtahAPI that intercepts property access
+ * and throws clear, actionable errors when invalid namespaces or methods are accessed.
+ *
+ * This prevents "is not a function" and "is not defined" errors by catching them
+ * at the point of access with helpful messages listing available alternatives.
+ */
+function createValidatedProxy(ptahAPI: PtahAPI): PtahAPI {
+  // Build method registry from actual API object
+  const registry = new Map<string, string[]>();
+  for (const [ns, value] of Object.entries(ptahAPI)) {
+    if (typeof value === 'object' && value !== null) {
+      const methods = Object.keys(value).filter(
+        (k) => typeof (value as Record<string, unknown>)[k] === 'function'
+      );
+      const subNamespaces: string[] = [];
+
+      // Check for sub-namespaces (e.g., ide.lsp, ide.editor)
+      for (const [subNs, subValue] of Object.entries(value)) {
+        if (typeof subValue === 'object' && subValue !== null) {
+          const subMethods = Object.keys(subValue).filter(
+            (k) =>
+              typeof (subValue as Record<string, unknown>)[k] === 'function'
+          );
+          if (subMethods.length > 0) {
+            registry.set(`${ns}.${subNs}`, subMethods);
+            subNamespaces.push(subNs);
+          }
+        }
+      }
+
+      registry.set(ns, [...methods, ...subNamespaces]);
+    }
+  }
+
+  return new Proxy(ptahAPI, {
+    get(target, prop: string | symbol) {
+      if (prop === 'help' || typeof prop === 'symbol') {
+        return (target as unknown as Record<string | symbol, unknown>)[prop];
+      }
+
+      const propStr = prop as string;
+      const value = (target as unknown as Record<string, unknown>)[propStr];
+      if (value === undefined) {
+        const available = Array.from(registry.keys()).join(', ');
+        throw new TypeError(
+          `"ptah.${propStr}" namespace does not exist. Available namespaces: ${available}`
+        );
+      }
+
+      if (typeof value === 'object' && value !== null) {
+        return createNamespaceProxy(
+          value as Record<string, unknown>,
+          propStr,
+          registry
+        );
+      }
+      return value;
+    },
+  }) as PtahAPI;
+}
+
+/**
+ * Create a proxy for a namespace object that validates method access.
+ * Recursively wraps sub-namespaces (e.g., ptah.ide.lsp).
+ */
+function createNamespaceProxy(
+  ns: Record<string, unknown>,
+  nsName: string,
+  registry: Map<string, string[]>
+): unknown {
+  return new Proxy(ns, {
+    get(target, prop: string | symbol) {
+      if (typeof prop === 'symbol') {
+        return target[prop as unknown as string];
+      }
+
+      const propStr = prop as string;
+      const value = target[propStr];
+      if (value === undefined) {
+        const methods = registry.get(nsName) || Object.keys(target);
+        throw new TypeError(
+          `"ptah.${nsName}.${propStr}" is not available. ` +
+            `Available on ptah.${nsName}: ${methods.join(', ')}`
+        );
+      }
+
+      // Handle sub-namespaces (e.g., ide.lsp) but not Promises or arrays
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value) &&
+        typeof (value as Record<string, unknown>)['then'] !== 'function'
+      ) {
+        return createNamespaceProxy(
+          value as Record<string, unknown>,
+          `${nsName}.${propStr}`,
+          registry
+        );
+      }
+      return value;
+    },
+  });
 }
 
 /** Maximum result size in characters (50KB) to prevent context window blowup */

@@ -121,6 +121,11 @@ export class SdkMessageTransformer {
       }
 
       if (isUserMessage(sdkMessage)) {
+        // Skip isMeta messages (skill .md content injected into context).
+        // These are conversation context for Claude but should not be displayed in the UI.
+        if (sdkMessage.isMeta === true) {
+          return [];
+        }
         return this.transformUserToFlatEvents(sdkMessage, sessionId);
       }
 

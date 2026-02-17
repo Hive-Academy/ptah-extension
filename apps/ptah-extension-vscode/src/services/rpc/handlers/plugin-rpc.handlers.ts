@@ -12,6 +12,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
+import { CommandDiscoveryService } from '@ptah-extension/workspace-intelligence';
 import type { PluginInfo, PluginConfigState } from '@ptah-extension/shared';
 
 /**
@@ -33,7 +34,9 @@ export class PluginRpcHandlers {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
-    private readonly pluginLoader: PluginLoaderService
+    private readonly pluginLoader: PluginLoaderService,
+    @inject(TOKENS.COMMAND_DISCOVERY_SERVICE)
+    private readonly commandDiscovery: CommandDiscoveryService
   ) {}
 
   /**
@@ -155,8 +158,14 @@ export class PluginRpcHandlers {
           enabledPluginIds,
         });
 
+        // Refresh command discovery with updated plugin paths
+        const pluginPaths =
+          this.pluginLoader.resolvePluginPaths(enabledPluginIds);
+        this.commandDiscovery.setPluginPaths(pluginPaths);
+
         this.logger.debug('RPC: plugins:save-config success', {
           enabledCount: enabledPluginIds.length,
+          pluginPaths: pluginPaths.length,
         });
 
         return { success: true };

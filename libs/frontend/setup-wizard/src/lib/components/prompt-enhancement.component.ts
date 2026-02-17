@@ -260,9 +260,8 @@ export class PromptEnhancementComponent {
     try {
       const workspacePath = '.';
       const multiPhase = this.wizardState.multiPhaseResult();
-      const analysis = this.wizardState.deepAnalysis();
 
-      if (!multiPhase && !analysis) {
+      if (!multiPhase) {
         this.wizardState.setEnhancedPromptsStatus('error');
         this.wizardState.setEnhancedPromptsError(
           'No analysis data available. Please re-run the wizard scan.'
@@ -270,12 +269,10 @@ export class PromptEnhancementComponent {
         return;
       }
 
-      // Multi-phase: pass analysisDir so backend reads all phase markdown files.
-      // Legacy: forward the stored ProjectAnalysisResult as pre-computed input.
+      // Pass analysisDir so backend reads all phase markdown files.
       const result = await this.wizardRpc.runEnhancedPromptsWizard(
         workspacePath,
-        analysis ?? undefined,
-        multiPhase?.analysisDir
+        multiPhase.analysisDir
       );
 
       if (result.success) {

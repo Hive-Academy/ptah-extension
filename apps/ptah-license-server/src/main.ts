@@ -19,8 +19,18 @@ async function bootstrap() {
   // Create NestJS application with raw body enabled for webhook signature verification
   // The rawBody option stores the unparsed request body in req.rawBody
   // This is required for Paddle webhook signature verification (HMAC SHA256)
+  // Determine log levels based on environment.
+  // Production: suppress verbose/debug to reduce noise and log volume.
+  // Development: show everything for easier debugging.
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const logLevels: ('log' | 'error' | 'warn' | 'debug' | 'verbose')[] =
+    isProduction
+      ? ['log', 'error', 'warn']
+      : ['log', 'error', 'warn', 'debug', 'verbose'];
+
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
+    logger: logLevels,
   });
 
   // Configure cookie-parser middleware for PKCE state cookie management
@@ -44,7 +54,7 @@ async function bootstrap() {
 
   // Configure CORS for cross-origin requests from frontend
   const frontendUrl =
-    configService.get<string>('FRONTEND_URL') || 'http://localhost:4200';
+    configService.get<string>('FRONTEND_URL') || 'https://ptah.live';
   app.enableCors({
     origin: [frontendUrl],
     credentials: true, // Allow cookies to be sent with requests

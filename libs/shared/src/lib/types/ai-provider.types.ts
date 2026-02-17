@@ -92,6 +92,18 @@ export interface AISessionConfig {
    * without needing temp session ID lookup.
    */
   readonly tabId?: string;
+  /**
+   * System prompt preset selection.
+   * - 'claude_code': Use Claude Code preset with minimal customization
+   * - 'enhanced': Use AI-generated project-specific guidance from setup wizard
+   *
+   * If not specified, defaults to 'enhanced' if enhanced prompts are generated,
+   * otherwise falls back to 'claude_code'.
+   *
+   * For premium users, PTAH_SYSTEM_PROMPT (MCP documentation) is always injected
+   * regardless of preset selection when MCP server is running.
+   */
+  readonly preset?: 'claude_code' | 'enhanced';
 }
 
 /**

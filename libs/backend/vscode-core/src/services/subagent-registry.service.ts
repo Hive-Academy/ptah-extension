@@ -162,9 +162,10 @@ export class SubagentRegistryService {
   ): void {
     const record = this.registry.get(toolCallId);
     if (!record) {
-      this.logger.warn('[SubagentRegistryService.update] Subagent not found', {
-        toolCallId,
-      });
+      this.logger.debug(
+        '[SubagentRegistryService.update] Subagent not found by toolCallId (will try agentId fallback)',
+        { toolCallId }
+      );
       return;
     }
 
@@ -558,15 +559,26 @@ export class SubagentRegistryService {
       }
 
       // Agent started but never completed - register as interrupted
+      // Skip agents without a real agentId — without it, the SDK can't find
+      // the subagent's transcript file for resumption. The toolCallId fallback
+      // (e.g., "YT1Fw2p") doesn't match any file on disk.
+      if (!agentId) {
+        this.logger.debug(
+          '[SubagentRegistryService.registerFromHistoryEvents] Skipping agent without agentId (no transcript for resume)',
+          { toolCallId, agentType }
+        );
+        continue;
+      }
+
       const record: SubagentRecord = {
         toolCallId,
-        sessionId: sessionId, // The agent's own session ID
+        sessionId: sessionId, // Parent session ID (from event context, not subagent's own)
         agentType: agentType,
         status: 'interrupted' as SubagentStatus,
         startedAt: timestamp,
         interruptedAt: timestamp, // Use start time as approximate interrupt time
         parentSessionId,
-        agentId: agentId ?? toolCallId.slice(-7), // Fallback to last 7 chars of toolCallId
+        agentId, // Real agent ID from correlated agent file (e.g., "a329b32")
       };
 
       this.registry.set(toolCallId, record);

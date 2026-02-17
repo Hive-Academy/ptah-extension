@@ -7,27 +7,36 @@ import {
   ViewChild,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
-import { LucideAngularModule, ScanSearch, Puzzle } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  ScanSearch,
+  Puzzle,
+  AlertTriangle,
+} from 'lucide-angular';
 import { SetupStatusWidgetComponent } from './setup-status-widget.component';
 import { PluginStatusWidgetComponent } from './plugin-status-widget.component';
 import { PluginBrowserModalComponent } from './plugin-browser-modal.component';
-import { VSCodeService } from '@ptah-extension/core';
+import {
+  VSCodeService,
+  ClaudeRpcService,
+  CommandDiscoveryFacade,
+} from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
 
 /**
- * ChatEmptyStateComponent - Egyptian-themed empty state for chat view
+ * ChatEmptyStateComponent - Egyptian-themed empty state for chat view with tabbed navigation
  *
- * Complexity Level: 2 (Medium - composition + theming)
- * Patterns: Signal-based state, Component composition, DaisyUI styling
+ * Complexity Level: 2 (Medium - composition + theming + tabs)
+ * Patterns: Signal-based state, Component composition, DaisyUI styling, Tabbed navigation
  *
  * Features:
+ * - Two-tab navigation: "Beta Skills" and "Intelligent Project Setup"
+ * - Tab 1: Beta Skills (Ptah Skills + Plugins configuration)
+ * - Tab 2: Intelligent Project Setup (MCP-powered workspace scanning)
+ * - Warning in Setup tab if skills not configured yet
  * - Egyptian artifact reveal experience with Anubis theme
  * - Hieroglyphic Unicode symbols for visual flair
- * - Ptah (Divine Creator) branding with Cinzel font
- * - Integrated setup-status-widget component
- * - Integrated plugin-status-widget and plugin-browser-modal (TASK_2025_153)
- * - Professional AI capabilities showcase
- * - Sacred command invocation guide (/orchestrate)
+ * - Ptah (Ancient Wisdom) branding with Cinzel font
  *
  * Design System:
  * - Anubis theme: Lapis Lazuli Blue + Pharaoh's Gold
@@ -38,10 +47,10 @@ import { ChatStore } from '../../services/chat.store';
  * - Papyrus scroll: 📜 (Getting started guide)
  *
  * SOLID Principles:
- * - Single Responsibility: Display empty state with Egyptian theme
+ * - Single Responsibility: Display empty state with Egyptian theme and tab navigation
  * - Open/Closed: Extensible via composition, closed for modification
- * - Composition: Embeds setup-status-widget via component selector
- * - Dependency Inversion: Depends on VSCodeService abstraction
+ * - Composition: Embeds setup-status-widget and plugin widgets via component selectors
+ * - Dependency Inversion: Depends on VSCodeService and ClaudeRpcService abstractions
  */
 @Component({
   selector: 'ptah-chat-empty-state',
@@ -55,13 +64,13 @@ import { ChatStore } from '../../services/chat.store';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!--
-    ChatEmptyStateComponent - Premium Responsive Design
-    
+    ChatEmptyStateComponent - Premium Responsive Design with Tabbed Navigation
+
     Design System: Anubis Theme
     - Uses predefined .glass-panel, .divine-glow utilities from styles.css
     - Leverages existing CSS variables for spacing, colors, animations
     - DaisyUI components with theme-aware classes
-    
+
     Responsive Design:
     - Compact: Sidebar narrow view (< 280px width)
     - Expanded: Full panel view with rich visuals
@@ -92,13 +101,209 @@ import { ChatStore } from '../../services/chat.store';
             Ptah
           </h1>
           <p class="text-xs md:text-sm text-base-content/70 max-w-xs">
-            Divine Creator • Master Craftsman
+            Ancient Wisdom • Master Craftsman
           </p>
         </div>
       </div>
 
-      <!-- Smart Setup CTA Card - Glass Panel -->
-      <div class="w-full max-w-md mb-5">
+      <!-- Tab Navigation -->
+      <div class="w-full max-w-md mb-4">
+        <div role="tablist" class="tabs tabs-boxed bg-base-200/50 p-1">
+          <button
+            role="tab"
+            [class]="activeTab() === 'skills' ? 'tab tab-active' : 'tab'"
+            (click)="setActiveTab('skills')"
+            type="button"
+            aria-label="Beta Skills Tab"
+          >
+            <lucide-angular
+              [img]="PuzzleIcon"
+              class="w-3.5 h-3.5 mr-1.5"
+              aria-hidden="true"
+            />
+            <span class="text-xs md:text-sm">Beta Skills</span>
+          </button>
+          <button
+            role="tab"
+            [class]="activeTab() === 'setup' ? 'tab tab-active' : 'tab'"
+            (click)="setActiveTab('setup')"
+            type="button"
+            aria-label="Intelligent Project Setup Tab"
+          >
+            <lucide-angular
+              [img]="ScanSearchIcon"
+              class="w-3.5 h-3.5 mr-1.5"
+              aria-hidden="true"
+            />
+            <span class="text-xs md:text-sm">Project Setup</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab 1: Beta Skills -->
+      @if (activeTab() === 'skills') {
+      <div class="w-full max-w-md space-y-5 tab-content-animated">
+        <!-- Ptah Skills Card -->
+        <div
+          class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
+        >
+          <div class="p-4">
+            <div class="flex items-start gap-3 mb-3">
+              <div
+                class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0"
+              >
+                <lucide-angular
+                  [img]="PuzzleIcon"
+                  class="w-5 h-5 md:w-6 md:h-6"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="flex-1">
+                <h3
+                  class="text-sm md:text-base font-semibold text-primary mb-0.5"
+                >
+                  Ptah Skills
+                  <span class="badge badge-primary badge-xs ml-1">Pro</span>
+                </h3>
+                <p class="text-xs text-base-content/60 leading-relaxed">
+                  Enhance your sessions with specialized skills for
+                  orchestration, frontend patterns, backend architecture, and
+                  more.
+                </p>
+              </div>
+            </div>
+            @if (isPremium()) {
+            <ptah-plugin-status-widget
+              (configureClicked)="openPluginBrowser()"
+            />
+            } @else {
+            <div
+              class="flex items-center justify-between p-2 rounded-md bg-base-200/50 border border-base-300"
+            >
+              <span class="text-xs text-base-content/60"
+                >Available with Pro plan</span
+              >
+              <span class="badge badge-xs badge-primary">Upgrade</span>
+            </div>
+            }
+          </div>
+        </div>
+
+        <!-- Capabilities Section -->
+        <div class="w-full">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="text-secondary text-base">☥</span>
+            <h3
+              class="text-xs md:text-sm font-semibold text-secondary uppercase tracking-wider"
+            >
+              Capabilities
+            </h3>
+            <div
+              class="divider divider-horizontal flex-1 my-0 before:bg-secondary/20 after:bg-transparent"
+            ></div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-1.5 md:gap-2">
+            <div
+              class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
+            >
+              <div class="card-body items-center text-center p-2 md:p-3">
+                <span class="text-base md:text-xl">𓂀</span>
+                <span class="text-[10px] md:text-xs font-medium"
+                  >Orchestrate</span
+                >
+                <span class="text-[8px] md:text-[10px] text-base-content/50"
+                  >Workflows</span
+                >
+              </div>
+            </div>
+            <div
+              class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
+            >
+              <div class="card-body items-center text-center p-2 md:p-3">
+                <span class="text-base md:text-xl">𓁹</span>
+                <span class="text-[10px] md:text-xs font-medium"
+                  >Architect</span
+                >
+                <span class="text-[8px] md:text-[10px] text-base-content/50"
+                  >Gen code</span
+                >
+              </div>
+            </div>
+            <div
+              class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
+            >
+              <div class="card-body items-center text-center p-2 md:p-3">
+                <span class="text-base md:text-xl">𓅓</span>
+                <span class="text-[10px] md:text-xs font-medium">Review</span>
+                <span class="text-[8px] md:text-[10px] text-base-content/50"
+                  >Modernize</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Get Started Command -->
+        <div class="w-full">
+          <div class="card bg-base-300/50 border border-base-content/10">
+            <div class="card-body p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-base">📜</span>
+                <span class="text-xs md:text-sm font-semibold text-base-content"
+                  >Get Started</span
+                >
+              </div>
+              <div class="mockup-code bg-base-100 py-2 px-4 min-h-0">
+                <pre
+                  data-prefix=">"
+                  class="text-secondary"
+                ><code class="text-xs md:text-sm">/orchestrate <span class="text-base-content/40">[your vision]</span></code></pre>
+              </div>
+              <p class="text-[10px] md:text-xs text-base-content/50 mt-2">
+                Describe what you want to build and let Ptah orchestrate the
+                workflow
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+      }
+
+      <!-- Tab 2: Intelligent Project Setup -->
+      @if (activeTab() === 'setup') {
+      <div class="w-full max-w-md space-y-5 tab-content-animated">
+        <!-- Warning if skills not configured -->
+        @if (isPremium() && !hasConfiguredSkills()) {
+        <div
+          class="border border-warning/30 rounded-md bg-warning/5 p-3 flex items-start gap-2"
+        >
+          <lucide-angular
+            [img]="AlertTriangleIcon"
+            class="w-4 h-4 text-warning shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
+          <div class="flex-1">
+            <h4 class="text-xs font-semibold text-warning mb-1">
+              Skills Not Configured
+            </h4>
+            <p class="text-xs text-base-content/60 leading-relaxed mb-2">
+              The Intelligent Project Setup uses your configured skills to
+              provide better recommendations. It's recommended to configure your
+              Beta Skills first for optimal results.
+            </p>
+            <button
+              class="btn btn-xs btn-warning"
+              (click)="setActiveTab('skills')"
+              type="button"
+            >
+              Configure Skills First
+            </button>
+          </div>
+        </div>
+        }
+
+        <!-- Smart Setup CTA Card - Glass Panel -->
         <div
           class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
         >
@@ -144,132 +349,32 @@ import { ChatStore } from '../../services/chat.store';
             <ptah-setup-status-widget />
           </div>
         </div>
-      </div>
 
-      <!-- Plugin Configuration Card (TASK_2025_153) -->
-      <div class="w-full max-w-md mb-5">
-        <div
-          class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
-        >
-          <div class="p-4">
-            <div class="flex items-start gap-3 mb-3">
-              <div
-                class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 text-primary shrink-0"
-              >
-                <lucide-angular
-                  [img]="PuzzleIcon"
-                  class="w-5 h-5 md:w-6 md:h-6"
-                  aria-hidden="true"
-                />
-              </div>
-              <div class="flex-1">
-                <h3
-                  class="text-sm md:text-base font-semibold text-primary mb-0.5"
+        <!-- Get Started Command -->
+        <div class="w-full">
+          <div class="card bg-base-300/50 border border-base-content/10">
+            <div class="card-body p-4">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-base">📜</span>
+                <span class="text-xs md:text-sm font-semibold text-base-content"
+                  >Get Started</span
                 >
-                  Ptah Skills
-                  <span class="badge badge-primary badge-xs ml-1">Pro</span>
-                </h3>
-                <p class="text-xs text-base-content/60 leading-relaxed">
-                  Enhance your sessions with specialized skills for
-                  orchestration, frontend patterns, backend architecture, and
-                  more.
-                </p>
               </div>
-            </div>
-            @if (isPremium()) {
-            <ptah-plugin-status-widget
-              (configureClicked)="openPluginBrowser()"
-            />
-            } @else {
-            <div
-              class="flex items-center justify-between p-2 rounded-md bg-base-200/50 border border-base-300"
-            >
-              <span class="text-xs text-base-content/60"
-                >Available with Pro plan</span
-              >
-              <span class="badge badge-xs badge-primary">Upgrade</span>
-            </div>
-            }
-          </div>
-        </div>
-      </div>
-
-      <!-- Capabilities Section -->
-      <div class="w-full max-w-md mb-5">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="text-secondary text-base">☥</span>
-          <h3
-            class="text-xs md:text-sm font-semibold text-secondary uppercase tracking-wider"
-          >
-            Capabilities
-          </h3>
-          <div
-            class="divider divider-horizontal flex-1 my-0 before:bg-secondary/20 after:bg-transparent"
-          ></div>
-        </div>
-
-        <div class="grid grid-cols-3 gap-1.5 md:gap-2">
-          <div
-            class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
-          >
-            <div class="card-body items-center text-center p-2 md:p-3">
-              <span class="text-base md:text-xl">𓂀</span>
-              <span class="text-[10px] md:text-xs font-medium"
-                >Orchestrate</span
-              >
-              <span class="text-[8px] md:text-[10px] text-base-content/50"
-                >Workflows</span
-              >
-            </div>
-          </div>
-          <div
-            class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
-          >
-            <div class="card-body items-center text-center p-2 md:p-3">
-              <span class="text-base md:text-xl">𓁹</span>
-              <span class="text-[10px] md:text-xs font-medium">Architect</span>
-              <span class="text-[8px] md:text-[10px] text-base-content/50"
-                >Gen code</span
-              >
-            </div>
-          </div>
-          <div
-            class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
-          >
-            <div class="card-body items-center text-center p-2 md:p-3">
-              <span class="text-base md:text-xl">𓅓</span>
-              <span class="text-[10px] md:text-xs font-medium">Review</span>
-              <span class="text-[8px] md:text-[10px] text-base-content/50"
-                >Modernize</span
-              >
+              <div class="mockup-code bg-base-100 py-2 px-4 min-h-0">
+                <pre
+                  data-prefix=">"
+                  class="text-secondary"
+                ><code class="text-xs md:text-sm">/orchestrate <span class="text-base-content/40">[your vision]</span></code></pre>
+              </div>
+              <p class="text-[10px] md:text-xs text-base-content/50 mt-2">
+                Describe what you want to build and let Ptah orchestrate the
+                workflow
+              </p>
             </div>
           </div>
         </div>
       </div>
-
-      <!-- Get Started Command -->
-      <div class="w-full max-w-md">
-        <div class="card bg-base-300/50 border border-base-content/10">
-          <div class="card-body p-4">
-            <div class="flex items-center gap-2 mb-2">
-              <span class="text-base">📜</span>
-              <span class="text-xs md:text-sm font-semibold text-base-content"
-                >Get Started</span
-              >
-            </div>
-            <div class="mockup-code bg-base-100 py-2 px-4 min-h-0">
-              <pre
-                data-prefix=">"
-                class="text-secondary"
-              ><code class="text-xs md:text-sm">/orchestrate <span class="text-base-content/40">[your vision]</span></code></pre>
-            </div>
-            <p class="text-[10px] md:text-xs text-base-content/50 mt-2">
-              Describe what you want to build and let Ptah orchestrate the
-              workflow
-            </p>
-          </div>
-        </div>
-      </div>
+      }
 
       <!-- Decorative Egyptian Footer -->
       <div
@@ -312,12 +417,44 @@ import { ChatStore } from '../../services/chat.store';
         padding-top: 0.25rem;
         padding-bottom: 0.25rem;
       }
+
+      /* Tab content animation */
+      .tab-content-animated {
+        animation: fadeIn 0.3s ease-in-out;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      /* Tab styling customization */
+      .tabs-boxed .tab {
+        transition: all 0.2s ease;
+      }
+
+      .tabs-boxed .tab:hover {
+        background-color: var(--fallback-b2, oklch(var(--b2) / 0.7));
+      }
+
+      .tabs-boxed .tab-active {
+        background-color: var(--fallback-p, oklch(var(--p) / 1));
+        color: var(--fallback-pc, oklch(var(--pc) / 1));
+      }
     `,
   ],
 })
 export class ChatEmptyStateComponent {
   private readonly vscodeService = inject(VSCodeService);
+  private readonly rpcService = inject(ClaudeRpcService);
   private readonly chatStore = inject(ChatStore);
+  private readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
   @ViewChild(PluginStatusWidgetComponent)
   private pluginWidget?: PluginStatusWidgetComponent;
@@ -325,6 +462,7 @@ export class ChatEmptyStateComponent {
   /** Lucide icon references for template binding */
   protected readonly ScanSearchIcon = ScanSearch;
   protected readonly PuzzleIcon = Puzzle;
+  protected readonly AlertTriangleIcon = AlertTriangle;
 
   /** Ptah icon URI - uses same method as app-shell component */
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -337,6 +475,36 @@ export class ChatEmptyStateComponent {
   /** Whether the plugin browser modal is open (TASK_2025_153) */
   protected readonly isPluginBrowserOpen = signal(false);
 
+  /** Active tab: 'skills' or 'setup' */
+  protected readonly activeTab = signal<'skills' | 'setup'>('skills');
+
+  /** Whether skills are configured (used for warning display) */
+  protected readonly hasConfiguredSkills = signal(false);
+
+  /** Set the active tab and check skills configuration if switching to setup */
+  protected setActiveTab(tab: 'skills' | 'setup'): void {
+    this.activeTab.set(tab);
+
+    // Check if skills are configured when switching to setup tab
+    if (tab === 'setup' && this.isPremium()) {
+      this.checkSkillsConfiguration();
+    }
+  }
+
+  /** Check if user has configured any skills */
+  private async checkSkillsConfiguration(): Promise<void> {
+    try {
+      const result = await this.rpcService.call('plugins:get-config', {});
+      if (result.isSuccess()) {
+        const hasEnabled = result.data.enabledPluginIds.length > 0;
+        this.hasConfiguredSkills.set(hasEnabled);
+      }
+    } catch {
+      // Silently fail - warning won't show if we can't determine
+      this.hasConfiguredSkills.set(true);
+    }
+  }
+
   /** Open the plugin browser modal (premium only) */
   protected openPluginBrowser(): void {
     if (!this.isPremium()) return;
@@ -348,9 +516,13 @@ export class ChatEmptyStateComponent {
     this.isPluginBrowserOpen.set(false);
   }
 
-  /** Handle plugins saved event from modal - refresh widget count */
+  /** Handle plugins saved event from modal - refresh widget count and command cache */
   protected onPluginsSaved(_enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
     this.pluginWidget?.fetchPluginStatus();
+    // Update skills configuration status
+    this.hasConfiguredSkills.set(_enabledIds.length > 0);
+    // Invalidate slash command cache so plugin commands are re-fetched
+    this.commandDiscovery.clearCache();
   }
 }

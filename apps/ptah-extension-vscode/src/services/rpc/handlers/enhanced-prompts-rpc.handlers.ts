@@ -25,7 +25,11 @@ import {
   TOKENS,
   LicenseService,
 } from '@ptah-extension/vscode-core';
-import { EnhancedPromptsService, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  EnhancedPromptsService,
+  SDK_TOKENS,
+  PluginLoaderService,
+} from '@ptah-extension/agent-sdk';
 import type {
   PromptDesignerInput,
   EnhancedPromptsSdkConfig,
@@ -80,6 +84,8 @@ export class EnhancedPromptsRpcHandlers {
     private readonly enhancedPromptsService: EnhancedPromptsService,
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
+    @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
+    private readonly pluginLoader: PluginLoaderService,
     private readonly container: DependencyContainer
   ) {}
 
@@ -737,12 +743,33 @@ export class EnhancedPromptsRpcHandlers {
       this.logger.debug('Could not resolve CodeExecutionMCP for SDK config');
     }
 
+    // Resolve plugin paths for premium users
+    let pluginPaths: string[] | undefined;
+    if (isPremium) {
+      try {
+        const config = this.pluginLoader.getWorkspacePluginConfig();
+        if (config.enabledPluginIds && config.enabledPluginIds.length > 0) {
+          const paths = this.pluginLoader.resolvePluginPaths(
+            config.enabledPluginIds
+          );
+          if (paths.length > 0) {
+            pluginPaths = paths;
+          }
+        }
+      } catch {
+        this.logger.debug(
+          'Failed to resolve plugin paths for enhanced prompts'
+        );
+      }
+    }
+
     return {
       isPremium,
       mcpServerRunning,
       mcpPort,
       onStreamEvent,
       model: model || undefined,
+      pluginPaths,
     };
   }
 

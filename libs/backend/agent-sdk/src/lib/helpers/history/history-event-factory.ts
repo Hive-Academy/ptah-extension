@@ -278,7 +278,8 @@ export class HistoryEventFactory {
     input: Record<string, unknown>,
     index: number,
     timestamp: number,
-    parentToolUseId?: string
+    parentToolUseId?: string,
+    agentId?: string
   ): AgentStartEvent {
     let agentType = 'unknown';
     let agentDescription: string | undefined;
@@ -301,6 +302,7 @@ export class HistoryEventFactory {
       agentPrompt,
       timestamp,
       parentToolUseId,
+      agentId,
       source: 'history',
     };
   }
