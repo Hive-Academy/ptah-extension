@@ -26,6 +26,7 @@ import {
   buildLspDefinitionsTool,
   buildGetDirtyFilesTool,
   buildCountTokensTool,
+  buildGenerateImageTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -140,6 +141,7 @@ function handleToolsList(request: MCPRequest): MCPResponse {
         buildLspDefinitionsTool(),
         buildGetDirtyFilesTool(),
         buildCountTokensTool(),
+        buildGenerateImageTool(),
         // Power-user tools
         buildExecuteCodeTool(),
         buildApprovalPromptTool(),
@@ -280,6 +282,25 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           JSON.stringify({ file, tokens: tokenCount }, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_generate_image': {
+        const { prompt, model, aspectRatio, numberOfImages } = args as {
+          prompt: string;
+          model?: string;
+          aspectRatio?: string;
+          numberOfImages?: number;
+        };
+        const result = await ptahAPI.image.generate(prompt, {
+          model,
+          aspectRatio,
+          numberOfImages,
+        });
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(result, null, 2),
           deps
         );
       }

@@ -15,8 +15,9 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-// Import from secondary entry point for tree-shaking (no Langchain deps loaded)
+// Import from secondary entry point for tree-shaking
 import { VsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
+import { LlmConfigurationService } from '@ptah-extension/llm-abstraction';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
 import {
   IVsCodeLmService,
@@ -70,6 +71,8 @@ export class VsCodeLmService implements IVsCodeLmService {
   constructor(
     @inject(AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE)
     private readonly validation: IOutputValidationService,
+    @inject(TOKENS.LLM_CONFIGURATION_SERVICE)
+    private readonly configService: LlmConfigurationService,
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger
   ) {
@@ -91,8 +94,22 @@ export class VsCodeLmService implements IVsCodeLmService {
 
     this.logger.debug('Initializing VsCodeLmService');
 
-    // Create provider with default model family
-    this.provider = new VsCodeLmProvider({ family: 'gpt-4o' });
+    // Read the user's configured default model for vscode-lm provider
+    const defaultModel = this.configService.getDefaultModel('vscode-lm');
+    // vscode-lm model format is 'vendor/family' (e.g., 'copilot/gpt-4o')
+    // Extract the family portion after the '/' separator
+    const parsedFamily = defaultModel.includes('/')
+      ? defaultModel.split('/')[1]
+      : defaultModel;
+    const family = parsedFamily || 'gpt-4o';
+
+    this.logger.debug('VsCodeLmService using model family', {
+      defaultModel,
+      family,
+    });
+
+    // Create provider with configured model family
+    this.provider = new VsCodeLmProvider({ family });
 
     const initResult = await this.provider.initialize();
 

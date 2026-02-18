@@ -38,6 +38,7 @@ export class LlmRpcHandlers {
     this.registerSetApiKey();
     this.registerRemoveApiKey();
     this.registerGetDefaultProvider();
+    this.registerSetDefaultProvider();
     this.registerValidateApiKeyFormat();
     this.registerListVsCodeModels();
 
@@ -47,6 +48,7 @@ export class LlmRpcHandlers {
         'llm:setApiKey',
         'llm:removeApiKey',
         'llm:getDefaultProvider',
+        'llm:setDefaultProvider',
         'llm:validateApiKeyFormat',
         'llm:listVsCodeModels',
       ],
@@ -165,6 +167,41 @@ export class LlmRpcHandlers {
             error instanceof Error ? error : new Error(String(error))
           );
           throw error;
+        }
+      }
+    );
+  }
+
+  /**
+   * llm:setDefaultProvider - Set default LLM provider
+   */
+  private registerSetDefaultProvider(): void {
+    this.rpcHandler.registerMethod<
+      { provider: LlmProviderName },
+      { success: boolean; error?: string }
+    >(
+      'llm:setDefaultProvider',
+      async (params: { provider: LlmProviderName }) => {
+        try {
+          this.logger.debug('RPC: llm:setDefaultProvider called', {
+            provider: params.provider,
+          });
+
+          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
+            TOKENS.LLM_RPC_HANDLERS
+          );
+          const result = await handlers.setDefaultProvider(params.provider);
+
+          return result;
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm:setDefaultProvider failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
       }
     );

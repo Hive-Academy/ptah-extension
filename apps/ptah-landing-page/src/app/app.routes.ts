@@ -6,6 +6,7 @@ import { ProfilePageComponent } from './pages/profile/profile-page.component';
 import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.component';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
+import { DocsPageComponent } from './pages/docs/docs-page.component';
 import { TrialStatusGuard } from './guards/trial-status.guard';
 
 /**
@@ -43,6 +44,10 @@ export const routes: Routes = [
   {
     path: '',
     component: LandingPageComponent,
+  },
+  {
+    path: 'docs',
+    component: DocsPageComponent,
   },
   {
     path: 'pricing',

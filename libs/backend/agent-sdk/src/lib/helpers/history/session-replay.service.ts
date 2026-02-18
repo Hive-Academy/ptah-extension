@@ -25,13 +25,12 @@
  */
 
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import { calculateMessageCost } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import { SDK_TOKENS } from '../../di/tokens';
-import {
-  estimateCostFromTokens,
-  extractTokenUsage,
-} from '../usage-extraction.utils';
+import { extractTokenUsage } from '../usage-extraction.utils';
+import { resolveActualModelForPricing } from '../anthropic-provider-registry';
 import { AgentCorrelationService } from './agent-correlation.service';
 import type { MessageUsageData } from './history-event-factory';
 import { HistoryEventFactory } from './history-event-factory';
@@ -79,17 +78,38 @@ export class SessionReplayService {
     const events: FlatStreamEventUnion[] = [];
     let eventIndex = 0;
 
+    // Find the last compact_boundary in the session.
+    // After compaction, only messages AFTER the boundary are relevant.
+    // Pre-compaction messages were summarized by the SDK and should not be replayed.
+    let startIndex = 0;
+    for (let i = mainMessages.length - 1; i >= 0; i--) {
+      if (
+        mainMessages[i].type === 'system' &&
+        mainMessages[i].subtype === 'compact_boundary'
+      ) {
+        startIndex = i + 1;
+        this.logger.info(
+          `[SessionReplay] Found compact_boundary at index ${i}, skipping ${startIndex} pre-compaction messages`
+        );
+        break;
+      }
+    }
+
+    // Slice to only post-compaction messages
+    const effectiveMessages =
+      startIndex > 0 ? mainMessages.slice(startIndex) : mainMessages;
+
     // Build maps for correlation
     const agentDataMap =
       this.correlationService.buildAgentDataMap(agentSessions);
     const taskToolUses =
-      this.correlationService.extractTaskToolUses(mainMessages);
+      this.correlationService.extractTaskToolUses(effectiveMessages);
     const taskToAgentMap = this.correlationService.correlateAgentsToTasks(
       taskToolUses,
       agentDataMap
     );
     const allToolResults =
-      this.correlationService.extractAllToolResults(mainMessages);
+      this.correlationService.extractAllToolResults(effectiveMessages);
 
     // Process messages
     let currentMessageId: string | null = null;
@@ -104,7 +124,7 @@ export class SessionReplayService {
     // Usage is extracted from JSONL message.usage and accumulated across message blocks
     let currentMessageUsage: MessageUsageData | undefined;
 
-    for (const msg of mainMessages) {
+    for (const msg of effectiveMessages) {
       // Skip non-message types
       if (!msg.type || !['user', 'assistant'].includes(msg.type)) {
         continue;
@@ -209,10 +229,21 @@ export class SessionReplayService {
           readonly cache_read_input_tokens: number;
           readonly cache_creation_input_tokens: number;
         };
+        // Extract model from JSONL assistant message for accurate pricing
+        const msgModel = (msg.message as { model?: string })?.model || '';
+
         if (msgUsage) {
           const tokenUsage = extractTokenUsage(msgUsage);
           if (tokenUsage) {
-            const cost = estimateCostFromTokens(tokenUsage);
+            const cost = calculateMessageCost(
+              resolveActualModelForPricing(msgModel),
+              {
+                input: tokenUsage.input,
+                output: tokenUsage.output,
+                cacheHit: tokenUsage.cacheRead,
+                cacheCreation: tokenUsage.cacheCreation,
+              }
+            );
             // Accumulate usage (in case multiple assistant blocks per logical message)
             if (!currentMessageUsage) {
               currentMessageUsage = {
@@ -496,18 +527,28 @@ export class SessionReplayService {
 
       // TASK_2025_098 FIX: Extract usage data from agent message for per-message stats
       let agentMessageUsage: MessageUsageData | undefined;
-      const msgUsage = msg.message.usage as {
+      const agentMsgUsage = msg.message.usage as {
         readonly input_tokens: number;
         readonly output_tokens: number;
         readonly cache_read_input_tokens: number;
         readonly cache_creation_input_tokens: number;
       };
-      if (msgUsage) {
-        const tokenUsage = extractTokenUsage(msgUsage);
+      if (agentMsgUsage) {
+        const tokenUsage = extractTokenUsage(agentMsgUsage);
         if (tokenUsage) {
+          const agentMsgModel =
+            (msg.message as { model?: string })?.model || '';
           agentMessageUsage = {
             tokenUsage: { input: tokenUsage.input, output: tokenUsage.output },
-            cost: estimateCostFromTokens(tokenUsage),
+            cost: calculateMessageCost(
+              resolveActualModelForPricing(agentMsgModel),
+              {
+                input: tokenUsage.input,
+                output: tokenUsage.output,
+                cacheHit: tokenUsage.cacheRead,
+                cacheCreation: tokenUsage.cacheCreation,
+              }
+            ),
           };
         }
       }

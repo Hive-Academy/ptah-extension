@@ -41,8 +41,11 @@ export interface PtahAPI {
   // IDE superpowers namespace (TASK_2025_039)
   ide: IDENamespace;
 
-  // LLM provider namespace (Langchain abstraction)
+  // LLM provider namespace (native SDK abstraction)
   llm: LLMNamespace;
+
+  // Image generation namespace (TASK_2025_155)
+  image: ImageNamespace;
 
   // Orchestration workflow state management (TASK_2025_111)
   orchestration: OrchestrationNamespace;
@@ -1397,26 +1400,20 @@ export interface CoverageInfo {
 }
 
 // ========================================
-// LLM Namespace (Langchain Abstraction)
+// LLM Namespace (Native SDK Abstraction)
 // ========================================
 
 /**
  * LLM provider namespace
- * Enables Claude CLI to delegate tasks to other AI models via Langchain.
- * Providers: Anthropic, OpenAI, Google Gemini, OpenRouter, VS Code LM.
+ * Enables Claude CLI to delegate tasks to other AI models via native SDKs.
+ * Providers: OpenAI (native SDK), Google Gemini (@google/genai), VS Code LM.
  */
 export interface LLMNamespace {
-  /** Anthropic Claude provider */
-  anthropic: LLMProviderNamespace;
-
-  /** OpenAI GPT provider */
+  /** OpenAI GPT provider (native openai SDK) */
   openai: LLMProviderNamespace;
 
-  /** Google Gemini provider */
+  /** Google Gemini provider (native @google/genai SDK) */
   google: LLMProviderNamespace;
-
-  /** OpenRouter multi-provider */
-  openrouter: LLMProviderNamespace;
 
   /** VS Code Language Model API (always available) */
   vscodeLm: LLMProviderNamespace;
@@ -1514,6 +1511,50 @@ export interface LLMConfiguredProvider {
 
   /** Whether provider has API key configured */
   isConfigured: boolean;
+}
+
+// ========================================
+// Image Namespace (TASK_2025_155)
+// ========================================
+
+/**
+ * Image generation namespace (ptah.image)
+ * Provides image generation via Google Gemini native and Imagen APIs.
+ */
+export interface ImageNamespace {
+  /**
+   * Generate image(s) from a text prompt
+   * @param prompt - Text description of the image to generate
+   * @param options - Optional generation parameters
+   */
+  generate: (
+    prompt: string,
+    options?: {
+      model?: string;
+      aspectRatio?: string;
+      numberOfImages?: number;
+    }
+  ) => Promise<{
+    images: Array<{ path: string; mimeType: string }>;
+    model: string;
+  }>;
+
+  /**
+   * List available image generation models
+   * @returns Array of model descriptors
+   */
+  listModels: () => Array<{
+    id: string;
+    name: string;
+    type: 'native' | 'imagen';
+    description: string;
+  }>;
+
+  /**
+   * Check if image generation is available (Google API key configured)
+   * @returns true if image generation can be used
+   */
+  isAvailable: () => Promise<boolean>;
 }
 
 // ========================================

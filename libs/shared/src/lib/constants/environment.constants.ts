@@ -48,3 +48,16 @@ export const PtahDevDefaults = {
   /** Whether to log to console in addition to output channel */
   LOG_TO_CONSOLE: true,
 } as const;
+
+/**
+ * Resolve the correct URL set and defaults for the current environment.
+ *
+ * @param isDevelopment - true when running in dev mode (e.g., VS Code ExtensionMode.Development)
+ * @returns Resolved URLs and defaults for the active environment
+ */
+export function resolveEnvironment(isDevelopment: boolean) {
+  return {
+    urls: isDevelopment ? PtahDevUrls : PtahUrls,
+    defaults: isDevelopment ? PtahDevDefaults : PtahProdDefaults,
+  };
+}

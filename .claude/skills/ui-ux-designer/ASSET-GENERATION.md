@@ -8,15 +8,71 @@ This guide documents workflows for generating production-ready visual assets usi
 
 ## Tool Selection Matrix
 
-| Asset Type               | Best Tool                | Why                               |
-| ------------------------ | ------------------------ | --------------------------------- |
-| **Hero illustrations**   | Midjourney, DALL-E 3     | Complex scenes, unique art styles |
-| **Icons**                | Midjourney + refinement  | Consistent style sets             |
-| **3D elements**          | Three.js, Spline         | Interactive, animated             |
-| **Marketing graphics**   | Canva                    | Templates, quick iterations       |
-| **UI mockups**           | Figma, Framer            | Developer handoff                 |
-| **Backgrounds/patterns** | Midjourney               | Unique, tileable                  |
-| **Product screenshots**  | Screen Studio, CleanShot | Polished presentations            |
+| Asset Type               | Best Tool                         | Why                               |
+| ------------------------ | --------------------------------- | --------------------------------- |
+| **Quick visual assets**  | **Ptah Native (built-in)**        | Zero setup, integrated, instant   |
+| **Hero illustrations**   | Ptah Native, Midjourney, DALL-E 3 | Complex scenes, unique art styles |
+| **Icons**                | Ptah Native, Midjourney           | Consistent style sets             |
+| **3D elements**          | Three.js, Spline                  | Interactive, animated             |
+| **Marketing graphics**   | Ptah Native, Canva                | Templates, quick iterations       |
+| **UI mockups**           | Figma, Framer                     | Developer handoff                 |
+| **Backgrounds/patterns** | Ptah Native, Midjourney           | Unique, tileable                  |
+| **Product screenshots**  | Screen Studio, CleanShot          | Polished presentations            |
+| **Photorealistic**       | Ptah Native (Imagen model)        | High-quality photorealistic       |
+
+---
+
+## Ptah Native Image Generation (RECOMMENDED FIRST)
+
+Ptah has **built-in AI image generation** powered by Google Gemini and Imagen. This is the fastest option since it requires no external tools or browser -- it runs directly inside VS Code.
+
+### MCP Tool: `ptah_generate_image`
+
+Use the `ptah_generate_image` MCP tool for quick, one-shot image generation:
+
+```
+Tool: ptah_generate_image
+Input: {
+  "prompt": "A golden ankh symbol on deep black background, sacred tech aesthetic, minimal",
+  "model": "gemini-2.5-flash-preview-06-25"
+}
+```
+
+Images are saved to `.ptah/generated-images/` in the workspace and file paths are returned.
+
+### Programmatic: `ptah.image.generate()`
+
+For batch generation or programmatic workflows via `execute_code`:
+
+```typescript
+// Generate a single image
+const result = await ptah.image.generate('A minimalist logo, dark background, gold accents');
+return result.images.map((img) => img.path);
+
+// Generate with options
+const result = await ptah.image.generate('Product hero banner, futuristic tech', {
+  model: 'imagen-4.0-generate-001', // photorealistic model
+  aspectRatio: '16:9',
+  numberOfImages: 2,
+});
+
+// Check availability
+const available = await ptah.image.isAvailable();
+```
+
+### Model Selection
+
+| Model                                      | Best For                                            | Notes                                |
+| ------------------------------------------ | --------------------------------------------------- | ------------------------------------ |
+| `gemini-2.5-flash-preview-06-25` (default) | Logos, icons, illustrations, diagrams, creative art | Fast, artistic                       |
+| `imagen-4.0-generate-001`                  | Photorealistic images, product shots, backgrounds   | Supports aspectRatio, numberOfImages |
+
+### When to Use External Tools Instead
+
+- **Complex multi-iteration workflows** with specific art direction: Midjourney
+- **Template-based marketing materials**: Canva
+- **Interactive 3D elements**: Three.js, Spline
+- **Developer handoff mockups**: Figma, Framer
 
 ---
 

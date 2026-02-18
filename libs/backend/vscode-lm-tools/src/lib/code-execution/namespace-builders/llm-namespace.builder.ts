@@ -1,14 +1,12 @@
 /**
  * LLM Namespace Builder
  *
- * Builds the LLM namespace providing access to multiple LLM providers via Langchain.
+ * Builds the LLM namespace providing access to multiple LLM providers via native SDKs.
  * Enables Claude CLI to delegate tasks to other AI models (cheaper, specialized, etc.).
  *
  * Provider namespaces:
- * - ptah.llm.anthropic.chat() - Claude models
- * - ptah.llm.openai.chat() - GPT models
- * - ptah.llm.google.chat() - Gemini models
- * - ptah.llm.openrouter.chat() - Multi-provider routing
+ * - ptah.llm.openai.chat() - GPT models (native OpenAI SDK)
+ * - ptah.llm.google.chat() - Gemini models (native @google/genai SDK)
  * - ptah.llm.vscodeLm.chat() - VS Code Language Model API (always available)
  *
  * Utility methods:
@@ -120,11 +118,9 @@ export function buildLLMNamespace(
   deps: LlmNamespaceDependencies
 ): LLMNamespace {
   return {
-    // Provider-specific namespaces
-    anthropic: buildProviderNamespace(deps, 'anthropic'),
+    // Provider-specific namespaces (3 providers after SDK-only migration)
     openai: buildProviderNamespace(deps, 'openai'),
     google: buildProviderNamespace(deps, 'google-genai'),
-    openrouter: buildProviderNamespace(deps, 'openrouter'),
     vscodeLm: buildProviderNamespace(deps, 'vscode-lm'),
 
     /**

@@ -413,6 +413,20 @@ export function formatModelDisplayName(modelId: string): string {
   if (lower.includes('gemini-1.5-flash')) return 'Gemini 1.5 Flash';
   if (lower.includes('gemini')) return 'Gemini';
 
+  // Moonshot Kimi models
+  if (lower.includes('kimi-k2.5')) return 'Kimi K2.5';
+  if (lower.includes('kimi-k2-thinking')) return 'Kimi K2 Thinking';
+  if (lower.includes('kimi-k2')) return 'Kimi K2';
+
+  // Z.AI GLM models
+  if (lower.includes('glm-4.7-flash') && !lower.includes('flashx'))
+    return 'GLM-4.7 Flash';
+  if (lower.includes('glm-4.7-flashx')) return 'GLM-4.7 FlashX';
+  if (lower.includes('glm-4.7')) return 'GLM-4.7';
+  if (lower.includes('glm-4.6')) return 'GLM-4.6';
+  if (lower.includes('glm-4.5-air')) return 'GLM-4.5 Air';
+  if (lower.includes('glm-4.5')) return 'GLM-4.5';
+
   // Fallback: truncate long IDs
   if (modelId.length > 30) {
     return modelId.substring(0, 30) + '...';

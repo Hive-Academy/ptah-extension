@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { LucideAngularModule, Check } from 'lucide-angular';
 import {
   ViewportAnimationDirective,
@@ -30,7 +31,12 @@ import {
  */
 @Component({
   selector: 'ptah-cta-section',
-  imports: [CommonModule, ViewportAnimationDirective, LucideAngularModule],
+  imports: [
+    CommonModule,
+    RouterLink,
+    ViewportAnimationDirective,
+    LucideAngularModule,
+  ],
   template: `
     <section id="cta" class="py-16 sm:py-24 md:py-32 bg-base-100">
       <div class="container mx-auto px-4 sm:px-6 text-center">
@@ -77,7 +83,7 @@ import {
           class="mt-8 flex flex-wrap justify-center gap-6"
         >
           <a
-            href="#"
+            routerLink="/docs"
             class="text-secondary hover:text-accent transition-colors font-medium"
             aria-label="Read the documentation"
           >
@@ -111,119 +117,6 @@ import {
           </div>
           }
         </div>
-
-        <!-- Golden Divider with scaleX animation -->
-        <div
-          viewportAnimation
-          [viewportConfig]="dividerConfig"
-          class="overflow-hidden mt-16 mb-8"
-        >
-          <div
-            class="h-[2px] w-full bg-gradient-to-r from-transparent via-secondary to-transparent"
-          ></div>
-        </div>
-
-        <!-- Footer with fadeIn animation -->
-        <footer
-          viewportAnimation
-          [viewportConfig]="footerConfig"
-          class="pt-8"
-          role="contentinfo"
-        >
-          <!-- Brand -->
-          <div class="mb-8">
-            <h3
-              class="text-xl sm:text-2xl font-display font-bold text-secondary mb-2"
-            >
-              Ptah
-            </h3>
-            <p class="text-base-content/60">Craftsman of AI Development</p>
-          </div>
-
-          <!-- Navigation Links -->
-          <nav
-            class="flex flex-wrap justify-center gap-4 sm:gap-6 mb-8"
-            aria-label="Footer navigation"
-          >
-            <a
-              href="#"
-              class="text-base-content/70 hover:text-secondary transition-colors"
-              aria-label="View documentation"
-            >
-              Documentation
-            </a>
-            <a
-              href="https://github.com/anthropics/claude-code"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-base-content/70 hover:text-secondary transition-colors"
-              aria-label="Visit GitHub repository"
-            >
-              GitHub
-            </a>
-            <a
-              href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-base-content/70 hover:text-secondary transition-colors"
-              aria-label="Visit VS Code Marketplace"
-            >
-              Marketplace
-            </a>
-            <a
-              href="#"
-              class="text-base-content/70 hover:text-secondary transition-colors"
-              aria-label="Join community"
-            >
-              Community
-            </a>
-          </nav>
-
-          <!-- Social Links -->
-          <div class="flex justify-center gap-4 mb-8">
-            <a
-              href="#"
-              class="text-base-content/70 hover:text-secondary transition-colors"
-              aria-label="Twitter"
-            >
-              <span class="text-xl">X</span>
-            </a>
-            <a
-              href="#"
-              class="text-base-content/70 hover:text-secondary transition-colors"
-              aria-label="Discord"
-            >
-              <span class="text-xl">Discord</span>
-            </a>
-            <a
-              href="https://github.com/anthropics/claude-code"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-base-content/70 hover:text-secondary transition-colors"
-              aria-label="GitHub"
-            >
-              <span class="text-xl">GitHub</span>
-            </a>
-          </div>
-
-          <!-- Legal -->
-          <div class="text-center text-sm text-base-content/50">
-            <p>
-              2025 Ptah Extension |
-              <a href="#" class="hover:text-secondary transition-colors"
-                >MIT License</a
-              >
-              |
-              <a href="#" class="hover:text-secondary transition-colors"
-                >Privacy</a
-              >
-              |
-              <a href="#" class="hover:text-secondary transition-colors"
-                >Terms</a
-              >
-            </p>
-          </div>
-        </footer>
       </div>
     </section>
   `,
@@ -280,28 +173,6 @@ export class CTASectionComponent {
     duration: 0.6,
     delay: 0.3,
     threshold: 0.2,
-  };
-
-  /**
-   * Divider animation config - custom scaleX animation
-   */
-  public readonly dividerConfig: ViewportAnimationConfig = {
-    animation: 'custom',
-    duration: 1.2,
-    delay: 0.4,
-    threshold: 0.2,
-    from: { scaleX: 0, transformOrigin: 'center' },
-    to: { scaleX: 1 },
-  };
-
-  /**
-   * Footer animation config - fadeIn
-   */
-  public readonly footerConfig: ViewportAnimationConfig = {
-    animation: 'fadeIn',
-    duration: 0.8,
-    delay: 0.5,
-    threshold: 0.1,
   };
 
   /**

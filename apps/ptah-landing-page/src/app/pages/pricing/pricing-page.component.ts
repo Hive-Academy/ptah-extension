@@ -1,5 +1,6 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { NavigationComponent } from '../../components/navigation.component';
+import { FooterComponent } from '../../components/footer.component';
 import { PricingHeroComponent } from './components/pricing-hero.component';
 import { PricingGridComponent } from './components/pricing-grid.component';
 
@@ -14,7 +15,12 @@ import { PricingGridComponent } from './components/pricing-grid.component';
 @Component({
   selector: 'ptah-pricing-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [NavigationComponent, PricingHeroComponent, PricingGridComponent],
+  imports: [
+    NavigationComponent,
+    FooterComponent,
+    PricingHeroComponent,
+    PricingGridComponent,
+  ],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
       <!-- Fixed Navigation -->
@@ -25,6 +31,8 @@ import { PricingGridComponent } from './components/pricing-grid.component';
 
       <!-- Pricing Cards Grid (2 cards: Community + Pro with internal toggle) -->
       <ptah-pricing-grid />
+
+      <ptah-footer />
     </div>
   `,
   styles: [

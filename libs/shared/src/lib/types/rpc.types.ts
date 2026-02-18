@@ -410,6 +410,28 @@ export interface ConfigModelsListResult {
 // Authentication RPC Types (TASK_2025_057)
 // ============================================================
 
+/** Supported authentication methods */
+export type AuthMethod =
+  | 'oauth'
+  | 'apiKey'
+  | 'openrouter'
+  | 'auto'
+  | 'vscode-lm';
+
+/** VS Code Language Model information (from vscode.lm.selectChatModels) */
+export interface VsCodeLmModelInfo {
+  /** Model identifier (e.g., 'copilot-gpt-4o') */
+  id: string;
+  /** Model vendor (e.g., 'copilot') */
+  vendor: string;
+  /** Model family (e.g., 'gpt-4o') */
+  family: string;
+  /** Model version */
+  version: string;
+  /** Maximum input tokens supported */
+  maxInputTokens: number;
+}
+
 /** Parameters for auth:getHealth RPC method */
 export type AuthGetHealthParams = Record<string, never>;
 
@@ -427,7 +449,7 @@ export interface AuthGetHealthResponse {
 
 /** Parameters for auth:saveSettings RPC method */
 export interface AuthSaveSettingsParams {
-  authMethod: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+  authMethod: AuthMethod;
   claudeOAuthToken?: string;
   anthropicApiKey?: string;
   /** Provider API key - used for OpenRouter, Moonshot, Z.AI, etc. */
@@ -510,11 +532,13 @@ export interface AuthGetAuthStatusResponse {
   /** Whether provider API key is configured in SecretStorage */
   hasOpenRouterKey: boolean;
   /** Current auth method preference */
-  authMethod: 'oauth' | 'apiKey' | 'openrouter' | 'auto';
+  authMethod: AuthMethod;
   /** Currently selected Anthropic-compatible provider ID (TASK_2025_129 Batch 3) */
   anthropicProviderId: string;
   /** Available Anthropic-compatible providers (TASK_2025_129 Batch 3) */
   availableProviders: AnthropicProviderInfo[];
+  /** Available VS Code LM models (populated when authMethod is 'vscode-lm') */
+  vscodeLmModels?: VsCodeLmModelInfo[];
 }
 
 // ============================================================
@@ -1038,16 +1062,40 @@ export interface CommandExecuteResponse {
 }
 
 // ============================================================
-// LLM Provider RPC Types
+// LLM Provider RPC Types (TASK_2025_155: SDK-only migration)
 // ============================================================
 
-/** LLM Provider names */
-export type LlmProviderName =
-  | 'anthropic'
-  | 'openai'
-  | 'google'
-  | 'openrouter'
-  | 'vscode';
+/** LLM Provider names (3 remaining after Langchain removal) */
+export type LlmProviderName = 'openai' | 'google-genai' | 'vscode-lm';
+
+/** LLM Provider capability flags */
+export type LlmProviderCapability =
+  | 'text-chat'
+  | 'image-generation'
+  | 'structured-output';
+
+/** Response from llm:getProviderStatus RPC method */
+export interface LlmProviderStatusResponse {
+  providers: Array<{
+    provider: LlmProviderName;
+    displayName: string;
+    isConfigured: boolean;
+    defaultModel: string;
+    capabilities: LlmProviderCapability[];
+  }>;
+  defaultProvider: LlmProviderName;
+}
+
+/** Parameters for llm:setDefaultProvider RPC method */
+export interface SetDefaultProviderRequest {
+  provider: LlmProviderName;
+}
+
+/** Response from llm:setDefaultProvider RPC method */
+export interface SetDefaultProviderResponse {
+  success: boolean;
+  error?: string;
+}
 
 /** Parameters for llm:setApiKey RPC method */
 export interface LlmSetApiKeyParams {
@@ -1338,7 +1386,7 @@ export interface RpcMethodRegistry {
   // ---- LLM Provider Methods ----
   'llm:getProviderStatus': {
     params: LlmGetProviderStatusParams;
-    result: unknown;
+    result: LlmProviderStatusResponse;
   };
   'llm:setApiKey': { params: LlmSetApiKeyParams; result: LlmSetApiKeyResponse };
   'llm:removeApiKey': {
@@ -1348,6 +1396,10 @@ export interface RpcMethodRegistry {
   'llm:getDefaultProvider': {
     params: LlmGetDefaultProviderParams;
     result: LlmGetDefaultProviderResponse;
+  };
+  'llm:setDefaultProvider': {
+    params: SetDefaultProviderRequest;
+    result: SetDefaultProviderResponse;
   };
   'llm:validateApiKeyFormat': {
     params: LlmValidateApiKeyFormatParams;
@@ -1517,6 +1569,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'llm:setApiKey',
   'llm:removeApiKey',
   'llm:getDefaultProvider',
+  'llm:setDefaultProvider',
   'llm:validateApiKeyFormat',
   'llm:listVsCodeModels',
 

@@ -26,6 +26,9 @@ export { AutopilotStateService } from './autopilot-state.service';
 // Auth State Service (TASK_2025_133)
 export { AuthStateService } from './auth-state.service';
 
+// LLM Provider State Service (TASK_2025_155)
+export { LlmProviderStateService } from './llm-provider-state.service';
+
 // RPC Services (Phase 2 - TASK_2025_021)
 export {
   ClaudeRpcService,

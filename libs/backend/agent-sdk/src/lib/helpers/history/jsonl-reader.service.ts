@@ -195,6 +195,7 @@ export class JsonlReaderService {
       type: (line.type ||
         line.message?.role ||
         'unknown') as SessionHistoryMessage['type'],
+      subtype: line.subtype,
       uuid: line.uuid,
       sessionId: line.sessionId,
       timestamp: line.timestamp,

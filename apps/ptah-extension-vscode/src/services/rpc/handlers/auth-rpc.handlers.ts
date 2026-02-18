@@ -26,7 +26,9 @@ import {
 import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
+  VsCodeLmModelInfo,
 } from '@ptah-extension/shared';
+import * as vscode from 'vscode';
 
 /**
  * RPC handlers for authentication operations
@@ -104,9 +106,22 @@ export class AuthRpcHandlers {
         const hasApiKey = await this.authSecretsService.hasCredential('apiKey');
 
         // Get auth method from ConfigManager (non-sensitive)
-        const authMethod = this.configManager.getWithDefault<
-          'oauth' | 'apiKey' | 'openrouter' | 'auto'
-        >('authMethod', 'auto');
+        // Smart default: if no authMethod persisted, check if VS Code LM models exist
+        let authMethod = this.configManager.get<string>('authMethod') as
+          | 'oauth'
+          | 'apiKey'
+          | 'openrouter'
+          | 'auto'
+          | 'vscode-lm'
+          | undefined;
+        if (!authMethod) {
+          try {
+            const models = await vscode.lm.selectChatModels({});
+            authMethod = models.length > 0 ? 'vscode-lm' : 'auto';
+          } catch {
+            authMethod = 'auto';
+          }
+        }
 
         // TASK_2025_129 Batch 3: Get selected provider ID
         const anthropicProviderId = this.configManager.getWithDefault<string>(
@@ -132,12 +147,30 @@ export class AuthRpcHandlers {
           hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
         }));
 
+        // Populate VS Code LM models when using vscode-lm auth method
+        let vscodeLmModels: VsCodeLmModelInfo[] | undefined;
+        if (authMethod === 'vscode-lm') {
+          try {
+            const models = await vscode.lm.selectChatModels({});
+            vscodeLmModels = models.map((m) => ({
+              id: m.id,
+              vendor: m.vendor,
+              family: m.family,
+              version: m.version,
+              maxInputTokens: m.maxInputTokens,
+            }));
+          } catch {
+            vscodeLmModels = [];
+          }
+        }
+
         this.logger.debug('RPC: auth:getAuthStatus result', {
           hasOAuthToken,
           hasApiKey,
           hasOpenRouterKey,
           authMethod,
           anthropicProviderId,
+          vscodeLmModelsCount: vscodeLmModels?.length,
         });
 
         return {
@@ -147,6 +180,7 @@ export class AuthRpcHandlers {
           authMethod,
           anthropicProviderId,
           availableProviders,
+          vscodeLmModels,
         };
       } catch (error) {
         this.logger.error(
@@ -163,7 +197,13 @@ export class AuthRpcHandlers {
    */
   private registerSaveSettings(): void {
     const AuthSettingsSchema = z.object({
-      authMethod: z.enum(['oauth', 'apiKey', 'openrouter', 'auto']),
+      authMethod: z.enum([
+        'oauth',
+        'apiKey',
+        'openrouter',
+        'auto',
+        'vscode-lm',
+      ]),
       claudeOAuthToken: z.string().optional(),
       anthropicApiKey: z.string().optional(),
       openrouterApiKey: z.string().optional(),
@@ -294,6 +334,52 @@ export class AuthRpcHandlers {
     >('auth:testConnection', async () => {
       try {
         this.logger.debug('RPC: auth:testConnection called');
+
+        // VS Code LM: test by checking if any models are available
+        const currentAuthMethod = this.configManager.get<string>('authMethod');
+        if (currentAuthMethod === 'vscode-lm') {
+          try {
+            const models = await vscode.lm.selectChatModels({});
+            if (models.length > 0) {
+              return {
+                success: true,
+                health: {
+                  status: 'available',
+                  lastCheck: Date.now(),
+                  responseTime: 0,
+                },
+                errorMessage: undefined,
+              };
+            }
+            return {
+              success: false,
+              health: {
+                status: 'unavailable',
+                lastCheck: Date.now(),
+                errorMessage:
+                  'No VS Code Language Models found. Install GitHub Copilot or another LM extension.',
+              },
+              errorMessage:
+                'No VS Code Language Models found. Install GitHub Copilot or another LM extension.',
+            };
+          } catch (error) {
+            return {
+              success: false,
+              health: {
+                status: 'error',
+                lastCheck: Date.now(),
+                errorMessage:
+                  error instanceof Error
+                    ? error.message
+                    : 'Failed to query VS Code LM API',
+              },
+              errorMessage:
+                error instanceof Error
+                  ? error.message
+                  : 'Failed to query VS Code LM API',
+            };
+          }
+        }
 
         // Retry-poll: check SDK health with exponential backoff
         const MAX_RETRIES = 5;

@@ -683,3 +683,39 @@ Promise.all([Task({ subagent_type: 'technical-content-writer', prompt: 'landing 
 // Run in parallel when batches are independent
 Promise.all([Task({ subagent_type: 'backend-developer', prompt: 'Batch 1...' }), Task({ subagent_type: 'frontend-developer', prompt: 'Batch 2...' })]);
 ```
+
+---
+
+## MCP Delegation Capability (Cost-Effective Mode)
+
+When `--cost-effective` mode is active, the following agents benefit most from VS Code LM delegation:
+
+| Agent                    | Delegatable Sub-Tasks                       | Delegation Benefit                      |
+| ------------------------ | ------------------------------------------- | --------------------------------------- |
+| researcher-expert        | Parallel research queries, API doc analysis | High - most tasks are research          |
+| code-style-reviewer      | Pattern checking, naming convention review  | High - rule-based analysis              |
+| code-logic-reviewer      | Simple bug detection, edge case enumeration | Medium - some tasks need deep reasoning |
+| technical-content-writer | Draft generation, outline creation          | High - boilerplate content              |
+| senior-tester            | Test case ideation, fixture generation      | Medium - enumeration tasks              |
+
+### Delegation Prompt Injection
+
+When cost-effective mode is active, the orchestrator appends this to agent prompts:
+
+```
+## Cost-Effective Delegation Mode
+
+You have access to VS Code Language Models via the `execute_code` MCP tool.
+For research, analysis, and boilerplate sub-tasks, delegate to VS Code LM:
+
+const result = await ptah.llm.vscodeLm.chat({
+  systemPrompt: "[craft a focused system prompt for the sub-task]",
+  userMessage: "[the specific question or content to analyze]",
+  options: { temperature: 0.3 }
+});
+
+**Delegate**: Research queries, style checks, test case enumeration, draft generation
+**Keep in Claude**: Architecture decisions, security review, final synthesis, tool use
+```
+
+See [mcp-delegation.md](mcp-delegation.md) for full delegation patterns and examples.

@@ -408,6 +408,37 @@ Developer should:
 
 ---
 
+## Cost-Effective Delegation (Cross-Strategy)
+
+When `--cost-effective` mode is active, each strategy benefits from VS Code LM delegation in specific phases:
+
+| Strategy      | Delegatable Phases                         | What Gets Delegated                |
+| ------------- | ------------------------------------------ | ---------------------------------- |
+| FEATURE       | Research (Phase 2), Style Review (Phase 6) | Research queries, pattern checking |
+| BUGFIX        | Root cause analysis (pre-Phase 1)          | Codebase analysis queries          |
+| REFACTORING   | Style review (QA phase)                    | Convention compliance checks       |
+| DOCUMENTATION | Draft generation (Phase 2)                 | Content drafts, outline creation   |
+| RESEARCH      | All analysis sub-tasks                     | Parallel research queries          |
+| DEVOPS        | Style review (QA phase)                    | Config file pattern checks         |
+| CREATIVE      | Draft generation                           | Content outlines, copy variations  |
+
+### How It Works
+
+1. Orchestrator detects `--cost-effective` flag
+2. Agent prompts receive delegation instructions (see [mcp-delegation.md](mcp-delegation.md))
+3. Agents use `execute_code` MCP tool + `ptah.llm.vscodeLm.chat()` for sub-tasks
+4. Claude handles final synthesis, architecture decisions, and tool use
+
+### Strategy-Specific Examples
+
+**FEATURE + Cost-Effective**: researcher-expert delegates 5 parallel codebase queries to VS Code LM, synthesizes results in Claude, then passes to architect.
+
+**BUGFIX + Cost-Effective**: Before team-leader, delegate root cause hypothesis generation to VS Code LM (analyze error logs, stack traces), then Claude confirms and plans fix.
+
+**DOCUMENTATION + Cost-Effective**: technical-content-writer delegates first draft to VS Code LM, then Claude refines style, adds technical accuracy, and formats.
+
+---
+
 ## Strategy Selection Summary
 
 Use this decision tree for quick strategy selection:

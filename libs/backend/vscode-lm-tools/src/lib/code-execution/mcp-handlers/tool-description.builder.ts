@@ -21,7 +21,7 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 15 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 16 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
@@ -241,6 +241,49 @@ export function buildCountTokensTool(): MCPToolDefinition {
 }
 
 /**
+ * Build the ptah_generate_image tool definition
+ * Image generation via Google Gemini / Imagen APIs
+ */
+export function buildGenerateImageTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_generate_image',
+    description:
+      'Generate images from text prompts — logos, icons, banners, illustrations, mockups, diagrams, backgrounds, visual assets, and any other image content. ' +
+      'Uses Google Gemini (default, creative/artistic) or Imagen (photorealistic). ' +
+      'Saves generated images to .ptah/generated-images/ in the workspace and returns file paths to saved images. ' +
+      'Default model: gemini-2.5-flash-preview-06-25. For photorealistic images use model "imagen-4.0-generate-001". ' +
+      'Requires a Google GenAI API key configured in Ptah settings. ' +
+      'Also available as ptah.image.generate() in execute_code for programmatic/batch usage.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt: {
+          type: 'string',
+          description: 'Natural-language description of the image to generate',
+        },
+        model: {
+          type: 'string',
+          description:
+            'Model to use. Default: "gemini-2.5-flash-preview-06-25". ' +
+            'Use "imagen-4.0-generate-001" for photorealistic images via Imagen API.',
+        },
+        aspectRatio: {
+          type: 'string',
+          description:
+            'Aspect ratio for Imagen models (e.g., "1:1", "16:9", "9:16"). Default: "1:1". Ignored for Gemini native.',
+        },
+        numberOfImages: {
+          type: 'number',
+          description:
+            'Number of images to generate (1-4). Default: 1. Only used by Imagen API.',
+        },
+      },
+      required: ['prompt'],
+    },
+  };
+}
+
+/**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
  */
@@ -249,7 +292,7 @@ function buildExecuteCodeDescription(): string {
 
 ${PTAH_SYSTEM_PROMPT}
 
-## Top Namespaces (15 total — use ptah.help(topic) for full details)
+## Top Namespaces (16 total — use ptah.help(topic) for full details)
 
 ### ptah.workspace - Workspace Analysis
 - analyze(): Promise<{info, structure}> - Full workspace analysis
@@ -293,6 +336,14 @@ Relative paths are resolved from workspace root. Absolute paths work as-is.
 - detectType(): Promise<string> - Detect project type (React, Angular, Node, etc.)
 - analyzeDependencies(): Promise<{name, version, isDev}[]> - Analyze package dependencies
 ⚠️ NO getMonorepoInfo(). Use detectMonorepo() instead.
+
+### ptah.image - Image Generation (Google Gemini / Imagen)
+- generate(prompt, options?): Promise<{images: [{path, mimeType}], model}> - Generate images from text
+  Options: { model?: string, aspectRatio?: string, numberOfImages?: number }
+- listModels(): [{id, name, type, description}] - Available models
+- isAvailable(): Promise<boolean> - Check if API key configured
+Default model: gemini-2.5-flash-preview-06-25. For photorealistic: "imagen-4.0-generate-001"
+TIP: For simple generation, use ptah_generate_image tool directly.
 
 ### Other Namespaces (use ptah.help('topic') for details)
 - ptah.ai.* - VS Code LM API (chat, tokens, tools, specialized tasks, invokeAgent)
@@ -347,5 +398,9 @@ return errors.filter(e => e.file.endsWith('.ts'));
 // Analyze code structure (AST)
 const insights = await ptah.ast.analyze('src/services/auth.service.ts');
 return { functions: insights.functions.map(f => f.name), classes: insights.classes.map(c => c.name) };
+
+// Generate an image and get file paths
+const result = await ptah.image.generate('A minimalist logo, dark background, gold accents');
+return result.images.map(img => img.path);
 \`\`\``;
 }

@@ -38,6 +38,16 @@
       <button
         type="button"
         class="join-item btn btn-sm flex-1 text-xs font-medium"
+        [class.btn-primary]="authState.authMethod() === 'vscode-lm'"
+        [class.btn-ghost]="authState.authMethod() !== 'vscode-lm'"
+        (click)="onAuthMethodChange('vscode-lm')"
+        [attr.aria-pressed]="authState.authMethod() === 'vscode-lm'"
+      >
+        VS Code LM
+      </button>
+      <button
+        type="button"
+        class="join-item btn btn-sm flex-1 text-xs font-medium"
         [class.btn-primary]="authState.authMethod() === 'auto'"
         [class.btn-ghost]="authState.authMethod() !== 'auto'"
         (click)="onAuthMethodChange('auto')"
@@ -48,10 +58,58 @@
     </div>
     <div class="label py-0.5">
       <span class="label-text-alt text-[10px] opacity-70">
-        Auto-detect: Provider → OAuth → API key (in priority order)
+        Auto-detect: VS Code LM → Provider → OAuth → API key
       </span>
     </div>
   </div>
+
+  <!-- VS Code LM Model List -->
+  @if (authState.authMethod() === 'vscode-lm') {
+  <div class="form-control">
+    <div class="label py-1">
+      <span class="label-text text-xs font-medium"
+        >Available Language Models</span
+      >
+    </div>
+    @if (authState.vscodeLmModels().length > 0) {
+    <div class="bg-base-200 rounded-lg p-2 space-y-1">
+      @for (model of authState.vscodeLmModels(); track model.id) {
+      <div
+        class="flex items-center justify-between text-xs px-2 py-1 bg-base-100 rounded"
+      >
+        <div class="flex items-center gap-1.5">
+          <span class="font-medium">{{ model.family }}</span>
+          <span class="opacity-50 text-[10px]">{{ model.vendor }}</span>
+        </div>
+        <span class="badge badge-ghost badge-xs"
+          >{{ model.maxInputTokens | number }} tokens</span
+        >
+      </div>
+      }
+    </div>
+    <div class="label py-0.5">
+      <span class="label-text-alt text-[10px] opacity-70">
+        Models provided by VS Code extensions (e.g., GitHub Copilot). No API key
+        needed.
+      </span>
+    </div>
+    } @else {
+    <div class="alert alert-warning py-2 px-3">
+      <span class="text-xs">
+        No VS Code Language Models found. Install
+        <a
+          href="https://marketplace.visualstudio.com/items?itemName=GitHub.copilot"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="link link-primary font-semibold"
+          >GitHub Copilot</a
+        >
+        or another LM extension to use this method.
+      </span>
+    </div>
+    }
+  </div>
+  }
 
   <!-- Anthropic-Compatible Provider Input (TASK_2025_129 Batch 3) -->
   @if (authState.authMethod() === 'openrouter' || authState.authMethod() ===

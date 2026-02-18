@@ -600,26 +600,34 @@
           Configure in VS Code Settings: <code>ptah.mcpPort</code> (default:
           51820)
         </div>
+
+        <!-- VS Code Language Model API (used by MCP AI tool) -->
+        <div class="divider my-2 text-[10px] opacity-50">
+          VS Code Language Model API
+        </div>
+        <p class="text-xs text-base-content/70 mb-2">
+          The MCP server's <strong>AI tool</strong> uses VS Code's built-in
+          Language Model API to power code analysis and generation. If you have
+          GitHub Copilot or another VS Code LM extension installed, those models
+          are available automatically.
+        </p>
+        <div class="flex items-center gap-2 text-xs text-base-content/60">
+          <lucide-angular
+            [img]="ShieldIcon"
+            class="w-3.5 h-3.5 flex-shrink-0"
+          />
+          <span
+            >No additional API key needed — authentication is handled by VS
+            Code.</span
+          >
+        </div>
       </div>
     </div>
 
-    <!-- LLM Provider API Keys -->
+    <!-- LLM Provider API Keys (TASK_2025_155) -->
     <div class="border border-primary/30 rounded-md bg-primary/5">
       <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <span class="text-sm">🔑</span>
-          <h2 class="text-xs font-medium uppercase tracking-wide">
-            LLM Provider API Keys
-          </h2>
-        </div>
-        <p class="text-xs text-base-content/70 mb-3">
-          Configure API keys for additional LLM providers (OpenAI, Google,
-          OpenRouter) used by the MCP server's ptah.ai namespace.
-        </p>
-        <!-- TODO: Add LlmConfigComponent -->
-        <div class="text-xs text-base-content/50 italic">
-          Coming soon: Configure API keys for multiple LLM providers.
-        </div>
+        <ptah-llm-providers-config />
       </div>
     </div>
     } @else if (isAuthenticated() && !isLoadingLicenseStatus() && !isPremium())

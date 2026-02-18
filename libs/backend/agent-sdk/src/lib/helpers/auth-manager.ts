@@ -23,6 +23,7 @@ import {
   getAnthropicProvider,
   getProviderBaseUrl,
   getProviderAuthEnvVar,
+  seedStaticModelPricing,
   DEFAULT_PROVIDER_ID,
 } from './anthropic-provider-registry';
 import { ProviderModelsService } from '../provider-models.service';
@@ -297,6 +298,9 @@ export class AuthManager {
 
       // Apply persisted tier mappings for this provider (TASK_2025_132)
       this.providerModels.switchActiveProvider(providerId);
+
+      // Seed pricing map with static model pricing (fallback for models not on OpenRouter)
+      seedStaticModelPricing(providerId);
 
       this.logger.info(
         `[AuthManager] Using ${providerName} (routing via ${baseUrl})`

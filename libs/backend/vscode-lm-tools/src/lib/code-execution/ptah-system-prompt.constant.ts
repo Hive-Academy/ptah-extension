@@ -22,6 +22,7 @@ You have access to Ptah MCP tools. **You MUST prefer ptah_* tools** whenever the
 | Navigating to find definitions       | \`ptah_lsp_definitions\`          | Go-to-definition via LSP                   |
 | \`git status\` via Bash              | \`ptah_get_dirty_files\`          | Shows unsaved VS Code buffers too          |
 | Reading a file to check its size     | \`ptah_count_tokens\`             | Token count, not byte count                |
+| User asks to create/generate images  | \`ptah_generate_image\`           | Built-in AI image generation               |
 
 ### DO NOT use Bash, Grep, or Glob when a ptah_* tool provides the same capability.
 
@@ -52,6 +53,9 @@ List files with unsaved changes in VS Code editor.
 
 ### ptah_count_tokens { file }
 Count tokens in a file. Use before reading large files to check size.
+
+### ptah_generate_image { prompt, model?, aspectRatio?, numberOfImages? }
+Generate images from text prompts (logos, icons, banners, illustrations, mockups, diagrams, backgrounds, visual assets). Saves to .ptah/generated-images/ and returns file paths. Default model: Gemini Flash. Use "imagen-4.0-generate-001" for photorealistic images. Also available as ptah.image.generate() in execute_code.
 
 ## Advanced: execute_code Tool
 

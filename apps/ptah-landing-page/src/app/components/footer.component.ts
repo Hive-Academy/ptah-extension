@@ -1,0 +1,141 @@
+import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { RouterLink } from '@angular/router';
+import {
+  ViewportAnimationDirective,
+  ViewportAnimationConfig,
+} from '@hive-academy/angular-gsap';
+
+/**
+ * FooterComponent - Shared site footer with golden divider
+ *
+ * Used across all pages (landing, docs, pricing, etc.)
+ * Features:
+ * - Golden gradient divider line at top
+ * - Brand name and tagline
+ * - Navigation links (Documentation, Marketplace, Community)
+ * - Social links (X, Discord)
+ * - Legal links (MIT License, Privacy, Terms)
+ */
+@Component({
+  selector: 'ptah-footer',
+  imports: [RouterLink, ViewportAnimationDirective],
+  template: `
+    <!-- Golden Divider with scaleX animation -->
+    <div
+      viewportAnimation
+      [viewportConfig]="dividerConfig"
+      class="overflow-hidden"
+    >
+      <div
+        class="h-[2px] w-full bg-gradient-to-r from-transparent via-secondary to-transparent"
+      ></div>
+    </div>
+
+    <footer
+      viewportAnimation
+      [viewportConfig]="footerConfig"
+      class="pt-12 pb-8 bg-base-100"
+      role="contentinfo"
+    >
+      <div class="container mx-auto px-4 sm:px-6 text-center">
+        <!-- Brand -->
+        <div class="mb-8">
+          <h3
+            class="text-xl sm:text-2xl font-display font-bold text-secondary mb-2"
+          >
+            Ptah
+          </h3>
+          <p class="text-base-content/60">Craftsman of AI Development</p>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav
+          class="flex flex-wrap justify-center gap-4 sm:gap-6 mb-8"
+          aria-label="Footer navigation"
+        >
+          <a
+            routerLink="/docs"
+            class="text-base-content/70 hover:text-secondary transition-colors"
+            aria-label="View documentation"
+          >
+            Documentation
+          </a>
+          <a
+            href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-base-content/70 hover:text-secondary transition-colors"
+            aria-label="Visit VS Code Marketplace"
+          >
+            Marketplace
+          </a>
+          <a
+            href="https://discord.gg/pZcbrqNRzq"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-base-content/70 hover:text-secondary transition-colors"
+            aria-label="Join community"
+          >
+            Community
+          </a>
+        </nav>
+
+        <!-- Social Links -->
+        <div class="flex justify-center gap-4 mb-8">
+          <a
+            href="#"
+            class="text-base-content/70 hover:text-secondary transition-colors"
+            aria-label="Follow on X"
+          >
+            <span class="text-xl">X</span>
+          </a>
+          <a
+            href="https://discord.gg/pZcbrqNRzq"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-base-content/70 hover:text-secondary transition-colors"
+            aria-label="Join Discord server"
+          >
+            <span class="text-xl">Discord</span>
+          </a>
+        </div>
+
+        <!-- Legal -->
+        <div class="text-center text-sm text-base-content/50">
+          <p>
+            2025 Ptah Extension |
+            <a href="#" class="hover:text-secondary transition-colors"
+              >MIT License</a
+            >
+            |
+            <a href="#" class="hover:text-secondary transition-colors"
+              >Privacy</a
+            >
+            |
+            <a href="#" class="hover:text-secondary transition-colors">Terms</a>
+          </p>
+        </div>
+      </div>
+    </footer>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class FooterComponent {
+  /** Divider animation config - custom scaleX animation */
+  public readonly dividerConfig: ViewportAnimationConfig = {
+    animation: 'custom',
+    duration: 1.2,
+    delay: 0.4,
+    threshold: 0.2,
+    from: { scaleX: 0, transformOrigin: 'center' },
+    to: { scaleX: 1 },
+  };
+
+  /** Footer animation config - fadeIn */
+  public readonly footerConfig: ViewportAnimationConfig = {
+    animation: 'fadeIn',
+    duration: 0.8,
+    delay: 0.5,
+    threshold: 0.1,
+  };
+}

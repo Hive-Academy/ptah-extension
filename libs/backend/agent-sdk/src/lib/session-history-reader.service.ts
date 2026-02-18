@@ -25,10 +25,9 @@ import * as path from 'path';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import {
-  extractTokenUsage,
-  estimateCostFromTokens,
-} from './helpers/usage-extraction.utils';
+import { extractTokenUsage } from './helpers/usage-extraction.utils';
+import { calculateMessageCost } from '@ptah-extension/shared';
+import { resolveActualModelForPricing } from './helpers/anthropic-provider-registry';
 import { SDK_TOKENS } from './di/tokens';
 import type { JsonlReaderService } from './helpers/history/jsonl-reader.service';
 import type { SessionReplayService } from './helpers/history/session-replay.service';
@@ -195,6 +194,23 @@ export class SessionHistoryReaderService {
       const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
       const rawMessages = await this.jsonlReader.readJsonlMessages(sessionFile);
 
+      // Find last compact_boundary - only replay post-compaction messages
+      let startIndex = 0;
+      for (let i = rawMessages.length - 1; i >= 0; i--) {
+        if (
+          rawMessages[i].type === 'system' &&
+          rawMessages[i].subtype === 'compact_boundary'
+        ) {
+          startIndex = i + 1;
+          this.logger.info(
+            `[SessionHistoryReader] Found compact_boundary at index ${i}, skipping pre-compaction messages`
+          );
+          break;
+        }
+      }
+      const effectiveMessages =
+        startIndex > 0 ? rawMessages.slice(startIndex) : rawMessages;
+
       // Transform SessionHistoryMessage to simple message format
       const messages: {
         id: string;
@@ -203,7 +219,7 @@ export class SessionHistoryReaderService {
         timestamp: number;
       }[] = [];
 
-      for (const msg of rawMessages) {
+      for (const msg of effectiveMessages) {
         // Skip non-message lines (summary, meta)
         if (!msg.message?.role) continue;
 
@@ -319,13 +335,16 @@ export class SessionHistoryReaderService {
       return null;
     }
 
-    // Estimate cost from tokens
-    const totalCost = estimateCostFromTokens({
-      input: totalInput,
-      output: totalOutput,
-      cacheRead: totalCacheRead,
-      cacheCreation: totalCacheCreation,
-    });
+    // Calculate cost using resolved model for accurate provider-aware pricing
+    const totalCost = calculateMessageCost(
+      resolveActualModelForPricing(detectedModel || ''),
+      {
+        input: totalInput,
+        output: totalOutput,
+        cacheHit: totalCacheRead,
+        cacheCreation: totalCacheCreation,
+      }
+    );
 
     return {
       totalCost,

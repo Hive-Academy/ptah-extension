@@ -19,7 +19,7 @@
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import EventEmitter from 'eventemitter3';
-import { PtahUrls } from '@ptah-extension/shared';
+import { resolveEnvironment } from '@ptah-extension/shared';
 import { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
 
@@ -143,7 +143,6 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   private static readonly PERSISTED_CACHE_KEY = 'ptah.licenseCache';
   private static readonly PREVIOUS_USER_CONTEXT_KEY =
     'ptah.previousUserContext';
-  private static readonly LICENSE_SERVER_URL = PtahUrls.API_URL;
   private static readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
   private static readonly NETWORK_TIMEOUT_MS = 5000; // 5 seconds
 
@@ -172,6 +171,26 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     timestamp: number | null;
   } = { status: null, timestamp: null };
 
+  /**
+   * Resolve the license server URL.
+   *
+   * Priority:
+   * 1. VS Code setting `ptah.apiUrl` (manual override)
+   * 2. Environment-based: localhost:3000 in dev (F5), api.ptah.live in production
+   */
+  private get licenseServerUrl(): string {
+    const settingOverride = vscode.workspace
+      .getConfiguration('ptah')
+      .get<string>('apiUrl');
+    if (settingOverride) {
+      return settingOverride;
+    }
+
+    const isDev =
+      this.context.extensionMode === vscode.ExtensionMode.Development;
+    return resolveEnvironment(isDev).urls.API_URL;
+  }
+
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
@@ -180,7 +199,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   ) {
     super();
     this.logger.info('[LicenseService.constructor] Service initialized', {
-      serverUrl: LicenseService.LICENSE_SERVER_URL,
+      serverUrl: this.licenseServerUrl,
       cacheTtlMs: LicenseService.CACHE_TTL_MS,
       gracePeriodMs: LicenseService.GRACE_PERIOD_MS,
     });
@@ -303,7 +322,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         '[LicenseService.verifyLicense] Verifying with server',
         {
           keyPrefix: licenseKey.substring(0, 10) + '...',
-          serverUrl: LicenseService.LICENSE_SERVER_URL,
+          serverUrl: this.licenseServerUrl,
         }
       );
 
@@ -314,7 +333,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
 
       try {
         const response = await fetch(
-          `${LicenseService.LICENSE_SERVER_URL}/api/v1/licenses/verify`,
+          `${this.licenseServerUrl}/api/v1/licenses/verify`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -424,9 +443,11 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         );
 
         // Update in-memory cache from persisted cache
+        // Use Date.now() so this grace-period result is cached for the normal TTL,
+        // preventing repeated failing network calls on every verifyLicense() invocation
         this.cache = {
           status: persistedCache.status,
-          timestamp: persistedCache.lastValidatedAt,
+          timestamp: Date.now(),
         };
 
         return persistedCache.status;

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 import { Result } from '@ptah-extension/shared';
 import { retryWithBackoff } from '@ptah-extension/shared';
 import { z } from 'zod';
@@ -13,7 +12,7 @@ import {
 // Using require() because the library tsconfig uses "module": "node16"
 // and @google/genai has "type": "module", causing TS1479/TS1541 with static imports.
 // The package does provide a CJS build at dist/node/index.cjs.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 const googleGenAiModule = require('@google/genai');
 const GoogleGenAI: new (config: { apiKey: string }) => GoogleGenAIInstance =
   googleGenAiModule.GoogleGenAI;
@@ -99,9 +98,7 @@ const RETRY_OPTIONS = {
   factor: 2,
   shouldRetry: (error: unknown): boolean => {
     const status = getErrorStatus(error);
-    return (
-      status === 429 || status === 500 || status === 502 || status === 503
-    );
+    return status === 429 || status === 500 || status === 502 || status === 503;
   },
 };
 

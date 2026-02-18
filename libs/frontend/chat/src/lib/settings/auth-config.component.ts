@@ -8,7 +8,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { SlicePipe } from '@angular/common';
+import { SlicePipe, DecimalPipe } from '@angular/common';
 import {
   LucideAngularModule,
   CheckCircle,
@@ -18,7 +18,10 @@ import {
   Trash2,
 } from 'lucide-angular';
 import { AuthStateService, ClaudeRpcService } from '@ptah-extension/core';
-import type { AuthSaveSettingsParams } from '@ptah-extension/shared';
+import type {
+  AuthMethod,
+  AuthSaveSettingsParams,
+} from '@ptah-extension/shared';
 
 /**
  * AuthConfigComponent - Authentication configuration form
@@ -51,7 +54,7 @@ import type { AuthSaveSettingsParams } from '@ptah-extension/shared';
 @Component({
   selector: 'ptah-auth-config',
   standalone: true,
-  imports: [FormsModule, SlicePipe, LucideAngularModule],
+  imports: [FormsModule, SlicePipe, DecimalPipe, LucideAngularModule],
   templateUrl: './auth-config.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -121,6 +124,8 @@ export class AuthConfigComponent implements OnInit {
         return hasNewApiKey || hasExistingApiKey;
       case 'openrouter':
         return hasNewProviderKey || hasExistingProviderKey;
+      case 'vscode-lm':
+        return true; // No credentials needed, always enabled
       case 'auto':
         return (
           hasNewOAuth ||
@@ -172,13 +177,17 @@ export class AuthConfigComponent implements OnInit {
       return;
     }
 
-    const params: AuthSaveSettingsParams = {
-      authMethod: this.authState.authMethod(),
-      claudeOAuthToken: this.oauthToken().trim() || undefined,
-      anthropicApiKey: this.apiKey().trim() || undefined,
-      openrouterApiKey: this.providerKey().trim() || undefined,
-      anthropicProviderId: this.authState.selectedProviderId(),
-    };
+    const currentMethod = this.authState.authMethod();
+    const params: AuthSaveSettingsParams =
+      currentMethod === 'vscode-lm'
+        ? { authMethod: 'vscode-lm' }
+        : {
+            authMethod: currentMethod,
+            claudeOAuthToken: this.oauthToken().trim() || undefined,
+            anthropicApiKey: this.apiKey().trim() || undefined,
+            openrouterApiKey: this.providerKey().trim() || undefined,
+            anthropicProviderId: this.authState.selectedProviderId(),
+          };
 
     await this.authState.saveAndTest(params);
 
@@ -207,7 +216,7 @@ export class AuthConfigComponent implements OnInit {
    * The selection is persisted to the backend when the user clicks
    * "Save & Test Connection" via saveAndTest().
    */
-  onAuthMethodChange(method: 'oauth' | 'apiKey' | 'openrouter' | 'auto'): void {
+  onAuthMethodChange(method: AuthMethod): void {
     if (this.authState.authMethod() === method) {
       return;
     }
@@ -216,6 +225,11 @@ export class AuthConfigComponent implements OnInit {
     this.isReplacingOAuth.set(false);
     this.isReplacingApiKey.set(false);
     this.isReplacingProviderKey.set(false);
+
+    // Load VS Code LM models when switching to vscode-lm
+    if (method === 'vscode-lm') {
+      this.authState.loadVsCodeModels();
+    }
   }
 
   /**

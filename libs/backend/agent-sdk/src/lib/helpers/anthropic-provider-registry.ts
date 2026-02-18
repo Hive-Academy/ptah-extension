@@ -17,6 +17,8 @@
  * @see https://docs.z.ai/devpack/tool/claude
  */
 
+import { updatePricingMap, type ModelPricing } from '@ptah-extension/shared';
+
 /**
  * Static model definition for providers without a dynamic models API
  */
@@ -31,6 +33,14 @@ export interface ProviderStaticModel {
   contextLength: number;
   /** Whether this model supports tool use */
   supportsToolUse: boolean;
+  /** Cost per input token in USD (optional - for pricing override) */
+  inputCostPerToken?: number;
+  /** Cost per output token in USD (optional - for pricing override) */
+  outputCostPerToken?: number;
+  /** Cost per cache read token in USD (optional) */
+  cacheReadCostPerToken?: number;
+  /** Cost per cache creation token in USD (optional) */
+  cacheCreationCostPerToken?: number;
 }
 
 /**
@@ -105,6 +115,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Flagship model (128K context)',
         contextLength: 128000,
         supportsToolUse: true,
+        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
+        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
       },
       {
         id: 'kimi-k2-0905-preview',
@@ -112,6 +124,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Preview release (256K context)',
         contextLength: 256000,
         supportsToolUse: true,
+        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
+        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
       },
       {
         id: 'kimi-k2-thinking',
@@ -119,6 +133,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Extended thinking model (256K context)',
         contextLength: 256000,
         supportsToolUse: true,
+        inputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
+        outputCostPerToken: 1.75e-6, // $1.75 per 1M tokens
       },
       {
         id: 'kimi-k2.5',
@@ -126,6 +142,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Latest generation model (256K context)',
         contextLength: 256000,
         supportsToolUse: true,
+        inputCostPerToken: 0.23e-6, // $0.23 per 1M tokens
+        outputCostPerToken: 3e-6, // $3.00 per 1M tokens
       },
     ],
   },
@@ -146,6 +164,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Flagship model (200K context)',
         contextLength: 200000,
         supportsToolUse: true,
+        inputCostPerToken: 0.38e-6, // $0.38 per 1M tokens
+        outputCostPerToken: 1.7e-6, // $1.70 per 1M tokens
       },
       {
         id: 'glm-4.7-flashx',
@@ -153,6 +173,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Fast performance (200K context)',
         contextLength: 200000,
         supportsToolUse: true,
+        inputCostPerToken: 0.38e-6, // $0.38 per 1M tokens
+        outputCostPerToken: 1.7e-6, // $1.70 per 1M tokens
       },
       {
         id: 'glm-4.7-flash',
@@ -160,6 +182,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Free/lightweight (200K context)',
         contextLength: 200000,
         supportsToolUse: true,
+        inputCostPerToken: 0.06e-6, // $0.06 per 1M tokens
+        outputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
       },
       {
         id: 'glm-4.6',
@@ -167,6 +191,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Unified reasoning (200K context)',
         contextLength: 200000,
         supportsToolUse: true,
+        inputCostPerToken: 0.3e-6, // $0.30 per 1M tokens
+        outputCostPerToken: 0.9e-6, // $0.90 per 1M tokens
       },
       {
         id: 'glm-4.5',
@@ -174,6 +200,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Hybrid thinking (128K context)',
         contextLength: 128000,
         supportsToolUse: true,
+        inputCostPerToken: 0.38e-6, // $0.38 per 1M tokens
+        outputCostPerToken: 1.7e-6, // $1.70 per 1M tokens
       },
       {
         id: 'glm-4.5-air',
@@ -181,6 +209,8 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Lightweight MoE (128K context)',
         contextLength: 128000,
         supportsToolUse: true,
+        inputCostPerToken: 0.19e-6, // $0.19 per 1M tokens
+        outputCostPerToken: 0.85e-6, // $0.85 per 1M tokens
       },
     ],
   },
@@ -234,4 +264,86 @@ export function getProviderBaseUrl(id: string): string {
 export function getProviderAuthEnvVar(id: string): ProviderAuthEnvVar {
   const provider = getAnthropicProvider(id);
   return provider?.authEnvVar ?? 'ANTHROPIC_AUTH_TOKEN';
+}
+
+/**
+ * Seed the pricing map with static model pricing from a provider.
+ *
+ * Called during provider activation as a fallback for models not on OpenRouter.
+ * Creates pricing map entries with both exact and normalized keys.
+ *
+ * @param providerId - Provider ID to seed pricing for
+ */
+export function seedStaticModelPricing(providerId: string): void {
+  const provider = getAnthropicProvider(providerId);
+  if (!provider?.staticModels) return;
+
+  const entries: Record<string, ModelPricing> = {};
+
+  for (const model of provider.staticModels) {
+    if (model.inputCostPerToken == null || model.outputCostPerToken == null) {
+      continue;
+    }
+
+    const pricing: ModelPricing = {
+      inputCostPerToken: model.inputCostPerToken,
+      outputCostPerToken: model.outputCostPerToken,
+      cacheReadCostPerToken: model.cacheReadCostPerToken,
+      cacheCreationCostPerToken: model.cacheCreationCostPerToken,
+      provider: providerId,
+    };
+
+    // Exact key
+    entries[model.id] = pricing;
+    // Normalized lowercase key
+    const lower = model.id.toLowerCase();
+    if (lower !== model.id) {
+      entries[lower] = pricing;
+    }
+  }
+
+  if (Object.keys(entries).length > 0) {
+    updatePricingMap(entries);
+  }
+}
+
+/**
+ * Resolve the actual provider model ID for pricing purposes.
+ *
+ * When using third-party providers (Moonshot, Z.AI), the SDK reports
+ * model IDs like "claude-opus-4-..." because it sends Anthropic-format
+ * requests. The actual model being used is configured via tier env vars
+ * (ANTHROPIC_DEFAULT_OPUS_MODEL, etc.).
+ *
+ * This function detects the proxy scenario and returns the real model ID.
+ *
+ * @param modelId - Model ID as reported by the SDK (may be an Anthropic alias)
+ * @returns The actual model ID for pricing lookup
+ */
+export function resolveActualModelForPricing(modelId: string): string {
+  if (!modelId) return modelId;
+
+  const baseUrl = process.env['ANTHROPIC_BASE_URL'];
+
+  // If no base URL or pointing to Anthropic directly, model is already correct
+  if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
+    return modelId;
+  }
+
+  // Third-party provider detected — check if modelId looks like an Anthropic model
+  const lower = modelId.toLowerCase();
+
+  if (lower.includes('opus')) {
+    const override = process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'];
+    if (override) return override;
+  } else if (lower.includes('sonnet')) {
+    const override = process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'];
+    if (override) return override;
+  } else if (lower.includes('haiku')) {
+    const override = process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+    if (override) return override;
+  }
+
+  // Not an Anthropic model alias, or no tier override set — return as-is
+  return modelId;
 }

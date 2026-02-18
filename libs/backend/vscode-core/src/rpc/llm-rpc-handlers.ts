@@ -19,6 +19,12 @@ import type { Logger } from '../logging/logger';
  */
 export type LlmProviderName = 'openai' | 'google-genai' | 'vscode-lm';
 
+/** LLM Provider capability flags */
+export type LlmProviderCapability =
+  | 'text-chat'
+  | 'image-generation'
+  | 'structured-output';
+
 /**
  * Provider status information (without exposing API keys)
  */
@@ -31,6 +37,8 @@ export interface LlmProviderStatus {
   isConfigured: boolean;
   /** Default model for this provider */
   defaultModel: string;
+  /** Provider capabilities */
+  capabilities: LlmProviderCapability[];
 }
 
 /**
@@ -127,7 +135,10 @@ export class LlmRpcHandlers {
    * });
    * ```
    */
-  async getProviderStatus(): Promise<LlmProviderStatus[]> {
+  async getProviderStatus(): Promise<{
+    providers: LlmProviderStatus[];
+    defaultProvider: LlmProviderName;
+  }> {
     try {
       this.logger.debug(
         '[LlmRpcHandlers.getProviderStatus] Fetching provider status'
@@ -142,14 +153,18 @@ export class LlmRpcHandlers {
         displayName: p.displayName,
         isConfigured: p.isConfigured,
         defaultModel: p.model,
+        capabilities: this.getProviderCapabilities(p.provider),
       }));
+
+      const defaultProvider = this.configService.getDefaultProvider();
 
       this.logger.debug('[LlmRpcHandlers.getProviderStatus] Status retrieved', {
         count: statuses.length,
         configured: statuses.filter((s) => s.isConfigured).length,
+        defaultProvider,
       });
 
-      return statuses;
+      return { providers: statuses, defaultProvider };
     } catch (error) {
       this.logger.error(
         '[LlmRpcHandlers.getProviderStatus] Failed to fetch status',
@@ -158,8 +173,70 @@ export class LlmRpcHandlers {
         }
       );
 
-      // Return empty array on error (graceful degradation)
-      return [];
+      // Return empty result on error (graceful degradation)
+      return { providers: [], defaultProvider: 'vscode-lm' };
+    }
+  }
+
+  /**
+   * Get capabilities for a specific provider
+   */
+  getProviderCapabilities(provider: LlmProviderName): LlmProviderCapability[] {
+    switch (provider) {
+      case 'google-genai':
+        return ['text-chat', 'image-generation', 'structured-output'];
+      case 'openai':
+        return ['text-chat', 'structured-output'];
+      case 'vscode-lm':
+        return ['text-chat'];
+      default:
+        return ['text-chat'];
+    }
+  }
+
+  /**
+   * Set the default LLM provider
+   *
+   * Updates VS Code setting `ptah.llm.defaultProvider`.
+   *
+   * @param provider - Provider name to set as default
+   * @returns Success/error response
+   */
+  async setDefaultProvider(
+    provider: LlmProviderName
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      this.logger.debug(
+        '[LlmRpcHandlers.setDefaultProvider] Setting default provider',
+        { provider }
+      );
+
+      // Import vscode dynamically to avoid issues if not in extension context
+      const vscode = await import('vscode');
+
+      await vscode.workspace
+        .getConfiguration('ptah')
+        .update(
+          'llm.defaultProvider',
+          provider,
+          vscode.ConfigurationTarget.Global
+        );
+
+      this.logger.info(
+        '[LlmRpcHandlers.setDefaultProvider] Default provider updated',
+        { provider }
+      );
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+
+      this.logger.error(
+        '[LlmRpcHandlers.setDefaultProvider] Failed to set default provider',
+        { provider, error: message }
+      );
+
+      return { success: false, error: message };
     }
   }
 

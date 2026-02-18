@@ -28,6 +28,7 @@ import {
   EventSource,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { resolveActualModelForPricing } from './helpers/anthropic-provider-registry';
 import {
   SDKMessage,
   SDKAssistantMessage,
@@ -715,7 +716,10 @@ export class SdkMessageTransformer {
         : undefined;
 
     const cost = tokenUsage
-      ? calculateMessageCost(message.model || '', tokenUsage)
+      ? calculateMessageCost(
+          resolveActualModelForPricing(message.model || ''),
+          tokenUsage
+        )
       : undefined;
 
     const messageCompleteEvent: MessageCompleteEvent = {

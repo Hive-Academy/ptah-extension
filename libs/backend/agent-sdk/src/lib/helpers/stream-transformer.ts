@@ -17,6 +17,7 @@ import {
   SessionId,
   FlatStreamEventUnion,
   MessageTokenUsage,
+  calculateMessageCost,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
@@ -28,6 +29,7 @@ import {
   isSystemInit,
   isCompactBoundary,
 } from '../types/sdk-types/claude-sdk.types';
+import { resolveActualModelForPricing } from './anthropic-provider-registry';
 
 /**
  * Callback type for notifying when real session ID is received from SDK.
@@ -270,16 +272,29 @@ export class StreamTransformer {
                 // STATS_FIX: Now includes cache tokens for proper cost tracking
                 // Extract per-model usage data including context window
                 const modelUsageList: ResultModelUsage[] = [];
+                let recalculatedTotalCost = 0;
                 if (sdkMessage.modelUsage) {
                   for (const [model, usage] of Object.entries(
                     sdkMessage.modelUsage
                   )) {
+                    // Resolve actual model for accurate pricing (e.g., "claude-opus-4-..." → "kimi-k2.5")
+                    const resolvedModel = resolveActualModelForPricing(model);
+                    const recalculatedCost = calculateMessageCost(
+                      resolvedModel,
+                      {
+                        input: usage.inputTokens,
+                        output: usage.outputTokens,
+                        cacheHit: usage.cacheReadInputTokens ?? 0,
+                        cacheCreation: usage.cacheCreationInputTokens ?? 0,
+                      }
+                    );
+                    recalculatedTotalCost += recalculatedCost;
                     modelUsageList.push({
-                      model,
+                      model: resolvedModel,
                       inputTokens: usage.inputTokens,
                       outputTokens: usage.outputTokens,
                       contextWindow: usage.contextWindow,
-                      costUSD: usage.costUSD ?? 0,
+                      costUSD: recalculatedCost,
                       cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
                     });
                   }
@@ -311,9 +326,26 @@ export class StreamTransformer {
                   }
                 }
 
+                // Use recalculated cost if we had modelUsage data, otherwise
+                // fall back to recalculating from aggregate usage
+                const totalCost =
+                  recalculatedTotalCost > 0
+                    ? recalculatedTotalCost
+                    : calculateMessageCost(
+                        resolveActualModelForPricing(initialModel),
+                        {
+                          input: sdkMessage.usage.input_tokens,
+                          output: sdkMessage.usage.output_tokens,
+                          cacheHit:
+                            sdkMessage.usage.cache_read_input_tokens ?? 0,
+                          cacheCreation:
+                            sdkMessage.usage.cache_creation_input_tokens ?? 0,
+                        }
+                      );
+
                 const rawStats = {
                   sessionId: effectiveSessionId,
-                  cost: sdkMessage.total_cost_usd,
+                  cost: totalCost,
                   tokens: {
                     input: sdkMessage.usage.input_tokens,
                     output: sdkMessage.usage.output_tokens,

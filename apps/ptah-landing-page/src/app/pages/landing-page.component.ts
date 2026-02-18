@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { NavigationComponent } from '../components/navigation.component';
 import { ComparisonSectionComponent } from '../sections/comparison/comparison-section.component';
 import { CTASectionComponent } from '../sections/cta/cta-section.component';
+import { FooterComponent } from '../components/footer.component';
 import { FeaturesHijackedScrollComponent } from '../sections/features/features-hijacked-scroll.component';
 import { HeroComponent } from '../sections/hero/hero.component';
 
@@ -76,6 +77,7 @@ import { HeroComponent } from '../sections/hero/hero.component';
     FeaturesHijackedScrollComponent,
     ComparisonSectionComponent,
     CTASectionComponent,
+    FooterComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
@@ -93,6 +95,8 @@ import { HeroComponent } from '../sections/hero/hero.component';
         <ptah-comparison-section />
         <ptah-cta-section />
       </main>
+
+      <ptah-footer />
     </div>
   `,
   styles: [

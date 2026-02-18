@@ -24,6 +24,8 @@ export interface JsonlMessageLine {
   timestamp: string;
   cwd?: string;
   type?: string;
+  /** Subtype for system messages (e.g., 'init', 'compact_boundary', 'status') */
+  subtype?: string;
   message?: {
     role: string;
     content: string | ContentBlock[];

@@ -187,25 +187,26 @@ export class ClaudeRpcService {
     const timeout = options?.timeout ?? 30000;
 
     return new Promise<RpcResult<RpcMethodResult<T>>>((resolve) => {
-      // Store resolver for this correlation ID
-      this.pendingCalls.set(
-        correlationId,
-        (response: RpcResponse<RpcMethodResult<T>>) => {
-          this.pendingCalls.delete(correlationId);
-          clearTimeout(timer);
-          // Normalize error: backend may send string or { message: string }
-          const errorStr = this.normalizeError(response.error);
-          // TASK_2025_124: Pass errorCode for license-related errors
-          resolve(
-            new RpcResult(
-              response.success,
-              response.data,
-              errorStr,
-              response.errorCode
-            )
-          );
-        }
-      );
+      // Store resolver for this correlation ID.
+      // The map stores callbacks as RpcResponse<unknown> for type erasure;
+      // at call-site we know the concrete type so the cast is safe.
+      this.pendingCalls.set(correlationId, ((
+        response: RpcResponse<RpcMethodResult<T>>
+      ) => {
+        this.pendingCalls.delete(correlationId);
+        clearTimeout(timer);
+        // Normalize error: backend may send string or { message: string }
+        const errorStr = this.normalizeError(response.error);
+        // TASK_2025_124: Pass errorCode for license-related errors
+        resolve(
+          new RpcResult(
+            response.success,
+            response.data,
+            errorStr,
+            response.errorCode
+          )
+        );
+      }) as (response: RpcResponse<unknown>) => void);
 
       // Set timeout to prevent hanging calls
       const timer = setTimeout(() => {

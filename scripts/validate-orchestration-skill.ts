@@ -252,17 +252,25 @@ function validateMarkdownSyntax(
   const lines = content.split('\n');
 
   // Check for unclosed code blocks
-  let codeBlockCount = 0;
+  // Track code blocks with proper nesting (4-backtick fences can contain 3-backtick fences)
+  let depth3 = 0;
+  let depth4 = 0;
   let lastCodeBlockLine = 0;
 
   lines.forEach((line, index) => {
-    if (line.trim().startsWith('```')) {
-      codeBlockCount++;
+    const trimmed = line.trim();
+    if (trimmed.startsWith('````')) {
+      // 4-backtick fence: toggles depth4, 3-tick fences inside are literal content
+      depth4 = depth4 === 0 ? 1 : 0;
+      lastCodeBlockLine = index + 1;
+    } else if (trimmed.startsWith('```') && depth4 === 0) {
+      // 3-backtick fence only counts when NOT inside a 4-backtick block
+      depth3 = depth3 === 0 ? 1 : 0;
       lastCodeBlockLine = index + 1;
     }
   });
 
-  if (codeBlockCount % 2 !== 0) {
+  if (depth3 !== 0 || depth4 !== 0) {
     errors.push({
       file: path.relative(process.cwd(), filePath),
       type: 'syntax',

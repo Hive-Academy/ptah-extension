@@ -16,8 +16,9 @@ Multi-phase development workflow orchestration with dynamic strategies and user 
 ## Quick Start
 
 ```
-/orchestrate [task description]     # New task
-/orchestrate TASK_2025_XXX          # Continue existing task
+/orchestrate [task description]                 # New task
+/orchestrate TASK_2025_XXX                      # Continue existing task
+/orchestrate --cost-effective [task]             # Cost-optimized with VS Code LM delegation
 ```
 
 ### Strategy Quick Reference
@@ -100,11 +101,29 @@ See [strategies.md](references/strategies.md) for detailed selection guidance.
 
 ---
 
+## Cost-Effective Mode
+
+When invoked with `--cost-effective`, the orchestrator enables MCP delegation:
+
+1. **Detection**: Parse `--cost-effective` flag from arguments, strip it before task analysis
+2. **Agent Prompts**: Inject delegation instructions into every agent invocation prompt
+3. **Agents use `execute_code`**: MCP tool + `ptah.llm.vscodeLm.chat()` for sub-tasks
+4. **Claude synthesizes**: Final deliverables still produced by Claude for quality
+
+**What gets delegated**: Research queries, style checks, test case enumeration, draft generation
+**What stays in Claude**: Architecture decisions, security review, final synthesis, tool use
+
+See [mcp-delegation.md](references/mcp-delegation.md) for delegation patterns and prompt templates.
+
+---
+
 ## Core Orchestration Loop
 
 ### Mode Detection
 
 ```
+if ($ARGUMENTS matches /--cost-effective/)
+    -> strip flag, set COST_EFFECTIVE=true
 if ($ARGUMENTS matches /^TASK_2025_\d{3}$/)
     -> CONTINUATION mode (resume existing task)
 else
@@ -227,6 +246,7 @@ See [checkpoints.md](references/checkpoints.md) for error handling templates.
 | [task-tracking.md](references/task-tracking.md)         | Managing state               | Folder structure, registry           |
 | [checkpoints.md](references/checkpoints.md)             | Presenting checkpoints       | Templates, error handling            |
 | [git-standards.md](references/git-standards.md)         | Creating commits             | Commitlint, hook protocol            |
+| [mcp-delegation.md](references/mcp-delegation.md)       | Cost-effective mode          | VS Code LM delegation patterns       |
 
 ### Loading Protocol
 

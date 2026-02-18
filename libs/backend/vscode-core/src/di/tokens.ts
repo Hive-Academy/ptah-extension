@@ -165,6 +165,7 @@ export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
 // MCP_CONFIG_MANAGER_SERVICE - DELETED (SDK tools are native, no .mcp.json needed)
 export const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
+export const IMAGE_GENERATION_SERVICE = Symbol.for('ImageGenerationService');
 
 // ========================================
 // AI Providers Core Tokens (DELETED - library removed)
@@ -390,6 +391,7 @@ export const TOKENS = {
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
   PERMISSION_PROMPT_SERVICE,
+  IMAGE_GENERATION_SERVICE,
 
   // ========================================
   // AI Providers Core (DELETED - library removed)

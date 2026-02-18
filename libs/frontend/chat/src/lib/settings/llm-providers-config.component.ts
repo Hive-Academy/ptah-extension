@@ -1,0 +1,242 @@
+/**
+ * LlmProvidersConfigComponent - LLM Provider Configuration UI
+ * TASK_2025_155 Batch 5, Task 5.2
+ *
+ * Displays all configured LLM providers as cards with API key management
+ * and default provider selection. Delegates all state management to
+ * LlmProviderStateService.
+ *
+ * Complexity Level: 2 (Medium - form state + service delegation, no inheritance)
+ *
+ * Responsibilities:
+ * - Display provider cards (Google Gemini, OpenAI, VS Code LM)
+ * - Manage local API key input state (text values, visibility toggles)
+ * - Delegate save/remove/default-change operations to LlmProviderStateService
+ * - Show loading and error states from service
+ *
+ * SOLID Principles:
+ * - Single Responsibility: Provider configuration display only
+ * - Dependency Inversion: Depends on LlmProviderStateService abstraction
+ * - Open/Closed: Extensible via new providers added to service, no component edits needed
+ */
+
+import {
+  Component,
+  inject,
+  ChangeDetectionStrategy,
+  signal,
+  computed,
+  OnInit,
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import {
+  LucideAngularModule,
+  Key,
+  Check,
+  X,
+  Eye,
+  EyeOff,
+  Star,
+  Shield,
+  Cpu,
+  Image,
+} from 'lucide-angular';
+import { LlmProviderStateService } from '@ptah-extension/core';
+import type { LlmProviderName } from '@ptah-extension/shared';
+
+/**
+ * LlmProvidersConfigComponent - Standalone component for managing LLM provider config
+ *
+ * Displays provider cards for all available LLM providers. Each card shows:
+ * - Provider name, configuration status badge, and default provider badge
+ * - Default model and capability badges
+ * - API key input (masked) with show/hide toggle, Save and Remove buttons
+ *   (only for api-key-requiring providers: openai, google-genai)
+ * - VS Code LM providers show an informational message instead of key input
+ * - "Set as Default" button when provider is configured but not the current default
+ *
+ * Local state (per-component signals):
+ * - apiKeyInputs: tracks typed key values per provider (not persisted until saved)
+ * - showApiKey: tracks visibility toggle per provider
+ * - savingProvider: guards against concurrent saves
+ */
+@Component({
+  selector: 'ptah-llm-providers-config',
+  standalone: true,
+  imports: [FormsModule, LucideAngularModule],
+  templateUrl: './llm-providers-config.component.html',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class LlmProvidersConfigComponent implements OnInit {
+  /** LLM provider state service - single source of truth for all provider state (PUBLIC for template access) */
+  readonly llmState = inject(LlmProviderStateService);
+
+  /**
+   * Filtered providers excluding 'vscode-lm'.
+   * VS Code LM operates at the MCP server/tool level, not as a direct chat provider,
+   * so it belongs under the MCP Server section in settings, not here.
+   */
+  readonly filteredProviders = computed(() =>
+    this.llmState.providers().filter((p) => p.provider !== 'vscode-lm')
+  );
+
+  // --- Lucide icons ---
+  readonly KeyIcon = Key;
+  readonly CheckIcon = Check;
+  readonly XIcon = X;
+  readonly EyeIcon = Eye;
+  readonly EyeOffIcon = EyeOff;
+  readonly StarIcon = Star;
+  readonly ShieldIcon = Shield;
+  readonly CpuIcon = Cpu;
+  readonly ImageIcon = Image;
+
+  // --- Local form signals ---
+
+  /**
+   * Tracks API key input values per provider.
+   * Map key: provider name (e.g., 'openai', 'google-genai').
+   * Value: the text currently typed in the input (not yet saved).
+   */
+  readonly apiKeyInputs = signal<Map<string, string>>(new Map());
+
+  /**
+   * Tracks whether the API key input is shown in plaintext per provider.
+   * Map key: provider name. Value: true = show, false = masked.
+   */
+  readonly showApiKey = signal<Map<string, boolean>>(new Map());
+
+  /**
+   * Tracks which provider is currently being saved (for loading state on button).
+   * null when no save is in progress.
+   */
+  readonly savingProvider = signal<string | null>(null);
+
+  /**
+   * Tracks which provider is currently having its key removed (for loading state).
+   * null when no removal is in progress.
+   */
+  readonly removingProvider = signal<string | null>(null);
+
+  /**
+   * Load provider status on component initialization.
+   * Delegates to LlmProviderStateService which fetches from backend via RPC.
+   */
+  async ngOnInit(): Promise<void> {
+    try {
+      await this.llmState.loadProviderStatus();
+    } catch (error) {
+      console.error(
+        '[LlmProvidersConfigComponent] Failed to initialize provider status:',
+        error
+      );
+    }
+  }
+
+  /**
+   * Save the API key for the given provider.
+   *
+   * Flow:
+   * 1. Guard against concurrent saves
+   * 2. Get key value from apiKeyInputs map
+   * 3. Delegate to llmState.setApiKey()
+   * 4. On success: clear the input for that provider
+   *
+   * @param provider - The LLM provider to save the key for
+   */
+  async onSaveApiKey(provider: LlmProviderName): Promise<void> {
+    if (this.savingProvider() === provider) {
+      return;
+    }
+
+    const keyValue = this.apiKeyInputs().get(provider)?.trim();
+    if (!keyValue) {
+      return;
+    }
+
+    this.savingProvider.set(provider);
+
+    try {
+      const success = await this.llmState.setApiKey(provider, keyValue);
+
+      if (success) {
+        // Clear the input for this provider on successful save
+        const updated = new Map(this.apiKeyInputs());
+        updated.delete(provider);
+        this.apiKeyInputs.set(updated);
+      }
+    } finally {
+      this.savingProvider.set(null);
+    }
+  }
+
+  /**
+   * Remove the API key for the given provider.
+   * Guarded against concurrent removals via removingProvider signal.
+   * Delegates to llmState.removeApiKey() which refreshes provider status on success.
+   *
+   * @param provider - The LLM provider whose key should be removed
+   */
+  async onRemoveApiKey(provider: LlmProviderName): Promise<void> {
+    if (this.removingProvider() === provider) {
+      return;
+    }
+
+    this.removingProvider.set(provider);
+
+    try {
+      await this.llmState.removeApiKey(provider);
+    } finally {
+      this.removingProvider.set(null);
+    }
+  }
+
+  /**
+   * Set the default LLM provider.
+   * Delegates to llmState.setDefaultProvider() which updates signal on success.
+   *
+   * @param provider - The LLM provider to set as default
+   */
+  async onDefaultProviderChange(provider: LlmProviderName): Promise<void> {
+    await this.llmState.setDefaultProvider(provider);
+  }
+
+  /**
+   * Toggle the visibility of the API key input for the given provider.
+   * Flips the current value in the showApiKey map.
+   *
+   * @param provider - The provider whose key visibility should be toggled
+   */
+  toggleApiKeyVisibility(provider: string): void {
+    const updated = new Map(this.showApiKey());
+    updated.set(provider, !updated.get(provider));
+    this.showApiKey.set(updated);
+  }
+
+  /**
+   * Update the API key input value for the given provider.
+   * Called on every keystroke in the key input field.
+   *
+   * @param provider - The provider whose key input is being updated
+   * @param value - The current input value
+   */
+  updateApiKeyInput(provider: string, value: string): void {
+    const updated = new Map(this.apiKeyInputs());
+    updated.set(provider, value);
+    this.apiKeyInputs.set(updated);
+  }
+
+  /**
+   * Format a capability string for display.
+   * Converts kebab-case to Title Case (e.g., 'image-generation' -> 'Image Generation').
+   *
+   * @param cap - The capability string to format
+   * @returns Formatted display string
+   */
+  formatCapability(cap: string): string {
+    return cap
+      .split('-')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+  }
+}

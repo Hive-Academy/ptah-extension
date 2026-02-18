@@ -21,6 +21,7 @@ import {
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
 import { ProviderModelSelectorComponent } from './provider-model-selector.component';
+import { LlmProvidersConfigComponent } from './llm-providers-config.component';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -57,6 +58,7 @@ import { MarkdownBlockComponent } from '../components/atoms/markdown-block.compo
   imports: [
     AuthConfigComponent,
     ProviderModelSelectorComponent,
+    LlmProvidersConfigComponent,
     LucideAngularModule,
     MarkdownBlockComponent,
   ],

@@ -337,8 +337,8 @@ export class OpenAIProvider extends BaseLlmProvider {
       role: (msg.role === 'system'
         ? 'system'
         : msg.role === 'assistant'
-          ? 'assistant'
-          : 'user') as 'system' | 'user' | 'assistant',
+        ? 'assistant'
+        : 'user') as 'system' | 'user' | 'assistant',
       content: msg.content,
     }));
   }
