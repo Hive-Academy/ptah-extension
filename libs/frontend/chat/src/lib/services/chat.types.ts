@@ -237,7 +237,7 @@ export interface TabState {
 
   /**
    * System prompt preset selection for this tab.
-   * - 'claude_code': Claude Code preset with minimal customization
+   * - 'claude_code': Default preset with minimal customization
    * - 'enhanced': AI-generated project-specific guidance
    *
    * When undefined, defaults to 'enhanced' if enhanced prompts are generated,

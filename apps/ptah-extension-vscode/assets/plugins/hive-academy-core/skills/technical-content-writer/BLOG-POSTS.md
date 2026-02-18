@@ -153,7 +153,7 @@ class ChatStore {
 "Real-Time Streaming Chat: Building a TypeWriter Effect with Angular Signals"
 
 [Problem] → [Solution]
-"From CLI to GUI: How We Built a Visual Interface for Claude Code"
+"From CLI to GUI: How We Built a Visual Interface for Claude"
 
 How [Product] [Achievement]
 "How Ptah Achieves Sub-100ms Message Rendering with Signal-Based Architecture"

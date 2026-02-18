@@ -3,7 +3,7 @@
  *
  * TASK_2025_094: Comprehensive tool type system from official SDK reference
  *
- * Provides type-safe interfaces for ALL Claude Code tools:
+ * Provides type-safe interfaces for ALL agent tools:
  * - Tool Input Types: Parameters sent to tools
  * - Tool Output Types: Results returned from tools
  * - Type Guards: Runtime type narrowing functions

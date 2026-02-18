@@ -82,7 +82,7 @@ export function registerSdkServices(
     })()
   );
 
-  // Session importer - scans existing Claude Code sessions
+  // Session importer - scans existing Claude sessions
   container.register(
     SDK_TOKENS.SDK_SESSION_IMPORTER,
     { useClass: SessionImporterService },

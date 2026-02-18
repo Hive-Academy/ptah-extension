@@ -50,9 +50,9 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
         <strong class="text-white/70"
           >MCP (Model Context Protocol) server</strong
         >
-        that runs inside the VS Code extension host. It gives Claude Code's
-        subagents direct access to VS Code's internal capabilities — LSP,
-        diagnostics, workspace analysis, git, and more.
+        that runs inside the VS Code extension host. It gives AI subagents
+        direct access to VS Code's internal capabilities — LSP, diagnostics,
+        workspace analysis, git, and more.
       </p>
       <p
         viewportAnimation
@@ -88,7 +88,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             <code
               class="px-1 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-xs font-mono text-amber-400/80"
               >.mcp.json</code
-            >. Every Claude Code subagent spawned via the
+            >. Every AI subagent spawned via the
             <code
               class="px-1 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-xs font-mono text-amber-400/80"
               >Task</code

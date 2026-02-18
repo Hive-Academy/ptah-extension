@@ -163,7 +163,7 @@ const TIER_CONFIGS: TierConfig[] = [
             @if (!isModelToolUseCompatible(currentModel)) {
             <span
               class="badge badge-sm badge-warning gap-1"
-              title="This model may not support tool use (required for Claude Code)"
+              title="This model may not support tool use (required for AI agents)"
             >
               <lucide-angular [img]="AlertTriangleIcon" class="w-3 h-3" />
               No tool use

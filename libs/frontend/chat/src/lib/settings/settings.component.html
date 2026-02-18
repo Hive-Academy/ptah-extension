@@ -328,7 +328,42 @@
     </div>
     }
 
-    <!-- Authentication Section - Always Visible -->
+    <!-- Tab Bar -->
+    <div class="tabs tabs-boxed bg-base-200/50 p-1 gap-1">
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'claude-auth'"
+        (click)="setActiveTab('claude-auth')"
+      >
+        <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
+        <span class="text-xs">Claude Auth</span>
+      </button>
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'pro-features'"
+        (click)="setActiveTab('pro-features')"
+      >
+        @if (isPremium()) {
+        <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+        } @else {
+        <lucide-angular [img]="LockIcon" class="w-3 h-3" />
+        }
+        <span class="text-xs">Pro Features</span>
+      </button>
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'ptah-ai'"
+        (click)="setActiveTab('ptah-ai')"
+      >
+        <lucide-angular [img]="CpuIcon" class="w-3 h-3" />
+        <span class="text-xs">Ptah AI</span>
+      </button>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- Tab 1: Claude Auth                          -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'claude-auth') {
     <div class="border border-base-300 rounded-md bg-base-200/50">
       <div class="p-3">
         <div class="flex items-center gap-1.5 mb-2">
@@ -338,7 +373,7 @@
           </h2>
         </div>
         <p class="text-xs text-base-content/70 mb-3">
-          Configure your authentication method to connect with Claude Code.
+          Configure your authentication method to connect with AI providers.
         </p>
         <ptah-auth-config />
 
@@ -358,64 +393,12 @@
         }
       </div>
     </div>
-
-    <!-- Additional Settings - Only visible after auth configured -->
-    @if (isAuthenticated()) {
-    <!-- Model Selection Section -->
-    <div class="border border-base-300 rounded-md bg-base-200/50">
-      <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <span class="text-sm">🤖</span>
-          <h2 class="text-xs font-medium uppercase tracking-wide">
-            Model Selection
-          </h2>
-        </div>
-        <p class="text-xs text-base-content/70 mb-3">
-          Choose the default Claude model for new chat sessions.
-        </p>
-        <!-- TODO: Add ModelSelectorComponent -->
-        <div class="text-xs text-base-content/50 italic">
-          Configure in VS Code Settings: <code>ptah.model.selected</code>
-        </div>
-      </div>
-    </div>
-
-    <!-- Autopilot Configuration Section -->
-    <div class="border border-base-300 rounded-md bg-base-200/50">
-      <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <span class="text-sm">🚀</span>
-          <h2 class="text-xs font-medium uppercase tracking-wide">
-            Autopilot Mode
-          </h2>
-        </div>
-        <p class="text-xs text-base-content/70 mb-3">
-          Configure automatic approval for Claude actions.
-        </p>
-        <!-- TODO: Add AutopilotConfigComponent -->
-        <div class="text-xs text-base-content/50 italic">
-          Configure in VS Code Settings: <code>ptah.autopilot.*</code>
-        </div>
-      </div>
-    </div>
-
-    } @else if (!authState.isLoading()) {
-    <!-- Hint: Configure auth to unlock more settings -->
-    <div class="text-center py-4">
-      <p class="text-xs text-base-content/50">
-        Configure authentication above to unlock additional settings.
-      </p>
-    </div>
     }
 
-    <!-- Premium-Only Sections - Only visible for premium users -->
-    @if (showPremiumSections()) {
-    <!-- Divider with Premium Label -->
-    <div class="divider divider-primary text-xs my-2">
-      <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-      <span>Pro Features</span>
-    </div>
-
+    <!-- ============================================ -->
+    <!-- Tab 2: Pro Features                         -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'pro-features') { @if (showPremiumSections()) {
     <!-- System Prompt Mode (TASK_2025_151: R9) -->
     <div class="border border-primary/30 rounded-md bg-primary/5">
       <div class="p-3">
@@ -450,7 +433,7 @@
         </div>
         } @else {
         <div class="flex items-center gap-1 mb-2">
-          <span class="badge badge-ghost badge-xs">Default Claude Code</span>
+          <span class="badge badge-ghost badge-xs">Default</span>
           <span class="text-xs text-base-content/60"
             >Standard system prompt</span
           >
@@ -484,7 +467,7 @@
                 (change)="setSystemPromptPreset('claude_code')"
                 class="radio radio-xs"
               />
-              <span>Claude Code (Minimal)</span>
+              <span>Default (Minimal)</span>
             </label>
           </div>
           <div class="text-[10px] text-base-content/50 mt-1.5">
@@ -595,7 +578,6 @@
         <p class="text-xs text-base-content/70 mb-3">
           Configure the port for Ptah's MCP server (code execution tools).
         </p>
-        <!-- TODO: Add McpPortConfigComponent -->
         <div class="text-xs text-base-content/50 italic">
           Configure in VS Code Settings: <code>ptah.mcpPort</code> (default:
           51820)
@@ -623,16 +605,8 @@
         </div>
       </div>
     </div>
-
-    <!-- LLM Provider API Keys (TASK_2025_155) -->
-    <div class="border border-primary/30 rounded-md bg-primary/5">
-      <div class="p-3">
-        <ptah-llm-providers-config />
-      </div>
-    </div>
-    } @else if (isAuthenticated() && !isLoadingLicenseStatus() && !isPremium())
-    {
-    <!-- Premium Upsell for free users -->
+    } @else {
+    <!-- Upsell for non-premium users -->
     <div class="border border-base-300 rounded-md bg-base-200/30 opacity-75">
       <div class="p-3">
         <div class="flex items-center gap-1.5 mb-2">
@@ -647,8 +621,8 @@
           </h2>
         </div>
         <p class="text-xs text-base-content/50 mb-3">
-          Upgrade to access MCP server configuration and additional LLM
-          providers.
+          Upgrade to access enhanced system prompts, MCP server configuration,
+          and more.
         </p>
         <button class="btn btn-primary btn-xs gap-1.5" (click)="openPricing()">
           <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
@@ -656,6 +630,71 @@
         </button>
       </div>
     </div>
-    }
+    } }
+
+    <!-- ============================================ -->
+    <!-- Tab 3: Ptah AI                              -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'ptah-ai') { @if (isPremium()) {
+    <div class="border border-primary/30 rounded-md bg-primary/5">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular [img]="CpuIcon" class="w-4 h-4 text-primary" />
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            AI Tool Providers
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          These providers power the <code>ptah.llm.*</code> MCP tools available
+          to Claude during sessions.
+        </p>
+
+        <!-- Capability hints -->
+        <div class="space-y-1.5 mb-3">
+          <div class="flex items-center gap-2 text-xs text-base-content/60">
+            <span class="badge badge-ghost badge-xs">Gemini</span>
+            <span
+              >Image generation tool (<code>ptah.llm.generateImage</code>)</span
+            >
+          </div>
+          <div class="flex items-center gap-2 text-xs text-base-content/60">
+            <span class="badge badge-ghost badge-xs">OpenAI</span>
+            <span>Structured output &amp; code analysis tools</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-base-content/60">
+            <lucide-angular [img]="ShieldIcon" class="w-3 h-3 flex-shrink-0" />
+            <span>VS Code LM — available automatically, no key needed</span>
+          </div>
+        </div>
+
+        <ptah-llm-providers-config />
+      </div>
+    </div>
+    } @else {
+    <!-- Upsell for non-premium users -->
+    <div class="border border-base-300 rounded-md bg-base-200/30 opacity-75">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular
+            [img]="LockIcon"
+            class="w-4 h-4 text-base-content/50"
+          />
+          <h2
+            class="text-xs font-medium uppercase tracking-wide text-base-content/70"
+          >
+            Ptah AI Providers
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/50 mb-3">
+          Upgrade to configure additional LLM providers that power Ptah's AI
+          tools (image generation, code analysis, and more).
+        </p>
+        <button class="btn btn-primary btn-xs gap-1.5" (click)="openPricing()">
+          <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+          <span>Upgrade to Pro</span>
+        </button>
+      </div>
+    </div>
+    } }
   </div>
 </div>

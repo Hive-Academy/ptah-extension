@@ -53,7 +53,7 @@ import {
         [viewportConfig]="subheadlineConfig"
         class="text-base md:text-lg lg:text-xl text-white/70 mb-12 max-w-2xl leading-relaxed font-light"
       >
-        A VS Code-native extension powered by the Claude Code Agent SDK.
+        The AI coding orchestra for VS Code, powered by Claude Agent SDK.
         Intelligent workspace analysis, Code Execution MCP server, and
         project-adaptive AI agents.
       </p>

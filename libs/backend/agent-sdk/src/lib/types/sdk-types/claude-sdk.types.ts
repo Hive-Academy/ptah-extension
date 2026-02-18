@@ -1559,13 +1559,13 @@ export interface Options {
         type: 'preset';
         preset: 'claude_code';
       };
-  /** Environment variables to pass to the Claude Code process */
+  /** Environment variables to pass to the Claude process */
   env?: Record<string, string | undefined>;
   /** JavaScript runtime to use */
   executable?: 'bun' | 'deno' | 'node';
   /** Additional arguments to pass to the JavaScript runtime */
   executableArgs?: string[];
-  /** Additional CLI arguments to pass to Claude Code */
+  /** Additional CLI arguments to pass to Claude */
   extraArgs?: Record<string, string | null>;
   /** Fallback model to use if the primary model fails */
   fallbackModel?: string;
@@ -1593,7 +1593,7 @@ export interface Options {
   model?: string;
   /** Output format configuration for structured responses */
   outputFormat?: OutputFormat;
-  /** Path to the Claude Code executable */
+  /** Path to the Claude executable */
   pathToClaudeCodeExecutable?: string;
   /** Permission mode for the session */
   permissionMode?: PermissionMode;
@@ -1623,7 +1623,7 @@ export interface Options {
         preset: 'claude_code';
         append?: string;
       };
-  /** Custom function to spawn the Claude Code process */
+  /** Custom function to spawn the Claude process */
   spawnClaudeCodeProcess?: (options: {
     command: string;
     args: string[];

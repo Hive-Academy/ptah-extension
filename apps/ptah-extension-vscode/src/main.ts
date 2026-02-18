@@ -462,7 +462,7 @@ export async function activate(
       '[Activate] Step 7.2: Pricing pre-fetch initiated (background)'
     );
 
-    // Step 8: Import existing Claude Code sessions (TASK_2025_091)
+    // Step 8: Import existing Claude sessions (TASK_2025_091)
     console.log('[Activate] Step 8: Importing existing sessions...');
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     console.log(
@@ -478,7 +478,7 @@ export async function activate(
         };
         const imported = await sessionImporter.scanAndImport(workspacePath, 5);
         if (imported > 0) {
-          logger.info(`Imported ${imported} existing Claude Code sessions`);
+          logger.info(`Imported ${imported} existing Claude sessions`);
         }
       } catch (importError) {
         logger.debug('Session import skipped (no existing sessions or error)', {

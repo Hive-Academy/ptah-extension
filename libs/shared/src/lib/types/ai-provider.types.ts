@@ -94,7 +94,7 @@ export interface AISessionConfig {
   readonly tabId?: string;
   /**
    * System prompt preset selection.
-   * - 'claude_code': Use Claude Code preset with minimal customization
+   * - 'claude_code': Use default preset with minimal customization
    * - 'enhanced': Use AI-generated project-specific guidance from setup wizard
    *
    * If not specified, defaults to 'enhanced' if enhanced prompts are generated,

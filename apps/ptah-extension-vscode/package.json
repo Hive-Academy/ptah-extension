@@ -1,7 +1,7 @@
 {
   "name": "ptah-extension-vscode",
   "displayName": "Ptah - Coding Orchestra",
-  "description": "A VS Code-native extension powered by the Claude Code Agent SDK. Intelligent workspace analysis, Code Execution MCP server, and project-adaptive AI agents.",
+  "description": "The AI coding orchestra for VS Code. Intelligent workspace analysis, Code Execution MCP server, and project-adaptive AI agents — powered by Claude Agent SDK.",
   "version": "0.1.0",
   "publisher": "ptah-extensions",
   "repository": {
@@ -133,7 +133,7 @@
             "openrouter"
           ],
           "default": "auto",
-          "description": "Authentication method for Claude Code. 'auto' will try OpenRouter first, then OAuth, then API key."
+          "description": "Authentication method for Ptah. 'auto' will try OpenRouter first, then OAuth, then API key."
         },
         "ptah.model.selected": {
           "type": "string",
@@ -254,6 +254,31 @@
           "minimum": 50000,
           "maximum": 500000,
           "description": "Token threshold to trigger automatic compaction (default: 100,000 tokens)."
+        },
+        "ptah.llm.defaultProvider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "google-genai",
+            "vscode-lm"
+          ],
+          "default": "vscode-lm",
+          "description": "Default LLM provider for ptah.llm.* MCP tools."
+        },
+        "ptah.llm.openai.model": {
+          "type": "string",
+          "default": "gpt-4o",
+          "description": "Default model for the OpenAI provider."
+        },
+        "ptah.llm.google.model": {
+          "type": "string",
+          "default": "gemini-2.5-flash",
+          "description": "Default model for the Google Gemini provider."
+        },
+        "ptah.llm.vscode.model": {
+          "type": "string",
+          "default": "copilot/gpt-4o",
+          "description": "Default model for the VS Code Language Model provider (vendor/family format)."
         }
       }
     }

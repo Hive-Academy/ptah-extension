@@ -408,7 +408,7 @@ export class ContextService {
 
   /**
    * Search files with debouncing and intelligent caching
-   * Optimized for Claude Code CLI @ syntax compatibility
+   * Optimized for @ syntax compatibility
    */
   async searchFiles(options: FileSearchOptions): Promise<FileSearchResult[]> {
     const cacheKey = this.generateCacheKey(options);

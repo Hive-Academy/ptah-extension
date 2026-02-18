@@ -1,55 +1,54 @@
-# 📜 Ptah - Claude Code GUI
+# Ptah - AI Coding Orchestra
 
-**The complete visual interface for Claude Code CLI within VS Code**
+**The AI coding orchestra for VS Code, powered by Claude Agent SDK**
 
-Transform your Claude Code experience with Ptah, the first and only VS Code extension that makes Claude Code's full power accessible through native, integrated visual interfaces.
+Ptah is a VS Code extension that brings intelligent, project-adaptive AI agents directly into your editor. With workspace intelligence, a built-in MCP server, and native SDK integration, Ptah orchestrates AI-assisted development without ever leaving VS Code.
 
-## 🚀 Features
+## Features
 
-### ⭐ Core Features
+### Core Features
 
-- **Integrated Chat Sidebar** - Native VS Code chat interface with Claude Code
-- **Visual Command Builder** - Build Claude commands through intuitive UI forms
+- **Integrated Chat Sidebar** - Native VS Code chat interface with AI agents
+- **Visual Command Builder** - Build commands through intuitive UI forms
 - **Smart Context Management** - Visual file inclusion/exclusion with optimization suggestions
 - **Session Management** - Multiple sessions with workspace awareness
 - **Real-time Analytics** - Token usage, cost tracking, and productivity insights
 
-### 🎯 Quick Actions
+### Quick Actions
 
-- **Instant Code Review** - Right-click any file for immediate Claude analysis
+- **Instant Code Review** - Right-click any file for immediate AI analysis
 - **Test Generation** - Generate comprehensive tests for your code
 - **Bug Detection** - AI-powered bug finding and security analysis
 - **Documentation** - Auto-generate docs for functions and classes
 - **Code Optimization** - Performance and style improvements
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 
 1. **VS Code** 1.74.0 or higher
-2. **Claude Code CLI** - [Installation Guide](https://github.com/anthropics/claude-code#installation)
 
 ### Install Extension
 
 1. Open VS Code
 2. Go to Extensions (Ctrl+Shift+X)
-3. Search for "Ptah - Claude Code GUI"
+3. Search for "Ptah - Coding Orchestra"
 4. Click Install
 
 ### First Run
 
 1. Open any workspace in VS Code
-2. Click the Ptah icon (📜) in the Activity Bar
-3. Follow the welcome guide to configure your Claude CLI path
+2. Click the Ptah icon in the Activity Bar
+3. Follow the welcome guide to configure your setup
 
-## 🏗️ Development
+## Development
 
 ### Setup Development Environment
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/ptah-claude-code.git
-cd ptah-claude-code
+git clone https://github.com/Hive-Academy/ptah-extension.git
+cd ptah-extension
 
 # Install dependencies
 npm install
@@ -76,34 +75,33 @@ npm run test       # Run test suite
 npm run lint       # Lint TypeScript code
 ```
 
-## 🎨 Architecture
+## Architecture
 
 ### Core Components
 
 - **Extension Host** (`src/extension.ts`) - Main entry point
-- **Core Services** (`src/services/`) - Claude CLI, Session, Context management
+- **Core Services** (`src/services/`) - AI Provider, Session, Context management
 - **UI Providers** (`src/providers/`) - Webview providers for chat, analytics
 - **Type Definitions** (`src/types/`) - TypeScript interfaces
 
 ### Key Services
 
-- **ClaudeCliService** - Integration with Claude Code CLI
+- **AgentSDKProvider** - Integration with Claude Agent SDK
 - **SessionManager** - Multi-session support with persistence
 - **ContextManager** - Smart file inclusion and optimization
 - **WorkspaceManager** - Project type detection and workspace integration
 
-## 🔧 Configuration
+## Configuration
 
 ### Extension Settings
 
 ```json
 {
-  "ptah.claudeCliPath": "claude",
-  "ptah.defaultProvider": "anthropic",
-  "ptah.maxTokens": 200000,
-  "ptah.autoIncludeOpenFiles": true,
-  "ptah.contextOptimization": true,
-  "ptah.analyticsEnabled": true
+  "ptah.authMethod": "auto",
+  "ptah.model.selected": "claude-sonnet-4-20250514",
+  "ptah.autopilot.enabled": false,
+  "ptah.enhancedPrompts.enabled": true,
+  "ptah.compaction.enabled": true
 }
 ```
 
@@ -111,7 +109,7 @@ npm run lint       # Lint TypeScript code
 
 Project-specific context rules and session preferences are automatically saved to workspace settings.
 
-## 📚 Usage Guide
+## Usage Guide
 
 ### Basic Chat
 
@@ -138,7 +136,7 @@ Project-specific context rules and session preferences are automatically saved t
 3. Fill in parameters through visual form
 4. Execute command in chat
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
@@ -150,23 +148,21 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 4. Add tests if applicable
 5. Submit a pull request
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 🔗 Links
+## Links
 
-- [Claude Code CLI](https://github.com/anthropics/claude-code)
+- [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode)
 - [VS Code Extension API](https://code.visualstudio.com/api)
-- [Issue Tracker](https://github.com/your-org/ptah-claude-code/issues)
-- [Marketplace Page](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-claude-code)
+- [Issue Tracker](https://github.com/Hive-Academy/ptah-extension/issues)
 
-## 🆘 Support
+## Support
 
-- **Documentation**: [Wiki](https://github.com/your-org/ptah-claude-code/wiki)
-- **Issues**: [GitHub Issues](https://github.com/your-org/ptah-claude-code/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/ptah-claude-code/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Hive-Academy/ptah-extension/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Hive-Academy/ptah-extension/discussions)
 
 ---
 
-**Made with ❤️ for the VS Code community**
+**Made with care for the VS Code community**

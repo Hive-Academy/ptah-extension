@@ -125,12 +125,12 @@ const result = await ptah.llm.vscodeLm.chat({
 
 ## Cost Comparison
 
-| Operation | Claude SDK | VS Code LM (Copilot) |
-|---|---|---|
-| Research query | ~$0.01-0.05 per query | Free (included with Copilot) |
-| Style review | ~$0.02-0.10 per file | Free |
-| Test ideation | ~$0.01-0.03 per function | Free |
-| Draft generation | ~$0.05-0.20 per section | Free |
-| Full orchestration (10 sub-tasks) | ~$0.50-2.00 | ~$0.10-0.30 (Claude for synthesis only) |
+| Operation                         | Claude SDK               | VS Code LM (Copilot)                    |
+| --------------------------------- | ------------------------ | --------------------------------------- |
+| Research query                    | ~$0.01-0.05 per query    | Free (included with Copilot)            |
+| Style review                      | ~$0.02-0.10 per file     | Free                                    |
+| Test ideation                     | ~$0.01-0.03 per function | Free                                    |
+| Draft generation                  | ~$0.05-0.20 per section  | Free                                    |
+| Full orchestration (10 sub-tasks) | ~$0.50-2.00              | ~$0.10-0.30 (Claude for synthesis only) |
 
 **Typical savings**: 60-80% cost reduction for research-heavy and review-heavy workflows.

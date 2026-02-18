@@ -79,7 +79,17 @@ export class AuthManager {
    * 3. Run selected configure method (only sets its own vars)
    * 4. Log env summary (boolean presence, no secrets)
    */
-  async configureAuthentication(authMethod: string): Promise<AuthResult> {
+  async configureAuthentication(rawAuthMethod: string): Promise<AuthResult> {
+    // Normalize: treat unknown/legacy values (e.g. 'vscode-lm') as 'auto'
+    const validMethods = new Set(['oauth', 'apiKey', 'openrouter', 'auto']);
+    const authMethod = validMethods.has(rawAuthMethod) ? rawAuthMethod : 'auto';
+
+    if (rawAuthMethod !== authMethod) {
+      this.logger.warn(
+        `[AuthManager] Unknown auth method '${rawAuthMethod}', falling back to 'auto'`
+      );
+    }
+
     this.logger.debug(`[AuthManager] Configuring auth method: ${authMethod}`);
 
     // Step 1: Capture env snapshot before cleanup (for shell fallback)

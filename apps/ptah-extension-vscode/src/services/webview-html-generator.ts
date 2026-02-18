@@ -344,7 +344,7 @@ export class WebviewHtmlGenerator {
       <html lang="en">
       <head>
         <meta charset="utf-8">
-        <title>Ptah - Claude Code Assistant</title>
+        <title>Ptah - AI Coding Orchestra</title>
         <base href="${webview.asWebviewUri(
           vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser')
         )}/">

@@ -112,8 +112,8 @@ import { LucideAngularModule, DollarSign } from 'lucide-angular';
           class="text-lg md:text-xl text-white/80 mb-10 max-w-2xl mx-auto
                  [text-shadow:_0_2px_4px_rgba(0,0,0,0.8),_0_4px_12px_rgba(0,0,0,0.5)]"
         >
-          Beautiful visual interface for Claude Code — switch plans as your
-          needs grow.
+          Beautiful visual interface for AI-assisted coding — switch plans as
+          your needs grow.
         </p>
 
         <!-- Pricing Plans Label -->

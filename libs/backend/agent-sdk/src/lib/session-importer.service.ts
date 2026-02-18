@@ -1,7 +1,7 @@
 /**
  * Session Importer Service
  *
- * Imports existing Claude Code sessions from ~/.claude/projects/
+ * Imports existing Claude sessions from ~/.claude/projects/
  * Scans for JSONL session files and imports metadata for recent sessions.
  *
  * Optimization: Uses file modification time to find only the most recent sessions
@@ -29,7 +29,7 @@ interface SessionFileInfo {
 }
 
 /**
- * Service to import existing Claude Code sessions
+ * Service to import existing Claude sessions
  */
 @injectable()
 export class SessionImporterService {
@@ -40,7 +40,7 @@ export class SessionImporterService {
   ) {}
 
   /**
-   * Scan and import existing Claude Code sessions for a workspace
+   * Scan and import existing Claude sessions for a workspace
    *
    * Optimization: Only reads file stats to find recent files, then only
    * parses the first few KB of the most recent files to extract metadata.
@@ -158,7 +158,7 @@ export class SessionImporterService {
   /**
    * Extract session ID from filename
    *
-   * Claude Code uses format: {session-id}.jsonl
+   * Claude uses format: {session-id}.jsonl
    */
   private extractSessionIdFromFilename(filename: string): string | null {
     if (!filename.endsWith('.jsonl')) return null;
@@ -274,7 +274,7 @@ export class SessionImporterService {
   /**
    * Find the Claude CLI sessions directory for a workspace
    *
-   * Claude Code stores sessions in ~/.claude/projects/{escaped-workspace-path}/
+   * Claude stores sessions in ~/.claude/projects/{escaped-workspace-path}/
    */
   private async findSessionsDirectory(
     workspacePath: string

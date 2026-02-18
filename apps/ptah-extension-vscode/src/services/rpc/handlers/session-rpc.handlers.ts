@@ -204,7 +204,7 @@ export class SessionRpcHandlers {
    * session:validate - Check if session file exists on disk
    *
    * Validates that the actual .jsonl file exists in the Claude projects directory.
-   * This prevents "Claude Code process exited with code 1" errors when trying to
+   * This prevents "process exited with code 1" errors when trying to
    * resume sessions that exist in localStorage but not on disk.
    *
    * @param sessionId - Session ID to validate

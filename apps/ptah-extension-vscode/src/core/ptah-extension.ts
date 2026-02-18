@@ -143,8 +143,7 @@ export class PtahExtension implements vscode.Disposable {
    * Welcome message for first-time users
    */
   async showWelcome(): Promise<void> {
-    const message =
-      'Welcome to Ptah! Ready to transform your Claude Code experience?';
+    const message = 'Welcome to Ptah! Your AI coding orchestra is ready.';
     const actions = ['Get Started', 'Documentation'];
 
     const selection = await vscode.window.showInformationMessage(

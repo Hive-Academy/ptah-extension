@@ -18,6 +18,7 @@ import {
   Key,
   ExternalLink,
   AlertTriangle,
+  Cpu,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
 import { ProviderModelSelectorComponent } from './provider-model-selector.component';
@@ -86,6 +87,12 @@ export class SettingsComponent implements OnInit {
   readonly KeyIcon = Key;
   readonly ExternalLinkIcon = ExternalLink;
   readonly AlertTriangleIcon = AlertTriangle;
+  readonly CpuIcon = Cpu;
+
+  // Tab state for settings page (3-tab layout)
+  readonly activeSettingsTab = signal<
+    'claude-auth' | 'pro-features' | 'ptah-ai'
+  >('claude-auth');
 
   // ============================================================
   // Enhanced Prompts state signals (TASK_2025_151)
@@ -274,7 +281,7 @@ export class SettingsComponent implements OnInit {
 
   /**
    * Signal: System prompt preset preference for new sessions
-   * - 'claude_code': Minimal Claude Code preset
+   * - 'claude_code': Minimal default preset
    * - 'enhanced': AI-generated project-specific guidance
    */
   readonly systemPromptPreset = signal<'claude_code' | 'enhanced'>('enhanced');
@@ -373,6 +380,13 @@ export class SettingsComponent implements OnInit {
     if (this.isPremium()) {
       await this.loadEnhancedPromptsStatus();
     }
+  }
+
+  /**
+   * Switch active settings tab
+   */
+  setActiveTab(tab: 'claude-auth' | 'pro-features' | 'ptah-ai'): void {
+    this.activeSettingsTab.set(tab);
   }
 
   /**

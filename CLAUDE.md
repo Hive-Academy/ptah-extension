@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Ptah** is a VS Code extension that provides a complete visual interface for Claude Code CLI. Built with TypeScript and Angular webviews, it transforms Claude Code's CLI experience into native, integrated VS Code functionality.
+**Ptah** is an AI coding orchestra for VS Code, powered by Claude Agent SDK. Built with TypeScript and Angular webviews, it provides intelligent workspace analysis, project-adaptive AI agents, and a built-in MCP server — all natively integrated into VS Code.
 
 ## Development Commands
 

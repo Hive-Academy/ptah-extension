@@ -109,7 +109,7 @@ interface PendingQuestionRequest {
 /**
  * Permission timeout in milliseconds (5 minutes)
  *
- * NOTE: Claude Code CLI blocks INDEFINITELY until user responds.
+ * NOTE: Claude CLI blocks INDEFINITELY until user responds.
  * We use a 5-minute timeout as a fail-safe to prevent orphaned requests,
  * but this should be long enough for users to respond in normal usage.
  *

@@ -32,7 +32,7 @@ export { SdkMessageTransformer } from './lib/sdk-message-transformer';
 export { SessionMetadataStore } from './lib/session-metadata-store';
 export type { SessionMetadata } from './lib/session-metadata-store';
 
-// Session importer (imports existing Claude Code sessions)
+// Session importer (imports existing Claude sessions)
 export { SessionImporterService } from './lib/session-importer.service';
 
 // Session history reader (reads JSONL files for session replay)

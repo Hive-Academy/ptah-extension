@@ -19,10 +19,10 @@ import { FOOTER_ANIMATION } from '../config/auth-animation.configs';
     <div viewportAnimation [viewportConfig]="footerConfig">
       <p class="text-center text-neutral-content/50 text-sm leading-relaxed">
         @if (mode() === 'signin') { Join thousands of developers who trust Ptah
-        to supercharge their Claude Code experience. Access your personalized
+        to supercharge their AI coding workflow. Access your personalized
         dashboard and manage your licenses. } @else { Get started with Ptah
-        Extension for VS Code. Unlock the full power of Claude Code with a
-        beautiful visual interface and powerful features. }
+        Extension for VS Code. Unlock the full power of AI-assisted development
+        with a beautiful visual interface and powerful features. }
       </p>
 
       <!-- Terms (for signup) -->

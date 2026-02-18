@@ -1,6 +1,6 @@
 # 📜 PTAH PROJECT SPECIFICS
 
-## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
+## **IMPORTANT**: There's a file modification bug in Claude Code tool. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
 
 ## 🎯 ORCHESTRATION & WORKFLOW
 
@@ -10,7 +10,7 @@
 
 ## Project Overview
 
-**Ptah** is a VS Code extension that provides a complete visual interface for Claude Code CLI. Built with TypeScript and Angular webviews, it transforms Claude Code's CLI experience into native, integrated VS Code functionality.
+**Ptah** is an AI coding orchestra for VS Code, powered by Claude Agent SDK. Built with TypeScript and Angular webviews, it provides intelligent workspace analysis, project-adaptive AI agents, and a built-in MCP server — all natively integrated into VS Code.
 
 ## Development Commands
 

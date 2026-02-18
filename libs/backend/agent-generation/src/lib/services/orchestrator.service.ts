@@ -844,7 +844,7 @@ export class AgentGenerationOrchestratorService {
       ''
     );
 
-    // Build frontmatter with only the fields Claude Code recognizes
+    // Build frontmatter with only the fields Claude recognizes
     const frameworkName =
       context.frameworks[0]?.toString() || context.projectType.toString();
 

@@ -40,6 +40,7 @@ import {
   Shield,
   Cpu,
   Image,
+  Save,
 } from 'lucide-angular';
 import { LlmProviderStateService } from '@ptah-extension/core';
 import type { LlmProviderName } from '@ptah-extension/shared';
@@ -72,13 +73,10 @@ export class LlmProvidersConfigComponent implements OnInit {
   readonly llmState = inject(LlmProviderStateService);
 
   /**
-   * Filtered providers excluding 'vscode-lm'.
-   * VS Code LM operates at the MCP server/tool level, not as a direct chat provider,
-   * so it belongs under the MCP Server section in settings, not here.
+   * All providers including vscode-lm.
+   * Each provider gets a card — vscode-lm shows model selection instead of API key input.
    */
-  readonly filteredProviders = computed(() =>
-    this.llmState.providers().filter((p) => p.provider !== 'vscode-lm')
-  );
+  readonly filteredProviders = computed(() => this.llmState.providers());
 
   // --- Lucide icons ---
   readonly KeyIcon = Key;
@@ -90,6 +88,7 @@ export class LlmProvidersConfigComponent implements OnInit {
   readonly ShieldIcon = Shield;
   readonly CpuIcon = Cpu;
   readonly ImageIcon = Image;
+  readonly SaveIcon = Save;
 
   // --- Local form signals ---
 
@@ -119,12 +118,37 @@ export class LlmProvidersConfigComponent implements OnInit {
   readonly removingProvider = signal<string | null>(null);
 
   /**
+   * Tracks default model input values per provider.
+   * Map key: provider name. Value: the model text currently typed in the input.
+   */
+  readonly modelInputs = signal<Map<string, string>>(new Map());
+
+  /**
+   * Tracks which provider is currently having its model saved (for loading state).
+   * null when no save is in progress.
+   */
+  readonly savingModel = signal<string | null>(null);
+
+  /**
    * Load provider status on component initialization.
    * Delegates to LlmProviderStateService which fetches from backend via RPC.
+   * After provider status loads, loads models for all configured providers.
    */
   async ngOnInit(): Promise<void> {
     try {
       await this.llmState.loadProviderStatus();
+
+      // Load models for all configured providers + vscode-lm
+      const providers = this.llmState.providers();
+      const modelLoadPromises: Promise<void>[] = [];
+
+      for (const p of providers) {
+        if (p.provider === 'vscode-lm' || p.isConfigured) {
+          modelLoadPromises.push(this.llmState.loadProviderModels(p.provider));
+        }
+      }
+
+      await Promise.all(modelLoadPromises);
     } catch (error) {
       console.error(
         '[LlmProvidersConfigComponent] Failed to initialize provider status:',
@@ -164,6 +188,7 @@ export class LlmProvidersConfigComponent implements OnInit {
         const updated = new Map(this.apiKeyInputs());
         updated.delete(provider);
         this.apiKeyInputs.set(updated);
+        // Model load is already triggered by setApiKey → loadProviderModels
       }
     } finally {
       this.savingProvider.set(null);
@@ -224,6 +249,91 @@ export class LlmProvidersConfigComponent implements OnInit {
     const updated = new Map(this.apiKeyInputs());
     updated.set(provider, value);
     this.apiKeyInputs.set(updated);
+  }
+
+  /**
+   * Update the model input value for the given provider.
+   *
+   * @param provider - The provider whose model input is being updated
+   * @param value - The current input value
+   */
+  updateModelInput(provider: string, value: string): void {
+    const updated = new Map(this.modelInputs());
+    updated.set(provider, value);
+    this.modelInputs.set(updated);
+  }
+
+  /**
+   * Save the default model for the given provider.
+   * Delegates to llmState.setDefaultModel() which persists to VS Code settings.
+   *
+   * @param provider - The LLM provider to save the model for
+   */
+  async onSaveDefaultModel(provider: LlmProviderName): Promise<void> {
+    if (this.savingModel() === provider) {
+      return;
+    }
+
+    const modelValue = this.modelInputs().get(provider)?.trim();
+    if (!modelValue) {
+      return;
+    }
+
+    this.savingModel.set(provider);
+
+    try {
+      await this.llmState.setDefaultModel(provider, modelValue);
+      // Clear the local input override so it falls back to the refreshed value
+      const updated = new Map(this.modelInputs());
+      updated.delete(provider);
+      this.modelInputs.set(updated);
+    } finally {
+      this.savingModel.set(null);
+    }
+  }
+
+  /**
+   * Handle VS Code LM model selection from dropdown.
+   * Saves the selected model as the default for vscode-lm provider.
+   *
+   * @param modelId - The selected model ID (e.g., 'copilot/gpt-4o')
+   */
+  async onVsCodeModelSelect(modelId: string): Promise<void> {
+    if (!modelId || this.savingModel() === 'vscode-lm') {
+      return;
+    }
+
+    this.savingModel.set('vscode-lm');
+
+    try {
+      await this.llmState.setDefaultModel('vscode-lm', modelId);
+    } finally {
+      this.savingModel.set(null);
+    }
+  }
+
+  /**
+   * Handle model selection from a provider dropdown.
+   * Saves the selected model as the default for the given provider.
+   *
+   * @param provider - The LLM provider
+   * @param modelId - The selected model ID
+   */
+  async onProviderModelSelect(
+    provider: LlmProviderName,
+    modelId: string
+  ): Promise<void> {
+    if (!modelId || this.savingModel() === provider) {
+      return;
+    }
+
+    this.savingModel.set(provider);
+
+    try {
+      await this.llmState.setDefaultModel(provider, modelId);
+    } finally {
+      this.savingModel.set(null);
+    }
   }
 
   /**

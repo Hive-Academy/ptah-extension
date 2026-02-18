@@ -11,6 +11,7 @@ import { injectable, inject } from 'tsyringe';
 import { ConfigManager, TOKENS, Logger } from '@ptah-extension/vscode-core';
 import {
   LlmProviderName,
+  SUPPORTED_PROVIDERS,
   PROVIDER_DISPLAY_NAMES,
   DEFAULT_MODELS,
   isValidProviderName,
@@ -166,6 +167,40 @@ export class LlmConfigurationService {
     this.logger.debug('[LlmConfigurationService] getAvailableProviders', {
       count: configs.length,
       providers: configs.map((c) => c.provider),
+    });
+
+    return configs;
+  }
+
+  /**
+   * Get configuration for ALL supported providers (configured or not).
+   *
+   * Unlike getAvailableProviders() which only returns providers with API keys,
+   * this method returns every supported provider with an isConfigured flag.
+   * Used by the settings UI to always show provider cards.
+   *
+   * @returns Array of all provider configurations with isConfigured status
+   */
+  async getAllProviders(): Promise<LlmProviderConfig[]> {
+    const configs: LlmProviderConfig[] = [];
+
+    for (const provider of SUPPORTED_PROVIDERS) {
+      const isConfigured =
+        provider === 'vscode-lm'
+          ? true // vscode-lm doesn't need an API key
+          : await this.secrets.hasApiKey(provider);
+
+      configs.push({
+        provider,
+        model: this.getDefaultModel(provider),
+        isConfigured,
+        displayName: this.getProviderDisplayName(provider),
+      });
+    }
+
+    this.logger.debug('[LlmConfigurationService] getAllProviders', {
+      count: configs.length,
+      configured: configs.filter((c) => c.isConfigured).length,
     });
 
     return configs;

@@ -1,4 +1,4 @@
-Analyze this codebase and generate comprehensive Claude Code documentation:
+Analyze this codebase and generate comprehensive Claude documentation:
 
 ## Your Task
 

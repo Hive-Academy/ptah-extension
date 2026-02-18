@@ -116,7 +116,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
 
     const panel = vscode.window.createWebviewPanel(
       'ptah-angular-spa',
-      'Ptah - Claude Code Assistant',
+      'Ptah - AI Coding Orchestra',
       vscode.ViewColumn.One,
       {
         enableScripts: true,

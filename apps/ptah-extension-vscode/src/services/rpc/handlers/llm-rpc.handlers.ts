@@ -18,6 +18,10 @@ import {
   SetApiKeyResponse,
   LlmProviderName,
 } from '@ptah-extension/vscode-core';
+import type {
+  LlmListProviderModelsParams,
+  LlmListProviderModelsResponse,
+} from '@ptah-extension/shared';
 
 /**
  * RPC handlers for LLM provider operations
@@ -39,8 +43,10 @@ export class LlmRpcHandlers {
     this.registerRemoveApiKey();
     this.registerGetDefaultProvider();
     this.registerSetDefaultProvider();
+    this.registerSetDefaultModel();
     this.registerValidateApiKeyFormat();
     this.registerListVsCodeModels();
+    this.registerListProviderModels();
 
     this.logger.debug('LLM RPC handlers registered', {
       methods: [
@@ -49,8 +55,10 @@ export class LlmRpcHandlers {
         'llm:removeApiKey',
         'llm:getDefaultProvider',
         'llm:setDefaultProvider',
+        'llm:setDefaultModel',
         'llm:validateApiKeyFormat',
         'llm:listVsCodeModels',
+        'llm:listProviderModels',
       ],
     });
   }
@@ -208,6 +216,42 @@ export class LlmRpcHandlers {
   }
 
   /**
+   * llm:setDefaultModel - Set default model for a provider
+   */
+  private registerSetDefaultModel(): void {
+    this.rpcHandler.registerMethod<
+      { provider: LlmProviderName; model: string },
+      { success: boolean; error?: string }
+    >(
+      'llm:setDefaultModel',
+      async (params: { provider: LlmProviderName; model: string }) => {
+        try {
+          this.logger.debug('RPC: llm:setDefaultModel called', {
+            provider: params.provider,
+            model: params.model,
+          });
+
+          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
+            TOKENS.LLM_RPC_HANDLERS
+          );
+          const result = await handlers.setDefaultModel(params);
+
+          return result;
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm:setDefaultModel failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+  }
+
+  /**
    * llm:validateApiKeyFormat - Validate API key format (without storing)
    */
   private registerValidateApiKeyFormat(): void {
@@ -272,5 +316,37 @@ export class LlmRpcHandlers {
         }
       }
     );
+  }
+
+  /**
+   * llm:listProviderModels - List available models for a provider
+   */
+  private registerListProviderModels(): void {
+    this.rpcHandler.registerMethod<
+      LlmListProviderModelsParams,
+      LlmListProviderModelsResponse
+    >('llm:listProviderModels', async (params: LlmListProviderModelsParams) => {
+      try {
+        this.logger.debug('RPC: llm:listProviderModels called', {
+          provider: params.provider,
+        });
+
+        const handlers = this.container.resolve<LlmRpcHandlersInterface>(
+          TOKENS.LLM_RPC_HANDLERS
+        );
+        const result = await handlers.listProviderModels(params.provider);
+
+        return result;
+      } catch (error) {
+        this.logger.error(
+          'RPC: llm:listProviderModels failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          models: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
   }
 }

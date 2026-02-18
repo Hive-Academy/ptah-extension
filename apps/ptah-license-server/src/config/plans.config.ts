@@ -28,7 +28,7 @@ export const PLANS = {
     monthlyPrice: 0, // FREE
     yearlyPrice: 0, // FREE
     isPremium: false,
-    description: 'Free visual editor for Claude Code',
+    description: 'Free AI coding orchestra for VS Code',
   },
   pro: {
     name: 'Pro',

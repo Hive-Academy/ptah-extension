@@ -164,7 +164,7 @@ import { AuthService } from '../services/auth.service';
 
         <!-- Marketplace CTA -->
         <a
-          href="https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code"
+          href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
           target="_blank"
           rel="noopener noreferrer"
           class="bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 px-5 py-2 rounded-lg font-semibold text-sm hover:from-amber-400 hover:to-amber-500 hover:scale-105 transition-all duration-200 shadow-lg shadow-amber-500/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2"
@@ -287,7 +287,7 @@ import { AuthService } from '../services/auth.service';
 
         <!-- Get Extension CTA -->
         <a
-          href="https://marketplace.visualstudio.com/items?itemName=anthropic.claude-code"
+          href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
           target="_blank"
           rel="noopener noreferrer"
           class="flex items-center justify-center mt-2 mx-2 bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 px-5 py-3 rounded-lg font-semibold text-base hover:from-amber-400 hover:to-amber-500 transition-all duration-200 shadow-lg shadow-amber-500/20"

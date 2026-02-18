@@ -1184,7 +1184,7 @@
           "projectType": "application",
           "metadata": {
             "targetGroups": {},
-            "description": "Complete visual interface for Claude Code CLI with chat, command building, and intelligent context management",
+            "description": "AI coding orchestra for VS Code with chat, command building, and intelligent context management",
             "js": {
               "packageName": "ptah-extension-vscode",
               "packageMain": "./main.js",

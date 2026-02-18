@@ -4,7 +4,7 @@
 
 ## Purpose
 
-The **ptah-extension-webview** is the Angular 20+ single-page application (SPA) that provides the visual interface for the Ptah Extension inside VS Code webview panels. It delivers a rich, interactive GUI for Claude Code CLI.
+The **ptah-extension-webview** is the Angular 20+ single-page application (SPA) that provides the visual interface for the Ptah Extension inside VS Code webview panels. It delivers a rich, interactive GUI for AI-assisted development.
 
 ## Boundaries
 

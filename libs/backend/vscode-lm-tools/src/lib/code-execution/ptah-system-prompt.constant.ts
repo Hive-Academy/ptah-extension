@@ -1,6 +1,6 @@
 /**
  * Behavioral system prompt for Ptah MCP Server
- * Appended to Claude Code CLI context for premium+MCP users
+ * Appended to AI agent context for premium+MCP users
  *
  * Design: Directive mandates (not passive docs) to ensure agents
  * actually call ptah_* tools instead of defaulting to Bash/Grep/Glob.

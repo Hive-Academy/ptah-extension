@@ -146,7 +146,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
 
   /**
    * Register the Ptah MCP server in the workspace's .mcp.json file.
-   * This enables subagents (separate Claude Code processes spawned by the Task tool)
+   * This enables subagents (separate processes spawned by the Task tool)
    * to discover and connect to the Ptah MCP server automatically.
    *
    * Without this, only the parent SDK session has access to Ptah tools via

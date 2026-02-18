@@ -11,7 +11,7 @@ This file defines the visual design system used across all content generation. A
 ### Name & Positioning
 
 - **Name**: Ptah (Egyptian god of craftsmen and creation)
-- **Tagline**: "VS Code AI Development, Powered by Claude Code"
+- **Tagline**: "VS Code AI Development, Powered by Claude Agent SDK"
 - **Personality**: Ancient wisdom meets modern technology
 
 ### Visual Theme

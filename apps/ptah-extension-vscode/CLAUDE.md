@@ -156,7 +156,7 @@ Key sections:
 ```json
 {
   "name": "ptah-extension",
-  "displayName": "Ptah - Claude Code GUI",
+  "displayName": "Ptah - Coding Orchestra",
   "publisher": "ptah",
   "main": "./main.js",
   "activationEvents": ["onStartupFinished"],

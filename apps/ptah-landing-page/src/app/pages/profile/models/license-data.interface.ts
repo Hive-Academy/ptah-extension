@@ -113,8 +113,8 @@ export interface FeatureDisplay {
 export const FEATURE_DISPLAY_MAP: Record<string, FeatureDisplay> = {
   basic_cli_wrapper: {
     key: 'basic_cli_wrapper',
-    label: 'Claude CLI Integration',
-    description: 'Seamless VS Code integration with Claude Code CLI',
+    label: 'AI Agent Integration',
+    description: 'Seamless VS Code integration with Claude Agent SDK',
     category: 'core',
   },
   session_history: {

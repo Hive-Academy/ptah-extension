@@ -415,7 +415,7 @@ export class InlineAgentBubbleComponent {
   readonly agentColor = computed(() => {
     const agentType = this.node().agentType || '';
 
-    // Built-in Claude Code agents with oklch colors for theme consistency
+    // Built-in agents with oklch colors for theme consistency
     // Using oklch ensures colors work well on both light and dark backgrounds
     const builtinColors: Record<string, string> = {
       Explore: 'oklch(0.6 0.18 145)', // Green

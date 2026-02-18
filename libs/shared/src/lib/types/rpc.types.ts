@@ -52,7 +52,7 @@ export interface ChatStartParams {
     files?: string[];
     /**
      * System prompt preset selection.
-     * - 'claude_code': Claude Code preset with minimal customization
+     * - 'claude_code': Default preset with minimal customization
      * - 'enhanced': AI-generated project-specific guidance (requires enhanced prompts generated)
      *
      * If not specified, defaults to 'enhanced' if enhanced prompts are available,
@@ -411,26 +411,7 @@ export interface ConfigModelsListResult {
 // ============================================================
 
 /** Supported authentication methods */
-export type AuthMethod =
-  | 'oauth'
-  | 'apiKey'
-  | 'openrouter'
-  | 'auto'
-  | 'vscode-lm';
-
-/** VS Code Language Model information (from vscode.lm.selectChatModels) */
-export interface VsCodeLmModelInfo {
-  /** Model identifier (e.g., 'copilot-gpt-4o') */
-  id: string;
-  /** Model vendor (e.g., 'copilot') */
-  vendor: string;
-  /** Model family (e.g., 'gpt-4o') */
-  family: string;
-  /** Model version */
-  version: string;
-  /** Maximum input tokens supported */
-  maxInputTokens: number;
-}
+export type AuthMethod = 'oauth' | 'apiKey' | 'openrouter' | 'auto';
 
 /** Parameters for auth:getHealth RPC method */
 export type AuthGetHealthParams = Record<string, never>;
@@ -537,8 +518,6 @@ export interface AuthGetAuthStatusResponse {
   anthropicProviderId: string;
   /** Available Anthropic-compatible providers (TASK_2025_129 Batch 3) */
   availableProviders: AnthropicProviderInfo[];
-  /** Available VS Code LM models (populated when authMethod is 'vscode-lm') */
-  vscodeLmModels?: VsCodeLmModelInfo[];
 }
 
 // ============================================================
@@ -558,7 +537,7 @@ export interface ProviderModelInfo {
   description: string;
   /** Maximum context length in tokens */
   contextLength: number;
-  /** Whether the model supports tool use (required for Claude Code) */
+  /** Whether the model supports tool use (required for AI agents) */
   supportsToolUse: boolean;
   /** Cost per input token in USD (from provider API, e.g. OpenRouter) */
   inputCostPerToken?: number;
@@ -1133,11 +1112,34 @@ export interface LlmValidateApiKeyFormatResponse {
   errorMessage?: string;
 }
 
+/** Parameters for llm:setDefaultModel RPC method */
+export interface LlmSetDefaultModelParams {
+  provider: LlmProviderName;
+  model: string;
+}
+
+/** Response from llm:setDefaultModel RPC method */
+export interface LlmSetDefaultModelResponse {
+  success: boolean;
+  error?: string;
+}
+
 /** Parameters for llm:getProviderStatus RPC method */
 export type LlmGetProviderStatusParams = Record<string, never>;
 
 /** Parameters for llm:listVsCodeModels RPC method */
 export type LlmListVsCodeModelsParams = Record<string, never>;
+
+/** Parameters for llm:listProviderModels RPC method */
+export interface LlmListProviderModelsParams {
+  provider: LlmProviderName;
+}
+
+/** Response from llm:listProviderModels RPC method */
+export interface LlmListProviderModelsResponse {
+  models: Array<{ id: string; displayName: string }>;
+  error?: string;
+}
 
 // ============================================================
 // Quality Dashboard RPC Types (TASK_2025_144)
@@ -1405,9 +1407,17 @@ export interface RpcMethodRegistry {
     params: LlmValidateApiKeyFormatParams;
     result: LlmValidateApiKeyFormatResponse;
   };
+  'llm:setDefaultModel': {
+    params: LlmSetDefaultModelParams;
+    result: LlmSetDefaultModelResponse;
+  };
   'llm:listVsCodeModels': {
     params: LlmListVsCodeModelsParams;
     result: unknown[];
+  };
+  'llm:listProviderModels': {
+    params: LlmListProviderModelsParams;
+    result: LlmListProviderModelsResponse;
   };
 
   // ---- Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132) ----
@@ -1570,8 +1580,10 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'llm:removeApiKey',
   'llm:getDefaultProvider',
   'llm:setDefaultProvider',
+  'llm:setDefaultModel',
   'llm:validateApiKeyFormat',
   'llm:listVsCodeModels',
+  'llm:listProviderModels',
 
   // Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   'provider:listModels',

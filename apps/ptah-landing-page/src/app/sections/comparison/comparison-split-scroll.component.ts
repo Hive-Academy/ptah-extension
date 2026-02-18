@@ -59,8 +59,8 @@ interface PerformanceMetric {
           [viewportConfig]="subheaderConfig"
           class="mt-4 text-xl text-slate-400 max-w-2xl mx-auto"
         >
-          From terminal chaos to visual clarity. See how Ptah transforms your
-          Claude Code experience.
+          From terminal chaos to visual clarity. See how Ptah transforms your AI
+          coding workflow.
         </p>
       </div>
 

@@ -1103,7 +1103,7 @@ export interface MCPServerInfo {
 
 /**
  * Session Capabilities
- * Tracks Claude Code capabilities available in a session
+ * Tracks AI agent capabilities available in a session
  */
 export interface SessionCapabilities {
   readonly cwd: string;
@@ -1136,7 +1136,7 @@ export interface StrictChatSession {
   }>;
 
   // NEW: Missing fields for IMPLEMENTATION_PLAN compatibility (TASK_2025_008 - Batch 2)
-  readonly capabilities?: SessionCapabilities; // Claude Code capabilities
+  readonly capabilities?: SessionCapabilities; // AI agent capabilities
   readonly model?: string; // Active model (e.g., "claude-sonnet-4")
   readonly totalCost?: number; // Cumulative cost in USD
   readonly totalTokensInput?: number; // Cumulative input tokens

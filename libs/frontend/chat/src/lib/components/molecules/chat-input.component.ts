@@ -469,11 +469,11 @@ export class ChatInputComponent implements OnInit {
 
   /**
    * Handle agent selection from AgentSelectorComponent
-   * Appends agent-{name} to input (Claude Code CLI convention)
+   * Appends agent-{name} to input (agent convention)
    */
   handleAgentSelected(agentName: string): void {
     const currentValue = this._currentMessage();
-    // Format: agent-{name} (not @{name}) per Claude Code CLI convention
+    // Format: agent-{name} (not @{name}) per agent convention
     const newValue =
       currentValue +
       (currentValue.endsWith(' ') || currentValue === '' ? '' : ' ') +

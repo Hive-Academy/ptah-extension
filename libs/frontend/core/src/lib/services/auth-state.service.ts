@@ -18,7 +18,6 @@ import type {
   AuthSaveSettingsParams,
   AuthMethod,
   AnthropicProviderInfo,
-  VsCodeLmModelInfo,
 } from '@ptah-extension/shared';
 
 /**
@@ -65,9 +64,6 @@ export class AuthStateService {
 
   /** Current auth method preference (UI-local until saved) */
   private readonly _authMethod = signal<AuthMethod>('auto');
-
-  /** Available VS Code LM models (populated when authMethod is 'vscode-lm') */
-  private readonly _vscodeLmModels = signal<VsCodeLmModelInfo[]>([]);
 
   /** Currently selected Anthropic-compatible provider ID */
   private readonly _selectedProviderId = signal('openrouter');
@@ -130,9 +126,6 @@ export class AuthStateService {
   /** Success message from last operation */
   readonly successMessage = this._successMessage.asReadonly();
 
-  /** Available VS Code LM models */
-  readonly vscodeLmModels = this._vscodeLmModels.asReadonly();
-
   // --- Computed signals ---
 
   /**
@@ -150,11 +143,7 @@ export class AuthStateService {
    * Used by SettingsComponent to determine if authentication section shows status.
    */
   readonly hasAnyCredential = computed(
-    () =>
-      this._authMethod() === 'vscode-lm' ||
-      this._hasOAuthToken() ||
-      this._hasApiKey() ||
-      this.hasProviderKey()
+    () => this._hasOAuthToken() || this._hasApiKey() || this.hasProviderKey()
   );
 
   /**
@@ -468,35 +457,6 @@ export class AuthStateService {
   }
 
   /**
-   * Load VS Code LM models from backend.
-   * Called when user selects 'vscode-lm' auth method to populate the model list.
-   */
-  async loadVsCodeModels(): Promise<void> {
-    try {
-      const result = await this.rpc.call(
-        'llm:listVsCodeModels',
-        {} as Record<string, never>
-      );
-      if (result.isSuccess() && Array.isArray(result.data)) {
-        this._vscodeLmModels.set(
-          (result.data as Record<string, unknown>[]).map((m) => ({
-            id: (m['id'] as string) ?? '',
-            vendor: (m['vendor'] as string) ?? '',
-            family: (m['family'] as string) ?? '',
-            version: (m['version'] as string) ?? '',
-            maxInputTokens: (m['maxInputTokens'] as number) ?? 0,
-          }))
-        );
-      }
-    } catch (error) {
-      console.error(
-        '[AuthStateService] Failed to load VS Code LM models:',
-        error
-      );
-    }
-  }
-
-  /**
    * Clear connection status messages and reset to idle.
    * Used when user navigates away or starts a new action.
    */
@@ -561,7 +521,6 @@ export class AuthStateService {
     this._authMethod.set(response.authMethod);
     this._selectedProviderId.set(response.anthropicProviderId);
     this._availableProviders.set(response.availableProviders);
-    this._vscodeLmModels.set(response.vscodeLmModels ?? []);
 
     // Reset provider key map to only contain the current provider's status.
     // Clears stale entries from previously checked providers that may

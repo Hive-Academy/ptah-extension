@@ -66,6 +66,7 @@ export interface SetApiKeyResponse {
  */
 interface ILlmSecretsService {
   hasApiKey(provider: LlmProviderName): Promise<boolean>;
+  getApiKey(provider: LlmProviderName): Promise<string | undefined>;
   setApiKey(provider: LlmProviderName, apiKey: string): Promise<void>;
   deleteApiKey(provider: LlmProviderName): Promise<void>;
   validateKeyFormat(provider: LlmProviderName, apiKey: string): boolean;
@@ -79,6 +80,14 @@ interface ILlmConfigurationService {
   getDefaultModel(provider: LlmProviderName): string;
   getProviderDisplayName(provider: LlmProviderName): string;
   getAvailableProviders(): Promise<
+    Array<{
+      provider: LlmProviderName;
+      model: string;
+      isConfigured: boolean;
+      displayName: string;
+    }>
+  >;
+  getAllProviders(): Promise<
     Array<{
       provider: LlmProviderName;
       model: string;
@@ -144,8 +153,8 @@ export class LlmRpcHandlers {
         '[LlmRpcHandlers.getProviderStatus] Fetching provider status'
       );
 
-      // Get configured providers with their settings
-      const providers = await this.configService.getAvailableProviders();
+      // Get ALL providers (configured or not) for settings UI
+      const providers = await this.configService.getAllProviders();
 
       // Transform to response format (API keys never exposed)
       const statuses = providers.map((p) => ({
@@ -390,6 +399,203 @@ export class LlmRpcHandlers {
 
       // Fallback to safe default
       return 'vscode-lm';
+    }
+  }
+
+  /**
+   * Set the default model for a specific LLM provider
+   *
+   * Updates VS Code setting `ptah.llm.{settingsKey}.model`.
+   *
+   * @param provider - Provider name
+   * @param model - Model identifier to set as default
+   * @returns Success/error response
+   */
+  async setDefaultModel(request: {
+    provider: LlmProviderName;
+    model: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { provider, model } = request;
+
+      this.logger.debug(
+        '[LlmRpcHandlers.setDefaultModel] Setting default model',
+        { provider, model }
+      );
+
+      // Map provider name to settings key
+      const settingsKey = this.getProviderSettingsKey(provider);
+
+      const vscode = await import('vscode');
+
+      await vscode.workspace
+        .getConfiguration('ptah')
+        .update(
+          `llm.${settingsKey}.model`,
+          model,
+          vscode.ConfigurationTarget.Global
+        );
+
+      this.logger.info(
+        '[LlmRpcHandlers.setDefaultModel] Default model updated',
+        { provider, model }
+      );
+
+      return { success: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+
+      this.logger.error(
+        '[LlmRpcHandlers.setDefaultModel] Failed to set default model',
+        { provider: request.provider, model: request.model, error: message }
+      );
+
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * List available models for a provider by calling its API.
+   *
+   * - OpenAI: Uses the openai SDK to list models, filters to gpt-* models
+   * - Google Gemini: Fetches from generativelanguage.googleapis.com, filters generateContent-capable
+   * - vscode-lm: Delegates to listVsCodeModels()
+   *
+   * @param provider - The provider to list models for
+   * @returns Array of model objects with id and displayName
+   */
+  async listProviderModels(provider: LlmProviderName): Promise<{
+    models: Array<{ id: string; displayName: string }>;
+    error?: string;
+  }> {
+    try {
+      this.logger.debug('[LlmRpcHandlers.listProviderModels] Listing models', {
+        provider,
+      });
+
+      if (provider === 'vscode-lm') {
+        const vsModels = await this.listVsCodeModels();
+        return {
+          models: vsModels.map((m) => ({
+            id: m.id,
+            displayName: m.displayName,
+          })),
+        };
+      }
+
+      const apiKey = await this.secretsService.getApiKey(provider);
+      if (!apiKey) {
+        return { models: [], error: `No API key configured for ${provider}` };
+      }
+
+      if (provider === 'openai') {
+        return await this.listOpenAIModels(apiKey);
+      } else if (provider === 'google-genai') {
+        return await this.listGoogleModels(apiKey);
+      }
+
+      return { models: [], error: `Unsupported provider: ${provider}` };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        '[LlmRpcHandlers.listProviderModels] Failed to list models',
+        { provider, error: message }
+      );
+      return { models: [], error: message };
+    }
+  }
+
+  /**
+   * List OpenAI models using the openai SDK
+   */
+  private async listOpenAIModels(
+    apiKey: string
+  ): Promise<{ models: Array<{ id: string; displayName: string }> }> {
+    const { default: OpenAI } = await import('openai');
+    const client = new OpenAI({ apiKey });
+    const response = await client.models.list();
+
+    const models: Array<{ id: string; displayName: string }> = [];
+    for await (const model of response) {
+      // Filter to chat-capable models (gpt-*, o1-*, o3-*, chatgpt-*)
+      if (
+        model.id.startsWith('gpt-') ||
+        model.id.startsWith('o1-') ||
+        model.id.startsWith('o3-') ||
+        model.id.startsWith('chatgpt-')
+      ) {
+        models.push({ id: model.id, displayName: model.id });
+      }
+    }
+
+    // Sort alphabetically for consistent UI
+    models.sort((a, b) => a.id.localeCompare(b.id));
+
+    this.logger.debug('[LlmRpcHandlers.listOpenAIModels] Found models', {
+      count: models.length,
+    });
+
+    return { models };
+  }
+
+  /**
+   * List Google Gemini models via REST API
+   */
+  private async listGoogleModels(
+    apiKey: string
+  ): Promise<{ models: Array<{ id: string; displayName: string }> }> {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Google API error (${response.status}): ${text}`);
+    }
+
+    const data = (await response.json()) as {
+      models?: Array<{
+        name: string;
+        displayName: string;
+        supportedGenerationMethods?: string[];
+      }>;
+    };
+
+    const models: Array<{ id: string; displayName: string }> = [];
+    for (const m of data.models || []) {
+      // Only include models that support generateContent (chat-capable)
+      if (m.supportedGenerationMethods?.includes('generateContent')) {
+        // name is "models/gemini-1.5-pro" → extract "gemini-1.5-pro"
+        const id = m.name.replace('models/', '');
+        // Show both display name and ID for clarity
+        const displayName =
+          m.displayName && m.displayName !== id
+            ? `${m.displayName} (${id})`
+            : id;
+        models.push({ id, displayName });
+      }
+    }
+
+    // Sort alphabetically
+    models.sort((a, b) => a.id.localeCompare(b.id));
+
+    this.logger.debug('[LlmRpcHandlers.listGoogleModels] Found models', {
+      count: models.length,
+    });
+
+    return { models };
+  }
+
+  /**
+   * Map provider name to settings key (mirrors LlmConfigurationService logic)
+   */
+  private getProviderSettingsKey(provider: LlmProviderName): string {
+    switch (provider) {
+      case 'google-genai':
+        return 'google';
+      case 'vscode-lm':
+        return 'vscode';
+      default:
+        return provider;
     }
   }
 

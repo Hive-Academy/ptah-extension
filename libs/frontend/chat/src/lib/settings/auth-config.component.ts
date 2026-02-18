@@ -8,7 +8,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { SlicePipe, DecimalPipe } from '@angular/common';
+import { SlicePipe } from '@angular/common';
 import {
   LucideAngularModule,
   CheckCircle,
@@ -54,7 +54,7 @@ import type {
 @Component({
   selector: 'ptah-auth-config',
   standalone: true,
-  imports: [FormsModule, SlicePipe, DecimalPipe, LucideAngularModule],
+  imports: [FormsModule, SlicePipe, LucideAngularModule],
   templateUrl: './auth-config.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -124,8 +124,6 @@ export class AuthConfigComponent implements OnInit {
         return hasNewApiKey || hasExistingApiKey;
       case 'openrouter':
         return hasNewProviderKey || hasExistingProviderKey;
-      case 'vscode-lm':
-        return true; // No credentials needed, always enabled
       case 'auto':
         return (
           hasNewOAuth ||
@@ -178,16 +176,13 @@ export class AuthConfigComponent implements OnInit {
     }
 
     const currentMethod = this.authState.authMethod();
-    const params: AuthSaveSettingsParams =
-      currentMethod === 'vscode-lm'
-        ? { authMethod: 'vscode-lm' }
-        : {
-            authMethod: currentMethod,
-            claudeOAuthToken: this.oauthToken().trim() || undefined,
-            anthropicApiKey: this.apiKey().trim() || undefined,
-            openrouterApiKey: this.providerKey().trim() || undefined,
-            anthropicProviderId: this.authState.selectedProviderId(),
-          };
+    const params: AuthSaveSettingsParams = {
+      authMethod: currentMethod,
+      claudeOAuthToken: this.oauthToken().trim() || undefined,
+      anthropicApiKey: this.apiKey().trim() || undefined,
+      openrouterApiKey: this.providerKey().trim() || undefined,
+      anthropicProviderId: this.authState.selectedProviderId(),
+    };
 
     await this.authState.saveAndTest(params);
 
@@ -225,11 +220,6 @@ export class AuthConfigComponent implements OnInit {
     this.isReplacingOAuth.set(false);
     this.isReplacingApiKey.set(false);
     this.isReplacingProviderKey.set(false);
-
-    // Load VS Code LM models when switching to vscode-lm
-    if (method === 'vscode-lm') {
-      this.authState.loadVsCodeModels();
-    }
   }
 
   /**

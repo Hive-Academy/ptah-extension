@@ -331,7 +331,7 @@ CODEBASE INVESTIGATION - TASK_2025_047
 Analyzing Ptah extension for accurate feature claims...
 
 Key Features Found:
-1. Claude Code CLI integration (chat-rpc.handlers.ts)
+1. Claude Agent SDK integration (chat-rpc.handlers.ts)
 2. Agent SDK support for 10x faster responses (agent-sdk library)
 3. 48+ UI components (chat library)
 4. Signal-based state management (core library)
@@ -364,7 +364,7 @@ Colors, typography, and effects defined in:
 ### Headline
 ```
 
-Claude Code, Elevated.
+AI Coding, Elevated.
 
 ```
 
@@ -561,20 +561,20 @@ Powered by Claude. Built with love.
 ### Title
 ```
 
-Ptah - Premium Claude Code for VS Code
+Ptah - AI Coding Orchestra for VS Code
 
 ```
 
 ### Description
 ```
 
-The native VS Code extension for Claude Code. 10x faster with Agent SDK,
+The AI coding orchestra for VS Code. 10x faster with Agent SDK,
 real streaming, workspace intelligence, and multi-provider support.
 
 ```
 
 ### Keywords
-- Claude Code VS Code
+- Ptah VS Code
 - AI coding assistant
 - Claude extension
 - VS Code AI

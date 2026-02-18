@@ -51,7 +51,7 @@ export interface TokenBreakdown {
  */
 export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   // ============================================================================
-  // Anthropic Claude Models (Claude Code CLI)
+  // Anthropic Claude Models
   // ============================================================================
 
   // Claude 4.6 Opus (latest flagship)

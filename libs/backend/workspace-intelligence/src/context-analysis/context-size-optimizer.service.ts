@@ -1,7 +1,7 @@
 /**
  * Context Size Optimizer Service
  *
- * Manages token budgets and selects optimal file sets for Claude Code CLI integration.
+ * Manages token budgets and selects optimal file sets for AI agent integration.
  * Ensures context stays within LLM limits while maximizing relevance.
  *
  * @module libs/backend/workspace-intelligence/context-analysis

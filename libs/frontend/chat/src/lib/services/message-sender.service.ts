@@ -86,7 +86,7 @@ export class MessageSenderService {
   /**
    * Validate that a session file exists on disk
    *
-   * Prevents "Claude Code process exited with code 1" errors by checking
+   * Prevents "process exited with code 1" errors by checking
    * if the actual .jsonl file exists before attempting to resume.
    *
    * @param sessionId - Session ID to validate
