@@ -5,16 +5,17 @@
  *
  * Import: `@ptah-extension/llm-abstraction/google`
  *
- * Dependencies: @langchain/google-genai, @langchain/core, zod
+ * Dependencies: @google/genai, zod, zod-to-json-schema
  *
- * This provider uses Langchain's ChatGoogleGenerativeAI for Gemini model access.
+ * This provider uses the native @google/genai SDK for Gemini model access.
+ * Supports text completion, structured output (JSON mode), and image generation.
  * Requires a Google API key.
  *
  * @example
  * ```typescript
  * import { createGoogleProvider, GoogleGenAIProvider } from '@ptah-extension/llm-abstraction/google';
  *
- * const result = await createGoogleProvider('AIza...', 'gemini-1.5-pro');
+ * const result = createGoogleProvider('AIza...', 'gemini-2.5-flash');
  * if (result.isOk()) {
  *   const response = await result.value.getCompletion('You are helpful', 'Hello');
  * }
@@ -29,14 +30,18 @@ import type {
 } from './lib/interfaces/llm-provider.interface';
 import { LlmProviderError } from './lib/errors/llm-provider.error';
 
-// Re-export provider
+// Re-export provider and image generation types
 export { GoogleGenAIProvider };
+export type {
+  ImageGenOptions,
+  ImageGenResult,
+} from './lib/providers/google-genai.provider';
 
 /**
- * Factory function for creating GoogleGenAIProvider
+ * Factory function for creating GoogleGenAIProvider.
  *
  * @param apiKey - Google API key (required)
- * @param model - Model name (e.g., 'gemini-1.5-pro', 'gemini-1.5-flash')
+ * @param model - Model name (e.g., 'gemini-2.5-flash', 'gemini-2.5-pro')
  * @returns Result containing provider instance or error
  */
 export const createGoogleProvider: LlmProviderFactory = (

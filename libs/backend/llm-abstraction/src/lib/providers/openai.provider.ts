@@ -1,26 +1,101 @@
+import OpenAI from 'openai';
 import { Result } from '@ptah-extension/shared';
+import { retryWithBackoff } from '@ptah-extension/shared';
+import { z } from 'zod';
 import { BaseLlmProvider } from './base-llm.provider';
 import { LlmProviderError } from '../errors/llm-provider.error';
-import { LlmCompletionConfig } from '../interfaces/llm-provider.interface';
-import { ChatOpenAI, type ChatOpenAICallOptions } from '@langchain/openai';
-import { z } from 'zod';
-import { retryWithBackoff } from '@ptah-extension/shared';
-import type { BaseLanguageModelInput } from '@langchain/core/language_models/base';
-import { type Runnable } from '@langchain/core/runnables';
+import {
+  LlmCompletionConfig,
+  LlmPromptInput,
+} from '../interfaces/llm-provider.interface';
 
 /**
- * OpenAI GPT provider implementation.
- * Supports GPT-4, GPT-3.5-turbo, and other OpenAI models.
+ * Extract error status from an unknown error object.
+ * Uses bracket notation for index signature access (noPropertyAccessFromIndexSignature).
+ */
+function getErrorStatus(error: unknown): number | undefined {
+  if (error == null || typeof error !== 'object') return undefined;
+  const err = error as Record<string, unknown>;
+  const directStatus = err['status'];
+  if (typeof directStatus === 'number') return directStatus;
+
+  const response = err['response'];
+  if (response != null && typeof response === 'object') {
+    const respStatus = (response as Record<string, unknown>)['status'];
+    if (typeof respStatus === 'number') return respStatus;
+  }
+  return undefined;
+}
+
+/**
+ * Extract OpenAI-specific error code from an unknown error object.
+ */
+function getOaiErrorCode(error: unknown): string | undefined {
+  if (error == null || typeof error !== 'object') return undefined;
+  const err = error as Record<string, unknown>;
+
+  // Check response.data.error.code
+  const response = err['response'];
+  if (response != null && typeof response === 'object') {
+    const data = (response as Record<string, unknown>)['data'];
+    if (data != null && typeof data === 'object') {
+      const errorObj = (data as Record<string, unknown>)['error'];
+      if (errorObj != null && typeof errorObj === 'object') {
+        const code = (errorObj as Record<string, unknown>)['code'];
+        if (typeof code === 'string') return code;
+      }
+    }
+  }
+
+  // Check error.error.code
+  const directError = err['error'];
+  if (directError != null && typeof directError === 'object') {
+    const code = (directError as Record<string, unknown>)['code'];
+    if (typeof code === 'string') return code;
+  }
+
+  return undefined;
+}
+
+/** Retry configuration for transient API errors. */
+const RETRY_OPTIONS = {
+  retries: 3,
+  initialDelay: 1000,
+  maxDelay: 30000,
+  factor: 2,
+  shouldRetry: (error: unknown): boolean => {
+    const status = getErrorStatus(error);
+    if (
+      status === 429 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504
+    ) {
+      return true;
+    }
+    const oaiErrorCode = getOaiErrorCode(error);
+    return (
+      oaiErrorCode === 'rate_limit_exceeded' ||
+      oaiErrorCode === 'insufficient_quota'
+    );
+  },
+};
+
+/**
+ * OpenAI GPT provider implementation using the native openai SDK.
+ *
+ * Supports GPT-4o, GPT-4 Turbo, GPT-3.5 Turbo, and other OpenAI models.
  *
  * Features:
  * - Variable context windows (4K-128K depending on model)
- * - Structured output via withStructuredOutput()
- * - Token counting via model's getNumTokens()
+ * - Structured output via native JSON Schema mode (response_format)
+ * - Token counting approximation (~4 chars per token)
  * - Automatic retry with exponential backoff
  */
 export class OpenAIProvider extends BaseLlmProvider {
   public readonly name = 'openai';
-  private model: ChatOpenAI;
+  private client: OpenAI;
 
   constructor(
     private readonly apiKey: string,
@@ -30,29 +105,23 @@ export class OpenAIProvider extends BaseLlmProvider {
   ) {
     super();
 
-    // Set context size based on model
     this.defaultContextSize = this._getDefaultContextSizeForModel(modelName);
 
-    // Initialize ChatOpenAI model
-    this.model = new ChatOpenAI({
-      openAIApiKey: this.apiKey,
-      modelName: this.modelName,
-      temperature: this.temperature,
-      maxTokens: this.maxTokens,
-    });
+    this.client = new OpenAI({ apiKey: this.apiKey });
   }
 
   /**
    * Get default context window size for known OpenAI models.
-   * @private
    */
   private _getDefaultContextSizeForModel(modelName: string): number {
+    if (modelName.includes('gpt-4o')) return 128000;
     if (modelName.includes('gpt-4-turbo')) return 128000;
     if (modelName.includes('gpt-4-32k')) return 32768;
     if (
       modelName.includes('gpt-4') &&
       !modelName.includes('gpt-4-turbo') &&
-      !modelName.includes('gpt-4-32k')
+      !modelName.includes('gpt-4-32k') &&
+      !modelName.includes('gpt-4o')
     )
       return 8192;
     if (modelName.includes('gpt-3.5-turbo-16k')) return 16385;
@@ -60,18 +129,46 @@ export class OpenAIProvider extends BaseLlmProvider {
     if (modelName.includes('gpt-3.5-turbo-1106')) return 16385;
     if (modelName.includes('gpt-3.5-turbo-instruct')) return 4096;
     if (modelName.includes('gpt-3.5-turbo')) return 4096;
+    if (modelName.includes('o1')) return 200000;
+    if (modelName.includes('o3')) return 200000;
     return 4096; // Fallback for unknown models
   }
 
+  /**
+   * Get a text completion from OpenAI.
+   * Uses the chat completions API with system and user messages.
+   */
   async getCompletion(
     systemPrompt: string,
     userPrompt: string
   ): Promise<Result<string, LlmProviderError>> {
     try {
-      const response = await this.model.predict(
-        `${systemPrompt}\n\nUser Input: ${userPrompt}`
+      const response = await retryWithBackoff(
+        () =>
+          this.client.chat.completions.create({
+            model: this.modelName,
+            messages: [
+              { role: 'system' as const, content: systemPrompt },
+              { role: 'user' as const, content: userPrompt },
+            ],
+            temperature: this.temperature,
+            max_tokens: this.maxTokens,
+          }),
+        RETRY_OPTIONS
       );
-      return Result.ok(response);
+
+      const content = response.choices[0]?.message?.content;
+      if (content === undefined || content === null) {
+        return Result.err(
+          new LlmProviderError(
+            'OpenAI returned empty response',
+            'PARSING_ERROR',
+            this.name
+          )
+        );
+      }
+
+      return Result.ok(content);
     } catch (error) {
       return Result.err(LlmProviderError.fromError(error, this.name));
     }
@@ -82,75 +179,106 @@ export class OpenAIProvider extends BaseLlmProvider {
   }
 
   override async countTokens(text: string): Promise<number> {
-    try {
-      // Use the model's built-in getNumTokens method
-      const tokenCount = await this.model.getNumTokens(text);
-      return tokenCount;
-    } catch (error) {
-      // Fallback to approximation if getNumTokens fails
-      return Math.ceil(text.length / 4);
-    }
+    // Approximation: ~4 characters per token
+    return Math.ceil(text.length / 4);
   }
 
+  /**
+   * Get a structured completion that conforms to a Zod schema.
+   * Uses OpenAI's native JSON Schema response format for structured output.
+   *
+   * @param prompt The prompt to send (string or message array)
+   * @param schema Zod schema defining expected output structure
+   * @param completionConfig Optional completion parameters
+   * @returns Result containing parsed, type-safe object or error
+   */
   async getStructuredCompletion<T extends z.ZodTypeAny>(
-    prompt: BaseLanguageModelInput,
+    prompt: LlmPromptInput,
     schema: T,
     completionConfig?: LlmCompletionConfig
   ): Promise<Result<z.infer<T>, LlmProviderError>> {
     // Validate input token count
-    const promptAsStringForValidation =
-      typeof prompt === 'string' ? prompt : JSON.stringify(prompt);
+    const promptString = this._extractPromptString(prompt);
     const validationResult = await this._validateInputTokens(
-      promptAsStringForValidation,
+      promptString,
       completionConfig
     );
     if (validationResult.isErr()) {
       return Result.err(validationResult.error!);
     }
 
-    // Create structured model with optional bind options
-    let runnableToInvoke = this.model.withStructuredOutput(schema, {
-      name:
-        schema.description || `extract_${schema.constructor?.name || 'data'}`,
-    }) as Runnable<BaseLanguageModelInput, z.infer<T>>;
-
-    const bindOptions: any = {};
-    const runtimeCallOptions: Partial<ChatOpenAICallOptions> = {};
-
-    if (completionConfig) {
-      if (completionConfig.temperature !== undefined)
-        bindOptions.temperature = completionConfig.temperature;
-      if (completionConfig.maxTokens !== undefined)
-        bindOptions.maxTokens = completionConfig.maxTokens;
-      if (completionConfig.topP !== undefined)
-        bindOptions.topP = completionConfig.topP;
-      if (completionConfig.presencePenalty !== undefined)
-        bindOptions.presencePenalty = completionConfig.presencePenalty;
-      if (completionConfig.frequencyPenalty !== undefined)
-        bindOptions.frequencyPenalty = completionConfig.frequencyPenalty;
-      if (
-        completionConfig.stopSequences &&
-        completionConfig.stopSequences.length > 0
-      ) {
-        runtimeCallOptions.stop = completionConfig.stopSequences;
-      }
-    }
-
-    if (Object.keys(bindOptions).length > 0) {
-      runnableToInvoke = runnableToInvoke.bind(bindOptions);
-    }
-
-    // Perform call with retry
     try {
-      const response = await this._performStructuredCallWithRetry(
-        runnableToInvoke,
-        prompt,
-        runtimeCallOptions
+      // Build messages from prompt
+      const messages = this._buildMessages(prompt);
+
+      // Convert Zod schema to JSON Schema using Zod v4 built-in conversion
+      const jsonSchema = z.toJSONSchema(schema);
+
+      // Build completion config overrides
+      const temperature = completionConfig?.temperature ?? this.temperature;
+      const maxTokens = completionConfig?.maxTokens ?? this.maxTokens;
+
+      const response = await retryWithBackoff(
+        () =>
+          this.client.chat.completions.create({
+            model: this.modelName,
+            messages,
+            temperature,
+            max_tokens: maxTokens,
+            top_p: completionConfig?.topP,
+            presence_penalty: completionConfig?.presencePenalty,
+            frequency_penalty: completionConfig?.frequencyPenalty,
+            stop: completionConfig?.stopSequences,
+            response_format: {
+              type: 'json_schema' as const,
+              json_schema: {
+                name: schema.description ?? 'result',
+                schema: jsonSchema as Record<string, unknown>,
+                strict: true,
+              },
+            },
+          }),
+        RETRY_OPTIONS
       );
-      return Result.ok(response);
+
+      const content = response.choices[0]?.message?.content;
+      if (content === undefined || content === null) {
+        return Result.err(
+          new LlmProviderError(
+            'OpenAI returned empty structured response',
+            'PARSING_ERROR',
+            this.name
+          )
+        );
+      }
+
+      // Parse JSON and validate against Zod schema
+      const parsed = JSON.parse(content);
+      const validated = schema.parse(parsed);
+
+      return Result.ok(validated);
     } catch (error) {
       if (error instanceof LlmProviderError) {
         return Result.err(error);
+      }
+      if (error instanceof z.ZodError) {
+        return Result.err(
+          new LlmProviderError(
+            `Schema validation failed: ${error.message}`,
+            'PARSING_ERROR',
+            this.name,
+            { zodIssues: error.issues }
+          )
+        );
+      }
+      if (error instanceof SyntaxError) {
+        return Result.err(
+          new LlmProviderError(
+            `Failed to parse JSON response: ${error.message}`,
+            'PARSING_ERROR',
+            this.name
+          )
+        );
       }
       return Result.err(LlmProviderError.fromError(error, this.name));
     }
@@ -158,7 +286,6 @@ export class OpenAIProvider extends BaseLlmProvider {
 
   /**
    * Validate that input tokens don't exceed context window.
-   * @private
    */
   private async _validateInputTokens(
     prompt: string,
@@ -170,7 +297,6 @@ export class OpenAIProvider extends BaseLlmProvider {
         completionConfig?.maxTokens ?? this.maxTokens ?? 2048;
       const modelContextWindow = this.defaultContextSize;
 
-      // Apply token margin override if provided
       const tokenMargin = completionConfig?.tokenMarginOverride ?? 1.0;
       const availableForInput = Math.floor(
         (modelContextWindow - maxOutputTokens) * tokenMargin
@@ -198,45 +324,33 @@ export class OpenAIProvider extends BaseLlmProvider {
   }
 
   /**
-   * Perform structured call with automatic retry on transient errors.
-   * @private
+   * Build OpenAI chat messages from LlmPromptInput.
    */
-  private async _performStructuredCallWithRetry<TOutput>(
-    structuredModel: Runnable<BaseLanguageModelInput, TOutput>,
-    prompt: BaseLanguageModelInput,
-    callOptions?: Partial<ChatOpenAICallOptions>
-  ): Promise<TOutput> {
-    const RETRY_OPTIONS = {
-      retries: 3,
-      initialDelay: 1000,
-      maxDelay: 30000,
-      factor: 2,
-      shouldRetry: (error: any): boolean => {
-        const status = error?.status ?? error?.response?.status;
-        if (
-          status === 429 ||
-          status === 500 ||
-          status === 502 ||
-          status === 503 ||
-          status === 504
-        ) {
-          return true; // Retry on rate limit, server errors
-        }
-        const oaiErrorData = error?.response?.data?.error || error?.error;
-        const oaiErrorCode = oaiErrorData?.code;
-        if (
-          oaiErrorCode === 'rate_limit_exceeded' ||
-          oaiErrorCode === 'insufficient_quota'
-        ) {
-          return true;
-        }
-        return false;
-      },
-    };
+  private _buildMessages(
+    prompt: LlmPromptInput
+  ): Array<{ role: 'system' | 'user' | 'assistant'; content: string }> {
+    if (typeof prompt === 'string') {
+      return [{ role: 'user', content: prompt }];
+    }
 
-    return retryWithBackoff(async () => {
-      const response = await structuredModel.invoke(prompt, callOptions);
-      return response;
-    }, RETRY_OPTIONS);
+    return prompt.map((msg) => ({
+      role: (msg.role === 'system'
+        ? 'system'
+        : msg.role === 'assistant'
+          ? 'assistant'
+          : 'user') as 'system' | 'user' | 'assistant',
+      content: msg.content,
+    }));
+  }
+
+  /**
+   * Extract a string prompt from LlmPromptInput.
+   * Used for token counting validation.
+   */
+  private _extractPromptString(prompt: LlmPromptInput): string {
+    if (typeof prompt === 'string') {
+      return prompt;
+    }
+    return prompt.map((msg) => `${msg.role}: ${msg.content}`).join('\n');
   }
 }

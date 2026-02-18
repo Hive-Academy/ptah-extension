@@ -5,16 +5,17 @@
  *
  * Import: `@ptah-extension/llm-abstraction/openai`
  *
- * Dependencies: @langchain/openai, @langchain/core, zod, openai
+ * Dependencies: openai, zod, zod-to-json-schema
  *
- * This provider uses Langchain's ChatOpenAI for GPT model access.
+ * This provider uses the native openai SDK for GPT model access.
+ * Supports text completion and structured output (JSON Schema mode).
  * Requires an OpenAI API key.
  *
  * @example
  * ```typescript
  * import { createOpenAIProvider, OpenAIProvider } from '@ptah-extension/llm-abstraction/openai';
  *
- * const result = await createOpenAIProvider('sk-...', 'gpt-4-turbo');
+ * const result = createOpenAIProvider('sk-...', 'gpt-4o');
  * if (result.isOk()) {
  *   const response = await result.value.getCompletion('You are helpful', 'Hello');
  * }
@@ -33,10 +34,10 @@ import { LlmProviderError } from './lib/errors/llm-provider.error';
 export { OpenAIProvider };
 
 /**
- * Factory function for creating OpenAIProvider
+ * Factory function for creating OpenAIProvider.
  *
  * @param apiKey - OpenAI API key (required, starts with 'sk-')
- * @param model - Model name (e.g., 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo')
+ * @param model - Model name (e.g., 'gpt-4o', 'gpt-4-turbo')
  * @returns Result containing provider instance or error
  */
 export const createOpenAIProvider: LlmProviderFactory = (
