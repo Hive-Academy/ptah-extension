@@ -37,10 +37,8 @@ const PROVIDER_CREATION_TIMEOUT_MS = 30000;
  *
  * Supported providers:
  * - vscode-lm (VS Code Language Model API - no API key needed)
- * - anthropic (Claude)
- * - openai (GPT-4, GPT-3.5-turbo)
- * - google-genai (Gemini)
- * - openrouter (Multi-provider access)
+ * - openai (GPT-4o via native OpenAI SDK)
+ * - google-genai (Gemini via native @google/genai SDK)
  *
  * Error Handling Pattern (TASK_2025_073 Batch 3):
  * - Public methods return Result<T, LlmProviderError>
@@ -77,14 +75,14 @@ export class ProviderRegistry {
    *
    * TASK_2025_073 Batch 3: Added timeout protection (30s default)
    *
-   * @param providerName - Name of the provider (anthropic, openai, google-genai, openrouter, vscode-lm)
-   * @param model - Model identifier to use (e.g., 'claude-sonnet-4-20250514', 'gpt-4o')
+   * @param providerName - Name of the provider (openai, google-genai, vscode-lm)
+   * @param model - Model identifier to use (e.g., 'gpt-4o', 'gemini-2.5-flash')
    * @param timeoutMs - Optional timeout in milliseconds (default: 30000)
    * @returns Result containing ILlmProvider instance on success, or LlmProviderError on failure
    *
    * @example
    * ```typescript
-   * const result = await registry.createProvider('anthropic', 'claude-sonnet-4-20250514');
+   * const result = await registry.createProvider('openai', 'gpt-4o');
    * if (result.isOk()) {
    *   const provider = result.value;
    *   await provider.getCompletion('system', 'user prompt');
@@ -212,7 +210,7 @@ export class ProviderRegistry {
    * Checks SecretStorage for configured API keys.
    * vscode-lm is always included (no API key needed).
    *
-   * @returns Array of provider names with configured keys (e.g., ['vscode-lm', 'anthropic'])
+   * @returns Array of provider names with configured keys (e.g., ['vscode-lm', 'openai'])
    *
    * @example
    * ```typescript
@@ -230,15 +228,15 @@ export class ProviderRegistry {
    * Checks SecretStorage for the provider's API key.
    * vscode-lm always returns true (no API key needed).
    *
-   * @param providerName - Provider name to check (anthropic, openai, etc.)
+   * @param providerName - Provider name to check (openai, google-genai, vscode-lm)
    * @returns true if provider is available, false otherwise
    *
    * @example
    * ```typescript
-   * if (await registry.isProviderAvailable('anthropic')) {
-   *   await registry.createProvider('anthropic', 'claude-sonnet-4-20250514');
+   * if (await registry.isProviderAvailable('openai')) {
+   *   await registry.createProvider('openai', 'gpt-4o');
    * } else {
-   *   console.error('Anthropic API key not configured');
+   *   console.error('OpenAI API key not configured');
    * }
    * ```
    */
@@ -259,7 +257,7 @@ export class ProviderRegistry {
    * ```typescript
    * const supported = registry.getSupportedProviders();
    * console.log(`Supported: ${supported.join(', ')}`);
-   * // "Supported: anthropic, openai, google-genai, openrouter, vscode-lm"
+   * // "Supported: openai, google-genai, vscode-lm"
    * ```
    */
   public getSupportedProviders(): readonly LlmProviderName[] {

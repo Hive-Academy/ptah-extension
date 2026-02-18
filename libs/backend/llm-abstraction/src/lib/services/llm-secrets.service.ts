@@ -19,10 +19,8 @@ export type { LlmProviderName } from '../types/provider-types';
  * All provider names that require API keys
  */
 export const API_KEY_PROVIDERS: readonly LlmProviderName[] = [
-  'anthropic',
   'openai',
   'google-genai',
-  'openrouter',
 ] as const;
 
 /**
@@ -113,7 +111,7 @@ export class LlmSecretsService implements ILlmSecretsService {
    *
    * @example
    * ```typescript
-   * const apiKey = await secretsService.getApiKey('anthropic');
+   * const apiKey = await secretsService.getApiKey('openai');
    * if (apiKey) {
    *   console.log('API key configured');
    * }
@@ -153,7 +151,7 @@ export class LlmSecretsService implements ILlmSecretsService {
    * @example
    * ```typescript
    * try {
-   *   await secretsService.setApiKey('anthropic', 'sk-ant-api-...');
+   *   await secretsService.setApiKey('openai', 'sk-...');
    *   console.log('API key stored successfully');
    * } catch (error) {
    *   console.error('Invalid API key format');
@@ -198,7 +196,7 @@ export class LlmSecretsService implements ILlmSecretsService {
    *
    * @example
    * ```typescript
-   * await secretsService.deleteApiKey('anthropic');
+   * await secretsService.deleteApiKey('openai');
    * console.log('API key removed');
    * ```
    */
@@ -228,10 +226,10 @@ export class LlmSecretsService implements ILlmSecretsService {
    *
    * @example
    * ```typescript
-   * if (await secretsService.hasApiKey('anthropic')) {
-   *   console.log('Anthropic API key is configured');
+   * if (await secretsService.hasApiKey('openai')) {
+   *   console.log('OpenAI API key is configured');
    * } else {
-   *   console.log('Please configure Anthropic API key');
+   *   console.log('Please configure OpenAI API key');
    * }
    * ```
    */
@@ -251,7 +249,7 @@ export class LlmSecretsService implements ILlmSecretsService {
    * Checks SecretStorage for each provider's API key.
    * Always includes vscode-lm (no API key needed).
    *
-   * @returns Array of provider names with configured keys (e.g., ['vscode-lm', 'anthropic'])
+   * @returns Array of provider names with configured keys (e.g., ['vscode-lm', 'openai'])
    *
    * @example
    * ```typescript
@@ -284,10 +282,8 @@ export class LlmSecretsService implements ILlmSecretsService {
    * Validate API key format for a provider.
    *
    * Performs provider-specific format validation:
-   * - anthropic: Must start with 'sk-ant-' and be at least 20 characters
    * - openai: Must start with 'sk-' and be at least 20 characters
    * - google-genai: Must be at least 30 characters
-   * - openrouter: Must start with 'sk-or-' and be at least 20 characters
    * - vscode-lm: Always returns false (no API key needed)
    *
    * @param provider - Provider name to validate key for
@@ -296,10 +292,10 @@ export class LlmSecretsService implements ILlmSecretsService {
    *
    * @example
    * ```typescript
-   * if (secretsService.validateKeyFormat('anthropic', userInput)) {
-   *   await secretsService.setApiKey('anthropic', userInput);
+   * if (secretsService.validateKeyFormat('openai', userInput)) {
+   *   await secretsService.setApiKey('openai', userInput);
    * } else {
-   *   console.error('Invalid Anthropic API key format');
+   *   console.error('Invalid OpenAI API key format');
    * }
    * ```
    */
@@ -311,10 +307,6 @@ export class LlmSecretsService implements ILlmSecretsService {
     const trimmedKey = key.trim();
 
     switch (provider) {
-      case 'anthropic':
-        // Anthropic API keys start with 'sk-ant-api' or similar
-        return trimmedKey.startsWith('sk-ant-') && trimmedKey.length >= 20;
-
       case 'openai':
         // OpenAI API keys start with 'sk-'
         return trimmedKey.startsWith('sk-') && trimmedKey.length >= 20;
@@ -322,10 +314,6 @@ export class LlmSecretsService implements ILlmSecretsService {
       case 'google-genai':
         // Google API keys are typically 39 characters
         return trimmedKey.length >= 30;
-
-      case 'openrouter':
-        // OpenRouter API keys start with 'sk-or-'
-        return trimmedKey.startsWith('sk-or-') && trimmedKey.length >= 20;
 
       case 'vscode-lm':
         // VS Code LM doesn't use API keys

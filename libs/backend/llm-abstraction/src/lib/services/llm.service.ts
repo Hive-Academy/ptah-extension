@@ -1,5 +1,4 @@
 import { injectable, inject } from 'tsyringe';
-import type { BaseLanguageModelInput } from '@langchain/core/language_models/base';
 import { z } from 'zod';
 import { Mutex } from 'async-mutex';
 import { Result } from '@ptah-extension/shared';
@@ -8,6 +7,7 @@ import {
   ILlmService,
   ILlmProvider,
   LlmCompletionConfig,
+  LlmPromptInput,
 } from '../interfaces/llm-provider.interface';
 import { LlmProviderError } from '../errors/llm-provider.error';
 import { ProviderRegistry } from '../registry/provider-registry';
@@ -31,10 +31,10 @@ import { LlmProviderName } from '../types/provider-types';
  * const llmService = container.resolve<LlmService>(TOKENS.LLM_SERVICE);
  *
  * // Set provider with default model
- * await llmService.setProviderByName('anthropic');
+ * await llmService.setProviderByName('google-genai');
  *
  * // Or specify model explicitly
- * await llmService.setProvider('anthropic', 'claude-3-5-sonnet-20241022');
+ * await llmService.setProvider('openai', 'gpt-4o');
  *
  * // Simple completion
  * const result = await llmService.getCompletion(
@@ -163,13 +163,13 @@ export class LlmService implements ILlmService {
    *
    * TASK_2025_073 Batch 2: Thread-safe provider switching with mutex lock
    *
-   * @param providerName - Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
+   * @param providerName - Provider name (openai, google-genai, vscode-lm)
    * @param model - Model identifier to use (e.g., 'claude-sonnet-4-20250514', 'gpt-4o')
    * @returns Promise of Result with void on success, or LlmProviderError on failure
    *
    * @example
    * ```typescript
-   * const result = await llmService.setProvider('anthropic', 'claude-sonnet-4-20250514');
+   * const result = await llmService.setProvider('openai', 'gpt-4o');
    * if (result.isErr()) {
    *   console.error('Failed to set provider:', result.error.message);
    * }
@@ -233,12 +233,12 @@ export class LlmService implements ILlmService {
    * This is a convenience method that uses LlmConfigurationService for model lookup.
    * Default models are configured via VS Code settings or fall back to built-in defaults.
    *
-   * @param providerName - Provider name (anthropic, openai, google-genai, openrouter, vscode-lm)
+   * @param providerName - Provider name (openai, google-genai, vscode-lm)
    * @returns Promise of Result with void on success, or LlmProviderError on failure
    *
    * @example
    * ```typescript
-   * const result = await llmService.setProviderByName('anthropic');
+   * const result = await llmService.setProviderByName('google-genai');
    * // Uses default model from settings (e.g., 'claude-sonnet-4-20250514')
    * ```
    */
@@ -293,7 +293,7 @@ export class LlmService implements ILlmService {
    * if (llmService.hasProvider()) {
    *   const response = await llmService.getCompletion('system', 'user prompt');
    * } else {
-   *   await llmService.setProvider('anthropic', 'claude-sonnet-4-20250514');
+   *   await llmService.setProvider('openai', 'gpt-4o');
    * }
    * ```
    */
@@ -368,7 +368,7 @@ export class LlmService implements ILlmService {
   /**
    * Get a structured completion that conforms to a Zod schema.
    *
-   * Uses Langchain's withStructuredOutput to enforce schema compliance.
+   * Uses provider-native JSON mode to enforce schema compliance.
    * Returns fully typed, validated object matching the provided Zod schema.
    * Automatically ensures provider is initialized before making the request.
    *
@@ -395,7 +395,7 @@ export class LlmService implements ILlmService {
    * ```
    */
   async getStructuredCompletion<T extends z.ZodTypeAny>(
-    prompt: BaseLanguageModelInput,
+    prompt: LlmPromptInput,
     schema: T,
     completionConfig?: LlmCompletionConfig
   ): Promise<Result<z.infer<T>, LlmProviderError>> {

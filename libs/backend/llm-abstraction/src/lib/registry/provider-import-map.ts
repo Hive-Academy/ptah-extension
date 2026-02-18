@@ -1,7 +1,9 @@
 /**
  * Type-Safe Provider Import Map
  *
- * TASK_2025_073 - Batch 1, Task 1.4
+ * TASK_2025_073 - Batch 1, Task 1.4 (original)
+ * TASK_2025_155 - Batch 1, Task 1.3 (removed anthropic/openrouter, native SDK migration)
+ *
  * Provides compile-time verification for dynamic imports.
  *
  * This replaces the string literal switch statement in provider-registry.ts
@@ -18,17 +20,13 @@ import type { LlmProviderFactory } from '../interfaces/llm-provider.interface';
  *
  * @remarks
  * Each secondary entry point exports a factory function with this naming pattern:
- * - anthropic → createAnthropicProvider
- * - openai → createOpenAIProvider
- * - google-genai → createGoogleProvider
- * - openrouter → createOpenRouterProvider
- * - vscode-lm → createVsCodeLmProvider
+ * - openai -> createOpenAIProvider
+ * - google-genai -> createGoogleProvider
+ * - vscode-lm -> createVsCodeLmProvider
  */
 interface ProviderModule {
-  createAnthropicProvider?: LlmProviderFactory;
   createOpenAIProvider?: LlmProviderFactory;
   createGoogleProvider?: LlmProviderFactory;
-  createOpenRouterProvider?: LlmProviderFactory;
   createVsCodeLmProvider?: LlmProviderFactory;
 }
 
@@ -49,7 +47,7 @@ interface ProviderModule {
  *
  * @example
  * ```typescript
- * const factoryLoader = PROVIDER_IMPORT_MAP['anthropic'];
+ * const factoryLoader = PROVIDER_IMPORT_MAP['openai'];
  * const factory = await factoryLoader();
  * const result = factory(apiKey, model);
  * ```
@@ -59,22 +57,8 @@ export const PROVIDER_IMPORT_MAP: Record<
   () => Promise<LlmProviderFactory>
 > = {
   /**
-   * Anthropic (Claude) provider
-   * Dependencies: @langchain/anthropic
-   */
-  anthropic: async () => {
-    const module = (await import(
-      '@ptah-extension/llm-abstraction/anthropic'
-    )) as ProviderModule;
-    if (!module.createAnthropicProvider) {
-      throw new Error('createAnthropicProvider not found in anthropic module');
-    }
-    return module.createAnthropicProvider;
-  },
-
-  /**
    * OpenAI (GPT) provider
-   * Dependencies: @langchain/openai, openai
+   * Dependencies: openai (native SDK)
    */
   openai: async () => {
     const module = (await import(
@@ -88,7 +72,7 @@ export const PROVIDER_IMPORT_MAP: Record<
 
   /**
    * Google (Gemini) provider
-   * Dependencies: @langchain/google-genai
+   * Dependencies: @google/genai (native SDK)
    */
   'google-genai': async () => {
     const module = (await import(
@@ -98,22 +82,6 @@ export const PROVIDER_IMPORT_MAP: Record<
       throw new Error('createGoogleProvider not found in google module');
     }
     return module.createGoogleProvider;
-  },
-
-  /**
-   * OpenRouter multi-provider
-   * Dependencies: @langchain/openai (reuses OpenAI SDK)
-   */
-  openrouter: async () => {
-    const module = (await import(
-      '@ptah-extension/llm-abstraction/openrouter'
-    )) as ProviderModule;
-    if (!module.createOpenRouterProvider) {
-      throw new Error(
-        'createOpenRouterProvider not found in openrouter module'
-      );
-    }
-    return module.createOpenRouterProvider;
   },
 
   /**

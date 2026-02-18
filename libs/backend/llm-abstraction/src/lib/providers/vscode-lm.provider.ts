@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { Result } from '@ptah-extension/shared';
 import { BaseLlmProvider } from './base-llm.provider';
 import { LlmProviderError } from '../errors/llm-provider.error';
-import type { LlmCompletionConfig } from '../interfaces/llm-provider.interface';
-import type { BaseLanguageModelInput } from '@langchain/core/language_models/base';
+import type {
+  LlmCompletionConfig,
+  LlmPromptInput,
+} from '../interfaces/llm-provider.interface';
 
 /**
  * Model selector configuration for VS Code LM API.
@@ -142,13 +144,13 @@ export class VsCodeLmProvider extends BaseLlmProvider {
    * Get a structured completion that conforms to a Zod schema.
    * Uses JSON schema prompting strategy + Zod validation.
    *
-   * @param prompt The prompt to send (string, array, or Langchain message)
+   * @param prompt The prompt to send (string or message array)
    * @param schema Zod schema defining expected output structure
    * @param completionConfig Optional completion parameters
    * @returns Result containing parsed, type-safe object or error
    */
   async getStructuredCompletion<T extends z.ZodTypeAny>(
-    prompt: BaseLanguageModelInput,
+    prompt: LlmPromptInput,
     schema: T,
     completionConfig?: LlmCompletionConfig
   ): Promise<Result<z.infer<T>, LlmProviderError>> {
@@ -290,60 +292,30 @@ USER: ${userPrompt.trim()}`;
   }
 
   /**
-   * Extract string from BaseLanguageModelInput.
-   * Handles various Langchain input types.
+   * Extract string from LlmPromptInput.
+   * Handles string and message array input types.
    *
    * @private
    */
-  private _extractPromptString(prompt: BaseLanguageModelInput): string {
+  private _extractPromptString(prompt: LlmPromptInput): string {
     if (typeof prompt === 'string') {
       return prompt;
     }
 
+    // Handle message array: Array<{ role: string; content: string }>
     if (Array.isArray(prompt)) {
       return prompt
-        .map((msgLike) => {
-          if (typeof msgLike === 'string') return msgLike;
-          if (
-            Array.isArray(msgLike) &&
-            msgLike.length === 2 &&
-            typeof msgLike[1] === 'string'
-          )
-            return msgLike[1];
-          if (
-            typeof msgLike === 'object' &&
-            msgLike !== null &&
-            'content' in msgLike &&
-            typeof msgLike.content === 'string'
-          )
-            return msgLike.content;
+        .map((msg) => {
+          if (typeof msg === 'object' && msg !== null && 'content' in msg) {
+            return msg.content;
+          }
           return '';
         })
         .filter((content) => !!content)
         .join('\n');
     }
 
-    if (
-      typeof prompt === 'object' &&
-      prompt !== null &&
-      'content' in prompt &&
-      typeof prompt.content === 'string'
-    ) {
-      return prompt.content;
-    }
-
-    // Fallback: try toString or JSON.stringify
-    try {
-      if (
-        typeof (prompt as any)?.toString === 'function' &&
-        (prompt as any).toString() !== '[object Object]'
-      ) {
-        return (prompt as any).toString();
-      }
-      return JSON.stringify(prompt);
-    } catch (e) {
-      return '';
-    }
+    return '';
   }
 
   /**

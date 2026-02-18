@@ -77,7 +77,7 @@ export class LlmConfigurationService {
    * @example
    * ```typescript
    * const defaultProvider = configService.getDefaultProvider();
-   * console.log(`Default: ${defaultProvider}`); // "anthropic" or "vscode-lm"
+   * console.log(`Default: ${defaultProvider}`); // "google-genai" or "vscode-lm"
    * ```
    */
   getDefaultProvider(): LlmProviderName {
@@ -94,16 +94,16 @@ export class LlmConfigurationService {
   /**
    * Get the default model for a specific provider.
    *
-   * Reads provider-specific settings (e.g., `ptah.llm.anthropic.model`).
+   * Reads provider-specific settings (e.g., `ptah.llm.openai.model`).
    * Falls back to built-in defaults from DEFAULT_MODELS constant.
    *
-   * @param provider - Provider name (anthropic, openai, etc.)
+   * @param provider - Provider name (openai, google-genai, vscode-lm)
    * @returns Default model identifier from settings, or built-in default
    *
    * @example
    * ```typescript
-   * const model = configService.getDefaultModel('anthropic');
-   * console.log(model); // "claude-sonnet-4-20250514" (from settings or default)
+   * const model = configService.getDefaultModel('openai');
+   * console.log(model); // "gpt-4o" (from settings or default)
    * ```
    */
   getDefaultModel(provider: LlmProviderName): string {
@@ -124,13 +124,13 @@ export class LlmConfigurationService {
    * Returns human-readable name for UI presentation.
    * Uses PROVIDER_DISPLAY_NAMES constant, falls back to provider name.
    *
-   * @param provider - Provider name (anthropic, openai, etc.)
-   * @returns Human-readable display name (e.g., "Anthropic (Claude)", "OpenAI (GPT)")
+   * @param provider - Provider name (openai, google-genai, vscode-lm)
+   * @returns Human-readable display name (e.g., "OpenAI (GPT)", "Google (Gemini)")
    *
    * @example
    * ```typescript
-   * const displayName = configService.getProviderDisplayName('anthropic');
-   * console.log(displayName); // "Anthropic (Claude)"
+   * const displayName = configService.getProviderDisplayName('openai');
+   * console.log(displayName); // "OpenAI (GPT)"
    * ```
    */
   getProviderDisplayName(provider: LlmProviderName): string {

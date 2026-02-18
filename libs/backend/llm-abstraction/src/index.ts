@@ -9,11 +9,9 @@
  * **IMPORTANT**: Individual providers are NOT exported here to enable tree-shaking.
  * Use secondary entry points for specific providers:
  *
- * - `@ptah-extension/llm-abstraction/vscode-lm` - VS Code LM (no Langchain deps)
- * - `@ptah-extension/llm-abstraction/anthropic` - Anthropic Claude
- * - `@ptah-extension/llm-abstraction/openai` - OpenAI GPT
- * - `@ptah-extension/llm-abstraction/google` - Google Gemini
- * - `@ptah-extension/llm-abstraction/openrouter` - OpenRouter
+ * - `@ptah-extension/llm-abstraction/vscode-lm` - VS Code LM (no external deps)
+ * - `@ptah-extension/llm-abstraction/openai` - OpenAI GPT (native SDK)
+ * - `@ptah-extension/llm-abstraction/google` - Google Gemini (native SDK)
  *
  * @example
  * ```typescript
@@ -27,7 +25,8 @@
  * } from '@ptah-extension/llm-abstraction';
  *
  * // Provider imports (only loads that provider's deps)
- * import { createAnthropicProvider } from '@ptah-extension/llm-abstraction/anthropic';
+ * import { createOpenAIProvider } from '@ptah-extension/llm-abstraction/openai';
+ * import { createGoogleProvider } from '@ptah-extension/llm-abstraction/google';
  * import { createVsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
  * ```
  */
@@ -80,7 +79,5 @@ export { registerLlmAbstractionServices } from './lib/di';
 // Import from secondary entry points:
 //
 // import { VsCodeLmProvider, createVsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
-// import { AnthropicProvider, createAnthropicProvider } from '@ptah-extension/llm-abstraction/anthropic';
 // import { OpenAIProvider, createOpenAIProvider } from '@ptah-extension/llm-abstraction/openai';
 // import { GoogleGenAIProvider, createGoogleProvider } from '@ptah-extension/llm-abstraction/google';
-// import { OpenRouterProvider, createOpenRouterProvider } from '@ptah-extension/llm-abstraction/openrouter';

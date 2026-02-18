@@ -17,12 +17,7 @@ import type { Logger } from '../logging/logger';
  * Duplicated here to avoid circular dependency with llm-abstraction
  * Must be kept in sync with @ptah-extension/llm-abstraction
  */
-export type LlmProviderName =
-  | 'anthropic'
-  | 'openai'
-  | 'google-genai'
-  | 'openrouter'
-  | 'vscode-lm';
+export type LlmProviderName = 'openai' | 'google-genai' | 'vscode-lm';
 
 /**
  * Provider status information (without exposing API keys)
@@ -180,8 +175,8 @@ export class LlmRpcHandlers {
    * @example
    * ```typescript
    * const result = await rpcHandlers.setApiKey({
-   *   provider: 'anthropic',
-   *   apiKey: 'sk-ant-api-...'
+   *   provider: 'openai',
+   *   apiKey: 'sk-...'
    * });
    *
    * if (!result.success) {
@@ -244,7 +239,7 @@ export class LlmRpcHandlers {
    *
    * @example
    * ```typescript
-   * const result = await rpcHandlers.removeApiKey('anthropic');
+   * const result = await rpcHandlers.removeApiKey('openai');
    * if (result.success) {
    *   console.log('API key removed');
    * }
@@ -293,7 +288,7 @@ export class LlmRpcHandlers {
    * @example
    * ```typescript
    * const defaultProvider = rpcHandlers.getDefaultProvider();
-   * console.log(`Default: ${defaultProvider}`); // "anthropic" or "vscode-lm"
+   * console.log(`Default: ${defaultProvider}`); // "google-genai" or "vscode-lm"
    * ```
    */
   getDefaultProvider(): LlmProviderName {
@@ -325,10 +320,8 @@ export class LlmRpcHandlers {
    * Validate API key format (without storing)
    *
    * Performs provider-specific format validation:
-   * - anthropic: Must start with 'sk-ant-' and be at least 20 characters
    * - openai: Must start with 'sk-' and be at least 20 characters
    * - google-genai: Must be at least 30 characters
-   * - openrouter: Must start with 'sk-or-' and be at least 20 characters
    * - vscode-lm: Always returns false (no API key needed)
    *
    * @param provider - Provider name
@@ -337,7 +330,7 @@ export class LlmRpcHandlers {
    *
    * @example
    * ```typescript
-   * const result = rpcHandlers.validateApiKeyFormat('anthropic', userInput);
+   * const result = rpcHandlers.validateApiKeyFormat('openai', userInput);
    * if (!result.valid) {
    *   console.error(result.error);
    * }
@@ -365,20 +358,12 @@ export class LlmRpcHandlers {
 
         // Provide provider-specific hints
         switch (provider) {
-          case 'anthropic':
-            error =
-              'Anthropic API keys must start with "sk-ant-" and be at least 20 characters';
-            break;
           case 'openai':
             error =
               'OpenAI API keys must start with "sk-" and be at least 20 characters';
             break;
           case 'google-genai':
             error = 'Google API keys must be at least 30 characters';
-            break;
-          case 'openrouter':
-            error =
-              'OpenRouter API keys must start with "sk-or-" and be at least 20 characters';
             break;
           case 'vscode-lm':
             error = 'VS Code Language Model does not require an API key';

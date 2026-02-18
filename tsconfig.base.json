@@ -27,17 +27,11 @@
       "@ptah-extension/llm-abstraction": [
         "libs/backend/llm-abstraction/src/index.ts"
       ],
-      "@ptah-extension/llm-abstraction/anthropic": [
-        "libs/backend/llm-abstraction/src/anthropic.ts"
-      ],
       "@ptah-extension/llm-abstraction/google": [
         "libs/backend/llm-abstraction/src/google.ts"
       ],
       "@ptah-extension/llm-abstraction/openai": [
         "libs/backend/llm-abstraction/src/openai.ts"
-      ],
-      "@ptah-extension/llm-abstraction/openrouter": [
-        "libs/backend/llm-abstraction/src/openrouter.ts"
       ],
       "@ptah-extension/llm-abstraction/vscode-lm": [
         "libs/backend/llm-abstraction/src/vscode-lm.ts"

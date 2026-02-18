@@ -1,7 +1,9 @@
 /**
  * Centralized LLM Provider Type Definitions
  *
- * TASK_2025_073 - Batch 1, Task 1.1
+ * TASK_2025_073 - Batch 1, Task 1.1 (original)
+ * TASK_2025_155 - Batch 1, Task 1.3 (removed anthropic/openrouter, native SDK migration)
+ *
  * Moved from llm-secrets.service.ts for better cohesion and single responsibility.
  * All provider-related types should be imported from this file.
  *
@@ -12,18 +14,11 @@
  * Supported LLM provider identifiers
  *
  * @remarks
- * - anthropic: Claude models via Langchain
- * - openai: GPT models via Langchain
- * - google-genai: Gemini models via Langchain
- * - openrouter: Multi-provider access via Langchain
+ * - openai: GPT models via native OpenAI SDK
+ * - google-genai: Gemini models via native @google/genai SDK
  * - vscode-lm: VS Code Language Model API (no API key needed)
  */
-export type LlmProviderName =
-  | 'anthropic'
-  | 'openai'
-  | 'google-genai'
-  | 'openrouter'
-  | 'vscode-lm';
+export type LlmProviderName = 'openai' | 'google-genai' | 'vscode-lm';
 
 /**
  * List of all supported providers (for validation and iteration)
@@ -32,10 +27,8 @@ export type LlmProviderName =
  * Use this array to validate provider names at runtime or iterate all providers.
  */
 export const SUPPORTED_PROVIDERS: readonly LlmProviderName[] = [
-  'anthropic',
   'openai',
   'google-genai',
-  'openrouter',
   'vscode-lm',
 ] as const;
 
@@ -46,10 +39,8 @@ export const SUPPORTED_PROVIDERS: readonly LlmProviderName[] = [
  * Use these human-readable names when showing providers to users.
  */
 export const PROVIDER_DISPLAY_NAMES: Record<LlmProviderName, string> = {
-  anthropic: 'Anthropic (Claude)',
   openai: 'OpenAI (GPT)',
   'google-genai': 'Google (Gemini)',
-  openrouter: 'OpenRouter',
   'vscode-lm': 'VS Code Language Model',
 } as const;
 
@@ -64,11 +55,9 @@ export const PROVIDER_DISPLAY_NAMES: Record<LlmProviderName, string> = {
  * This allows the provider to correctly select models from VS Code's LM API.
  */
 export const DEFAULT_MODELS: Record<LlmProviderName, string> = {
-  anthropic: 'claude-sonnet-4-5-20250929',
   openai: 'gpt-4o',
-  'google-genai': 'gemini-1.5-pro',
-  openrouter: 'anthropic/claude-sonnet-4',
-  'vscode-lm': 'copilot/gpt-4o', // Format: vendor/family for VS Code LM API
+  'google-genai': 'gemini-2.5-flash',
+  'vscode-lm': 'copilot/gpt-4o',
 } as const;
 
 /**
@@ -79,7 +68,7 @@ export const DEFAULT_MODELS: Record<LlmProviderName, string> = {
  *
  * @example
  * ```typescript
- * const userInput = 'anthropic';
+ * const userInput = 'openai';
  * if (isValidProviderName(userInput)) {
  *   // TypeScript now knows userInput is LlmProviderName
  *   const model = DEFAULT_MODELS[userInput];
