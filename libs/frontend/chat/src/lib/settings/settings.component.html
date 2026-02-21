@@ -613,6 +613,72 @@
         </div>
       </div>
     </div>
+    } @else {
+    <!-- Upsell for non-premium users -->
+    <div class="border border-base-300 rounded-md bg-base-200/30 opacity-75">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular
+            [img]="LockIcon"
+            class="w-4 h-4 text-base-content/50"
+          />
+          <h2
+            class="text-xs font-medium uppercase tracking-wide text-base-content/70"
+          >
+            Pro Features
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/50 mb-3">
+          Upgrade to access enhanced system prompts, MCP server configuration,
+          and more.
+        </p>
+        <button class="btn btn-primary btn-xs gap-1.5" (click)="openPricing()">
+          <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+          <span>Upgrade to Pro</span>
+        </button>
+      </div>
+    </div>
+    } }
+
+    <!-- ============================================ -->
+    <!-- Tab 3: Ptah AI                              -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'ptah-ai') { @if (isPremium()) {
+    <div class="border border-primary/30 rounded-md bg-primary/5">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular [img]="CpuIcon" class="w-4 h-4 text-primary" />
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            AI Tool Providers
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          These providers power the <code>ptah.llm.*</code> MCP tools available
+          to Claude during sessions.
+        </p>
+
+        <!-- Capability hints -->
+        <div class="space-y-1.5 mb-3">
+          <div class="flex items-center gap-2 text-xs text-base-content/60">
+            <span class="badge badge-ghost badge-xs">Gemini</span>
+            <span
+              >Image generation tool (<code>ptah.llm.generateImage</code>)</span
+            >
+          </div>
+          <div class="flex items-center gap-2 text-xs text-base-content/60">
+            <span class="badge badge-ghost badge-xs">OpenAI</span>
+            <span>Structured output &amp; code analysis tools</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-base-content/60">
+            <lucide-angular [img]="ShieldIcon" class="w-3 h-3 flex-shrink-0" />
+            <span>VS Code LM — available automatically, no key needed</span>
+          </div>
+        </div>
+
+        <ptah-llm-providers-config />
+      </div>
+    </div>
+
     <!-- Agent Orchestration (TASK_2025_157) -->
     <div class="border border-primary/30 rounded-md bg-primary/5">
       <div class="p-3">
@@ -704,7 +770,10 @@
 
         <!-- Default CLI -->
         <div class="mb-3">
-          <label for="agent-default-cli" class="text-xs font-medium text-base-content/70 mb-1 block">
+          <label
+            for="agent-default-cli"
+            class="text-xs font-medium text-base-content/70 mb-1 block"
+          >
             Default CLI
           </label>
           <select
@@ -724,7 +793,10 @@
         <!-- Max Concurrent Agents -->
         <div class="mb-3">
           <div class="flex items-center justify-between mb-1">
-            <label for="agent-max-concurrent" class="text-xs font-medium text-base-content/70">
+            <label
+              for="agent-max-concurrent"
+              class="text-xs font-medium text-base-content/70"
+            >
               Max Concurrent Agents
             </label>
             <span class="text-xs text-base-content/50">
@@ -751,7 +823,10 @@
 
         <!-- Default Timeout -->
         <div>
-          <label for="agent-default-timeout" class="text-xs font-medium text-base-content/70 mb-1 block">
+          <label
+            for="agent-default-timeout"
+            class="text-xs font-medium text-base-content/70 mb-1 block"
+          >
             Default Timeout
           </label>
           <select
@@ -767,71 +842,6 @@
           </select>
         </div>
         }
-      </div>
-    </div>
-    } @else {
-    <!-- Upsell for non-premium users -->
-    <div class="border border-base-300 rounded-md bg-base-200/30 opacity-75">
-      <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <lucide-angular
-            [img]="LockIcon"
-            class="w-4 h-4 text-base-content/50"
-          />
-          <h2
-            class="text-xs font-medium uppercase tracking-wide text-base-content/70"
-          >
-            Pro Features
-          </h2>
-        </div>
-        <p class="text-xs text-base-content/50 mb-3">
-          Upgrade to access enhanced system prompts, MCP server configuration,
-          and more.
-        </p>
-        <button class="btn btn-primary btn-xs gap-1.5" (click)="openPricing()">
-          <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
-          <span>Upgrade to Pro</span>
-        </button>
-      </div>
-    </div>
-    } }
-
-    <!-- ============================================ -->
-    <!-- Tab 3: Ptah AI                              -->
-    <!-- ============================================ -->
-    @if (activeSettingsTab() === 'ptah-ai') { @if (isPremium()) {
-    <div class="border border-primary/30 rounded-md bg-primary/5">
-      <div class="p-3">
-        <div class="flex items-center gap-1.5 mb-2">
-          <lucide-angular [img]="CpuIcon" class="w-4 h-4 text-primary" />
-          <h2 class="text-xs font-medium uppercase tracking-wide">
-            AI Tool Providers
-          </h2>
-        </div>
-        <p class="text-xs text-base-content/70 mb-3">
-          These providers power the <code>ptah.llm.*</code> MCP tools available
-          to Claude during sessions.
-        </p>
-
-        <!-- Capability hints -->
-        <div class="space-y-1.5 mb-3">
-          <div class="flex items-center gap-2 text-xs text-base-content/60">
-            <span class="badge badge-ghost badge-xs">Gemini</span>
-            <span
-              >Image generation tool (<code>ptah.llm.generateImage</code>)</span
-            >
-          </div>
-          <div class="flex items-center gap-2 text-xs text-base-content/60">
-            <span class="badge badge-ghost badge-xs">OpenAI</span>
-            <span>Structured output &amp; code analysis tools</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs text-base-content/60">
-            <lucide-angular [img]="ShieldIcon" class="w-3 h-3 flex-shrink-0" />
-            <span>VS Code LM — available automatically, no key needed</span>
-          </div>
-        </div>
-
-        <ptah-llm-providers-config />
       </div>
     </div>
     } @else {
