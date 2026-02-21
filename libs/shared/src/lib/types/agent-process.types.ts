@@ -34,6 +34,12 @@ export const AgentId = {
     }
     return id as AgentId;
   },
+  /**
+   * Safely convert string to AgentId, returns null if invalid
+   */
+  safeParse(id: string): AgentId | null {
+    return AgentId.validate(id) ? (id as AgentId) : null;
+  },
 };
 
 // ========================================

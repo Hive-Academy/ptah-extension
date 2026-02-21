@@ -15,6 +15,9 @@ import type {
 } from '@ptah-extension/llm-abstraction';
 import type { AgentProcessInfo } from '@ptah-extension/shared';
 
+/** Maximum waitFor timeout: 30 minutes */
+const MAX_WAIT_TIMEOUT = 30 * 60 * 1000;
+
 /**
  * Dependencies for agent namespace
  */
@@ -58,22 +61,36 @@ export function buildAgentNamespace(
 
     waitFor: async (agentId, options?) => {
       const pollInterval = options?.pollInterval ?? 2000;
-      const timeout = options?.timeout;
+      const timeout = Math.min(
+        options?.timeout ?? MAX_WAIT_TIMEOUT,
+        MAX_WAIT_TIMEOUT
+      );
       const startTime = Date.now();
 
       return new Promise<AgentProcessInfo>((resolve, reject) => {
+        let pollHandle: ReturnType<typeof setTimeout> | null = null;
+
+        const cleanup = () => {
+          if (pollHandle !== null) {
+            clearTimeout(pollHandle);
+            pollHandle = null;
+          }
+        };
+
         const check = () => {
           try {
             const status = agentProcessManager.getStatus(
               agentId
             ) as AgentProcessInfo;
             if (status.status !== 'running') {
+              cleanup();
               resolve(status);
               return;
             }
 
             // Check timeout
-            if (timeout && Date.now() - startTime > timeout) {
+            if (Date.now() - startTime > timeout) {
+              cleanup();
               reject(
                 new Error(
                   `waitFor timed out after ${timeout}ms for agent ${agentId}`
@@ -82,8 +99,9 @@ export function buildAgentNamespace(
               return;
             }
 
-            setTimeout(check, pollInterval);
+            pollHandle = setTimeout(check, pollInterval);
           } catch (error) {
+            cleanup();
             reject(error);
           }
         };

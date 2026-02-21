@@ -13,6 +13,7 @@ import type {
   CliCommand,
   CliCommandOptions,
 } from './cli-adapter.interface';
+import { stripAnsiCodes, buildTaskPrompt } from './cli-adapter.utils';
 
 const execFileAsync = promisify(execFile);
 
@@ -60,19 +61,7 @@ export class CodexCliAdapter implements CliAdapter {
 
   buildCommand(options: CliCommandOptions): CliCommand {
     const args: string[] = [];
-
-    let taskPrompt = options.task;
-
-    if (options.files && options.files.length > 0) {
-      taskPrompt += `\n\nFocus on these files:\n${options.files
-        .map((f) => `- ${f}`)
-        .join('\n')}`;
-    }
-
-    if (options.taskFolder) {
-      taskPrompt += `\n\nWrite deliverable files to: ${options.taskFolder}`;
-      taskPrompt += `\nUse convention: ${options.taskFolder}/agent-output-{agentId}.md for main deliverable.`;
-    }
+    const taskPrompt = buildTaskPrompt(options);
 
     // Use --quiet for non-interactive mode
     args.push('--quiet', taskPrompt);
@@ -90,9 +79,4 @@ export class CodexCliAdapter implements CliAdapter {
   parseOutput(raw: string): string {
     return stripAnsiCodes(raw);
   }
-}
-
-function stripAnsiCodes(str: string): string {
-  // eslint-disable-next-line no-control-regex
-  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
 }

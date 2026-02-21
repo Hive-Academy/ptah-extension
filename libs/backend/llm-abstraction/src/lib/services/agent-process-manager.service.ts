@@ -11,6 +11,7 @@
  */
 import { injectable, inject } from 'tsyringe';
 import { spawn, execFile, ChildProcess } from 'child_process';
+import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import {
@@ -24,6 +25,8 @@ import {
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
 
+const execFileAsync = promisify(execFile);
+
 /** Maximum output buffer size per agent (1MB) */
 const MAX_BUFFER_SIZE = 1024 * 1024;
 
@@ -36,6 +39,15 @@ const MAX_TIMEOUT = 30 * 60 * 1000;
 /** Grace period for SIGTERM before SIGKILL: 5 seconds */
 const KILL_GRACE_PERIOD = 5000;
 
+/** TTL for completed agents before cleanup from map: 30 minutes */
+const COMPLETED_AGENT_TTL = 30 * 60 * 1000;
+
+/**
+ * Shell metacharacters that must be stripped from task input
+ * to prevent injection on both bash and CMD.exe
+ */
+const SHELL_METACHAR_PATTERN = /[`$(){}|&<>^;%!]/g;
+
 interface TrackedAgent {
   info: AgentProcessInfo;
   process: ChildProcess;
@@ -45,11 +57,17 @@ interface TrackedAgent {
   stdoutLineCount: number;
   stderrLineCount: number;
   truncated: boolean;
+  /** Guard against double handleExit (error + exit events firing) */
+  hasExited: boolean;
+  /** Cleanup timer handle for TTL-based removal from map */
+  cleanupHandle?: NodeJS.Timeout;
 }
 
 @injectable()
 export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
+  /** Counter for in-flight spawn operations (not yet in agents map) */
+  private spawning = 0;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -63,10 +81,24 @@ export class AgentProcessManager {
    * Spawn a new CLI agent process
    */
   async spawn(request: SpawnAgentRequest): Promise<SpawnAgentResult> {
-    // Check concurrent limit
+    // Increment spawning counter synchronously before any async work
+    this.spawning++;
+
+    try {
+      return await this.doSpawn(request);
+    } finally {
+      this.spawning--;
+    }
+  }
+
+  /**
+   * Internal spawn implementation, wrapped by spawn() for concurrency tracking
+   */
+  private async doSpawn(request: SpawnAgentRequest): Promise<SpawnAgentResult> {
+    // Check concurrent limit (include in-flight spawns)
     const maxConcurrent = this.getMaxConcurrentAgents();
     const runningCount = this.getRunningCount();
-    if (runningCount >= maxConcurrent) {
+    if (runningCount + this.spawning > maxConcurrent) {
       throw new Error(
         `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
           `Stop a running agent before spawning a new one. ` +
@@ -126,19 +158,21 @@ export class AgentProcessManager {
       startedAt,
     };
 
+    // Use resolved binary path from detection to avoid shell: true
+    const binaryPath = detection.path ?? command.binary;
+
     // Spawn the process
     this.logger.info('[AgentProcessManager] Spawning agent', {
       agentId,
       cli,
-      binary: command.binary,
+      binary: binaryPath,
       args: command.args.length,
       workingDirectory,
     });
 
-    const childProcess = spawn(command.binary, command.args, {
+    const childProcess = spawn(binaryPath, command.args, {
       cwd: workingDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
       env: { ...process.env, ...command.env },
     });
 
@@ -158,6 +192,7 @@ export class AgentProcessManager {
       stdoutLineCount: 0,
       stderrLineCount: 0,
       truncated: false,
+      hasExited: false,
     };
 
     this.agents.set(agentId, tracked);
@@ -291,6 +326,7 @@ export class AgentProcessManager {
     await this.killProcess(tracked);
     tracked.info = { ...tracked.info, status: 'stopped' };
     clearTimeout(tracked.timeoutHandle);
+    this.scheduleCleanup(agentId);
 
     this.logger.info('[AgentProcessManager] Agent stopped', { agentId });
     return tracked.info;
@@ -306,6 +342,14 @@ export class AgentProcessManager {
     );
 
     await Promise.all(running.map(([id]) => this.stop(id)));
+
+    // Clear all cleanup timers on shutdown
+    for (const [, tracked] of this.agents) {
+      if (tracked.cleanupHandle) {
+        clearTimeout(tracked.cleanupHandle);
+      }
+    }
+
     this.logger.info(
       `[AgentProcessManager] ${running.length} agents shut down`
     );
@@ -342,13 +386,14 @@ export class AgentProcessManager {
     }
   }
 
-  private handleTimeout(agentId: string): void {
+  private async handleTimeout(agentId: string): Promise<void> {
     const tracked = this.agents.get(agentId);
     if (!tracked || tracked.info.status !== 'running') return;
 
     this.logger.warn('[AgentProcessManager] Agent timed out', { agentId });
     tracked.info = { ...tracked.info, status: 'timeout' };
-    this.killProcess(tracked);
+    await this.killProcess(tracked);
+    this.scheduleCleanup(agentId);
   }
 
   private handleExit(
@@ -358,6 +403,10 @@ export class AgentProcessManager {
   ): void {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
+
+    // Guard against double handleExit (error + exit events both firing)
+    if (tracked.hasExited) return;
+    tracked.hasExited = true;
 
     clearTimeout(tracked.timeoutHandle);
 
@@ -371,12 +420,35 @@ export class AgentProcessManager {
       };
     }
 
+    this.scheduleCleanup(agentId);
+
     this.logger.info('[AgentProcessManager] Agent exited', {
       agentId,
       status: tracked.info.status,
       exitCode: code,
       signal,
     });
+  }
+
+  /**
+   * Schedule removal of a completed agent from the map after TTL.
+   * Prevents memory leaks from agents that are never read after completion.
+   */
+  private scheduleCleanup(agentId: string): void {
+    const tracked = this.agents.get(agentId);
+    if (!tracked) return;
+
+    // Clear any existing cleanup timer
+    if (tracked.cleanupHandle) {
+      clearTimeout(tracked.cleanupHandle);
+    }
+
+    tracked.cleanupHandle = setTimeout(() => {
+      this.agents.delete(agentId);
+      this.logger.info('[AgentProcessManager] Cleaned up completed agent', {
+        agentId,
+      });
+    }, COMPLETED_AGENT_TTL);
   }
 
   private async killProcess(tracked: TrackedAgent): Promise<void> {
@@ -386,15 +458,29 @@ export class AgentProcessManager {
     if (process.platform === 'win32') {
       // Windows: use taskkill to kill process tree
       try {
-        execFile('taskkill', ['/pid', String(child.pid), '/T', '/F']);
+        await execFileAsync('taskkill', [
+          '/pid',
+          String(child.pid),
+          '/T',
+          '/F',
+        ]);
       } catch {
-        child.kill();
+        // taskkill failed (process already dead or access denied), fallback
+        try {
+          child.kill();
+        } catch {
+          /* already dead */
+        }
       }
     } else {
       // Unix: SIGTERM then SIGKILL after grace period
       child.kill('SIGTERM');
       await new Promise<void>((resolve) => {
+        let resolved = false;
+
         const killTimeout = setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
           try {
             child.kill('SIGKILL');
           } catch {
@@ -404,6 +490,8 @@ export class AgentProcessManager {
         }, KILL_GRACE_PERIOD);
 
         child.on('exit', () => {
+          if (resolved) return;
+          resolved = true;
           clearTimeout(killTimeout);
           resolve();
         });
@@ -472,9 +560,12 @@ export class AgentProcessManager {
     }
   }
 
+  /**
+   * Sanitize task input to prevent shell injection.
+   * Strips all shell metacharacters for both bash and CMD.exe.
+   */
   private sanitizeTask(task: string): string {
-    // Remove shell injection patterns
-    return task.replace(/`/g, "'").replace(/\$\(/g, '(').replace(/\$\{/g, '{');
+    return task.replace(SHELL_METACHAR_PATTERN, '');
   }
 
   private tailLines(str: string, n: number): string {

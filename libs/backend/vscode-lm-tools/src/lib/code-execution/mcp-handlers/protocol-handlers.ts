@@ -8,6 +8,7 @@
  */
 
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
+import type { CliType } from '@ptah-extension/shared';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type {
   PtahAPI,
@@ -297,7 +298,23 @@ async function handleIndividualTool(
 
       // Agent orchestration tools (TASK_2025_157)
       case 'ptah_agent_spawn': {
-        const result = await ptahAPI.agent.spawn(args as any);
+        const { task, cli, workingDirectory, timeout, files, taskFolder } =
+          args as {
+            task: string;
+            cli?: string;
+            workingDirectory?: string;
+            timeout?: number;
+            files?: string[];
+            taskFolder?: string;
+          };
+        const result = await ptahAPI.agent.spawn({
+          task,
+          cli: cli as CliType | undefined,
+          workingDirectory,
+          timeout,
+          files,
+          taskFolder,
+        });
         return createToolSuccessResponse(
           request,
           JSON.stringify(result, null, 2),
