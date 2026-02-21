@@ -410,7 +410,7 @@ function buildExecuteCodeDescription(): string {
 
 ${PTAH_SYSTEM_PROMPT}
 
-## Top Namespaces (15 total — use ptah.help(topic) for full details)
+## Top Namespaces (16 total — use ptah.help(topic) for full details)
 
 ### ptah.workspace - Workspace Analysis
 - analyze(): Promise<{info, structure}> - Full workspace analysis
@@ -464,6 +464,7 @@ Relative paths are resolved from workspace root. Absolute paths work as-is.
 - ptah.relevance.* - File relevance scoring
 - ptah.ast.* - Code structure analysis (tree-sitter)
 - ptah.orchestration.* - Workflow state management
+- ptah.agent.* - CLI agent orchestration (spawn, monitor, steer Gemini/Codex)
 
 ## Error Handling
 If a call fails, it returns an error message. Use try-catch for robustness:

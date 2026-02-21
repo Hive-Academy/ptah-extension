@@ -68,4 +68,33 @@ For complex multi-step operations that combine multiple API calls, use the \`exe
 1. \`ptah_workspace_analyze\` — Understand the project
 2. \`ptah_search_files\` — Find relevant files
 3. \`ptah_get_diagnostics\` — Check for existing errors
-4. \`ptah_lsp_references\` — Before any refactoring`;
+4. \`ptah_lsp_references\` — Before any refactoring
+
+## Multi-Agent Delegation — Fire-and-Check Pattern
+
+You have access to **agent orchestration tools** that let you spawn Gemini CLI or Codex CLI as background workers. Use these to delegate independent subtasks while you continue working.
+
+### When to Delegate
+
+- Code reviews (spawn agent to review while you implement)
+- Test generation (spawn agent to write tests while you code)
+- Documentation (spawn agent to document while you build)
+- Any independent subtask that doesn't block your main work
+
+### Agent Tools
+
+| Tool | Purpose |
+|------|---------|
+| \`ptah_agent_spawn\` | Launch a CLI agent with a task |
+| \`ptah_agent_status\` | Check agent progress (all or by ID) |
+| \`ptah_agent_read\` | Read agent output so far |
+| \`ptah_agent_steer\` | Send instruction to running agent |
+| \`ptah_agent_stop\` | Stop a running agent |
+
+### Workflow Example
+
+1. **Spawn**: \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "gemini" }\`
+2. **Continue**: Work on your main task
+3. **Check**: \`ptah_agent_status { agentId: "..." }\` — is it done?
+4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get the results
+5. **Use**: Incorporate findings into your work`;

@@ -22,7 +22,7 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah MCP Server - 15 Namespaces:
+  overview: `Ptah MCP Server - 16 Namespaces:
 
 WORKSPACE: workspace, search, symbols, files, diagnostics, git, commands
 ANALYSIS: context, project, relevance, ast
@@ -30,6 +30,7 @@ AI: ptah.ai.* (chat, tokens, tools, specialized tasks)
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
 LLM: ptah.llm.* (VS Code Language Model API)
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
+AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, steer)
 
 Use ptah.help('namespace') for details on any namespace.`,
 
@@ -178,6 +179,44 @@ TOP-LEVEL:
 - getNextAction(taskId) - Get recommended next action
 
 Used for persisting workflow state across sessions (planning, design, implementation, QA, complete).`,
+
+  agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
+
+Spawn Gemini CLI or Codex CLI as background workers for parallel task execution.
+
+LIFECYCLE:
+- spawn(request) - Launch a CLI agent with a task
+  request: { task: string, cli?: 'gemini'|'codex', workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
+  returns: { agentId, cli, status, startedAt }
+
+- status(agentId?) - Get agent status (omit agentId for all agents)
+  returns: { agentId, status, cli, task, startedAt, exitCode? }
+
+- read(agentId, tail?) - Read agent stdout/stderr output
+  returns: { agentId, stdout, stderr, lineCount, truncated }
+
+- steer(agentId, instruction) - Send instruction to agent stdin
+  (only if CLI supports steering)
+
+- stop(agentId) - Stop a running agent (SIGTERM, then SIGKILL after 5s)
+  returns: final status
+
+DISCOVERY:
+- list() - List available CLI agents with installation status
+  returns: [{ cli, installed, path?, version?, supportsSteer }]
+
+WAITING:
+- waitFor(agentId, { pollInterval?, timeout? }) - Block until agent completes
+  Default pollInterval: 2000ms
+
+EXAMPLE:
+  const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: 'gemini' });
+  // ... continue working ...
+  const status = await ptah.agent.status(result.agentId);
+  if (status.status === 'completed') {
+    const output = await ptah.agent.read(result.agentId);
+    return output.stdout;
+  }`,
 };
 
 /**
