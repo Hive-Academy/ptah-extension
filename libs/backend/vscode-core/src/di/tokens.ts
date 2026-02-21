@@ -118,7 +118,12 @@ export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
 export const LLM_SECRETS_SERVICE = Symbol.for('LlmSecretsService');
 export const LLM_CONFIGURATION_SERVICE = Symbol.for('LlmConfigurationService');
 export const LLM_RPC_HANDLERS = Symbol.for('LlmRpcHandlers');
-// CLI_AUTH_SERVICE - DELETED (SDK-only migration: removed Google/OpenAI CLI auth)
+
+// ========================================
+// Agent Orchestration Tokens (TASK_2025_157)
+// ========================================
+export const AGENT_PROCESS_MANAGER = Symbol.for('AgentProcessManager');
+export const CLI_DETECTION_SERVICE = Symbol.for('CliDetectionService');
 
 // ========================================
 // Auth Secrets Service Token (TASK_2025_076)
@@ -360,7 +365,10 @@ export const TOKENS = {
   LLM_SECRETS_SERVICE,
   LLM_CONFIGURATION_SERVICE,
   LLM_RPC_HANDLERS,
-  // CLI_AUTH_SERVICE - DELETED (SDK-only migration)
+
+  // Agent Orchestration (TASK_2025_157)
+  AGENT_PROCESS_MANAGER,
+  CLI_DETECTION_SERVICE,
 
   // Auth Secrets (TASK_2025_076)
   AUTH_SECRETS_SERVICE,
