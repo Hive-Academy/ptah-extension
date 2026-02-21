@@ -66,6 +66,17 @@ export {
 export { registerLlmAbstractionServices } from './lib/di';
 
 // ========================================
+// Agent Orchestration (TASK_2025_157)
+// ========================================
+export { CliDetectionService } from './lib/services/cli-detection.service';
+export { AgentProcessManager } from './lib/services/agent-process-manager.service';
+export type {
+  CliAdapter,
+  CliCommand,
+  CliCommandOptions,
+} from './lib/services/cli-adapters';
+
+// ========================================
 // PROVIDERS - Use secondary entry point
 // ========================================
 // The vscode-lm provider is intentionally NOT exported here to enable tree-shaking.

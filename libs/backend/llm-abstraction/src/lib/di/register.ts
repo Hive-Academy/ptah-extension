@@ -7,8 +7,6 @@
  * This file centralizes all service registrations for the llm-abstraction library.
  * Following the standardized registration pattern established in agent-sdk and agent-generation.
  *
- * SDK-only migration: Removed CliAuthService and Google/OpenAI provider registrations.
- *
  * Registration Order (dependency chain):
  * 1. LlmSecretsService - needs EXTENSION_CONTEXT, LOGGER
  * 2. LlmConfigurationService - needs CONFIG_MANAGER, LLM_SECRETS_SERVICE, LOGGER
@@ -26,6 +24,8 @@ import { LlmService } from '../services/llm.service';
 import { LlmSecretsService } from '../services/llm-secrets.service';
 import { LlmConfigurationService } from '../services/llm-configuration.service';
 import { ProviderRegistry } from '../registry/provider-registry';
+import { CliDetectionService } from '../services/cli-detection.service';
+import { AgentProcessManager } from '../services/agent-process-manager.service';
 
 /**
  * Register LLM abstraction services in DI container
@@ -80,12 +80,26 @@ export function registerLlmAbstractionServices(
   // 4. LlmService - needs PROVIDER_REGISTRY, LLM_CONFIGURATION_SERVICE, LOGGER
   container.registerSingleton(TOKENS.LLM_SERVICE, LlmService);
 
+  // 5. CliDetectionService - needs LOGGER
+  container.registerSingleton(
+    TOKENS.CLI_DETECTION_SERVICE,
+    CliDetectionService
+  );
+
+  // 6. AgentProcessManager - needs LOGGER, CLI_DETECTION_SERVICE
+  container.registerSingleton(
+    TOKENS.AGENT_PROCESS_MANAGER,
+    AgentProcessManager
+  );
+
   logger.info('[LLM Abstraction] Services registered', {
     services: [
       'LLM_SECRETS_SERVICE',
       'LLM_CONFIGURATION_SERVICE',
       'PROVIDER_REGISTRY',
       'LLM_SERVICE',
+      'CLI_DETECTION_SERVICE',
+      'AGENT_PROCESS_MANAGER',
     ],
   });
 }
