@@ -211,7 +211,15 @@ export class LicenseController {
       reason = 'expired';
     }
 
-    // Step 8: Return complete account details (NEVER include licenseKey)
+    // Step 8: Determine effective plan (map 'pro' → 'trial_pro' for trial users)
+    // The license table stores 'pro' for trial users (createTrialLicense sets plan='pro'),
+    // but the frontend expects 'trial_pro' to distinguish trial from paid subscriptions.
+    // This matches the mapPlanToTier() logic used in verifyLicense().
+    const isInTrial = subscription?.status === 'trialing';
+    const effectivePlan =
+      isInTrial && license.plan === 'pro' ? 'trial_pro' : license.plan;
+
+    // Step 9: Return complete account details (NEVER include licenseKey)
     return {
       // User info
       user: {
@@ -222,7 +230,7 @@ export class LicenseController {
         emailVerified: fullUser.emailVerified,
       },
       // License info
-      plan: license.plan,
+      plan: effectivePlan,
       planName: planConfig.name,
       planDescription: planConfig.description,
       status: license.status,

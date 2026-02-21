@@ -39,7 +39,6 @@ import {
   Star,
   Shield,
   Cpu,
-  Image,
   Save,
 } from 'lucide-angular';
 import { LlmProviderStateService } from '@ptah-extension/core';
@@ -87,7 +86,6 @@ export class LlmProvidersConfigComponent implements OnInit {
   readonly StarIcon = Star;
   readonly ShieldIcon = Shield;
   readonly CpuIcon = Cpu;
-  readonly ImageIcon = Image;
   readonly SaveIcon = Save;
 
   // --- Local form signals ---
@@ -338,7 +336,7 @@ export class LlmProvidersConfigComponent implements OnInit {
 
   /**
    * Format a capability string for display.
-   * Converts kebab-case to Title Case (e.g., 'image-generation' -> 'Image Generation').
+   * Converts kebab-case to Title Case (e.g., 'text-chat' -> 'Text Chat').
    *
    * @param cap - The capability string to format
    * @returns Formatted display string

@@ -40,17 +40,11 @@ export {
 // IDE namespace (lsp, editor, actions, testing)
 export { buildIDENamespace } from './ide-namespace.builder';
 
-// LLM namespace (native SDK provider abstraction)
+// LLM namespace (VS Code LM provider)
 export {
   buildLLMNamespace,
   type LlmNamespaceDependencies,
 } from './llm-namespace.builder';
-
-// Image namespace (TASK_2025_155 - Google image generation)
-export {
-  buildImageNamespace,
-  type ImageNamespaceDependencies,
-} from './image-namespace.builder';
 
 // Orchestration namespace (TASK_2025_111 - workflow state management)
 export {

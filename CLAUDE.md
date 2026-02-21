@@ -244,4 +244,4 @@ For workspace-wide operations, consult the [Nx CLI documentation](#general-guide
 - **Partial**: Architect -> Team-Leader -> Developers (refactoring with known requirements)
 - **Minimal**: Direct developer/reviewer invocation (simple fixes, quick reviews)
 
-The skill contains all orchestration logic, agent catalog (13 agents), user checkpoints, team-leader integration (3 modes), task tracking, and git commit standards.
+The skill contains all orchestration logic, agent catalog (14 agents), user checkpoints, team-leader integration (3 modes), task tracking, and git commit standards.

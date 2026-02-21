@@ -22,14 +22,13 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah MCP Server - 16 Namespaces:
+  overview: `Ptah MCP Server - 15 Namespaces:
 
 WORKSPACE: workspace, search, symbols, files, diagnostics, git, commands
 ANALYSIS: context, project, relevance, ast
 AI: ptah.ai.* (chat, tokens, tools, specialized tasks)
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
-LLM: ptah.llm.* (multi-provider: Anthropic, OpenAI, Google, OpenRouter, VS Code LM)
-IMAGE: ptah.image.* (AI image generation — Google Gemini / Imagen)
+LLM: ptah.llm.* (VS Code Language Model API)
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
 
 Use ptah.help('namespace') for details on any namespace.`,
@@ -155,18 +154,14 @@ Paths can be relative to workspace root (e.g., 'package.json') or absolute.
 This namespace is READ-ONLY. There is NO write(), delete(), or exists() method.
 Use readJson() for config files like tsconfig.json, package.json which may have comments.`,
 
-  llm: `ptah.llm - Multi-Provider LLM (Langchain Abstraction)
+  llm: `ptah.llm - VS Code Language Model API
 
 PROVIDERS:
-- ptah.llm.anthropic - Claude models
-- ptah.llm.openai - GPT models
-- ptah.llm.google - Gemini models
-- ptah.llm.openrouter - Multi-provider gateway
 - ptah.llm.vscodeLm - VS Code Language Model API (always available)
 
-Each provider has:
+Provider methods:
 - chat(message, options?) - Send message
-- isAvailable() - Check if API key is configured
+- isAvailable() - Check availability
 - getDefaultModel() - Get default model name
 - getDisplayName() - Get provider display name
 
@@ -175,28 +170,6 @@ TOP-LEVEL:
 - ptah.llm.getConfiguredProviders() - List available providers
 - ptah.llm.getDefaultProvider() - Get default provider name
 - ptah.llm.getConfiguration() - Get full config state`,
-
-  image: `ptah.image - AI Image Generation (Google Gemini / Imagen)
-
-METHODS:
-- generate(prompt, options?): Promise<{images: [{path, mimeType}], model}> - Generate images from text
-  Options: { model?: string, aspectRatio?: string, numberOfImages?: number }
-- listModels(): [{id, name, type, description}] - List available image generation models
-- isAvailable(): Promise<boolean> - Check if Google GenAI API key is configured
-
-MODELS:
-- Default: "gemini-2.5-flash-preview-06-25" (fast, creative, supports text-to-image)
-- Photorealistic: "imagen-4.0-generate-001" (high-quality photos, supports aspectRatio/numberOfImages)
-
-USE CASES: logos, icons, banners, illustrations, mockups, diagrams, backgrounds, visual assets
-
-OUTPUT: Images saved to .ptah/generated-images/ in workspace. Returns file paths and MIME types.
-
-TIP: For simple one-shot generation, use the ptah_generate_image MCP tool directly instead of execute_code.
-
-Example:
-  const result = await ptah.image.generate('A minimalist logo, dark background, gold accents');
-  return result.images.map(img => img.path);`,
 
   orchestration: `ptah.orchestration - Workflow State Management
 

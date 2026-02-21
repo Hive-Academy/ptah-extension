@@ -476,6 +476,20 @@ This library is used by:
 - **Webview Manager**: Reuses panels when possible, handles serialization efficiently
 - **Command Manager**: Zero overhead registration, uses native VS Code command system
 
+## DI Token Reference (LLM Abstraction)
+
+The following tokens in the `TOKENS` namespace relate to LLM provider services:
+
+| Token                       | Service                 | Description                                |
+| --------------------------- | ----------------------- | ------------------------------------------ |
+| `LLM_SERVICE`               | LlmService              | High-level LLM orchestration               |
+| `PROVIDER_REGISTRY`         | ProviderRegistry        | Provider registration & lookup             |
+| `LLM_SECRETS_SERVICE`       | LlmSecretsService       | API key management (VS Code SecretStorage) |
+| `LLM_CONFIGURATION_SERVICE` | LlmConfigurationService | Provider config & model selection          |
+| `LLM_RPC_HANDLERS`          | LlmRpcHandlers          | RPC handlers for LLM operations            |
+
+**Note**: The codebase now only supports the VS Code LM provider. Previous tokens for `GOOGLE_OAUTH_SERVICE`, `CLI_AUTH_SERVICE`, and `IMAGE_GENERATION_SERVICE` have been removed.
+
 ## Migration Notes
 
 **TASK_2025_051**: RpcMethodRegistrationService moved to app layer to break circular dependency:
@@ -489,3 +503,10 @@ This library is used by:
 - Old pattern: Libraries registered their own services
 - New pattern: All registration in `apps/ptah-extension-vscode/src/di/container.ts`
 - Libraries only export services and TOKENS namespace
+
+**TASK_2025_156**: CLI-Based Auth Integration (replaced custom Google OAuth, later fully removed):
+
+- Originally replaced `GOOGLE_OAUTH_SERVICE` with `CLI_AUTH_SERVICE` (CliAuthService - Gemini CLI credentials)
+- Subsequently, the SDK-only migration removed all external providers (Google GenAI, OpenAI) and CLI auth entirely
+- The codebase now exclusively uses the VS Code LM provider, which requires no API keys or CLI credentials
+- Removed tokens: `GOOGLE_OAUTH_SERVICE`, `CLI_AUTH_SERVICE`, `IMAGE_GENERATION_SERVICE`

@@ -6,13 +6,13 @@ This reference documents all user validation checkpoints in the orchestration wo
 
 ## Checkpoint Types Overview
 
-| Checkpoint | Name                    | When              | Purpose                        | Response Expected                     |
-| ---------- | ----------------------- | ----------------- | ------------------------------ | ------------------------------------- |
-| **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests     | Answers or "use your judgment"        |
-| **1**      | Requirements Validation | After PM          | Approve task-description.md    | "APPROVED" or feedback                |
-| **1.5**    | Technical Clarification | Before Architect  | Technical preferences          | Answers or "use your judgment"        |
-| **2**      | Architecture Validation | After Architect   | Approve implementation-plan.md | "APPROVED" or feedback                |
-| **3**      | QA Choice               | After Development | Select QA agents               | tester/style/logic/reviewers/all/skip |
+| Checkpoint | Name                    | When              | Purpose                        | Response Expected                            |
+| ---------- | ----------------------- | ----------------- | ------------------------------ | -------------------------------------------- |
+| **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests     | Answers or "use your judgment"               |
+| **1**      | Requirements Validation | After PM          | Approve task-description.md    | "APPROVED" or feedback                       |
+| **1.5**    | Technical Clarification | Before Architect  | Technical preferences          | Answers or "use your judgment"               |
+| **2**      | Architecture Validation | After Architect   | Approve implementation-plan.md | "APPROVED" or feedback                       |
+| **3**      | QA Choice               | After Development | Select QA agents               | tester/style/logic/visual/reviewers/all/skip |
 
 ---
 
@@ -253,11 +253,12 @@ Options:
 1. "tester" - senior-tester only (functionality testing)
 2. "style" - code-style-reviewer only (coding standards)
 3. "logic" - code-logic-reviewer only (business logic)
-4. "reviewers" - BOTH reviewers in parallel
-5. "all" - tester + BOTH reviewers in parallel
-6. "skip" - proceed to completion
+4. "visual" - visual-reviewer only (UI/UX visual testing, responsive design)
+5. "reviewers" - ALL THREE reviewers in parallel (style + logic + visual)
+6. "all" - tester + ALL THREE reviewers in parallel
+7. "skip" - proceed to completion
 
-## Reply with your choice: tester, style, logic, reviewers, all, or skip
+## Reply with your choice: tester, style, logic, visual, reviewers, all, or skip
 ```
 
 ### QA Invocation Patterns
@@ -272,14 +273,19 @@ Task({ subagent_type: 'code-style-reviewer', prompt: `Review TASK_[ID] for patte
 // Option: "logic" - single agent
 Task({ subagent_type: 'code-logic-reviewer', prompt: `Review TASK_[ID] for completeness...` });
 
-// Option: "reviewers" - parallel (BOTH in single message)
+// Option: "visual" - single agent
+Task({ subagent_type: 'visual-reviewer', prompt: `Visual review TASK_[ID]...` });
+
+// Option: "reviewers" - parallel (ALL THREE in single message)
 Task({ subagent_type: 'code-style-reviewer', prompt: `...` });
 Task({ subagent_type: 'code-logic-reviewer', prompt: `...` });
+Task({ subagent_type: 'visual-reviewer', prompt: `...` });
 
-// Option: "all" - parallel (THREE in single message)
+// Option: "all" - parallel (FOUR in single message)
 Task({ subagent_type: 'senior-tester', prompt: `...` });
 Task({ subagent_type: 'code-style-reviewer', prompt: `...` });
 Task({ subagent_type: 'code-logic-reviewer', prompt: `...` });
+Task({ subagent_type: 'visual-reviewer', prompt: `...` });
 
 // Option: "skip" - no QA agents invoked
 // Proceed directly to workflow completion
@@ -292,8 +298,9 @@ Task({ subagent_type: 'code-logic-reviewer', prompt: `...` });
 | "tester"    | Invoke senior-tester only                   |
 | "style"     | Invoke code-style-reviewer only             |
 | "logic"     | Invoke code-logic-reviewer only             |
-| "reviewers" | Invoke BOTH reviewers in parallel           |
-| "all"       | Invoke ALL THREE QA agents in parallel      |
+| "visual"    | Invoke visual-reviewer only                 |
+| "reviewers" | Invoke ALL THREE reviewers in parallel      |
+| "all"       | Invoke ALL FOUR QA agents in parallel       |
 | "skip"      | Skip QA, proceed to git operations guidance |
 
 ---

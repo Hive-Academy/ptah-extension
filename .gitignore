@@ -75,3 +75,8 @@ apps/ptah-license-server/.env
 # ============================================
 build-output.txt
 generated-prisma-client
+
+# ============================================
+# Google OAuth Client Secrets
+# ============================================
+client_secret_*.json

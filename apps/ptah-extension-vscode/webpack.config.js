@@ -53,18 +53,10 @@ module.exports = {
         return callback(); // Bundle it
       }
 
-      // === EXTERNALIZE THESE (loaded at runtime from node_modules) ===
+      // @google/genai - REMOVED (SDK-only migration: Google GenAI provider removed)
+      // @google/gemini-cli-core - REMOVED (SDK-only migration: CLI auth removed)
 
-      // Externalize Langchain packages - these are loaded dynamically
-      // by ProviderRegistry when a specific provider is requested
-      if (
-        request.startsWith('@langchain/') ||
-        request === 'langchain' ||
-        request === 'openai' ||
-        request === '@google/generative-ai'
-      ) {
-        return callback(null, 'commonjs ' + request);
-      }
+      // === EXTERNALIZE THESE (loaded at runtime from node_modules) ===
 
       // Externalize other scoped packages (@anthropic-ai/*, etc.)
       // These are loaded dynamically by agent-sdk
@@ -127,14 +119,8 @@ module.exports = {
         __dirname,
         '../../libs/backend/llm-abstraction/src/anthropic.ts'
       ),
-      '@ptah-extension/llm-abstraction/openai': path.resolve(
-        __dirname,
-        '../../libs/backend/llm-abstraction/src/openai.ts'
-      ),
-      '@ptah-extension/llm-abstraction/google': path.resolve(
-        __dirname,
-        '../../libs/backend/llm-abstraction/src/google.ts'
-      ),
+      // '@ptah-extension/llm-abstraction/openai' - REMOVED (SDK-only migration)
+      // '@ptah-extension/llm-abstraction/google' - REMOVED (SDK-only migration)
       '@ptah-extension/llm-abstraction/openrouter': path.resolve(
         __dirname,
         '../../libs/backend/llm-abstraction/src/openrouter.ts'

@@ -6,6 +6,7 @@
  *
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
  * TASK_2025_073: LLM provider management integration
+ * SDK-only migration: Removed CLI auth, simplified to vscode-lm only
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';

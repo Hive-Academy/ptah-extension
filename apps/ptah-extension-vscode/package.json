@@ -36,6 +36,12 @@
   "main": "./main.js",
   "icon": "assets/images/ptah-icon.png",
   "contributes": {
+    "authentication": [
+      {
+        "id": "ptah-google",
+        "label": "Google (Gemini AI)"
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {

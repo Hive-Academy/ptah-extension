@@ -19,7 +19,7 @@
   </div>
   }
 
-  <!-- Provider cards (excludes vscode-lm which is shown under MCP Server) -->
+  <!-- Provider cards -->
   @for (provider of filteredProviders(); track provider.provider) {
   <div class="card bg-base-200 shadow-sm">
     <div class="card-body p-4">
@@ -53,7 +53,7 @@
       </div>
 
       <!-- Default model -->
-      <div class="flex items-center gap-2 mt-1">
+      <div class="flex items-center gap-2 mt-1 min-w-0">
         <label
           class="text-xs text-base-content/60 shrink-0"
           [for]="'model-' + provider.provider"
@@ -64,7 +64,7 @@
         <!-- Dropdown: models loaded from provider API -->
         <select
           [id]="'model-' + provider.provider"
-          class="select select-bordered select-xs flex-1 text-xs"
+          class="select select-bordered select-xs flex-1 min-w-0 max-w-[260px] text-xs truncate"
           [value]="provider.defaultModel"
           (change)="
             onProviderModelSelect(provider.provider, $any($event.target).value)
@@ -95,7 +95,7 @@
         <input
           [id]="'model-' + provider.provider"
           type="text"
-          class="input input-bordered input-xs flex-1 text-xs"
+          class="input input-bordered input-xs flex-1 min-w-0 max-w-[260px] text-xs"
           [value]="
             modelInputs().get(provider.provider) ?? provider.defaultModel
           "
@@ -131,96 +131,14 @@
       <div class="flex flex-wrap gap-1 mt-2">
         @for (cap of provider.capabilities; track cap) {
         <span class="badge badge-outline badge-xs flex items-center gap-0.5">
-          @if (cap === 'image-generation') {
-          <lucide-angular [img]="ImageIcon" class="w-2.5 h-2.5" />
-          }
           {{ formatCapability(cap) }}
         </span>
         }
       </div>
       }
 
-      <!-- API Key section (only for providers that need API keys) -->
-      @if (provider.provider !== 'vscode-lm') {
-      <div class="divider my-2"></div>
-      <div class="flex gap-2 items-end">
-        <div class="form-control flex-1">
-          <label class="label py-1" [for]="'api-key-' + provider.provider">
-            <span class="label-text text-xs">API Key</span>
-          </label>
-          <div class="join w-full">
-            <input
-              [id]="'api-key-' + provider.provider"
-              [type]="showApiKey().get(provider.provider) ? 'text' : 'password'"
-              [placeholder]="
-                provider.isConfigured ? '••••••••••••' : 'Enter API key...'
-              "
-              [ngModel]="apiKeyInputs().get(provider.provider) ?? ''"
-              (ngModelChange)="updateApiKeyInput(provider.provider, $event)"
-              class="input input-bordered input-sm join-item flex-1 text-xs"
-              [attr.aria-label]="provider.displayName + ' API key input'"
-            />
-            <button
-              type="button"
-              class="btn btn-sm btn-ghost join-item"
-              (click)="toggleApiKeyVisibility(provider.provider)"
-              [attr.aria-label]="
-                showApiKey().get(provider.provider)
-                  ? 'Hide API key'
-                  : 'Show API key'
-              "
-              [attr.title]="
-                showApiKey().get(provider.provider) ? 'Hide key' : 'Show key'
-              "
-            >
-              @if (showApiKey().get(provider.provider)) {
-              <lucide-angular [img]="EyeOffIcon" class="w-3.5 h-3.5" />
-              } @else {
-              <lucide-angular [img]="EyeIcon" class="w-3.5 h-3.5" />
-              }
-            </button>
-          </div>
-        </div>
-
-        <!-- Save button -->
-        <button
-          type="button"
-          class="btn btn-sm btn-primary gap-1"
-          [disabled]="
-            !apiKeyInputs().get(provider.provider)?.trim() ||
-            savingProvider() !== null ||
-            removingProvider() !== null
-          "
-          (click)="onSaveApiKey(provider.provider)"
-          [attr.aria-label]="'Save API key for ' + provider.displayName"
-        >
-          @if (savingProvider() === provider.provider) {
-          <span class="loading loading-spinner loading-xs"></span>
-          } @else {
-          <lucide-angular [img]="KeyIcon" class="w-3.5 h-3.5" />
-          Save }
-        </button>
-
-        <!-- Remove button (only when provider has a key configured) -->
-        @if (provider.isConfigured) {
-        <button
-          type="button"
-          class="btn btn-sm btn-ghost text-error"
-          [disabled]="savingProvider() !== null || removingProvider() !== null"
-          (click)="onRemoveApiKey(provider.provider)"
-          [attr.title]="'Remove API key for ' + provider.displayName"
-          [attr.aria-label]="'Remove API key for ' + provider.displayName"
-        >
-          @if (removingProvider() === provider.provider) {
-          <span class="loading loading-spinner loading-xs"></span>
-          } @else {
-          <lucide-angular [img]="XIcon" class="w-3.5 h-3.5" />
-          }
-        </button>
-        }
-      </div>
-      } @else {
       <!-- VS Code LM info note -->
+      @if (provider.provider === 'vscode-lm') {
       <div class="text-xs text-base-content/50 mt-2">
         Uses models from VS Code's Language Model API. No API key required.
       </div>

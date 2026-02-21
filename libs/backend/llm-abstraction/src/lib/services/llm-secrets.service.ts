@@ -16,12 +16,10 @@ import { LlmProviderName } from '../types/provider-types';
 export type { LlmProviderName } from '../types/provider-types';
 
 /**
- * All provider names that require API keys
+ * All provider names that require API keys.
+ * Currently empty since vscode-lm does not require an API key.
  */
-export const API_KEY_PROVIDERS: readonly LlmProviderName[] = [
-  'openai',
-  'google-genai',
-] as const;
+export const API_KEY_PROVIDERS: readonly LlmProviderName[] = [] as const;
 
 /**
  * Interface for LLM secrets management
@@ -307,14 +305,6 @@ export class LlmSecretsService implements ILlmSecretsService {
     const trimmedKey = key.trim();
 
     switch (provider) {
-      case 'openai':
-        // OpenAI API keys start with 'sk-'
-        return trimmedKey.startsWith('sk-') && trimmedKey.length >= 20;
-
-      case 'google-genai':
-        // Google API keys are typically 39 characters
-        return trimmedKey.length >= 30;
-
       case 'vscode-lm':
         // VS Code LM doesn't use API keys
         return false;

@@ -1,7 +1,7 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 16 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 15 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
@@ -69,10 +69,8 @@ import {
   buildAstNamespace,
   // IDE namespace builder (TASK_2025_039)
   buildIDENamespace,
-  // LLM namespace builder (native SDK abstraction)
+  // LLM namespace builder (VS Code LM provider)
   buildLLMNamespace,
-  // Image namespace builder (TASK_2025_155)
-  buildImageNamespace,
   // Orchestration namespace builder (TASK_2025_111)
   buildOrchestrationNamespace,
 } from './namespace-builders';
@@ -81,7 +79,6 @@ import {
   LlmConfigurationService,
   ILlmSecretsService,
 } from '@ptah-extension/llm-abstraction';
-import { ImageGenerationService } from './services/image-generation.service';
 
 @injectable()
 export class PtahAPIBuilder {
@@ -130,7 +127,7 @@ export class PtahAPIBuilder {
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
 
-    // LLM services (Langchain abstraction)
+    // LLM services
     @inject(TOKENS.LLM_SERVICE)
     private readonly llmService: LlmService,
 
@@ -138,17 +135,13 @@ export class PtahAPIBuilder {
     private readonly llmConfigService: LlmConfigurationService,
 
     @inject(TOKENS.LLM_SECRETS_SERVICE)
-    private readonly llmSecretsService: ILlmSecretsService,
-
-    // Image generation service (TASK_2025_155)
-    @inject(TOKENS.IMAGE_GENERATION_SERVICE)
-    private readonly imageGenerationService: ImageGenerationService
+    private readonly llmSecretsService: ILlmSecretsService
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 16 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 16 namespaces
+   * Build the complete Ptah API object with all 15 namespaces
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -217,13 +210,8 @@ export class PtahAPIBuilder {
       // IDE namespace (TASK_2025_039 - LSP, editor, actions, testing)
       ide: buildIDENamespace(),
 
-      // LLM namespace (Langchain provider abstraction)
+      // LLM namespace (VS Code LM provider)
       llm: buildLLMNamespace(llmDeps),
-
-      // Image namespace (TASK_2025_155 - Google image generation)
-      image: buildImageNamespace({
-        imageGenerationService: this.imageGenerationService,
-      }),
 
       // Orchestration namespace (TASK_2025_111 - workflow state management)
       orchestration: buildOrchestrationNamespace(orchestrationDeps),

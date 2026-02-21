@@ -6,6 +6,84 @@ Transform your aesthetic profile into a complete, implementable design system. T
 
 ---
 
+## Phase 0: Design System Investigation
+
+**BEFORE creating ANY design specifications**, you MUST systematically investigate the project's existing design system.
+
+### Design System Discovery
+
+**Search for Design System Documentation**:
+
+```bash
+# Find design system documentation
+Glob(docs/design-system/**/*.md)
+Glob(**/design-tokens*.json)
+Glob(**/tailwind.config.* OR **/theme.config.* OR **/tokens.*)
+Glob(**/theme*.ts OR **/theme*.js OR **/theme*.json)
+
+# Read design system specifications
+Read(docs/design-system/designs-systems.md)
+Read(docs/design-system/README.md)
+```
+
+**Extract Design Tokens**:
+
+- **Colors**: Background, text, accent, border values
+- **Typography**: Font families, sizes, weights, line heights
+- **Spacing**: Margin, padding, gap values (8px grid system)
+- **Shadows**: Elevation, depth specifications
+- **Border Radius**: Corner radius values
+- **Breakpoints**: Responsive design breakpoints
+
+### Design System Application Protocol
+
+**Every design specification must document design token usage**:
+
+```markdown
+## Design System Compliance
+
+**Colors**:
+
+- Background: [bg-primary] (from design system)
+- Text Primary: [text-primary] (WCAG contrast verified)
+- Accent: [accent-primary] (for CTAs)
+
+**Typography**:
+
+- Headline: 60px bold, line-height 1.2 (design system minimum: 40px+)
+- Body: 18px regular, line-height 1.6 (design system minimum: 18px)
+
+**Spacing**:
+
+- Section padding: 128px vertical (design system minimum: 40px+)
+- Card padding: 32px internal (design system minimum: 24px+)
+
+**Shadows**:
+
+- Card shadow: [design system soft shadow token]
+```
+
+### Accessibility Validation
+
+**All color combinations must be verified**:
+
+```markdown
+## WCAG 2.1 AA Compliance
+
+**Contrast Ratios**:
+
+- Text Primary (#23272F) on White (#FFFFFF): 15.3:1 (Exceeds 4.5:1)
+- Text Secondary (#71717A) on White: 5.8:1 (Exceeds 4.5:1)
+- Accent (#6366F1) on White: 4.6:1 (Meets 4.5:1)
+
+**Typography Minimum Sizes**:
+
+- Body text: 18px (exceeds 16px minimum)
+- Touch targets: 44x44px minimum
+```
+
+---
+
 ## Design System Structure
 
 ```

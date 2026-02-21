@@ -33,9 +33,11 @@ You don't apply generic design patterns. You:
 For detailed patterns and workflows, see:
 
 - [NICHE-DISCOVERY.md](NICHE-DISCOVERY.md) - Find your visual identity
-- [DESIGN-SYSTEM-BUILDER.md](DESIGN-SYSTEM-BUILDER.md) - Create custom design systems
-- [ASSET-GENERATION.md](ASSET-GENERATION.md) - Generate visual assets with AI tools
-- [REFERENCE-LIBRARY.md](REFERENCE-LIBRARY.md) - Curated aesthetic references
+- [DESIGN-SYSTEM-BUILDER.md](DESIGN-SYSTEM-BUILDER.md) - Design system investigation (Phase 0) and token creation
+- [ASSET-GENERATION.md](ASSET-GENERATION.md) - Generate visual assets with Ptah Native, Midjourney, Canva, and AI tools
+- [REFERENCE-LIBRARY.md](REFERENCE-LIBRARY.md) - Curated aesthetic references and modern design patterns
+- [LAYOUT-PATTERNS.md](LAYOUT-PATTERNS.md) - Content-driven layout selection (Spotlight, Card Grid, Hybrid, Comparison)
+- [DEVELOPER-HANDOFF.md](DEVELOPER-HANDOFF.md) - Design specs, workflow phases, handoff documents, and return format
 
 ---
 

@@ -1,9 +1,10 @@
 /**
  * LlmProviderStateService - Signal-Based LLM Provider State Management
  * TASK_2025_155: LLM Provider Configuration UI
+ * SDK-only migration: Simplified to vscode-lm only, CLI auth removed
  *
  * Centralizes all LLM provider state: configured providers, default provider selection,
- * API key management, and loading/error status.
+ * and loading/error status.
  *
  * Follows AuthStateService signal-based pattern (private _signal, public asReadonly).
  * RPC integration: claude-rpc.service.ts (RpcResult pattern)
@@ -22,7 +23,6 @@ import { ClaudeRpcService } from './claude-rpc.service';
  * Responsibilities:
  * - Track available LLM providers and their configuration status
  * - Track default provider selection
- * - Manage API key set/remove operations
  * - Provide readonly signals for reactive UI updates
  * - Sync provider state with backend via RPC
  *
@@ -32,14 +32,11 @@ import { ClaudeRpcService } from './claude-rpc.service';
  *
  * // Read provider state
  * console.log(providerState.providers());       // Array of providers
- * console.log(providerState.defaultProvider()); // 'openai' | 'google-genai' | etc.
+ * console.log(providerState.defaultProvider()); // 'vscode-lm'
  * console.log(providerState.isLoading());       // true/false
  *
  * // Load initial status
  * await providerState.loadProviderStatus();
- *
- * // Set an API key
- * const success = await providerState.setApiKey('openai', 'sk-...');
  * ```
  */
 @Injectable({ providedIn: 'root' })
@@ -200,6 +197,7 @@ export class LlmProviderStateService {
       if (result.isSuccess() && result.data) {
         this._providers.set(result.data.providers);
         this._defaultProvider.set(result.data.defaultProvider);
+
         return true;
       } else {
         const errorMsg = result.error || 'Failed to load provider status';

@@ -320,6 +320,8 @@ const diff = await ptah.git.getDiff({ file: '/src/app.ts' });
 
 ### ptah.ai - AI Provider Integration
 
+Uses the VS Code Language Model API for AI operations. No API keys required -- authentication is handled by VS Code (e.g., GitHub Copilot subscription).
+
 ```typescript
 // Generate content with AI
 const response = await ptah.ai.generate({

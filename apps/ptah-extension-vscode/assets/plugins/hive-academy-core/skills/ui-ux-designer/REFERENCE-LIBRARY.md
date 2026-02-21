@@ -475,3 +475,76 @@ A curated collection of design patterns, reference sites, and aesthetic archetyp
 □ Loading states defined
 □ Error states designed
 ```
+
+---
+
+## Modern Design Patterns
+
+### Award-Worthy Techniques
+
+Evidence-based techniques from Apple, Stripe, and Linear:
+
+#### 1. Generous Whitespace as Content
+
+- **Principle**: Whitespace is NOT empty space -- it's intentional breathing room
+- **Implementation**: 128px+ vertical spacing between major sections
+- **Evidence**: Apple.com uses 100-150px section gaps for premium feel
+
+#### 2. Scroll-Driven Storytelling
+
+- **Reveal Animations**: Fade-in and slide-up effects as content enters viewport
+- **Parallax Backgrounds**: Multi-speed scrolling layers for depth perception
+- **Stagger Sequences**: Sequential element reveals with 100-200ms delays between items
+
+#### 3. Microinteractions & Feedback
+
+- **Hover States**: Subtle scale (1.02-1.05), shadow elevation, color shifts
+- **Loading States**: Skeleton screens with shimmer animations
+- **Success States**: Checkmark animations with spring easing
+- **Error States**: Shake animations with error color accent
+
+#### 4. Typography as Hero
+
+- **Large Headlines**: 60-80px for maximum impact
+- **Bold Weights**: 700-900 for headlines
+- **Generous Line Height**: 1.1-1.2 for headlines, 1.6-1.7 for body
+- **Contrast Hierarchy**: Dark headlines, muted body text
+
+#### 5. Gradient Accents (Subtle)
+
+- **Text Gradients**: For headlines and CTAs
+- **Border Gradients**: For card highlights
+- **Background Gradients**: Subtle shifts between sections
+
+#### 6. Card Design Excellence
+
+- **Border Radius**: 16-24px for modern feel
+- **Shadows**: Soft elevation for depth
+- **Padding**: Generous internal spacing (32-40px)
+- **Hover States**: Elevated shadow + subtle scale
+- **Border**: Subtle border for definition
+
+#### 7. Section Alternation
+
+- **Visual Rhythm**: Alternate background colors for section distinction
+- **Padding**: 128px vertical for major sections
+- **Max Width**: 1280px for content readability
+- **Responsive Padding**: Reduce on smaller viewports
+
+---
+
+## Pro Design Tips
+
+1. **Design System First**: Always extract tokens before creating specifications
+2. **Design Tools for Everything**: Use available design tools for hero sections, icons, diagrams, illustrations
+3. **Animation Enhancement**: Leverage the project's animation capabilities for depth and interactivity
+4. **Scroll Animations**: Specify scroll-triggered content reveals for engagement
+5. **Accessibility Always**: Verify contrast ratios for every color combination
+6. **Responsive Thinking**: Design mobile-first, enhance for desktop
+7. **Developer-Friendly**: Provide exact design token values and component specifications
+8. **Asset Inventory**: Document every design asset with source and download information
+9. **Motion Matters**: Specify transitions, animations, scroll effects, microinteractions
+10. **Evidence-Based**: Every design decision references design system or research
+11. **Spacious by Default**: When in doubt, add more whitespace (8px grid multiples)
+12. **Production-Ready**: All assets exported in correct formats and sizes
+13. **Trendy Patterns**: Apply modern award-winning techniques (generous whitespace, scroll storytelling, microinteractions)

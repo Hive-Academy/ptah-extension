@@ -118,6 +118,7 @@ export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
 export const LLM_SECRETS_SERVICE = Symbol.for('LlmSecretsService');
 export const LLM_CONFIGURATION_SERVICE = Symbol.for('LlmConfigurationService');
 export const LLM_RPC_HANDLERS = Symbol.for('LlmRpcHandlers');
+// CLI_AUTH_SERVICE - DELETED (SDK-only migration: removed Google/OpenAI CLI auth)
 
 // ========================================
 // Auth Secrets Service Token (TASK_2025_076)
@@ -165,7 +166,7 @@ export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
 // MCP_CONFIG_MANAGER_SERVICE - DELETED (SDK tools are native, no .mcp.json needed)
 export const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
-export const IMAGE_GENERATION_SERVICE = Symbol.for('ImageGenerationService');
+// IMAGE_GENERATION_SERVICE - DELETED (SDK-only migration: image generation removed)
 
 // ========================================
 // AI Providers Core Tokens (DELETED - library removed)
@@ -359,6 +360,7 @@ export const TOKENS = {
   LLM_SECRETS_SERVICE,
   LLM_CONFIGURATION_SERVICE,
   LLM_RPC_HANDLERS,
+  // CLI_AUTH_SERVICE - DELETED (SDK-only migration)
 
   // Auth Secrets (TASK_2025_076)
   AUTH_SECRETS_SERVICE,
@@ -391,7 +393,7 @@ export const TOKENS = {
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
   PERMISSION_PROMPT_SERVICE,
-  IMAGE_GENERATION_SERVICE,
+  // IMAGE_GENERATION_SERVICE - DELETED (SDK-only migration)
 
   // ========================================
   // AI Providers Core (DELETED - library removed)

@@ -368,6 +368,8 @@ export async function activate(
     rpcMethodRegistration.registerAll();
     console.log('[Activate] Step 5: RPC methods registered');
 
+    // Step 5.1: CLI auth removed (SDK-only migration - no Google/OpenAI providers)
+
     // Initialize autocomplete discovery watchers (TASK_2025_019 Phase 2)
     // NOTE: MCP discovery service was planned but never implemented - only agent and command discovery exist
     console.log('[Activate] Step 6: Initializing autocomplete watchers...');

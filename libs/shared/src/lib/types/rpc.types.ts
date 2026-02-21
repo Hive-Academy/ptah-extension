@@ -1041,17 +1041,14 @@ export interface CommandExecuteResponse {
 }
 
 // ============================================================
-// LLM Provider RPC Types (TASK_2025_155: SDK-only migration)
+// LLM Provider RPC Types (SDK-only migration: vscode-lm only)
 // ============================================================
 
-/** LLM Provider names (3 remaining after Langchain removal) */
-export type LlmProviderName = 'openai' | 'google-genai' | 'vscode-lm';
+/** LLM Provider names (SDK-only migration: only vscode-lm remains) */
+export type LlmProviderName = 'vscode-lm';
 
 /** LLM Provider capability flags */
-export type LlmProviderCapability =
-  | 'text-chat'
-  | 'image-generation'
-  | 'structured-output';
+export type LlmProviderCapability = 'text-chat' | 'structured-output';
 
 /** Response from llm:getProviderStatus RPC method */
 export interface LlmProviderStatusResponse {
@@ -1140,6 +1137,8 @@ export interface LlmListProviderModelsResponse {
   models: Array<{ id: string; displayName: string }>;
   error?: string;
 }
+
+// CLI Auth RPC Types - DELETED (SDK-only migration: no Google/OpenAI CLI auth)
 
 // ============================================================
 // Quality Dashboard RPC Types (TASK_2025_144)
@@ -1420,6 +1419,8 @@ export interface RpcMethodRegistry {
     result: LlmListProviderModelsResponse;
   };
 
+  // LLM CLI Auth Methods - DELETED (SDK-only migration)
+
   // ---- Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132) ----
   'provider:listModels': {
     params: ProviderListModelsParams;
@@ -1584,6 +1585,8 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'llm:validateApiKeyFormat',
   'llm:listVsCodeModels',
   'llm:listProviderModels',
+
+  // LLM CLI Auth Methods - DELETED (SDK-only migration)
 
   // Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   'provider:listModels',

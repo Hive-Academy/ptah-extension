@@ -6,6 +6,43 @@ allowed-tools: Bash(agent-browser:*)
 
 # Browser Automation with agent-browser
 
+## Installation
+
+**Homepage**: https://agent-browser.dev/
+
+### Prerequisites
+
+- **Node.js** (for npm/npx installation)
+- **Supported platforms**: macOS (ARM64/x64), Linux (ARM64/x64), Windows (x64)
+
+### Install via npm (Recommended)
+
+```bash
+npm install -g agent-browser
+```
+
+### Install via Homebrew (macOS)
+
+```bash
+brew install agent-browser
+```
+
+### Try without installing
+
+```bash
+npx agent-browser open example.com
+```
+
+### Verify installation
+
+```bash
+agent-browser --version
+```
+
+> **Architecture note**: agent-browser uses a client-daemon architecture. The daemon automatically starts on first use and persists between commands - no manual service management needed.
+
+---
+
 ## Quick start
 
 ```bash

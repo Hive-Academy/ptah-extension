@@ -4,11 +4,14 @@
  * Manages LLM provider configuration from VS Code settings.
  * Reads default provider and model settings, provides available provider info.
  *
+ * SDK-only migration: Only VS Code Language Model provider is supported.
+ *
  * @packageDocumentation
  */
 
 import { injectable, inject } from 'tsyringe';
 import { ConfigManager, TOKENS, Logger } from '@ptah-extension/vscode-core';
+import type { ExtensionContext } from 'vscode';
 import {
   LlmProviderName,
   SUPPORTED_PROVIDERS,
@@ -60,7 +63,9 @@ export class LlmConfigurationService {
     @inject(TOKENS.LLM_SECRETS_SERVICE)
     private readonly secrets: ILlmSecretsService,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    @inject(TOKENS.EXTENSION_CONTEXT)
+    private readonly context: ExtensionContext
   ) {
     this.logger.info(
       '[LlmConfigurationService.constructor] Service initialized'
@@ -74,12 +79,6 @@ export class LlmConfigurationService {
    * Falls back to 'vscode-lm' if not configured or invalid.
    *
    * @returns Default provider name from settings, or 'vscode-lm' if not set
-   *
-   * @example
-   * ```typescript
-   * const defaultProvider = configService.getDefaultProvider();
-   * console.log(`Default: ${defaultProvider}`); // "google-genai" or "vscode-lm"
-   * ```
    */
   getDefaultProvider(): LlmProviderName {
     const provider = this.config.get<string>('llm.defaultProvider');
@@ -95,23 +94,25 @@ export class LlmConfigurationService {
   /**
    * Get the default model for a specific provider.
    *
-   * Reads provider-specific settings (e.g., `ptah.llm.openai.model`).
+   * Reads provider-specific settings (e.g., `ptah.llm.vscode.model`).
    * Falls back to built-in defaults from DEFAULT_MODELS constant.
    *
-   * @param provider - Provider name (openai, google-genai, vscode-lm)
+   * @param provider - Provider name (vscode-lm)
    * @returns Default model identifier from settings, or built-in default
-   *
-   * @example
-   * ```typescript
-   * const model = configService.getDefaultModel('openai');
-   * console.log(model); // "gpt-4o" (from settings or default)
-   * ```
    */
   getDefaultModel(provider: LlmProviderName): string {
-    // Map provider name to settings key
     const settingsKey = this.getProviderSettingsKey(provider);
-    const model = this.config.get<string>(`llm.${settingsKey}.model`);
 
+    // Check globalState first (fallback storage when settings.json was dirty)
+    const globalStateKey = `ptah.llm.${settingsKey}.model`;
+    const globalStateModel =
+      this.context.globalState.get<string>(globalStateKey);
+    if (globalStateModel && globalStateModel.trim().length > 0) {
+      return globalStateModel;
+    }
+
+    // Then check VS Code settings
+    const model = this.config.get<string>(`llm.${settingsKey}.model`);
     if (model && model.trim().length > 0) {
       return model;
     }
@@ -123,16 +124,9 @@ export class LlmConfigurationService {
    * Get display name for a provider.
    *
    * Returns human-readable name for UI presentation.
-   * Uses PROVIDER_DISPLAY_NAMES constant, falls back to provider name.
    *
-   * @param provider - Provider name (openai, google-genai, vscode-lm)
-   * @returns Human-readable display name (e.g., "OpenAI (GPT)", "Google (Gemini)")
-   *
-   * @example
-   * ```typescript
-   * const displayName = configService.getProviderDisplayName('openai');
-   * console.log(displayName); // "OpenAI (GPT)"
-   * ```
+   * @param provider - Provider name (vscode-lm)
+   * @returns Human-readable display name (e.g., "VS Code Language Model")
    */
   getProviderDisplayName(provider: LlmProviderName): string {
     return PROVIDER_DISPLAY_NAMES[provider] || provider;
@@ -141,18 +135,10 @@ export class LlmConfigurationService {
   /**
    * Get configuration for all available providers.
    *
-   * Returns only providers with configured API keys (from SecretStorage).
-   * Each provider includes display name, default model, and availability status.
+   * Returns providers that are available for use.
+   * vscode-lm is always available (no API key needed).
    *
-   * @returns Array of provider configurations (only those with API keys)
-   *
-   * @example
-   * ```typescript
-   * const providers = await configService.getAvailableProviders();
-   * providers.forEach(p => {
-   *   console.log(`${p.displayName}: ${p.model} (configured: ${p.isConfigured})`);
-   * });
-   * ```
+   * @returns Array of provider configurations
    */
   async getAvailableProviders(): Promise<LlmProviderConfig[]> {
     const configuredProviders = await this.secrets.getConfiguredProviders();
@@ -185,9 +171,10 @@ export class LlmConfigurationService {
     const configs: LlmProviderConfig[] = [];
 
     for (const provider of SUPPORTED_PROVIDERS) {
+      // vscode-lm is always configured (no API key needed)
       const isConfigured =
         provider === 'vscode-lm'
-          ? true // vscode-lm doesn't need an API key
+          ? true
           : await this.secrets.hasApiKey(provider);
 
       configs.push({
@@ -210,16 +197,8 @@ export class LlmConfigurationService {
    * Get full LLM configuration state.
    *
    * Returns complete configuration snapshot including default provider and all available providers.
-   * Useful for UI rendering or configuration validation.
    *
    * @returns Complete configuration including default provider and all available providers
-   *
-   * @example
-   * ```typescript
-   * const config = await configService.getConfiguration();
-   * console.log(`Default: ${config.defaultProvider}`);
-   * console.log(`Available: ${config.providers.length} providers`);
-   * ```
    */
   async getConfiguration(): Promise<LlmConfiguration> {
     const defaultProvider = this.getDefaultProvider();
@@ -240,12 +219,9 @@ export class LlmConfigurationService {
 
   /**
    * Map provider name to settings key
-   * Handles cases where provider name differs from settings key (e.g., google-genai -> google)
    */
   private getProviderSettingsKey(provider: LlmProviderName): string {
     switch (provider) {
-      case 'google-genai':
-        return 'google';
       case 'vscode-lm':
         return 'vscode';
       default:

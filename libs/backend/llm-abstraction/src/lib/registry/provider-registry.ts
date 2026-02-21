@@ -4,6 +4,8 @@
  * This registry uses dynamic imports to load providers on-demand.
  * This enables tree-shaking - unused providers are not bundled.
  *
+ * SDK-only migration: Only VS Code Language Model provider is supported.
+ *
  * @packageDocumentation
  */
 
@@ -37,8 +39,6 @@ const PROVIDER_CREATION_TIMEOUT_MS = 30000;
  *
  * Supported providers:
  * - vscode-lm (VS Code Language Model API - no API key needed)
- * - openai (GPT-4o via native OpenAI SDK)
- * - google-genai (Gemini via native @google/genai SDK)
  *
  * Error Handling Pattern (TASK_2025_073 Batch 3):
  * - Public methods return Result<T, LlmProviderError>
@@ -70,32 +70,21 @@ export class ProviderRegistry {
    *
    * Only loads the provider module when actually needed (lazy loading).
    * Provider factories are cached for subsequent creations.
-   * Automatically retrieves API keys from SecretStorage.
    * Times out after 30 seconds if provider creation hangs.
    *
-   * TASK_2025_073 Batch 3: Added timeout protection (30s default)
-   *
-   * @param providerName - Name of the provider (openai, google-genai, vscode-lm)
-   * @param model - Model identifier to use (e.g., 'gpt-4o', 'gemini-2.5-flash')
+   * @param providerName - Name of the provider (vscode-lm)
+   * @param model - Model identifier to use (e.g., 'copilot/gpt-4o')
    * @param timeoutMs - Optional timeout in milliseconds (default: 30000)
    * @returns Result containing ILlmProvider instance on success, or LlmProviderError on failure
-   *
-   * @example
-   * ```typescript
-   * const result = await registry.createProvider('openai', 'gpt-4o');
-   * if (result.isOk()) {
-   *   const provider = result.value;
-   *   await provider.getCompletion('system', 'user prompt');
-   * }
-   * ```
    */
   public async createProvider(
     providerName: LlmProviderName,
     model: string,
     timeoutMs: number = PROVIDER_CREATION_TIMEOUT_MS
   ): Promise<Result<ILlmProvider, LlmProviderError>> {
+    let timerId: ReturnType<typeof setTimeout> | undefined;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
+      timerId = setTimeout(() => {
         reject(
           new LlmProviderError(
             `Provider creation timed out after ${timeoutMs}ms`,
@@ -108,8 +97,11 @@ export class ProviderRegistry {
 
     try {
       const creationPromise = this.createProviderInternal(providerName, model);
-      return await Promise.race([creationPromise, timeoutPromise]);
+      const result = await Promise.race([creationPromise, timeoutPromise]);
+      clearTimeout(timerId);
+      return result;
     } catch (error) {
+      clearTimeout(timerId);
       if (error instanceof LlmProviderError) {
         return Result.err(error);
       }
@@ -119,8 +111,6 @@ export class ProviderRegistry {
 
   /**
    * Internal provider creation logic (extracted for timeout wrapper).
-   *
-   * TASK_2025_073 Batch 3: Extracted to enable timeout wrapping
    *
    * @param providerName - Name of the provider
    * @param model - Model name to use
@@ -149,36 +139,18 @@ export class ProviderRegistry {
       );
     }
 
-    // Check API key (except vscode-lm)
-    if (providerName !== 'vscode-lm') {
-      const hasKey = await this.secrets.hasApiKey(providerName);
-      if (!hasKey) {
-        const msg = `No API key configured for ${providerName}. Store API keys using SecretStorage.`;
-        this.logger.warn(
-          '[ProviderRegistry.createProviderInternal] Missing API key',
-          {
-            providerName,
-          }
-        );
-        return Result.err(
-          new LlmProviderError(msg, 'API_KEY_MISSING', providerName)
-        );
-      }
-    }
-
     // Get or dynamically load factory
     const factoryResult = await this.getOrLoadFactory(providerName);
     if (factoryResult.isErr()) {
       return Result.err(factoryResult.error!);
     }
 
-    // Get API key and invoke factory
+    // vscode-lm doesn't need an API key
     const apiKey = await this.getApiKeyForProvider(providerName);
     const factory = factoryResult.value!;
 
     try {
       const result = factory(apiKey, model);
-      // Handle both sync and async factories
       const providerResult = result instanceof Promise ? await result : result;
 
       if (providerResult.isOk()) {
@@ -207,16 +179,9 @@ export class ProviderRegistry {
   /**
    * Get list of providers that have API keys configured.
    *
-   * Checks SecretStorage for configured API keys.
    * vscode-lm is always included (no API key needed).
    *
-   * @returns Array of provider names with configured keys (e.g., ['vscode-lm', 'openai'])
-   *
-   * @example
-   * ```typescript
-   * const available = await registry.getAvailableProviders();
-   * console.log(`Available providers: ${available.join(', ')}`);
-   * ```
+   * @returns Array of provider names with configured keys (e.g., ['vscode-lm'])
    */
   public async getAvailableProviders(): Promise<LlmProviderName[]> {
     return this.secrets.getConfiguredProviders();
@@ -225,20 +190,10 @@ export class ProviderRegistry {
   /**
    * Check if a specific provider is available (has API key configured).
    *
-   * Checks SecretStorage for the provider's API key.
    * vscode-lm always returns true (no API key needed).
    *
-   * @param providerName - Provider name to check (openai, google-genai, vscode-lm)
+   * @param providerName - Provider name to check (vscode-lm)
    * @returns true if provider is available, false otherwise
-   *
-   * @example
-   * ```typescript
-   * if (await registry.isProviderAvailable('openai')) {
-   *   await registry.createProvider('openai', 'gpt-4o');
-   * } else {
-   *   console.error('OpenAI API key not configured');
-   * }
-   * ```
    */
   public async isProviderAvailable(
     providerName: LlmProviderName
@@ -249,16 +204,7 @@ export class ProviderRegistry {
   /**
    * Get list of all supported providers (regardless of API key configuration).
    *
-   * Returns all providers supported by the registry, even if API keys are not configured.
-   *
    * @returns Readonly array of all supported provider names
-   *
-   * @example
-   * ```typescript
-   * const supported = registry.getSupportedProviders();
-   * console.log(`Supported: ${supported.join(', ')}`);
-   * // "Supported: openai, google-genai, vscode-lm"
-   * ```
    */
   public getSupportedProviders(): readonly LlmProviderName[] {
     return SUPPORTED_PROVIDERS;
@@ -342,8 +288,6 @@ export class ProviderRegistry {
 
   /**
    * Get API key for provider with SecretStorage error handling.
-   *
-   * TASK_2025_073 Batch 3: Wrap SecretStorage calls in try/catch
    *
    * @param providerName - Provider to get API key for
    * @returns API key string (empty string if vscode-lm or SecretStorage fails)

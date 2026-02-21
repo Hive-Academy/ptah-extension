@@ -6,12 +6,8 @@
  * This is the core entry point for the LLM abstraction library.
  * It exports interfaces, errors, base classes, services, and DI registration.
  *
- * **IMPORTANT**: Individual providers are NOT exported here to enable tree-shaking.
- * Use secondary entry points for specific providers:
- *
- * - `@ptah-extension/llm-abstraction/vscode-lm` - VS Code LM (no external deps)
- * - `@ptah-extension/llm-abstraction/openai` - OpenAI GPT (native SDK)
- * - `@ptah-extension/llm-abstraction/google` - Google Gemini (native SDK)
+ * Only the VS Code Language Model provider is supported.
+ * The vscode-lm provider is loaded via its secondary entry point for tree-shaking.
  *
  * @example
  * ```typescript
@@ -24,9 +20,7 @@
  *   registerLlmAbstractionServices
  * } from '@ptah-extension/llm-abstraction';
  *
- * // Provider imports (only loads that provider's deps)
- * import { createOpenAIProvider } from '@ptah-extension/llm-abstraction/openai';
- * import { createGoogleProvider } from '@ptah-extension/llm-abstraction/google';
+ * // Provider import (only loads vscode-lm deps)
  * import { createVsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
  * ```
  */
@@ -66,18 +60,15 @@ export {
   type LlmProviderConfig,
   type LlmConfiguration,
 } from './lib/services/llm-configuration.service';
-
 // ========================================
 // DI Registration
 // ========================================
 export { registerLlmAbstractionServices } from './lib/di';
 
 // ========================================
-// PROVIDERS - Use secondary entry points instead!
+// PROVIDERS - Use secondary entry point
 // ========================================
-// Providers are intentionally NOT exported here to enable tree-shaking.
-// Import from secondary entry points:
+// The vscode-lm provider is intentionally NOT exported here to enable tree-shaking.
+// Import from the secondary entry point:
 //
 // import { VsCodeLmProvider, createVsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
-// import { OpenAIProvider, createOpenAIProvider } from '@ptah-extension/llm-abstraction/openai';
-// import { GoogleGenAIProvider, createGoogleProvider } from '@ptah-extension/llm-abstraction/google';

@@ -1,18 +1,18 @@
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import {
+  APP_INITIALIZER,
   ApplicationConfig,
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
-  APP_INITIALIZER,
 } from '@angular/core';
-import { AuthInitializerService } from './services/auth-initializer.service';
 import { provideRouter } from '@angular/router';
-import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import { provideGsap } from '@hive-academy/angular-gsap';
 import { provideMarkdown } from 'ngx-markdown';
-import { provideGsap, provideLenis } from '@hive-academy/angular-gsap';
-import { routes } from './app.routes';
-import { apiInterceptor } from './interceptors/api.interceptor';
-import { providePaddleConfig } from './config/paddle.config';
 import { environment } from '../environments/environment';
+import { routes } from './app.routes';
+import { providePaddleConfig } from './config/paddle.config';
+import { apiInterceptor } from './interceptors/api.interceptor';
+import { AuthInitializerService } from './services/auth-initializer.service';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -52,13 +52,13 @@ export const appConfig: ApplicationConfig = {
       },
     }),
     // Lenis smooth scroll for premium scroll experience
-    provideLenis({
-      lerp: 0.075, // 7.5% interpolation - smoother but responsive to fast scrolling
-      duration: 1.2, // Fallback duration for consistent timing (lerp takes priority)
-      wheelMultiplier: 0.8, // Slightly reduced wheel sensitivity to prevent jumping
-      touchMultiplier: 1.5, // Balanced touch responsiveness
-      smoothWheel: true, // Smooth wheel scrolling
-      useGsapTicker: true, // Sync with GSAP for animations
-    }),
+    // provideLenis({
+    //   lerp: 0.05, // 5% interpolation - smoother but responsive to fast scrolling
+    //   duration: 1.2, // Fallback duration for consistent timing (lerp takes priority)
+    //   wheelMultiplier: 1.4, // Slightly reduced wheel sensitivity to prevent jumping
+    //   touchMultiplier: 1.2, // Balanced touch responsiveness
+    //   smoothWheel: true, // Smooth wheel scrolling
+    //   useGsapTicker: true, // Sync with GSAP for animations
+    // }),
   ],
 };

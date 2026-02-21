@@ -7,11 +7,7 @@
  * This file centralizes all service registrations for the llm-abstraction library.
  * Following the standardized registration pattern established in agent-sdk and agent-generation.
  *
- * Pattern:
- * - Function signature: registerLlmAbstractionServices(container, logger)
- * - Uses injected container (no global import)
- * - Uses injected logger (no console.log)
- * - Logs registration start and completion
+ * SDK-only migration: Removed CliAuthService and Google/OpenAI provider registrations.
  *
  * Registration Order (dependency chain):
  * 1. LlmSecretsService - needs EXTENSION_CONTEXT, LOGGER
@@ -47,18 +43,6 @@ import { ProviderRegistry } from '../registry/provider-registry';
  *
  * @param container - TSyringe DI container
  * @param logger - Logger instance for registration logging
- *
- * @example
- * ```typescript
- * import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
- *
- * // In container.ts
- * registerLlmAbstractionServices(container, logger);
- *
- * // Resolve services
- * const llmService = container.resolve<LlmService>(TOKENS.LLM_SERVICE);
- * const secrets = container.resolve<LlmSecretsService>(TOKENS.LLM_SECRETS_SERVICE);
- * ```
  */
 export function registerLlmAbstractionServices(
   container: DependencyContainer,

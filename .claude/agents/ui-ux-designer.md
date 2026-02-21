@@ -30,14 +30,20 @@ Read(.claude/skills/ui-ux-designer/SKILL.md)
 # For aesthetic discovery
 Read(.claude/skills/ui-ux-designer/NICHE-DISCOVERY.md)
 
-# For building design systems
+# For building design systems (includes Phase 0: investigation)
 Read(.claude/skills/ui-ux-designer/DESIGN-SYSTEM-BUILDER.md)
 
-# For generating assets with AI tools
+# For generating assets with AI tools (includes Ptah Native integration)
 Read(.claude/skills/ui-ux-designer/ASSET-GENERATION.md)
 
-# For inspiration and reference patterns
+# For inspiration, reference patterns, and modern design techniques
 Read(.claude/skills/ui-ux-designer/REFERENCE-LIBRARY.md)
+
+# For content-driven layout selection (Spotlight, Card Grid, Hybrid, Comparison)
+Read(.claude/skills/ui-ux-designer/LAYOUT-PATTERNS.md)
+
+# For design specs, workflow phases, handoff docs, and return format
+Read(.claude/skills/ui-ux-designer/DEVELOPER-HANDOFF.md)
 ```
 
 ---
@@ -67,10 +73,12 @@ Based on user request, choose the appropriate workflow:
 1. Check: Does design system exist?
    - Yes → Load existing system
    - No → Run Workflow A first
-2. Load: REFERENCE-LIBRARY.md for layout patterns
-3. Create section-by-section specifications
-4. Load: ASSET-GENERATION.md for visual assets
-5. Output: Visual design specification + asset briefs
+2. Load: LAYOUT-PATTERNS.md for content-driven layout selection
+3. Load: REFERENCE-LIBRARY.md for aesthetic patterns + modern techniques
+4. Create section-by-section specifications
+5. Load: ASSET-GENERATION.md for visual assets
+6. Load: DEVELOPER-HANDOFF.md for spec templates + handoff docs
+7. Output: Visual design specification + asset briefs + developer handoff
 ```
 
 ### Workflow C: Asset Generation

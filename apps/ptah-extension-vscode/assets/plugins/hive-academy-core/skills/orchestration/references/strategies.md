@@ -53,7 +53,7 @@ Phase 4: software-architect --> Creates implementation-plan.md
          v
 Phase 5: team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
          |
-         USER CHOOSES QA (tester/style/logic/reviewers/all/skip)
+         USER CHOOSES QA (tester/style/logic/visual/reviewers/all/skip)
          |
          v
 Phase 6: [QA agents as chosen]

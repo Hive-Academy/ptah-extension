@@ -82,14 +82,24 @@ export class MessageFinalizationService {
       (e) => e.eventType === 'message_complete' && e.messageId === messageId
     ) as MessageCompleteEvent | undefined;
 
-    // Extract metadata from message_complete event
+    // pendingStats comes from the SDK result message (session-end stats).
+    // It contains authoritative session totals (including cache tokens) and is
+    // ALWAYS more accurate than per-message message_complete tokenUsage, which
+    // only reports non-cached tokens for a single API call.
+    const pendingStats = stateCopy.pendingStats;
+
+    // Extract metadata: pendingStats takes priority over message_complete
     let tokens:
       | { input: number; output: number; cacheHit?: number }
       | undefined;
     let cost: number | undefined;
     let duration: number | undefined;
 
-    if (completeEvent?.tokenUsage) {
+    if (pendingStats) {
+      tokens = pendingStats.tokens;
+      cost = pendingStats.cost;
+      duration = pendingStats.duration;
+    } else if (completeEvent?.tokenUsage) {
       tokens = {
         input: completeEvent.tokenUsage.input,
         output: completeEvent.tokenUsage.output,
@@ -98,13 +108,9 @@ export class MessageFinalizationService {
       duration = completeEvent.duration;
     }
 
-    // Apply pendingStats if message_complete event wasn't found but we have stored stats
-    const pendingStats = stateCopy.pendingStats;
-    const finalTokens =
-      tokens ?? (pendingStats ? pendingStats.tokens : undefined);
-    const finalCost = cost ?? (pendingStats ? pendingStats.cost : undefined);
-    const finalDuration =
-      duration ?? (pendingStats ? pendingStats.duration : undefined);
+    const finalTokens = tokens;
+    const finalCost = cost;
+    const finalDuration = duration;
 
     // DEDUPLICATION FIX: Use tree node ID (message_start event id) NOT messageId.
     // This ensures the finalized message ID matches the streaming tree ID,

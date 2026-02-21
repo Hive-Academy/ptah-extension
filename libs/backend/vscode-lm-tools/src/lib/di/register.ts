@@ -23,7 +23,6 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import { PtahAPIBuilder } from '../code-execution/ptah-api-builder.service';
 import { CodeExecutionMCP } from '../code-execution/code-execution-mcp.service';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
-import { ImageGenerationService } from '../code-execution/services/image-generation.service';
 
 /**
  * Register vscode-lm-tools services in DI container
@@ -80,18 +79,11 @@ export function registerVsCodeLmToolsServices(
     PermissionPromptService
   );
 
-  // Image Generation Service (TASK_2025_155)
-  container.registerSingleton(
-    TOKENS.IMAGE_GENERATION_SERVICE,
-    ImageGenerationService
-  );
-
   logger.info('[VS Code LM Tools] Services registered', {
     services: [
       'PTAH_API_BUILDER',
       'CODE_EXECUTION_MCP',
       'PERMISSION_PROMPT_SERVICE',
-      'IMAGE_GENERATION_SERVICE',
     ],
   });
 }
