@@ -264,27 +264,38 @@
         "ptah.llm.defaultProvider": {
           "type": "string",
           "enum": [
-            "openai",
-            "google-genai",
             "vscode-lm"
           ],
           "default": "vscode-lm",
           "description": "Default LLM provider for ptah.llm.* MCP tools."
         },
-        "ptah.llm.openai.model": {
-          "type": "string",
-          "default": "gpt-4o",
-          "description": "Default model for the OpenAI provider."
-        },
-        "ptah.llm.google.model": {
-          "type": "string",
-          "default": "gemini-2.5-flash",
-          "description": "Default model for the Google Gemini provider."
-        },
         "ptah.llm.vscode.model": {
           "type": "string",
           "default": "copilot/gpt-4o",
           "description": "Default model for the VS Code Language Model provider (vendor/family format)."
+        },
+        "ptah.agentOrchestration.defaultCli": {
+          "type": "string",
+          "enum": [
+            "gemini",
+            "codex"
+          ],
+          "default": "gemini",
+          "description": "Default CLI agent to use when spawning agents. Auto-detected if not set."
+        },
+        "ptah.agentOrchestration.maxConcurrentAgents": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Maximum number of concurrent CLI agent processes."
+        },
+        "ptah.agentOrchestration.defaultTimeout": {
+          "type": "number",
+          "default": 600000,
+          "minimum": 60000,
+          "maximum": 1800000,
+          "description": "Default timeout for CLI agent processes in milliseconds (10 min default, 30 min max)."
         }
       }
     }
