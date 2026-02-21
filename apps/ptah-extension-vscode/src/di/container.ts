@@ -54,6 +54,7 @@ import {
   QualityRpcHandlers, // TASK_2025_144: Quality Dashboard
   WizardGenerationRpcHandlers, // TASK_2025_148: Wizard Generation Pipeline
   PluginRpcHandlers, // TASK_2025_153: Plugin Configuration
+  AgentRpcHandlers, // TASK_2025_157: Agent Orchestration
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -259,6 +260,9 @@ export class DIContainer {
     // TASK_2025_153: Plugin Configuration RPC handlers
     container.registerSingleton(PluginRpcHandlers);
 
+    // TASK_2025_157: Agent Orchestration RPC handlers
+    container.registerSingleton(AgentRpcHandlers);
+
     // TASK_2025_148: Wizard Generation RPC handlers (requires container for lazy resolution)
     container.register(WizardGenerationRpcHandlers, {
       useFactory: (c) =>
@@ -302,6 +306,7 @@ export class DIContainer {
           c.resolve(QualityRpcHandlers), // TASK_2025_144
           c.resolve(WizardGenerationRpcHandlers), // TASK_2025_148
           c.resolve(PluginRpcHandlers), // TASK_2025_153
+          c.resolve(AgentRpcHandlers), // TASK_2025_157
           c // Pass container instance
         );
       },

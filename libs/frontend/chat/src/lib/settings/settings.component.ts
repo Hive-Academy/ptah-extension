@@ -6,6 +6,7 @@ import {
   signal,
   OnInit,
 } from '@angular/core';
+import { TitleCasePipe } from '@angular/common';
 import {
   LucideAngularModule,
   ArrowLeft,
@@ -20,6 +21,8 @@ import {
   AlertTriangle,
   Cpu,
   LogOut,
+  Terminal,
+  RefreshCw,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
 import { ProviderModelSelectorComponent } from './provider-model-selector.component';
@@ -30,7 +33,11 @@ import {
   AuthStateService,
 } from '@ptah-extension/core';
 import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
-import type { EnhancedPromptsGetStatusResponse } from '@ptah-extension/shared';
+import type {
+  EnhancedPromptsGetStatusResponse,
+  AgentOrchestrationConfig,
+} from '@ptah-extension/shared';
+import type { CliType } from '@ptah-extension/shared';
 import { ChatStore } from '../services/chat.store';
 import { MarkdownBlockComponent } from '../components/atoms/markdown-block.component';
 
@@ -63,6 +70,7 @@ import { MarkdownBlockComponent } from '../components/atoms/markdown-block.compo
     LlmProvidersConfigComponent,
     LucideAngularModule,
     MarkdownBlockComponent,
+    TitleCasePipe,
   ],
   templateUrl: './settings.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -90,6 +98,8 @@ export class SettingsComponent implements OnInit {
   readonly AlertTriangleIcon = AlertTriangle;
   readonly CpuIcon = Cpu;
   readonly LogOutIcon = LogOut;
+  readonly TerminalIcon = Terminal;
+  readonly RefreshCwIcon = RefreshCw;
 
   // Tab state for settings page (3-tab layout)
   readonly activeSettingsTab = signal<
@@ -108,6 +118,20 @@ export class SettingsComponent implements OnInit {
   readonly promptPreviewContent = signal<string | null>(null);
   readonly promptPreviewExpanded = signal(false);
   readonly isDownloading = signal(false);
+
+  // ============================================================
+  // Agent Orchestration state signals (TASK_2025_157)
+  // ============================================================
+
+  readonly agentConfig = signal<AgentOrchestrationConfig | null>(null);
+  readonly agentConfigLoading = signal(false);
+  readonly agentConfigError = signal<string | null>(null);
+  readonly isDetectingClis = signal(false);
+
+  readonly hasInstalledCli = computed(() => {
+    const config = this.agentConfig();
+    return config ? config.detectedClis.some((c) => c.installed) : false;
+  });
 
   // ============================================================
   // License status computed signals (derived from ChatStore)
@@ -378,9 +402,10 @@ export class SettingsComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     // Only load auth status - license status is already in ChatStore
     await this.authState.loadAuthStatus();
-    // Load enhanced prompts status for premium users (TASK_2025_151)
+    // Load enhanced prompts status and agent config for premium users
     if (this.isPremium()) {
       await this.loadEnhancedPromptsStatus();
+      this.loadAgentConfig(); // Fire-and-forget (non-blocking)
     }
   }
 
@@ -549,6 +574,94 @@ export class SettingsComponent implements OnInit {
       });
     } finally {
       this.isDownloading.set(false);
+    }
+  }
+
+  // ============================================================
+  // Agent Orchestration methods (TASK_2025_157)
+  // ============================================================
+
+  /**
+   * Load agent orchestration config from backend.
+   * Called on init for premium users.
+   */
+  async loadAgentConfig(): Promise<void> {
+    this.agentConfigLoading.set(true);
+    this.agentConfigError.set(null);
+    try {
+      const result = await this.rpcService.call('agent:getConfig', undefined);
+      if (result.isSuccess()) {
+        this.agentConfig.set(result.data);
+      } else {
+        this.agentConfigError.set(result.error ?? 'Failed to load config');
+      }
+    } catch {
+      this.agentConfigError.set('Failed to load agent orchestration config');
+    } finally {
+      this.agentConfigLoading.set(false);
+    }
+  }
+
+  /**
+   * Set the default CLI for agent orchestration.
+   */
+  async setAgentDefaultCli(cli: string): Promise<void> {
+    const value = cli === 'auto' ? null : (cli as CliType);
+    const result = await this.rpcService.call('agent:setConfig', {
+      defaultCli: value,
+    });
+    if (result.isSuccess()) {
+      this.agentConfig.update((c) => (c ? { ...c, defaultCli: value } : c));
+    }
+  }
+
+  /**
+   * Set maximum concurrent agents.
+   */
+  async setAgentMaxConcurrent(value: number): Promise<void> {
+    const result = await this.rpcService.call('agent:setConfig', {
+      maxConcurrentAgents: value,
+    });
+    if (result.isSuccess()) {
+      this.agentConfig.update((c) =>
+        c ? { ...c, maxConcurrentAgents: value } : c
+      );
+    }
+  }
+
+  /**
+   * Set the default timeout (in minutes).
+   */
+  async setAgentTimeout(minutes: number): Promise<void> {
+    const result = await this.rpcService.call('agent:setConfig', {
+      defaultTimeout: minutes,
+    });
+    if (result.isSuccess()) {
+      this.agentConfig.update((c) =>
+        c ? { ...c, defaultTimeout: minutes } : c
+      );
+    }
+  }
+
+  /**
+   * Re-detect CLI agents (invalidates cache).
+   */
+  async redetectClis(): Promise<void> {
+    this.isDetectingClis.set(true);
+    this.agentConfigError.set(null);
+    try {
+      const result = await this.rpcService.call('agent:detectClis', undefined);
+      if (result.isSuccess()) {
+        this.agentConfig.update((c) =>
+          c ? { ...c, detectedClis: result.data.clis } : c
+        );
+      } else {
+        this.agentConfigError.set(result.error ?? 'Detection failed');
+      }
+    } catch {
+      this.agentConfigError.set('Failed to detect CLI agents');
+    } finally {
+      this.isDetectingClis.set(false);
     }
   }
 }

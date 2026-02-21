@@ -1221,6 +1221,32 @@ export interface PluginConfigState {
 }
 
 // ============================================================
+// Agent Orchestration RPC Types (TASK_2025_157)
+// ============================================================
+
+/** Agent orchestration configuration for settings UI */
+export interface AgentOrchestrationConfig {
+  /** Detected CLI agents (Gemini, Codex) */
+  detectedClis: import('./agent-process.types').CliDetectionResult[];
+  /** Default CLI to use (null = auto-detect) */
+  defaultCli: import('./agent-process.types').CliType | null;
+  /** Maximum concurrent agents (1-10) */
+  maxConcurrentAgents: number;
+  /** Default timeout in minutes */
+  defaultTimeout: number;
+}
+
+/** Parameters for agent:setConfig RPC method */
+export interface AgentSetConfigParams {
+  /** Default CLI to use (null = auto-detect) */
+  defaultCli?: import('./agent-process.types').CliType | null;
+  /** Maximum concurrent agents (1-10) */
+  maxConcurrentAgents?: number;
+  /** Default timeout in minutes */
+  defaultTimeout?: number;
+}
+
+// ============================================================
 // RPC Method Registry (Compile-Time Enforcement)
 // ============================================================
 
@@ -1496,6 +1522,20 @@ export interface RpcMethodRegistry {
     params: { enabledPluginIds: string[] };
     result: { success: boolean; error?: string };
   };
+
+  // ---- Agent Orchestration Methods (TASK_2025_157) ----
+  'agent:getConfig': {
+    params: void;
+    result: AgentOrchestrationConfig;
+  };
+  'agent:setConfig': {
+    params: AgentSetConfigParams;
+    result: { success: boolean; error?: string };
+  };
+  'agent:detectClis': {
+    params: void;
+    result: { clis: import('./agent-process.types').CliDetectionResult[] };
+  };
 }
 
 /**
@@ -1610,6 +1650,11 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'plugins:list-available',
   'plugins:get-config',
   'plugins:save-config',
+
+  // Agent Orchestration Methods (TASK_2025_157)
+  'agent:getConfig',
+  'agent:setConfig',
+  'agent:detectClis',
 ] as const;
 
 /**

@@ -50,6 +50,7 @@ import { EnhancedPromptsRpcHandlers } from './handlers/enhanced-prompts-rpc.hand
 import { QualityRpcHandlers } from './handlers/quality-rpc.handlers';
 import { WizardGenerationRpcHandlers } from './handlers/wizard-generation-rpc.handlers'; // TASK_2025_148
 import { PluginRpcHandlers } from './handlers/plugin-rpc.handlers'; // TASK_2025_153
+import { AgentRpcHandlers } from './handlers/agent-rpc.handlers'; // TASK_2025_157
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -93,6 +94,7 @@ export class RpcMethodRegistrationService {
     private readonly qualityHandlers: QualityRpcHandlers, // TASK_2025_144
     private readonly wizardGenerationHandlers: WizardGenerationRpcHandlers, // TASK_2025_148
     private readonly pluginHandlers: PluginRpcHandlers, // TASK_2025_153
+    private readonly agentHandlers: AgentRpcHandlers, // TASK_2025_157
     private readonly container: DependencyContainer
   ) {
     // Setup SDK callbacks and listeners
@@ -125,6 +127,7 @@ export class RpcMethodRegistrationService {
     this.qualityHandlers.register(); // TASK_2025_144
     this.wizardGenerationHandlers.register(); // TASK_2025_148
     this.pluginHandlers.register(); // TASK_2025_153
+    this.agentHandlers.register(); // TASK_2025_157
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),

@@ -62,6 +62,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts system (status, wizard, regenerate)
   'quality:', // TASK_2025_144: Quality Dashboard (assessment, history, export)
   'plugins:', // TASK_2025_153: Plugin configuration (list, get-config, save-config)
+  'agent:', // TASK_2025_157: Agent orchestration (getConfig, setConfig, detectClis)
 ] as const;
 
 /**
@@ -89,6 +90,7 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'setup-wizard:', // setup_wizard feature
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
   'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts (Pro-only intelligent prompt generation)
+  'agent:', // TASK_2025_157: Agent orchestration (Pro-only headless CLI agents)
 ] as const;
 
 /**

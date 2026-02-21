@@ -462,6 +462,44 @@ export async function activate(
       '[Activate] Step 7.2: Pricing pre-fetch initiated (background)'
     );
 
+    // Step 7.3: Proactive CLI detection (non-blocking, warms cache for agent orchestration)
+    // TASK_2025_157: Detect installed CLI agents (Gemini, Codex) early so settings UI is instant
+    console.log('[Activate] Step 7.3: Proactive CLI detection...');
+    try {
+      const cliDetection = DIContainer.getContainer().resolve(
+        TOKENS.CLI_DETECTION_SERVICE
+      ) as {
+        detectAll: () => Promise<
+          Array<{ cli: string; installed: boolean; version?: string }>
+        >;
+      };
+      // Fire-and-forget: detectAll caches results internally
+      cliDetection
+        .detectAll()
+        .then((results) => {
+          const installed = results.filter((r) => r.installed);
+          logger.info(
+            `CLI detection complete: ${installed.length}/${results.length} CLIs found`,
+            {
+              clis: installed.map((r) => `${r.cli}@${r.version || 'unknown'}`),
+            }
+          );
+        })
+        .catch((err) => {
+          logger.debug('CLI detection failed (non-blocking)', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    } catch (cliDetectError) {
+      logger.debug('CLI detection setup failed (non-blocking)', {
+        error:
+          cliDetectError instanceof Error
+            ? cliDetectError.message
+            : String(cliDetectError),
+      });
+    }
+    console.log('[Activate] Step 7.3: CLI detection initiated (background)');
+
     // Step 8: Import existing Claude sessions (TASK_2025_091)
     console.log('[Activate] Step 8: Importing existing sessions...');
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
