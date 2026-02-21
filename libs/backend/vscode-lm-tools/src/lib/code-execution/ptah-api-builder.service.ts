@@ -73,11 +73,15 @@ import {
   buildLLMNamespace,
   // Orchestration namespace builder (TASK_2025_111)
   buildOrchestrationNamespace,
+  // Agent namespace builder (TASK_2025_157)
+  buildAgentNamespace,
 } from './namespace-builders';
 import {
   LlmService,
   LlmConfigurationService,
   ILlmSecretsService,
+  AgentProcessManager,
+  CliDetectionService,
 } from '@ptah-extension/llm-abstraction';
 
 @injectable()
@@ -135,13 +139,20 @@ export class PtahAPIBuilder {
     private readonly llmConfigService: LlmConfigurationService,
 
     @inject(TOKENS.LLM_SECRETS_SERVICE)
-    private readonly llmSecretsService: ILlmSecretsService
+    private readonly llmSecretsService: ILlmSecretsService,
+
+    // Agent orchestration services (TASK_2025_157)
+    @inject(TOKENS.AGENT_PROCESS_MANAGER)
+    private readonly agentProcessManager: AgentProcessManager,
+
+    @inject(TOKENS.CLI_DETECTION_SERVICE)
+    private readonly cliDetectionService: CliDetectionService
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 16 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 15 namespaces
+   * Build the complete Ptah API object with all 16 namespaces
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -215,6 +226,12 @@ export class PtahAPIBuilder {
 
       // Orchestration namespace (TASK_2025_111 - workflow state management)
       orchestration: buildOrchestrationNamespace(orchestrationDeps),
+
+      // Agent orchestration namespace (TASK_2025_157)
+      agent: buildAgentNamespace({
+        agentProcessManager: this.agentProcessManager,
+        cliDetectionService: this.cliDetectionService,
+      }),
 
       // Help method at root level (ptah.help())
       help: buildHelpMethod(),

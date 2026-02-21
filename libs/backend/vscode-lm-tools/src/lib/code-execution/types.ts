@@ -8,6 +8,13 @@
  */
 
 import * as vscode from 'vscode';
+import type {
+  SpawnAgentRequest,
+  SpawnAgentResult,
+  AgentProcessInfo,
+  AgentOutput,
+  CliDetectionResult,
+} from '@ptah-extension/shared';
 
 // ========================================
 // Ptah API - Main Interface
@@ -46,6 +53,9 @@ export interface PtahAPI {
 
   // Orchestration workflow state management (TASK_2025_111)
   orchestration: OrchestrationNamespace;
+
+  // Agent orchestration namespace (TASK_2025_157)
+  agent: AgentNamespace;
 
   /**
    * Get help documentation for Ptah API namespaces
@@ -485,6 +495,70 @@ export interface CommandsNamespace {
    * @returns Array of command IDs starting with "ptah."
    */
   list: () => Promise<string[]>;
+}
+
+// ========================================
+// Agent Namespace (TASK_2025_157)
+// ========================================
+
+/**
+ * Agent orchestration namespace
+ * Enables spawning, monitoring, and steering CLI agents as background workers.
+ * Supports fire-and-check async delegation pattern.
+ */
+export interface AgentNamespace {
+  /**
+   * Spawn a CLI agent with a task
+   * @param request - Spawn configuration (task, cli, timeout, files, taskFolder)
+   * @returns Spawn result with agentId
+   */
+  spawn: (request: SpawnAgentRequest) => Promise<SpawnAgentResult>;
+
+  /**
+   * Get status of a specific agent or all agents
+   * @param agentId - Optional agent ID. Omit to get all agents.
+   * @returns Agent status info
+   */
+  status: (agentId?: string) => Promise<AgentProcessInfo | AgentProcessInfo[]>;
+
+  /**
+   * Read agent output (stdout + stderr)
+   * @param agentId - Agent ID
+   * @param tail - Optional: only return last N lines
+   * @returns Agent output
+   */
+  read: (agentId: string, tail?: number) => Promise<AgentOutput>;
+
+  /**
+   * Send steering instruction to agent stdin
+   * @param agentId - Agent ID
+   * @param instruction - Text to send to stdin
+   */
+  steer: (agentId: string, instruction: string) => Promise<void>;
+
+  /**
+   * Stop a running agent
+   * @param agentId - Agent ID
+   * @returns Final agent status
+   */
+  stop: (agentId: string) => Promise<AgentProcessInfo>;
+
+  /**
+   * List available CLI agents with installation status
+   * @returns Array of CLI detection results
+   */
+  list: () => Promise<CliDetectionResult[]>;
+
+  /**
+   * Wait for an agent to complete (polling)
+   * @param agentId - Agent ID
+   * @param options - Poll interval (default: 2000ms), timeout (default: no timeout)
+   * @returns Final agent status
+   */
+  waitFor: (
+    agentId: string,
+    options?: { pollInterval?: number; timeout?: number }
+  ) => Promise<AgentProcessInfo>;
 }
 
 // ========================================
@@ -1490,7 +1564,7 @@ export interface LLMChatOptions {
  * Information about a configured LLM provider
  */
 export interface LLMConfiguredProvider {
-  /** Provider identifier (anthropic, openai, etc.) */
+  /** Provider identifier (e.g., 'vscode-lm') */
   name: string;
 
   /** Human-readable display name */

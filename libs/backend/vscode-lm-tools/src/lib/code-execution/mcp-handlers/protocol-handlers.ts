@@ -26,6 +26,11 @@ import {
   buildLspDefinitionsTool,
   buildGetDirtyFilesTool,
   buildCountTokensTool,
+  buildAgentSpawnTool,
+  buildAgentStatusTool,
+  buildAgentReadTool,
+  buildAgentSteerTool,
+  buildAgentStopTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -140,6 +145,12 @@ function handleToolsList(request: MCPRequest): MCPResponse {
         buildLspDefinitionsTool(),
         buildGetDirtyFilesTool(),
         buildCountTokensTool(),
+        // Agent orchestration tools (TASK_2025_157)
+        buildAgentSpawnTool(),
+        buildAgentStatusTool(),
+        buildAgentReadTool(),
+        buildAgentSteerTool(),
+        buildAgentStopTool(),
         // Power-user tools
         buildExecuteCodeTool(),
         buildApprovalPromptTool(),
@@ -280,6 +291,62 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           JSON.stringify({ file, tokens: tokenCount }, null, 2),
+          deps
+        );
+      }
+
+      // Agent orchestration tools (TASK_2025_157)
+      case 'ptah_agent_spawn': {
+        const result = await ptahAPI.agent.spawn(args as any);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(result, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_agent_status': {
+        const { agentId } = args as { agentId?: string };
+        const result = await ptahAPI.agent.status(agentId);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(result, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_agent_read': {
+        const { agentId, tail } = args as {
+          agentId: string;
+          tail?: number;
+        };
+        const result = await ptahAPI.agent.read(agentId, tail);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(result, null, 2),
+          deps
+        );
+      }
+
+      case 'ptah_agent_steer': {
+        const { agentId, instruction } = args as {
+          agentId: string;
+          instruction: string;
+        };
+        await ptahAPI.agent.steer(agentId, instruction);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify({ agentId, steered: true }),
+          deps
+        );
+      }
+
+      case 'ptah_agent_stop': {
+        const { agentId } = args as { agentId: string };
+        const result = await ptahAPI.agent.stop(agentId);
+        return createToolSuccessResponse(
+          request,
+          JSON.stringify(result, null, 2),
           deps
         );
       }

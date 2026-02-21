@@ -240,6 +240,167 @@ export function buildCountTokensTool(): MCPToolDefinition {
   };
 }
 
+// ========================================
+// Agent Orchestration MCP Tools (TASK_2025_157)
+// ========================================
+
+/**
+ * Build the ptah_agent_spawn tool definition
+ * Spawn a CLI agent to work on a task in the background
+ */
+export function buildAgentSpawnTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_spawn',
+    description:
+      'Spawn a CLI agent (Gemini or Codex) to work on a task in the background. ' +
+      'The agent runs as a headless process while you continue working. ' +
+      'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
+      'Ideal for delegating: code reviews, test generation, documentation, ' +
+      'and other independent subtasks.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: {
+          type: 'string',
+          description:
+            'Task description for the agent. Be specific about what to do, ' +
+            'which files to focus on, and what output to produce.',
+        },
+        cli: {
+          type: 'string',
+          enum: ['gemini', 'codex'],
+          description:
+            'Which CLI to use. Omit to use the default (auto-detected or user-configured).',
+        },
+        workingDirectory: {
+          type: 'string',
+          description:
+            'Working directory for the agent (must be within workspace). Defaults to workspace root.',
+        },
+        timeout: {
+          type: 'number',
+          description:
+            'Timeout in milliseconds (default: 600000 = 10min, max: 1800000 = 30min)',
+        },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of files the agent should focus on',
+        },
+        taskFolder: {
+          type: 'string',
+          description:
+            'Task-tracking folder for shared workspace (e.g., "task-tracking/TASK_2025_157"). ' +
+            'Agent will write deliverables here.',
+        },
+      },
+      required: ['task'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_agent_status tool definition
+ * Check status of one or all agents
+ */
+export function buildAgentStatusTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_status',
+    description:
+      'Check the status of a specific agent or all agents. ' +
+      'Returns agentId, status (running/completed/failed/timeout/stopped), ' +
+      'cli, task, startedAt, duration, and exitCode.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: {
+          type: 'string',
+          description: 'Agent ID to check. Omit to get status of ALL agents.',
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Build the ptah_agent_read tool definition
+ * Read agent output
+ */
+export function buildAgentReadTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_read',
+    description:
+      'Read the stdout/stderr output from an agent. ' +
+      'For running agents, returns output captured so far. ' +
+      'Use tail parameter to get only the last N lines.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: {
+          type: 'string',
+          description: 'Agent ID to read output from',
+        },
+        tail: {
+          type: 'number',
+          description: 'Only return the last N lines of output',
+        },
+      },
+      required: ['agentId'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_agent_steer tool definition
+ * Send instruction to agent stdin
+ */
+export function buildAgentSteerTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_steer',
+    description:
+      'Send a steering instruction to a running agent via stdin. ' +
+      'Only works if the CLI supports interactive input. ' +
+      'Returns error if steering is not supported for the CLI type.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: {
+          type: 'string',
+          description: 'Agent ID to steer',
+        },
+        instruction: {
+          type: 'string',
+          description: 'Instruction text to send to agent stdin',
+        },
+      },
+      required: ['agentId', 'instruction'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_agent_stop tool definition
+ * Stop a running agent
+ */
+export function buildAgentStopTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_stop',
+    description:
+      'Stop a running agent. Sends SIGTERM, waits 5 seconds, then SIGKILL. ' +
+      'If agent is already completed, returns its final status without error.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentId: {
+          type: 'string',
+          description: 'Agent ID to stop',
+        },
+      },
+      required: ['agentId'],
+    },
+  };
+}
+
 /**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().

@@ -51,3 +51,9 @@ export {
   buildOrchestrationNamespace,
   type OrchestrationNamespaceDependencies,
 } from './orchestration-namespace.builder';
+
+// Agent namespace (TASK_2025_157 - async agent orchestration)
+export {
+  buildAgentNamespace,
+  type AgentNamespaceDependencies,
+} from './agent-namespace.builder';
