@@ -105,7 +105,6 @@ interface ILlmConfigurationService {
  * Handles provider status queries and configuration.
  *
  * SDK-only migration: Simplified to vscode-lm provider only.
- * Google GenAI, OpenAI, and CLI auth have been removed.
  *
  * Error Handling Pattern:
  * - Public methods return { success, error? } for RPC safety
@@ -435,8 +434,7 @@ export class LlmRpcHandlers {
   /**
    * List available models for a provider.
    *
-   * SDK-only migration: Only vscode-lm model listing remains.
-   * Google GenAI and OpenAI dynamic API model listing has been removed.
+   * Lists available models for a provider. Only vscode-lm is supported.
    *
    * @param provider - The provider to list models for
    * @returns Array of model objects with id and displayName

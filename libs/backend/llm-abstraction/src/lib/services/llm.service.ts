@@ -31,10 +31,10 @@ import { LlmProviderName } from '../types/provider-types';
  * const llmService = container.resolve<LlmService>(TOKENS.LLM_SERVICE);
  *
  * // Set provider with default model
- * await llmService.setProviderByName('google-genai');
+ * await llmService.setProviderByName('vscode-lm');
  *
  * // Or specify model explicitly
- * await llmService.setProvider('openai', 'gpt-4o');
+ * await llmService.setProvider('vscode-lm', 'claude-sonnet-4-20250514');
  *
  * // Simple completion
  * const result = await llmService.getCompletion(
@@ -163,13 +163,13 @@ export class LlmService implements ILlmService {
    *
    * TASK_2025_073 Batch 2: Thread-safe provider switching with mutex lock
    *
-   * @param providerName - Provider name (openai, google-genai, vscode-lm)
-   * @param model - Model identifier to use (e.g., 'claude-sonnet-4-20250514', 'gpt-4o')
+   * @param providerName - Provider name (vscode-lm)
+   * @param model - Model identifier to use (e.g., 'claude-sonnet-4-20250514')
    * @returns Promise of Result with void on success, or LlmProviderError on failure
    *
    * @example
    * ```typescript
-   * const result = await llmService.setProvider('openai', 'gpt-4o');
+   * const result = await llmService.setProvider('vscode-lm', 'claude-sonnet-4-20250514');
    * if (result.isErr()) {
    *   console.error('Failed to set provider:', result.error.message);
    * }
@@ -233,12 +233,12 @@ export class LlmService implements ILlmService {
    * This is a convenience method that uses LlmConfigurationService for model lookup.
    * Default models are configured via VS Code settings or fall back to built-in defaults.
    *
-   * @param providerName - Provider name (openai, google-genai, vscode-lm)
+   * @param providerName - Provider name (vscode-lm)
    * @returns Promise of Result with void on success, or LlmProviderError on failure
    *
    * @example
    * ```typescript
-   * const result = await llmService.setProviderByName('google-genai');
+   * const result = await llmService.setProviderByName('vscode-lm');
    * // Uses default model from settings (e.g., 'claude-sonnet-4-20250514')
    * ```
    */
@@ -293,7 +293,7 @@ export class LlmService implements ILlmService {
    * if (llmService.hasProvider()) {
    *   const response = await llmService.getCompletion('system', 'user prompt');
    * } else {
-   *   await llmService.setProvider('openai', 'gpt-4o');
+   *   await llmService.setProvider('vscode-lm', 'claude-sonnet-4-20250514');
    * }
    * ```
    */

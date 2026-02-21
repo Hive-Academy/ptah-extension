@@ -1138,8 +1138,6 @@ export interface LlmListProviderModelsResponse {
   error?: string;
 }
 
-// CLI Auth RPC Types - DELETED (SDK-only migration: no Google/OpenAI CLI auth)
-
 // ============================================================
 // Quality Dashboard RPC Types (TASK_2025_144)
 // ============================================================
@@ -1419,8 +1417,6 @@ export interface RpcMethodRegistry {
     result: LlmListProviderModelsResponse;
   };
 
-  // LLM CLI Auth Methods - DELETED (SDK-only migration)
-
   // ---- Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132) ----
   'provider:listModels': {
     params: ProviderListModelsParams;
@@ -1585,8 +1581,6 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'llm:validateApiKeyFormat',
   'llm:listVsCodeModels',
   'llm:listProviderModels',
-
-  // LLM CLI Auth Methods - DELETED (SDK-only migration)
 
   // Provider Model Methods (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   'provider:listModels',

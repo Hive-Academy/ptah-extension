@@ -9,7 +9,7 @@ import { LlmProviderError } from '../errors/llm-provider.error';
 
 /**
  * Abstract base class for all LLM providers.
- * Extended by OpenAI, Google, and VS Code LM providers.
+ * Extended by the VS Code LM provider.
  *
  * Provides default implementations for context window and token counting.
  * Subclasses must implement getCompletion and getStructuredCompletion.

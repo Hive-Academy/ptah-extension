@@ -2,15 +2,15 @@
  * LlmProvidersConfigComponent - LLM Provider Configuration UI
  * TASK_2025_155 Batch 5, Task 5.2
  *
- * Displays all configured LLM providers as cards with API key management
+ * Displays configured LLM providers as cards with model selection
  * and default provider selection. Delegates all state management to
  * LlmProviderStateService.
  *
  * Complexity Level: 2 (Medium - form state + service delegation, no inheritance)
  *
  * Responsibilities:
- * - Display provider cards (Google Gemini, OpenAI, VS Code LM)
- * - Manage local API key input state (text values, visibility toggles)
+ * - Display provider cards (VS Code LM)
+ * - Manage local state (model selection, visibility toggles)
  * - Delegate save/remove/default-change operations to LlmProviderStateService
  * - Show loading and error states from service
  *
@@ -50,9 +50,7 @@ import type { LlmProviderName } from '@ptah-extension/shared';
  * Displays provider cards for all available LLM providers. Each card shows:
  * - Provider name, configuration status badge, and default provider badge
  * - Default model and capability badges
- * - API key input (masked) with show/hide toggle, Save and Remove buttons
- *   (only for api-key-requiring providers: openai, google-genai)
- * - VS Code LM providers show an informational message instead of key input
+ * - VS Code LM provider shows model selection dropdown
  * - "Set as Default" button when provider is configured but not the current default
  *
  * Local state (per-component signals):
@@ -92,7 +90,7 @@ export class LlmProvidersConfigComponent implements OnInit {
 
   /**
    * Tracks API key input values per provider.
-   * Map key: provider name (e.g., 'openai', 'google-genai').
+   * Map key: provider name (e.g., 'vscode-lm').
    * Value: the text currently typed in the input (not yet saved).
    */
   readonly apiKeyInputs = signal<Map<string, string>>(new Map());

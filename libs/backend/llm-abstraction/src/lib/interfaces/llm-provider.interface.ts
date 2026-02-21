@@ -31,7 +31,7 @@ export interface LlmCompletionConfig {
 
 /**
  * Core LLM provider abstraction interface.
- * Implemented by all provider adapters (OpenAI, Google, VS Code LM).
+ * Implemented by the VS Code LM provider adapter.
  */
 export interface ILlmProvider {
   readonly name: string;

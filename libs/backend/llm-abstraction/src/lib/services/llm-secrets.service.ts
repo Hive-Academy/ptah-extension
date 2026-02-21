@@ -109,10 +109,8 @@ export class LlmSecretsService implements ILlmSecretsService {
    *
    * @example
    * ```typescript
-   * const apiKey = await secretsService.getApiKey('openai');
-   * if (apiKey) {
-   *   console.log('API key configured');
-   * }
+   * const apiKey = await secretsService.getApiKey('vscode-lm');
+   * // Returns undefined for vscode-lm (no API key needed)
    * ```
    */
   async getApiKey(provider: LlmProviderName): Promise<string | undefined> {
@@ -148,12 +146,9 @@ export class LlmSecretsService implements ILlmSecretsService {
    *
    * @example
    * ```typescript
-   * try {
-   *   await secretsService.setApiKey('openai', 'sk-...');
-   *   console.log('API key stored successfully');
-   * } catch (error) {
-   *   console.error('Invalid API key format');
-   * }
+   * // vscode-lm does not require an API key; calling setApiKey is a no-op
+   * await secretsService.setApiKey('vscode-lm', 'any-value');
+   * // Logs a warning and returns immediately
    * ```
    */
   async setApiKey(provider: LlmProviderName, key: string): Promise<void> {
@@ -194,8 +189,8 @@ export class LlmSecretsService implements ILlmSecretsService {
    *
    * @example
    * ```typescript
-   * await secretsService.deleteApiKey('openai');
-   * console.log('API key removed');
+   * // vscode-lm does not use API keys; calling deleteApiKey is a no-op
+   * await secretsService.deleteApiKey('vscode-lm');
    * ```
    */
   async deleteApiKey(provider: LlmProviderName): Promise<void> {
@@ -224,10 +219,8 @@ export class LlmSecretsService implements ILlmSecretsService {
    *
    * @example
    * ```typescript
-   * if (await secretsService.hasApiKey('openai')) {
-   *   console.log('OpenAI API key is configured');
-   * } else {
-   *   console.log('Please configure OpenAI API key');
+   * if (await secretsService.hasApiKey('vscode-lm')) {
+   *   console.log('VS Code LM is available (always true, no API key needed)');
    * }
    * ```
    */
@@ -247,7 +240,7 @@ export class LlmSecretsService implements ILlmSecretsService {
    * Checks SecretStorage for each provider's API key.
    * Always includes vscode-lm (no API key needed).
    *
-   * @returns Array of provider names with configured keys (e.g., ['vscode-lm', 'openai'])
+   * @returns Array of provider names with configured keys (e.g., ['vscode-lm'])
    *
    * @example
    * ```typescript
@@ -279,22 +272,17 @@ export class LlmSecretsService implements ILlmSecretsService {
   /**
    * Validate API key format for a provider.
    *
-   * Performs provider-specific format validation:
-   * - openai: Must start with 'sk-' and be at least 20 characters
-   * - google-genai: Must be at least 30 characters
-   * - vscode-lm: Always returns false (no API key needed)
+   * Only vscode-lm is supported, which does not use API keys.
+   * Always returns false since no API key validation is needed.
    *
    * @param provider - Provider name to validate key for
    * @param key - API key to validate
-   * @returns true if key format is valid, false otherwise
+   * @returns Always false (vscode-lm does not use API keys)
    *
    * @example
    * ```typescript
-   * if (secretsService.validateKeyFormat('openai', userInput)) {
-   *   await secretsService.setApiKey('openai', userInput);
-   * } else {
-   *   console.error('Invalid OpenAI API key format');
-   * }
+   * // vscode-lm never needs API key validation
+   * secretsService.validateKeyFormat('vscode-lm', 'any'); // false
    * ```
    */
   validateKeyFormat(provider: LlmProviderName, key: string): boolean {

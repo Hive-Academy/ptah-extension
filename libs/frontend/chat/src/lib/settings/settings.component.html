@@ -156,7 +156,7 @@
           >
             {{ userInitials() }}
           </div>
-          <div class="min-w-0">
+          <div class="min-w-0 flex-1">
             @if (showUserName()) {
             <div class="text-xs font-medium truncate">
               {{ userDisplayName() }}
@@ -166,6 +166,14 @@
               {{ userEmail() }}
             </div>
           </div>
+          <button
+            class="btn btn-ghost btn-xs text-error gap-1 shrink-0"
+            (click)="removeLicenseKey()"
+            aria-label="Remove license key and log out"
+          >
+            <lucide-angular [img]="LogOutIcon" class="w-3 h-3" />
+            <span>Log Out</span>
+          </button>
         </div>
         }
 

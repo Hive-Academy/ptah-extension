@@ -19,6 +19,7 @@ import {
   ExternalLink,
   AlertTriangle,
   Cpu,
+  LogOut,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth-config.component';
 import { ProviderModelSelectorComponent } from './provider-model-selector.component';
@@ -88,6 +89,7 @@ export class SettingsComponent implements OnInit {
   readonly ExternalLinkIcon = ExternalLink;
   readonly AlertTriangleIcon = AlertTriangle;
   readonly CpuIcon = Cpu;
+  readonly LogOutIcon = LogOut;
 
   // Tab state for settings page (3-tab layout)
   readonly activeSettingsTab = signal<
@@ -411,6 +413,15 @@ export class SettingsComponent implements OnInit {
   async enterLicenseKey(): Promise<void> {
     await this.rpcService.call('command:execute', {
       command: 'ptah.enterLicenseKey',
+    });
+  }
+
+  /**
+   * Remove license key (log out / downgrade to Community tier)
+   */
+  async removeLicenseKey(): Promise<void> {
+    await this.rpcService.call('command:execute', {
+      command: 'ptah.removeLicenseKey',
     });
   }
 
