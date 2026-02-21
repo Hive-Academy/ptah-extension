@@ -16,7 +16,9 @@ import { DocsHeroComponent } from './sections/docs-hero.component';
 import { InstallationSectionComponent } from './sections/installation-section.component';
 import { AuthenticationSectionComponent } from './sections/authentication-section.component';
 import { ProvidersApiSectionComponent } from './sections/providers-api-section.component';
+import { PluginsSectionComponent } from './sections/plugins-section.component';
 import { SetupWizardSectionComponent } from './sections/setup-wizard-section.component';
+import { AgentOrchestrationSectionComponent } from './sections/agent-orchestration-section.component';
 import { OrchestrationSectionComponent } from './sections/orchestration-section.component';
 import { McpServerSectionComponent } from './sections/mcp-server-section.component';
 import { ChatDashboardSectionComponent } from './sections/chat-dashboard-section.component';
@@ -36,7 +38,9 @@ import {
     InstallationSectionComponent,
     AuthenticationSectionComponent,
     ProvidersApiSectionComponent,
+    PluginsSectionComponent,
     SetupWizardSectionComponent,
+    AgentOrchestrationSectionComponent,
     McpServerSectionComponent,
     ChatDashboardSectionComponent,
     OrchestrationSectionComponent,
@@ -129,6 +133,30 @@ import {
             ></div>
           </div>
 
+          <ptah-docs-plugins />
+
+          <div
+            viewportAnimation
+            [viewportConfig]="sectionDividerConfig"
+            class="overflow-hidden my-8 sm:my-12"
+          >
+            <div
+              class="h-[1px] w-full bg-gradient-to-r from-transparent via-secondary/40 to-transparent"
+            ></div>
+          </div>
+
+          <ptah-docs-agent-orchestration />
+
+          <div
+            viewportAnimation
+            [viewportConfig]="sectionDividerConfig"
+            class="overflow-hidden my-8 sm:my-12"
+          >
+            <div
+              class="h-[1px] w-full bg-gradient-to-r from-transparent via-secondary/40 to-transparent"
+            ></div>
+          </div>
+
           <ptah-docs-setup-wizard />
 
           <div
@@ -205,7 +233,9 @@ export class DocsPageComponent {
     { id: 'installation', label: 'Installation & Pro Trial' },
     { id: 'authentication', label: 'Authentication Setup' },
     { id: 'providers', label: 'Provider APIs' },
-    { id: 'setup-wizard', label: 'Setup Wizard & Plugins' },
+    { id: 'plugins', label: 'Plugins' },
+    { id: 'setup-wizard', label: 'Setup Wizard' },
+    { id: 'agent-orchestration', label: 'Agent Orchestration' },
     { id: 'mcp-server', label: 'MCP Server' },
     { id: 'chat-dashboard', label: 'Chat & Dashboard' },
     { id: 'orchestration', label: 'Orchestration' },

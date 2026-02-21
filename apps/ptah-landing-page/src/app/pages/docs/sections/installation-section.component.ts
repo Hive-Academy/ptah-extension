@@ -11,7 +11,6 @@ import {
   Sparkles,
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
-import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 
 @Component({
@@ -21,7 +20,6 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsStepCardComponent,
-    DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
   ],
   template: `
@@ -97,11 +95,16 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       </div>
 
       <ng-container media>
-        <ptah-docs-media-placeholder
-          title="Installing Ptah Extension"
-          aspectRatio="16/9"
-          mediaType="gif"
-        />
+        <video
+          autoplay
+          muted
+          loop
+          playsinline
+          preload="metadata"
+          class="w-full rounded-xl border border-white/10 shadow-2xl"
+        >
+          <source src="assets/videos/install.mp4" type="video/mp4" />
+        </video>
       </ng-container>
     </ptah-docs-section-shell>
   `,

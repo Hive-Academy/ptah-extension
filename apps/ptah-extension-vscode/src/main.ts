@@ -7,7 +7,7 @@ import {
   type LicenseStatus,
   TOKENS,
 } from '@ptah-extension/vscode-core';
-import { PtahUrls } from '@ptah-extension/shared';
+import { resolveEnvironment } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
 import { PtahExtension } from './core/ptah-extension';
@@ -34,6 +34,9 @@ function registerLicenseOnlyCommands(
   // Create LicenseCommands instance manually (DI not fully setup)
   const licenseCommands = new LicenseCommands(licenseService);
 
+  const isDev = context.extensionMode === vscode.ExtensionMode.Development;
+  const { urls } = resolveEnvironment(isDev);
+
   context.subscriptions.push(
     vscode.commands.registerCommand('ptah.enterLicenseKey', async () => {
       await licenseCommands.enterLicenseKey();
@@ -43,11 +46,11 @@ function registerLicenseOnlyCommands(
       await licenseCommands.checkLicenseStatus();
     }),
     vscode.commands.registerCommand('ptah.openPricing', () => {
-      vscode.env.openExternal(vscode.Uri.parse(PtahUrls.PRICING_URL));
+      vscode.env.openExternal(vscode.Uri.parse(urls.PRICING_URL));
     }),
     vscode.commands.registerCommand('ptah.openSignup', () => {
       vscode.env.openExternal(
-        vscode.Uri.parse(PtahUrls.SIGNUP_URL + '?source=vscode')
+        vscode.Uri.parse(urls.SIGNUP_URL + '?source=vscode')
       );
     })
   );
@@ -391,7 +394,9 @@ export async function activate(
     const authInitialized = await sdkAdapter.initialize();
 
     if (!authInitialized) {
-      logger.warn('SDK authentication not configured - showing onboarding UI');
+      logger.info(
+        'SDK authentication not configured - users can configure in Ptah Settings'
+      );
     } else {
       logger.info('SDK authentication initialized successfully');
 
@@ -538,11 +543,12 @@ export async function activate(
     await ptahExtension.initialize();
     console.log('[Activate] Step 10: ptahExtension.initialize() complete');
 
-    // Show onboarding UI if authentication not configured (TASK_2025_057 Batch 1)
+    // Auth not configured is a normal state on first install — no popup needed.
+    // Users can configure authentication via Ptah Settings > Authentication tab.
     if (!authInitialized) {
-      console.log('[Activate] Step 10.1: Showing authentication onboarding...');
-      await ptahExtension.showAuthenticationOnboarding();
-      console.log('[Activate] Step 10.1: Authentication onboarding displayed');
+      console.log(
+        '[Activate] Step 10.1: Auth not configured — users can set up in Ptah Settings'
+      );
     }
 
     // Register all providers, commands, and services

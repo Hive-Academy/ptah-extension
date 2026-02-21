@@ -7,7 +7,6 @@ import {
 import {
   LucideAngularModule,
   Wand2,
-  Puzzle,
   ScanSearch,
   BrainCircuit,
   Users,
@@ -35,7 +34,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
         [viewportConfig]="headingConfig"
         class="text-2xl sm:text-3xl font-display font-bold text-white/90 mb-3"
       >
-        Setup Wizard &amp; Plugins
+        Setup Wizard
       </h2>
       <p
         viewportAnimation
@@ -118,45 +117,11 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             </ptah-docs-step-card>
           </div>
         </div>
-
-        <!-- Plugin Browser -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
-        >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="PuzzleIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <h3 class="text-lg font-semibold text-white/90">Plugin Browser</h3>
-          </div>
-          <p class="text-sm text-white/60 mb-4">
-            Use the
-            <strong class="text-white/80">"Configure Ptah Skills"</strong> modal
-            to browse, search, and install plugins. Plugins are grouped by
-            category and can be filtered by keyword.
-          </p>
-          <p class="text-sm text-white/60">
-            Each plugin extends Ptah with new skills — from code review patterns
-            to deployment workflows. Enable or disable plugins anytime from the
-            settings panel.
-          </p>
-        </div>
       </div>
 
       <ng-container media>
         <ptah-docs-media-placeholder
           title="Setup Wizard"
-          aspectRatio="4/3"
-          mediaType="gif"
-        />
-        <ptah-docs-media-placeholder
-          title="Plugin Browser"
           aspectRatio="4/3"
           mediaType="gif"
         />
@@ -174,7 +139,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
 })
 export class SetupWizardSectionComponent {
   public readonly Wand2Icon = Wand2;
-  public readonly PuzzleIcon = Puzzle;
+
   public readonly ScanSearchIcon = ScanSearch;
   public readonly BrainCircuitIcon = BrainCircuit;
   public readonly UsersIcon = Users;

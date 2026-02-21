@@ -1194,7 +1194,7 @@ export interface QualityExportResult {
 
 /** Plugin metadata for UI display */
 export interface PluginInfo {
-  /** Unique plugin identifier (directory name, e.g., 'hive-academy-core') */
+  /** Unique plugin identifier (directory name, e.g., 'ptah-core') */
   id: string;
   /** Human-readable plugin name */
   name: string;

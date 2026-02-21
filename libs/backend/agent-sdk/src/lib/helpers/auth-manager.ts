@@ -146,25 +146,25 @@ export class AuthManager {
       );
     }
 
-    // Validate at least one auth method is available
+    // No auth configured — expected on first install, not an error
     if (!authConfigured) {
-      const errorMsg =
-        'No authentication configured. Set either: (1) Anthropic-compatible provider key (OpenRouter, Moonshot, Z.AI), (2) OAuth token from "claude setup-token" for Claude Max/Pro subscription, OR (3) API key from console.anthropic.com for pay-per-token billing.';
-      this.logger.error(`[AuthManager] ${errorMsg}`);
-      this.logger.error(
+      const infoMsg =
+        'No authentication configured yet. Configure in Ptah Settings > Authentication tab.';
+      this.logger.info(`[AuthManager] ${infoMsg}`);
+      this.logger.debug(
         '[AuthManager] Option 1 (Provider): Configure in Settings > Authentication > Provider tab'
       );
-      this.logger.error(
+      this.logger.debug(
         '[AuthManager] Option 2 (Subscription): Run "claude setup-token" and paste the token'
       );
-      this.logger.error(
+      this.logger.debug(
         '[AuthManager] Option 3 (API Key): Get from https://console.anthropic.com/settings/keys'
       );
       this.logEnvSummary();
       return {
         configured: false,
         details: [],
-        errorMessage: errorMsg,
+        errorMessage: infoMsg,
       };
     }
 

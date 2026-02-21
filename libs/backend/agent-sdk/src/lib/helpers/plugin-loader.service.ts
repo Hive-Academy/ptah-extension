@@ -2,7 +2,7 @@
  * Plugin Loader Service - Manages plugin metadata and per-workspace plugin configuration
  *
  * Responsibilities:
- * - Provide hardcoded metadata for bundled Hive Academy plugins
+ * - Provide hardcoded metadata for bundled Ptah plugins
  * - Read/write per-workspace plugin configuration from VS Code workspaceState
  * - Resolve plugin IDs to absolute directory paths for SDK consumption
  *
@@ -25,26 +25,26 @@ import type * as vscode from 'vscode';
 const PLUGIN_CONFIG_KEY = 'ptah.plugins.config';
 
 /**
- * Hardcoded metadata for all bundled Hive Academy plugins.
+ * Hardcoded metadata for all bundled Ptah plugins.
  *
  * Each entry corresponds to a directory under assets/plugins/ in the extension.
  * The metadata is used by the frontend Plugin Browser UI for display and filtering.
  */
 const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
   {
-    id: 'hive-academy-core',
-    name: 'Hive Academy Core',
+    id: 'ptah-core',
+    name: 'Ptah Core',
     description:
       'Core development tools including orchestration, code review, testing, and documentation agents',
     category: 'core-tools',
-    skillCount: 7,
+    skillCount: 6,
     commandCount: 5,
     isDefault: true,
     keywords: ['orchestrate', 'review', 'test', 'document', 'core'],
   },
   {
-    id: 'hive-academy-nx-saas',
-    name: 'Hive Academy Nx SaaS',
+    id: 'ptah-nx-saas',
+    name: 'Ptah Nx SaaS',
     description:
       'Backend tools for Nx monorepo, NestJS, Prisma workflows, and SaaS workspace initialization',
     category: 'backend-tools',
@@ -54,8 +54,8 @@ const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
     keywords: ['nx', 'nestjs', 'prisma', 'backend', 'saas', 'init-saas'],
   },
   {
-    id: 'hive-academy-angular',
-    name: 'Hive Academy Angular',
+    id: 'ptah-angular',
+    name: 'Ptah Angular',
     description:
       'Frontend tools for Angular development with GSAP animations and 3D scene creation',
     category: 'frontend-tools',
@@ -65,8 +65,8 @@ const AVAILABLE_PLUGINS: ReadonlyArray<PluginInfo> = [
     keywords: ['angular', 'gsap', 'animation', '3d', 'frontend'],
   },
   {
-    id: 'hive-academy-react',
-    name: 'Hive Academy React',
+    id: 'ptah-react',
+    name: 'Ptah React',
     description: 'Frontend tools for React development with modern patterns',
     category: 'frontend-tools',
     skillCount: 3,
@@ -135,7 +135,7 @@ export class PluginLoaderService {
   /**
    * Get metadata for all available bundled plugins.
    *
-   * Returns hardcoded metadata for the 4 Hive Academy plugins.
+   * Returns hardcoded metadata for the 4 Ptah plugins.
    * This does not require initialization (metadata is static).
    *
    * @returns Array of PluginInfo objects with plugin metadata

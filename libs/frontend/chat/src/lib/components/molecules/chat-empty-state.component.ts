@@ -30,8 +30,8 @@ import { ChatStore } from '../../services/chat.store';
  * Patterns: Signal-based state, Component composition, DaisyUI styling, Tabbed navigation
  *
  * Features:
- * - Two-tab navigation: "Beta Skills" and "Intelligent Project Setup"
- * - Tab 1: Beta Skills (Ptah Skills + Plugins configuration)
+ * - Two-tab navigation: "Ptah Skills" and "Intelligent Project Setup"
+ * - Tab 1: Ptah Skills (Ptah Skills + Plugins configuration)
  * - Tab 2: Intelligent Project Setup (MCP-powered workspace scanning)
  * - Warning in Setup tab if skills not configured yet
  * - Egyptian artifact reveal experience with Anubis theme
@@ -114,14 +114,14 @@ import { ChatStore } from '../../services/chat.store';
             [class]="activeTab() === 'skills' ? 'tab tab-active' : 'tab'"
             (click)="setActiveTab('skills')"
             type="button"
-            aria-label="Beta Skills Tab"
+            aria-label="Ptah Skills Tab"
           >
             <lucide-angular
               [img]="PuzzleIcon"
               class="w-3.5 h-3.5 mr-1.5"
               aria-hidden="true"
             />
-            <span class="text-xs md:text-sm">Beta Skills</span>
+            <span class="text-xs md:text-sm">Ptah Skills</span>
           </button>
           <button
             role="tab"
@@ -140,7 +140,7 @@ import { ChatStore } from '../../services/chat.store';
         </div>
       </div>
 
-      <!-- Tab 1: Beta Skills -->
+      <!-- Tab 1: Ptah Skills -->
       @if (activeTab() === 'skills') {
       <div class="w-full max-w-md space-y-5 tab-content-animated">
         <!-- Ptah Skills Card -->
@@ -290,7 +290,7 @@ import { ChatStore } from '../../services/chat.store';
             <p class="text-xs text-base-content/60 leading-relaxed mb-2">
               The Intelligent Project Setup uses your configured skills to
               provide better recommendations. It's recommended to configure your
-              Beta Skills first for optimal results.
+              Ptah Skills first for optimal results.
             </p>
             <button
               class="btn btn-xs btn-warning"

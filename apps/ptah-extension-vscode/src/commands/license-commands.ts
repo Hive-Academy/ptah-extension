@@ -13,14 +13,14 @@
 import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { LicenseService, TOKENS } from '@ptah-extension/vscode-core';
-import { PtahUrls } from '@ptah-extension/shared';
+import { resolveEnvironment } from '@ptah-extension/shared';
 
 /**
  * License Commands Implementation
  *
  * Provides command palette handlers for:
  * - ptah.enterLicenseKey: Enter/update license key
- * - ptah.removeLicenseKey: Remove license key (downgrade to free tier)
+ * - ptah.removeLicenseKey: Remove license key (log out)
  * - ptah.checkLicenseStatus: View current license status
  *
  * Security:
@@ -35,6 +35,8 @@ import { PtahUrls } from '@ptah-extension/shared';
  */
 @injectable()
 export class LicenseCommands {
+  private pricingUrl = '';
+
   constructor(
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService
@@ -112,8 +114,7 @@ export class LicenseCommands {
    * Flow:
    * 1. Show confirmation warning
    * 2. Delete license key from SecretStorage
-   * 3. Downgrade to Community tier (free, still valid)
-   * 4. Prompt user to reload window
+   * 3. Reload window to show welcome screen
    *
    * Security:
    * - Confirmation required (prevent accidental removal)
@@ -124,13 +125,12 @@ export class LicenseCommands {
    */
   async removeLicenseKey(): Promise<void> {
     const confirm = await vscode.window.showWarningMessage(
-      'Remove your license key? You will be downgraded to the Community tier. ' +
-        'Core features will remain available.',
-      'Remove',
+      'Log out and remove your license key? You can enter a new license key after reloading.',
+      'Log Out',
       'Cancel'
     );
 
-    if (confirm !== 'Remove') {
+    if (confirm !== 'Log Out') {
       // User cancelled
       return;
     }
@@ -138,8 +138,7 @@ export class LicenseCommands {
     await this.licenseService.clearLicenseKey();
 
     const action = await vscode.window.showInformationMessage(
-      'License key removed. You are now on the Community tier. ' +
-        'Reload window to apply changes.',
+      'License key removed. Reload window to continue.',
       'Reload Window'
     );
     if (action === 'Reload Window') {
@@ -202,7 +201,7 @@ export class LicenseCommands {
           `Reason: ${
             status.reason || 'License revoked or payment failed'
           }\n\n` +
-          `Renew at ${PtahUrls.PRICING_URL}`
+          `Renew at ${this.pricingUrl}`
       );
     }
   }
@@ -218,6 +217,10 @@ export class LicenseCommands {
    * @param context - Extension context for command disposal
    */
   registerCommands(context: vscode.ExtensionContext): void {
+    const isDev = context.extensionMode === vscode.ExtensionMode.Development;
+    const { urls } = resolveEnvironment(isDev);
+    this.pricingUrl = urls.PRICING_URL;
+
     context.subscriptions.push(
       vscode.commands.registerCommand('ptah.enterLicenseKey', () =>
         this.enterLicenseKey()
@@ -229,11 +232,11 @@ export class LicenseCommands {
         this.checkLicenseStatus()
       ),
       vscode.commands.registerCommand('ptah.openPricing', () => {
-        vscode.env.openExternal(vscode.Uri.parse(PtahUrls.PRICING_URL));
+        vscode.env.openExternal(vscode.Uri.parse(urls.PRICING_URL));
       }),
       vscode.commands.registerCommand('ptah.openSignup', () => {
         vscode.env.openExternal(
-          vscode.Uri.parse(PtahUrls.SIGNUP_URL + '?source=vscode')
+          vscode.Uri.parse(urls.SIGNUP_URL + '?source=vscode')
         );
       })
     );

@@ -64,11 +64,11 @@ Phase 6: QA verification
 Which frontend framework would you like for this SaaS project?
 
 1. **Angular** — Signal-based reactive architecture, ideal for enterprise apps
-   - Uses: angular-frontend-patterns skill (from hive-academy-angular plugin)
+   - Uses: angular-frontend-patterns skill (from ptah-angular plugin)
    - Best for: Complex forms, enterprise dashboards, admin panels
 
 2. **React** — Component composition with hooks, ideal for flexible UIs
-   - Uses: react-best-practices + react-nx-patterns skills (from hive-academy-react plugin)
+   - Uses: react-best-practices + react-nx-patterns skills (from ptah-react plugin)
    - Best for: Rapid prototyping, consumer-facing apps, SSR with Next.js
 ```
 
@@ -316,8 +316,8 @@ Once you choose, I'll ask about your business requirements:
 
 - [nx-workspace-architect](../nx-workspace-architect/SKILL.md) - Workspace structure
 - [nestjs-backend-patterns](../nestjs-backend-patterns/SKILL.md) - Backend patterns
-- [ddd-architecture](../../hive-academy-core/skills/ddd-architecture/SKILL.md) - Domain patterns
-- [orchestration](../../hive-academy-core/skills/orchestration/SKILL.md) - Workflow management
-- [angular-frontend-patterns](../../hive-academy-angular/skills/angular-frontend-patterns/SKILL.md) - Angular patterns
-- [react-best-practices](../../hive-academy-react/skills/react-best-practices/SKILL.md) - React patterns
-- [react-nx-patterns](../../hive-academy-react/skills/react-nx-patterns/SKILL.md) - React + Nx patterns
+- [ddd-architecture](../../ptah-core/skills/ddd-architecture/SKILL.md) - Domain patterns
+- [orchestration](../../ptah-core/skills/orchestration/SKILL.md) - Workflow management
+- [angular-frontend-patterns](../../ptah-angular/skills/angular-frontend-patterns/SKILL.md) - Angular patterns
+- [react-best-practices](../../ptah-react/skills/react-best-practices/SKILL.md) - React patterns
+- [react-nx-patterns](../../ptah-react/skills/react-nx-patterns/SKILL.md) - React + Nx patterns

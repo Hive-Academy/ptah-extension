@@ -35,8 +35,7 @@ import {
   Zap,
   Info,
 } from 'lucide-angular';
-import { VSCodeService } from '@ptah-extension/core';
-import { PtahUrls } from '@ptah-extension/shared';
+import { VSCodeService, ClaudeRpcService } from '@ptah-extension/core';
 
 @Component({
   selector: 'ptah-premium-upsell',
@@ -161,6 +160,7 @@ import { PtahUrls } from '@ptah-extension/shared';
 })
 export class PremiumUpsellComponent {
   private readonly vscodeService = inject(VSCodeService);
+  private readonly rpcService = inject(ClaudeRpcService);
 
   /** Lucide icon references for template binding */
   protected readonly SparklesIcon = Sparkles;
@@ -169,14 +169,8 @@ export class PremiumUpsellComponent {
   protected readonly ZapIcon = Zap;
   protected readonly InfoIcon = Info;
 
-  /** Upgrade URL for the pricing page */
-  private static readonly UPGRADE_URL = PtahUrls.PRICING_URL;
-
   /** Timeout before clearing loading state (assume success) */
   private static readonly LOADING_CLEAR_TIMEOUT_MS = 1000;
-
-  /** Timeout before showing fallback message */
-  private static readonly FALLBACK_MESSAGE_TIMEOUT_MS = 3000;
 
   /**
    * List of premium features to display
@@ -214,7 +208,7 @@ export class PremiumUpsellComponent {
    * Handle upgrade button click.
    * Opens the upgrade page in an external browser with loading feedback.
    */
-  protected onUpgradeClick(): void {
+  protected async onUpgradeClick(): Promise<void> {
     // Prevent double-click
     if (this.isOpeningUrl()) {
       return;
@@ -224,25 +218,10 @@ export class PremiumUpsellComponent {
     this.urlFeedback.set(null);
 
     try {
-      // Send message to extension to open upgrade URL in external browser
-      this.vscodeService.postMessage({
-        type: 'command',
-        payload: {
-          command: 'vscode.open',
-          args: [PremiumUpsellComponent.UPGRADE_URL],
-        },
+      // Use ptah.openPricing command which resolves environment-aware URLs
+      await this.rpcService.call('command:execute', {
+        command: 'ptah.openPricing',
       });
-
-      // Set timeout for fallback message if browser is slow
-      setTimeout(() => {
-        if (this.isOpeningUrl()) {
-          // If still loading after 3s, show fallback message
-          this.isOpeningUrl.set(false);
-          this.urlFeedback.set(
-            `Browser may be opening in the background. If not, visit: ${PremiumUpsellComponent.UPGRADE_URL}`
-          );
-        }
-      }, PremiumUpsellComponent.FALLBACK_MESSAGE_TIMEOUT_MS);
 
       // Clear loading state after short delay (assume success)
       setTimeout(() => {
@@ -251,9 +230,7 @@ export class PremiumUpsellComponent {
     } catch {
       // Handle error gracefully
       this.isOpeningUrl.set(false);
-      this.urlFeedback.set(
-        `Failed to open browser. Please visit: ${PremiumUpsellComponent.UPGRADE_URL}`
-      );
+      this.urlFeedback.set('Failed to open pricing page. Please try again.');
     }
   }
 }

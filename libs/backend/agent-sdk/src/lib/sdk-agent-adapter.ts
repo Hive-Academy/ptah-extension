@@ -190,7 +190,7 @@ export class SdkAgentAdapter implements IAIProvider {
       if (!this.cliInstallation) {
         const errorMessage =
           'Claude CLI not found. Please install it via: npm install -g @anthropic-ai/claude-code';
-        this.logger.error(`[SdkAgentAdapter] ${errorMessage}`);
+        this.logger.info(`[SdkAgentAdapter] ${errorMessage}`);
         this.health = {
           status: 'error' as ProviderStatus,
           lastCheck: Date.now(),

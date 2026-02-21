@@ -161,44 +161,6 @@ export class PtahExtension implements vscode.Disposable {
   }
 
   /**
-   * Show onboarding notification when authentication is missing.
-   * Guides users to configure authentication via the Ptah Angular settings panel.
-   * Non-critical UI operation — errors are logged but never propagate to avoid
-   * breaking extension activation.
-   * TASK_2025_057 Batch 1 - Task 1.3
-   */
-  async showAuthenticationOnboarding(): Promise<void> {
-    const message =
-      'Ptah requires authentication. Configure your credentials in the Ptah settings panel.';
-    const actions = ['Open Ptah Settings', 'Dismiss'];
-
-    const selection = await vscode.window.showInformationMessage(
-      message,
-      ...actions
-    );
-
-    if (selection === 'Open Ptah Settings') {
-      try {
-        this.logger.info('Auth onboarding: user selected Open Ptah Settings');
-        // Focus the PTAH webview sidebar panel
-        await vscode.commands.executeCommand('ptah.main.focus');
-        // Small delay to allow webview to initialize if it was just created.
-        // ptah.main.focus resolves when the panel is focused, but the Angular
-        // app inside may still be bootstrapping on first use.
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        // Navigate webview to settings view
-        await this.webviewManager.broadcastMessage('switchView', {
-          view: 'settings',
-        });
-      } catch (err) {
-        this.logger.warn('Auth onboarding: failed to navigate to settings', {
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-  }
-
-  /**
    * Dispose all resources
    */
   dispose(): void {

@@ -14,8 +14,8 @@ Standalone command for SaaS workspace initialization with multi-turn discovery.
 1. Load the `saas-workspace-initializer` skill from the active plugins
 2. Load `orchestration/references/task-tracking.md` — task ID format, registry management, folder structure, file path conventions
 3. **Phase 0: Framework Selection** — Ask the user which frontend framework they want:
-   - **Angular** — loads `angular-frontend-patterns` skill (from hive-academy-angular plugin)
-   - **React** — loads `react-best-practices` and `react-nx-patterns` skills (from hive-academy-react plugin)
+   - **Angular** — loads `angular-frontend-patterns` skill (from ptah-angular plugin)
+   - **React** — loads `react-best-practices` and `react-nx-patterns` skills (from ptah-react plugin)
 4. Follow the Execution Protocol (Mode Detection → Phases 1-6)
 5. Load dependent skills on demand during discovery steps:
    - `ddd-architecture` skill — Step 2a: Domain Modeling
@@ -51,4 +51,4 @@ Standalone command for SaaS workspace initialization with multi-turn discovery.
 
 ## Skill Path
 
-`saas-workspace-initializer` (from hive-academy-nx-saas plugin)
+`saas-workspace-initializer` (from ptah-nx-saas plugin)

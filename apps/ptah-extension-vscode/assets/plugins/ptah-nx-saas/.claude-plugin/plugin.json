@@ -1,0 +1,11 @@
+{
+  "name": "ptah-nx-saas",
+  "description": "NX monorepo and SaaS architecture - Nx workspace setup, NestJS patterns, multi-tenancy, and SaaS initialization",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ptah"
+  },
+  "repository": "https://github.com/nicoss01/ptah-claude-plugins",
+  "homepage": "https://github.com/nicoss01/ptah-claude-plugins",
+  "license": "MIT"
+}
