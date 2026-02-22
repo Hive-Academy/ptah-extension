@@ -269,7 +269,9 @@ export class AutopilotStateService implements MessageHandler {
   setAgentPlanMode(active: boolean): void {
     this._agentPlanMode.set(active);
     console.log(
-      `[AutopilotStateService] Agent plan mode: ${active ? 'entered' : 'exited'}`
+      `[AutopilotStateService] Agent plan mode: ${
+        active ? 'entered' : 'exited'
+      }`
     );
   }
 

@@ -354,7 +354,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         if (toolName === 'EnterPlanMode' || toolName === 'ExitPlanMode') {
           const active = toolName === 'EnterPlanMode';
           this.logger.info(
-            `[SdkPermissionHandler] Agent ${active ? 'entered' : 'exited'} plan mode`
+            `[SdkPermissionHandler] Agent ${
+              active ? 'entered' : 'exited'
+            } plan mode`
           );
           this.webviewManager
             .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
@@ -670,7 +672,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       const toolName = requestContext.toolName;
       const autoResolvedIds: string[] = [];
 
-      for (const [pendingId, pendingCtx] of this.pendingRequestContext.entries()) {
+      for (const [
+        pendingId,
+        pendingCtx,
+      ] of this.pendingRequestContext.entries()) {
         if (pendingId === requestId) continue; // Skip the current request
         if (pendingCtx.toolName !== toolName) continue;
 

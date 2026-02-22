@@ -641,7 +641,11 @@ export class SubscriptionService {
    * Internal trials use synthetic Paddle IDs that should never be sent to Paddle API.
    */
   private isInternalTrial(
-    subscription: { paddleCustomerId: string; status: string; priceId: string } | null
+    subscription: {
+      paddleCustomerId: string;
+      status: string;
+      priceId: string;
+    } | null
   ): boolean {
     if (!subscription) return false;
     return (

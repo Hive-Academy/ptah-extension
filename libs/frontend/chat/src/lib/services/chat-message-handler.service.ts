@@ -18,10 +18,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { type MessageHandler } from '@ptah-extension/core';
-import {
-  FlatStreamEventUnion,
-  MESSAGE_TYPES,
-} from '@ptah-extension/shared';
+import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
 import { ChatStore } from './chat.store';
 
 @Injectable({ providedIn: 'root' })
@@ -92,11 +89,12 @@ export class ChatMessageHandler implements MessageHandler {
 
   // CHAT_COMPLETE: Chat completion signal
   private handleChatComplete(payload: unknown): void {
-    const { tabId, sessionId, code } = (payload as {
-      tabId?: string;
-      sessionId?: string;
-      code?: number;
-    }) ?? {};
+    const { tabId, sessionId, code } =
+      (payload as {
+        tabId?: string;
+        sessionId?: string;
+        code?: number;
+      }) ?? {};
 
     this.chatStore.handleChatComplete({
       tabId,
@@ -107,11 +105,12 @@ export class ChatMessageHandler implements MessageHandler {
 
   // CHAT_ERROR: Chat error signal
   private handleChatError(payload: unknown): void {
-    const { tabId, sessionId, error } = (payload as {
-      tabId?: string;
-      sessionId?: string;
-      error?: string;
-    }) ?? {};
+    const { tabId, sessionId, error } =
+      (payload as {
+        tabId?: string;
+        sessionId?: string;
+        error?: string;
+      }) ?? {};
 
     console.error('[ChatMessageHandler] Chat error:', {
       tabId,
@@ -134,7 +133,9 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.chatStore.handlePermissionRequest(payload as Parameters<typeof this.chatStore.handlePermissionRequest>[0]);
+    this.chatStore.handlePermissionRequest(
+      payload as Parameters<typeof this.chatStore.handlePermissionRequest>[0]
+    );
   }
 
   // AGENT_SUMMARY_CHUNK: Real-time agent summary streaming
@@ -151,7 +152,9 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.chatStore.handleAgentSummaryChunk(payload as Parameters<typeof this.chatStore.handleAgentSummaryChunk>[0]);
+    this.chatStore.handleAgentSummaryChunk(
+      payload as Parameters<typeof this.chatStore.handleAgentSummaryChunk>[0]
+    );
   }
 
   // SESSION_STATS: Cost/token data after completion
@@ -162,15 +165,18 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.chatStore.handleSessionStats(payload as Parameters<typeof this.chatStore.handleSessionStats>[0]);
+    this.chatStore.handleSessionStats(
+      payload as Parameters<typeof this.chatStore.handleSessionStats>[0]
+    );
   }
 
   // SESSION_ID_RESOLVED: Real SDK UUID resolution
   private handleSessionIdResolved(payload: unknown): void {
-    const { tabId, realSessionId } = (payload as {
-      tabId?: string;
-      realSessionId?: string;
-    }) ?? {};
+    const { tabId, realSessionId } =
+      (payload as {
+        tabId?: string;
+        realSessionId?: string;
+      }) ?? {};
 
     console.log('[ChatMessageHandler] Session ID resolved:', {
       tabId,
@@ -207,7 +213,9 @@ export class ChatMessageHandler implements MessageHandler {
   // PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
   private handlePermissionAutoResolved(payload: unknown): void {
     if (payload) {
-      this.chatStore.handlePermissionAutoResolved(payload as { id: string; toolName: string });
+      this.chatStore.handlePermissionAutoResolved(
+        payload as { id: string; toolName: string }
+      );
     }
   }
 }

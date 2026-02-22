@@ -232,10 +232,7 @@ export class ConfigRpcHandlers {
             const sdkMode = enabled
               ? this.mapPermissionToSdkMode(permissionLevel)
               : 'default';
-            await this.sdkAdapter.setSessionPermissionLevel(
-              sessionId,
-              sdkMode
-            );
+            await this.sdkAdapter.setSessionPermissionLevel(sessionId, sdkMode);
             this.logger.debug('Permission mode synced to active session', {
               sessionId,
               sdkMode,

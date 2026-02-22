@@ -246,7 +246,10 @@ export class PermissionHandlerService {
    *
    * @param payload - Contains the request ID to remove
    */
-  handlePermissionAutoResolved(payload: { id: string; toolName: string }): void {
+  handlePermissionAutoResolved(payload: {
+    id: string;
+    toolName: string;
+  }): void {
     console.log(
       '[PermissionHandlerService] Permission auto-resolved:',
       payload

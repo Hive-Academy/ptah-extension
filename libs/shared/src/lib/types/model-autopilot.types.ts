@@ -177,6 +177,9 @@ export function isSelectableClaudeModel(
 export function isPermissionLevel(value: unknown): value is PermissionLevel {
   return (
     typeof value === 'string' &&
-    (value === 'ask' || value === 'auto-edit' || value === 'yolo' || value === 'plan')
+    (value === 'ask' ||
+      value === 'auto-edit' ||
+      value === 'yolo' ||
+      value === 'plan')
   );
 }

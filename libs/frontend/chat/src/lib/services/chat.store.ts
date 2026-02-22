@@ -815,7 +815,10 @@ export class ChatStore {
    * Handle auto-resolved permission from backend ("Always Allow" sibling resolution)
    * Delegates to PermissionHandlerService
    */
-  handlePermissionAutoResolved(payload: { id: string; toolName: string }): void {
+  handlePermissionAutoResolved(payload: {
+    id: string;
+    toolName: string;
+  }): void {
     this.permissionHandler.handlePermissionAutoResolved(payload);
   }
 

@@ -67,7 +67,11 @@ export const appConfig: ApplicationConfig = {
     // Message routing: handler registration pattern (replaces VSCodeService routing)
     provideMessageRouter(),
     { provide: MESSAGE_HANDLERS, useExisting: ClaudeRpcService, multi: true },
-    { provide: MESSAGE_HANDLERS, useExisting: AutopilotStateService, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: AutopilotStateService,
+      multi: true,
+    },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
     // Markdown rendering for chat messages (required for ngx-markdown)

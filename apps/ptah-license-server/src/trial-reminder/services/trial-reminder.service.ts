@@ -154,15 +154,14 @@ export class TrialReminderService {
         // Safety: Check if user has a real (non-trial) active subscription.
         // If a trial user converted to paid via Paddle but the trial record
         // wasn't cleaned up, we must not downgrade a paying customer.
-        const hasActiveSubscription =
-          await this.prisma.subscription.findFirst({
-            where: {
-              userId: subscription.userId,
-              id: { not: subscription.id },
-              status: { in: ['active', 'past_due'] },
-              priceId: { not: 'auto_trial_pro' },
-            },
-          });
+        const hasActiveSubscription = await this.prisma.subscription.findFirst({
+          where: {
+            userId: subscription.userId,
+            id: { not: subscription.id },
+            status: { in: ['active', 'past_due'] },
+            priceId: { not: 'auto_trial_pro' },
+          },
+        });
 
         if (hasActiveSubscription) {
           // User has a paid subscription - just expire the orphaned trial, don't downgrade

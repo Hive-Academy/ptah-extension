@@ -203,7 +203,6 @@ export class VSCodeService {
     const newState = { ...currentState, [key]: value };
     this.vscode.setState(newState);
   }
-
 }
 
 /**
