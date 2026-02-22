@@ -96,11 +96,31 @@ export class VsCodeLmAdapter implements CliAdapter {
       );
     }
 
-    // Prefer a Claude model if available, then fall back to first available
-    const model =
-      models.find(
-        (m) => m.family?.includes('claude') || m.id?.includes('claude')
-      ) ?? models[0];
+    // If a model identifier is provided, try to match it against available models
+    // Matches against id, family, or name (case-insensitive substring)
+    let model: vscode.LanguageModelChat | undefined;
+    if (options.model) {
+      const needle = options.model.toLowerCase();
+      model = models.find(
+        (m) =>
+          m.id?.toLowerCase().includes(needle) ||
+          m.family?.toLowerCase().includes(needle) ||
+          m.name?.toLowerCase().includes(needle)
+      );
+      if (!model) {
+        throw new Error(
+          `Model "${options.model}" not found. Available models: ${models
+            .map((m) => `${m.vendor}/${m.family}`)
+            .join(', ')}`
+        );
+      }
+    } else {
+      // Default: prefer a Claude model if available, then fall back to first available
+      model =
+        models.find(
+          (m) => m.family?.includes('claude') || m.id?.includes('claude')
+        ) ?? models[0];
+    }
     const taskPrompt = buildTaskPrompt(options);
     const messages = [vscode.LanguageModelChatMessage.User(taskPrompt)];
 

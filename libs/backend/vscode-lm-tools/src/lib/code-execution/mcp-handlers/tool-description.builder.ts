@@ -296,6 +296,12 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
             'Task-tracking folder for shared workspace (e.g., "task-tracking/TASK_2025_157"). ' +
             'Agent will write deliverables here.',
         },
+        model: {
+          type: 'string',
+          description:
+            'Model to use for vscode-lm agents (e.g., "claude-3.5-sonnet", "gpt-4o"). ' +
+            'Matched against model id, family, or name. Ignored for CLI agents (gemini, codex).',
+        },
       },
       required: ['task'],
     },
@@ -467,7 +473,7 @@ Relative paths are resolved from workspace root. Absolute paths work as-is.
 - ptah.relevance.* - File relevance scoring
 - ptah.ast.* - Code structure analysis (tree-sitter)
 - ptah.orchestration.* - Workflow state management
-- ptah.agent.* - CLI agent orchestration (spawn, monitor, steer Gemini/Codex)
+- ptah.agent.* - Agent orchestration (spawn, monitor Gemini CLI / Codex SDK / VS Code LM)
 
 ## Error Handling
 If a call fails, it returns an error message. Use try-catch for robustness:

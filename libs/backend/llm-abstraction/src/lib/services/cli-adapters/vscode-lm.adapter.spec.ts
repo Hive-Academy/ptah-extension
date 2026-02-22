@@ -453,6 +453,63 @@ describe('VsCodeLmAdapter', () => {
       expect(output.join('')).toContain('data');
     });
 
+    it('should select model by family when model option is provided', async () => {
+      const gptModel = createFakeModel(['GPT response']);
+      gptModel.family = 'gpt-4o';
+      gptModel.id = 'copilot-gpt-4o';
+      gptModel.name = 'GPT-4o';
+
+      const claudeModel = createFakeModel(['Claude response']);
+      claudeModel.family = 'claude-3.5-sonnet';
+      claudeModel.id = 'copilot-claude-3.5-sonnet';
+      claudeModel.name = 'Claude 3.5 Sonnet';
+
+      mockSelectChatModels.mockResolvedValue([gptModel, claudeModel]);
+
+      const handle = await adapter.runSdk({
+        ...defaultOptions,
+        model: 'gpt-4o',
+      });
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await handle.done;
+
+      // GPT model should be selected because we asked for gpt-4o
+      expect(gptModel.sendRequest).toHaveBeenCalledTimes(1);
+      expect(claudeModel.sendRequest).not.toHaveBeenCalled();
+    });
+
+    it('should throw when requested model is not found', async () => {
+      const fakeModel = createFakeModel(['response']);
+      fakeModel.family = 'gpt-4o';
+      fakeModel.id = 'copilot-gpt-4o';
+      fakeModel.vendor = 'copilot';
+      mockSelectChatModels.mockResolvedValue([fakeModel]);
+
+      await expect(
+        adapter.runSdk({ ...defaultOptions, model: 'nonexistent-model' })
+      ).rejects.toThrow(/Model "nonexistent-model" not found/);
+    });
+
+    it('should match model by name case-insensitively', async () => {
+      const fakeModel = createFakeModel(['response']);
+      fakeModel.family = 'claude-3.5-sonnet';
+      fakeModel.name = 'Claude 3.5 Sonnet';
+      mockSelectChatModels.mockResolvedValue([fakeModel]);
+
+      const handle = await adapter.runSdk({
+        ...defaultOptions,
+        model: 'CLAUDE 3.5',
+      });
+      handle.onOutput(() => {
+        /* drain */
+      });
+      await handle.done;
+
+      expect(fakeModel.sendRequest).toHaveBeenCalledTimes(1);
+    });
+
     it('should include taskFolder in prompt when provided', async () => {
       const fakeModel = createFakeModel(['text']);
       mockSelectChatModels.mockResolvedValue([fakeModel]);

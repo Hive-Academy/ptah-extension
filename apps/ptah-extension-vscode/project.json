@@ -68,6 +68,10 @@
             "forwardAllArgs": false
           },
           {
+            "command": "powershell -Command \"if (Test-Path 'dist/apps/ptah-extension-vscode/assets/plugins') { Remove-Item -Path 'dist/apps/ptah-extension-vscode/assets/plugins' -Recurse -Force }\"",
+            "forwardAllArgs": false
+          },
+          {
             "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/assets/plugins' -Destination 'dist/apps/ptah-extension-vscode/assets/plugins/' -Recurse -Force\"",
             "forwardAllArgs": false
           }

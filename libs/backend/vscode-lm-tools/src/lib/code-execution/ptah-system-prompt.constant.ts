@@ -72,7 +72,7 @@ For complex multi-step operations that combine multiple API calls, use the \`exe
 
 ## Multi-Agent Delegation — Fire-and-Check Pattern
 
-You have access to **agent orchestration tools** that let you spawn Gemini CLI or Codex CLI as background workers. Use these to delegate independent subtasks while you continue working.
+You have access to **agent orchestration tools** that let you spawn background workers using Gemini CLI, Codex SDK, or VS Code's built-in language model. Use these to delegate independent subtasks while you continue working.
 
 ### When to Delegate
 
@@ -85,16 +85,27 @@ You have access to **agent orchestration tools** that let you spawn Gemini CLI o
 
 | Tool | Purpose |
 |------|---------|
-| \`ptah_agent_spawn\` | Launch a CLI agent with a task |
+| \`ptah_agent_spawn\` | Launch an agent with a task |
 | \`ptah_agent_status\` | Check agent progress (all or by ID) |
 | \`ptah_agent_read\` | Read agent output so far |
-| \`ptah_agent_steer\` | Send instruction to running agent |
+| \`ptah_agent_steer\` | Send instruction to running CLI agent (Gemini only) |
 | \`ptah_agent_stop\` | Stop a running agent |
+
+### Available Agents
+
+| Agent | Type | Requirements |
+|-------|------|--------------|
+| \`gemini\` | CLI process | Gemini CLI installed (\`gemini\` on PATH) |
+| \`codex\` | SDK (in-process) | \`@openai/codex-sdk\` npm package + OpenAI API key |
+| \`vscode-lm\` | VS Code built-in | No external deps — uses VS Code Language Model API |
 
 ### Workflow Example
 
-1. **Spawn**: \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "gemini" }\`
+1. **Spawn 3 parallel agents**:
+   - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "gemini" }\`
+   - \`ptah_agent_spawn { task: "Write unit tests for src/utils.ts", cli: "codex" }\`
+   - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", cli: "vscode-lm", model: "gpt-4o" }\`
 2. **Continue**: Work on your main task
-3. **Check**: \`ptah_agent_status { agentId: "..." }\` — is it done?
-4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get the results
+3. **Check**: \`ptah_agent_status {}\` — check all agents at once
+4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get results from each
 5. **Use**: Incorporate findings into your work`;

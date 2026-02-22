@@ -280,6 +280,7 @@ export class AgentProcessManager {
       workingDirectory,
       files: request.files,
       taskFolder: request.taskFolder,
+      model: request.model,
     });
 
     // Set up timeout (same as CLI path)

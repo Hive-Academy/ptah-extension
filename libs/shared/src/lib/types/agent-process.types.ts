@@ -92,6 +92,8 @@ export interface SpawnAgentRequest {
   readonly files?: string[];
   /** Task-tracking folder for shared workspace */
   readonly taskFolder?: string;
+  /** Model identifier for SDK-based agents (e.g., 'claude-3.5-sonnet', 'gpt-4o'). Used by vscode-lm to filter selectChatModels(). */
+  readonly model?: string;
 }
 
 // ========================================

@@ -298,15 +298,23 @@ async function handleIndividualTool(
 
       // Agent orchestration tools (TASK_2025_157)
       case 'ptah_agent_spawn': {
-        const { task, cli, workingDirectory, timeout, files, taskFolder } =
-          args as {
-            task: string;
-            cli?: string;
-            workingDirectory?: string;
-            timeout?: number;
-            files?: string[];
-            taskFolder?: string;
-          };
+        const {
+          task,
+          cli,
+          workingDirectory,
+          timeout,
+          files,
+          taskFolder,
+          model,
+        } = args as {
+          task: string;
+          cli?: string;
+          workingDirectory?: string;
+          timeout?: number;
+          files?: string[];
+          taskFolder?: string;
+          model?: string;
+        };
         const result = await ptahAPI.agent.spawn({
           task,
           cli: cli as CliType | undefined,
@@ -314,6 +322,7 @@ async function handleIndividualTool(
           timeout,
           files,
           taskFolder,
+          model,
         });
         return createToolSuccessResponse(
           request,

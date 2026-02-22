@@ -13,6 +13,8 @@ export interface CliCommandOptions {
   readonly workingDirectory: string;
   readonly files?: string[];
   readonly taskFolder?: string;
+  /** Model identifier for SDK-based agents (e.g., 'claude-3.5-sonnet', 'gpt-4o'). Used to filter model selection. */
+  readonly model?: string;
 }
 
 export interface CliCommand {
