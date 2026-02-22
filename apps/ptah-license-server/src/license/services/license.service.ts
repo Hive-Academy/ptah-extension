@@ -343,17 +343,19 @@ export class LicenseService {
       });
     }
 
-    // Step 2: Check for existing active license (idempotent)
+    // Step 2: Check for existing trial license (idempotent)
+    // Only match trial-created licenses, not paid ones
     const existingLicense = await this.prisma.license.findFirst({
       where: {
         userId: user.id,
         status: 'active',
+        createdBy: 'auto_trial_signup',
       },
     });
 
     if (existingLicense) {
       this.logger.debug(
-        `User ${normalizedEmail} already has active license: ${existingLicense.id}`
+        `User ${normalizedEmail} already has active trial license: ${existingLicense.id}`
       );
       return {
         licenseKey: existingLicense.licenseKey,
@@ -361,39 +363,61 @@ export class LicenseService {
       };
     }
 
-    // Step 3: Generate license key
-    const licenseKey = this.generateLicenseKey();
-
-    // Step 4: Set trial expiration (configurable via TRIAL_DURATION_DAYS env var)
-    const expiresAt = calculateTrialExpirationDate();
-
-    // Step 5: Create License record
-    await this.prisma.license.create({
-      data: {
+    // Step 3: If no trial license, check if user already has a paid license
+    const activePaidLicense = await this.prisma.license.findFirst({
+      where: {
         userId: user.id,
-        licenseKey,
-        plan: 'pro',
         status: 'active',
-        expiresAt,
-        createdBy: 'auto_trial_signup',
+        createdBy: { not: 'auto_trial_signup' },
       },
     });
 
-    // Step 6: Create Subscription record with trialing status
+    if (activePaidLicense) {
+      this.logger.debug(
+        `User ${normalizedEmail} already has paid license, skipping trial`
+      );
+      return {
+        licenseKey: activePaidLicense.licenseKey,
+        expiresAt:
+          activePaidLicense.expiresAt ??
+          new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      };
+    }
+
+    // Step 4: Generate license key
+    const licenseKey = this.generateLicenseKey();
+
+    // Step 5: Set trial expiration (configurable via TRIAL_DURATION_DAYS env var)
+    const expiresAt = calculateTrialExpirationDate();
+
+    // Step 6: Create License + Subscription atomically in a transaction
     // Note: paddleSubscriptionId, paddleCustomerId, and priceId use synthetic
     // values since this trial is created outside Paddle's checkout flow.
     // These are prefixed with 'trial_' to distinguish from real Paddle data.
     const syntheticPaddleId = `trial_${user.id}_${Date.now()}`;
-    await this.prisma.subscription.create({
-      data: {
-        userId: user.id,
-        paddleSubscriptionId: syntheticPaddleId,
-        paddleCustomerId: `trial_customer_${user.id}`,
-        priceId: 'auto_trial_pro',
-        status: 'trialing',
-        trialEnd: expiresAt,
-        currentPeriodEnd: expiresAt,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.license.create({
+        data: {
+          userId: user.id,
+          licenseKey,
+          plan: 'pro',
+          status: 'active',
+          expiresAt,
+          createdBy: 'auto_trial_signup',
+        },
+      });
+
+      await tx.subscription.create({
+        data: {
+          userId: user.id,
+          paddleSubscriptionId: syntheticPaddleId,
+          paddleCustomerId: `trial_customer_${user.id}`,
+          priceId: 'auto_trial_pro',
+          status: 'trialing',
+          trialEnd: expiresAt,
+          currentPeriodEnd: expiresAt,
+        },
+      });
     });
 
     this.logger.log(

@@ -239,6 +239,24 @@ export class PermissionHandlerService {
   }
 
   /**
+   * Handle auto-resolved permission request from backend
+   *
+   * When "Always Allow" is clicked, the backend auto-resolves other pending
+   * requests for the same tool. This removes those from the frontend UI.
+   *
+   * @param payload - Contains the request ID to remove
+   */
+  handlePermissionAutoResolved(payload: { id: string; toolName: string }): void {
+    console.log(
+      '[PermissionHandlerService] Permission auto-resolved:',
+      payload
+    );
+    this._permissionRequests.update((requests) =>
+      requests.filter((r) => r.id !== payload.id)
+    );
+  }
+
+  /**
    * Handle user response to permission request
    *
    * Removes request from pending list and sends response to backend.

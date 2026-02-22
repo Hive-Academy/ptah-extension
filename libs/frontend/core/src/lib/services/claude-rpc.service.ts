@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { VSCodeService } from './vscode.service';
 import { AppStateManager } from './app-state.service';
+import { MessageHandler } from './message-router.types';
 import {
   SessionId,
   CorrelationId,
@@ -114,7 +115,7 @@ const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
 ] as const;
 
 @Injectable({ providedIn: 'root' })
-export class ClaudeRpcService {
+export class ClaudeRpcService implements MessageHandler {
   private readonly vscode = inject(VSCodeService);
   private readonly appState = inject(AppStateManager);
   private pendingCalls = new Map<
@@ -122,12 +123,12 @@ export class ClaudeRpcService {
     (response: RpcResponse<unknown>) => void
   >();
 
-  constructor() {
-    // Register this service with VSCodeService for RPC response routing
-    this.vscode.setRpcService(this);
-    console.log(
-      '[ClaudeRpcService] Registered with VSCodeService for RPC routing'
-    );
+  // MessageHandler implementation
+  readonly handledMessageTypes = [MESSAGE_TYPES.RPC_RESPONSE] as const;
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    console.log('[ClaudeRpcService] Received RPC response:', message);
+    this.handleResponse(message as unknown as RpcResponse);
   }
 
   /**

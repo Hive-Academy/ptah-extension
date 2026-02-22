@@ -174,6 +174,23 @@ export class PaddleService {
         );
       }
 
+      // Step 4b: Expire any internal trial subscriptions for this user
+      // When a trial user converts to paid via Paddle, the old trial subscription
+      // must be expired to prevent the cron job from downgrading them back to Community.
+      const expiredTrials = await tx.subscription.updateMany({
+        where: {
+          userId: user.id,
+          priceId: 'auto_trial_pro',
+          status: 'trialing',
+        },
+        data: { status: 'expired' },
+      });
+      if (expiredTrials.count > 0) {
+        this.logger.log(
+          `Expired ${expiredTrials.count} internal trial subscription(s) for user: ${normalizedEmail}`
+        );
+      }
+
       // Step 5: Create new license
       const newLicense = await tx.license.create({
         data: {

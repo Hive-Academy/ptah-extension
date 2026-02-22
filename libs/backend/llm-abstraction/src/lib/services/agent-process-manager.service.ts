@@ -24,6 +24,7 @@ import {
   CliType,
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
+import { LlmConfigurationService } from './llm-configuration.service';
 import type {
   CliCommandOptions,
   SdkHandle,
@@ -79,7 +80,9 @@ export class AgentProcessManager {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetection: CliDetectionService
+    private readonly cliDetection: CliDetectionService,
+    @inject(TOKENS.LLM_CONFIGURATION_SERVICE)
+    private readonly llmConfig: LlmConfigurationService
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -269,10 +272,20 @@ export class AgentProcessManager {
       startedAt,
     };
 
+    // For vscode-lm: use the user's configured model if no explicit model was requested
+    let resolvedModel = request.model;
+    if (!resolvedModel && cli === 'vscode-lm') {
+      const configuredModel = this.llmConfig.getDefaultModel('vscode-lm');
+      if (configuredModel) {
+        resolvedModel = configuredModel;
+      }
+    }
+
     this.logger.info('[AgentProcessManager] Spawning SDK agent', {
       agentId,
       cli,
       workingDirectory,
+      model: resolvedModel,
     });
 
     const sdkHandle = await runSdk({
@@ -280,7 +293,7 @@ export class AgentProcessManager {
       workingDirectory,
       files: request.files,
       taskFolder: request.taskFolder,
-      model: request.model,
+      model: resolvedModel,
     });
 
     // Set up timeout (same as CLI path)

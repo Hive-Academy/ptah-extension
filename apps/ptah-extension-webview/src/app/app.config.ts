@@ -5,7 +5,15 @@ import {
   ErrorHandler,
 } from '@angular/core';
 import { provideMarkdown, MARKED_EXTENSIONS } from 'ngx-markdown';
-import { provideVSCodeService } from '@ptah-extension/core';
+import {
+  provideVSCodeService,
+  provideMessageRouter,
+  MESSAGE_HANDLERS,
+  ClaudeRpcService,
+  AutopilotStateService,
+  AppStateManager,
+} from '@ptah-extension/core';
+import { ChatMessageHandler } from '@ptah-extension/chat';
 import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
@@ -55,8 +63,13 @@ export const appConfig: ApplicationConfig = {
     provideZoneChangeDetection({ eventCoalescing: true }),
     { provide: ErrorHandler, useClass: WebviewErrorHandler },
     // CRITICAL: Eager initialization of VSCodeService before app starts
-    // This ensures message listener is set up BEFORE any components render
     provideVSCodeService(),
+    // Message routing: handler registration pattern (replaces VSCodeService routing)
+    provideMessageRouter(),
+    { provide: MESSAGE_HANDLERS, useExisting: ClaudeRpcService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: AutopilotStateService, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
+    { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
     // Markdown rendering for chat messages (required for ngx-markdown)
     // Includes custom extensions for callout cards and collapsible code blocks
     provideMarkdown({

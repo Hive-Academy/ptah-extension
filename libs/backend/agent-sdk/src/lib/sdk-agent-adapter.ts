@@ -647,6 +647,7 @@ export class SdkAgentAdapter implements IAIProvider {
       | 'ask'
       | 'auto-edit'
       | 'yolo'
+      | 'plan'
       | 'default'
       | 'acceptEdits'
       | 'bypassPermissions'

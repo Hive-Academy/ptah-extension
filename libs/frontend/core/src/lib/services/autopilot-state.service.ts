@@ -11,11 +11,13 @@
 
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import { MessageHandler } from './message-router.types';
 import {
   PermissionLevel,
   PERMISSION_LEVEL_NAMES,
   isPermissionLevel,
   SessionId,
+  MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
 /**
@@ -60,13 +62,24 @@ import {
  * <input type="checkbox" [checked]="autopilotState.enabled()" />
  */
 @Injectable({ providedIn: 'root' })
-export class AutopilotStateService {
+export class AutopilotStateService implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
+
+  // MessageHandler implementation
+  readonly handledMessageTypes = [MESSAGE_TYPES.PLAN_MODE_CHANGED] as const;
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    const payload = message.payload as { active: boolean } | undefined;
+    if (payload) {
+      this.setAgentPlanMode(payload.active);
+    }
+  }
 
   // Private mutable signals
   private readonly _enabled = signal(false);
   private readonly _permissionLevel = signal<PermissionLevel>('ask');
   private readonly _isPending = signal(false);
+  private readonly _agentPlanMode = signal(false);
 
   // Public readonly signals
   /**
@@ -82,10 +95,17 @@ export class AutopilotStateService {
   readonly isPending = this._isPending.asReadonly();
 
   /**
-   * Permission level (ask | auto-edit | yolo)
+   * Permission level (ask | auto-edit | yolo | plan)
    * Read-only signal, updates reactively when changed
    */
   readonly permissionLevel = this._permissionLevel.asReadonly();
+
+  /**
+   * Agent-initiated plan mode indicator
+   * True when the agent has called EnterPlanMode tool
+   * This is separate from the user's permission level setting
+   */
+  readonly agentPlanMode = this._agentPlanMode.asReadonly();
 
   /**
    * Status text for UI display
@@ -98,6 +118,11 @@ export class AutopilotStateService {
    * enabled: true, level: 'yolo' → 'Full Auto (YOLO)'
    */
   readonly statusText = computed(() => {
+    // Agent-initiated plan mode takes priority
+    if (this._agentPlanMode()) {
+      return 'Plan Mode';
+    }
+
     const enabled = this._enabled();
     const level = this._permissionLevel();
 
@@ -233,6 +258,19 @@ export class AutopilotStateService {
       // Always clear pending state
       this._isPending.set(false);
     }
+  }
+
+  /**
+   * Set agent-initiated plan mode state
+   * Called when the agent uses EnterPlanMode/ExitPlanMode tools
+   *
+   * @param active - Whether plan mode is active
+   */
+  setAgentPlanMode(active: boolean): void {
+    this._agentPlanMode.set(active);
+    console.log(
+      `[AutopilotStateService] Agent plan mode: ${active ? 'entered' : 'exited'}`
+    );
   }
 
   /**

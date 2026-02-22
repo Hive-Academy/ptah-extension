@@ -1,6 +1,4 @@
-import { Injectable, signal, inject } from '@angular/core';
-import { FlatStreamEventUnion, MESSAGE_TYPES } from '@ptah-extension/shared';
-import { AppStateManager, ViewType } from './app-state.service';
+import { Injectable, signal } from '@angular/core';
 
 /**
  * Webview Configuration
@@ -50,9 +48,10 @@ function getPtahWindow(): PtahWindow {
  *
  * Core responsibilities:
  * 1. Provide webview configuration (workspaceRoot, theme, URIs)
- * 2. Route incoming messages to appropriate services (RPC responses, chat chunks)
- * 3. Expose VS Code API for message sending (used by ClaudeRpcService)
+ * 2. Expose VS Code API for message sending (used by ClaudeRpcService)
+ * 3. Manage webview state persistence (getState/setState)
  *
+ * Message routing is handled by MessageRouterService (decoupled via handler pattern).
  * This service is initialized via APP_INITIALIZER before Angular bootstrap.
  */
 @Injectable({
@@ -61,17 +60,6 @@ function getPtahWindow(): PtahWindow {
 export class VSCodeService {
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
-
-  // RPC service will be injected lazily to avoid circular dependency
-  private claudeRpcService: any = null;
-
-  // ChatStore will be injected lazily to avoid circular dependency
-  private chatStore: any = null;
-
-  // AppStateManager for backend-initiated view navigation.
-  // Uses inject() because AppStateManager has no dependency on VSCodeService (no circular risk).
-  // claudeRpcService and chatStore use lazy setters because they depend on VSCodeService.
-  private readonly appStateManager = inject(AppStateManager);
 
   // Signal-based reactive state
   private readonly _config = signal<WebviewConfig>({
@@ -94,7 +82,6 @@ export class VSCodeService {
 
   constructor() {
     this.initializeFromGlobals();
-    this.setupMessageListener();
   }
 
   /**
@@ -130,24 +117,6 @@ export class VSCodeService {
       // Development mode - no VS Code API available
       this._isConnected.set(false);
     }
-  }
-
-  /**
-   * Set RPC service for response routing
-   * Called by ClaudeRpcService constructor to avoid circular dependency
-   */
-  setRpcService(rpcService: any): void {
-    this.claudeRpcService = rpcService;
-    console.log('[VSCodeService] RPC service registered for response routing');
-  }
-
-  /**
-   * Set ChatStore for message routing
-   * Called by ChatStore constructor to avoid circular dependency
-   */
-  setChatStore(chatStore: any): void {
-    this.chatStore = chatStore;
-    console.log('[VSCodeService] ChatStore registered for message routing');
   }
 
   getAssetUri(relativePath: string): string {
@@ -235,227 +204,6 @@ export class VSCodeService {
     this.vscode.setState(newState);
   }
 
-  private setupMessageListener(): void {
-    window.addEventListener('message', (event) => {
-      const message = event.data;
-
-      // Route RPC responses to ClaudeRpcService
-      if (message.type === MESSAGE_TYPES.RPC_RESPONSE) {
-        console.log('[VSCodeService] Received RPC response:', message);
-        if (this.claudeRpcService) {
-          this.claudeRpcService.handleResponse(message);
-        } else {
-          console.warn(
-            '[VSCodeService] RPC response received but no RPC service registered!'
-          );
-        }
-      }
-
-      // Route chat:chunk messages to ChatStore (SDK path only)
-      // TASK_2025_092: Now uses tabId for routing, sessionId is real SDK UUID
-      // TASK_2025_100: tabId may be missing for hook-triggered events (agent-start)
-      //                In this case, streaming-handler falls back to sessionId lookup
-      if (message.type === MESSAGE_TYPES.CHAT_CHUNK) {
-        if (message.payload && this.chatStore) {
-          // Extract tabId for routing and sessionId (real SDK UUID) from payload
-          // TASK_2025_100: tabId may be undefined for hook-triggered events
-          const { tabId, sessionId, event } = message.payload as {
-            tabId?: string;
-            sessionId?: string;
-            event: FlatStreamEventUnion;
-          };
-
-          // Pass tabId and sessionId to ChatStore for routing and session linking
-          // Streaming-handler will fallback to sessionId lookup if tabId is missing
-          this.chatStore.processStreamEvent(event, tabId, sessionId);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] chat:chunk received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] chat:chunk received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle chat completion - CRITICAL for resetting streaming state
-      // TASK_2025_092: Now uses tabId for routing
-      if (message.type === MESSAGE_TYPES.CHAT_COMPLETE) {
-        const { tabId, sessionId, code } = message.payload ?? {};
-
-        if (this.chatStore) {
-          // Call ChatStore to reset streaming state and finalize message
-          this.chatStore.handleChatComplete({
-            tabId,
-            sessionId,
-            code: code ?? 0,
-          });
-        } else {
-          console.warn(
-            '[VSCodeService] chat:complete received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle chat errors - CRITICAL for resetting streaming state on error
-      // TASK_2025_092: Now uses tabId for routing
-      if (message.type === MESSAGE_TYPES.CHAT_ERROR) {
-        const { tabId, sessionId, error } = message.payload ?? {};
-        console.error('[VSCodeService] Chat error:', {
-          tabId,
-          sessionId,
-          error,
-        });
-        if (this.chatStore) {
-          // Call ChatStore to reset streaming state
-          this.chatStore.handleChatError({
-            tabId,
-            sessionId,
-            error: error ?? 'Unknown error',
-          });
-        } else {
-          console.warn(
-            '[VSCodeService] chat:error received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle permission request (TASK_2025_026)
-      if (message.type === MESSAGE_TYPES.PERMISSION_REQUEST) {
-        if (message.payload && this.chatStore) {
-          this.chatStore.handlePermissionRequest(message.payload);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] permission:request received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] permission:request received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle agent summary chunk (real-time agent summary streaming)
-      if (message.type === MESSAGE_TYPES.AGENT_SUMMARY_CHUNK) {
-        // DIAGNOSTIC: Log receipt of summary chunk
-        console.log('[VSCodeService] AGENT_SUMMARY_CHUNK received:', {
-          hasPayload: !!message.payload,
-          hasChatStore: !!this.chatStore,
-          toolUseId: message.payload?.toolUseId,
-          deltaLength: message.payload?.summaryDelta?.length,
-        });
-
-        if (message.payload && this.chatStore) {
-          this.chatStore.handleAgentSummaryChunk(message.payload);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] agent:summary-chunk received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] agent:summary-chunk received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle session stats (cost/token data after completion)
-      if (message.type === MESSAGE_TYPES.SESSION_STATS) {
-        if (message.payload && this.chatStore) {
-          this.chatStore.handleSessionStats(message.payload);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] session:stats received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] session:stats received but ChatStore not registered!',
-            {
-              sessionId: message.payload?.sessionId,
-            }
-          );
-        }
-      }
-
-      // TASK_2025_098: SESSION_COMPACTING handler removed - compaction now flows through
-      // CHAT_CHUNK via unified streaming path (handled in StreamingHandlerService)
-
-      // Handle session ID resolution - CRITICAL for session resume
-      // Backend sends real SDK UUID after SDK returns it from system init message
-      // TASK_2025_095: Now uses tabId for direct routing - no temp ID lookup needed
-      if (message.type === MESSAGE_TYPES.SESSION_ID_RESOLVED) {
-        const { tabId, realSessionId } = message.payload ?? {};
-        console.log('[VSCodeService] Session ID resolved:', {
-          tabId,
-          realSessionId,
-        });
-
-        if (realSessionId && this.chatStore) {
-          // Delegate to ChatStore which will update the tab's claudeSessionId
-          // TASK_2025_095: Now uses tabId for direct tab lookup
-          this.chatStore.handleSessionIdResolved({
-            tabId: tabId as string,
-            realSessionId: realSessionId as string,
-          });
-        } else if (!realSessionId) {
-          console.warn(
-            '[VSCodeService] session:id-resolved received but realSessionId is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] session:id-resolved received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle AskUserQuestion request from SDK (TASK_2025_136)
-      // Routes to PermissionHandlerService via ChatStore for question UI display
-      if (message.type === MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST) {
-        console.log(
-          '[VSCodeService] AskUserQuestion request received:',
-          message.payload
-        );
-        if (message.payload && this.chatStore) {
-          // Route to PermissionHandlerService via ChatStore
-          this.chatStore.handleQuestionRequest(message.payload);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] ask-user-question:request received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] ask-user-question:request received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle backend-initiated view navigation (e.g., auth onboarding -> settings)
-      // Uses handleViewSwitch() which bypasses canSwitchViews() intentionally,
-      // since the backend is authoritative for navigation commands.
-      if (message.type === MESSAGE_TYPES.SWITCH_VIEW) {
-        const view = message.payload?.view;
-        const validViews: ViewType[] = [
-          'chat',
-          'command-builder',
-          'analytics',
-          'context-tree',
-          'settings',
-          'setup-wizard',
-          'welcome',
-        ];
-        if (view && validViews.includes(view)) {
-          console.log(
-            `[VSCodeService] Backend requested view switch to: ${view}`
-          );
-          this.appStateManager.handleViewSwitch(view as ViewType);
-        } else {
-          console.warn(
-            `[VSCodeService] switchView received with invalid or missing view: ${view}`
-          );
-        }
-      }
-    });
-  }
 }
 
 /**

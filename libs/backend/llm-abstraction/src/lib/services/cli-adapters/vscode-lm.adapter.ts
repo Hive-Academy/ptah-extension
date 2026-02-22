@@ -23,9 +23,22 @@ export class VsCodeLmAdapter implements CliAdapter {
   readonly name = 'vscode-lm' as const;
   readonly displayName = 'VS Code LM';
 
+  /** Optional configured model identifier (e.g., 'copilot/gpt-5.3-codex') from user settings */
+  private configuredModel?: string;
+
+  /**
+   * Set the user's configured default model.
+   * Used by detect() to show the configured model in version string,
+   * and as implicit default when no model is specified in runSdk().
+   */
+  setConfiguredModel(model: string): void {
+    this.configuredModel = model;
+  }
+
   /**
    * Detect if VS Code Language Models are available.
    * Returns installed: true if at least one model can be selected.
+   * Shows the configured model in the version string if set.
    */
   async detect(): Promise<CliDetectionResult> {
     try {
@@ -39,11 +52,24 @@ export class VsCodeLmAdapter implements CliAdapter {
         };
       }
 
-      const firstModel = models[0];
+      // Show configured model if set, otherwise show first available
+      let versionModel = models[0];
+      if (this.configuredModel) {
+        const needle = this.configuredModel.toLowerCase();
+        const match = models.find(
+          (m) =>
+            m.id?.toLowerCase().includes(needle) ||
+            m.family?.toLowerCase().includes(needle)
+        );
+        if (match) {
+          versionModel = match;
+        }
+      }
+
       return {
         cli: 'vscode-lm',
         installed: true,
-        version: `${firstModel.name} (${firstModel.vendor})`,
+        version: `${versionModel.name} (${versionModel.vendor})`,
         supportsSteer: false,
       };
     } catch {

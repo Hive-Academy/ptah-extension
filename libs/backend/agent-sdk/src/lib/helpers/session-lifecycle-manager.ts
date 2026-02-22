@@ -502,6 +502,17 @@ export class SessionLifecycleManager {
     // Step 6: Build query options
     // TASK_2025_098: Pass sessionId and onCompactionStart for compaction hooks
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
+    // Resolve initial SDK permission mode from current autopilot config
+    const currentLevel = this.permissionHandler.getPermissionLevel();
+    const initialPermissionMode =
+      currentLevel === 'ask'
+        ? 'default'
+        : (SessionLifecycleManager.PERMISSION_MODE_MAP[currentLevel] as
+            | 'default'
+            | 'acceptEdits'
+            | 'bypassPermissions'
+            | 'plan');
+
     const queryOptions = await this.queryOptionsBuilder.build({
       userMessageStream,
       abortController,
@@ -513,6 +524,7 @@ export class SessionLifecycleManager {
       mcpServerRunning,
       enhancedPromptsContent,
       pluginPaths,
+      permissionMode: initialPermissionMode,
     });
 
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {
@@ -592,6 +604,7 @@ export class SessionLifecycleManager {
     ask: 'default',
     'auto-edit': 'acceptEdits',
     yolo: 'bypassPermissions',
+    plan: 'plan',
     default: 'default',
     acceptEdits: 'acceptEdits',
     bypassPermissions: 'bypassPermissions',
@@ -610,6 +623,7 @@ export class SessionLifecycleManager {
       | 'ask'
       | 'auto-edit'
       | 'yolo'
+      | 'plan'
       | 'default'
       | 'acceptEdits'
       | 'bypassPermissions'

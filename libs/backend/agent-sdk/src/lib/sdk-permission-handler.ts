@@ -350,6 +350,24 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
       // Auto-approve safe tools (no user prompt needed)
       if (SAFE_TOOLS.includes(toolName)) {
+        // Detect agent-initiated plan mode changes
+        if (toolName === 'EnterPlanMode' || toolName === 'ExitPlanMode') {
+          const active = toolName === 'EnterPlanMode';
+          this.logger.info(
+            `[SdkPermissionHandler] Agent ${active ? 'entered' : 'exited'} plan mode`
+          );
+          this.webviewManager
+            .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+              active,
+            })
+            .catch((error) => {
+              this.logger.error(
+                `[SdkPermissionHandler] Failed to send plan mode changed event`,
+                { error }
+              );
+            });
+        }
+
         this.logger.debug(
           `[SdkPermissionHandler] Auto-approved safe tool: ${toolName}`
         );
@@ -647,6 +665,45 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         `[SdkPermissionHandler] Created "Always Allow" rule for tool: ${requestContext.toolName}`,
         { ruleId: rule.id }
       );
+
+      // Auto-resolve other pending requests for the same tool
+      const toolName = requestContext.toolName;
+      const autoResolvedIds: string[] = [];
+
+      for (const [pendingId, pendingCtx] of this.pendingRequestContext.entries()) {
+        if (pendingId === requestId) continue; // Skip the current request
+        if (pendingCtx.toolName !== toolName) continue;
+
+        const pendingReq = this.pendingRequests.get(pendingId);
+        if (!pendingReq) continue;
+
+        // Auto-resolve: clear timer, remove from maps, resolve promise
+        clearTimeout(pendingReq.timer);
+        this.pendingRequests.delete(pendingId);
+        this.pendingRequestContext.delete(pendingId);
+        pendingReq.resolve({ id: pendingId, decision: 'allow' });
+        autoResolvedIds.push(pendingId);
+
+        // Notify frontend to dismiss the UI card
+        this.webviewManager
+          .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
+            id: pendingId,
+            toolName,
+          })
+          .catch((error) => {
+            this.logger.error(
+              `[SdkPermissionHandler] Failed to send auto-resolved event`,
+              { error, pendingId }
+            );
+          });
+      }
+
+      if (autoResolvedIds.length > 0) {
+        this.logger.info(
+          `[SdkPermissionHandler] Auto-resolved ${autoResolvedIds.length} sibling requests for tool: ${toolName}`,
+          { autoResolvedIds }
+        );
+      }
     }
 
     // Clean up request context
@@ -1063,6 +1120,18 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     // Clear request context map
     this.pendingRequestContext.clear();
+
+    // Reset agent plan mode indicator on session end
+    this.webviewManager
+      .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+        active: false,
+      })
+      .catch((error) => {
+        this.logger.error(
+          `[SdkPermissionHandler] Failed to send plan mode reset`,
+          { error }
+        );
+      });
 
     this.logger.info(
       `[SdkPermissionHandler] Pending permissions cleanup complete`,

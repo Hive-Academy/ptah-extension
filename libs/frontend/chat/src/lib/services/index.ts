@@ -37,3 +37,6 @@ export {
   MessageValidationService,
   type ValidationResult,
 } from './message-validation.service';
+
+// ChatMessageHandler - Message routing handler for chat-related VS Code messages
+export { ChatMessageHandler } from './chat-message-handler.service';

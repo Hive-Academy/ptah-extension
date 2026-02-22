@@ -93,8 +93,18 @@ import { AgentSelectorComponent } from './agent-selector.component';
           <textarea
             #inputElement
             class="textarea textarea-bordered flex-1 min-h-[2.5rem] max-h-[10rem] resize-none transition-colors w-full"
-            [class.border-warning]="autopilotState.enabled()"
-            [class.border-2]="autopilotState.enabled()"
+            [class.border-info]="
+              autopilotState.agentPlanMode() ||
+              autopilotState.permissionLevel() === 'plan'
+            "
+            [class.border-warning]="
+              !autopilotState.agentPlanMode() &&
+              autopilotState.permissionLevel() !== 'plan' &&
+              autopilotState.enabled()
+            "
+            [class.border-2]="
+              autopilotState.enabled() || autopilotState.agentPlanMode()
+            "
             placeholder="Ask a question or describe a task..."
             [value]="currentMessage()"
             (input)="handleInput($event)"
@@ -129,12 +139,12 @@ import { AgentSelectorComponent } from './agent-selector.component';
         </div>
 
         <!-- Button Stack: Stop (streaming only) + Send -->
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1 pb-1">
           <!-- Stop Button (above send during streaming) -->
           <!-- TASK_2025_096 FIX: Use isActiveTabStreaming() which uses same signal as tab spinner -->
           @if (isActiveTabStreaming()) {
           <button
-            class="btn btn-error btn-sm"
+            class="btn btn-error btn-sm btn-square"
             (click)="handleStop()"
             title="Stop generating"
             type="button"
@@ -144,12 +154,12 @@ import { AgentSelectorComponent } from './agent-selector.component';
           }
           <!-- Send Button (always functional - queues message during streaming) -->
           <button
-            class="btn btn-primary"
+            class="btn btn-primary btn-sm btn-square"
             [disabled]="!canSend()"
             (click)="handleSend()"
             type="button"
           >
-            <lucide-angular [img]="SendIcon" class="w-5 h-5" />
+            <lucide-angular [img]="SendIcon" class="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -168,14 +178,6 @@ import { AgentSelectorComponent } from './agent-selector.component';
       <div class="flex items-center justify-between gap-2 text-sm min-w-0">
         <!-- Left: Action Icons with Autopilot Badge -->
         <div class="flex items-center gap-2 text-base-content/60 flex-shrink-0">
-          <button
-            class="btn btn-ghost btn-xs btn-circle"
-            title="Add screenshot"
-            type="button"
-          >
-            📷
-          </button>
-
           <!-- Autopilot Mode Badge - shown when enabled -->
           @if (autopilotState.enabled()) {
           <div class="badge badge-warning badge-sm gap-1">

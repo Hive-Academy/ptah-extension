@@ -134,6 +134,16 @@ import {
           </div>
           }
 
+          <!-- Info for Plan mode -->
+          @if (selectedLevel() === 'plan') {
+          <div class="alert alert-info mb-4 py-2">
+            <span class="text-[11px]"
+              >Plan Mode allows Claude to read and analyze your codebase but
+              blocks all file modifications and code execution.</span
+            >
+          </div>
+          }
+
           <!-- Error Display -->
           @if (errorMessage()) {
           <div class="alert alert-error mb-4 py-2">
@@ -207,18 +217,19 @@ export class AutopilotPopoverComponent {
   // Keyboard navigation - expose activeIndex for template
   readonly activeIndex = this.keyboardNav.activeIndex;
 
-  // Permission levels for selector
+  // Permission levels for selector (ordered: Full Auto first as default)
   readonly permissionLevels: {
     id: PermissionLevel;
     name: string;
     description: string;
   }[] = [
+    { id: 'yolo', name: 'Full Auto', description: 'All actions auto-approved' },
     { id: 'auto-edit', name: 'Auto-edit', description: 'File edits only' },
-    { id: 'yolo', name: 'Full Auto', description: 'All actions' },
+    { id: 'plan', name: 'Plan Mode', description: 'Read-only analysis' },
   ];
 
-  // Local state for level selection before enabling
-  readonly selectedLevel = signal<PermissionLevel>('auto-edit');
+  // Local state for level selection before enabling (default: Full Auto)
+  readonly selectedLevel = signal<PermissionLevel>('yolo');
 
   // Error state for RPC failures
   private readonly _errorMessage = signal<string | null>(null);

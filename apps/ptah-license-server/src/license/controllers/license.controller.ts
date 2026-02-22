@@ -243,14 +243,19 @@ export class LicenseController {
       // Returns 'expired' when license has expired
       // Returns undefined for active licenses
       reason,
-      // Subscription info (if Pro with Paddle subscription)
-      subscription: subscription
-        ? {
-            status: subscription.status,
-            currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
-            canceledAt: subscription.canceledAt?.toISOString() || null,
-          }
-        : null,
+      // Subscription info - only include for users with meaningful Paddle subscriptions.
+      // Exclude expired/internal-trial subscriptions (e.g. downgraded community users)
+      // as they cause the frontend to show irrelevant billing/sync/manage UI.
+      subscription:
+        subscription &&
+        subscription.status !== 'expired' &&
+        subscription.priceId !== 'auto_trial_pro'
+          ? {
+              status: subscription.status,
+              currentPeriodEnd: subscription.currentPeriodEnd.toISOString(),
+              canceledAt: subscription.canceledAt?.toISOString() || null,
+            }
+          : null,
     };
   }
 

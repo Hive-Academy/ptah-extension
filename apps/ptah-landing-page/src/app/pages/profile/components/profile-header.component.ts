@@ -142,7 +142,10 @@ import { LicenseData } from '../models/license-data.interface';
 
           <!-- Days/Status -->
           <div class="p-6 text-center">
-            @if (license()?.daysRemaining !== undefined) {
+            @if (license()?.plan === 'community') {
+            <div class="text-3xl font-bold text-secondary">Free</div>
+            <p class="text-sm text-neutral-content mt-1">Forever</p>
+            } @else if (license()?.daysRemaining !== undefined) {
             <div class="text-3xl font-bold" [class]="getExpiryClass()">
               {{ license()?.daysRemaining }}
             </div>
@@ -158,7 +161,10 @@ import { LicenseData } from '../models/license-data.interface';
 
           <!-- Next Billing / Expiry -->
           <div class="p-6 text-center">
-            @if (license()?.subscription?.currentPeriodEnd) {
+            @if (license()?.plan === 'community') {
+            <div class="text-lg font-bold text-secondary">Never</div>
+            <p class="text-sm text-neutral-content mt-1">Expires</p>
+            } @else if (license()?.subscription?.currentPeriodEnd) {
             <div class="text-lg font-bold text-base-content">
               {{
                 formatDateShort(

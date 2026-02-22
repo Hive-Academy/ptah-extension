@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import type { PermissionLevel } from './model-autopilot.types';
 
 /**
  * Permission request sent from MCP server to webview
@@ -80,6 +81,12 @@ export interface ISdkPermissionHandler {
     id: string;
     answers: Record<string, string>;
   }): void;
+
+  /**
+   * Get the current permission level
+   * Used by SessionLifecycleManager to set initial SDK permissionMode at query creation
+   */
+  getPermissionLevel(): PermissionLevel;
 
   /**
    * Cleanup pending permission requests for a session

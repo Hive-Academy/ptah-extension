@@ -72,7 +72,20 @@ export class SubscriptionService {
 
     const localSubscription = userData.subscription;
 
-    // Step 2: Query Paddle - use stored customerId if available (saves 1 API call)
+    // Step 2: Skip Paddle API for internal trial subscriptions
+    // Trial subscriptions use synthetic IDs (trial_customer_*, auto_trial_pro)
+    // that are not real Paddle resources - querying Paddle with them causes 400 errors.
+    if (this.isInternalTrial(localSubscription)) {
+      this.logger.debug(
+        `Skipping Paddle API for internal trial user: ${userId}`
+      );
+      const result = this.buildStatusFromLocal(localSubscription);
+      // Internal trials are self-contained - no Paddle sync needed
+      result.requiresSync = false;
+      return result;
+    }
+
+    // Step 3: Query Paddle - use stored customerId if available (saves 1 API call)
     // Otherwise fall back to email lookup
     const paddleResult = localSubscription?.paddleCustomerId
       ? await this.paddleSync.findSubscriptionByCustomerId(
@@ -126,18 +139,17 @@ export class SubscriptionService {
     const currentPeriodEnd = new Date(subscription.currentPeriodEnd);
     const now = new Date();
 
-    // Active or trialing - cannot checkout
-    if (
-      subscription.status === 'active' ||
-      subscription.status === 'trialing'
-    ) {
+    // Active (paying) subscription - cannot checkout (prevent duplicates)
+    // Note: Trialing users CAN checkout - trials are API-managed, not Paddle subscriptions,
+    // so there's no portal to manage them. Allow trial users to subscribe directly.
+    if (subscription.status === 'active') {
       return {
         canCheckout: false,
         reason: 'existing_subscription',
         existingPlan: subscription.plan,
         currentPeriodEnd: subscription.currentPeriodEnd,
         customerPortalUrl: status.customerPortalUrl,
-        message: `You already have an ${subscription.status} ${subscription.plan} subscription. Please manage it through the customer portal.`,
+        message: `You already have an active ${subscription.plan} subscription. Please manage it through the customer portal.`,
       };
     }
 
@@ -219,6 +231,25 @@ export class SubscriptionService {
     const localLicense = userData.license;
     const statusBefore = localSubscription?.status || 'none';
     const planBefore = localLicense?.plan;
+
+    // Skip reconciliation for internal trial subscriptions
+    // Internal trials use synthetic Paddle IDs that would cause 400 errors
+    if (this.isInternalTrial(localSubscription)) {
+      this.logger.debug(
+        `Skipping reconcile for internal trial user: ${userId}`
+      );
+      return {
+        success: true,
+        changes: {
+          subscriptionUpdated: false,
+          licenseUpdated: false,
+          statusBefore,
+          statusAfter: statusBefore,
+          planBefore,
+          planAfter: planBefore,
+        },
+      };
+    }
 
     // Step 2: Query Paddle - use stored customerId if available (saves 1 API call)
     // Otherwise fall back to email lookup
@@ -400,6 +431,15 @@ export class SubscriptionService {
       return {
         error: 'no_customer_record',
         message: 'No Paddle customer record found for this user.',
+      };
+    }
+
+    // Internal trials have no Paddle portal - synthetic IDs would cause API errors
+    if (this.isInternalTrial(subscription)) {
+      return {
+        error: 'no_customer_record',
+        message:
+          'Portal is not available during trial period. Use the pricing page to subscribe.',
       };
     }
 
@@ -597,10 +637,28 @@ export class SubscriptionService {
   }
 
   /**
+   * Check if a local subscription is an internal (API-managed) trial.
+   * Internal trials use synthetic Paddle IDs that should never be sent to Paddle API.
+   */
+  private isInternalTrial(
+    subscription: { paddleCustomerId: string; status: string; priceId: string } | null
+  ): boolean {
+    if (!subscription) return false;
+    return (
+      subscription.status === 'trialing' &&
+      (subscription.paddleCustomerId.startsWith('trial_customer_') ||
+        subscription.priceId === 'auto_trial_pro')
+    );
+  }
+
+  /**
    * Map Paddle price ID to plan name
    */
   private mapPriceIdToPlan(priceId: string | undefined): string {
     if (!priceId) return 'expired';
+
+    // Internal trial price ID (not a real Paddle price)
+    if (priceId === 'auto_trial_pro') return 'pro';
 
     const proMonthlyPriceId = this.configService.get<string>(
       'PADDLE_PRICE_ID_PRO_MONTHLY'

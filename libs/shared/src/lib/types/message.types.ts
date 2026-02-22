@@ -321,6 +321,14 @@ export const MESSAGE_TYPES = {
   // Similar to permission system but expects answers instead of approve/deny
   ASK_USER_QUESTION_REQUEST: 'ask-user-question:request',
   ASK_USER_QUESTION_RESPONSE: 'ask-user-question:response',
+
+  // ---- Permission Auto-Resolve Messages ----
+  // Sent when "Always Allow" auto-resolves sibling pending requests for the same tool
+  PERMISSION_AUTO_RESOLVED: 'permission:auto-resolved',
+
+  // ---- Plan Mode Messages ----
+  // Sent when agent enters/exits plan mode via EnterPlanMode/ExitPlanMode tools
+  PLAN_MODE_CHANGED: 'session:plan-mode-changed',
 } as const;
 
 /**

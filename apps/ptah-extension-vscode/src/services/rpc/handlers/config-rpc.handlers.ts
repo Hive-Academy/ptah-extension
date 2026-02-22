@@ -179,7 +179,7 @@ export class ConfigRpcHandlers {
         const { enabled, permissionLevel, sessionId } = params;
 
         // Validate permission level
-        const validLevels = ['ask', 'auto-edit', 'yolo'] as const;
+        const validLevels = ['ask', 'auto-edit', 'yolo', 'plan'] as const;
         if (
           !validLevels.includes(permissionLevel as (typeof validLevels)[number])
         ) {
@@ -223,14 +223,23 @@ export class ConfigRpcHandlers {
           : 'ask';
         this.permissionHandler.setPermissionLevel(effectiveLevel);
 
-        // Sync to active SDK session if provided and autopilot is enabled
-        if (sessionId && enabled) {
+        // Sync to active SDK session — ALWAYS, including when disabled.
+        // When disabled, reset SDK to 'default' so canUseTool is invoked again.
+        // Without this, the SDK session stays in bypassPermissions/acceptEdits
+        // and canUseTool is never called despite the UI showing "Manual".
+        if (sessionId) {
           try {
-            const sdkMode = this.mapPermissionToSdkMode(permissionLevel);
-            await this.sdkAdapter.setSessionPermissionLevel(sessionId, sdkMode);
+            const sdkMode = enabled
+              ? this.mapPermissionToSdkMode(permissionLevel)
+              : 'default';
+            await this.sdkAdapter.setSessionPermissionLevel(
+              sessionId,
+              sdkMode
+            );
             this.logger.debug('Permission mode synced to active session', {
               sessionId,
               sdkMode,
+              enabled,
             });
           } catch (syncError) {
             this.logger.warn(
@@ -386,14 +395,15 @@ export class ConfigRpcHandlers {
    */
   private mapPermissionToSdkMode(
     level: PermissionLevel
-  ): 'default' | 'acceptEdits' | 'bypassPermissions' {
+  ): 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' {
     const modeMap: Record<
       PermissionLevel,
-      'default' | 'acceptEdits' | 'bypassPermissions'
+      'default' | 'acceptEdits' | 'bypassPermissions' | 'plan'
     > = {
       ask: 'default',
       'auto-edit': 'acceptEdits',
       yolo: 'bypassPermissions',
+      plan: 'plan',
     };
     return modeMap[level];
   }

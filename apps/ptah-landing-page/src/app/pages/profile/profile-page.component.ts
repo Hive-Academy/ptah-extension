@@ -133,6 +133,7 @@ import { LicenseData } from './models/license-data.interface';
               aria-hidden="true"
             />
             {{
+              license()?.plan === 'community' ||
               license()?.plan?.startsWith('trial_')
                 ? 'View Pricing Plans'
                 : 'Manage Subscription'

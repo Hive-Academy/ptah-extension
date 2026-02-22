@@ -52,7 +52,7 @@ export interface ModelInfo {
  *   // Safe to use userInput as PermissionLevel
  * }
  */
-export type PermissionLevel = 'ask' | 'auto-edit' | 'yolo';
+export type PermissionLevel = 'ask' | 'auto-edit' | 'yolo' | 'plan';
 
 /**
  * Model display names for UI rendering
@@ -138,6 +138,7 @@ export const PERMISSION_LEVEL_NAMES: Record<PermissionLevel, string> = {
   ask: 'Manual',
   'auto-edit': 'Auto-edit',
   yolo: 'Full Auto (YOLO)',
+  plan: 'Plan Mode',
 } as const;
 
 /**
@@ -176,6 +177,6 @@ export function isSelectableClaudeModel(
 export function isPermissionLevel(value: unknown): value is PermissionLevel {
   return (
     typeof value === 'string' &&
-    (value === 'ask' || value === 'auto-edit' || value === 'yolo')
+    (value === 'ask' || value === 'auto-edit' || value === 'yolo' || value === 'plan')
   );
 }

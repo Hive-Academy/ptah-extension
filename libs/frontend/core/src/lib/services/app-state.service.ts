@@ -6,7 +6,8 @@
  */
 
 import { Injectable, signal, computed } from '@angular/core';
-import { WorkspaceInfo } from '@ptah-extension/shared';
+import { WorkspaceInfo, MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MessageHandler } from './message-router.types';
 
 export type ViewType =
   | 'chat'
@@ -32,7 +33,34 @@ export interface AppState {
  * KEEPING: This service is clean and functional
  */
 @Injectable({ providedIn: 'root' })
-export class AppStateManager {
+export class AppStateManager implements MessageHandler {
+  // MessageHandler implementation
+  readonly handledMessageTypes = [MESSAGE_TYPES.SWITCH_VIEW] as const;
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    const payload = message.payload as { view?: string } | undefined;
+    const view = payload?.view;
+    const validViews: ViewType[] = [
+      'chat',
+      'command-builder',
+      'analytics',
+      'context-tree',
+      'settings',
+      'setup-wizard',
+      'welcome',
+    ];
+    if (view && validViews.includes(view as ViewType)) {
+      console.log(
+        `[AppStateManager] Backend requested view switch to: ${view}`
+      );
+      this.handleViewSwitch(view as ViewType);
+    } else {
+      console.warn(
+        `[AppStateManager] switchView received with invalid or missing view: ${view}`
+      );
+    }
+  }
+
   // Core state signals
   private readonly _currentView = signal<ViewType>('chat');
   private readonly _isLoading = signal(false);

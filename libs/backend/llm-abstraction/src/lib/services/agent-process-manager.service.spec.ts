@@ -205,8 +205,14 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
     setupVscodeConfig();
 
+    // Mock LlmConfigurationService
+    const mockLlmConfig = {
+      getDefaultModel: jest.fn().mockReturnValue('copilot/gpt-4o'),
+      getDefaultProvider: jest.fn().mockReturnValue('vscode-lm'),
+    } as never;
+
     // Instantiate manager directly (tsyringe decorators are mocked to no-ops)
-    manager = new AgentProcessManager(logger, cliDetection);
+    manager = new AgentProcessManager(logger, cliDetection, mockLlmConfig);
   });
 
   afterEach(() => {

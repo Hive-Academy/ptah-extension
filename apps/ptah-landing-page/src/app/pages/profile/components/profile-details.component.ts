@@ -219,8 +219,30 @@ import { LicenseData } from '../models/license-data.interface';
         </div>
         }
 
-        <!-- Subscription Status (for Pro users) -->
-        @if (license()?.subscription) {
+        <!-- Upgrade CTA for Community users (no subscription) -->
+        @if (license()?.plan === 'community' && !license()?.subscription) {
+        <div class="px-6 py-4 flex justify-between items-center">
+          <span class="text-neutral-content flex items-center gap-2">
+            <lucide-angular
+              [img]="SparklesIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Unlock Pro Features
+          </span>
+          <a routerLink="/pricing" class="btn btn-sm btn-secondary">
+            <lucide-angular
+              [img]="ZapIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Upgrade to Pro
+          </a>
+        </div>
+        }
+
+        <!-- Subscription Status (only for Pro users with active Paddle subscription) -->
+        @if (license()?.subscription && license()?.plan !== 'community') {
         <div class="px-6 py-4 flex justify-between items-center">
           <span class="text-neutral-content flex items-center gap-2">
             <lucide-angular
@@ -401,8 +423,8 @@ export class ProfileDetailsComponent {
   });
 
   /**
-   * Check if user has a real Paddle subscription (not trialing)
-   * Trial users don't have a real Paddle customer ID, so we can't:
+   * Check if user has a real Paddle subscription (not trialing, not community, not expired)
+   * Only users with active paid Paddle subscriptions can:
    * - Sync with Paddle
    * - Open customer portal
    */
@@ -410,13 +432,18 @@ export class ProfileDetailsComponent {
     const licenseData = this.license();
     if (!licenseData?.subscription) return false;
 
+    // Community plan users have no real Paddle subscription
+    if (licenseData.plan === 'community') return false;
+
     // Trial users have subscription.status = 'trialing' but no real Paddle customer
-    // They also have plan = 'trial_pro'
     const isTrialing =
       licenseData.subscription.status === 'trialing' ||
       licenseData.plan?.startsWith('trial_');
 
-    return !isTrialing;
+    // Expired subscriptions have no Paddle portal access
+    const isExpired = licenseData.subscription.status === 'expired';
+
+    return !isTrialing && !isExpired;
   }
 
   /**

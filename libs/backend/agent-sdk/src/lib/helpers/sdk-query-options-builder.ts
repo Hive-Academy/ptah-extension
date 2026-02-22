@@ -162,6 +162,13 @@ export interface QueryOptionsInput {
    * Only populated for premium users with configured plugins.
    */
   pluginPaths?: string[];
+  /**
+   * Initial SDK permission mode based on current autopilot config.
+   * When autopilot is enabled, this should be the mapped SDK mode
+   * (e.g. 'bypassPermissions', 'acceptEdits', 'plan').
+   * Defaults to 'default' (canUseTool callback handles everything).
+   */
+  permissionMode?: SdkQueryOptions['permissionMode'];
 }
 
 /**
@@ -184,7 +191,7 @@ export interface SdkQueryOptions {
     preset: 'claude_code';
   };
   mcpServers: Record<string, McpHttpServerConfig>;
-  permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions';
+  permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
   canUseTool?: CanUseTool;
   includePartialMessages: boolean;
   settingSources?: Array<'user' | 'project' | 'local'>;
@@ -265,6 +272,7 @@ export class SdkQueryOptionsBuilder {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
+      permissionMode = 'default',
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -311,7 +319,7 @@ export class SdkQueryOptionsBuilder {
       resumeSessionId: resumeSessionId
         ? `${resumeSessionId.slice(0, 8)}...`
         : undefined,
-      permissionMode: 'default',
+      permissionMode,
       hasCanUseToolCallback: !!canUseToolCallback,
       compactionEnabled: compactionConfig.enabled,
       compactionThreshold: compactionConfig.contextTokenThreshold,
@@ -336,9 +344,11 @@ export class SdkQueryOptionsBuilder {
           preset: 'claude_code' as const,
         },
         mcpServers: this.buildMcpServers(isPremium, mcpServerRunning),
-        // CRITICAL: permissionMode must be 'default' for canUseTool to be invoked
-        // If set to 'bypassPermissions', canUseTool is never called
-        permissionMode: 'default',
+        // Set SDK permission mode based on current autopilot config.
+        // SDK evaluation order: Hooks → Rules → Permission Mode → canUseTool.
+        // When 'default': all tools fall through to canUseTool callback.
+        // When 'bypassPermissions'/'acceptEdits'/'plan': SDK resolves at step 3.
+        permissionMode,
         canUseTool: canUseToolCallback,
         includePartialMessages: true,
         // Load settings from user and project directories

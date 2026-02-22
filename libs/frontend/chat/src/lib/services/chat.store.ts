@@ -88,8 +88,8 @@ export class ChatStore {
    */
   private async initializeServices(): Promise<void> {
     try {
-      // Register ChatStore with VSCodeService for message routing
-      this._vscodeService?.setChatStore(this);
+      // NOTE: Message routing is now handled by ChatMessageHandler via MessageRouterService.
+      // No need to register ChatStore with VSCodeService.
 
       // NOTE: ALL callback registrations REMOVED in TASK_2025_054 Batch 3
       // MessageSenderService provides direct message sending without callbacks
@@ -809,6 +809,14 @@ export class ChatStore {
    */
   handlePermissionRequest(request: PermissionRequest): void {
     this.permissionHandler.handlePermissionRequest(request);
+  }
+
+  /**
+   * Handle auto-resolved permission from backend ("Always Allow" sibling resolution)
+   * Delegates to PermissionHandlerService
+   */
+  handlePermissionAutoResolved(payload: { id: string; toolName: string }): void {
+    this.permissionHandler.handlePermissionAutoResolved(payload);
   }
 
   /**
