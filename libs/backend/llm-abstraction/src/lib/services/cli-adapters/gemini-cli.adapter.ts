@@ -2,9 +2,10 @@
  * Gemini CLI Adapter
  * TASK_2025_157: Headless Gemini CLI agent integration
  *
- * Invocation: gemini -p "task description"
- * The -p flag sends a prompt non-interactively.
- * Falls back to stdin pipe if -p is not supported.
+ * Invocation: gemini "task description"
+ * Headless mode accepts a prompt as a positional argument,
+ * prints the response to stdout, and exits immediately.
+ * See: https://geminicli.com/docs/cli/tutorials/automation/
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -65,8 +66,8 @@ export class GeminiCliAdapter implements CliAdapter {
     const args: string[] = [];
     const taskPrompt = buildTaskPrompt(options);
 
-    // Use -p flag for non-interactive prompt
-    args.push('-p', taskPrompt);
+    // Positional argument for headless mode (no flags needed)
+    args.push(taskPrompt);
 
     return {
       binary: 'gemini',

@@ -1,8 +1,10 @@
 /**
  * CLI Detection Service
  * TASK_2025_157: Auto-detect installed CLI agents (Gemini, Codex)
+ * TASK_2025_158: Added VS Code Language Model adapter
  *
  * Detects on first call and caches results.
+ * Registered adapters: Gemini CLI, Codex CLI, VS Code LM.
  * Exposes detection results for MCP tools and namespace.
  */
 import { injectable, inject } from 'tsyringe';
@@ -11,6 +13,7 @@ import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
 import type { CliAdapter } from './cli-adapters/cli-adapter.interface';
 import { GeminiCliAdapter } from './cli-adapters/gemini-cli.adapter';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
+import { VsCodeLmAdapter } from './cli-adapters/vscode-lm.adapter';
 
 @injectable()
 export class CliDetectionService {
@@ -21,11 +24,13 @@ export class CliDetectionService {
     // Register built-in adapters
     const gemini = new GeminiCliAdapter();
     const codex = new CodexCliAdapter();
+    const vscodeLm = new VsCodeLmAdapter();
     this.adapters.set('gemini', gemini);
     this.adapters.set('codex', codex);
+    this.adapters.set('vscode-lm', vscodeLm);
 
     this.logger.info(
-      '[CliDetection] Service initialized with adapters: gemini, codex'
+      '[CliDetection] Service initialized with adapters: gemini, codex, vscode-lm'
     );
   }
 

@@ -252,11 +252,12 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
   return {
     name: 'ptah_agent_spawn',
     description:
-      'Spawn a CLI agent (Gemini or Codex) to work on a task in the background. ' +
-      'The agent runs as a headless process while you continue working. ' +
+      'Spawn an agent (Gemini, Codex, or VS Code LM) to work on a task in the background. ' +
+      'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'Ideal for delegating: code reviews, test generation, documentation, ' +
-      'and other independent subtasks.',
+      'and other independent subtasks. ' +
+      "Use vscode-lm when no external CLI is installed — it uses VS Code's built-in language model.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -268,9 +269,11 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['gemini', 'codex'],
+          enum: ['gemini', 'codex', 'vscode-lm'],
           description:
-            'Which CLI to use. Omit to use the default (auto-detected or user-configured).',
+            'Which agent to use. "gemini" and "codex" require their CLI installed. ' +
+            '"vscode-lm" uses VS Code\'s built-in language model (no external CLI needed). ' +
+            'Omit to use the default (auto-detected or user-configured).',
         },
         workingDirectory: {
           type: 'string',

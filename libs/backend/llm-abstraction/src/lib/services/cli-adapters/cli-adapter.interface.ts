@@ -21,6 +21,19 @@ export interface CliCommand {
   readonly env?: Record<string, string>;
 }
 
+/**
+ * Handle returned by SDK-based adapters.
+ * AgentProcessManager uses this instead of ChildProcess when present.
+ */
+export interface SdkHandle {
+  /** Abort controller to cancel the SDK operation */
+  readonly abort: AbortController;
+  /** Promise that resolves when SDK execution completes. Resolves with exit code (0=success, 1=error). */
+  readonly done: Promise<number>;
+  /** Register a callback to receive output data from the SDK execution. */
+  readonly onOutput: (callback: (data: string) => void) => void;
+}
+
 export interface CliAdapter {
   /** CLI identifier */
   readonly name: CliType;
@@ -47,4 +60,11 @@ export interface CliAdapter {
    * Strip ANSI escape codes, progress bars, and other non-content output
    */
   parseOutput(raw: string): string;
+
+  /**
+   * Optional: Run task via SDK instead of CLI subprocess.
+   * If implemented, AgentProcessManager will use this instead of buildCommand() + spawn().
+   * Adapters that return a value here are "SDK-based" adapters.
+   */
+  runSdk?(options: CliCommandOptions): Promise<SdkHandle>;
 }

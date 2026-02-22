@@ -24,6 +24,10 @@ import {
   CliType,
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
+import type {
+  CliCommandOptions,
+  SdkHandle,
+} from './cli-adapters/cli-adapter.interface';
 
 const execFileAsync = promisify(execFile);
 
@@ -50,7 +54,10 @@ const SHELL_METACHAR_PATTERN = /[`$(){}|&<>^;%!]/g;
 
 interface TrackedAgent {
   info: AgentProcessInfo;
-  process: ChildProcess;
+  /** Child process for CLI-based agents, null for SDK-based agents */
+  process: ChildProcess | null;
+  /** Abort controller for SDK-based agents (null/undefined for CLI agents) */
+  sdkAbortController?: AbortController;
   stdoutBuffer: string;
   stderrBuffer: string;
   timeoutHandle: NodeJS.Timeout;
@@ -134,7 +141,21 @@ export class AgentProcessManager {
       request.workingDirectory ?? this.getWorkspaceRoot();
     this.validateWorkingDirectory(workingDirectory);
 
-    // Sanitize task to prevent shell injection
+    // Branch: SDK-based adapters use runSdk() instead of spawn()
+    // SDK adapters run in-process, so shell injection sanitization is not needed
+    // and would corrupt legitimate code content (e.g., $, (), {}, backticks).
+    const runSdk = adapter.runSdk?.bind(adapter);
+    if (runSdk) {
+      return this.doSpawnSdk(
+        runSdk,
+        request,
+        request.task,
+        workingDirectory,
+        cli
+      );
+    }
+
+    // Sanitize task to prevent shell injection (CLI spawn path only)
     const sanitizedTask = this.sanitizeTask(request.task);
 
     const command = adapter.buildCommand({
@@ -225,6 +246,93 @@ export class AgentProcessManager {
   }
 
   /**
+   * Spawn an SDK-based agent using adapter.runSdk() instead of child_process.spawn().
+   * SDK agents have process: null and use AbortController for cancellation.
+   */
+  private async doSpawnSdk(
+    runSdk: (options: CliCommandOptions) => Promise<SdkHandle>,
+    request: SpawnAgentRequest,
+    task: string,
+    workingDirectory: string,
+    cli: CliType
+  ): Promise<SpawnAgentResult> {
+    const agentId = AgentId.create();
+    const startedAt = new Date().toISOString();
+
+    const info: AgentProcessInfo = {
+      agentId,
+      cli,
+      task: request.task,
+      workingDirectory,
+      taskFolder: request.taskFolder,
+      status: 'running',
+      startedAt,
+    };
+
+    this.logger.info('[AgentProcessManager] Spawning SDK agent', {
+      agentId,
+      cli,
+      workingDirectory,
+    });
+
+    const sdkHandle = await runSdk({
+      task,
+      workingDirectory,
+      files: request.files,
+      taskFolder: request.taskFolder,
+    });
+
+    // Set up timeout (same as CLI path)
+    const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
+    const timeoutHandle = setTimeout(() => {
+      this.handleTimeout(agentId);
+    }, timeout);
+
+    // Track the SDK agent (process is null, abort via sdkAbortController)
+    const tracked: TrackedAgent = {
+      info,
+      process: null,
+      sdkAbortController: sdkHandle.abort,
+      stdoutBuffer: '',
+      stderrBuffer: '',
+      timeoutHandle,
+      stdoutLineCount: 0,
+      stderrLineCount: 0,
+      truncated: false,
+      hasExited: false,
+    };
+
+    this.agents.set(agentId, tracked);
+
+    // Wire SDK output to the agent's stdout buffer
+    sdkHandle.onOutput((data: string) => {
+      this.appendBuffer(agentId, 'stdout', data);
+    });
+
+    // Wire SDK completion to handleExit (uses hasExited guard to prevent double-exit)
+    sdkHandle.done.then(
+      (exitCode) => {
+        this.handleExit(agentId, exitCode, null);
+      },
+      (error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error('[AgentProcessManager] SDK agent error', {
+          agentId,
+          error: message,
+        });
+        this.handleExit(agentId, 1, null);
+      }
+    );
+
+    return {
+      agentId,
+      cli,
+      status: 'running',
+      startedAt,
+    };
+  }
+
+  /**
    * Get status of a specific agent or all agents
    */
   getStatus(agentId?: string): AgentProcessInfo | AgentProcessInfo[] {
@@ -299,6 +407,13 @@ export class AgentProcessManager {
       throw new Error(
         `Steering is not supported for ${tracked.info.cli} CLI. ` +
           `The agent will complete its task based on the original prompt.`
+      );
+    }
+
+    // SDK agents have no child process - steering requires stdin pipe
+    if (!tracked.process) {
+      throw new Error(
+        `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`
       );
     }
 
@@ -453,6 +568,15 @@ export class AgentProcessManager {
 
   private async killProcess(tracked: TrackedAgent): Promise<void> {
     const child = tracked.process;
+
+    // SDK-based agent: abort via AbortController instead of process signals
+    if (!child) {
+      if (tracked.sdkAbortController) {
+        tracked.sdkAbortController.abort();
+      }
+      return;
+    }
+
     if (!child.pid) return;
 
     if (process.platform === 'win32') {
@@ -520,22 +644,30 @@ export class AgentProcessManager {
     // Check user preference first
     const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
     const preferred = config.get<string>('defaultCli');
-    if (preferred && (preferred === 'gemini' || preferred === 'codex')) {
-      const detection = await this.cliDetection.getDetection(
-        preferred as CliType
-      );
-      if (detection?.installed) {
-        return preferred as CliType;
+    if (preferred) {
+      // Validate preferred CLI is a known adapter (supports future additions like 'vscode-lm')
+      const adapter = this.cliDetection.getAdapter(preferred as CliType);
+      if (adapter) {
+        const detection = await this.cliDetection.getDetection(
+          preferred as CliType
+        );
+        if (detection?.installed) {
+          return preferred as CliType;
+        }
       }
     }
 
-    // Auto-detect: prefer gemini, then codex
+    // Auto-detect: prefer gemini > codex, then any other installed CLI
     const installed = await this.cliDetection.getInstalledClis();
     if (installed.length === 0) return null;
 
-    // Prefer gemini over codex
+    // Prefer gemini, then codex, then fall back to first available
     const gemini = installed.find((c) => c.cli === 'gemini');
     if (gemini) return 'gemini';
+
+    const codex = installed.find((c) => c.cli === 'codex');
+    if (codex) return 'codex';
+
     return installed[0].cli;
   }
 

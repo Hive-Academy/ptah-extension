@@ -57,7 +57,7 @@ export type AgentStatus =
 // CLI Type
 // ========================================
 
-export type CliType = 'gemini' | 'codex';
+export type CliType = 'gemini' | 'codex' | 'vscode-lm';
 
 // ========================================
 // Agent Process Info (tracked per agent)
