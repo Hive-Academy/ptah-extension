@@ -8,6 +8,7 @@
  * Exposes detection results for MCP tools and namespace.
  */
 import { injectable, inject } from 'tsyringe';
+import * as vscode from 'vscode';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
 import type { CliAdapter } from './cli-adapters/cli-adapter.interface';
@@ -40,6 +41,16 @@ export class CliDetectionService {
     this.adapters.set('gemini', gemini);
     this.adapters.set('codex', codex);
     this.adapters.set('vscode-lm', vscodeLm);
+
+    // Auto-invalidate detection cache when VS Code LM model config changes
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('ptah.llm.vscode.model')) {
+        this.logger.info(
+          '[CliDetection] VS Code LM model config changed, invalidating cache'
+        );
+        this.invalidateCache();
+      }
+    });
 
     this.logger.info(
       '[CliDetection] Service initialized with adapters: gemini, codex, vscode-lm'

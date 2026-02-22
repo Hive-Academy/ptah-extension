@@ -26,6 +26,7 @@ import {
   ChangeDetectionStrategy,
   signal,
   computed,
+  output,
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -68,6 +69,9 @@ import type { LlmProviderName } from '@ptah-extension/shared';
 export class LlmProvidersConfigComponent implements OnInit {
   /** LLM provider state service - single source of truth for all provider state (PUBLIC for template access) */
   readonly llmState = inject(LlmProviderStateService);
+
+  /** Emitted when the VS Code LM model selection changes (so parent can refresh agent detection) */
+  readonly modelChanged = output<void>();
 
   /**
    * All providers including vscode-lm.
@@ -303,6 +307,7 @@ export class LlmProvidersConfigComponent implements OnInit {
 
     try {
       await this.llmState.setDefaultModel('vscode-lm', modelId);
+      this.modelChanged.emit();
     } finally {
       this.savingModel.set(null);
     }
