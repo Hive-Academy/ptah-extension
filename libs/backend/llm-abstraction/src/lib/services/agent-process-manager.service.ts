@@ -26,7 +26,6 @@ import {
   CliType,
 } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
-import { LlmConfigurationService } from './llm-configuration.service';
 import type {
   CliCommandOptions,
   SdkHandle,
@@ -103,9 +102,7 @@ export class AgentProcessManager {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetection: CliDetectionService,
-    @inject(TOKENS.LLM_CONFIGURATION_SERVICE)
-    private readonly llmConfig: LlmConfigurationService
+    private readonly cliDetection: CliDetectionService
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -359,21 +356,14 @@ export class AgentProcessManager {
 
     // Resolve model: use explicit request.model, else per-CLI config, else CLI default
     let resolvedModel = request.model;
-    if (!resolvedModel) {
-      if (cli === 'vscode-lm') {
-        const configuredModel = this.llmConfig.getDefaultModel('vscode-lm');
-        if (configuredModel) {
-          resolvedModel = configuredModel;
-        }
-      } else if (cli === 'gemini' || cli === 'copilot') {
-        const agentConfig = vscode.workspace.getConfiguration(
-          'ptah.agentOrchestration'
-        );
-        const configKey = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
-        const configuredModel = agentConfig.get<string>(configKey, '');
-        if (configuredModel) {
-          resolvedModel = configuredModel;
-        }
+    if (!resolvedModel && (cli === 'gemini' || cli === 'copilot')) {
+      const agentConfig = vscode.workspace.getConfiguration(
+        'ptah.agentOrchestration'
+      );
+      const configKey = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
+      const configuredModel = agentConfig.get<string>(configKey, '');
+      if (configuredModel) {
+        resolvedModel = configuredModel;
       }
     }
 
@@ -843,7 +833,7 @@ export class AgentProcessManager {
     });
 
     if (preferred) {
-      // Validate preferred CLI is a known adapter (supports future additions like 'vscode-lm')
+      // Validate preferred CLI is a known adapter
       const adapter = this.cliDetection.getAdapter(preferred as CliType);
       if (adapter) {
         const detection = await this.cliDetection.getDetection(
@@ -863,7 +853,7 @@ export class AgentProcessManager {
       }
     }
 
-    // Auto-detect: prefer gemini > codex, then any other installed CLI
+    // Auto-detect: prefer gemini > codex > copilot among headless CLI agents
     const installed = await this.cliDetection.getInstalledClis();
     this.logger.debug('[AgentProcessManager] getDefaultCli: installed CLIs', {
       count: installed.length,

@@ -97,14 +97,14 @@ You have access to **agent orchestration tools** that let you spawn background w
 |-------|------|--------------|
 | \`gemini\` | CLI process | Gemini CLI installed (\`gemini\` on PATH) |
 | \`codex\` | SDK (in-process) | \`@openai/codex-sdk\` npm package + OpenAI API key |
-| \`vscode-lm\` | VS Code built-in | No external deps — uses VS Code Language Model API |
+| \`copilot\` | CLI process | Copilot CLI installed (\`copilot\` on PATH) |
 
 ### Workflow Example
 
 1. **Spawn 3 parallel agents**:
    - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "gemini" }\`
    - \`ptah_agent_spawn { task: "Write unit tests for src/utils.ts", cli: "codex" }\`
-   - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", cli: "vscode-lm", model: "gpt-4o" }\`
+   - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", cli: "copilot" }\`
 2. **Continue**: Work on your main task
 3. **Check**: \`ptah_agent_status {}\` — check all agents at once
 4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get results from each

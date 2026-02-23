@@ -252,12 +252,11 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
   return {
     name: 'ptah_agent_spawn',
     description:
-      'Spawn an agent (Gemini, Codex, or VS Code LM) to work on a task in the background. ' +
+      'Spawn a headless CLI agent (Gemini, Codex, or Copilot) to work on a task in the background. ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
       'Ideal for delegating: code reviews, test generation, documentation, ' +
-      'and other independent subtasks. ' +
-      "Use vscode-lm when no external CLI is installed — it uses VS Code's built-in language model.",
+      'and other independent subtasks.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -269,10 +268,9 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['gemini', 'codex', 'copilot', 'vscode-lm'],
+          enum: ['gemini', 'codex', 'copilot'],
           description:
-            'Which agent to use. "gemini", "codex", and "copilot" require their CLI installed. ' +
-            '"vscode-lm" uses VS Code\'s built-in language model (no external CLI needed). ' +
+            'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
             'Omit to use the default (auto-detected or user-configured).',
         },
         workingDirectory: {
@@ -299,8 +297,8 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         model: {
           type: 'string',
           description:
-            'Model to use for vscode-lm agents (e.g., "claude-3.5-sonnet", "gpt-4o"). ' +
-            'Matched against model id, family, or name. Ignored for CLI agents (gemini, codex, copilot).',
+            'Model override for the CLI agent (e.g., "gemini-2.5-pro" for Gemini, "claude-sonnet-4.6" for Copilot). ' +
+            'Uses user-configured default if omitted.',
         },
       },
       required: ['task'],

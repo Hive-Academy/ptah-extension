@@ -14,9 +14,7 @@ import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
 import type { CliAdapter } from './cli-adapters/cli-adapter.interface';
 import { GeminiCliAdapter } from './cli-adapters/gemini-cli.adapter';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
-import { VsCodeLmAdapter } from './cli-adapters/vscode-lm.adapter';
 import { CopilotCliAdapter } from './cli-adapters/copilot-cli.adapter';
-import { LlmConfigurationService } from './llm-configuration.service';
 
 @injectable()
 export class CliDetectionService {
@@ -25,40 +23,14 @@ export class CliDetectionService {
   /** In-flight detection promise to prevent concurrent detection races */
   private detectionInFlight: Promise<CliDetectionResult[]> | null = null;
 
-  constructor(
-    @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.LLM_CONFIGURATION_SERVICE)
-    private readonly llmConfig: LlmConfigurationService
-  ) {
-    // Register built-in adapters
-    const gemini = new GeminiCliAdapter();
-    const codex = new CodexCliAdapter();
-    const copilot = new CopilotCliAdapter();
-    const vscodeLm = new VsCodeLmAdapter();
-
-    // Pass configured model to VS Code LM adapter for version display
-    const configuredModel = this.llmConfig.getDefaultModel('vscode-lm');
-    if (configuredModel) {
-      vscodeLm.setConfiguredModel(configuredModel);
-    }
-
-    this.adapters.set('gemini', gemini);
-    this.adapters.set('codex', codex);
-    this.adapters.set('copilot', copilot);
-    this.adapters.set('vscode-lm', vscodeLm);
-
-    // Auto-invalidate detection cache when VS Code LM model config changes
-    vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('ptah.llm.vscode.model')) {
-        this.logger.info(
-          '[CliDetection] VS Code LM model config changed, invalidating cache'
-        );
-        this.invalidateCache();
-      }
-    });
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
+    // Register headless CLI adapters only (no vscode-lm — that's for Ptah AI chat)
+    this.adapters.set('gemini', new GeminiCliAdapter());
+    this.adapters.set('codex', new CodexCliAdapter());
+    this.adapters.set('copilot', new CopilotCliAdapter());
 
     this.logger.info(
-      '[CliDetection] Service initialized with adapters: gemini, codex, copilot, vscode-lm'
+      '[CliDetection] Service initialized with adapters: gemini, codex, copilot'
     );
   }
 
@@ -156,16 +128,5 @@ export class CliDetectionService {
   invalidateCache(): void {
     this.detectionCache = null;
     this.detectionInFlight = null;
-
-    // Refresh configured model for VS Code LM adapter
-    const vscodeLm = this.adapters.get('vscode-lm') as
-      | VsCodeLmAdapter
-      | undefined;
-    if (vscodeLm) {
-      const configuredModel = this.llmConfig.getDefaultModel('vscode-lm');
-      if (configuredModel) {
-        vscodeLm.setConfiguredModel(configuredModel);
-      }
-    }
   }
 }

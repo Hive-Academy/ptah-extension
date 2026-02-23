@@ -57,7 +57,7 @@ export type AgentStatus =
 // CLI Type
 // ========================================
 
-export type CliType = 'gemini' | 'codex' | 'copilot' | 'vscode-lm';
+export type CliType = 'gemini' | 'codex' | 'copilot';
 
 // ========================================
 // Agent Process Info (tracked per agent)
@@ -92,7 +92,7 @@ export interface SpawnAgentRequest {
   readonly files?: string[];
   /** Task-tracking folder for shared workspace */
   readonly taskFolder?: string;
-  /** Model identifier for SDK-based agents (e.g., 'claude-3.5-sonnet', 'gpt-4o'). Used by vscode-lm to filter selectChatModels(). */
+  /** Model identifier for CLI agents (e.g., 'gemini-2.5-pro', 'claude-sonnet-4.6'). Passed as --model flag. */
   readonly model?: string;
 }
 
