@@ -3,7 +3,7 @@
  * TASK_2025_157: Manages headless CLI agent child processes
  *
  * Responsibilities:
- * - Spawn CLI agent processes (gemini, codex)
+ * - Spawn CLI agent processes (gemini, codex, copilot)
  * - Track process state, output buffers, timeouts
  * - Enforce concurrent agent limits
  * - Graceful shutdown on extension deactivation
@@ -13,11 +13,13 @@ import { injectable, inject } from 'tsyringe';
 import { spawn, execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
+import { EventEmitter } from 'eventemitter3';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import {
   AgentId,
   AgentStatus,
   AgentProcessInfo,
+  AgentOutputDelta,
   SpawnAgentRequest,
   SpawnAgentResult,
   AgentOutput,
@@ -29,6 +31,10 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
+import {
+  needsShellExecution,
+  CLI_CLEAN_ENV,
+} from './cli-adapters/cli-adapter.utils';
 
 const execFileAsync = promisify(execFile);
 
@@ -47,11 +53,17 @@ const KILL_GRACE_PERIOD = 5000;
 /** TTL for completed agents before cleanup from map: 30 minutes */
 const COMPLETED_AGENT_TTL = 30 * 60 * 1000;
 
+/** Throttle interval for output delta events: 200ms */
+const OUTPUT_FLUSH_INTERVAL = 200;
+
 /**
- * Shell metacharacters that must be stripped from task input
- * to prevent injection on both bash and CMD.exe
+ * Shell metacharacters — kept for reference only.
+ * spawn() is called WITHOUT shell:true, so args are passed directly
+ * to the binary as a positional argument array. Shell injection is not
+ * possible. Stripping these chars corrupts legitimate prompts containing
+ * code characters ($, (), {}, backticks, etc.).
  */
-const SHELL_METACHAR_PATTERN = /[`$(){}|&<>^;%!]/g;
+// const SHELL_METACHAR_PATTERN = /[`$(){}|&<>^;%!]/g; // REMOVED — see comment above
 
 interface TrackedAgent {
   info: AgentProcessInfo;
@@ -76,6 +88,17 @@ export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
   /** Counter for in-flight spawn operations (not yet in agents map) */
   private spawning = 0;
+
+  /** EventEmitter for agent lifecycle events (spawned, output, exited) */
+  readonly events = new EventEmitter();
+
+  /** Pending output deltas per agent (throttled to OUTPUT_FLUSH_INTERVAL) */
+  private readonly pendingDeltas = new Map<
+    string,
+    { stdout: string; stderr: string }
+  >();
+  /** Flush timers per agent */
+  private readonly flushTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -116,6 +139,18 @@ export class AgentProcessManager {
       );
     }
 
+    // Log the incoming spawn request
+    this.logger.info('[AgentProcessManager] Spawn request received', {
+      requestedCli: request.cli ?? 'auto-detect',
+      task:
+        request.task.substring(0, 120) +
+        (request.task.length > 120 ? '...' : ''),
+      model: request.model,
+      timeout: request.timeout,
+      files: request.files?.length ?? 0,
+      taskFolder: request.taskFolder,
+    });
+
     // Determine which CLI to use
     const cli = request.cli ?? (await this.getDefaultCli());
     if (!cli) {
@@ -125,9 +160,24 @@ export class AgentProcessManager {
       );
     }
 
+    this.logger.info('[AgentProcessManager] CLI resolved', {
+      resolvedCli: cli,
+      source: request.cli ? 'user-specified' : 'auto-detected',
+    });
+
     // Verify CLI is installed
     const detection = await this.cliDetection.getDetection(cli);
     if (!detection || !detection.installed) {
+      this.logger.error('[AgentProcessManager] CLI not installed', {
+        cli,
+        detection: detection
+          ? {
+              installed: detection.installed,
+              path: detection.path,
+              version: detection.version,
+            }
+          : 'no detection result',
+      });
       throw new Error(
         `${cli} CLI is not installed. Install it and run authentication before using.`
       );
@@ -138,6 +188,14 @@ export class AgentProcessManager {
     if (!adapter) {
       throw new Error(`No adapter registered for CLI: ${cli}`);
     }
+
+    const isSdk = typeof adapter.runSdk === 'function';
+    this.logger.info('[AgentProcessManager] Adapter resolved', {
+      cli,
+      adapterType: isSdk ? 'sdk' : 'cli-process',
+      detectedVersion: detection.version,
+      detectedPath: detection.path,
+    });
 
     // Validate working directory
     const workingDirectory =
@@ -154,18 +212,32 @@ export class AgentProcessManager {
         request,
         request.task,
         workingDirectory,
-        cli
+        cli,
+        detection.path
       );
     }
 
-    // Sanitize task to prevent shell injection (CLI spawn path only)
-    const sanitizedTask = this.sanitizeTask(request.task);
+    // Resolve model for CLI subprocess path (same logic as SDK path)
+    let cliModel = request.model;
+    if (!cliModel && (cli === 'gemini' || cli === 'copilot')) {
+      const agentConfig = vscode.workspace.getConfiguration(
+        'ptah.agentOrchestration'
+      );
+      const configKey = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
+      const configuredModel = agentConfig.get<string>(configKey, '');
+      if (configuredModel) {
+        cliModel = configuredModel;
+      }
+    }
 
+    // No sanitization needed: spawn() is called without shell:true,
+    // so args are passed directly to the binary (no shell interpretation).
     const command = adapter.buildCommand({
-      task: sanitizedTask,
+      task: request.task,
       workingDirectory,
       files: request.files,
       taskFolder: request.taskFolder,
+      model: cliModel,
     });
 
     // Create agent ID and info
@@ -182,14 +254,17 @@ export class AgentProcessManager {
       startedAt,
     };
 
-    // Use resolved binary path from detection to avoid shell: true
+    // Use resolved binary path from detection.
+    // On Windows, npm-installed CLIs are .cmd wrappers requiring shell: true.
     const binaryPath = detection.path ?? command.binary;
+    const shell = needsShellExecution(binaryPath);
 
     // Spawn the process
     this.logger.info('[AgentProcessManager] Spawning agent', {
       agentId,
       cli,
       binary: binaryPath,
+      shell,
       args: command.args.length,
       workingDirectory,
     });
@@ -197,8 +272,13 @@ export class AgentProcessManager {
     const childProcess = spawn(binaryPath, command.args, {
       cwd: workingDirectory,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...command.env },
+      env: { ...process.env, ...CLI_CLEAN_ENV, ...command.env },
+      shell,
     });
+
+    // Explicit UTF-8 encoding prevents Buffer concatenation issues
+    childProcess.stdout?.setEncoding('utf8');
+    childProcess.stderr?.setEncoding('utf8');
 
     // Set up timeout
     const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
@@ -240,12 +320,16 @@ export class AgentProcessManager {
       this.handleExit(agentId, 1, null);
     });
 
-    return {
+    const spawnResult: SpawnAgentResult = {
       agentId,
       cli,
       status: 'running',
       startedAt,
     };
+
+    this.events.emit('agent:spawned', tracked.info);
+
+    return spawnResult;
   }
 
   /**
@@ -257,7 +341,8 @@ export class AgentProcessManager {
     request: SpawnAgentRequest,
     task: string,
     workingDirectory: string,
-    cli: CliType
+    cli: CliType,
+    binaryPath?: string
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
@@ -272,12 +357,23 @@ export class AgentProcessManager {
       startedAt,
     };
 
-    // For vscode-lm: use the user's configured model if no explicit model was requested
+    // Resolve model: use explicit request.model, else per-CLI config, else CLI default
     let resolvedModel = request.model;
-    if (!resolvedModel && cli === 'vscode-lm') {
-      const configuredModel = this.llmConfig.getDefaultModel('vscode-lm');
-      if (configuredModel) {
-        resolvedModel = configuredModel;
+    if (!resolvedModel) {
+      if (cli === 'vscode-lm') {
+        const configuredModel = this.llmConfig.getDefaultModel('vscode-lm');
+        if (configuredModel) {
+          resolvedModel = configuredModel;
+        }
+      } else if (cli === 'gemini' || cli === 'copilot') {
+        const agentConfig = vscode.workspace.getConfiguration(
+          'ptah.agentOrchestration'
+        );
+        const configKey = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
+        const configuredModel = agentConfig.get<string>(configKey, '');
+        if (configuredModel) {
+          resolvedModel = configuredModel;
+        }
       }
     }
 
@@ -294,6 +390,7 @@ export class AgentProcessManager {
       files: request.files,
       taskFolder: request.taskFolder,
       model: resolvedModel,
+      binaryPath,
     });
 
     // Set up timeout (same as CLI path)
@@ -338,12 +435,16 @@ export class AgentProcessManager {
       }
     );
 
-    return {
+    const spawnResult: SpawnAgentResult = {
       agentId,
       cli,
       status: 'running',
       startedAt,
     };
+
+    this.events.emit('agent:spawned', info);
+
+    return spawnResult;
   }
 
   /**
@@ -455,7 +556,14 @@ export class AgentProcessManager {
     await this.killProcess(tracked);
     tracked.info = { ...tracked.info, status: 'stopped' };
     clearTimeout(tracked.timeoutHandle);
+
+    // Flush any pending output deltas before emitting exit
+    this.flushDelta(agentId);
+    this.cleanupFlushTimer(agentId);
+
     this.scheduleCleanup(agentId);
+
+    this.events.emit('agent:exited', tracked.info);
 
     this.logger.info('[AgentProcessManager] Agent stopped', { agentId });
     return tracked.info;
@@ -472,11 +580,12 @@ export class AgentProcessManager {
 
     await Promise.all(running.map(([id]) => this.stop(id)));
 
-    // Clear all cleanup timers on shutdown
-    for (const [, tracked] of this.agents) {
+    // Clear all cleanup timers and flush timers on shutdown
+    for (const [agentId, tracked] of this.agents) {
       if (tracked.cleanupHandle) {
         clearTimeout(tracked.cleanupHandle);
       }
+      this.cleanupFlushTimer(agentId);
     }
 
     this.logger.info(
@@ -513,6 +622,59 @@ export class AgentProcessManager {
           : tracked[key].substring(excess);
       tracked.truncated = true;
     }
+
+    // Accumulate output delta for throttled emission
+    this.accumulateDelta(agentId, stream, data);
+  }
+
+  /**
+   * Accumulate output delta for throttled emission to webview.
+   * Flushes every OUTPUT_FLUSH_INTERVAL ms per agent.
+   */
+  private accumulateDelta(
+    agentId: string,
+    stream: 'stdout' | 'stderr',
+    data: string
+  ): void {
+    let pending = this.pendingDeltas.get(agentId);
+    if (!pending) {
+      pending = { stdout: '', stderr: '' };
+      this.pendingDeltas.set(agentId, pending);
+    }
+    pending[stream] += data;
+
+    // Start flush timer if not already running
+    if (!this.flushTimers.has(agentId)) {
+      const timer = setTimeout(() => {
+        this.flushDelta(agentId);
+      }, OUTPUT_FLUSH_INTERVAL);
+      this.flushTimers.set(agentId, timer);
+    }
+  }
+
+  /**
+   * Flush accumulated deltas for an agent and emit 'agent:output' event.
+   */
+  private flushDelta(agentId: string): void {
+    this.flushTimers.delete(agentId);
+    const pending = this.pendingDeltas.get(agentId);
+    if (!pending || (!pending.stdout && !pending.stderr)) return;
+
+    const tracked = this.agents.get(agentId);
+    if (!tracked) return;
+
+    const delta: AgentOutputDelta = {
+      agentId: AgentId.from(agentId),
+      stdoutDelta: pending.stdout,
+      stderrDelta: pending.stderr,
+      timestamp: Date.now(),
+    };
+
+    // Reset pending
+    pending.stdout = '';
+    pending.stderr = '';
+
+    this.events.emit('agent:output', delta);
   }
 
   private async handleTimeout(agentId: string): Promise<void> {
@@ -549,7 +711,13 @@ export class AgentProcessManager {
       };
     }
 
+    // Flush remaining output deltas before emitting exit
+    this.flushDelta(agentId);
+    this.cleanupFlushTimer(agentId);
+
     this.scheduleCleanup(agentId);
+
+    this.events.emit('agent:exited', tracked.info);
 
     this.logger.info('[AgentProcessManager] Agent exited', {
       agentId,
@@ -578,6 +746,18 @@ export class AgentProcessManager {
         agentId,
       });
     }, COMPLETED_AGENT_TTL);
+  }
+
+  /**
+   * Clean up flush timer for a specific agent.
+   */
+  private cleanupFlushTimer(agentId: string): void {
+    const timer = this.flushTimers.get(agentId);
+    if (timer) {
+      clearTimeout(timer);
+      this.flushTimers.delete(agentId);
+    }
+    this.pendingDeltas.delete(agentId);
   }
 
   private async killProcess(tracked: TrackedAgent): Promise<void> {
@@ -658,6 +838,10 @@ export class AgentProcessManager {
     // Check user preference first
     const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
     const preferred = config.get<string>('defaultCli');
+    this.logger.debug('[AgentProcessManager] getDefaultCli: user preference', {
+      preferred: preferred ?? 'none (auto-detect)',
+    });
+
     if (preferred) {
       // Validate preferred CLI is a known adapter (supports future additions like 'vscode-lm')
       const adapter = this.cliDetection.getAdapter(preferred as CliType);
@@ -666,21 +850,37 @@ export class AgentProcessManager {
           preferred as CliType
         );
         if (detection?.installed) {
+          this.logger.info(
+            '[AgentProcessManager] getDefaultCli: using user-preferred CLI',
+            { cli: preferred }
+          );
           return preferred as CliType;
         }
+        this.logger.warn(
+          '[AgentProcessManager] getDefaultCli: preferred CLI not installed, falling back',
+          { preferred, installed: detection?.installed }
+        );
       }
     }
 
     // Auto-detect: prefer gemini > codex, then any other installed CLI
     const installed = await this.cliDetection.getInstalledClis();
+    this.logger.debug('[AgentProcessManager] getDefaultCli: installed CLIs', {
+      count: installed.length,
+      clis: installed.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
+    });
+
     if (installed.length === 0) return null;
 
-    // Prefer gemini, then codex, then fall back to first available
+    // Prefer gemini, then codex, then copilot, then fall back to first available
     const gemini = installed.find((c) => c.cli === 'gemini');
     if (gemini) return 'gemini';
 
     const codex = installed.find((c) => c.cli === 'codex');
     if (codex) return 'codex';
+
+    const copilot = installed.find((c) => c.cli === 'copilot');
+    if (copilot) return 'copilot';
 
     return installed[0].cli;
   }
@@ -706,13 +906,8 @@ export class AgentProcessManager {
     }
   }
 
-  /**
-   * Sanitize task input to prevent shell injection.
-   * Strips all shell metacharacters for both bash and CMD.exe.
-   */
-  private sanitizeTask(task: string): string {
-    return task.replace(SHELL_METACHAR_PATTERN, '');
-  }
+  // sanitizeTask removed: spawn() without shell:true doesn't need it,
+  // and stripping metachar chars corrupts legitimate prompts.
 
   private tailLines(str: string, n: number): string {
     const lines = str.split('\n');

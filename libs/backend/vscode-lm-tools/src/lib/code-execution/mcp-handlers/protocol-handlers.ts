@@ -35,6 +35,20 @@ import {
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
+import {
+  formatWorkspaceAnalysis,
+  formatSearchFiles,
+  formatDiagnostics,
+  formatLspReferences,
+  formatLspDefinitions,
+  formatDirtyFiles,
+  formatTokenCount,
+  formatAgentSpawn,
+  formatAgentStatus,
+  formatAgentRead,
+  formatAgentSteer,
+  formatAgentStop,
+} from './mcp-response-formatter';
 
 /**
  * Callback invoked when a tool execution completes (success or error).
@@ -217,7 +231,7 @@ async function handleIndividualTool(
         const result = await ptahAPI.workspace.analyze();
         return createToolSuccessResponse(
           request,
-          JSON.stringify(result, null, 2),
+          formatWorkspaceAnalysis(result),
           deps
         );
       }
@@ -227,7 +241,7 @@ async function handleIndividualTool(
         const files = await ptahAPI.search.findFiles(pattern, limit ?? 50);
         return createToolSuccessResponse(
           request,
-          JSON.stringify(files, null, 2),
+          formatSearchFiles(files),
           deps
         );
       }
@@ -244,7 +258,7 @@ async function handleIndividualTool(
         }
         return createToolSuccessResponse(
           request,
-          JSON.stringify(result, null, 2),
+          formatDiagnostics(result),
           deps
         );
       }
@@ -258,7 +272,7 @@ async function handleIndividualTool(
         const refs = await ptahAPI.ide.lsp.getReferences(file, line, col);
         return createToolSuccessResponse(
           request,
-          JSON.stringify(refs, null, 2),
+          formatLspReferences(refs),
           deps
         );
       }
@@ -272,7 +286,7 @@ async function handleIndividualTool(
         const defs = await ptahAPI.ide.lsp.getDefinition(file, line, col);
         return createToolSuccessResponse(
           request,
-          JSON.stringify(defs, null, 2),
+          formatLspDefinitions(defs),
           deps
         );
       }
@@ -281,7 +295,7 @@ async function handleIndividualTool(
         const dirtyFiles = await ptahAPI.ide.editor.getDirtyFiles();
         return createToolSuccessResponse(
           request,
-          JSON.stringify(dirtyFiles, null, 2),
+          formatDirtyFiles(dirtyFiles),
           deps
         );
       }
@@ -291,7 +305,7 @@ async function handleIndividualTool(
         const tokenCount = await ptahAPI.ai.countFileTokens(file);
         return createToolSuccessResponse(
           request,
-          JSON.stringify({ file, tokens: tokenCount }, null, 2),
+          formatTokenCount({ file, tokens: tokenCount }),
           deps
         );
       }
@@ -315,6 +329,16 @@ async function handleIndividualTool(
           taskFolder?: string;
           model?: string;
         };
+
+        logger.info('[MCP] ptah_agent_spawn invoked', 'CodeExecutionMCP', {
+          cli: cli ?? 'auto-detect',
+          model: model ?? 'default',
+          task: task.substring(0, 100) + (task.length > 100 ? '...' : ''),
+          timeout,
+          files: files?.length ?? 0,
+          taskFolder,
+        });
+
         const result = await ptahAPI.agent.spawn({
           task,
           cli: cli as CliType | undefined,
@@ -324,9 +348,16 @@ async function handleIndividualTool(
           taskFolder,
           model,
         });
+
+        logger.info('[MCP] ptah_agent_spawn result', 'CodeExecutionMCP', {
+          agentId: result.agentId,
+          cli: result.cli,
+          status: result.status,
+        });
+
         return createToolSuccessResponse(
           request,
-          JSON.stringify(result, null, 2),
+          formatAgentSpawn(result),
           deps
         );
       }
@@ -336,7 +367,7 @@ async function handleIndividualTool(
         const result = await ptahAPI.agent.status(agentId);
         return createToolSuccessResponse(
           request,
-          JSON.stringify(result, null, 2),
+          formatAgentStatus(result),
           deps
         );
       }
@@ -349,7 +380,7 @@ async function handleIndividualTool(
         const result = await ptahAPI.agent.read(agentId, tail);
         return createToolSuccessResponse(
           request,
-          JSON.stringify(result, null, 2),
+          formatAgentRead(result),
           deps
         );
       }
@@ -362,7 +393,7 @@ async function handleIndividualTool(
         await ptahAPI.agent.steer(agentId, instruction);
         return createToolSuccessResponse(
           request,
-          JSON.stringify({ agentId, steered: true }),
+          formatAgentSteer({ agentId, steered: true }),
           deps
         );
       }
@@ -372,7 +403,7 @@ async function handleIndividualTool(
         const result = await ptahAPI.agent.stop(agentId);
         return createToolSuccessResponse(
           request,
-          JSON.stringify(result, null, 2),
+          formatAgentStop(result),
           deps
         );
       }

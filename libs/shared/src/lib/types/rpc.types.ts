@@ -1226,7 +1226,7 @@ export interface PluginConfigState {
 
 /** Agent orchestration configuration for settings UI */
 export interface AgentOrchestrationConfig {
-  /** Detected CLI agents (Gemini, Codex) */
+  /** Detected CLI agents (Gemini, Codex, Copilot) */
   detectedClis: import('./agent-process.types').CliDetectionResult[];
   /** Default CLI to use (null = auto-detect) */
   defaultCli: import('./agent-process.types').CliType | null;
@@ -1234,6 +1234,10 @@ export interface AgentOrchestrationConfig {
   maxConcurrentAgents: number;
   /** Default timeout in minutes */
   defaultTimeout: number;
+  /** Per-CLI model: Gemini CLI model (empty string = CLI default) */
+  geminiModel: string;
+  /** Per-CLI model: Copilot CLI model (empty string = CLI default) */
+  copilotModel: string;
 }
 
 /** Parameters for agent:setConfig RPC method */
@@ -1244,6 +1248,10 @@ export interface AgentSetConfigParams {
   maxConcurrentAgents?: number;
   /** Default timeout in minutes */
   defaultTimeout?: number;
+  /** Gemini CLI model override (empty string = CLI default) */
+  geminiModel?: string;
+  /** Copilot CLI model override (empty string = CLI default) */
+  copilotModel?: string;
 }
 
 // ============================================================

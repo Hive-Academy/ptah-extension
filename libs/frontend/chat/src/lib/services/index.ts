@@ -40,3 +40,9 @@ export {
 
 // ChatMessageHandler - Message routing handler for chat-related VS Code messages
 export { ChatMessageHandler } from './chat-message-handler.service';
+
+// AgentMonitorStore - Real-time agent process monitoring state
+export { AgentMonitorStore, type MonitoredAgent } from './agent-monitor.store';
+
+// AgentMonitorMessageHandler - Routes agent monitor messages to store
+export { AgentMonitorMessageHandler } from './agent-monitor-message-handler.service';

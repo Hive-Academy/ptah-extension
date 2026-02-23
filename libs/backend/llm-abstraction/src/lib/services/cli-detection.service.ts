@@ -15,12 +15,15 @@ import type { CliAdapter } from './cli-adapters/cli-adapter.interface';
 import { GeminiCliAdapter } from './cli-adapters/gemini-cli.adapter';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { VsCodeLmAdapter } from './cli-adapters/vscode-lm.adapter';
+import { CopilotCliAdapter } from './cli-adapters/copilot-cli.adapter';
 import { LlmConfigurationService } from './llm-configuration.service';
 
 @injectable()
 export class CliDetectionService {
   private readonly adapters: Map<CliType, CliAdapter> = new Map();
   private detectionCache: Map<CliType, CliDetectionResult> | null = null;
+  /** In-flight detection promise to prevent concurrent detection races */
+  private detectionInFlight: Promise<CliDetectionResult[]> | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -30,6 +33,7 @@ export class CliDetectionService {
     // Register built-in adapters
     const gemini = new GeminiCliAdapter();
     const codex = new CodexCliAdapter();
+    const copilot = new CopilotCliAdapter();
     const vscodeLm = new VsCodeLmAdapter();
 
     // Pass configured model to VS Code LM adapter for version display
@@ -40,6 +44,7 @@ export class CliDetectionService {
 
     this.adapters.set('gemini', gemini);
     this.adapters.set('codex', codex);
+    this.adapters.set('copilot', copilot);
     this.adapters.set('vscode-lm', vscodeLm);
 
     // Auto-invalidate detection cache when VS Code LM model config changes
@@ -53,19 +58,41 @@ export class CliDetectionService {
     });
 
     this.logger.info(
-      '[CliDetection] Service initialized with adapters: gemini, codex, vscode-lm'
+      '[CliDetection] Service initialized with adapters: gemini, codex, copilot, vscode-lm'
     );
   }
 
   /**
    * Detect all registered CLI agents.
    * Results are cached after first call. Call invalidateCache() to re-detect.
+   * Uses promise deduplication to prevent race conditions when called concurrently.
    */
   async detectAll(): Promise<CliDetectionResult[]> {
     if (this.detectionCache) {
       return Array.from(this.detectionCache.values());
     }
 
+    // Deduplicate concurrent calls: reuse in-flight detection promise
+    if (this.detectionInFlight) {
+      this.logger.debug(
+        '[CliDetection] Detection already in progress, reusing in-flight promise'
+      );
+      return this.detectionInFlight;
+    }
+
+    this.detectionInFlight = this.doDetectAll();
+
+    try {
+      return await this.detectionInFlight;
+    } finally {
+      this.detectionInFlight = null;
+    }
+  }
+
+  /**
+   * Internal detection implementation.
+   */
+  private async doDetectAll(): Promise<CliDetectionResult[]> {
     this.logger.info('[CliDetection] Detecting installed CLI agents...');
     const results = new Map<CliType, CliDetectionResult>();
 
@@ -128,6 +155,7 @@ export class CliDetectionService {
    */
   invalidateCache(): void {
     this.detectionCache = null;
+    this.detectionInFlight = null;
 
     // Refresh configured model for VS Code LM adapter
     const vscodeLm = this.adapters.get('vscode-lm') as

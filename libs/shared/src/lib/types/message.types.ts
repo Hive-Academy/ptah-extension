@@ -329,6 +329,12 @@ export const MESSAGE_TYPES = {
   // ---- Plan Mode Messages ----
   // Sent when agent enters/exits plan mode via EnterPlanMode/ExitPlanMode tools
   PLAN_MODE_CHANGED: 'session:plan-mode-changed',
+
+  // ---- Agent Monitor Messages ----
+  // Real-time agent process monitoring for the sidebar panel
+  AGENT_MONITOR_SPAWNED: 'agent-monitor:spawned',
+  AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
+  AGENT_MONITOR_EXITED: 'agent-monitor:exited',
 } as const;
 
 /**

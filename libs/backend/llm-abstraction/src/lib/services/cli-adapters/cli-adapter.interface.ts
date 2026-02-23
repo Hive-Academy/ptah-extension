@@ -15,6 +15,8 @@ export interface CliCommandOptions {
   readonly taskFolder?: string;
   /** Model identifier for SDK-based agents (e.g., 'claude-3.5-sonnet', 'gpt-4o'). Used to filter model selection. */
   readonly model?: string;
+  /** Resolved absolute binary path from CLI detection. SDK adapters that spawn child processes should use this instead of bare binary names (avoids ENOENT on Windows). */
+  readonly binaryPath?: string;
 }
 
 export interface CliCommand {

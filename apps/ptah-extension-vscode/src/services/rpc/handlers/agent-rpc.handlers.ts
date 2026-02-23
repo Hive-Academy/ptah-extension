@@ -74,6 +74,8 @@ export class AgentRpcHandlers {
             defaultCli: config.get<CliType | null>('defaultCli', null),
             maxConcurrentAgents: config.get<number>('maxConcurrentAgents', 3),
             defaultTimeout: config.get<number>('defaultTimeout', 10),
+            geminiModel: config.get<string>('geminiModel', ''),
+            copilotModel: config.get<string>('copilotModel', ''),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -132,6 +134,22 @@ export class AgentRpcHandlers {
           await config.update(
             'defaultTimeout',
             params.defaultTimeout,
+            vscode.ConfigurationTarget.Global
+          );
+        }
+
+        if (params.geminiModel !== undefined) {
+          await config.update(
+            'geminiModel',
+            params.geminiModel || undefined,
+            vscode.ConfigurationTarget.Global
+          );
+        }
+
+        if (params.copilotModel !== undefined) {
+          await config.update(
+            'copilotModel',
+            params.copilotModel || undefined,
             vscode.ConfigurationTarget.Global
           );
         }

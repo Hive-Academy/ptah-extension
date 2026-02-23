@@ -269,9 +269,9 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         },
         cli: {
           type: 'string',
-          enum: ['gemini', 'codex', 'vscode-lm'],
+          enum: ['gemini', 'codex', 'copilot', 'vscode-lm'],
           description:
-            'Which agent to use. "gemini" and "codex" require their CLI installed. ' +
+            'Which agent to use. "gemini", "codex", and "copilot" require their CLI installed. ' +
             '"vscode-lm" uses VS Code\'s built-in language model (no external CLI needed). ' +
             'Omit to use the default (auto-detected or user-configured).',
         },
@@ -300,7 +300,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           type: 'string',
           description:
             'Model to use for vscode-lm agents (e.g., "claude-3.5-sonnet", "gpt-4o"). ' +
-            'Matched against model id, family, or name. Ignored for CLI agents (gemini, codex).',
+            'Matched against model id, family, or name. Ignored for CLI agents (gemini, codex, copilot).',
         },
       },
       required: ['task'],

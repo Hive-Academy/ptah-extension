@@ -644,6 +644,30 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
+   * Check if a specific CLI is installed (for conditional model selector display).
+   */
+  isCliInstalled(cli: string): boolean {
+    return (
+      this.agentConfig()?.detectedClis.some(
+        (c) => c.cli === cli && c.installed
+      ) ?? false
+    );
+  }
+
+  /**
+   * Set the model for a specific CLI agent.
+   */
+  async setAgentModel(cli: 'gemini' | 'copilot', model: string): Promise<void> {
+    const key = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
+    const result = await this.rpcService.call('agent:setConfig', {
+      [key]: model,
+    });
+    if (result.isSuccess()) {
+      this.agentConfig.update((c) => (c ? { ...c, [key]: model } : c));
+    }
+  }
+
+  /**
    * Re-detect CLI agents (invalidates cache).
    */
   async redetectClis(): Promise<void> {

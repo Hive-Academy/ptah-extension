@@ -186,7 +186,7 @@ Spawn Gemini CLI or Codex CLI as background workers for parallel task execution.
 
 LIFECYCLE:
 - spawn(request) - Launch a CLI agent with a task
-  request: { task: string, cli?: 'gemini'|'codex', workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
+  request: { task: string, cli?: 'gemini'|'codex'|'copilot', workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
   returns: { agentId, cli, status, startedAt }
 
 - status(agentId?) - Get agent status (omit agentId for all agents)

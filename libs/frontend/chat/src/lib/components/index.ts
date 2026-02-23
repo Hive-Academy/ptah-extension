@@ -62,6 +62,8 @@ export * from './organisms/execution-node.component';
 export * from './organisms/inline-agent-bubble.component';
 export * from './organisms/agent-execution.component';
 export * from './organisms/message-bubble.component';
+export * from './organisms/agent-monitor-panel.component';
+export * from './molecules/agent-card.component';
 
 // ============================================================================
 // TEMPLATES - Page layouts

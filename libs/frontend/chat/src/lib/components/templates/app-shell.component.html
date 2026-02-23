@@ -240,6 +240,29 @@
 
       <!-- Header actions -->
       <div class="flex gap-1">
+        <!-- Agent monitor toggle (only visible when agents exist) -->
+        @if (agentMonitorStore.agentCount() > 0) {
+        <button
+          class="btn btn-square btn-ghost btn-sm relative"
+          aria-label="Toggle agent monitor"
+          (click)="agentMonitorStore.togglePanel()"
+        >
+          <lucide-angular
+            [img]="
+              agentMonitorStore.panelOpen()
+                ? PanelRightCloseIcon
+                : PanelRightOpenIcon
+            "
+            class="w-4 h-4"
+          />
+          @if (agentMonitorStore.hasRunningAgents()) {
+          <span
+            class="absolute top-0 right-0 w-2 h-2 bg-info rounded-full animate-pulse"
+          ></span>
+          }
+        </button>
+        }
+
         <!-- Notification bell -->
         @if (chatStore.licenseStatus(); as license) {
         <ptah-notification-bell
@@ -268,5 +291,8 @@
       <ptah-chat-view />
     </div>
   </div>
+
+  <!-- Right sidebar: Agent Monitor Panel -->
+  <ptah-agent-monitor-panel />
 </div>
 } }

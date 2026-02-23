@@ -24,11 +24,14 @@ import {
   CommandManager,
   verifyRpcRegistration,
 } from '@ptah-extension/vscode-core';
+import { AgentProcessManager } from '@ptah-extension/llm-abstraction';
 import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
   retryWithBackoff,
   MESSAGE_TYPES,
+  AgentProcessInfo,
+  AgentOutputDelta,
 } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
@@ -99,6 +102,7 @@ export class RpcMethodRegistrationService {
   ) {
     // Setup SDK callbacks and listeners
     this.setupAgentWatcherListeners();
+    this.setupAgentMonitorListeners();
     this.setupSessionIdResolvedCallback();
     this.setupResultStatsCallback();
     this.setupCompactionStartCallback();
@@ -146,6 +150,68 @@ export class RpcMethodRegistrationService {
           `Missing: ${verificationResult.missingHandlers.join(', ')}. ` +
             `Add handlers or remove from RpcMethodRegistry.`
         )
+      );
+    }
+  }
+
+  /**
+   * Setup listeners for agent process manager events (spawned, output, exited).
+   * Forwards events to webview for the real-time agent monitoring sidebar.
+   */
+  private setupAgentMonitorListeners(): void {
+    try {
+      const agentProcessManager = this.container.resolve<AgentProcessManager>(
+        TOKENS.AGENT_PROCESS_MANAGER
+      );
+
+      agentProcessManager.events.on(
+        'agent:spawned',
+        (info: AgentProcessInfo) => {
+          this.webviewManager
+            .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_SPAWNED, info)
+            .catch((error) => {
+              this.logger.error(
+                'Failed to send agent-monitor:spawned to webview',
+                error instanceof Error ? error : new Error(String(error))
+              );
+            });
+        }
+      );
+
+      agentProcessManager.events.on(
+        'agent:output',
+        (delta: AgentOutputDelta) => {
+          this.webviewManager
+            .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_OUTPUT, delta)
+            .catch((error) => {
+              this.logger.error(
+                'Failed to send agent-monitor:output to webview',
+                error instanceof Error ? error : new Error(String(error))
+              );
+            });
+        }
+      );
+
+      agentProcessManager.events.on(
+        'agent:exited',
+        (info: AgentProcessInfo) => {
+          this.webviewManager
+            .broadcastMessage(MESSAGE_TYPES.AGENT_MONITOR_EXITED, info)
+            .catch((error) => {
+              this.logger.error(
+                'Failed to send agent-monitor:exited to webview',
+                error instanceof Error ? error : new Error(String(error))
+              );
+            });
+        }
+      );
+
+      this.logger.info('[RPC] Agent monitor listeners registered');
+    } catch (error) {
+      // AgentProcessManager may not be registered yet in some configurations
+      this.logger.warn(
+        '[RPC] Could not setup agent monitor listeners',
+        error instanceof Error ? error : new Error(String(error))
       );
     }
   }

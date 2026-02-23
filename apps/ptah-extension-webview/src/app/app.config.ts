@@ -13,7 +13,10 @@ import {
   AutopilotStateService,
   AppStateManager,
 } from '@ptah-extension/core';
-import { ChatMessageHandler } from '@ptah-extension/chat';
+import {
+  ChatMessageHandler,
+  AgentMonitorMessageHandler,
+} from '@ptah-extension/chat';
 import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
@@ -74,6 +77,11 @@ export const appConfig: ApplicationConfig = {
     },
     { provide: MESSAGE_HANDLERS, useExisting: AppStateManager, multi: true },
     { provide: MESSAGE_HANDLERS, useExisting: ChatMessageHandler, multi: true },
+    {
+      provide: MESSAGE_HANDLERS,
+      useExisting: AgentMonitorMessageHandler,
+      multi: true,
+    },
     // Markdown rendering for chat messages (required for ngx-markdown)
     // Includes custom extensions for callout cards and collapsible code blocks
     provideMarkdown({

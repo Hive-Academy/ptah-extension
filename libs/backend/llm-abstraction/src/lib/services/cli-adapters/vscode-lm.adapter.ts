@@ -55,12 +55,7 @@ export class VsCodeLmAdapter implements CliAdapter {
       // Show configured model if set, otherwise show first available
       let versionModel = models[0];
       if (this.configuredModel) {
-        const needle = this.configuredModel.toLowerCase();
-        const match = models.find(
-          (m) =>
-            m.id?.toLowerCase().includes(needle) ||
-            m.family?.toLowerCase().includes(needle)
-        );
+        const match = this.findMatchingModel(models, this.configuredModel);
         if (match) {
           versionModel = match;
         }
@@ -107,11 +102,113 @@ export class VsCodeLmAdapter implements CliAdapter {
   }
 
   /**
+   * Find a matching model from the available models list.
+   *
+   * Matching strategy (in priority order):
+   * 1. Exact match on vendor/family combo (e.g., "copilot/gpt-5.3-codex")
+   * 2. Substring match on id, family, or name
+   * 3. If needle contains "/", also try matching just the family part
+   */
+  private findMatchingModel(
+    models: vscode.LanguageModelChat[],
+    needle: string
+  ): vscode.LanguageModelChat | undefined {
+    const lowerNeedle = needle.toLowerCase();
+
+    // 1. Exact vendor/family match (how models are stored in settings)
+    const exactMatch = models.find(
+      (m) => `${m.vendor}/${m.family}`.toLowerCase() === lowerNeedle
+    );
+    if (exactMatch) return exactMatch;
+
+    // 2. Substring match on id, family, or name
+    const substringMatch = models.find(
+      (m) =>
+        m.id?.toLowerCase().includes(lowerNeedle) ||
+        m.family?.toLowerCase().includes(lowerNeedle) ||
+        m.name?.toLowerCase().includes(lowerNeedle) ||
+        lowerNeedle.includes(m.family?.toLowerCase() ?? '')
+    );
+    if (substringMatch) return substringMatch;
+
+    // 3. If needle is vendor/family format, try just the family part
+    if (lowerNeedle.includes('/')) {
+      const familyPart = lowerNeedle.split('/').pop() ?? '';
+      if (familyPart) {
+        return models.find(
+          (m) =>
+            m.family?.toLowerCase() === familyPart ||
+            m.family?.toLowerCase().includes(familyPart)
+        );
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Read file contents using VS Code workspace filesystem.
+   * Returns content as UTF-8 string, or an error placeholder if reading fails.
+   */
+  private async readFileContent(
+    filePath: string,
+    workingDirectory: string
+  ): Promise<string> {
+    try {
+      // Resolve relative paths against working directory
+      const uri =
+        filePath.match(/^[a-zA-Z]:[\\/]/) || filePath.startsWith('/')
+          ? vscode.Uri.file(filePath)
+          : vscode.Uri.joinPath(vscode.Uri.file(workingDirectory), filePath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      return new TextDecoder().decode(content);
+    } catch {
+      return `[Error: Unable to read file "${filePath}"]`;
+    }
+  }
+
+  /**
+   * Build a prompt with file contents inlined.
+   * VS Code LM has no tool-calling capability, so file contents
+   * must be included directly in the prompt for the model to analyze them.
+   */
+  private async buildPromptWithFileContents(
+    options: CliCommandOptions
+  ): Promise<string> {
+    let taskPrompt = buildTaskPrompt(options);
+
+    // If files are specified, read and inline their contents
+    if (options.files && options.files.length > 0) {
+      const fileContents: string[] = [];
+      for (const file of options.files) {
+        const content = await this.readFileContent(
+          file,
+          options.workingDirectory
+        );
+        // Cap individual file at ~30KB to avoid blowing the context window
+        const truncated =
+          content.length > 30000
+            ? content.substring(0, 30000) + '\n... [truncated]'
+            : content;
+        fileContents.push(`### ${file}\n\`\`\`\n${truncated}\n\`\`\``);
+      }
+      taskPrompt +=
+        '\n\n## File Contents\n\nHere are the actual file contents for your analysis:\n\n' +
+        fileContents.join('\n\n');
+    }
+
+    return taskPrompt;
+  }
+
+  /**
    * Run task via VS Code Language Model API.
    *
    * Uses vscode.lm.selectChatModels() to get a model, then streams
    * the response via model.sendRequest(). Abort is bridged from
    * AbortController to CancellationTokenSource.
+   *
+   * Unlike CLI agents, VS Code LM has no tool-calling capability.
+   * File contents are inlined into the prompt so the model can analyze them.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     const models = await vscode.lm.selectChatModels();
@@ -123,16 +220,10 @@ export class VsCodeLmAdapter implements CliAdapter {
     }
 
     // If a model identifier is provided, try to match it against available models
-    // Matches against id, family, or name (case-insensitive substring)
+    // Matches against vendor/family combo, id, family, or name (case-insensitive)
     let model: vscode.LanguageModelChat | undefined;
     if (options.model) {
-      const needle = options.model.toLowerCase();
-      model = models.find(
-        (m) =>
-          m.id?.toLowerCase().includes(needle) ||
-          m.family?.toLowerCase().includes(needle) ||
-          m.name?.toLowerCase().includes(needle)
-      );
+      model = this.findMatchingModel(models, options.model);
       if (!model) {
         throw new Error(
           `Model "${options.model}" not found. Available models: ${models
@@ -147,7 +238,8 @@ export class VsCodeLmAdapter implements CliAdapter {
           (m) => m.family?.includes('claude') || m.id?.includes('claude')
         ) ?? models[0];
     }
-    const taskPrompt = buildTaskPrompt(options);
+    // Build prompt with file contents inlined (VS Code LM can't read files via tools)
+    const taskPrompt = await this.buildPromptWithFileContents(options);
     const messages = [vscode.LanguageModelChatMessage.User(taskPrompt)];
 
     // Bridge AbortController (SdkHandle contract) to CancellationTokenSource (VS Code API)

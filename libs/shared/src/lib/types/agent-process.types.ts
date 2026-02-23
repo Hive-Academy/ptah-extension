@@ -57,7 +57,7 @@ export type AgentStatus =
 // CLI Type
 // ========================================
 
-export type CliType = 'gemini' | 'codex' | 'vscode-lm';
+export type CliType = 'gemini' | 'codex' | 'copilot' | 'vscode-lm';
 
 // ========================================
 // Agent Process Info (tracked per agent)
@@ -131,4 +131,15 @@ export interface CliDetectionResult {
   readonly path?: string;
   readonly version?: string;
   readonly supportsSteer: boolean;
+}
+
+// ========================================
+// Agent Output Delta (real-time streaming)
+// ========================================
+
+export interface AgentOutputDelta {
+  readonly agentId: AgentId;
+  readonly stdoutDelta: string;
+  readonly stderrDelta: string;
+  readonly timestamp: number;
 }
