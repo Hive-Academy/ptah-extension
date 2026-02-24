@@ -1,8 +1,14 @@
 /**
  * Shared CLI Adapter Utilities
  * TASK_2025_157: Common functions extracted from individual CLI adapters
+ *
+ * Cross-platform foundation using:
+ * - `cross-spawn`: Transparent .cmd wrapper handling on Windows (no shell: true needed)
+ * - `which`: Library-based binary resolution (no subprocess, no \r issues)
  */
-import * as os from 'os';
+import crossSpawn from 'cross-spawn';
+import whichLib from 'which';
+import type { ChildProcess } from 'child_process';
 import type { CliCommandOptions } from './cli-adapter.interface';
 
 /**
@@ -15,32 +21,31 @@ export function stripAnsiCodes(str: string): string {
 }
 
 /**
- * Determine whether a binary path requires shell: true for spawn().
- *
- * On Windows, npm-installed global CLI tools (gemini, codex, copilot, claude)
- * are .cmd wrapper scripts. child_process.spawn() with shell:false cannot
- * execute .cmd files — it causes ENOENT. Only full-path .exe files can be
- * spawned directly on Windows.
- *
- * Pattern from claude-domain (claude-process.ts needsShellExecution).
+ * Cross-platform binary resolution. Returns full path or null.
+ * Uses `which` npm package — no subprocess, no \r issues.
  */
-export function needsShellExecution(binaryPath: string): boolean {
-  if (os.platform() !== 'win32') {
-    return false;
+export async function resolveCliPath(binary: string): Promise<string | null> {
+  try {
+    return await whichLib(binary);
+  } catch {
+    return null;
   }
+}
 
-  const pathLower = binaryPath.toLowerCase();
-
-  // Full absolute path to a .exe — can spawn directly
-  if (
-    pathLower.endsWith('.exe') &&
-    (pathLower.includes('\\') || pathLower.includes('/'))
-  ) {
-    return false;
-  }
-
-  // Everything else on Windows (.cmd wrappers, bare names) needs shell: true
-  return true;
+/**
+ * Cross-platform spawn. Uses `cross-spawn` — transparent .cmd handling on Windows.
+ * No shell: true needed, no argument mangling.
+ */
+export function spawnCli(
+  binary: string,
+  args: string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv }
+): ChildProcess {
+  return crossSpawn(binary, args, {
+    cwd: options.cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, ...CLI_CLEAN_ENV, ...options.env },
+  });
 }
 
 /**

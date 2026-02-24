@@ -10,7 +10,7 @@
  * - Cross-platform process termination (SIGTERM/taskkill)
  */
 import { injectable, inject } from 'tsyringe';
-import { spawn, execFile, ChildProcess } from 'child_process';
+import { execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'eventemitter3';
@@ -30,10 +30,7 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapters/cli-adapter.interface';
-import {
-  needsShellExecution,
-  CLI_CLEAN_ENV,
-} from './cli-adapters/cli-adapter.utils';
+import { spawnCli } from './cli-adapters/cli-adapter.utils';
 
 const execFileAsync = promisify(execFile);
 
@@ -252,25 +249,20 @@ export class AgentProcessManager {
     };
 
     // Use resolved binary path from detection.
-    // On Windows, npm-installed CLIs are .cmd wrappers requiring shell: true.
     const binaryPath = detection.path ?? command.binary;
-    const shell = needsShellExecution(binaryPath);
 
-    // Spawn the process
+    // Spawn the process using cross-spawn (transparent .cmd handling on Windows)
     this.logger.info('[AgentProcessManager] Spawning agent', {
       agentId,
       cli,
       binary: binaryPath,
-      shell,
       args: command.args.length,
       workingDirectory,
     });
 
-    const childProcess = spawn(binaryPath, command.args, {
+    const childProcess = spawnCli(binaryPath, command.args, {
       cwd: workingDirectory,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...CLI_CLEAN_ENV, ...command.env },
-      shell,
+      env: command.env,
     });
 
     // Explicit UTF-8 encoding prevents Buffer concatenation issues

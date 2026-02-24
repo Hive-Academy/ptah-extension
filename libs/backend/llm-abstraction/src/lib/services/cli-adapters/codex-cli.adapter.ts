@@ -15,7 +15,11 @@ import type {
   CliCommandOptions,
   SdkHandle,
 } from './cli-adapter.interface';
-import { stripAnsiCodes, buildTaskPrompt } from './cli-adapter.utils';
+import {
+  stripAnsiCodes,
+  buildTaskPrompt,
+  resolveCliPath,
+} from './cli-adapter.utils';
 
 const execFileAsync = promisify(execFile);
 
@@ -126,20 +130,17 @@ export class CodexCliAdapter implements CliAdapter {
 
   async detect(): Promise<CliDetectionResult> {
     try {
-      const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-      const { stdout: pathOutput } = await execFileAsync(whichCmd, ['codex'], {
-        timeout: 5000,
-      });
-      const binaryPath = pathOutput.trim().split('\n')[0];
+      const binaryPath = await resolveCliPath('codex');
+      if (!binaryPath) {
+        return { cli: 'codex', installed: false, supportsSteer: false };
+      }
 
       let version: string | undefined;
       try {
         const { stdout: versionOutput } = await execFileAsync(
-          'codex',
+          binaryPath,
           ['--version'],
-          {
-            timeout: 5000,
-          }
+          { timeout: 5000 }
         );
         version = versionOutput.trim().split('\n')[0];
       } catch {
@@ -176,11 +177,15 @@ export class CodexCliAdapter implements CliAdapter {
   }
 
   buildCommand(options: CliCommandOptions): CliCommand {
-    const args: string[] = [];
     const taskPrompt = buildTaskPrompt(options);
 
-    // Use --quiet for non-interactive mode (CLI fallback path)
-    args.push('--quiet', taskPrompt);
+    // Use `exec` subcommand for non-interactive mode
+    // Flags: --full-auto (auto-approve + sandbox), --ephemeral (no session persistence)
+    const args = ['exec', '--full-auto', '--ephemeral', taskPrompt];
+
+    if (options.model) {
+      args.push('--model', options.model);
+    }
 
     return {
       binary: 'codex',

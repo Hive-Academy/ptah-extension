@@ -12,7 +12,7 @@
  *
  * See: https://geminicli.com/docs/
  */
-import { execFile, spawn as cpSpawn } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { CliDetectionResult } from '@ptah-extension/shared';
 import type {
@@ -24,8 +24,8 @@ import type {
 import {
   stripAnsiCodes,
   buildTaskPrompt,
-  needsShellExecution,
-  CLI_CLEAN_ENV,
+  resolveCliPath,
+  spawnCli,
 } from './cli-adapter.utils';
 
 const execFileAsync = promisify(execFile);
@@ -67,21 +67,18 @@ export class GeminiCliAdapter implements CliAdapter {
 
   async detect(): Promise<CliDetectionResult> {
     try {
-      const whichCmd = process.platform === 'win32' ? 'where' : 'which';
-      const { stdout: pathOutput } = await execFileAsync(whichCmd, ['gemini'], {
-        timeout: 5000,
-      });
-      const binaryPath = pathOutput.trim().split('\n')[0];
+      const binaryPath = await resolveCliPath('gemini');
+      if (!binaryPath) {
+        return { cli: 'gemini', installed: false, supportsSteer: false };
+      }
 
-      // Try to get version
+      // Try to get version using the resolved path
       let version: string | undefined;
       try {
         const { stdout: versionOutput } = await execFileAsync(
-          'gemini',
+          binaryPath,
           ['--version'],
-          {
-            timeout: 5000,
-          }
+          { timeout: 5000 }
         );
         version = versionOutput.trim().split('\n')[0];
       } catch {
@@ -127,7 +124,7 @@ export class GeminiCliAdapter implements CliAdapter {
   /**
    * Run task via Gemini CLI with structured JSONL output.
    *
-   * Spawns: gemini --prompt= --output-format stream-json --yolo --sandbox
+   * Spawns: gemini --prompt= --output-format stream-json --yolo
    * Writes the task prompt to stdin (avoids Windows shell quoting issues).
    * Parses JSONL events line-by-line and emits readable output.
    */
@@ -136,10 +133,6 @@ export class GeminiCliAdapter implements CliAdapter {
     const abortController = new AbortController();
 
     // Prompt is piped via stdin to avoid Windows shell quoting issues.
-    // With shell: true, cmd.exe mangles long -p arguments containing
-    // special chars (=, &, |, quotes, newlines), causing Gemini CLI to
-    // see a positional prompt AND a -p flag simultaneously.
-    //
     // Gemini CLI: "-p ... Appended to input on stdin (if any)."
     // So we use --prompt="" for headless mode and write the real prompt to stdin.
     const args = [
@@ -147,7 +140,6 @@ export class GeminiCliAdapter implements CliAdapter {
       '--output-format',
       'stream-json',
       '--yolo', // Auto-approve all tool calls (orchestrated context)
-      '--sandbox', // Enable sandbox for safety
     ];
 
     // Add model if specified
@@ -179,16 +171,10 @@ export class GeminiCliAdapter implements CliAdapter {
       }
     };
 
-    // Spawn the Gemini CLI process using resolved binary path from detection.
-    // On Windows, npm-installed CLIs are .cmd wrappers that require shell: true.
-    // Pattern from claude-domain (claude-process.ts needsShellExecution).
+    // Spawn using cross-spawn — transparent .cmd handling on Windows
     const binary = options.binaryPath ?? 'gemini';
-    const shell = needsShellExecution(binary);
-    const child = cpSpawn(binary, args, {
+    const child = spawnCli(binary, args, {
       cwd: options.workingDirectory,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...CLI_CLEAN_ENV },
-      shell,
     });
 
     // Explicit UTF-8 encoding prevents Buffer concatenation issues
@@ -197,7 +183,6 @@ export class GeminiCliAdapter implements CliAdapter {
 
     // Write prompt to stdin then close — Gemini CLI reads stdin and appends
     // it to the -p prompt. Since we pass -p without a value, stdin IS the prompt.
-    // Pattern from claude-domain (claude-process.ts).
     child.stdin?.write(taskPrompt + '\n');
     child.stdin?.end();
 
