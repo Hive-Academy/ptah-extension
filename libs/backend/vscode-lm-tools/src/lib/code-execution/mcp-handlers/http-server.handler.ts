@@ -53,7 +53,7 @@ export async function startHttpServer(
 
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      handleHttpRequest(req, res, onMCPRequest, logger);
+      handleHttpRequest(req, res, onMCPRequest);
     });
 
     server.listen(configuredPort, 'localhost', () => {

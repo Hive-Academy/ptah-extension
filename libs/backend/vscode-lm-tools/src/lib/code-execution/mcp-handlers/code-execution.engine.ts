@@ -28,7 +28,7 @@ export async function executeCode(
   code: string,
   timeout: number,
   deps: CodeExecutionDependencies
-): Promise<any> {
+): Promise<unknown> {
   const { ptahAPI, logger } = deps;
 
   logger.info(`Executing code (timeout: ${timeout}ms)`, 'CodeExecutionMCP', {
@@ -68,7 +68,11 @@ export async function executeCode(
     'use strict';
     ${wrappedCode}
   `
-  ) as (ptah: PtahAPI, console: Console, require: NodeRequire) => Promise<any>;
+  ) as (
+    ptah: PtahAPI,
+    console: Console,
+    require: NodeRequire
+  ) => Promise<unknown>;
 
   // Wrap API with validation proxy to catch invalid method calls early
   const validatedAPI = createValidatedProxy(ptahAPI);
@@ -91,15 +95,17 @@ export async function executeCode(
 
   // Handle nested Promises (from IIFEs that return Promises)
   // Keep unwrapping until we get a non-Promise value
-  executionPromise = executionPromise.then(async (result: any) => {
+  executionPromise = executionPromise.then(async (result: unknown) => {
     // Unwrap up to 3 levels of Promise nesting (safety limit)
     let unwrapped = result;
     for (
       let i = 0;
-      i < 3 && unwrapped && typeof unwrapped.then === 'function';
+      i < 3 &&
+      unwrapped &&
+      typeof (unwrapped as Record<string, unknown>)['then'] === 'function';
       i++
     ) {
-      unwrapped = await unwrapped;
+      unwrapped = await (unwrapped as Promise<unknown>);
     }
     return unwrapped;
   });
@@ -319,7 +325,7 @@ const MAX_RESULT_SIZE = 50 * 1024;
 /**
  * Serialize execution result for MCP response
  */
-export function serializeResult(result: any): string {
+export function serializeResult(result: unknown): string {
   let serialized: string;
 
   if (result === undefined) {

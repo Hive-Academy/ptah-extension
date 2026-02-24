@@ -67,7 +67,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
   async start(): Promise<number> {
     if (this.server) {
       this.logger.warn('CodeExecutionMCP already started', 'CodeExecutionMCP');
-      return this.port!;
+      return this.port as number;
     }
 
     const configuredPort = getConfiguredPort();

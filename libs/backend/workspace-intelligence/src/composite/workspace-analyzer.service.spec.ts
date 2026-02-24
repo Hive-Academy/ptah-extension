@@ -13,6 +13,7 @@ import { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { GenericAstNode } from '../ast/ast.types';
 import { CodeInsights } from '../ast/ast-analysis.interfaces';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import * as vscode from 'vscode';
 
 // Mock VS Code API
@@ -43,22 +44,22 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
     // Create mocks for all dependencies
     mockFileSystem = {
       readFile: jest.fn(),
-    } as any;
+    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-    mockProjectDetector = {} as any;
-    mockFrameworkDetector = {} as any;
-    mockDependencyAnalyzer = {} as any;
-    mockWorkspaceService = {} as any;
-    mockContextService = {} as any;
-    mockIndexer = {} as any;
+    mockProjectDetector = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mockFrameworkDetector = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mockDependencyAnalyzer = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mockWorkspaceService = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mockContextService = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    mockIndexer = {} as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     mockTreeSitterParser = {
       parse: jest.fn(),
-    } as any;
+    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     mockAstAnalyzer = {
       analyzeAst: jest.fn(),
-    } as any;
+    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     mockLogger = {
       info: jest.fn(),
@@ -67,7 +68,7 @@ describe('WorkspaceAnalyzerService - AST Integration', () => {
       debug: jest.fn(),
       lifecycle: jest.fn(),
       dispose: jest.fn(),
-    } as any;
+    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     // Create service with mocked dependencies
     service = new WorkspaceAnalyzerService(
