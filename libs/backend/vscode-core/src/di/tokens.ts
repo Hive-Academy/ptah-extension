@@ -126,6 +126,11 @@ export const AGENT_PROCESS_MANAGER = Symbol.for('AgentProcessManager');
 export const CLI_DETECTION_SERVICE = Symbol.for('CliDetectionService');
 
 // ========================================
+// CLI Plugin Sync Tokens (TASK_2025_160)
+// ========================================
+export const CLI_PLUGIN_SYNC_SERVICE = Symbol.for('CliPluginSyncService');
+
+// ========================================
 // Auth Secrets Service Token (TASK_2025_076)
 // ========================================
 export const AUTH_SECRETS_SERVICE = Symbol.for('AuthSecretsService');
@@ -369,6 +374,9 @@ export const TOKENS = {
   // Agent Orchestration (TASK_2025_157)
   AGENT_PROCESS_MANAGER,
   CLI_DETECTION_SERVICE,
+
+  // CLI Plugin Sync (TASK_2025_160)
+  CLI_PLUGIN_SYNC_SERVICE,
 
   // Auth Secrets (TASK_2025_076)
   AUTH_SECRETS_SERVICE,

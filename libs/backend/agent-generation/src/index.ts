@@ -49,6 +49,10 @@ export { AnalysisStorageService } from './lib/services/analysis-storage.service'
 // Orchestrator types (exported for RPC handler consumption)
 export type { OrchestratorGenerationOptions } from './lib/services/orchestrator.service';
 
+// Multi-CLI Agent Transforms (TASK_2025_160)
+export { MultiCliAgentWriterService } from './lib/services/cli-agent-transforms';
+export type { ICliAgentTransformer } from './lib/services/cli-agent-transforms';
+
 // Wizard child services and shared analysis schema
 export {
   WizardWebviewLifecycleService,

@@ -10,7 +10,10 @@
  * (IAgentFileWriterService, IContentGenerationService, IAgentSelectionService).
  */
 
-import type { CliTarget, CliAgentTransformResult } from '@ptah-extension/shared';
+import type {
+  CliTarget,
+  CliAgentTransformResult,
+} from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
 
 /**

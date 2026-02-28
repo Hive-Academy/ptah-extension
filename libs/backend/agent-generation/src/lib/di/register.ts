@@ -24,6 +24,7 @@ import { AgentRecommendationService } from '../services/agent-recommendation.ser
 import { TemplateStorageService } from '../services/template-storage.service';
 import { ContentGenerationService } from '../services/content-generation.service';
 import { AgentFileWriterService } from '../services/file-writer.service';
+import { MultiCliAgentWriterService } from '../services/cli-agent-transforms/multi-cli-agent-writer.service';
 import { OutputValidationService } from '../services/output-validation.service';
 import { VsCodeLmService } from '../services/vscode-lm.service';
 import {
@@ -142,6 +143,13 @@ export function registerAgentGenerationServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
+  // Multi-CLI agent writer service - transforms and writes for Copilot/Gemini (TASK_2025_160)
+  container.register(
+    AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
+    { useClass: MultiCliAgentWriterService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
   // ============================================================
   // High-level Services (orchestration layer)
   // ============================================================
@@ -180,6 +188,7 @@ export function registerAgentGenerationServices(
       'AGENT_RECOMMENDATION_SERVICE',
       'CONTENT_GENERATION_SERVICE',
       'AGENT_FILE_WRITER_SERVICE',
+      'MULTI_CLI_AGENT_WRITER_SERVICE',
       'AGENT_GENERATION_ORCHESTRATOR',
       'SETUP_STATUS_SERVICE',
       'SETUP_WIZARD_SERVICE',

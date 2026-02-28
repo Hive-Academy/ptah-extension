@@ -126,6 +126,14 @@ export const OUTPUT_VALIDATION_SERVICE = Symbol.for('OutputValidationService');
  */
 export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
 
+/**
+ * MultiCliAgentWriterService - Transform and write agents for non-Claude CLIs (TASK_2025_160)
+ * Responsibilities: Transform Claude agents to Copilot/Gemini format, write to user-level directories
+ */
+export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
+  'MultiCliAgentWriterService'
+);
+
 // ========================================
 // Migration Services (Future Phase)
 // ========================================
@@ -198,6 +206,7 @@ export const AGENT_GENERATION_TOKENS = {
 
   // File Operations
   AGENT_FILE_WRITER_SERVICE,
+  MULTI_CLI_AGENT_WRITER_SERVICE,
 
   // Migration (Future)
   MIGRATION_SERVICE,

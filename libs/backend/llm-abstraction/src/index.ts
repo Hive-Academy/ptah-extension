@@ -74,7 +74,14 @@ export type {
   CliAdapter,
   CliCommand,
   CliCommandOptions,
+  CliModelInfo,
 } from './lib/services/cli-adapters';
+
+// ========================================
+// CLI Skill Sync (TASK_2025_160)
+// ========================================
+export { CliPluginSyncService } from './lib/services/cli-skill-sync';
+export type { ICliSkillInstaller } from './lib/services/cli-skill-sync';
 
 // ========================================
 // PROVIDERS - Use secondary entry point

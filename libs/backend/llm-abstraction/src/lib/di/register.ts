@@ -26,6 +26,7 @@ import { LlmConfigurationService } from '../services/llm-configuration.service';
 import { ProviderRegistry } from '../registry/provider-registry';
 import { CliDetectionService } from '../services/cli-detection.service';
 import { AgentProcessManager } from '../services/agent-process-manager.service';
+import { CliPluginSyncService } from '../services/cli-skill-sync/cli-plugin-sync.service';
 
 /**
  * Register LLM abstraction services in DI container
@@ -92,6 +93,12 @@ export function registerLlmAbstractionServices(
     AgentProcessManager
   );
 
+  // 7. CliPluginSyncService - needs LOGGER, CLI_DETECTION_SERVICE (TASK_2025_160)
+  container.registerSingleton(
+    TOKENS.CLI_PLUGIN_SYNC_SERVICE,
+    CliPluginSyncService
+  );
+
   logger.info('[LLM Abstraction] Services registered', {
     services: [
       'LLM_SECRETS_SERVICE',
@@ -100,6 +107,7 @@ export function registerLlmAbstractionServices(
       'LLM_SERVICE',
       'CLI_DETECTION_SERVICE',
       'AGENT_PROCESS_MANAGER',
+      'CLI_PLUGIN_SYNC_SERVICE',
     ],
   });
 }
