@@ -10,6 +10,8 @@ import { PaddleModule } from '../paddle/paddle.module';
 import { EventsModule } from '../events/events.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { TrialReminderModule } from '../trial-reminder/trial-reminder.module';
+import { ContactModule } from '../contact/contact.module';
+import { SessionModule } from '../session/session.module';
 
 /**
  * AppModule - Root application module
@@ -62,6 +64,8 @@ import { TrialReminderModule } from '../trial-reminder/trial-reminder.module';
     EventsModule,
     SubscriptionModule, // TASK_2025_123: Subscription management APIs
     TrialReminderModule, // TASK_2025_142: Trial reminder email notifications
+    ContactModule, // Contact form message handling
+    SessionModule, // Training session request handling
   ],
   providers: [
     // TASK_2025_125: Apply ThrottlerGuard globally to all routes

@@ -39,6 +39,7 @@ export const appConfig: ApplicationConfig = {
       token: environment.paddle.token,
       proPriceIdMonthly: environment.paddle.proPriceIdMonthly,
       proPriceIdYearly: environment.paddle.proPriceIdYearly,
+      sessionPriceId: environment.paddle.sessionPriceId,
       maxRetries: 3,
       baseRetryDelay: 1000,
       licenseVerifyRetries: 3,

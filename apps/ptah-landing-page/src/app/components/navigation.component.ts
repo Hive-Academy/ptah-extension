@@ -95,6 +95,24 @@ import { AuthService } from '../services/auth.service';
         </a>
 
         @if (isAuthenticated()) {
+        <!-- Sessions Link (Authenticated) -->
+        <a
+          routerLink="/sessions"
+          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          aria-label="View training sessions"
+        >
+          Sessions
+        </a>
+
+        <!-- Contact Link (Authenticated) -->
+        <a
+          routerLink="/contact"
+          class="text-white/80 hover:text-amber-400 transition-colors text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md px-2 py-1"
+          aria-label="Contact us"
+        >
+          Contact
+        </a>
+
         <!-- Profile Link (Authenticated) -->
         <a
           routerLink="/profile"
@@ -213,6 +231,26 @@ import { AuthService } from '../services/auth.service';
         </a>
 
         @if (isAuthenticated()) {
+        <!-- Sessions Link (Authenticated) -->
+        <a
+          routerLink="/sessions"
+          class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+          role="menuitem"
+          (click)="closeMobileMenu()"
+        >
+          Sessions
+        </a>
+
+        <!-- Contact Link (Authenticated) -->
+        <a
+          routerLink="/contact"
+          class="flex items-center px-4 py-3 text-white/80 hover:text-amber-400 hover:bg-white/5 rounded-lg transition-colors text-base font-medium"
+          role="menuitem"
+          (click)="closeMobileMenu()"
+        >
+          Contact
+        </a>
+
         <!-- Profile Link (Authenticated) -->
         <a
           routerLink="/profile"

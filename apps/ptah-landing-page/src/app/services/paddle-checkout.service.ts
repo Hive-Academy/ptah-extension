@@ -14,6 +14,8 @@ export interface CheckoutOptions {
   customerEmail?: string;
   customerId?: string;
   successUrl?: string;
+  /** Optional callback invoked on checkout.completed instead of default license verify + navigate flow */
+  onComplete?: (transactionId?: string) => void;
 }
 
 /**
@@ -103,6 +105,7 @@ export class PaddleCheckoutService {
   private initAttempts = 0;
   private checkoutTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private initPromise: Promise<void> | null = null;
+  private _onCompleteCallback: ((transactionId?: string) => void) | null = null;
 
   private readonly CHECKOUT_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
@@ -313,6 +316,9 @@ export class PaddleCheckoutService {
 
     // Step 2: Fetch checkout info to get existing Paddle customer ID
     const checkoutInfo = await this.fetchCheckoutInfo();
+
+    // Store onComplete callback if provided
+    this._onCompleteCallback = options.onComplete || null;
 
     // Step 3: Proceed with opening checkout
     this._isLoading.set(true);
@@ -546,7 +552,16 @@ export class PaddleCheckoutService {
             this.paddleInstance.Checkout.close();
           }
 
-          // Verify license activation with backend before navigation
+          // If a custom onComplete callback was provided, use it instead of default flow
+          if (this._onCompleteCallback) {
+            const transactionId = (event.data as { transaction_id?: string })
+              ?.transaction_id;
+            this._onCompleteCallback(transactionId);
+            this._onCompleteCallback = null;
+            return;
+          }
+
+          // Default: Verify license activation with backend before navigation
           this.verifyLicenseActivation().then((isActive) => {
             if (isActive) {
               // Navigate to profile page after successful verification

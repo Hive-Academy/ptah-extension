@@ -4,6 +4,8 @@ import { PricingPageComponent } from './pages/pricing/pricing-page.component';
 import { AuthPageComponent } from './pages/auth/auth-page.component';
 import { ProfilePageComponent } from './pages/profile/profile-page.component';
 import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.component';
+import { ContactPageComponent } from './pages/contact/contact-page.component';
+import { SessionsPageComponent } from './pages/sessions/sessions-page.component';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
 import { DocsPageComponent } from './pages/docs/docs-page.component';
@@ -68,6 +70,16 @@ export const routes: Routes = [
     path: 'profile',
     component: ProfilePageComponent,
     canActivate: [AuthGuard, TrialStatusGuard], // Auth + trial status check
+  },
+  {
+    path: 'contact',
+    component: ContactPageComponent,
+    canActivate: [AuthGuard, TrialStatusGuard],
+  },
+  {
+    path: 'sessions',
+    component: SessionsPageComponent,
+    canActivate: [AuthGuard, TrialStatusGuard],
   },
   {
     path: 'trial-ended',

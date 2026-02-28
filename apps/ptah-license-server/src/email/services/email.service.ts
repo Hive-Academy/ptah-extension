@@ -99,7 +99,13 @@ export class EmailService {
    * @throws Error if all attempts fail
    */
   private async sendWithRetry(
-    msg: { from: string; to: string[]; subject: string; html: string },
+    msg: {
+      from: string;
+      to: string[];
+      subject: string;
+      html: string;
+      replyTo?: string;
+    },
     attempts: number
   ): Promise<void> {
     for (let i = 0; i < attempts; i++) {
@@ -255,6 +261,105 @@ export class EmailService {
       </body>
       </html>
     `;
+  }
+
+  // ============================================================
+  // Contact & Session Email Methods
+  // ============================================================
+
+  /**
+   * Send contact form message to team
+   */
+  async sendContactMessage(params: {
+    userEmail: string;
+    userId: string;
+    subject: string;
+    message: string;
+    category: string;
+  }): Promise<void> {
+    const { userEmail, userId, subject, message, category } = params;
+
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: ['help@ptah.live'],
+      subject: `[Contact - ${category}] ${subject}`,
+      html: this.getContactMessageTemplate({
+        userEmail,
+        userId,
+        subject,
+        message,
+        category,
+      }),
+      replyTo: userEmail,
+    };
+
+    this.logger.log(`Sending contact message from ${userEmail} (${category})`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`Contact message sent successfully from ${userEmail}`);
+  }
+
+  /**
+   * Send session request notification to team
+   */
+  async sendSessionRequestNotification(params: {
+    userEmail: string;
+    sessionTopicId: string;
+    additionalNotes?: string;
+    isFreeSession: boolean;
+  }): Promise<void> {
+    const { userEmail, sessionTopicId, additionalNotes, isFreeSession } =
+      params;
+
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: ['help@ptah.live'],
+      subject: `[Session Request] ${sessionTopicId} - ${userEmail}`,
+      html: this.getSessionRequestNotificationTemplate({
+        userEmail,
+        sessionTopicId,
+        additionalNotes,
+        isFreeSession,
+      }),
+      replyTo: userEmail,
+    };
+
+    this.logger.log(`Sending session request notification for ${userEmail}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`Session request notification sent for ${userEmail}`);
+  }
+
+  /**
+   * Send session confirmation to user
+   */
+  async sendSessionConfirmation(params: {
+    userEmail: string;
+    sessionTopicId: string;
+    isFreeSession: boolean;
+  }): Promise<void> {
+    const { userEmail, sessionTopicId, isFreeSession } = params;
+
+    const fromEmail = this.config.get<string>('FROM_EMAIL') || 'help@ptah.live';
+    const fromName = this.config.get<string>('FROM_NAME') || 'Ptah Team';
+
+    const msg = {
+      from: `${fromName} <${fromEmail}>`,
+      to: [userEmail],
+      subject: 'Your Ptah Session Request Has Been Received',
+      html: this.getSessionConfirmationTemplate({
+        sessionTopicId,
+        isFreeSession,
+      }),
+    };
+
+    this.logger.log(`Sending session confirmation to ${userEmail}`);
+    await this.sendWithRetry(msg, 3);
+    this.logger.log(`Session confirmation sent to ${userEmail}`);
   }
 
   // ============================================================
@@ -788,6 +893,169 @@ export class EmailService {
 
         <div class="footer">
           <p>Thank you for being part of the Ptah community!</p>
+          <p>- The Ptah Team</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  // ============================================================
+  // Contact & Session Email Templates
+  // ============================================================
+
+  private getContactMessageTemplate(params: {
+    userEmail: string;
+    userId: string;
+    subject: string;
+    message: string;
+    category: string;
+  }): string {
+    const { userEmail, userId, subject, message, category } = params;
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Contact Message</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          h1 { color: #4A5568; margin-bottom: 20px; }
+          .user-info { background-color: #F7FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .category-badge { display: inline-block; background-color: #3182CE; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 16px; }
+          .message-body { background-color: #FFFBEB; border-left: 4px solid #F59E0B; padding: 16px; margin: 20px 0; border-radius: 4px; white-space: pre-wrap; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+        </style>
+      </head>
+      <body>
+        <h1>New Contact Message</h1>
+
+        <div class="category-badge">${category}</div>
+
+        <div class="user-info">
+          <p><strong>From:</strong> ${userEmail}</p>
+          <p><strong>User ID:</strong> ${userId}</p>
+          <p><strong>Subject:</strong> ${subject}</p>
+        </div>
+
+        <h2>Message:</h2>
+        <div class="message-body">${message}</div>
+
+        <div class="footer">
+          <p>Reply directly to this email to respond to the user.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private getSessionRequestNotificationTemplate(params: {
+    userEmail: string;
+    sessionTopicId: string;
+    additionalNotes?: string;
+    isFreeSession: boolean;
+  }): string {
+    const { userEmail, sessionTopicId, additionalNotes, isFreeSession } =
+      params;
+    const badge = isFreeSession
+      ? '<span style="display:inline-block;background-color:#48BB78;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;">FREE</span>'
+      : '<span style="display:inline-block;background-color:#ED8936;color:white;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;">PAID - $100</span>';
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Session Request</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          h1 { color: #4A5568; margin-bottom: 20px; }
+          .details { background-color: #F7FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .notes { background-color: #FFFBEB; border-left: 4px solid #F59E0B; padding: 16px; margin: 20px 0; border-radius: 4px; white-space: pre-wrap; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+        </style>
+      </head>
+      <body>
+        <h1>New Session Request</h1>
+
+        ${badge}
+
+        <div class="details">
+          <p><strong>User:</strong> ${userEmail}</p>
+          <p><strong>Topic:</strong> ${sessionTopicId}</p>
+          <p><strong>Type:</strong> ${
+            isFreeSession ? 'Free (community)' : 'Paid ($100)'
+          }</p>
+        </div>
+
+        ${
+          additionalNotes
+            ? `<h2>Additional Notes:</h2><div class="notes">${additionalNotes}</div>`
+            : ''
+        }
+
+        <div class="footer">
+          <p>Reply to this email to contact the user and schedule the session.</p>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private getSessionConfirmationTemplate(params: {
+    sessionTopicId: string;
+    isFreeSession: boolean;
+  }): string {
+    const { sessionTopicId, isFreeSession } = params;
+
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Session Request Received</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          h1 { color: #4A5568; margin-bottom: 20px; }
+          .status-box { background-color: #F0FFF4; border: 1px solid #9AE6B4; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center; }
+          .status-icon { font-size: 48px; margin-bottom: 12px; }
+          .details { background-color: #F7FAFC; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .next-steps { background-color: #EBF8FF; border-radius: 8px; padding: 16px; margin: 20px 0; }
+          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+        </style>
+      </head>
+      <body>
+        <h1>Session Request Received!</h1>
+
+        <div class="status-box">
+          <div class="status-icon">✅</div>
+          <p><strong>Your session request has been submitted</strong></p>
+        </div>
+
+        <div class="details">
+          <p><strong>Topic:</strong> ${sessionTopicId}</p>
+          <p><strong>Duration:</strong> 2 hours</p>
+          <p><strong>Price:</strong> ${
+            isFreeSession ? 'FREE (your first session!)' : '$100'
+          }</p>
+        </div>
+
+        <div class="next-steps">
+          <p><strong>What happens next:</strong></p>
+          <ol>
+            <li>Our team will review your request</li>
+            <li>We'll reach out via email with available dates</li>
+            <li>You'll confirm your preferred date and time</li>
+            <li>We'll send you a calendar invite with the meeting link</li>
+          </ol>
+        </div>
+
+        <div class="footer">
+          <p>Questions? Reply to this email and we'll help you out.</p>
           <p>- The Ptah Team</p>
         </div>
       </body>

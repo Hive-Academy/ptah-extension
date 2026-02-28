@@ -37,5 +37,7 @@ export const environment = {
     proPriceIdMonthly: 'pri_01kfr72reygmkapd0vtynrswm4',
     /** Price ID for Pro Yearly ($50/year with 14-day trial) - Paddle sandbox */
     proPriceIdYearly: 'pri_01kfr76e7fz41sp05w74jy4fx6',
+    /** Price ID for one-time session payment ($100 per 2-hour session) - Paddle sandbox */
+    sessionPriceId: 'pri_SESSION_SANDBOX_PLACEHOLDER',
   },
 };

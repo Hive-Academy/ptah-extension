@@ -713,6 +713,23 @@ export class PaddleService {
 
     // Step 1: Check if this is a subscription transaction
     if (!data.subscriptionId) {
+      // Check if this is a session payment (one-time $100 purchase)
+      const sessionPriceId = this.configService.get<string>(
+        'PADDLE_PRICE_ID_SESSION'
+      );
+      const transactionPriceId = data.items?.[0]?.price?.id;
+
+      if (sessionPriceId && transactionPriceId === sessionPriceId) {
+        this.logger.log(
+          `Transaction ${data.id} is a session payment - updating session request`
+        );
+        await this.prisma.sessionRequest.updateMany({
+          where: { paddleTransactionId: data.id, paymentStatus: 'pending' },
+          data: { paymentStatus: 'completed' },
+        });
+        return { success: true };
+      }
+
       this.logger.log(
         `Transaction ${data.id} is not a subscription transaction (one-time purchase) - skipping`
       );

@@ -98,6 +98,8 @@ export class AuthController {
     '/pricing',
     '/profile',
     '/dashboard',
+    '/contact',
+    '/sessions',
   ];
 
   /** Valid plan keys for checkout (TASK_2025_128: Pro only, Community is free) */

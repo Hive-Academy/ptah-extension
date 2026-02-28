@@ -38,6 +38,12 @@ export interface PaddleConfig {
   proPriceIdYearly: string;
 
   /**
+   * Price ID for one-time session payment ($100 per 2-hour session)
+   * Optional - only needed if sessions feature is enabled
+   */
+  sessionPriceId?: string;
+
+  /**
    * Maximum number of retry attempts for SDK loading
    * @default 3
    */

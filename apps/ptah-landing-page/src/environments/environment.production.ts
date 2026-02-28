@@ -36,5 +36,7 @@ export const environment = {
     proPriceIdMonthly: 'pri_REPLACE_PRO_MONTHLY', // TODO: Replace with real Paddle price ID
     /** Price ID for Pro Yearly ($50/year with 14-day trial) - from Paddle dashboard */
     proPriceIdYearly: 'pri_REPLACE_PRO_YEARLY', // TODO: Replace with real Paddle price ID
+    /** Price ID for one-time session payment ($100) - from Paddle dashboard */
+    sessionPriceId: 'pri_REPLACE_SESSION', // TODO: Replace with real Paddle price ID
   },
 };

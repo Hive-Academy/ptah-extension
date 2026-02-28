@@ -28,6 +28,7 @@ model User {
   licenses         License[]
   subscriptions    Subscription[]
   trialReminders   TrialReminder[]
+  sessionRequests  SessionRequest[]
 
   @@index([workosId])
   @@index([paddleCustomerId])
@@ -110,4 +111,25 @@ model TrialReminder {
   @@index([userId])
   @@index([reminderType])
   @@map("trial_reminders")
+}
+
+// SessionRequest model - stores training session registration requests
+// Users can request free (community) or paid ($100) 2-hour training sessions
+model SessionRequest {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionTopicId      String    @map("session_topic_id")
+  additionalNotes     String?   @map("additional_notes")
+  isFreeSession       Boolean   @default(false) @map("is_free_session")
+  status              String    @default("pending") // pending | scheduled | completed | canceled
+  paymentStatus       String    @default("none") @map("payment_status") // none | pending | completed
+  paddleTransactionId String?   @map("paddle_transaction_id")
+  scheduledAt         DateTime? @map("scheduled_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("session_requests")
 }
