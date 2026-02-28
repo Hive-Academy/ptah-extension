@@ -146,6 +146,7 @@ export class VscodeLmConfigComponent implements OnInit {
   readonly vsCodeModels = this.llmState.vsCodeModels;
 
   async ngOnInit(): Promise<void> {
+    await this.llmState.loadProviderStatus();
     await this.llmState.loadVsCodeModels();
   }
 

@@ -23,6 +23,7 @@
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
+import { AuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { extractTokenUsage } from './helpers/usage-extraction.utils';
@@ -57,7 +58,8 @@ export class SessionHistoryReaderService {
     @inject(SDK_TOKENS.SDK_SESSION_REPLAY)
     private readonly replayService: SessionReplayService,
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
-    private readonly eventFactory: HistoryEventFactory
+    private readonly eventFactory: HistoryEventFactory,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
   ) {}
 
   /**
@@ -336,8 +338,9 @@ export class SessionHistoryReaderService {
     }
 
     // Calculate cost using resolved model for accurate provider-aware pricing
+    // TASK_2025_164: Pass authEnv for provider-aware model resolution
     const totalCost = calculateMessageCost(
-      resolveActualModelForPricing(detectedModel || ''),
+      resolveActualModelForPricing(detectedModel || '', this.authEnv),
       {
         input: totalInput,
         output: totalOutput,

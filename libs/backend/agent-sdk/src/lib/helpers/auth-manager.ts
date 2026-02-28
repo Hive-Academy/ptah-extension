@@ -19,6 +19,7 @@ import {
   TOKENS,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import type { AuthEnv } from '@ptah-extension/shared';
 import {
   getAnthropicProvider,
   getProviderBaseUrl,
@@ -66,7 +67,8 @@ export class AuthManager {
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private authSecrets: IAuthSecretsService,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
-    private providerModels: ProviderModelsService
+    private providerModels: ProviderModelsService,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv
   ) {}
 
   /**
@@ -206,7 +208,7 @@ export class AuthManager {
         );
       }
 
-      process.env['CLAUDE_CODE_OAUTH_TOKEN'] = oauthToken.trim();
+      this.authEnv.CLAUDE_CODE_OAUTH_TOKEN = oauthToken.trim();
 
       this.logger.info(
         '[AuthManager] Using OAuth token from Claude Max/Pro subscription'
@@ -227,7 +229,7 @@ export class AuthManager {
       );
 
       // Restore the token from snapshot (it was cleared in clean slate)
-      process.env['CLAUDE_CODE_OAUTH_TOKEN'] = envOAuthToken;
+      this.authEnv.CLAUDE_CODE_OAUTH_TOKEN = envOAuthToken;
 
       this.logger.info(
         '[AuthManager] Using OAuth token from environment (subscription mode)'
@@ -303,8 +305,8 @@ export class AuthManager {
 
       // Set provider-specific env vars only
       // authEnvVar is per-provider: ANTHROPIC_AUTH_TOKEN (Bearer) or ANTHROPIC_API_KEY (X-API-Key)
-      process.env['ANTHROPIC_BASE_URL'] = baseUrl;
-      process.env[authEnvVar] = providerKey.trim();
+      this.authEnv.ANTHROPIC_BASE_URL = baseUrl;
+      this.authEnv[authEnvVar as keyof AuthEnv] = providerKey.trim();
 
       // Apply persisted tier mappings for this provider (TASK_2025_132)
       this.providerModels.switchActiveProvider(providerId);
@@ -360,7 +362,7 @@ export class AuthManager {
         );
       }
 
-      process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
+      this.authEnv.ANTHROPIC_API_KEY = apiKey.trim();
       details.push(
         `API key from SecretStorage (pay-per-token, format ${
           isValidFormat ? 'valid' : 'INVALID'
@@ -382,7 +384,7 @@ export class AuthManager {
       }
 
       // Restore the key from snapshot (it was cleared in clean slate)
-      process.env['ANTHROPIC_API_KEY'] = envApiKey;
+      this.authEnv.ANTHROPIC_API_KEY = envApiKey;
 
       details.push(
         `API key from environment (pay-per-token, format ${
@@ -425,12 +427,12 @@ export class AuthManager {
   }
 
   /**
-   * Delete ALL auth env vars - single source of truth for cleanup
+   * Delete ALL auth env vars from the AuthEnv singleton - single source of truth for cleanup.
    * Called once at the top of configureAuthentication() to ensure a clean slate.
    */
   private clearAllAuthEnvVars(): void {
     for (const varName of AUTH_ENV_VARS) {
-      delete process.env[varName];
+      delete this.authEnv[varName as keyof AuthEnv];
     }
   }
 
@@ -440,7 +442,7 @@ export class AuthManager {
    */
   private logEnvSummary(): void {
     const authSummary = AUTH_ENV_VARS.map(
-      (v) => `${v}=${process.env[v] ? 'set' : 'unset'}`
+      (v) => `${v}=${this.authEnv[v as keyof AuthEnv] ? 'set' : 'unset'}`
     ).join(', ');
 
     this.logger.debug(`[AuthManager] Env summary: ${authSummary}`);

@@ -85,6 +85,9 @@ export const SDK_TOKENS = {
   // Plugin Loader Service (TASK_2025_153)
   // Manages plugin metadata and per-workspace plugin configuration
   SDK_PLUGIN_LOADER: Symbol.for('SdkPluginLoader'),
+
+  /** Shared mutable AuthEnv singleton (TASK_2025_164) */
+  SDK_AUTH_ENV: Symbol.for('SdkAuthEnv'),
 } as const;
 
 /**

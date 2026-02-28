@@ -18,6 +18,7 @@ import {
   FlatStreamEventUnion,
   MessageTokenUsage,
   calculateMessageCost,
+  AuthEnv,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { SdkMessageTransformer } from '../sdk-message-transformer';
@@ -187,7 +188,8 @@ export class StreamTransformer {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
-    private readonly messageTransformer: SdkMessageTransformer
+    private readonly messageTransformer: SdkMessageTransformer,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
   ) {}
 
   /**
@@ -208,6 +210,7 @@ export class StreamTransformer {
     // Capture references for use in generator
     const logger = this.logger;
     const messageTransformer = this.messageTransformer;
+    const authEnv = this.authEnv;
 
     return {
       async *[Symbol.asyncIterator]() {
@@ -278,7 +281,11 @@ export class StreamTransformer {
                     sdkMessage.modelUsage
                   )) {
                     // Resolve actual model for accurate pricing (e.g., "claude-opus-4-..." → "kimi-k2.5")
-                    const resolvedModel = resolveActualModelForPricing(model);
+                    // TASK_2025_164: Pass authEnv for provider-aware resolution
+                    const resolvedModel = resolveActualModelForPricing(
+                      model,
+                      authEnv
+                    );
                     const recalculatedCost = calculateMessageCost(
                       resolvedModel,
                       {
@@ -332,7 +339,7 @@ export class StreamTransformer {
                   recalculatedTotalCost > 0
                     ? recalculatedTotalCost
                     : calculateMessageCost(
-                        resolveActualModelForPricing(initialModel),
+                        resolveActualModelForPricing(initialModel, authEnv),
                         {
                           input: sdkMessage.usage.input_tokens,
                           output: sdkMessage.usage.output_tokens,

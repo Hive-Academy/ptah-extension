@@ -17,7 +17,11 @@
  * @see https://docs.z.ai/devpack/tool/claude
  */
 
-import { updatePricingMap, type ModelPricing } from '@ptah-extension/shared';
+import {
+  updatePricingMap,
+  type ModelPricing,
+  type AuthEnv,
+} from '@ptah-extension/shared';
 
 /**
  * Static model definition for providers without a dynamic models API
@@ -368,10 +372,15 @@ export function seedStaticModelPricing(providerId: string): void {
  * @param modelId - Model ID as reported by the SDK (may be an Anthropic alias)
  * @returns The actual model ID for pricing lookup
  */
-export function resolveActualModelForPricing(modelId: string): string {
+export function resolveActualModelForPricing(
+  modelId: string,
+  authEnv?: AuthEnv
+): string {
   if (!modelId) return modelId;
 
-  const baseUrl = process.env['ANTHROPIC_BASE_URL'];
+  // TASK_2025_164: Prefer AuthEnv values, fall back to process.env for backward compat
+  const baseUrl =
+    authEnv?.ANTHROPIC_BASE_URL ?? process.env['ANTHROPIC_BASE_URL'];
 
   // If no base URL or pointing to Anthropic directly, model is already correct
   if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
@@ -382,13 +391,19 @@ export function resolveActualModelForPricing(modelId: string): string {
   const lower = modelId.toLowerCase();
 
   if (lower.includes('opus')) {
-    const override = process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'];
+    const override =
+      authEnv?.ANTHROPIC_DEFAULT_OPUS_MODEL ??
+      process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'];
     if (override) return override;
   } else if (lower.includes('sonnet')) {
-    const override = process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'];
+    const override =
+      authEnv?.ANTHROPIC_DEFAULT_SONNET_MODEL ??
+      process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'];
     if (override) return override;
   } else if (lower.includes('haiku')) {
-    const override = process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+    const override =
+      authEnv?.ANTHROPIC_DEFAULT_HAIKU_MODEL ??
+      process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
     if (override) return override;
   }
 

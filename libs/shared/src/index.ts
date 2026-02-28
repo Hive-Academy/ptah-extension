@@ -16,6 +16,7 @@ export * from './lib/types/webview-ui.types';
 export * from './lib/types/model-autopilot.types';
 export * from './lib/types/agent-process.types';
 export * from './lib/types/cli-skill-sync.types';
+export * from './lib/types/auth-env.types';
 
 // Type guards
 export * from './lib/type-guards/tool-input-guards';

@@ -25,7 +25,7 @@
  */
 
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
-import { calculateMessageCost } from '@ptah-extension/shared';
+import { calculateMessageCost, AuthEnv } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import { SDK_TOKENS } from '../../di/tokens';
@@ -53,7 +53,8 @@ export class SessionReplayService {
     @inject(SDK_TOKENS.SDK_AGENT_CORRELATION)
     private readonly correlationService: AgentCorrelationService,
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
-    private readonly eventFactory: HistoryEventFactory
+    private readonly eventFactory: HistoryEventFactory,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
   ) {}
 
   /**
@@ -244,8 +245,9 @@ export class SessionReplayService {
         if (msgUsage) {
           const tokenUsage = extractTokenUsage(msgUsage);
           if (tokenUsage) {
+            // TASK_2025_164: Pass authEnv for provider-aware model resolution
             const cost = calculateMessageCost(
-              resolveActualModelForPricing(msgModel),
+              resolveActualModelForPricing(msgModel, this.authEnv),
               {
                 input: tokenUsage.input,
                 output: tokenUsage.output,
@@ -547,10 +549,11 @@ export class SessionReplayService {
         if (tokenUsage) {
           const agentMsgModel =
             (msg.message as { model?: string })?.model || '';
+          // TASK_2025_164: Pass authEnv for provider-aware model resolution
           agentMessageUsage = {
             tokenUsage: { input: tokenUsage.input, output: tokenUsage.output },
             cost: calculateMessageCost(
-              resolveActualModelForPricing(agentMsgModel),
+              resolveActualModelForPricing(agentMsgModel, this.authEnv),
               {
                 input: tokenUsage.input,
                 output: tokenUsage.output,

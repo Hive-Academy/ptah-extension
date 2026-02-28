@@ -12,6 +12,7 @@
  */
 
 import { DependencyContainer, Lifecycle } from 'tsyringe';
+import { createEmptyAuthEnv } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SessionMetadataStore } from '../session-metadata-store';
@@ -81,6 +82,10 @@ export function registerSdkServices(
       return new SessionMetadataStore(context.workspaceState, logger);
     })()
   );
+
+  // Shared mutable AuthEnv singleton (TASK_2025_164)
+  // Must be registered before AuthManager and ProviderModelsService which inject it
+  container.registerInstance(SDK_TOKENS.SDK_AUTH_ENV, createEmptyAuthEnv());
 
   // Session importer - scans existing Claude sessions
   container.register(

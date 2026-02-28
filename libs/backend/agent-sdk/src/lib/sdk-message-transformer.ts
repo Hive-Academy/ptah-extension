@@ -27,9 +27,11 @@ import {
   SessionId,
   calculateMessageCost,
   EventSource,
+  AuthEnv,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { resolveActualModelForPricing } from './helpers/anthropic-provider-registry';
+import { SDK_TOKENS } from './di/tokens';
 import {
   SDKMessage,
   SDKAssistantMessage,
@@ -108,7 +110,10 @@ export class SdkMessageTransformer {
    */
   private backgroundTaskToolUseIds: Set<string> = new Set();
 
-  constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private logger: Logger,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
+  ) {}
 
   /**
    * Transform SDK message to flat stream events
@@ -797,9 +802,10 @@ export class SdkMessageTransformer {
           }
         : undefined;
 
+    // TASK_2025_164: Pass authEnv for provider-aware model resolution
     const cost = tokenUsage
       ? calculateMessageCost(
-          resolveActualModelForPricing(message.model || ''),
+          resolveActualModelForPricing(message.model || '', this.authEnv),
           tokenUsage
         )
       : undefined;

@@ -17,7 +17,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { AISessionConfig } from '@ptah-extension/shared';
+import { AISessionConfig, AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
@@ -57,7 +57,8 @@ const PTAH_MCP_PORT = 51820;
  * @returns Identity clarification prompt, or undefined if using Anthropic directly
  */
 function buildModelIdentityPrompt(
-  providerId: string | null
+  providerId: string | null,
+  authEnv: AuthEnv
 ): string | undefined {
   if (!providerId) {
     return undefined;
@@ -68,12 +69,12 @@ function buildModelIdentityPrompt(
     return undefined;
   }
 
-  // Get the actual model being used from env var
+  // Get the actual model being used from AuthEnv (TASK_2025_164)
   // The SDK uses ANTHROPIC_DEFAULT_*_MODEL to map tiers to actual model IDs
   const actualModel =
-    process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] ||
-    process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] ||
-    process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+    authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+    authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+    authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
   if (!actualModel) {
     // No tier mapping set - likely using Anthropic directly
@@ -97,8 +98,8 @@ This clarification takes precedence over any other identity instructions in the 
  * Get the active provider ID from environment
  * Returns the provider ID if using a third-party provider, null if using Anthropic directly
  */
-function getActiveProviderId(): string | null {
-  const baseUrl = process.env['ANTHROPIC_BASE_URL'];
+function getActiveProviderId(authEnv: AuthEnv): string | null {
+  const baseUrl = authEnv.ANTHROPIC_BASE_URL;
   if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
     return null;
   }
@@ -239,7 +240,8 @@ export class SdkQueryOptionsBuilder {
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
-    private readonly compactionHookHandler: CompactionHookHandler
+    private readonly compactionHookHandler: CompactionHookHandler,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
   ) {}
 
   /**
@@ -283,13 +285,13 @@ export class SdkQueryOptionsBuilder {
     const model = sessionConfig.model;
     const cwd = sessionConfig?.projectPath || process.cwd();
 
-    // Log resolved model and tier env vars for debugging (TASK_2025_132)
+    // Log resolved model and tier env vars for debugging (TASK_2025_132, TASK_2025_164: reads from AuthEnv)
     this.logger.info(`[SdkQueryOptionsBuilder] SDK call with model: ${model}`, {
       model,
-      envSonnet: process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] || 'default',
-      envOpus: process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] || 'default',
-      envHaiku: process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] || 'default',
-      baseUrl: process.env['ANTHROPIC_BASE_URL'] || 'default',
+      envSonnet: this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL || 'default',
+      envOpus: this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL || 'default',
+      envHaiku: this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL || 'default',
+      baseUrl: this.authEnv.ANTHROPIC_BASE_URL || 'default',
     });
 
     // Build system prompt configuration
@@ -354,8 +356,11 @@ export class SdkQueryOptionsBuilder {
         // Load settings from user and project directories
         // Required for CLAUDE.md files and proper CLI initialization
         settingSources: ['user', 'project', 'local'],
-        // Pass current environment variables (includes CLAUDE_CODE_OAUTH_TOKEN from AuthManager)
-        env: process.env as Record<string, string | undefined>,
+        // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
+        env: { ...process.env, ...this.authEnv } as Record<
+          string,
+          string | undefined
+        >,
         // Capture stderr for debugging CLI failures
         stderr: (data: string) => {
           this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
@@ -410,8 +415,11 @@ export class SdkQueryOptionsBuilder {
     // TASK_2025_134: Add model identity clarification for third-party providers
     // This ensures models like Kimi K2 correctly identify themselves instead of
     // claiming to be Claude (which happens due to the claude_code preset's system prompt)
-    const activeProviderId = getActiveProviderId();
-    const identityPrompt = buildModelIdentityPrompt(activeProviderId);
+    const activeProviderId = getActiveProviderId(this.authEnv);
+    const identityPrompt = buildModelIdentityPrompt(
+      activeProviderId,
+      this.authEnv
+    );
     if (identityPrompt) {
       this.logger.info(
         `[SdkQueryOptionsBuilder] Third-party provider detected (${activeProviderId}) - adding identity clarification`

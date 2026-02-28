@@ -18,6 +18,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type {
+  AuthEnv,
   ProviderModelInfo,
   ProviderModelTier,
   ModelPricing,
@@ -27,6 +28,7 @@ import {
   getAnthropicProvider,
   type AnthropicProvider,
 } from './helpers/anthropic-provider-registry';
+import { SDK_TOKENS } from './di/tokens';
 
 /**
  * Raw model response from OpenRouter-style /v1/models API
@@ -75,7 +77,8 @@ export class ProviderModelsService {
 
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
-    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager
+    @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv
   ) {}
 
   /**
@@ -333,8 +336,8 @@ export class ProviderModelsService {
     const envVar = TIER_ENV_VARS[tier];
     const configKey = this.getTierConfigKey(providerId, tier);
 
-    // Set environment variable for immediate use
-    process.env[envVar] = modelId;
+    // Set AuthEnv variable for immediate use
+    this.authEnv[envVar as keyof AuthEnv] = modelId;
 
     // Persist to config
     await this.config.set(configKey, modelId);
@@ -377,8 +380,8 @@ export class ProviderModelsService {
     const envVar = TIER_ENV_VARS[tier];
     const configKey = this.getTierConfigKey(providerId, tier);
 
-    // Clear environment variable
-    delete process.env[envVar];
+    // Clear AuthEnv variable
+    delete this.authEnv[envVar as keyof AuthEnv];
 
     // Clear config
     await this.config.set(configKey, undefined);
@@ -397,13 +400,13 @@ export class ProviderModelsService {
     const tiers = this.getModelTiers(providerId);
 
     if (tiers.sonnet) {
-      process.env[TIER_ENV_VARS.sonnet] = tiers.sonnet;
+      this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = tiers.sonnet;
     }
     if (tiers.opus) {
-      process.env[TIER_ENV_VARS.opus] = tiers.opus;
+      this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = tiers.opus;
     }
     if (tiers.haiku) {
-      process.env[TIER_ENV_VARS.haiku] = tiers.haiku;
+      this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = tiers.haiku;
     }
 
     this.logger.debug(
@@ -417,9 +420,9 @@ export class ProviderModelsService {
    * Call this when switching providers or switching to OAuth/API key auth
    */
   clearAllTierEnvVars(): void {
-    delete process.env[TIER_ENV_VARS.sonnet];
-    delete process.env[TIER_ENV_VARS.opus];
-    delete process.env[TIER_ENV_VARS.haiku];
+    delete this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL;
+    delete this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL;
+    delete this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
     this.logger.debug(
       '[ProviderModelsService] Cleared all tier environment variables'
