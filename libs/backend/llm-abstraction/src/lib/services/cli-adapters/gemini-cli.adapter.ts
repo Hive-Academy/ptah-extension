@@ -257,15 +257,21 @@ export class GeminiCliAdapter implements CliAdapter {
     const taskPrompt = buildTaskPrompt(options);
     const abortController = new AbortController();
 
-    // Prompt is piped via stdin to avoid Windows shell quoting issues.
-    // Gemini CLI: "-p ... Appended to input on stdin (if any)."
-    // So we use --prompt="" for headless mode and write the real prompt to stdin.
+    // Session ID captured from init event (closure scoped per invocation)
+    let capturedSessionId: string | undefined;
+
     const args = [
-      '--prompt=', // Headless mode trigger — actual prompt comes from stdin
       '--output-format',
       'stream-json',
       '--yolo', // Auto-approve all tool calls (orchestrated context)
     ];
+
+    // Resume mode: use --resume <id> instead of --prompt=
+    if (options.resumeSessionId) {
+      args.push('--resume', options.resumeSessionId);
+    } else {
+      args.push('--prompt='); // Headless mode trigger — actual prompt comes from stdin
+    }
 
     // Add model if specified
     if (options.model) {
@@ -330,10 +336,19 @@ export class GeminiCliAdapter implements CliAdapter {
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
 
-    // Write prompt to stdin then close — Gemini CLI reads stdin and appends
-    // it to the -p prompt. Since we pass -p without a value, stdin IS the prompt.
-    child.stdin?.write(taskPrompt + '\n');
-    child.stdin?.end();
+    // Write prompt to stdin then close.
+    // Fresh mode: stdin IS the prompt (--prompt= is empty, Gemini appends stdin).
+    // Resume mode: Gemini loads existing session context; stdin provides a new follow-up prompt.
+    if (!options.resumeSessionId) {
+      child.stdin?.write(taskPrompt + '\n');
+      child.stdin?.end();
+    } else {
+      // Resume mode: write new prompt if present, then close stdin
+      if (taskPrompt.trim()) {
+        child.stdin?.write(taskPrompt + '\n');
+      }
+      child.stdin?.end();
+    }
 
     // Abort handler: kill the child process
     const onAbort = (): void => {
@@ -355,7 +370,10 @@ export class GeminiCliAdapter implements CliAdapter {
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        this.handleJsonLine(trimmed, emitOutput, emitSegment);
+        const sessionId = this.handleJsonLine(trimmed, emitOutput, emitSegment);
+        if (sessionId) {
+          capturedSessionId = sessionId;
+        }
       }
     });
 
@@ -380,7 +398,14 @@ export class GeminiCliAdapter implements CliAdapter {
         abortController.signal.removeEventListener('abort', onAbort);
         // Flush remaining line buffer
         if (lineBuf.trim()) {
-          this.handleJsonLine(lineBuf.trim(), emitOutput, emitSegment);
+          const sessionId = this.handleJsonLine(
+            lineBuf.trim(),
+            emitOutput,
+            emitSegment
+          );
+          if (sessionId) {
+            capturedSessionId = sessionId;
+          }
           lineBuf = '';
         }
         resolve(code ?? (signal ? 1 : 0));
@@ -397,7 +422,13 @@ export class GeminiCliAdapter implements CliAdapter {
       });
     });
 
-    return { abort: abortController, done, onOutput, onSegment };
+    return {
+      abort: abortController,
+      done,
+      onOutput,
+      onSegment,
+      getSessionId: () => capturedSessionId,
+    };
   }
 
   /**
@@ -408,7 +439,7 @@ export class GeminiCliAdapter implements CliAdapter {
     line: string,
     emitOutput: (data: string) => void,
     emitSegment: (segment: CliOutputSegment) => void
-  ): void {
+  ): string | undefined {
     let event: GeminiStreamEvent;
     try {
       event = JSON.parse(line) as GeminiStreamEvent;
@@ -419,16 +450,26 @@ export class GeminiCliAdapter implements CliAdapter {
         emitOutput(line + '\n');
         emitSegment({ type: 'text', content: line });
       }
-      return;
+      return undefined;
     }
 
     switch (event.type) {
-      case 'init':
+      case 'init': {
+        let sessionId: string | undefined;
         if (event.model) {
           emitOutput(`[Model: ${event.model}]\n`);
           emitSegment({ type: 'info', content: `Model: ${event.model}` });
         }
-        break;
+        if (event.session_id) {
+          sessionId = event.session_id;
+          emitOutput(`[Session: ${event.session_id}]\n`);
+          emitSegment({
+            type: 'info',
+            content: `Session: ${event.session_id}`,
+          });
+        }
+        return sessionId;
+      }
 
       case 'message':
         // Main content from the model
@@ -517,6 +558,7 @@ export class GeminiCliAdapter implements CliAdapter {
         // Unknown event type — ignore silently
         break;
     }
+    return undefined;
   }
 
   /**

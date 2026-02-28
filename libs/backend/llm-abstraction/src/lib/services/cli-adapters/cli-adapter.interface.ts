@@ -29,6 +29,8 @@ export interface CliCommandOptions {
   readonly binaryPath?: string;
   /** Port of the running Ptah HTTP MCP server. When provided, adapters that support it will configure a direct MCP connection (bypassing VS Code's IDE bridge which blocks headless permissions). */
   readonly mcpPort?: number;
+  /** Resume a previous CLI session by its CLI-native session ID. When set, the adapter adds appropriate resume flags (e.g., --resume for Gemini). */
+  readonly resumeSessionId?: string;
 }
 
 export interface CliCommand {
@@ -50,6 +52,8 @@ export interface SdkHandle {
   readonly onOutput: (callback: (data: string) => void) => void;
   /** Register a callback to receive structured output segments. Optional — only SDK adapters with structured event data implement this. */
   readonly onSegment?: (callback: (segment: CliOutputSegment) => void) => void;
+  /** Get CLI-native session ID (e.g., Gemini session UUID from init event). Returns undefined if not yet available or not supported by this adapter. */
+  readonly getSessionId?: () => string | undefined;
 }
 
 export interface CliAdapter {

@@ -203,6 +203,11 @@ export class RpcMethodRegistrationService {
                 error instanceof Error ? error : new Error(String(error))
               );
             });
+
+          // Persist CLI session reference to parent session metadata (fire-and-forget)
+          if (info.cliSessionId && info.parentSessionId) {
+            this.persistCliSessionReference(info);
+          }
         }
       );
 
@@ -211,6 +216,51 @@ export class RpcMethodRegistrationService {
       // AgentProcessManager may not be registered yet in some configurations
       this.logger.warn(
         '[RPC] Could not setup agent monitor listeners',
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Persist a CLI session reference to the parent session's metadata.
+   * Enables session resume when loading saved sessions.
+   * Fire-and-forget: errors are caught and logged, never block exit event forwarding.
+   */
+  private persistCliSessionReference(info: AgentProcessInfo): void {
+    try {
+      const metadataStore = this.container.resolve<{
+        addCliSession(
+          sessionId: string,
+          ref: {
+            cliSessionId: string;
+            cli: string;
+            agentId: string;
+            task: string;
+            startedAt: string;
+            status: string;
+          }
+        ): Promise<void>;
+      }>(SDK_TOKENS.SDK_SESSION_METADATA_STORE);
+
+      metadataStore
+        .addCliSession(info.parentSessionId!, {
+          cliSessionId: info.cliSessionId!,
+          cli: info.cli,
+          agentId: info.agentId,
+          task: info.task,
+          startedAt: info.startedAt,
+          status: info.status,
+        })
+        .catch((error) => {
+          this.logger.error(
+            '[RPC] Failed to persist CLI session reference',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        });
+    } catch (error) {
+      // SessionMetadataStore may not be available in all configurations
+      this.logger.warn(
+        '[RPC] Could not persist CLI session reference',
         error instanceof Error ? error : new Error(String(error))
       );
     }

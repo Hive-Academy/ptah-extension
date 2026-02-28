@@ -73,6 +73,10 @@ export interface AgentProcessInfo {
   readonly startedAt: string; // ISO timestamp
   exitCode?: number;
   readonly pid?: number;
+  /** CLI-native session ID (e.g., Gemini's UUID from init event). Enables session resume. */
+  readonly cliSessionId?: string;
+  /** Parent Ptah Claude SDK session that spawned this CLI agent via ptah_agent_spawn. */
+  readonly parentSessionId?: string;
 }
 
 // ========================================
@@ -94,6 +98,10 @@ export interface SpawnAgentRequest {
   readonly taskFolder?: string;
   /** Model identifier for CLI agents (e.g., 'gemini-2.5-pro', 'claude-sonnet-4.6'). Passed as --model flag. */
   readonly model?: string;
+  /** Resume a previous CLI session by its CLI-native session ID (e.g., Gemini --resume <id>) */
+  readonly resumeSessionId?: string;
+  /** Parent Ptah Claude SDK session ID. Injected by MCP server, NOT set by callers. */
+  readonly parentSessionId?: string;
 }
 
 // ========================================
@@ -119,6 +127,8 @@ export interface SpawnAgentResult {
   readonly cli: CliType;
   readonly status: AgentStatus;
   readonly startedAt: string;
+  /** CLI-native session ID captured from init event (e.g., Gemini UUID). Null if not yet available. */
+  readonly cliSessionId?: string;
 }
 
 // ========================================
@@ -180,4 +190,27 @@ export interface AgentOutputDelta {
   readonly timestamp: number;
   /** Structured output segments from SDK-based adapters (optional — absent for raw CLI adapters) */
   readonly segments?: readonly CliOutputSegment[];
+}
+
+// ========================================
+// CLI Session Reference (for session metadata persistence)
+// ========================================
+
+/**
+ * Reference to a CLI agent session linked to a parent Ptah session.
+ * Stored in SessionMetadata.cliSessions[] for resume capability.
+ */
+export interface CliSessionReference {
+  /** CLI-native session ID (e.g., Gemini's UUID) */
+  readonly cliSessionId: string;
+  /** Which CLI produced this session */
+  readonly cli: CliType;
+  /** Ptah's branded AgentId that ran this session */
+  readonly agentId: string;
+  /** Task description the agent was given */
+  readonly task: string;
+  /** ISO timestamp when the session started */
+  readonly startedAt: string;
+  /** Final agent status */
+  readonly status: AgentStatus;
 }

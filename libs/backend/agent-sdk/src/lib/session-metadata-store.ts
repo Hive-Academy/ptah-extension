@@ -22,6 +22,7 @@
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { CliSessionReference } from '@ptah-extension/shared';
 
 /**
  * Session metadata - UI state only, NOT message storage
@@ -65,6 +66,9 @@ export interface SessionMetadata {
     readonly input: number;
     readonly output: number;
   };
+
+  /** CLI agent sessions linked to this parent session. Enables resume. */
+  readonly cliSessions?: readonly CliSessionReference[];
 }
 
 /**
@@ -168,6 +172,45 @@ export class SessionMetadataStore {
         },
       });
     }
+  }
+
+  /**
+   * Add a CLI session reference to a parent session's metadata.
+   * Called when a CLI agent exits with a captured cliSessionId.
+   */
+  async addCliSession(
+    sessionId: string,
+    cliSession: CliSessionReference
+  ): Promise<void> {
+    const metadata = await this.get(sessionId);
+    if (!metadata) {
+      this.logger.warn(
+        `[SessionMetadataStore] Cannot add CLI session - parent session not found: ${sessionId}`
+      );
+      return;
+    }
+
+    const existing = metadata.cliSessions ?? [];
+    // Deduplicate by cliSessionId
+    const alreadyExists = existing.some(
+      (s) => s.cliSessionId === cliSession.cliSessionId
+    );
+    if (alreadyExists) {
+      this.logger.debug(
+        `[SessionMetadataStore] CLI session ${cliSession.cliSessionId} already linked to ${sessionId}`
+      );
+      return;
+    }
+
+    await this.save({
+      ...metadata,
+      lastActiveAt: Date.now(),
+      cliSessions: [...existing, cliSession],
+    });
+
+    this.logger.info(
+      `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`
+    );
   }
 
   /**

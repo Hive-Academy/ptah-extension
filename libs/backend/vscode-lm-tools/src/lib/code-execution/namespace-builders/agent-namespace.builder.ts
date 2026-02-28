@@ -24,6 +24,8 @@ const MAX_WAIT_TIMEOUT = 30 * 60 * 1000;
 export interface AgentNamespaceDependencies {
   agentProcessManager: AgentProcessManager;
   cliDetectionService: CliDetectionService;
+  /** Function that returns the currently active SDK session ID. Called at spawn time to link CLI agents to their parent session. */
+  getActiveSessionId?: () => string | undefined;
 }
 
 /**
@@ -32,11 +34,16 @@ export interface AgentNamespaceDependencies {
 export function buildAgentNamespace(
   deps: AgentNamespaceDependencies
 ): AgentNamespace {
-  const { agentProcessManager, cliDetectionService } = deps;
+  const { agentProcessManager, cliDetectionService, getActiveSessionId } = deps;
 
   return {
     spawn: async (request) => {
-      return agentProcessManager.spawn(request);
+      // Inject parentSessionId from the active SDK session context at spawn time
+      const activeSessionId = getActiveSessionId?.();
+      const enrichedRequest = activeSessionId
+        ? { ...request, parentSessionId: activeSessionId }
+        : request;
+      return agentProcessManager.spawn(enrichedRequest);
     },
 
     status: async (agentId?) => {

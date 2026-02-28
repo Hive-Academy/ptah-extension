@@ -29,6 +29,10 @@ export interface MonitoredAgent {
   expanded: boolean;
   /** Structured output segments from SDK-based adapters (Gemini, Codex). Empty for raw CLI adapters (Copilot). */
   segments: CliOutputSegment[];
+  /** Parent Ptah Claude SDK session that spawned this agent */
+  readonly parentSessionId?: string;
+  /** CLI-native session ID (e.g., Gemini UUID). Enables resume. */
+  cliSessionId?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -121,6 +125,8 @@ export class AgentMonitorStore implements OnDestroy {
         stderr: '',
         expanded: true,
         segments: [],
+        parentSessionId: info.parentSessionId,
+        cliSessionId: info.cliSessionId,
       });
       return next;
     });
@@ -172,6 +178,7 @@ export class AgentMonitorStore implements OnDestroy {
         ...agent,
         status: info.status,
         exitCode: info.exitCode,
+        cliSessionId: info.cliSessionId ?? agent.cliSessionId,
       });
       return next;
     });

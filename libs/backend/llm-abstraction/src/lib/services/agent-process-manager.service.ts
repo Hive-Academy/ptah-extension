@@ -262,6 +262,7 @@ export class AgentProcessManager {
       taskFolder: request.taskFolder,
       status: 'running',
       startedAt,
+      parentSessionId: request.parentSessionId,
     };
 
     // Use resolved binary path from detection.
@@ -361,6 +362,7 @@ export class AgentProcessManager {
       taskFolder: request.taskFolder,
       status: 'running',
       startedAt,
+      parentSessionId: request.parentSessionId,
     };
 
     // Resolve model: use explicit request.model, else per-CLI config, else CLI default
@@ -391,7 +393,11 @@ export class AgentProcessManager {
       model: resolvedModel,
       binaryPath,
       mcpPort,
+      resumeSessionId: request.resumeSessionId,
     });
+
+    // Capture CLI session ID immediately if available (e.g., from sync init)
+    const initialCliSessionId = sdkHandle.getSessionId?.();
 
     // Set up timeout (same as CLI path)
     const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
@@ -401,7 +407,9 @@ export class AgentProcessManager {
 
     // Track the SDK agent (process is null, abort via sdkAbortController)
     const tracked: TrackedAgent = {
-      info,
+      info: initialCliSessionId
+        ? { ...info, cliSessionId: initialCliSessionId }
+        : info,
       process: null,
       sdkAbortController: sdkHandle.abort,
       stdoutBuffer: '',
@@ -424,6 +432,16 @@ export class AgentProcessManager {
     if (sdkHandle.onSegment) {
       sdkHandle.onSegment((segment: CliOutputSegment) => {
         this.accumulateSegment(agentId, segment);
+
+        // Late capture: session_id arrives in init event (first JSONL line).
+        // The init event is typically the very first segment, but we check on
+        // every segment to be safe (idempotent -- only captures once).
+        if (!tracked.info.cliSessionId) {
+          const sessionId = sdkHandle.getSessionId?.();
+          if (sessionId) {
+            tracked.info = { ...tracked.info, cliSessionId: sessionId };
+          }
+        }
       });
     }
 
@@ -447,9 +465,10 @@ export class AgentProcessManager {
       cli,
       status: 'running',
       startedAt,
+      cliSessionId: initialCliSessionId,
     };
 
-    this.events.emit('agent:spawned', info);
+    this.events.emit('agent:spawned', tracked.info);
 
     return spawnResult;
   }

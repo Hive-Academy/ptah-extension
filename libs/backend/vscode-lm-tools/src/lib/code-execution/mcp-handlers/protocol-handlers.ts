@@ -320,6 +320,7 @@ async function handleIndividualTool(
           files,
           taskFolder,
           model,
+          resume_session_id,
         } = args as {
           task: string;
           cli?: string;
@@ -328,6 +329,7 @@ async function handleIndividualTool(
           files?: string[];
           taskFolder?: string;
           model?: string;
+          resume_session_id?: string;
         };
 
         logger.info('[MCP] ptah_agent_spawn invoked', 'CodeExecutionMCP', {
@@ -337,6 +339,7 @@ async function handleIndividualTool(
           timeout,
           files: files?.length ?? 0,
           taskFolder,
+          resumeSessionId: resume_session_id,
         });
 
         const result = await ptahAPI.agent.spawn({
@@ -347,12 +350,15 @@ async function handleIndividualTool(
           files,
           taskFolder,
           model,
+          resumeSessionId: resume_session_id,
+          // parentSessionId is injected by buildAgentNamespace, not by MCP args
         });
 
         logger.info('[MCP] ptah_agent_spawn result', 'CodeExecutionMCP', {
           agentId: result.agentId,
           cli: result.cli,
           status: result.status,
+          cliSessionId: result.cliSessionId,
         });
 
         return createToolSuccessResponse(

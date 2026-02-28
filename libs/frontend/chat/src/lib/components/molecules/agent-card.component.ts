@@ -19,7 +19,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { LucideAngularModule, ChevronDown, ChevronRight } from 'lucide-angular';
-import { NgClass } from '@angular/common';
+import { NgClass, SlicePipe } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import type { MonitoredAgent } from '../../services/agent-monitor.store';
@@ -58,7 +58,7 @@ interface StderrSegment {
 @Component({
   selector: 'ptah-agent-card',
   standalone: true,
-  imports: [LucideAngularModule, MarkdownModule, NgClass],
+  imports: [LucideAngularModule, MarkdownModule, NgClass, SlicePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -100,11 +100,28 @@ interface StderrSegment {
         <span class="text-[10px] text-base-content/40 ml-auto flex-shrink-0">
           {{ elapsedDisplay() }}
         </span>
+
+        <!-- CLI Session ID badge (Gemini resume capability) -->
+        @if (agent().cliSessionId) {
+        <span
+          class="badge badge-xs badge-ghost font-mono text-[9px] text-base-content/30 ml-1 flex-shrink-0"
+          [title]="'CLI Session: ' + agent().cliSessionId"
+        >
+          {{ agent().cliSessionId! | slice : 0 : 8 }}...
+        </span>
+        }
       </button>
 
       @if (agent().expanded) {
       <!-- Task description -->
       <div class="px-3 py-1.5 border-t border-base-content/10 flex-shrink-0">
+        @if (agent().parentSessionId) {
+        <div class="flex items-center gap-1 mb-1">
+          <span class="text-[9px] text-base-content/30"
+            >Linked to parent session</span
+          >
+        </div>
+        }
         <p
           class="text-[11px] leading-relaxed text-base-content/60 line-clamp-2"
         >

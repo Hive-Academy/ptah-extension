@@ -83,6 +83,8 @@ import {
   AgentProcessManager,
   CliDetectionService,
 } from '@ptah-extension/llm-abstraction';
+// Use Symbol.for() directly to avoid circular dependency with @ptah-extension/agent-sdk
+const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
 
 @injectable()
 export class PtahAPIBuilder {
@@ -146,7 +148,13 @@ export class PtahAPIBuilder {
     private readonly agentProcessManager: AgentProcessManager,
 
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetectionService: CliDetectionService
+    private readonly cliDetectionService: CliDetectionService,
+
+    // Session lifecycle manager for linking CLI agents to parent sessions (TASK_2025_161)
+    @inject(SDK_SESSION_LIFECYCLE_MANAGER)
+    private readonly sessionLifecycleManager: {
+      getActiveSessionIds(): string[];
+    }
   ) {
     this.logger.info('PtahAPIBuilder initialized with 16 namespaces');
   }
@@ -227,10 +235,16 @@ export class PtahAPIBuilder {
       // Orchestration namespace (TASK_2025_111 - workflow state management)
       orchestration: buildOrchestrationNamespace(orchestrationDeps),
 
-      // Agent orchestration namespace (TASK_2025_157)
+      // Agent orchestration namespace (TASK_2025_157, session linking TASK_2025_161)
       agent: buildAgentNamespace({
         agentProcessManager: this.agentProcessManager,
         cliDetectionService: this.cliDetectionService,
+        getActiveSessionId: () => {
+          // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
+          // In single-session mode (current), there's at most one.
+          const ids = this.sessionLifecycleManager.getActiveSessionIds();
+          return ids.length > 0 ? (ids[0] as string) : undefined;
+        },
       }),
 
       // Help method at root level (ptah.help())

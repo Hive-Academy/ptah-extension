@@ -262,6 +262,8 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
       'Spawn a headless CLI agent (Gemini, Codex, or Copilot) to work on a task in the background. ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
+      'To resume a previous session, pass resume_session_id with the CLI session ID ' +
+      '(available from previous spawn results or session metadata). ' +
       'Ideal for delegating: code reviews, test generation, documentation, ' +
       'and other independent subtasks.',
     inputSchema: {
@@ -306,6 +308,13 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           description:
             'Model override for the CLI agent (e.g., "gemini-2.5-pro" for Gemini, "claude-sonnet-4.6" for Copilot). ' +
             'Uses user-configured default if omitted.',
+        },
+        resume_session_id: {
+          type: 'string',
+          description:
+            'Resume a previous CLI agent session by its CLI-native session ID. ' +
+            'For Gemini, this is the UUID from the init event. ' +
+            'The agent will continue from where the previous session left off.',
         },
       },
       required: ['task'],
