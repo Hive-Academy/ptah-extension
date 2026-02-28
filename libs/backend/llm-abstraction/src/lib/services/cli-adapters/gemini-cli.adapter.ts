@@ -460,13 +460,16 @@ export class GeminiCliAdapter implements CliAdapter {
           emitOutput(`[Model: ${event.model}]\n`);
           emitSegment({ type: 'info', content: `Model: ${event.model}` });
         }
-        if (event.session_id) {
-          sessionId = event.session_id;
-          emitOutput(`[Session: ${event.session_id}]\n`);
-          emitSegment({
-            type: 'info',
-            content: `Session: ${event.session_id}`,
-          });
+        if (event.session_id && typeof event.session_id === 'string') {
+          const trimmed = event.session_id.trim();
+          if (trimmed) {
+            sessionId = trimmed;
+            emitOutput(`[Session: ${trimmed}]\n`);
+            emitSegment({
+              type: 'info',
+              content: `Session: ${trimmed}`,
+            });
+          }
         }
         return sessionId;
       }

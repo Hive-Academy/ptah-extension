@@ -13,6 +13,8 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { readFileSync, existsSync } from 'fs';
+import { readFile, writeFile, mkdir } from 'fs/promises';
+import { homedir } from 'os';
 import { join } from 'path';
 import type { CliDetectionResult } from '@ptah-extension/shared';
 import type {
@@ -84,6 +86,7 @@ export class CopilotCliAdapter implements CliAdapter {
       '-p',
       taskPrompt,
       '--yolo', // --allow-all-tools + --allow-all-paths + --allow-all-urls
+      '--autopilot', // fully non-interactive (no phase-level confirmations)
       '--no-ask-user',
       '--silent',
       '--no-custom-instructions',
@@ -198,10 +201,18 @@ export class CopilotCliAdapter implements CliAdapter {
     const taskPrompt = buildTaskPrompt(options);
     const abortController = new AbortController();
 
+    // Pre-trust the workspace folder to prevent interactive prompts in headless mode
+    if (options.workingDirectory) {
+      await this.ensureFolderTrusted(options.workingDirectory);
+    }
+
     // With cross-spawn, -p receives the prompt directly without shell mangling.
     // --yolo: enable all permissions (tools + paths + URLs) for headless mode.
     //   --allow-all-tools alone only covers tool execution, NOT file path access or URL access,
     //   which causes "Permission denied" for shell commands and MCP tool calls.
+    // --autopilot: required since v0.0.410+ for fully non-interactive execution.
+    //   Without it, --yolo alone still pauses for confirmation between phases.
+    //   See: https://github.com/github/copilot-cli/issues/1652
     // --no-custom-instructions: skip AGENTS.md/copilot-instructions.md (agent has its own prompt).
     // MCP: disable IDE bridge servers (permission blocked in headless), re-add Ptah as direct HTTP.
     // NOTE: --disable-builtin-mcps removed — it's too aggressive and prevents --additional-mcp-config
@@ -210,6 +221,7 @@ export class CopilotCliAdapter implements CliAdapter {
       '-p',
       taskPrompt,
       '--yolo', // --allow-all-tools + --allow-all-paths + --allow-all-urls
+      '--autopilot', // fully non-interactive (no phase-level confirmations)
       '--no-ask-user',
       '--silent',
       '--no-custom-instructions',
@@ -289,6 +301,53 @@ export class CopilotCliAdapter implements CliAdapter {
     });
 
     return { abort: abortController, done, onOutput };
+  }
+
+  /**
+   * Ensure the workspace folder is trusted by Copilot CLI.
+   * Prevents "Permission denied and could not request permission from user" in headless mode.
+   * Writes to ~/.copilot/config.json trusted_folders array (creates if missing).
+   * Non-fatal: errors are silently caught.
+   */
+  private async ensureFolderTrusted(folder: string): Promise<void> {
+    try {
+      const copilotDir = join(homedir(), '.copilot');
+      const configPath = join(copilotDir, 'config.json');
+
+      // Normalize folder path (backslashes on Windows)
+      const normalizedFolder = folder.replace(/\//g, '\\');
+
+      let config: Record<string, unknown> = {};
+      try {
+        const content = await readFile(configPath, 'utf8');
+        config = JSON.parse(content) as Record<string, unknown>;
+      } catch {
+        // File doesn't exist or invalid JSON — start fresh
+      }
+
+      // Ensure trusted_folders is an array
+      const trustedFolders = Array.isArray(config['trusted_folders'])
+        ? ([...config['trusted_folders']] as string[])
+        : [];
+
+      // Check if already trusted (try both slash styles)
+      if (
+        trustedFolders.includes(folder) ||
+        trustedFolders.includes(normalizedFolder)
+      ) {
+        return;
+      }
+
+      // Add trust entry
+      trustedFolders.push(normalizedFolder);
+      config['trusted_folders'] = trustedFolders;
+
+      // Ensure ~/.copilot directory exists
+      await mkdir(copilotDir, { recursive: true });
+      await writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+    } catch {
+      // Non-fatal — --yolo flag should still handle it
+    }
   }
 
   /**

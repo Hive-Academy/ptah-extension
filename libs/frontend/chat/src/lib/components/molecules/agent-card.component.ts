@@ -117,8 +117,11 @@ interface StderrSegment {
       <div class="px-3 py-1.5 border-t border-base-content/10 flex-shrink-0">
         @if (agent().parentSessionId) {
         <div class="flex items-center gap-1 mb-1">
-          <span class="text-[9px] text-base-content/30"
-            >Linked to parent session</span
+          <span
+            class="text-[9px] text-base-content/30"
+            [title]="'Parent session: ' + agent().parentSessionId!"
+            >Parent:
+            {{ agent().parentSessionId! | slice : 0 : 8 }}&hellip;</span
           >
         </div>
         }

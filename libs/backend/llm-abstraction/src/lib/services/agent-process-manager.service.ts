@@ -248,6 +248,7 @@ export class AgentProcessManager {
       taskFolder: request.taskFolder,
       model: cliModel,
       mcpPort,
+      resumeSessionId: request.resumeSessionId,
     });
 
     // Create agent ID and info
@@ -384,6 +385,12 @@ export class AgentProcessManager {
       workingDirectory,
       model: resolvedModel,
     });
+
+    if (request.resumeSessionId && request.cli !== 'gemini') {
+      this.logger.warn(
+        `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`
+      );
+    }
 
     const sdkHandle = await runSdk({
       task,

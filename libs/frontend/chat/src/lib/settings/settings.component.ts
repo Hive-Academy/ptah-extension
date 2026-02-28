@@ -5,42 +5,28 @@ import {
   computed,
   signal,
   OnInit,
+  viewChild,
 } from '@angular/core';
-import { TitleCasePipe } from '@angular/common';
 import {
   LucideAngularModule,
   ArrowLeft,
   Sparkles,
   Lock,
-  Shield,
-  Clock,
-  CreditCard,
-  UserPlus,
   Key,
-  ExternalLink,
-  AlertTriangle,
   Cpu,
-  LogOut,
-  Terminal,
-  RefreshCw,
 } from 'lucide-angular';
-import { AuthConfigComponent } from './auth-config.component';
-import { ProviderModelSelectorComponent } from './provider-model-selector.component';
-import { LlmProvidersConfigComponent } from './llm-providers-config.component';
+import { AuthConfigComponent } from './auth/auth-config.component';
+import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
+import { LicenseStatusCardComponent } from './license/license-status-card.component';
+import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
+import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
+import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import {
   AppStateManager,
   ClaudeRpcService,
   AuthStateService,
 } from '@ptah-extension/core';
-import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
-import type {
-  EnhancedPromptsGetStatusResponse,
-  AgentOrchestrationConfig,
-  CliModelOption,
-} from '@ptah-extension/shared';
-import type { CliType } from '@ptah-extension/shared';
 import { ChatStore } from '../services/chat.store';
-import { MarkdownBlockComponent } from '../components/atoms/markdown-block.component';
 
 /**
  * SettingsComponent - Main settings page container
@@ -55,12 +41,10 @@ import { MarkdownBlockComponent } from '../components/atoms/markdown-block.compo
  * - Conditional visibility: Show additional sections only after auth configured
  * - Premium gating: Show MCP port and LLM settings only for premium users
  *
- * SOLID Principles:
- * - Single Responsibility: Settings page layout and navigation
- * - Composition: Uses AuthConfigComponent for authentication section
- *
- * TASK_2025_079: Added auth status and license status for conditional visibility
- * TASK_2025_142: Refactored to use ChatStore.licenseStatus to avoid duplicate RPC calls
+ * Child Components:
+ * - LicenseStatusCardComponent: License tier, trial status, user profile, actions
+ * - EnhancedPromptsConfigComponent: System prompt mode, preview, regenerate
+ * - AgentOrchestrationConfigComponent: CLI detection, model selectors, concurrency
  */
 @Component({
   selector: 'ptah-settings',
@@ -68,10 +52,11 @@ import { MarkdownBlockComponent } from '../components/atoms/markdown-block.compo
   imports: [
     AuthConfigComponent,
     ProviderModelSelectorComponent,
-    LlmProvidersConfigComponent,
+    LicenseStatusCardComponent,
+    EnhancedPromptsConfigComponent,
+    VscodeLmConfigComponent,
+    AgentOrchestrationConfigComponent,
     LucideAngularModule,
-    MarkdownBlockComponent,
-    TitleCasePipe,
   ],
   templateUrl: './settings.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -86,126 +71,31 @@ export class SettingsComponent implements OnInit {
   // TASK_2025_142: Use ChatStore's licenseStatus to avoid duplicate RPC calls
   private readonly chatStore = inject(ChatStore);
 
+  // viewChild for cross-component communication (LLM providers → agent re-detect)
+  readonly agentOrchestrationConfig = viewChild(
+    AgentOrchestrationConfigComponent
+  );
+
   // Lucide icons
   readonly ArrowLeftIcon = ArrowLeft;
   readonly SparklesIcon = Sparkles;
   readonly LockIcon = Lock;
-  readonly ShieldIcon = Shield;
-  readonly ClockIcon = Clock;
-  readonly CreditCardIcon = CreditCard;
-  readonly UserPlusIcon = UserPlus;
   readonly KeyIcon = Key;
-  readonly ExternalLinkIcon = ExternalLink;
-  readonly AlertTriangleIcon = AlertTriangle;
   readonly CpuIcon = Cpu;
-  readonly LogOutIcon = LogOut;
-  readonly TerminalIcon = Terminal;
-  readonly RefreshCwIcon = RefreshCw;
 
   // Tab state for settings page (3-tab layout)
   readonly activeSettingsTab = signal<
     'claude-auth' | 'pro-features' | 'ptah-ai'
   >('claude-auth');
 
-  // ============================================================
-  // Enhanced Prompts state signals (TASK_2025_151)
-  // ============================================================
-
-  readonly enhancedPromptsStatus =
-    signal<EnhancedPromptsGetStatusResponse | null>(null);
-  readonly enhancedPromptsLoading = signal(false);
-  readonly enhancedPromptsError = signal<string | null>(null);
-  readonly isRegenerating = signal(false);
-  readonly promptPreviewContent = signal<string | null>(null);
-  readonly promptPreviewExpanded = signal(false);
-  readonly isDownloading = signal(false);
-
-  // ============================================================
-  // Agent Orchestration state signals (TASK_2025_157)
-  // ============================================================
-
-  readonly agentConfig = signal<AgentOrchestrationConfig | null>(null);
-  readonly agentConfigLoading = signal(false);
-  readonly agentConfigError = signal<string | null>(null);
-  readonly isDetectingClis = signal(false);
-
-  // CLI model lists (populated from agent:listCliModels RPC)
-  readonly geminiModels = signal<CliModelOption[]>([]);
-  readonly copilotModels = signal<CliModelOption[]>([]);
-
-  readonly hasInstalledCli = computed(() => {
-    const config = this.agentConfig();
-    return config ? config.detectedClis.some((c) => c.installed) : false;
-  });
-
-  // ============================================================
-  // License status computed signals (derived from ChatStore)
-  // TASK_2025_142: All license data now flows from ChatStore.licenseStatus
-  // ============================================================
-
+  // License status computed signals (kept in parent for header badge + tab gating)
   readonly isPremium = computed(
     () => this.chatStore.licenseStatus()?.isPremium ?? false
-  );
-
-  readonly licenseTier = computed(
-    () => this.chatStore.licenseStatus()?.tier ?? 'expired'
   );
 
   readonly isLoadingLicenseStatus = computed(
     () => this.chatStore.licenseStatus() === null
   );
-
-  readonly licenseValid = computed(
-    () => this.chatStore.licenseStatus()?.valid ?? false
-  );
-
-  readonly trialActive = computed(
-    () => this.chatStore.licenseStatus()?.trialActive ?? false
-  );
-
-  readonly trialDaysRemaining = computed(
-    () => this.chatStore.licenseStatus()?.trialDaysRemaining ?? null
-  );
-
-  readonly daysRemaining = computed(
-    () => this.chatStore.licenseStatus()?.daysRemaining ?? null
-  );
-
-  readonly planName = computed(
-    () => this.chatStore.licenseStatus()?.plan?.name ?? null
-  );
-
-  readonly planDescription = computed(
-    () => this.chatStore.licenseStatus()?.plan?.description ?? null
-  );
-
-  readonly isCommunity = computed(
-    () => this.chatStore.licenseStatus()?.isCommunity ?? false
-  );
-
-  // User profile computed signals (TASK_2025_129)
-  readonly userEmail = computed(
-    () => this.chatStore.licenseStatus()?.user?.email ?? null
-  );
-
-  readonly userFirstName = computed(
-    () => this.chatStore.licenseStatus()?.user?.firstName ?? null
-  );
-
-  readonly userLastName = computed(
-    () => this.chatStore.licenseStatus()?.user?.lastName ?? null
-  );
-
-  // TASK_2025_142: License reason for trial ended detection
-  readonly licenseReason = computed(
-    () => this.chatStore.licenseStatus()?.reason
-  );
-
-  /**
-   * Computed: Whether any auth credential is configured
-   * Delegates to AuthStateService (TASK_2025_133)
-   */
-  readonly hasAnyCredential = this.authState.hasAnyCredential;
 
   /**
    * Computed: Whether provider model mapping section should be shown
@@ -228,190 +118,13 @@ export class SettingsComponent implements OnInit {
     () => this.isAuthenticated() && this.isPremium()
   );
 
-  // ============================================================
-  // Enhanced Prompts computed signals (TASK_2025_151)
-  // ============================================================
-
-  readonly enhancedPromptsEnabled = computed(
-    () => this.enhancedPromptsStatus()?.enabled ?? false
-  );
-
-  readonly hasGeneratedPrompt = computed(
-    () => this.enhancedPromptsStatus()?.hasGeneratedPrompt ?? false
-  );
-
-  readonly enhancedPromptsGeneratedAt = computed(() => {
-    const ts = this.enhancedPromptsStatus()?.generatedAt;
-    if (!ts) return null;
-    return new Date(ts).toLocaleString();
-  });
-
-  readonly enhancedPromptsCacheValid = computed(
-    () => this.enhancedPromptsStatus()?.cacheValid ?? false
-  );
-
-  readonly detectedStackSummary = computed(() => {
-    const stack = this.enhancedPromptsStatus()?.detectedStack;
-    if (!stack) return null;
-    const parts: string[] = [];
-    if (stack.frameworks.length > 0) parts.push(stack.frameworks.join(', '));
-    if (stack.languages.length > 0) parts.push(stack.languages.join(', '));
-    if (stack.projectType) parts.push(stack.projectType);
-    return parts.join(' | ');
-  });
-
-  readonly showEnhancedPromptsSection = computed(
-    () => this.showPremiumSections() && !this.enhancedPromptsLoading()
-  );
-
-  /**
-   * Computed: Display name for the current tier
-   */
-  readonly tierDisplayName = computed(() => {
-    switch (this.licenseTier()) {
-      case 'pro':
-        return 'Pro';
-      case 'trial_pro':
-        return 'Pro Trial';
-      case 'community':
-        return 'Community';
-      case 'expired':
-        return 'Expired';
-      default:
-        return 'Unknown';
-    }
-  });
-
-  /**
-   * Computed: Whether to show trial info section
-   */
-  readonly showTrialInfo = computed(
-    () => this.trialActive() && this.trialDaysRemaining() !== null
-  );
-
-  /**
-   * Computed: User display name (first + last name, or email fallback)
-   * TASK_2025_129
-   */
-  readonly userDisplayName = computed(() => {
-    const first = this.userFirstName();
-    const last = this.userLastName();
-    if (first || last) {
-      return [first, last].filter(Boolean).join(' ');
-    }
-    return this.userEmail();
-  });
-
-  /**
-   * Computed: Whether to show user display name separately from email (TASK_2025_129)
-   */
-  readonly showUserName = computed(() => {
-    const name = this.userDisplayName();
-    return !!name && name !== this.userEmail();
-  });
-
-  /**
-   * Signal: System prompt preset preference for new sessions
-   * - 'claude_code': Minimal default preset
-   * - 'enhanced': AI-generated project-specific guidance
-   */
-  readonly systemPromptPreset = signal<'claude_code' | 'enhanced'>('enhanced');
-
-  // ============================================================
-  // TASK_2025_142: Enhanced Trial Status Computed Signals
-  // ============================================================
-
-  /**
-   * Computed: Trial end date in human-readable format
-   * Calculates the end date based on days remaining from today
-   */
-  readonly trialEndDate = computed(() => {
-    const days = this.trialDaysRemaining();
-    if (days === null) return null;
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + days);
-    return endDate.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  });
-
-  /**
-   * Computed: Trial progress percentage (for visual indicator)
-   * Uses TRIAL_DURATION_DAYS constant to avoid hardcoded magic number
-   * Returns percentage of trial remaining (100% = full trial, 0% = expired)
-   */
-  readonly trialProgress = computed(() => {
-    const days = this.trialDaysRemaining();
-    if (days === null) return 0;
-    // Clamp between 0 and 100
-    return Math.max(0, Math.min(100, (days / TRIAL_DURATION_DAYS) * 100));
-  });
-
-  /**
-   * Computed: Trial urgency level for styling
-   * - 'error' when days <= 1 (red/urgent)
-   * - 'warning' when days <= 3 (yellow/caution)
-   * - 'info' otherwise (blue/informational)
-   */
-  readonly trialUrgencyLevel = computed((): 'info' | 'warning' | 'error' => {
-    const days = this.trialDaysRemaining();
-    if (days === null) return 'info';
-    if (days <= 1) return 'error';
-    if (days <= 3) return 'warning';
-    return 'info';
-  });
-
-  /**
-   * Computed: Trial status text for display
-   * Shows appropriate message based on days remaining
-   */
-  readonly trialStatusText = computed(() => {
-    const days = this.trialDaysRemaining();
-    if (days === null) return '';
-    if (days === 0) return 'Expires today';
-    if (days === 1) return 'Expires tomorrow';
-    return `${days} days remaining`;
-  });
-
-  /**
-   * Computed: User initials for avatar (e.g., "JD" for John Doe)
-   * (TASK_2025_129)
-   */
-  readonly userInitials = computed(() => {
-    const first = this.userFirstName();
-    const last = this.userLastName();
-    if (first && last) {
-      return `${first[0]}${last[0]}`.toUpperCase();
-    }
-    if (first) {
-      return first[0].toUpperCase();
-    }
-    if (last) {
-      return last[0].toUpperCase();
-    }
-    const email = this.userEmail();
-    if (email && email.length > 0) {
-      return email[0].toUpperCase();
-    }
-    return '?';
-  });
-
   /**
    * Initialize: Load auth status on component mount
    * TASK_2025_133: Auth status now loaded via AuthStateService
    * TASK_2025_142: License status now comes from ChatStore (already fetched at app init)
    */
   async ngOnInit(): Promise<void> {
-    // Only load auth status - license status is already in ChatStore
     await this.authState.loadAuthStatus();
-    // Load enhanced prompts status and agent config for premium users
-    if (this.isPremium()) {
-      await this.loadEnhancedPromptsStatus();
-      this.loadAgentConfig(); // Fire-and-forget (non-blocking)
-    }
   }
 
   /**
@@ -429,34 +142,7 @@ export class SettingsComponent implements OnInit {
   }
 
   /**
-   * Open signup page in browser
-   */
-  async openSignup(): Promise<void> {
-    await this.rpcService.call('command:execute', {
-      command: 'ptah.openSignup',
-    });
-  }
-
-  /**
-   * Open license key entry dialog
-   */
-  async enterLicenseKey(): Promise<void> {
-    await this.rpcService.call('command:execute', {
-      command: 'ptah.enterLicenseKey',
-    });
-  }
-
-  /**
-   * Remove license key (log out / downgrade to Community tier)
-   */
-  async removeLicenseKey(): Promise<void> {
-    await this.rpcService.call('command:execute', {
-      command: 'ptah.removeLicenseKey',
-    });
-  }
-
-  /**
-   * Open pricing page in browser
+   * Open pricing page in browser (used by upsell sections)
    */
   async openPricing(): Promise<void> {
     await this.rpcService.call('command:execute', {
@@ -464,253 +150,11 @@ export class SettingsComponent implements OnInit {
     });
   }
 
-  // ============================================================
-  // Enhanced Prompts methods (TASK_2025_151)
-  // ============================================================
-
   /**
-   * Load enhanced prompts status from backend.
-   * Called on init for premium users and after toggle/regenerate actions.
+   * Called when LLM providers config emits modelChanged.
+   * Delegates to AgentOrchestrationConfigComponent to re-detect CLIs.
    */
-  async loadEnhancedPromptsStatus(): Promise<void> {
-    this.enhancedPromptsLoading.set(true);
-    this.enhancedPromptsError.set(null);
-    try {
-      const result = await this.rpcService.call('enhancedPrompts:getStatus', {
-        workspacePath: '.',
-      });
-      if (result.isSuccess()) {
-        this.enhancedPromptsStatus.set(result.data);
-      } else {
-        this.enhancedPromptsError.set(result.error ?? 'Failed to load status');
-      }
-    } catch {
-      this.enhancedPromptsError.set('Failed to load enhanced prompts status');
-    } finally {
-      this.enhancedPromptsLoading.set(false);
-    }
-  }
-
-  /**
-   * Toggle enhanced prompts on/off for the current workspace.
-   * Reloads status after toggling to reflect the updated state.
-   */
-  async toggleEnhancedPrompts(enabled: boolean): Promise<void> {
-    this.enhancedPromptsError.set(null);
-    const result = await this.rpcService.call('enhancedPrompts:setEnabled', {
-      workspacePath: '.',
-      enabled,
-    });
-    if (result.isSuccess()) {
-      await this.loadEnhancedPromptsStatus();
-    } else {
-      this.enhancedPromptsError.set(result.error ?? 'Failed to toggle');
-    }
-  }
-
-  /**
-   * Change system prompt preset preference for new sessions.
-   * This affects which system prompt is used when creating new chat tabs.
-   */
-  setSystemPromptPreset(preset: 'claude_code' | 'enhanced'): void {
-    this.systemPromptPreset.set(preset);
-    // TODO: Persist preference to extension state via RPC
-    // For now, this is session-scoped (resets on reload)
-  }
-
-  /**
-   * Regenerate the enhanced prompt for the current workspace.
-   * Uses a 2-minute timeout since generation involves an SDK query.
-   */
-  async regenerateEnhancedPrompt(): Promise<void> {
-    this.isRegenerating.set(true);
-    this.enhancedPromptsError.set(null);
-    try {
-      const result = await this.rpcService.call(
-        'enhancedPrompts:regenerate',
-        { workspacePath: '.', force: true },
-        { timeout: 120000 }
-      );
-      if (result.isSuccess()) {
-        // Clear cached preview content since prompt has changed
-        this.promptPreviewContent.set(null);
-        this.promptPreviewExpanded.set(false);
-        await this.loadEnhancedPromptsStatus();
-      } else {
-        this.enhancedPromptsError.set(result.error ?? 'Regeneration failed');
-      }
-    } finally {
-      this.isRegenerating.set(false);
-    }
-  }
-
-  /**
-   * Toggle the expandable prompt preview section.
-   * Fetches prompt content on first expand, then caches it in signal.
-   */
-  async togglePromptPreview(): Promise<void> {
-    if (this.promptPreviewExpanded()) {
-      this.promptPreviewExpanded.set(false);
-      return;
-    }
-    // Fetch content if not already loaded
-    if (!this.promptPreviewContent()) {
-      const result = await this.rpcService.call(
-        'enhancedPrompts:getPromptContent',
-        {
-          workspacePath: '.',
-        }
-      );
-      if (result.isSuccess() && result.data.content) {
-        this.promptPreviewContent.set(result.data.content);
-      }
-    }
-    this.promptPreviewExpanded.set(true);
-  }
-
-  /**
-   * Download the enhanced prompt file to disk via VS Code save dialog.
-   */
-  async downloadEnhancedPrompt(): Promise<void> {
-    this.isDownloading.set(true);
-    try {
-      await this.rpcService.call('enhancedPrompts:download', {
-        workspacePath: '.',
-      });
-    } finally {
-      this.isDownloading.set(false);
-    }
-  }
-
-  // ============================================================
-  // Agent Orchestration methods (TASK_2025_157)
-  // ============================================================
-
-  /**
-   * Load agent orchestration config from backend.
-   * Called on init for premium users.
-   */
-  async loadAgentConfig(): Promise<void> {
-    this.agentConfigLoading.set(true);
-    this.agentConfigError.set(null);
-    try {
-      const result = await this.rpcService.call('agent:getConfig', undefined);
-      if (result.isSuccess()) {
-        this.agentConfig.set(result.data);
-        this.loadCliModels(); // Fire-and-forget: populate model dropdowns
-      } else {
-        this.agentConfigError.set(result.error ?? 'Failed to load config');
-      }
-    } catch {
-      this.agentConfigError.set('Failed to load agent orchestration config');
-    } finally {
-      this.agentConfigLoading.set(false);
-    }
-  }
-
-  /**
-   * Load CLI model lists from backend.
-   * Called after loadAgentConfig succeeds.
-   */
-  async loadCliModels(): Promise<void> {
-    try {
-      const result = await this.rpcService.call(
-        'agent:listCliModels',
-        undefined
-      );
-      if (result.isSuccess()) {
-        this.geminiModels.set(result.data.gemini);
-        this.copilotModels.set(result.data.copilot);
-      }
-    } catch {
-      // Non-fatal: dropdowns will just be empty
-    }
-  }
-
-  /**
-   * Set the default CLI for agent orchestration.
-   */
-  async setAgentDefaultCli(cli: string): Promise<void> {
-    const value = cli === 'auto' ? null : (cli as CliType);
-    const result = await this.rpcService.call('agent:setConfig', {
-      defaultCli: value,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) => (c ? { ...c, defaultCli: value } : c));
-    }
-  }
-
-  /**
-   * Set maximum concurrent agents.
-   */
-  async setAgentMaxConcurrent(value: number): Promise<void> {
-    const result = await this.rpcService.call('agent:setConfig', {
-      maxConcurrentAgents: value,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) =>
-        c ? { ...c, maxConcurrentAgents: value } : c
-      );
-    }
-  }
-
-  /**
-   * Set the default timeout (in minutes).
-   */
-  async setAgentTimeout(minutes: number): Promise<void> {
-    const result = await this.rpcService.call('agent:setConfig', {
-      defaultTimeout: minutes,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) =>
-        c ? { ...c, defaultTimeout: minutes } : c
-      );
-    }
-  }
-
-  /**
-   * Check if a specific CLI is installed (for conditional model selector display).
-   */
-  isCliInstalled(cli: string): boolean {
-    return (
-      this.agentConfig()?.detectedClis.some(
-        (c) => c.cli === cli && c.installed
-      ) ?? false
-    );
-  }
-
-  /**
-   * Set the model for a specific CLI agent.
-   */
-  async setAgentModel(cli: 'gemini' | 'copilot', model: string): Promise<void> {
-    const key = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
-    const result = await this.rpcService.call('agent:setConfig', {
-      [key]: model,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) => (c ? { ...c, [key]: model } : c));
-    }
-  }
-
-  /**
-   * Re-detect CLI agents (invalidates cache).
-   */
-  async redetectClis(): Promise<void> {
-    this.isDetectingClis.set(true);
-    this.agentConfigError.set(null);
-    try {
-      const result = await this.rpcService.call('agent:detectClis', undefined);
-      if (result.isSuccess()) {
-        this.agentConfig.update((c) =>
-          c ? { ...c, detectedClis: result.data.clis } : c
-        );
-      } else {
-        this.agentConfigError.set(result.error ?? 'Detection failed');
-      }
-    } catch {
-      this.agentConfigError.set('Failed to detect CLI agents');
-    } finally {
-      this.isDetectingClis.set(false);
-    }
+  onModelChanged(): void {
+    this.agentOrchestrationConfig()?.redetectClis();
   }
 }

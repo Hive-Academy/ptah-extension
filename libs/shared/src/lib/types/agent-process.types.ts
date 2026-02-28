@@ -206,7 +206,7 @@ export interface CliSessionReference {
   /** Which CLI produced this session */
   readonly cli: CliType;
   /** Ptah's branded AgentId that ran this session */
-  readonly agentId: string;
+  readonly agentId: AgentId;
   /** Task description the agent was given */
   readonly task: string;
   /** ISO timestamp when the session started */

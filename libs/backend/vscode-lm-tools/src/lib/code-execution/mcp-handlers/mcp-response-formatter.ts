@@ -441,6 +441,9 @@ export function formatAgentSpawn(result: SpawnAgentResult): string {
           `**CLI:** ${result.cli}`,
           `**Status:** ${result.status}`,
           `**Started:** ${result.startedAt}`,
+          ...(result.cliSessionId
+            ? [`**CLI Session ID:** ${result.cliSessionId}`]
+            : []),
         ].join('  \n'),
       },
     ]);
@@ -475,6 +478,9 @@ export function formatAgentStatus(
         `**Task:** ${task}`,
         `**Started:** ${a.startedAt}`,
       ];
+      if (a.cliSessionId) {
+        lines.push(`**CLI Session ID:** ${a.cliSessionId}`);
+      }
       if (a.exitCode !== undefined) {
         lines.push(`**Exit Code:** ${a.exitCode}`);
       }
@@ -535,6 +541,9 @@ export function formatAgentStop(result: AgentProcessInfo): string {
           `**Agent ID:** ${result.agentId}`,
           `**CLI:** ${result.cli}`,
           `**Status:** ${result.status}`,
+          ...(result.cliSessionId
+            ? [`**CLI Session ID:** ${result.cliSessionId}`]
+            : []),
           `**Exit Code:** ${result.exitCode ?? 'N/A'}`,
         ].join('  \n'),
       },

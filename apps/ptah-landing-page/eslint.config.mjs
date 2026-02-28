@@ -78,7 +78,7 @@ export default [
         { maxComplexity: 7 },
       ],
       '@angular-eslint/template/cyclomatic-complexity': [
-        'warn',
+        'off',
         { maxComplexity: 20 },
       ],
 

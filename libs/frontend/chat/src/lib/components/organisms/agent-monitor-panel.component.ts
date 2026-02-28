@@ -6,7 +6,7 @@
  * Cards share available height equally.
  *
  * Responsive widths:
- *   default: 380px, xl (1280px+): 440px, 2xl (1536px+): 520px
+ *   default: 460px, xl (1280px+): 540px, 2xl (1536px+): 640px
  */
 
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
@@ -21,16 +21,16 @@ import { AgentCardComponent } from '../molecules/agent-card.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .agent-panel-open {
-      width: 380px;
+      width: 460px;
     }
     @media (min-width: 1280px) {
       .agent-panel-open {
-        width: 440px;
+        width: 540px;
       }
     }
     @media (min-width: 1536px) {
       .agent-panel-open {
-        width: 520px;
+        width: 640px;
       }
     }
   `,
@@ -43,7 +43,7 @@ import { AgentCardComponent } from '../molecules/agent-card.component';
       <!-- Header -->
       <div
         class="flex items-center justify-between px-3 py-2 border-b border-base-content/10 flex-shrink-0"
-        style="min-width: 380px"
+        style="min-width: 460px"
       >
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Agents</span>
@@ -76,7 +76,7 @@ import { AgentCardComponent } from '../molecules/agent-card.component';
       <!-- Agent list: flex layout distributes height equally among cards -->
       <div
         class="flex-1 overflow-y-auto p-2 flex flex-col gap-2 min-h-0"
-        style="min-width: 380px"
+        style="min-width: 460px"
       >
         @for (agent of store.agents(); track agent.agentId) {
         <div

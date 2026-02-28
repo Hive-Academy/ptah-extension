@@ -28,7 +28,7 @@
  */
 
 import * as vscode from 'vscode';
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import {
   TOKENS,
   Logger,
@@ -83,7 +83,11 @@ import {
   AgentProcessManager,
   CliDetectionService,
 } from '@ptah-extension/llm-abstraction';
-// Use Symbol.for() directly to avoid circular dependency with @ptah-extension/agent-sdk
+/**
+ * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency
+ * between vscode-lm-tools -> agent-sdk. Must match the string in:
+ * libs/backend/agent-sdk/src/lib/di/tokens.ts
+ */
 const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
 
 @injectable()
@@ -148,13 +152,7 @@ export class PtahAPIBuilder {
     private readonly agentProcessManager: AgentProcessManager,
 
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetectionService: CliDetectionService,
-
-    // Session lifecycle manager for linking CLI agents to parent sessions (TASK_2025_161)
-    @inject(SDK_SESSION_LIFECYCLE_MANAGER)
-    private readonly sessionLifecycleManager: {
-      getActiveSessionIds(): string[];
-    }
+    private readonly cliDetectionService: CliDetectionService
   ) {
     this.logger.info('PtahAPIBuilder initialized with 16 namespaces');
   }
@@ -242,8 +240,20 @@ export class PtahAPIBuilder {
         getActiveSessionId: () => {
           // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
           // In single-session mode (current), there's at most one.
-          const ids = this.sessionLifecycleManager.getActiveSessionIds();
-          return ids.length > 0 ? (ids[0] as string) : undefined;
+          // Resolved lazily: if SDK_SESSION_LIFECYCLE_MANAGER token is unregistered, returns undefined
+          // instead of crashing the MCP server during DI resolution.
+          if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
+            return undefined;
+          }
+          try {
+            const manager = container.resolve<{
+              getActiveSessionIds(): string[];
+            }>(SDK_SESSION_LIFECYCLE_MANAGER);
+            const ids = manager.getActiveSessionIds();
+            return ids.length > 0 ? (ids[0] as string) : undefined;
+          } catch {
+            return undefined;
+          }
         },
       }),
 

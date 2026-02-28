@@ -9,7 +9,7 @@
  * Complexity Level: 2 (Medium - form state + service delegation, no inheritance)
  *
  * Responsibilities:
- * - Display provider cards (VS Code LM)
+ * - Display provider cards (excluding VS Code LM, which is in Tab 2)
  * - Manage local state (model selection, visibility toggles)
  * - Delegate save/remove/default-change operations to LlmProviderStateService
  * - Show loading and error states from service
@@ -26,7 +26,6 @@ import {
   ChangeDetectionStrategy,
   signal,
   computed,
-  output,
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -48,10 +47,9 @@ import type { LlmProviderName } from '@ptah-extension/shared';
 /**
  * LlmProvidersConfigComponent - Standalone component for managing LLM provider config
  *
- * Displays provider cards for all available LLM providers. Each card shows:
+ * Displays provider cards for all LLM providers except vscode-lm. Each card shows:
  * - Provider name, configuration status badge, and default provider badge
  * - Default model and capability badges
- * - VS Code LM provider shows model selection dropdown
  * - "Set as Default" button when provider is configured but not the current default
  *
  * Local state (per-component signals):
@@ -70,14 +68,12 @@ export class LlmProvidersConfigComponent implements OnInit {
   /** LLM provider state service - single source of truth for all provider state (PUBLIC for template access) */
   readonly llmState = inject(LlmProviderStateService);
 
-  /** Emitted when the VS Code LM model selection changes (so parent can refresh agent detection) */
-  readonly modelChanged = output<void>();
-
   /**
-   * All providers including vscode-lm.
-   * Each provider gets a card — vscode-lm shows model selection instead of API key input.
+   * All providers excluding vscode-lm (now handled by VscodeLmConfigComponent in Tab 2).
    */
-  readonly filteredProviders = computed(() => this.llmState.providers());
+  readonly filteredProviders = computed(() =>
+    this.llmState.providers().filter((p) => p.provider !== 'vscode-lm')
+  );
 
   // --- Lucide icons ---
   readonly KeyIcon = Key;
@@ -138,12 +134,12 @@ export class LlmProvidersConfigComponent implements OnInit {
     try {
       await this.llmState.loadProviderStatus();
 
-      // Load models for all configured providers + vscode-lm
+      // Load models for all configured providers (vscode-lm handled by VscodeLmConfigComponent)
       const providers = this.llmState.providers();
       const modelLoadPromises: Promise<void>[] = [];
 
       for (const p of providers) {
-        if (p.provider === 'vscode-lm' || p.isConfigured) {
+        if (p.provider !== 'vscode-lm' && p.isConfigured) {
           modelLoadPromises.push(this.llmState.loadProviderModels(p.provider));
         }
       }
@@ -287,27 +283,6 @@ export class LlmProvidersConfigComponent implements OnInit {
       const updated = new Map(this.modelInputs());
       updated.delete(provider);
       this.modelInputs.set(updated);
-    } finally {
-      this.savingModel.set(null);
-    }
-  }
-
-  /**
-   * Handle VS Code LM model selection from dropdown.
-   * Saves the selected model as the default for vscode-lm provider.
-   *
-   * @param modelId - The selected model ID (e.g., 'copilot/gpt-4o')
-   */
-  async onVsCodeModelSelect(modelId: string): Promise<void> {
-    if (!modelId || this.savingModel() === 'vscode-lm') {
-      return;
-    }
-
-    this.savingModel.set('vscode-lm');
-
-    try {
-      await this.llmState.setDefaultModel('vscode-lm', modelId);
-      this.modelChanged.emit();
     } finally {
       this.savingModel.set(null);
     }

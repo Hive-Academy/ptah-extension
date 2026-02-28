@@ -31,7 +31,13 @@ export interface MonitoredAgent {
   segments: CliOutputSegment[];
   /** Parent Ptah Claude SDK session that spawned this agent */
   readonly parentSessionId?: string;
-  /** CLI-native session ID (e.g., Gemini UUID). Enables resume. */
+  /**
+   * CLI-native session ID (e.g., Gemini UUID). Enables resume.
+   * Mutable because the session ID is often late-captured: it arrives via the
+   * CLI's init event after spawn, or is attached to the exit event when the
+   * process completes. Unlike `parentSessionId` (known at spawn time and
+   * immutable), this field may be updated during the agent's lifetime.
+   */
   cliSessionId?: string;
 }
 
@@ -178,7 +184,7 @@ export class AgentMonitorStore implements OnDestroy {
         ...agent,
         status: info.status,
         exitCode: info.exitCode,
-        cliSessionId: info.cliSessionId ?? agent.cliSessionId,
+        cliSessionId: info.cliSessionId || agent.cliSessionId,
       });
       return next;
     });

@@ -32,6 +32,7 @@ import {
   MESSAGE_TYPES,
   AgentProcessInfo,
   AgentOutputDelta,
+  CliSessionReference,
 } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
@@ -227,33 +228,42 @@ export class RpcMethodRegistrationService {
    * Fire-and-forget: errors are caught and logged, never block exit event forwarding.
    */
   private persistCliSessionReference(info: AgentProcessInfo): void {
+    const { cliSessionId, parentSessionId } = info;
+    if (!cliSessionId || !parentSessionId) return;
+
     try {
       const metadataStore = this.container.resolve<{
         addCliSession(
           sessionId: string,
-          ref: {
-            cliSessionId: string;
-            cli: string;
-            agentId: string;
-            task: string;
-            startedAt: string;
-            status: string;
-          }
+          ref: CliSessionReference
         ): Promise<void>;
       }>(SDK_TOKENS.SDK_SESSION_METADATA_STORE);
 
-      metadataStore
-        .addCliSession(info.parentSessionId!, {
-          cliSessionId: info.cliSessionId!,
-          cli: info.cli,
-          agentId: info.agentId,
-          task: info.task,
-          startedAt: info.startedAt,
-          status: info.status,
+      const ref: CliSessionReference = {
+        cliSessionId,
+        cli: info.cli,
+        agentId: info.agentId,
+        task: info.task,
+        startedAt: info.startedAt,
+        status: info.status,
+      };
+
+      retryWithBackoff(
+        () => metadataStore.addCliSession(parentSessionId, ref),
+        {
+          retries: 3,
+          initialDelay: 1000,
+          shouldRetry: () => true,
+        }
+      )
+        .then(() => {
+          this.logger.info(
+            `[RPC] CLI session reference persisted: ${cliSessionId} -> parent ${parentSessionId}`
+          );
         })
         .catch((error) => {
           this.logger.error(
-            '[RPC] Failed to persist CLI session reference',
+            '[RPC] Failed to persist CLI session reference after retries',
             error instanceof Error ? error : new Error(String(error))
           );
         });
