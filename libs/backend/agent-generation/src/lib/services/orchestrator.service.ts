@@ -22,6 +22,8 @@ import * as path from 'path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import type {
+  CliTarget,
+  CliGenerationResult,
   GenerationStreamPayload,
   ProjectAnalysisResult,
 } from '@ptah-extension/shared';
@@ -46,6 +48,7 @@ import {
   GenerationSummary,
 } from '../types/core.types';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
+import type { MultiCliAgentWriterService } from './cli-agent-transforms/multi-cli-agent-writer.service';
 
 /**
  * Generation options for orchestrator.
@@ -123,6 +126,13 @@ export interface OrchestratorGenerationOptions {
 
   /** Absolute paths to plugin directories (for SDK queries during content generation) */
   pluginPaths?: string[];
+
+  /**
+   * Target CLI platforms for agent distribution (premium only).
+   * When provided, Phase 5 transforms and writes agents to these CLI directories.
+   * TASK_2025_160: Multi-CLI agent distribution
+   */
+  targetClis?: CliTarget[];
 }
 
 /**
@@ -208,7 +218,9 @@ export class AgentGenerationOrchestratorService {
     @inject(TOKENS.FRAMEWORK_DETECTOR_SERVICE)
     private readonly frameworkDetector: FrameworkDetectorService,
     @inject(TOKENS.MONOREPO_DETECTOR_SERVICE)
-    private readonly monorepoDetector: MonorepoDetectorService
+    private readonly monorepoDetector: MonorepoDetectorService,
+    @inject(AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE)
+    private readonly multiCliWriter: MultiCliAgentWriterService
   ) {
     this.logger.debug('AgentGenerationOrchestratorService initialized');
   }
@@ -442,6 +454,46 @@ export class AgentGenerationOrchestratorService {
         return Result.err(new Error('All agent file writes failed'));
       }
 
+      // Phase 5: Multi-CLI Agent Distribution (TASK_2025_160)
+      let cliResults: CliGenerationResult[] | undefined;
+      if (options.targetClis && options.targetClis.length > 0) {
+        this.logger.info('Phase 5: Distributing agents to CLI targets', {
+          targets: options.targetClis,
+          agentCount: renderedAgents.length,
+        });
+
+        try {
+          cliResults = await this.multiCliWriter.writeForClis(
+            renderedAgents,
+            options.targetClis
+          );
+
+          // Append CLI-specific warnings (non-fatal)
+          for (const result of cliResults) {
+            if (result.errors.length > 0) {
+              warnings.push(
+                ...result.errors.map((e) => `[${result.cli}] ${e}`)
+              );
+            }
+          }
+        } catch (cliError) {
+          // Phase 5 failure is non-fatal
+          this.logger.warn('Phase 5 failed (non-fatal)', {
+            error:
+              cliError instanceof Error
+                ? cliError.message
+                : String(cliError),
+          });
+          warnings.push(
+            `Multi-CLI distribution failed: ${
+              cliError instanceof Error
+                ? cliError.message
+                : String(cliError)
+            }`
+          );
+        }
+      }
+
       // Success
       const durationMs = Date.now() - startTime;
       progressCallback?.({
@@ -458,6 +510,7 @@ export class AgentGenerationOrchestratorService {
         warnings,
         agents: renderedAgents,
         enhancedPromptsUsed: !!options.enhancedPromptContent,
+        cliResults,
       };
 
       this.logger.info('Agent generation complete', {

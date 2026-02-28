@@ -37,11 +37,13 @@ import type {
   GenerationProgressPayload,
   GenerationCompletePayload,
   GenerationStreamPayload,
+  CliTarget,
 } from '@ptah-extension/shared';
 import type {
   GenerationSummary,
   OrchestratorGenerationOptions,
 } from '@ptah-extension/agent-generation';
+import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import { Result } from '@ptah-extension/shared';
 import type { ProjectAnalysisResult } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
@@ -379,6 +381,42 @@ export class WizardGenerationRpcHandlers {
           );
         }
 
+        // Detect installed CLI targets for multi-CLI agent generation (TASK_2025_160)
+        // Only premium users get cross-CLI sync; filter to copilot/gemini (not codex)
+        let targetClis: CliTarget[] | undefined;
+        if (isPremium) {
+          try {
+            const cliDetection = this.resolveService<CliDetectionService>(
+              TOKENS.CLI_DETECTION_SERVICE,
+              'CliDetectionService'
+            );
+            const installedClis = await cliDetection.detectAll();
+            const cliTargets = installedClis
+              .filter(
+                (c) =>
+                  (c.cli === 'copilot' || c.cli === 'gemini') && c.installed
+              )
+              .map((c) => c.cli as CliTarget);
+            if (cliTargets.length > 0) {
+              targetClis = cliTargets;
+              this.logger.info(
+                'CLI targets detected for multi-CLI generation',
+                { targetClis }
+              );
+            }
+          } catch (cliError) {
+            this.logger.debug(
+              'CLI detection failed for generation (non-fatal)',
+              {
+                error:
+                  cliError instanceof Error
+                    ? cliError.message
+                    : String(cliError),
+              }
+            );
+          }
+        }
+
         // Stream event broadcaster -- broadcasts real-time generation events
         // (text deltas, tool calls, thinking) to the frontend for live transcript
         const onStreamEvent = (event: GenerationStreamPayload): void => {
@@ -423,6 +461,7 @@ export class WizardGenerationRpcHandlers {
           model: currentModel,
           analysisDir,
           pluginPaths,
+          targetClis,
         };
 
         // Store options for retry handler to reuse rich context

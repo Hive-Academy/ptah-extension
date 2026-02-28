@@ -444,6 +444,62 @@ export async function activate(
     }
     console.log('[Activate] Step 7.1.5: Plugin loader initialized');
 
+    // Step 7.1.6: CLI Skill Sync (TASK_2025_160)
+    // Sync Ptah plugin skills to installed CLI agent directories (Copilot, Gemini)
+    // Premium-only, non-blocking, fire-and-forget
+    console.log('[Activate] Step 7.1.6: CLI skill sync...');
+    if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
+      try {
+        const cliPluginSync = DIContainer.getContainer().resolve(
+          TOKENS.CLI_PLUGIN_SYNC_SERVICE
+        ) as {
+          initialize: (globalState: vscode.Memento, extensionPath: string) => void;
+          syncOnActivation: (enabledPluginIds: string[]) => Promise<unknown[]>;
+        };
+
+        // Late-initialize with globalState and extension path
+        cliPluginSync.initialize(context.globalState, context.extensionPath);
+
+        // Resolve enabled plugin IDs
+        const pluginLoader = DIContainer.resolve<PluginLoaderService>(
+          SDK_TOKENS.SDK_PLUGIN_LOADER
+        );
+        const pluginConfig = pluginLoader.getWorkspacePluginConfig();
+        const enabledPluginIds = pluginConfig.enabledPluginIds || [];
+
+        if (enabledPluginIds.length > 0) {
+          // Fire-and-forget: sync skills in background
+          cliPluginSync
+            .syncOnActivation(enabledPluginIds)
+            .then((results) => {
+              logger.info('CLI skill sync complete', {
+                results: results.length,
+              });
+            })
+            .catch((syncError) => {
+              logger.debug('CLI skill sync failed (non-blocking)', {
+                error:
+                  syncError instanceof Error
+                    ? syncError.message
+                    : String(syncError),
+              });
+            });
+        } else {
+          logger.debug('CLI skill sync skipped (no enabled plugins)');
+        }
+      } catch (cliSyncError) {
+        logger.debug('CLI skill sync setup failed (non-blocking)', {
+          error:
+            cliSyncError instanceof Error
+              ? cliSyncError.message
+              : String(cliSyncError),
+        });
+      }
+    } else {
+      logger.debug('CLI skill sync skipped (Community tier - Pro feature only)');
+    }
+    console.log('[Activate] Step 7.1.6: CLI skill sync initiated');
+
     // Step 7.2: Pre-fetch model pricing from OpenRouter (non-blocking, no auth needed)
     // OpenRouter's /api/v1/models endpoint is publicly accessible and returns
     // pricing data for 200+ models. This replaces hardcoded pricing with live data.
