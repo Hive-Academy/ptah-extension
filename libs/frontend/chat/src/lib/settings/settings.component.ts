@@ -21,6 +21,7 @@ import { LicenseStatusCardComponent } from './license/license-status-card.compon
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
+import { CustomAgentConfigComponent } from './ptah-ai/custom-agent-config.component';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -56,6 +57,7 @@ import { ChatStore } from '../services/chat.store';
     EnhancedPromptsConfigComponent,
     VscodeLmConfigComponent,
     AgentOrchestrationConfigComponent,
+    CustomAgentConfigComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',

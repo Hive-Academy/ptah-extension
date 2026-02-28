@@ -201,8 +201,11 @@ import { AgentSelectorComponent } from './agent-selector.component';
 
         <!-- Right: Agent Selector, Model Selector and Autopilot Popover -->
         <div class="flex items-center gap-1 min-w-0">
-          <!-- Agent Selector - dedicated button for agents -->
-          <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
+          <!-- Agent Selector - dedicated button for agents + custom agents -->
+          <ptah-agent-selector
+            (agentSelected)="handleAgentSelected($event)"
+            (customAgentIdSelected)="handleCustomAgentSelected($event)"
+          />
 
           <!-- Model Selector Component -->
           <ptah-model-selector />
@@ -503,6 +506,22 @@ export class ChatInputComponent implements OnInit {
       textarea.focus();
       textarea.setSelectionRange(newValue.length, newValue.length);
     }
+  }
+
+  /**
+   * Handle custom agent selection from AgentSelectorComponent
+   * TASK_2025_167: Sets custom agent ID on state service for chat routing.
+   * Unlike built-in agents, custom agents are routed via customAgentId param
+   * on chat:start RPC rather than being appended to the message text.
+   */
+  handleCustomAgentSelected(_agentId: string | null): void {
+    // Custom agent state is managed by CustomAgentStateService (injected in AgentSelectorComponent)
+    // The MessageSenderService reads from CustomAgentStateService when starting a conversation
+    // No action needed here - the state change is handled by the service
+    console.log(
+      '[ChatInputComponent] Custom agent selection changed:',
+      _agentId
+    );
   }
 
   /**

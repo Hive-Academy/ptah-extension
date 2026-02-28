@@ -11,7 +11,7 @@ import { SessionId, CorrelationId } from './branded.types';
 /**
  * Supported AI Provider IDs
  */
-export type ProviderId = 'claude-cli' | 'vscode-lm';
+export type ProviderId = 'claude-cli' | 'vscode-lm' | 'custom-agent';
 
 /**
  * Provider Status Types
@@ -286,7 +286,7 @@ export function isProviderError(error: unknown): error is ProviderError {
 }
 
 export function isValidProviderId(id: string): id is ProviderId {
-  return id === 'claude-cli' || id === 'vscode-lm';
+  return id === 'claude-cli' || id === 'vscode-lm' || id === 'custom-agent';
 }
 
 /**
@@ -295,6 +295,7 @@ export function isValidProviderId(id: string): id is ProviderId {
 export const PROVIDER_IDS: readonly ProviderId[] = [
   'claude-cli',
   'vscode-lm',
+  'custom-agent',
 ] as const;
 
 export const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {

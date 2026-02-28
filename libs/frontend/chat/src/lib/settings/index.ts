@@ -13,3 +13,4 @@ export { LicenseStatusCardComponent } from './license/license-status-card.compon
 export { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 export { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 export { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
+export { CustomAgentConfigComponent } from './ptah-ai/custom-agent-config.component';

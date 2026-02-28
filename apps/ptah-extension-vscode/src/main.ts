@@ -9,7 +9,11 @@ import {
 } from '@ptah-extension/vscode-core';
 import { resolveEnvironment } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
-import { SDK_TOKENS, PluginLoaderService } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  PluginLoaderService,
+  CustomAgentRegistry,
+} from '@ptah-extension/agent-sdk';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
@@ -741,6 +745,16 @@ export function deactivate(): void {
   // NOTE: We intentionally do NOT remove ptah from .mcp.json on deactivation.
   // The MCP config must persist so that resumed Claude sessions can find
   // the permission-prompt-tool. The port gets updated on next activation.
+
+  // TASK_2025_167: Dispose all custom agent adapters before clearing the container
+  try {
+    const customAgentRegistry = DIContainer.resolve<CustomAgentRegistry>(
+      SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY
+    );
+    customAgentRegistry.disposeAll();
+  } catch {
+    // Registry may not be initialized yet - safe to ignore
+  }
 
   ptahExtension?.dispose();
   ptahExtension = undefined;

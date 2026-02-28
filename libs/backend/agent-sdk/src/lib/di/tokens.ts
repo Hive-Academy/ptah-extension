@@ -88,6 +88,9 @@ export const SDK_TOKENS = {
 
   /** Shared mutable AuthEnv singleton (TASK_2025_164) */
   SDK_AUTH_ENV: Symbol.for('SdkAuthEnv'),
+
+  /** Custom Agent Registry (TASK_2025_167) */
+  SDK_CUSTOM_AGENT_REGISTRY: Symbol.for('SdkCustomAgentRegistry'),
 } as const;
 
 /**

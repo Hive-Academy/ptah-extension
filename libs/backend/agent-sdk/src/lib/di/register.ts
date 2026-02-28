@@ -49,6 +49,7 @@ import {
 } from '../prompt-harness';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
+import { CustomAgentRegistry } from '../custom-agent';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -307,6 +308,16 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PLUGIN_LOADER,
     { useClass: PluginLoaderService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Custom Agent Registry (TASK_2025_167)
+  // Manages lifecycle of user-configured custom agent adapters
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY,
+    { useClass: CustomAgentRegistry },
     { lifecycle: Lifecycle.Singleton }
   );
 

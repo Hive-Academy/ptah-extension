@@ -1,0 +1,883 @@
+/**
+ * Custom Agent Adapter - IAIProvider for Anthropic-compatible providers
+ *
+ * Implements IAIProvider for user-configured custom agent instances that connect
+ * to third-party Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI)
+ * via the Claude Agent SDK's query() function.
+ *
+ * Key architecture decisions:
+ * - NOT DI-injectable: Instances are created by CustomAgentRegistry, not the DI container
+ * - Fully independent from SdkAgentAdapter: Own AuthEnv, session tracking, stream transformation
+ * - Shares STATELESS services: SdkModuleLoader, SdkMessageTransformer, SdkPermissionHandler
+ *
+ * @see TASK_2025_167 Batch 2 - Custom Agent Adapter + Registry
+ */
+
+import {
+  IAIProvider,
+  ProviderId,
+  ProviderInfo,
+  ProviderHealth,
+  ProviderStatus,
+  ProviderCapabilities,
+  AISessionConfig,
+  AIMessageOptions,
+  SessionId,
+  FlatStreamEventUnion,
+  AuthEnv,
+  createEmptyAuthEnv,
+  calculateMessageCost,
+} from '@ptah-extension/shared';
+import type { Logger } from '@ptah-extension/vscode-core';
+import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
+import type { SdkMessageTransformer } from '../sdk-message-transformer';
+import type { SdkPermissionHandler } from '../sdk-permission-handler';
+import type { CustomAgentConfig } from '@ptah-extension/shared';
+import {
+  getAnthropicProvider,
+  getProviderAuthEnvVar,
+  seedStaticModelPricing,
+  resolveActualModelForPricing,
+} from '../helpers/anthropic-provider-registry';
+import type {
+  SDKMessage,
+  SDKUserMessage,
+  Options,
+  Query,
+  QueryFunction,
+  UserMessageContent,
+} from '../types/sdk-types/claude-sdk.types';
+import {
+  isResultMessage,
+  isSystemInit,
+  isStreamEvent,
+  isUserMessage,
+  isAssistantMessage,
+  isCompactBoundary,
+} from '../types/sdk-types/claude-sdk.types';
+
+/**
+ * Tracks an active session within the custom agent adapter
+ */
+interface CustomActiveSession {
+  readonly sessionId: SessionId;
+  readonly abortController: AbortController;
+  query: Query | null;
+  messageQueue: SDKUserMessage[];
+  resolveNext: (() => void) | null;
+  currentModel: string;
+}
+
+/**
+ * Provider capabilities for custom agent adapter
+ */
+const CUSTOM_AGENT_CAPABILITIES: ProviderCapabilities = {
+  streaming: true,
+  fileAttachments: true,
+  contextManagement: true,
+  sessionPersistence: true,
+  multiTurn: true,
+  codeGeneration: true,
+  imageAnalysis: false,
+  functionCalling: true,
+};
+
+/**
+ * CustomAgentAdapter - IAIProvider for Anthropic-compatible providers
+ *
+ * Created by CustomAgentRegistry (NOT DI-injectable).
+ * Each instance connects to a specific provider using its own AuthEnv,
+ * session map, and stream transformation logic.
+ */
+export class CustomAgentAdapter implements IAIProvider {
+  readonly providerId: ProviderId = 'custom-agent';
+  readonly info: ProviderInfo;
+
+  /** Isolated AuthEnv for this adapter instance */
+  private authEnv: AuthEnv;
+
+  /** Active sessions managed by this adapter */
+  private activeSessions = new Map<string, CustomActiveSession>();
+
+  /** Health status */
+  private health: ProviderHealth = {
+    status: 'initializing' as ProviderStatus,
+    lastCheck: Date.now(),
+  };
+
+  /** Whether the adapter has been initialized */
+  private initialized = false;
+
+  /** The user's custom agent configuration */
+  private readonly config: CustomAgentConfig;
+
+  /** API key for this provider */
+  private readonly apiKey: string;
+
+  /** Shared stateless services */
+  private readonly logger: Logger;
+  private readonly moduleLoader: SdkModuleLoader;
+  private readonly messageTransformer: SdkMessageTransformer;
+  private readonly permissionHandler: SdkPermissionHandler;
+
+  /**
+   * Create a CustomAgentAdapter for a specific provider configuration.
+   *
+   * @param config - User's custom agent configuration
+   * @param apiKey - The provider API key
+   * @param logger - Logger instance (shared)
+   * @param moduleLoader - SDK module loader (shared, stateless)
+   * @param messageTransformer - Message-to-event converter (shared, stateless)
+   * @param permissionHandler - Permission handler (shared, stateless)
+   */
+  constructor(
+    config: CustomAgentConfig,
+    apiKey: string,
+    logger: Logger,
+    moduleLoader: SdkModuleLoader,
+    messageTransformer: SdkMessageTransformer,
+    permissionHandler: SdkPermissionHandler
+  ) {
+    this.config = config;
+    this.apiKey = apiKey;
+    this.logger = logger;
+    this.moduleLoader = moduleLoader;
+    this.messageTransformer = messageTransformer;
+    this.permissionHandler = permissionHandler;
+
+    // Create isolated AuthEnv (NOT the DI singleton)
+    this.authEnv = createEmptyAuthEnv();
+
+    // Build provider info from config
+    const provider = getAnthropicProvider(config.providerId);
+    this.info = {
+      id: 'custom-agent' as ProviderId,
+      name: config.name,
+      version: '1.0.0',
+      description: provider
+        ? `${provider.name} - ${provider.description}`
+        : `Custom agent: ${config.name}`,
+      vendor: provider?.name ?? 'Unknown',
+      capabilities: CUSTOM_AGENT_CAPABILITIES,
+      maxContextTokens: 200000,
+      supportedModels: [],
+    };
+  }
+
+  /**
+   * Get the custom agent config ID
+   */
+  get agentId(): string {
+    return this.config.id;
+  }
+
+  /**
+   * Initialize the adapter by configuring its AuthEnv
+   *
+   * Steps:
+   * 1. Look up provider from registry
+   * 2. Set ANTHROPIC_BASE_URL to provider's API endpoint
+   * 3. Set the auth env var (ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY)
+   * 4. Apply tier mappings from config
+   * 5. Seed static model pricing
+   * 6. Mark as healthy
+   */
+  async initialize(): Promise<boolean> {
+    try {
+      this.logger.info(
+        `[CustomAgentAdapter] Initializing adapter for "${this.config.name}" (provider: ${this.config.providerId})`
+      );
+
+      // Step 1: Look up provider definition
+      const provider = getAnthropicProvider(this.config.providerId);
+      if (!provider) {
+        const errorMessage = `Unknown provider: ${this.config.providerId}`;
+        this.logger.error(`[CustomAgentAdapter] ${errorMessage}`);
+        this.health = {
+          status: 'error' as ProviderStatus,
+          lastCheck: Date.now(),
+          errorMessage,
+        };
+        return false;
+      }
+
+      // Step 2: Set base URL
+      this.authEnv.ANTHROPIC_BASE_URL = provider.baseUrl;
+
+      // Step 3: Set auth env var using the provider's configured key type
+      const authEnvVar = getProviderAuthEnvVar(this.config.providerId);
+      this.authEnv[authEnvVar] = this.apiKey;
+
+      // Step 4: Apply tier mappings from config
+      if (this.config.tierMappings) {
+        if (this.config.tierMappings.sonnet) {
+          this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL =
+            this.config.tierMappings.sonnet;
+        }
+        if (this.config.tierMappings.opus) {
+          this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL =
+            this.config.tierMappings.opus;
+        }
+        if (this.config.tierMappings.haiku) {
+          this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL =
+            this.config.tierMappings.haiku;
+        }
+      }
+
+      // Step 5: Seed static model pricing for the provider
+      seedStaticModelPricing(this.config.providerId);
+
+      // Step 6: Mark as healthy
+      this.initialized = true;
+      this.health = {
+        status: 'available' as ProviderStatus,
+        lastCheck: Date.now(),
+        responseTime: 0,
+        uptime: Date.now(),
+      };
+
+      this.logger.info(
+        `[CustomAgentAdapter] Initialized successfully for "${this.config.name}"`,
+        {
+          baseUrl: provider.baseUrl,
+          authEnvVar,
+          hasTierMappings: !!this.config.tierMappings,
+          sonnetModel: this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ?? 'default',
+          opusModel: this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ?? 'default',
+          haikuModel: this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? 'default',
+        }
+      );
+
+      return true;
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error(String(error));
+      this.logger.error(
+        `[CustomAgentAdapter] Initialization failed for "${this.config.name}"`,
+        errorObj
+      );
+      this.health = {
+        status: 'error' as ProviderStatus,
+        lastCheck: Date.now(),
+        errorMessage: errorObj.message,
+      };
+      return false;
+    }
+  }
+
+  /**
+   * Start a new chat session with streaming support
+   *
+   * Creates an SDK query with isolated AuthEnv and returns an async iterable
+   * of FlatStreamEventUnion events for UI rendering.
+   */
+  async startChatSession(
+    config: AISessionConfig & {
+      tabId: string;
+      name?: string;
+      prompt?: string;
+      files?: string[];
+    }
+  ): Promise<AsyncIterable<FlatStreamEventUnion>> {
+    if (!this.initialized) {
+      throw new Error(
+        `CustomAgentAdapter "${this.config.name}" not initialized. Call initialize() first.`
+      );
+    }
+
+    const { tabId } = config;
+    const trackingId = tabId as SessionId;
+
+    this.logger.info(
+      `[CustomAgentAdapter] Starting chat session for tab: ${tabId}`,
+      { agentName: this.config.name, providerId: this.config.providerId }
+    );
+
+    // Determine the model to use
+    const model = this.resolveModel(config.model);
+
+    // Create abort controller for this session
+    const abortController = new AbortController();
+
+    // Create and register session
+    const session: CustomActiveSession = {
+      sessionId: trackingId,
+      abortController,
+      query: null,
+      messageQueue: [],
+      resolveNext: null,
+      currentModel: model,
+    };
+    this.activeSessions.set(trackingId as string, session);
+
+    // Queue initial prompt if provided
+    if (config.prompt && config.prompt.trim()) {
+      const userMessage = this.createSdkUserMessage(config.prompt);
+      session.messageQueue.push(userMessage);
+    }
+
+    // Get SDK query function
+    const queryFn = await this.moduleLoader.getQueryFunction();
+
+    // Create user message stream
+    const userMessageStream = this.createUserMessageStream(
+      trackingId,
+      abortController
+    );
+
+    // Build query options with isolated AuthEnv
+    const queryOptions = this.buildQueryOptions(
+      userMessageStream,
+      abortController,
+      model,
+      config.projectPath
+    );
+
+    // Start SDK query
+    const sdkQuery = queryFn({
+      prompt: queryOptions.prompt,
+      options: queryOptions.options as Options,
+    });
+
+    // Set query on session
+    session.query = sdkQuery;
+
+    this.logger.info(
+      `[CustomAgentAdapter] Query started for session: ${trackingId}`,
+      { model }
+    );
+
+    // Return transformed stream
+    return this.createTransformedStream(sdkQuery, trackingId, model);
+  }
+
+  /**
+   * Resume an existing session
+   */
+  async resumeSession(
+    sessionId: SessionId,
+    config?: AISessionConfig & { tabId?: string }
+  ): Promise<AsyncIterable<FlatStreamEventUnion>> {
+    if (!this.initialized) {
+      throw new Error(
+        `CustomAgentAdapter "${this.config.name}" not initialized. Call initialize() first.`
+      );
+    }
+
+    // Check if session already active
+    const existingSession = this.activeSessions.get(sessionId as string);
+    if (existingSession && existingSession.query) {
+      this.logger.info(
+        `[CustomAgentAdapter] Session ${sessionId} already active, returning existing stream`
+      );
+      return this.createTransformedStream(
+        existingSession.query,
+        sessionId,
+        existingSession.currentModel
+      );
+    }
+
+    const model = this.resolveModel(config?.model);
+
+    this.logger.info(`[CustomAgentAdapter] Resuming session: ${sessionId}`, {
+      agentName: this.config.name,
+    });
+
+    // Create abort controller for resumed session
+    const abortController = new AbortController();
+
+    // Register session
+    const session: CustomActiveSession = {
+      sessionId,
+      abortController,
+      query: null,
+      messageQueue: [],
+      resolveNext: null,
+      currentModel: model,
+    };
+    this.activeSessions.set(sessionId as string, session);
+
+    // Get SDK query function
+    const queryFn = await this.moduleLoader.getQueryFunction();
+
+    // Create user message stream
+    const userMessageStream = this.createUserMessageStream(
+      sessionId,
+      abortController
+    );
+
+    // Build query options with resume
+    const queryOptions = this.buildQueryOptions(
+      userMessageStream,
+      abortController,
+      model,
+      config?.projectPath,
+      sessionId as string
+    );
+
+    // Start SDK query with resume
+    const sdkQuery = queryFn({
+      prompt: queryOptions.prompt,
+      options: queryOptions.options as Options,
+    });
+
+    // Set query on session
+    session.query = sdkQuery;
+
+    return this.createTransformedStream(sdkQuery, sessionId, model);
+  }
+
+  /**
+   * End a chat session - abort and clean up
+   */
+  endSession(sessionId: SessionId): void {
+    const session = this.activeSessions.get(sessionId as string);
+    if (!session) {
+      this.logger.warn(
+        `[CustomAgentAdapter] Cannot end session - not found: ${sessionId}`
+      );
+      return;
+    }
+
+    this.logger.info(`[CustomAgentAdapter] Ending session: ${sessionId}`);
+
+    // Interrupt the query before aborting
+    if (session.query) {
+      session.query.interrupt().catch((err) => {
+        this.logger.debug(
+          `[CustomAgentAdapter] Interrupt cleanup for session ${sessionId}`,
+          err
+        );
+      });
+    }
+
+    // Abort the session
+    session.abortController.abort();
+
+    // Remove from active sessions
+    this.activeSessions.delete(sessionId as string);
+
+    this.logger.info(`[CustomAgentAdapter] Session ended: ${sessionId}`);
+  }
+
+  /**
+   * Send a message to an active session
+   */
+  async sendMessageToSession(
+    sessionId: SessionId,
+    content: string,
+    options?: AIMessageOptions
+  ): Promise<void> {
+    const session = this.activeSessions.get(sessionId as string);
+    if (!session) {
+      throw new Error(`[CustomAgentAdapter] Session not found: ${sessionId}`);
+    }
+
+    this.logger.info(`[CustomAgentAdapter] Sending message to ${sessionId}`, {
+      contentLength: content.length,
+    });
+
+    // Create SDK user message
+    const userMessage = this.createSdkUserMessage(content, options?.files);
+
+    // Queue message
+    session.messageQueue.push(userMessage);
+
+    // Wake the iterator if it's waiting
+    if (session.resolveNext) {
+      session.resolveNext();
+      session.resolveNext = null;
+    }
+
+    this.logger.info(`[CustomAgentAdapter] Message queued for ${sessionId}`);
+  }
+
+  /**
+   * Get current health status
+   */
+  getHealth(): ProviderHealth {
+    return { ...this.health };
+  }
+
+  /**
+   * Verify installation - SDK is bundled, always available
+   */
+  async verifyInstallation(): Promise<boolean> {
+    return true;
+  }
+
+  /**
+   * Reset adapter state
+   */
+  async reset(): Promise<void> {
+    this.logger.info(
+      `[CustomAgentAdapter] Resetting adapter "${this.config.name}"...`
+    );
+    this.dispose();
+    await this.initialize();
+  }
+
+  /**
+   * Dispose all sessions and cleanup
+   */
+  dispose(): void {
+    this.logger.info(
+      `[CustomAgentAdapter] Disposing adapter "${this.config.name}"...`
+    );
+
+    for (const [sessionId, session] of this.activeSessions.entries()) {
+      this.logger.debug(`[CustomAgentAdapter] Ending session: ${sessionId}`);
+      session.abortController.abort();
+      if (session.query) {
+        session.query.interrupt().catch((err) => {
+          this.logger.debug(
+            `[CustomAgentAdapter] Interrupt cleanup for session ${sessionId}`,
+            err
+          );
+        });
+      }
+    }
+
+    this.activeSessions.clear();
+    this.initialized = false;
+    this.health = {
+      status: 'initializing' as ProviderStatus,
+      lastCheck: Date.now(),
+    };
+
+    this.logger.info(
+      `[CustomAgentAdapter] Disposed adapter "${this.config.name}"`
+    );
+  }
+
+  // ============================================================================
+  // Private Helper Methods
+  // ============================================================================
+
+  /**
+   * Resolve which model to use for a session.
+   * Priority: explicit model param > selectedModel config > first tier mapping > fallback
+   */
+  private resolveModel(explicitModel?: string): string {
+    if (explicitModel) {
+      return explicitModel;
+    }
+
+    // Check selectedModel in config
+    if (this.config.selectedModel) {
+      return this.config.selectedModel;
+    }
+
+    // Fall back to first tier mapping
+    if (this.config.tierMappings?.sonnet) {
+      return this.config.tierMappings.sonnet;
+    }
+    if (this.config.tierMappings?.opus) {
+      return this.config.tierMappings.opus;
+    }
+    if (this.config.tierMappings?.haiku) {
+      return this.config.tierMappings.haiku;
+    }
+
+    // Final fallback - provider's first static model
+    const provider = getAnthropicProvider(this.config.providerId);
+    if (provider?.staticModels && provider.staticModels.length > 0) {
+      return provider.staticModels[0].id;
+    }
+
+    // Last resort - the SDK will use its default
+    return 'claude-sonnet-4-20250514';
+  }
+
+  /**
+   * Create a minimal SDK user message
+   */
+  private createSdkUserMessage(
+    content: string,
+    files?: readonly string[] | string[]
+  ): SDKUserMessage {
+    const textContent: UserMessageContent = [{ type: 'text', text: content }];
+
+    // Add file references as text blocks if provided
+    if (files && files.length > 0) {
+      for (const file of files) {
+        textContent.push({ type: 'text', text: `[File: ${file}]` });
+      }
+    }
+
+    return {
+      type: 'user',
+      uuid: `user-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      message: {
+        role: 'user',
+        content: textContent,
+      },
+    } as SDKUserMessage;
+  }
+
+  /**
+   * Create an async iterable user message stream for SDK consumption.
+   * Yields messages from the session's message queue, waiting when empty.
+   */
+  private createUserMessageStream(
+    sessionId: SessionId,
+    abortController: AbortController
+  ): AsyncIterable<SDKUserMessage> {
+    const activeSessions = this.activeSessions;
+    const logger = this.logger;
+
+    return {
+      async *[Symbol.asyncIterator]() {
+        while (!abortController.signal.aborted) {
+          const session = activeSessions.get(sessionId as string);
+          if (!session) {
+            logger.warn(
+              `[CustomAgentAdapter] Session ${sessionId} not found - ending stream`
+            );
+            return;
+          }
+
+          // Drain all queued messages
+          while (session.messageQueue.length > 0) {
+            const message = session.messageQueue.shift();
+            if (message) {
+              logger.debug(
+                `[CustomAgentAdapter] Yielding message (${session.messageQueue.length} remaining)`
+              );
+              yield message;
+            }
+            if (abortController.signal.aborted) return;
+          }
+
+          // Wait for next message
+          const waitResult = await new Promise<'message' | 'aborted'>(
+            (resolve) => {
+              const abortHandler = () => resolve('aborted');
+              abortController.signal.addEventListener('abort', abortHandler);
+
+              const currentSession = activeSessions.get(sessionId as string);
+              if (!currentSession) {
+                abortController.signal.removeEventListener(
+                  'abort',
+                  abortHandler
+                );
+                resolve('aborted');
+                return;
+              }
+
+              // Check queue again before waiting (race condition guard)
+              if (currentSession.messageQueue.length > 0) {
+                abortController.signal.removeEventListener(
+                  'abort',
+                  abortHandler
+                );
+                resolve('message');
+                return;
+              }
+
+              // Set wake callback
+              currentSession.resolveNext = () => {
+                abortController.signal.removeEventListener(
+                  'abort',
+                  abortHandler
+                );
+                resolve('message');
+              };
+            }
+          );
+
+          if (waitResult === 'aborted') {
+            logger.debug(
+              `[CustomAgentAdapter] Stream ended for ${sessionId}: aborted`
+            );
+            return;
+          }
+        }
+      },
+    };
+  }
+
+  /**
+   * Build SDK query options with isolated AuthEnv
+   */
+  private buildQueryOptions(
+    userMessageStream: AsyncIterable<SDKUserMessage>,
+    abortController: AbortController,
+    model: string,
+    projectPath?: string,
+    resumeSessionId?: string
+  ): {
+    prompt: AsyncIterable<SDKUserMessage>;
+    options: Record<string, unknown>;
+  } {
+    const cwd = projectPath || process.cwd();
+
+    // Create permission callback
+    const canUseTool = this.permissionHandler.createCallback();
+
+    this.logger.info('[CustomAgentAdapter] Building query options', {
+      model,
+      cwd,
+      isResume: !!resumeSessionId,
+      baseUrl: this.authEnv.ANTHROPIC_BASE_URL,
+    });
+
+    return {
+      prompt: userMessageStream,
+      options: {
+        abortController,
+        cwd,
+        model,
+        resume: resumeSessionId,
+        systemPrompt: {
+          type: 'preset' as const,
+          preset: 'claude_code' as const,
+        },
+        tools: {
+          type: 'preset' as const,
+          preset: 'claude_code' as const,
+        },
+        mcpServers: {},
+        permissionMode: 'default',
+        canUseTool,
+        includePartialMessages: true,
+        settingSources: ['user', 'project', 'local'] as const,
+        // Merge isolated AuthEnv with process.env
+        env: { ...process.env, ...this.authEnv } as Record<
+          string,
+          string | undefined
+        >,
+        stderr: (data: string) => {
+          this.logger.error(
+            `[CustomAgentAdapter] CLI stderr (${this.config.name}): ${data}`
+          );
+        },
+      },
+    };
+  }
+
+  /**
+   * Create a transformed async iterable stream that converts SDK messages
+   * to FlatStreamEventUnion events for UI rendering.
+   *
+   * This is the custom adapter's own stream transformation, independent from
+   * the DI-injected StreamTransformer used by SdkAgentAdapter.
+   */
+  private createTransformedStream(
+    sdkQuery: AsyncIterable<SDKMessage>,
+    sessionId: SessionId,
+    initialModel: string
+  ): AsyncIterable<FlatStreamEventUnion> {
+    const logger = this.logger;
+    const messageTransformer = this.messageTransformer;
+    const authEnv = this.authEnv;
+
+    return {
+      async *[Symbol.asyncIterator]() {
+        let sdkMessageCount = 0;
+        let yieldedEventCount = 0;
+        let effectiveSessionId = sessionId;
+
+        try {
+          for await (const sdkMessage of sdkQuery) {
+            sdkMessageCount++;
+
+            // Extract real session ID from system 'init' message
+            if (isSystemInit(sdkMessage)) {
+              const realSessionId = sdkMessage.session_id;
+              effectiveSessionId = realSessionId as SessionId;
+              logger.info(
+                `[CustomAgentAdapter] Real session ID resolved: ${realSessionId}`
+              );
+            }
+
+            // Extract stats from result message (log for debugging, not emitted)
+            if (isResultMessage(sdkMessage)) {
+              const resolvedModel = resolveActualModelForPricing(
+                initialModel,
+                authEnv
+              );
+              const totalCost = calculateMessageCost(resolvedModel, {
+                input: sdkMessage.usage.input_tokens,
+                output: sdkMessage.usage.output_tokens,
+                cacheHit: sdkMessage.usage.cache_read_input_tokens ?? 0,
+                cacheCreation:
+                  sdkMessage.usage.cache_creation_input_tokens ?? 0,
+              });
+              logger.info(
+                `[CustomAgentAdapter] Result stats: cost=$${totalCost.toFixed(
+                  4
+                )}, ` +
+                  `tokens=${sdkMessage.usage.input_tokens}in/${sdkMessage.usage.output_tokens}out, ` +
+                  `duration=${sdkMessage.duration_ms}ms`
+              );
+            }
+
+            // Transform processable message types to flat events
+            if (
+              sdkMessage.type === 'stream_event' ||
+              sdkMessage.type === 'assistant' ||
+              sdkMessage.type === 'user' ||
+              isCompactBoundary(sdkMessage)
+            ) {
+              const flatEvents = messageTransformer.transform(
+                sdkMessage,
+                effectiveSessionId
+              );
+
+              for (const event of flatEvents) {
+                yieldedEventCount++;
+                yield event;
+              }
+            }
+          }
+
+          logger.info(
+            `[CustomAgentAdapter] Stream ended for ${sessionId}: ${sdkMessageCount} SDK messages, ${yieldedEventCount} events yielded`
+          );
+        } catch (error) {
+          const errorObj =
+            error instanceof Error ? error : new Error(String(error));
+
+          // Check if this is a user-initiated abort
+          const lowerMessage = errorObj.message.toLowerCase();
+          const isUserAbort =
+            lowerMessage.includes('aborted by user') ||
+            lowerMessage.includes('abort') ||
+            lowerMessage.includes('cancelled') ||
+            lowerMessage.includes('canceled');
+
+          if (isUserAbort) {
+            logger.info(
+              `[CustomAgentAdapter] Session ${sessionId} aborted by user`
+            );
+          } else {
+            logger.error(
+              `[CustomAgentAdapter] Session ${sessionId} error: ${errorObj.message}`,
+              errorObj
+            );
+
+            // Check for auth errors
+            const isAuthError =
+              errorObj.message.includes('401') ||
+              lowerMessage.includes('unauthorized') ||
+              lowerMessage.includes('authentication failed') ||
+              lowerMessage.includes('invalid api key') ||
+              lowerMessage.includes('invalid token') ||
+              lowerMessage.includes('api_key');
+
+            if (isAuthError) {
+              logger.error(
+                `[CustomAgentAdapter] AUTHENTICATION ERROR for "${initialModel}" - check API key configuration`
+              );
+            }
+          }
+
+          throw error;
+        } finally {
+          logger.info(`[CustomAgentAdapter] Session ${sessionId} stream ended`);
+        }
+      },
+    };
+  }
+}

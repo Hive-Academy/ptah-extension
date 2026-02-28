@@ -23,6 +23,7 @@ import {
   ClaudeRpcService,
   VSCodeService,
   ModelStateService,
+  CustomAgentStateService,
 } from '@ptah-extension/core';
 import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
@@ -47,6 +48,7 @@ export class MessageSenderService {
   private readonly sessionManager = inject(SessionManager);
   private readonly validator = inject(MessageValidationService);
   private readonly modelState = inject(ModelStateService);
+  private readonly customAgentState = inject(CustomAgentStateService);
 
   // ============================================================================
   // HELPER METHODS
@@ -291,11 +293,15 @@ export class MessageSenderService {
 
       // Call RPC to start NEW chat
       // TASK_2025_092: Use tabId for frontend correlation instead of placeholder sessionId
+      // TASK_2025_167: Pass customAgentId if a custom agent is selected
+      const customAgentId =
+        this.customAgentState.selectedAgentId() ?? undefined;
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
         tabId: activeTabId, // Frontend correlation ID
-        name: activeTab?.name, // ✅ Send session name to backend
+        name: activeTab?.name, // Send session name to backend
         workspacePath,
+        customAgentId, // TASK_2025_167: Route to custom agent adapter
         options: {
           model: this.modelState.currentModel(),
           ...(files ? { files } : {}),

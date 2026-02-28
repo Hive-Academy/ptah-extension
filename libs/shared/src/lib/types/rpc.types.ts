@@ -27,6 +27,7 @@ import type {
   ProjectIntelligence,
   QualityHistoryEntry,
 } from './quality-assessment.types';
+import type { CustomAgentSummary } from './custom-agent.types';
 
 // ============================================================
 // Chat RPC Types
@@ -45,6 +46,8 @@ export interface ChatStartParams {
   name?: string;
   /** Workspace path for context */
   workspacePath?: string;
+  /** Custom agent instance ID (TASK_2025_167: routes to custom agent adapter) */
+  customAgentId?: string;
   /** Additional options */
   options?: {
     model?: string;
@@ -122,6 +125,8 @@ export interface ChatResumeParams {
   workspacePath?: string;
   /** Model to use (if different from session's original model) */
   model?: string;
+  /** Custom agent instance ID (TASK_2025_167: routes to custom agent adapter) */
+  customAgentId?: string;
 }
 
 /** Response from chat:resume RPC method */
@@ -1267,6 +1272,92 @@ export interface AgentSetConfigParams {
 }
 
 // ============================================================
+// Custom Agent RPC Types (TASK_2025_167)
+// ============================================================
+
+/** Parameters for customAgent:list RPC method */
+export type CustomAgentListParams = Record<string, never>;
+
+/** Response from customAgent:list RPC method */
+export interface CustomAgentListResult {
+  agents: CustomAgentSummary[];
+}
+
+/** Parameters for customAgent:create RPC method */
+export interface CustomAgentCreateParams {
+  name: string;
+  providerId: string;
+  apiKey: string;
+}
+
+/** Response from customAgent:create RPC method */
+export interface CustomAgentCreateResult {
+  success: boolean;
+  agent?: CustomAgentSummary;
+  error?: string;
+}
+
+/** Parameters for customAgent:update RPC method */
+export interface CustomAgentUpdateParams {
+  id: string;
+  name?: string;
+  enabled?: boolean;
+  apiKey?: string;
+  tierMappings?: {
+    sonnet?: string;
+    opus?: string;
+    haiku?: string;
+  };
+  selectedModel?: string;
+}
+
+/** Response from customAgent:update RPC method */
+export interface CustomAgentUpdateResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for customAgent:delete RPC method */
+export interface CustomAgentDeleteParams {
+  id: string;
+}
+
+/** Response from customAgent:delete RPC method */
+export interface CustomAgentDeleteResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Parameters for customAgent:testConnection RPC method */
+export interface CustomAgentTestConnectionParams {
+  id: string;
+}
+
+/** Response from customAgent:testConnection RPC method */
+export interface CustomAgentTestConnectionResult {
+  success: boolean;
+  latencyMs?: number;
+  error?: string;
+}
+
+/** Parameters for customAgent:listModels RPC method */
+export interface CustomAgentListModelsParams {
+  id: string;
+}
+
+/** Response from customAgent:listModels RPC method */
+export interface CustomAgentListModelsResult {
+  models: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    contextLength?: number;
+  }>;
+  isStatic: boolean;
+  error?: string;
+}
+
+// ============================================================
 // RPC Method Registry (Compile-Time Enforcement)
 // ============================================================
 
@@ -1560,6 +1651,32 @@ export interface RpcMethodRegistry {
     params: void;
     result: AgentListCliModelsResult;
   };
+
+  // ---- Custom Agent Methods (TASK_2025_167) ----
+  'customAgent:list': {
+    params: CustomAgentListParams;
+    result: CustomAgentListResult;
+  };
+  'customAgent:create': {
+    params: CustomAgentCreateParams;
+    result: CustomAgentCreateResult;
+  };
+  'customAgent:update': {
+    params: CustomAgentUpdateParams;
+    result: CustomAgentUpdateResult;
+  };
+  'customAgent:delete': {
+    params: CustomAgentDeleteParams;
+    result: CustomAgentDeleteResult;
+  };
+  'customAgent:testConnection': {
+    params: CustomAgentTestConnectionParams;
+    result: CustomAgentTestConnectionResult;
+  };
+  'customAgent:listModels': {
+    params: CustomAgentListModelsParams;
+    result: CustomAgentListModelsResult;
+  };
 }
 
 /**
@@ -1680,6 +1797,14 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'agent:setConfig',
   'agent:detectClis',
   'agent:listCliModels',
+
+  // Custom Agent Methods (TASK_2025_167)
+  'customAgent:list',
+  'customAgent:create',
+  'customAgent:update',
+  'customAgent:delete',
+  'customAgent:testConnection',
+  'customAgent:listModels',
 ] as const;
 
 /**

@@ -26,6 +26,7 @@ import {
   SessionHistoryReaderService,
   SDK_TOKENS,
   PluginLoaderService,
+  CustomAgentRegistry,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-sdk';
 
@@ -77,7 +78,9 @@ export class ChatRpcHandlers {
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
-    private readonly agentSessionWatcher: AgentSessionWatcherService
+    private readonly agentSessionWatcher: AgentSessionWatcherService,
+    @inject(SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY)
+    private readonly customAgentRegistry: CustomAgentRegistry
   ) {}
 
   /**
@@ -224,6 +227,179 @@ export class ChatRpcHandlers {
   }
 
   /**
+   * Track which sessions are owned by custom agent adapters.
+   * Maps sessionId (or tabId used as sessionId) -> customAgentId.
+   * Used by chat:continue and chat:abort to delegate to the correct adapter.
+   */
+  private customAgentSessions = new Map<string, string>();
+
+  // ============================================================================
+  // CUSTOM AGENT DISPATCH METHODS (TASK_2025_167)
+  // ============================================================================
+
+  /**
+   * Handle chat:start for custom agent sessions.
+   *
+   * Gets the adapter from CustomAgentRegistry, starts a chat session,
+   * and streams events to the webview using the same streaming mechanism
+   * as the main SdkAgentAdapter.
+   */
+  private async handleCustomAgentStart(
+    params: ChatStartParams
+  ): Promise<ChatStartResult> {
+    const { prompt, tabId, workspacePath, options, name } = params;
+    const agentId = params.customAgentId as string; // Guaranteed non-null by caller
+
+    this.logger.info('[RPC] chat:start - custom agent dispatch', {
+      tabId,
+      customAgentId: agentId,
+      workspacePath,
+    });
+
+    // Get the adapter from the registry
+    const adapter = await this.customAgentRegistry.getAdapter(agentId);
+    if (!adapter) {
+      this.logger.error(`[RPC] Custom agent adapter not found: ${agentId}`);
+      return {
+        success: false,
+        error: `Custom agent not found or not configured: ${agentId}`,
+      };
+    }
+
+    // Start the custom agent session
+    const stream = await adapter.startChatSession({
+      tabId,
+      workspaceId: workspacePath,
+      model: options?.model,
+      systemPrompt: options?.systemPrompt,
+      projectPath: workspacePath,
+      name,
+      prompt,
+      files: options?.files,
+    });
+
+    // Track this session as belonging to the custom agent
+    // Use tabId as the initial session key (real sessionId comes later via stream events)
+    this.customAgentSessions.set(tabId, agentId);
+
+    // Stream events to webview using the same mechanism as the main adapter
+    this.streamExecutionNodesToWebview(tabId as SessionId, stream, tabId);
+
+    this.logger.info('[RPC] chat:start - custom agent session started', {
+      tabId,
+      customAgentId: agentId,
+      agentName: adapter.info.name,
+    });
+
+    return { success: true };
+  }
+
+  /**
+   * Handle chat:continue for custom agent sessions.
+   *
+   * Checks if the session belongs to a custom agent and delegates
+   * message sending to the correct adapter.
+   */
+  private async handleCustomAgentContinue(
+    params: ChatContinueParams
+  ): Promise<ChatContinueResult> {
+    const { prompt, sessionId, tabId } = params;
+    const customAgentId =
+      this.customAgentSessions.get(sessionId as string) ||
+      this.customAgentSessions.get(tabId);
+
+    if (!customAgentId) {
+      // Not a custom agent session - caller should fall through to main adapter
+      return { success: false, error: '__NOT_CUSTOM_AGENT__' };
+    }
+
+    this.logger.info('[RPC] chat:continue - custom agent dispatch', {
+      sessionId,
+      tabId,
+      customAgentId,
+    });
+
+    const adapter = await this.customAgentRegistry.getAdapter(customAgentId);
+    if (!adapter) {
+      this.logger.error(
+        `[RPC] Custom agent adapter not found for continue: ${customAgentId}`
+      );
+      return {
+        success: false,
+        error: `Custom agent not found: ${customAgentId}`,
+      };
+    }
+
+    // Check if the session needs to be resumed first
+    const health = adapter.getHealth();
+    if (health.status !== 'available') {
+      this.logger.warn(
+        `[RPC] Custom agent adapter not available for continue: ${customAgentId}`,
+        { status: health.status }
+      );
+      return {
+        success: false,
+        error: `Custom agent not available: ${
+          health.errorMessage || health.status
+        }`,
+      };
+    }
+
+    // Send message to the existing session
+    const files = params.files ?? [];
+    await adapter.sendMessageToSession(sessionId, prompt, { files });
+
+    return { success: true, sessionId };
+  }
+
+  /**
+   * Handle chat:abort for custom agent sessions.
+   */
+  private async handleCustomAgentAbort(
+    params: ChatAbortParams
+  ): Promise<ChatAbortResult> {
+    const { sessionId } = params;
+    const customAgentId = this.customAgentSessions.get(sessionId as string);
+
+    if (!customAgentId) {
+      // Not a custom agent session
+      return { success: false, error: '__NOT_CUSTOM_AGENT__' };
+    }
+
+    this.logger.info('[RPC] chat:abort - custom agent dispatch', {
+      sessionId,
+      customAgentId,
+    });
+
+    const adapter = await this.customAgentRegistry.getAdapter(customAgentId);
+    if (adapter) {
+      adapter.endSession(sessionId);
+    }
+
+    // Clean up tracking
+    this.customAgentSessions.delete(sessionId as string);
+
+    return { success: true };
+  }
+
+  /**
+   * Track a custom agent session by its real session ID.
+   * Called when SESSION_ID_RESOLVED is received for a custom agent session.
+   */
+  trackCustomAgentSession(tabId: string, realSessionId: string): void {
+    const customAgentId = this.customAgentSessions.get(tabId);
+    if (customAgentId) {
+      // Also map the real session ID to the custom agent
+      this.customAgentSessions.set(realSessionId, customAgentId);
+      this.logger.debug('[RPC] Custom agent session ID tracked', {
+        tabId,
+        realSessionId,
+        customAgentId,
+      });
+    }
+  }
+
+  /**
    * Register all chat RPC methods
    */
   register(): void {
@@ -260,7 +436,14 @@ export class ChatRpcHandlers {
             tabId,
             workspacePath,
             sessionName: name,
+            customAgentId: params.customAgentId,
           });
+
+          // TASK_2025_167: Custom agent dispatch
+          // If customAgentId is set, delegate to the custom agent adapter
+          if (params.customAgentId) {
+            return await this.handleCustomAgentStart(params);
+          }
 
           // TASK_2025_108: Get license status for premium feature gating
           const licenseStatus = await this.licenseService.verifyLicense();
@@ -366,6 +549,14 @@ export class ChatRpcHandlers {
             tabId,
             sessionName: name,
           });
+
+          // TASK_2025_167: Check if this is a custom agent session
+          const customAgentResult = await this.handleCustomAgentContinue(
+            params
+          );
+          if (customAgentResult.error !== '__NOT_CUSTOM_AGENT__') {
+            return customAgentResult;
+          }
 
           // Ensure MCP server is registered in .mcp.json for subagent discovery (premium only)
           // Must run outside the resume block — active sessions also spawn subagents
@@ -615,7 +806,19 @@ IMPORTANT INSTRUCTIONS:
             workspacePath: workspacePath || '(empty)',
             resolvedWorkspacePath,
             usedFallback: !workspacePath,
+            customAgentId: params.customAgentId,
           });
+
+          // TASK_2025_167: Track custom agent session for subsequent chat:continue/abort
+          if (params.customAgentId) {
+            this.customAgentSessions.set(
+              sessionId as string,
+              params.customAgentId
+            );
+            if (params.tabId) {
+              this.customAgentSessions.set(params.tabId, params.customAgentId);
+            }
+          }
 
           // TASK_2025_092 FIX: Read full session history as FlatStreamEventUnion[]
           // This includes tool calls, thinking blocks, agent spawns, etc.
@@ -688,6 +891,12 @@ IMPORTANT INSTRUCTIONS:
         try {
           const { sessionId } = params;
           this.logger.debug('RPC: chat:abort called', { sessionId });
+
+          // TASK_2025_167: Check if this is a custom agent session
+          const customAbortResult = await this.handleCustomAgentAbort(params);
+          if (customAbortResult.error !== '__NOT_CUSTOM_AGENT__') {
+            return customAbortResult;
+          }
 
           await this.sdkAdapter.interruptSession(sessionId);
 

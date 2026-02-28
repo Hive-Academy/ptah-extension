@@ -161,6 +161,12 @@ export {
 } from './lib/helpers';
 
 // ============================================================
+// Custom Agent (TASK_2025_167)
+// User-configured adapters for Anthropic-compatible providers
+// ============================================================
+export { CustomAgentAdapter, CustomAgentRegistry } from './lib/custom-agent';
+
+// ============================================================
 // Stream Processing (shared SDK stream processor)
 // ============================================================
 export { SdkStreamProcessor } from './lib/stream-processing';
