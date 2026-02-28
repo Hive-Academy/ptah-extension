@@ -88,6 +88,13 @@ export class AtTriggerDirective implements OnInit {
   private readonly enabled$ = toObservable(this.enabled);
 
   /**
+   * Emitted IMMEDIATELY when @ trigger becomes active (inactive→active transition).
+   * Use this to open the dropdown without waiting for debounce.
+   * NOT debounced - fires on the first detection of @.
+   */
+  readonly atActivated = output<AtTriggerEvent>();
+
+  /**
    * Emitted when @ trigger is detected with valid query
    * Debounced by 150ms
    */
@@ -148,13 +155,23 @@ export class AtTriggerDirective implements OnInit {
     triggerState$
       .pipe(pairwise(), takeUntilDestroyed(this.destroyRef))
       .subscribe(([prev, curr]) => {
+        // Emit activated immediately on inactive→active transition
+        // This allows the parent to open the dropdown without waiting for debounce
+        if (!prev.isActive && curr.isActive) {
+          this.atActivated.emit({
+            query: curr.query,
+            cursorPosition: curr.cursorPosition,
+            triggerPosition: curr.triggerPosition,
+          });
+        }
+
         // Emit close immediately when transitioning from active to inactive
         if (prev.isActive && !curr.isActive) {
           this.atClosed.emit();
         }
 
-        // Emit query change immediately
-        if (curr.isActive && curr.query !== prev.query) {
+        // Emit query change immediately (including on activation)
+        if (curr.isActive && (!prev.isActive || curr.query !== prev.query)) {
           this.atQueryChanged.emit(curr.query);
         }
       });

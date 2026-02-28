@@ -80,6 +80,11 @@ export class SlashTriggerDirective implements OnInit {
   private readonly enabled$ = toObservable(this.enabled);
 
   // Outputs (prefixed with 'slash' to avoid conflicts with other trigger directives)
+  /**
+   * Emitted IMMEDIATELY when / trigger becomes active (inactive→active transition).
+   * Use this to open the dropdown without waiting for debounce.
+   */
+  readonly slashActivated = output<SlashTriggerEvent>();
   readonly slashTriggered = output<SlashTriggerEvent>();
   readonly slashClosed = output<void>();
   readonly slashQueryChanged = output<string>();
@@ -150,13 +155,21 @@ export class SlashTriggerDirective implements OnInit {
     triggerState$
       .pipe(pairwise(), takeUntilDestroyed(this.destroyRef))
       .subscribe(([prev, curr]) => {
+        // Emit activated immediately on inactive→active transition
+        if (!prev.isActive && curr.isActive) {
+          this.slashActivated.emit({
+            query: curr.query,
+            cursorPosition: curr.cursorPosition,
+          });
+        }
+
         // Emit close immediately when transitioning from active to inactive
         if (prev.isActive && !curr.isActive) {
           this.slashClosed.emit();
         }
 
-        // Emit query change immediately
-        if (curr.isActive && curr.query !== prev.query) {
+        // Emit query change immediately (including on activation)
+        if (curr.isActive && (!prev.isActive || curr.query !== prev.query)) {
           this.slashQueryChanged.emit(curr.query);
         }
       });

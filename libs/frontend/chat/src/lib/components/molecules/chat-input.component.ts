@@ -116,10 +116,12 @@ import { AgentSelectorComponent } from './agent-selector.component';
             [attr.aria-activedescendant]="getActiveDescendantId()"
             aria-autocomplete="list"
             ptahAtTrigger
+            (atActivated)="handleAtActivated($event)"
             (atTriggered)="handleAtTriggered($event)"
             (atClosed)="handleAtClosed()"
             (atQueryChanged)="handleQueryChanged($event)"
             ptahSlashTrigger
+            (slashActivated)="handleSlashActivated($event)"
             (slashTriggered)="handleSlashTriggered($event)"
             (slashClosed)="handleSlashClosed()"
             (slashQueryChanged)="handleQueryChanged($event)"
@@ -304,16 +306,19 @@ export class ChatInputComponent implements OnInit {
 
   /**
    * Computed signal for filtered suggestions
-   * Replaces the logic previously held inside the dropdown
+   * Uses FilePickerService.searchFiles() for relevance-based sorting (exact match first,
+   * startsWith second, then by type preference, then alphabetical)
    */
   readonly filteredSuggestions = computed(() => {
     const mode = this._suggestionMode();
     const query = this._currentQuery().toLowerCase().trim();
 
     if (mode === 'at-trigger') {
-      const allFiles = this.filePicker.workspaceFiles().map((f) => {
-        const { type: originalType, ...rest } = f;
-        const isFolder = originalType === 'directory';
+      // Use searchFiles() for relevance-based filtering and sorting
+      const searchResults = this.filePicker.searchFiles(query);
+      return searchResults.map((f) => {
+        const isFolder = f.type === 'directory';
+        const { type: _originalType, ...rest } = f;
         return {
           type: 'file' as const,
           icon: isFolder ? '📁' : '📄',
@@ -322,14 +327,6 @@ export class ChatInputComponent implements OnInit {
           ...rest,
         } as SuggestionItem;
       });
-
-      if (!query) return allFiles;
-      return allFiles.filter(
-        (f) =>
-          f.type === 'file' &&
-          (f.name.toLowerCase().includes(query) ||
-            f.path.toLowerCase().includes(query))
-      );
     }
 
     if (mode === 'slash-trigger') {
@@ -367,15 +364,24 @@ export class ChatInputComponent implements OnInit {
   // ============ DIRECTIVE EVENT HANDLERS ============
 
   /**
-   * Handle @ trigger from AtTriggerDirective
-   * Opens dropdown with ALL files (dropdown handles filtering)
+   * Handle @ trigger activation (IMMEDIATE - no debounce)
+   * Opens dropdown instantly when @ is first detected.
    */
-  handleAtTriggered(event: AtTriggerEvent): void {
+  handleAtActivated(event: AtTriggerEvent): void {
     this._suggestionMode.set('at-trigger');
     this._triggerPosition.set(event.triggerPosition);
     this._currentQuery.set(event.query);
     this._showSuggestions.set(true);
     this.fetchAtSuggestions();
+  }
+
+  /**
+   * Handle debounced @ trigger from AtTriggerDirective
+   * Only updates trigger position (may shift if user edits before @).
+   * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
+   */
+  handleAtTriggered(event: AtTriggerEvent): void {
+    this._triggerPosition.set(event.triggerPosition);
   }
 
   /**
@@ -389,15 +395,23 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * Handle / trigger from SlashTriggerDirective
-   * Opens dropdown with ALL commands (dropdown handles filtering)
+   * Handle / trigger activation (IMMEDIATE - no debounce)
+   * Opens dropdown instantly when / is first detected.
    */
-  handleSlashTriggered(event: SlashTriggerEvent): void {
+  handleSlashActivated(event: SlashTriggerEvent): void {
     this._suggestionMode.set('slash-trigger');
     this._triggerPosition.set(0); // Slash always starts at position 0
     this._currentQuery.set(event.query);
     this._showSuggestions.set(true);
     this.fetchCommandSuggestions();
+  }
+
+  /**
+   * Handle debounced / trigger from SlashTriggerDirective
+   * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
+   */
+  handleSlashTriggered(_event: SlashTriggerEvent): void {
+    // Debounced trigger - no query update needed
   }
 
   /**
