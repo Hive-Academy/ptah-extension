@@ -453,7 +453,10 @@ export async function activate(
         const cliPluginSync = DIContainer.getContainer().resolve(
           TOKENS.CLI_PLUGIN_SYNC_SERVICE
         ) as {
-          initialize: (globalState: vscode.Memento, extensionPath: string) => void;
+          initialize: (
+            globalState: vscode.Memento,
+            extensionPath: string
+          ) => void;
           syncOnActivation: (enabledPluginIds: string[]) => Promise<unknown[]>;
         };
 
@@ -496,7 +499,9 @@ export async function activate(
         });
       }
     } else {
-      logger.debug('CLI skill sync skipped (Community tier - Pro feature only)');
+      logger.debug(
+        'CLI skill sync skipped (Community tier - Pro feature only)'
+      );
     }
     console.log('[Activate] Step 7.1.6: CLI skill sync initiated');
 
@@ -673,6 +678,20 @@ export async function activate(
       vscode.window.showWarningMessage(
         'Your Ptah license has expired. Please renew your subscription to continue using the extension.'
       );
+
+      // TASK_2025_160: Clean up CLI skills and agents on premium expiry
+      try {
+        const cliPluginSync = DIContainer.getContainer().resolve(
+          TOKENS.CLI_PLUGIN_SYNC_SERVICE
+        ) as { cleanupAll: () => Promise<void> };
+        cliPluginSync.cleanupAll().catch((err: unknown) => {
+          logger.warn('CLI plugin cleanup on expiry failed (non-fatal)', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      } catch {
+        // Service not initialized — nothing to clean up
+      }
     });
 
     console.log('[Activate] Step 13: License status watcher initialized');

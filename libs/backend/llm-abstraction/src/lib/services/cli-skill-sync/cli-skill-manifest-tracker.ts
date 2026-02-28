@@ -5,13 +5,18 @@
  * Uses VS Code globalState (Memento) for persistence, similar to
  * PluginLoaderService's use of workspaceState (plugin-loader.service.ts:163-171).
  *
- * Content hashing uses file paths + sizes + mtimes for fast comparison
- * without reading file contents. This is sufficient to detect when
- * plugin files have changed (extension updates, plugin additions/removals).
+ * Content hashing uses relative file paths + file sizes for change detection.
+ * Uses crypto.createHash('sha256') for collision-resistant hashing.
+ *
+ * Design decisions:
+ * - Relative paths (from plugin root) make hashes portable across reinstalls
+ * - File size (not mtime) avoids false positives from git operations
+ * - SHA-256 eliminates collision risk of DJB2's 32-bit space
  */
 
-import { readdir, stat } from 'fs/promises';
-import { join } from 'path';
+import { createHash } from 'crypto';
+import { readdir, lstat } from 'fs/promises';
+import { join, relative } from 'path';
 import type * as vscode from 'vscode';
 import type { CliTarget, CliPluginSyncState } from '@ptah-extension/shared';
 
@@ -107,11 +112,10 @@ export class CliSkillManifestTracker {
   /**
    * Compute a content hash for plugin directories.
    *
-   * Uses file paths + sizes + modification times for fast hashing
-   * without reading file contents. This detects:
-   * - Files added or removed
-   * - Files modified (size or mtime change)
-   * - Directory structure changes
+   * Uses relative file paths + file sizes for stable hashing:
+   * - Relative paths: hash doesn't change on extension reinstall
+   * - File size only (no mtime): git operations don't invalidate hash
+   * - SHA-256: collision-resistant (vs DJB2's 32-bit space)
    */
   async computeContentHash(pluginPaths: string[]): Promise<string> {
     const entries: string[] = [];
@@ -119,25 +123,30 @@ export class CliSkillManifestTracker {
     for (const pluginPath of pluginPaths.sort()) {
       try {
         const skillsDir = join(pluginPath, 'skills');
-        await this.collectFileEntries(skillsDir, entries);
+        await this.collectFileEntries(skillsDir, pluginPath, entries);
       } catch {
         // Plugin path doesn't exist or not accessible, skip
       }
     }
 
-    // Simple hash: sort entries and compute a numeric hash
-    // This is not cryptographic, just a fast fingerprint for change detection
-    return simpleHash(entries.join('|'));
+    // SHA-256 hash for collision resistance
+    return createHash('sha256')
+      .update(entries.join('|'))
+      .digest('hex')
+      .substring(0, 16); // 16 hex chars = 64 bits, more than sufficient
   }
 
   /**
    * Recursively collect file metadata entries for hashing.
+   * Uses lstat() to avoid following symlinks.
+   * Uses relative paths from pluginRoot for portability.
    */
   private async collectFileEntries(
     dirPath: string,
+    pluginRoot: string,
     entries: string[]
   ): Promise<void> {
-    let dirEntries;
+    let dirEntries: string[];
     try {
       dirEntries = await readdir(dirPath);
     } catch {
@@ -147,12 +156,19 @@ export class CliSkillManifestTracker {
     for (const entry of dirEntries.sort()) {
       const fullPath = join(dirPath, entry);
       try {
-        const fileStat = await stat(fullPath);
+        // Use lstat() to detect symlinks without following them
+        const fileStat = await lstat(fullPath);
+
+        if (fileStat.isSymbolicLink()) {
+          continue; // Skip symlinks
+        }
+
         if (fileStat.isDirectory()) {
-          await this.collectFileEntries(fullPath, entries);
+          await this.collectFileEntries(fullPath, pluginRoot, entries);
         } else if (fileStat.isFile()) {
-          // Include path, size, and mtime in hash input
-          entries.push(`${fullPath}:${fileStat.size}:${fileStat.mtimeMs}`);
+          // Use relative path + size (no mtime) for stable hashing
+          const relPath = relative(pluginRoot, fullPath);
+          entries.push(`${relPath}:${fileStat.size}`);
         }
       } catch {
         // Skip inaccessible entries
@@ -177,21 +193,4 @@ export class CliSkillManifestTracker {
     }
     await this.globalState.update(SYNC_STATE_KEY, state);
   }
-}
-
-/**
- * Simple non-cryptographic hash for change detection.
- * Produces a hex string from a string input.
- *
- * Uses DJB2 hash algorithm -- fast and produces good distribution
- * for file path strings. Not suitable for security, but perfect
- * for content change detection.
- */
-function simpleHash(input: string): string {
-  let hash = 5381;
-  for (let i = 0; i < input.length; i++) {
-    hash = (hash * 33) ^ input.charCodeAt(i);
-  }
-  // Convert to unsigned 32-bit and then to hex string
-  return (hash >>> 0).toString(16).padStart(8, '0');
 }

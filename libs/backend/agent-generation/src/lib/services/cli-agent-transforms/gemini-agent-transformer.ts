@@ -5,9 +5,13 @@
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
  *
- * Target: ~/.gemini/agents/{agent-id}.md
+ * Target: ~/.gemini/agents/ptah-{agent-id}.md
  * Gemini CLI auto-discovers agents from ~/.gemini/agents/ directory.
- * Invoked via `gemini --agent backend-developer` or `gemini -a backend-developer`.
+ * Invoked via `gemini --agent ptah-backend-developer` or `gemini -a ptah-backend-developer`.
+ *
+ * Agent files are prefixed with `ptah-` for:
+ * 1. Namespace separation from user-created agents
+ * 2. Deterministic cleanup on premium expiry
  */
 
 import { homedir } from 'os';
@@ -15,7 +19,7 @@ import { join } from 'path';
 import type { CliAgentTransformResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
-import { transformAgentContent } from './transform-rules';
+import { transformAgentContent, extractAgentId } from './transform-rules';
 
 /**
  * Transforms Claude-format agent markdown to Gemini CLI format.
@@ -32,12 +36,11 @@ export class GeminiAgentTransformer implements ICliAgentTransformer {
   readonly target = 'gemini' as const;
 
   transform(agent: GeneratedAgent): CliAgentTransformResult {
-    // Extract agent ID from file path
+    // Extract agent ID using cross-platform path.basename()
     const agentId = extractAgentId(agent.filePath);
 
-    // Extract description from agent content frontmatter or variables
-    const description =
-      agent.variables['description'] || `${agentId} agent`;
+    // Extract description from agent variables
+    const description = agent.variables['description'] || `${agentId} agent`;
 
     // Apply all transformations
     const content = transformAgentContent(
@@ -47,13 +50,8 @@ export class GeminiAgentTransformer implements ICliAgentTransformer {
       description
     );
 
-    // Target path: ~/.gemini/agents/{agent-id}.md
-    const filePath = join(
-      homedir(),
-      '.gemini',
-      'agents',
-      `${agentId}.md`
-    );
+    // Target path: ~/.gemini/agents/ptah-{agent-id}.md (prefixed for cleanup)
+    const filePath = join(homedir(), '.gemini', 'agents', `ptah-${agentId}.md`);
 
     return {
       cli: this.target,
@@ -62,13 +60,4 @@ export class GeminiAgentTransformer implements ICliAgentTransformer {
       filePath,
     };
   }
-}
-
-/**
- * Extract agent ID from file path.
- */
-function extractAgentId(filePath: string): string {
-  const fileName =
-    filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
-  return fileName.replace(/\.md$/i, '');
 }

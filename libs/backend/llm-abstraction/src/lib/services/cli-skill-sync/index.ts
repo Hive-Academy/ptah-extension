@@ -8,3 +8,7 @@ export type { ICliSkillInstaller } from './cli-skill-installer.interface';
 export { CopilotSkillInstaller } from './copilot-skill-installer';
 export { GeminiSkillInstaller } from './gemini-skill-installer';
 export { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
+export {
+  stripAllowedToolsFromFrontmatter,
+  copyDirectoryRecursive,
+} from './skill-sync-utils';

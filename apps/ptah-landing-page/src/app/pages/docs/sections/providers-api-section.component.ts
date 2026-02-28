@@ -11,7 +11,7 @@ import {
   Repeat,
   Server,
 } from 'lucide-angular';
-import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
+
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 
 @Component({
@@ -20,7 +20,6 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
-    DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
   ],
   template: `
@@ -248,11 +247,30 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       </div>
 
       <ng-container media>
-        <ptah-docs-media-placeholder
-          title="Configuring Third-Party Providers"
-          aspectRatio="16/9"
-          mediaType="gif"
-        />
+        <div
+          class="group relative cursor-pointer"
+          (click)="toggleVideo($event)"
+        >
+          <video
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            class="w-full rounded-xl border border-white/10 shadow-2xl"
+          >
+            <source src="assets/videos/providers.mp4" type="video/mp4" />
+          </video>
+          <div
+            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
+          >
+            <span
+              class="px-3 py-1.5 rounded-lg bg-slate-900/80 border border-amber-500/20 text-xs font-medium text-white/90 backdrop-blur-sm"
+            >
+              Click to play / pause
+            </span>
+          </div>
+        </div>
       </ng-container>
     </ptah-docs-section-shell>
   `,
@@ -318,4 +336,15 @@ export class ProvidersApiSectionComponent {
     delay: 0.15,
     threshold: 0.1,
   };
+
+  public toggleVideo(event: MouseEvent): void {
+    const container = event.currentTarget as HTMLElement;
+    const video = container.querySelector('video');
+    if (!video) return;
+    if (video.paused) {
+      video.play();
+    } else {
+      video.pause();
+    }
+  }
 }

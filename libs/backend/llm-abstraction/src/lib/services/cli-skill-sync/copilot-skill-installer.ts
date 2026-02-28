@@ -2,20 +2,17 @@
  * Copilot CLI Skill Installer
  * TASK_2025_160: Copies Ptah plugin skills to ~/.copilot/skills/ptah-{pluginId}/
  *
- * Pattern: Implements ICliSkillInstaller with fs/promises for file operations.
- * Evidence: GeminiCliAdapter.configureMcpServer() at gemini-cli.adapter.ts:193-229
- * uses the same homedir() + mkdir + writeFile pattern.
- *
  * Only copies the `skills/` subtree from each plugin directory.
  * Does NOT copy `.claude-plugin/` or `commands/` (Claude SDK-specific).
  * Strips `allowed-tools` from SKILL.md frontmatter during copy (Claude-specific field).
  */
 
-import { mkdir, readFile, writeFile, readdir, stat, rm } from 'fs/promises';
+import { mkdir, readdir, lstat, rm } from 'fs/promises';
 import { homedir } from 'os';
-import { join, basename, extname } from 'path';
+import { join, basename } from 'path';
 import type { CliSkillSyncStatus } from '@ptah-extension/shared';
 import type { ICliSkillInstaller } from './cli-skill-installer.interface';
+import { copyDirectoryRecursive } from './skill-sync-utils';
 
 /**
  * Installs Ptah skills into Copilot CLI's user-level discovery directory.
@@ -43,16 +40,15 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
           const pluginId = basename(pluginPath);
           const skillsSourceDir = join(pluginPath, 'skills');
 
-          // Check if skills/ directory exists in plugin
+          // Check if skills/ directory exists in plugin (use lstat for symlink safety)
           let skillsDirStat;
           try {
-            skillsDirStat = await stat(skillsSourceDir);
+            skillsDirStat = await lstat(skillsSourceDir);
           } catch {
-            // No skills/ directory in this plugin, skip
-            continue;
+            continue; // No skills/ directory in this plugin, skip
           }
 
-          if (!skillsDirStat.isDirectory()) {
+          if (!skillsDirStat.isDirectory() || skillsDirStat.isSymbolicLink()) {
             continue;
           }
 
@@ -65,17 +61,19 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
           for (const skillDirName of skillDirs) {
             try {
               const skillSourcePath = join(skillsSourceDir, skillDirName);
-              const skillSourceStat = await stat(skillSourcePath);
+              const skillSourceStat = await lstat(skillSourcePath);
 
-              if (!skillSourceStat.isDirectory()) {
+              if (
+                !skillSourceStat.isDirectory() ||
+                skillSourceStat.isSymbolicLink()
+              ) {
                 continue;
               }
 
               const skillTargetPath = join(targetDir, skillDirName);
               await mkdir(skillTargetPath, { recursive: true });
 
-              // Recursively copy skill directory contents
-              const copied = await this.copyDirectoryRecursive(
+              const copied = await copyDirectoryRecursive(
                 skillSourcePath,
                 skillTargetPath
               );
@@ -128,8 +126,7 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
       try {
         entries = await readdir(basePath);
       } catch {
-        // Skills directory doesn't exist, nothing to uninstall
-        return;
+        return; // Skills directory doesn't exist
       }
 
       for (const entry of entries) {
@@ -142,78 +139,4 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
       // Non-fatal: best-effort cleanup
     }
   }
-
-  /**
-   * Recursively copy directory contents, stripping allowed-tools from SKILL.md files.
-   * Returns count of files copied.
-   */
-  private async copyDirectoryRecursive(
-    sourceDir: string,
-    targetDir: string
-  ): Promise<number> {
-    let count = 0;
-    const entries = await readdir(sourceDir);
-
-    for (const entry of entries) {
-      const sourcePath = join(sourceDir, entry);
-      const targetPath = join(targetDir, entry);
-      const entryStat = await stat(sourcePath);
-
-      if (entryStat.isDirectory()) {
-        await mkdir(targetPath, { recursive: true });
-        count += await this.copyDirectoryRecursive(sourcePath, targetPath);
-      } else if (entryStat.isFile()) {
-        // For SKILL.md files, strip Claude-specific frontmatter fields
-        if (
-          entry.toUpperCase() === 'SKILL.MD' ||
-          extname(entry).toLowerCase() === '.md'
-        ) {
-          const content = await readFile(sourcePath, 'utf8');
-          const processed = stripAllowedToolsFromFrontmatter(content);
-          await writeFile(targetPath, processed, 'utf8');
-        } else {
-          // Binary/other files: direct copy via read+write
-          const content = await readFile(sourcePath);
-          await writeFile(targetPath, content);
-        }
-        count++;
-      }
-    }
-
-    return count;
-  }
-}
-
-/**
- * Strip `allowed-tools` field from YAML frontmatter.
- * This field is Claude-specific and has no meaning in other CLIs.
- *
- * Handles:
- * - `allowed-tools: value` (single line)
- * - Preserves all other frontmatter fields
- * - Returns content unchanged if no frontmatter present
- */
-function stripAllowedToolsFromFrontmatter(content: string): string {
-  // Match YAML frontmatter block
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
-  if (!frontmatterMatch) {
-    return content;
-  }
-
-  const frontmatter = frontmatterMatch[1];
-  const lines = frontmatter.split('\n');
-  const filteredLines = lines.filter(
-    (line) => !line.trimStart().startsWith('allowed-tools:')
-  );
-
-  // If nothing was filtered, return original
-  if (filteredLines.length === lines.length) {
-    return content;
-  }
-
-  const newFrontmatter = filteredLines.join('\n');
-  return content.replace(
-    frontmatterMatch[0],
-    `---\n${newFrontmatter}\n---`
-  );
 }

@@ -6,8 +6,14 @@
  * Extracts common rewrite logic to avoid duplication.
  *
  * Design: Pure functions with no I/O or DI dependencies.
+ *
+ * IMPORTANT: All regex patterns are created inside function calls
+ * (not module-level constants) to avoid global regex statefulness issues.
+ * Global regexes with /g flag have a mutable `lastIndex` property that
+ * can cause intermittent failures when reused across calls.
  */
 
+import { basename, parse } from 'path';
 import type { CliTarget } from '@ptah-extension/shared';
 
 // ========================================
@@ -15,28 +21,31 @@ import type { CliTarget } from '@ptah-extension/shared';
 // ========================================
 
 /**
- * Regex patterns for detecting Claude-specific content in agent markdown.
- * Used by transformers to identify content that needs rewriting.
+ * Factory functions for regex patterns detecting Claude-specific content.
+ * Returns fresh regex instances on each call to avoid global regex
+ * statefulness issues (lastIndex mutation with /g flag).
  */
-export const CLAUDE_PATTERNS = {
-  /** AskUserQuestion tool references */
-  askUserQuestion: /AskUserQuestion\s*(?:tool)?/gi,
-  /** Task tool delegation references */
-  taskTool: /(?:use\s+the\s+)?Task\s+tool\s+(?:to\s+)?/gi,
-  /** Task(subagent_type=... invocation pattern */
-  taskToolInvocation:
-    /Task\s*\(\s*subagent[_-]?type\s*=\s*['"]([^'"]+)['"]/gi,
-  /** Slash command references */
-  slashCommand:
-    /\/(?:orchestrate|review-code|review-logic|review-security|review-pr)/gi,
-  /** Internal import/reference lines */
-  internalImport: /^.*@ptah-extension\/.*$/gm,
-  /** Claude-specific product references */
-  claudeSpecificDirective:
-    /Claude Code|Claude Agent SDK|claude_code preset|claude\.ai/gi,
-  /** Skill tool references (Skill tool to invoke) */
-  skillTool: /Skill\s+tool\s+(?:to\s+)?/gi,
-} as const;
+function createClaudePatterns() {
+  return {
+    /** AskUserQuestion tool references */
+    askUserQuestion: /AskUserQuestion\s*(?:tool)?/gi,
+    /** Task tool delegation references */
+    taskTool: /(?:use\s+the\s+)?Task\s+tool\s+(?:to\s+)?/gi,
+    /** Task(subagent_type=... invocation pattern */
+    taskToolInvocation:
+      /Task\s*\(\s*subagent[_-]?type\s*=\s*['"]([^'"]+)['"]/gi,
+    /** Slash command references */
+    slashCommand:
+      /\/(?:orchestrate|review-code|review-logic|review-security|review-pr)/gi,
+    /** Internal import/reference lines */
+    internalImport: /^.*@ptah-extension\/.*$/gm,
+    /** Claude-specific product references */
+    claudeSpecificDirective:
+      /Claude Code|Claude Agent SDK|claude_code preset|claude\.ai/gi,
+    /** Skill tool references (Skill tool to invoke) */
+    skillTool: /Skill\s+tool\s+(?:to\s+)?invoke/gi,
+  };
+}
 
 // ========================================
 // CLI-Specific Tool Mappings
@@ -69,6 +78,30 @@ const CLI_TOOL_MAPPINGS: Record<
 };
 
 // ========================================
+// Shared Utilities
+// ========================================
+
+/**
+ * Extract agent ID from file path using Node.js path utilities.
+ * Cross-platform safe — handles both forward and backslash separators.
+ *
+ * Examples:
+ * - '.claude/agents/backend-developer.md' -> 'backend-developer'
+ * - 'D:\\workspace\\.claude\\agents\\backend-developer.md' -> 'backend-developer'
+ * - '/path/to/.claude/agents/frontend-developer.md' -> 'frontend-developer'
+ */
+export function extractAgentId(filePath: string): string {
+  return parse(basename(filePath)).name;
+}
+
+/**
+ * Normalize CRLF line endings to LF for reliable regex matching.
+ */
+function normalizeCrlf(content: string): string {
+  return content.replace(/\r\n/g, '\n');
+}
+
+// ========================================
 // Transform Functions
 // ========================================
 
@@ -77,7 +110,8 @@ const CLI_TOOL_MAPPINGS: Record<
  * These are TypeScript import paths that have no meaning in CLI agents.
  */
 export function stripInternalReferences(content: string): string {
-  return content.replace(CLAUDE_PATTERNS.internalImport, '').replace(
+  const patterns = createClaudePatterns();
+  return content.replace(patterns.internalImport, '').replace(
     // Clean up consecutive blank lines left by stripping
     /\n{3,}/g,
     '\n\n'
@@ -88,8 +122,6 @@ export function stripInternalReferences(content: string): string {
  * Rewrite YAML frontmatter for the target CLI.
  *
  * Keeps `name` and `description` fields (used by all CLIs).
- * Removes Claude-specific fields and adds CLI-appropriate fields.
- *
  * Both Copilot and Gemini use the same frontmatter format:
  * ```yaml
  * ---
@@ -97,23 +129,31 @@ export function stripInternalReferences(content: string): string {
  * description: Agent description
  * ---
  * ```
+ *
+ * Normalizes CRLF line endings before regex matching for Windows compatibility.
  */
 export function rewriteFrontmatter(
   content: string,
-  _cli: CliTarget,
+  cli: CliTarget,
   agentId: string,
   description: string
 ): string {
+  // Normalize CRLF for reliable regex on Windows
+  const normalized = normalizeCrlf(content);
+
+  // Prefix agent name for cleanup identification
+  const prefixedName = `ptah-${agentId}`;
+
   // Match existing frontmatter
-  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
   if (!frontmatterMatch) {
     // No frontmatter, add one
-    return `---\nname: ${agentId}\ndescription: ${description}\n---\n\n${content}`;
+    return `---\nname: ${prefixedName}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---\n\n${normalized}`;
   }
 
-  // Rebuild frontmatter with only name and description
-  const newFrontmatter = `---\nname: ${agentId}\ndescription: ${description}\n---`;
-  return content.replace(frontmatterMatch[0], newFrontmatter);
+  // Rebuild frontmatter with name, description, and source tracking
+  const newFrontmatter = `---\nname: ${prefixedName}\ndescription: ${description}\nsource: ptah\ntarget-cli: ${cli}\n---`;
+  return normalized.replace(frontmatterMatch[0], newFrontmatter);
 }
 
 /**
@@ -124,36 +164,25 @@ export function rewriteFrontmatter(
  * - Task tool -> CLI subagent invocation
  * - Skill tool -> CLI skill invocation
  */
-export function rewriteToolReferences(
-  content: string,
-  cli: CliTarget
-): string {
+export function rewriteToolReferences(content: string, cli: CliTarget): string {
   const mapping = CLI_TOOL_MAPPINGS[cli];
+  const patterns = createClaudePatterns();
   let result = content;
 
   // Replace AskUserQuestion references
-  result = result.replace(
-    CLAUDE_PATTERNS.askUserQuestion,
-    mapping.askUser
-  );
+  result = result.replace(patterns.askUserQuestion, mapping.askUser);
 
   // Replace Task(subagent_type='name' ...) invocation pattern
   result = result.replace(
-    CLAUDE_PATTERNS.taskToolInvocation,
+    patterns.taskToolInvocation,
     `${mapping.taskDelegate} $1`
   );
 
   // Replace "Task tool to" references
-  result = result.replace(
-    CLAUDE_PATTERNS.taskTool,
-    `${mapping.taskDelegate} `
-  );
+  result = result.replace(patterns.taskTool, `${mapping.taskDelegate} `);
 
   // Replace Skill tool references
-  result = result.replace(
-    CLAUDE_PATTERNS.skillTool,
-    `${mapping.slashPrefix} skill `
-  );
+  result = result.replace(patterns.skillTool, `${mapping.slashPrefix} skill `);
 
   return result;
 }
@@ -165,20 +194,15 @@ export function rewriteToolReferences(
  * - /orchestrate -> copilot orchestrate / gemini orchestrate
  * - /review-code -> copilot review-code / gemini review-code
  */
-export function rewriteSlashCommands(
-  content: string,
-  cli: CliTarget
-): string {
+export function rewriteSlashCommands(content: string, cli: CliTarget): string {
   const mapping = CLI_TOOL_MAPPINGS[cli];
+  const patterns = createClaudePatterns();
 
-  return content.replace(
-    CLAUDE_PATTERNS.slashCommand,
-    (match) => {
-      // Extract command name (strip leading /)
-      const commandName = match.substring(1);
-      return `${mapping.slashPrefix} ${commandName}`;
-    }
-  );
+  return content.replace(patterns.slashCommand, (match) => {
+    // Extract command name (strip leading /)
+    const commandName = match.substring(1);
+    return `${mapping.slashPrefix} ${commandName}`;
+  });
 }
 
 /**
@@ -189,10 +213,8 @@ export function rewriteProductReferences(
   cli: CliTarget
 ): string {
   const mapping = CLI_TOOL_MAPPINGS[cli];
-  return content.replace(
-    CLAUDE_PATTERNS.claudeSpecificDirective,
-    mapping.productName
-  );
+  const patterns = createClaudePatterns();
+  return content.replace(patterns.claudeSpecificDirective, mapping.productName);
 }
 
 /**

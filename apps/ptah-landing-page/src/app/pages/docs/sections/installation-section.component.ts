@@ -95,16 +95,30 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       </div>
 
       <ng-container media>
-        <video
-          autoplay
-          muted
-          loop
-          playsinline
-          preload="metadata"
-          class="w-full rounded-xl border border-white/10 shadow-2xl"
+        <div
+          class="group relative cursor-pointer"
+          (click)="toggleVideo($event)"
         >
-          <source src="assets/videos/install.mp4" type="video/mp4" />
-        </video>
+          <video
+            autoplay
+            muted
+            loop
+            playsinline
+            preload="metadata"
+            class="w-full rounded-xl border border-white/10 shadow-2xl"
+          >
+            <source src="assets/videos/install.mp4" type="video/mp4" />
+          </video>
+          <div
+            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
+          >
+            <span
+              class="px-3 py-1.5 rounded-lg bg-slate-900/80 border border-amber-500/20 text-xs font-medium text-white/90 backdrop-blur-sm"
+            >
+              Click to play / pause
+            </span>
+          </div>
+        </div>
       </ng-container>
     </ptah-docs-section-shell>
   `,
@@ -141,4 +155,15 @@ export class InstallationSectionComponent {
     delay: 0.2,
     threshold: 0.2,
   };
+
+  public toggleVideo(event: MouseEvent): void {
+    const container = event.currentTarget as HTMLElement;
+    const video = container.querySelector('video');
+    if (!video) return;
+    if (video.paused) {
+      video.play();
+    } else {
+      video.pause();
+    }
+  }
 }

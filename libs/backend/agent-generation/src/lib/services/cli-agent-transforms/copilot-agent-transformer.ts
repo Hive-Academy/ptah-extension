@@ -5,9 +5,13 @@
  * Pure transformation with no I/O or DI dependencies.
  * Uses shared transform-rules.ts for common rewrite logic.
  *
- * Target: ~/.copilot/agents/{agent-id}.md
+ * Target: ~/.copilot/agents/ptah-{agent-id}.md
  * Copilot CLI auto-discovers agents from ~/.copilot/agents/ directory.
- * Invoked via `copilot --agent backend-developer`.
+ * Invoked via `copilot --agent ptah-backend-developer`.
+ *
+ * Agent files are prefixed with `ptah-` for:
+ * 1. Namespace separation from user-created agents
+ * 2. Deterministic cleanup on premium expiry
  */
 
 import { homedir } from 'os';
@@ -15,7 +19,7 @@ import { join } from 'path';
 import type { CliAgentTransformResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
-import { transformAgentContent } from './transform-rules';
+import { transformAgentContent, extractAgentId } from './transform-rules';
 
 /**
  * Transforms Claude-format agent markdown to Copilot CLI format.
@@ -32,12 +36,11 @@ export class CopilotAgentTransformer implements ICliAgentTransformer {
   readonly target = 'copilot' as const;
 
   transform(agent: GeneratedAgent): CliAgentTransformResult {
-    // Extract agent ID from file path (e.g., '.claude/agents/backend-developer.md' -> 'backend-developer')
+    // Extract agent ID using cross-platform path.basename()
     const agentId = extractAgentId(agent.filePath);
 
-    // Extract description from agent content frontmatter or variables
-    const description =
-      agent.variables['description'] || `${agentId} agent`;
+    // Extract description from agent variables
+    const description = agent.variables['description'] || `${agentId} agent`;
 
     // Apply all transformations
     const content = transformAgentContent(
@@ -47,12 +50,12 @@ export class CopilotAgentTransformer implements ICliAgentTransformer {
       description
     );
 
-    // Target path: ~/.copilot/agents/{agent-id}.md
+    // Target path: ~/.copilot/agents/ptah-{agent-id}.md (prefixed for cleanup)
     const filePath = join(
       homedir(),
       '.copilot',
       'agents',
-      `${agentId}.md`
+      `ptah-${agentId}.md`
     );
 
     return {
@@ -62,17 +65,4 @@ export class CopilotAgentTransformer implements ICliAgentTransformer {
       filePath,
     };
   }
-}
-
-/**
- * Extract agent ID from file path.
- * Handles both absolute and relative paths.
- *
- * Examples:
- * - '.claude/agents/backend-developer.md' -> 'backend-developer'
- * - '/path/to/.claude/agents/backend-developer.md' -> 'backend-developer'
- */
-function extractAgentId(filePath: string): string {
-  const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
-  return fileName.replace(/\.md$/i, '');
 }
