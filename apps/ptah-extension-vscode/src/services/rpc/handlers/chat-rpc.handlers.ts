@@ -33,6 +33,7 @@ import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
 import {
   SessionId,
   FlatStreamEventUnion,
+  BackgroundAgentCompletedEvent,
   ChatStartParams,
   ChatStartResult,
   ChatContinueParams,
@@ -230,9 +231,18 @@ export class ChatRpcHandlers {
     this.registerChatContinue();
     this.registerChatResume();
     this.registerChatAbort();
+    this.registerBackgroundAgentHandlers();
+    this.subscribeToBackgroundAgentEvents();
 
     this.logger.debug('Chat RPC handlers registered', {
-      methods: ['chat:start', 'chat:continue', 'chat:resume', 'chat:abort'],
+      methods: [
+        'chat:start',
+        'chat:continue',
+        'chat:resume',
+        'chat:abort',
+        'agent:backgroundList',
+        'agent:backgroundStop',
+      ],
     });
   }
 
@@ -696,6 +706,93 @@ IMPORTANT INSTRUCTIONS:
     );
   }
 
+  // ============================================================================
+  // BACKGROUND AGENT RPC METHODS & EVENT SUBSCRIPTION
+  // ============================================================================
+
+  /**
+   * Subscribe to background agent events from AgentSessionWatcherService.
+   *
+   * Background agent events flow through a separate delivery path because
+   * they outlive the main agent's streaming loop (streamExecutionNodesToWebview).
+   * When a background agent completes, the watcher emits 'background-agent-completed'
+   * and we broadcast it directly to the webview.
+   */
+  private subscribeToBackgroundAgentEvents(): void {
+    this.agentSessionWatcher.on(
+      'background-agent-completed',
+      (data: {
+        agentId: string;
+        toolCallId: string;
+        agentType: string;
+        duration?: number;
+        summaryContent?: string;
+      }) => {
+        this.logger.info('[RPC] Background agent completed event received', {
+          agentId: data.agentId,
+          toolCallId: data.toolCallId,
+          agentType: data.agentType,
+        });
+
+        const event: BackgroundAgentCompletedEvent = {
+          id: `evt_bg_${Date.now()}_${Math.random()
+            .toString(36)
+            .substring(2, 9)}`,
+          eventType: 'background_agent_completed',
+          timestamp: Date.now(),
+          sessionId: '',
+          messageId: `bg-complete-${data.agentId}`,
+          toolCallId: data.toolCallId,
+          agentId: data.agentId,
+          result: data.summaryContent,
+          duration: data.duration,
+        };
+
+        // Broadcast to all webview tabs - frontend filters by toolCallId
+        this.webviewManager
+          .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, { event })
+          .catch((err) => {
+            this.logger.error(
+              '[RPC] Failed to broadcast background agent completed event',
+              err instanceof Error ? err : new Error(String(err))
+            );
+          });
+      }
+    );
+  }
+
+  /**
+   * Register RPC methods for background agent management.
+   *
+   * - agent:backgroundList - Returns all background agents for a session
+   */
+  private registerBackgroundAgentHandlers(): void {
+    this.rpcHandler.registerMethod<
+      { sessionId?: string },
+      {
+        agents: Array<{
+          toolCallId: string;
+          agentId: string;
+          agentType: string;
+          status: string;
+          startedAt: number;
+        }>;
+      }
+    >('agent:backgroundList', async (params) => {
+      const agents = this.subagentRegistry
+        .getBackgroundAgents(params.sessionId)
+        .map((record) => ({
+          toolCallId: record.toolCallId,
+          agentId: record.agentId,
+          agentType: record.agentType,
+          status: record.status,
+          startedAt: record.startedAt,
+        }));
+
+      return { agents };
+    });
+  }
+
   /**
    * Stream flat events to webview
    * Handles SDK AsyncIterable<FlatStreamEventUnion> → webview messages
@@ -752,6 +849,31 @@ IMPORTANT INSTRUCTIONS:
         // This ensures multi-turn conversations properly signal completion for each turn
         if (event.eventType === 'message_start') {
           turnCompleteSent = false;
+        }
+
+        // When a background_agent_started event arrives, mark the agent in registry
+        if (event.eventType === 'background_agent_started') {
+          const bgEvent =
+            event as import('@ptah-extension/shared').BackgroundAgentStartedEvent;
+          if (bgEvent.toolCallId) {
+            this.subagentRegistry.update(bgEvent.toolCallId, {
+              status: 'background',
+              isBackground: true,
+              outputFilePath: bgEvent.outputFilePath,
+              backgroundStartedAt: Date.now(),
+            });
+            // Also mark the watcher so it doesn't get stopped prematurely
+            if (bgEvent.agentId) {
+              this.agentSessionWatcher.markAsBackground(bgEvent.agentId);
+            }
+            this.logger.info(
+              '[RPC] Background agent registered from stream event',
+              {
+                toolCallId: bgEvent.toolCallId,
+                agentId: bgEvent.agentId,
+              }
+            );
+          }
         }
 
         if (event.eventType === 'message_complete' && !turnCompleteSent) {

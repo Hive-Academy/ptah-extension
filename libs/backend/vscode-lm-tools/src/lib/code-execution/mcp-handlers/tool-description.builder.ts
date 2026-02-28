@@ -89,6 +89,7 @@ export function buildWorkspaceAnalyzeTool(): MCPToolDefinition {
       type: 'object',
       properties: {},
     },
+    annotations: { readOnlyHint: true },
   };
 }
 
@@ -116,6 +117,7 @@ export function buildSearchFilesTool(): MCPToolDefinition {
       },
       required: ['pattern'],
     },
+    annotations: { readOnlyHint: true },
   };
 }
 
@@ -139,6 +141,7 @@ export function buildGetDiagnosticsTool(): MCPToolDefinition {
         },
       },
     },
+    annotations: { readOnlyHint: true },
   };
 }
 
@@ -169,6 +172,7 @@ export function buildLspReferencesTool(): MCPToolDefinition {
       },
       required: ['file', 'line', 'col'],
     },
+    annotations: { readOnlyHint: true },
   };
 }
 
@@ -199,6 +203,7 @@ export function buildLspDefinitionsTool(): MCPToolDefinition {
       },
       required: ['file', 'line', 'col'],
     },
+    annotations: { readOnlyHint: true },
   };
 }
 
@@ -215,6 +220,7 @@ export function buildGetDirtyFilesTool(): MCPToolDefinition {
       type: 'object',
       properties: {},
     },
+    annotations: { readOnlyHint: true },
   };
 }
 
@@ -237,6 +243,7 @@ export function buildCountTokensTool(): MCPToolDefinition {
       },
       required: ['file'],
     },
+    annotations: { readOnlyHint: true },
   };
 }
 
@@ -326,6 +333,7 @@ export function buildAgentStatusTool(): MCPToolDefinition {
         },
       },
     },
+    annotations: { readOnlyHint: true },
   };
 }
 
@@ -354,6 +362,7 @@ export function buildAgentReadTool(): MCPToolDefinition {
       },
       required: ['agentId'],
     },
+    annotations: { readOnlyHint: true },
   };
 }
 

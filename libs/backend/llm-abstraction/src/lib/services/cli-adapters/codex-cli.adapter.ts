@@ -8,7 +8,10 @@
  */
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import type { CliDetectionResult } from '@ptah-extension/shared';
+import type {
+  CliDetectionResult,
+  CliOutputSegment,
+} from '@ptah-extension/shared';
 import type {
   CliAdapter,
   CliCommand,
@@ -210,7 +213,20 @@ export class CodexCliAdapter implements CliAdapter {
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     const sdk = await getCodexSdk();
-    const codex = new sdk.Codex();
+
+    // Pass MCP server config through Codex SDK when available
+    const codexOptions: { config?: Record<string, unknown> } = {};
+    if (options.mcpPort) {
+      codexOptions.config = {
+        mcp_servers: {
+          ptah: {
+            url: `http://localhost:${options.mcpPort}`,
+          },
+        },
+      };
+    }
+
+    const codex = new sdk.Codex(codexOptions);
 
     const thread = codex.startThread({
       workingDirectory: options.workingDirectory,
@@ -245,6 +261,30 @@ export class CodexCliAdapter implements CliAdapter {
       }
     };
 
+    // Structured segment buffering (same pattern as output)
+    const segmentBuffer: CliOutputSegment[] = [];
+    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
+
+    const onSegment = (callback: (segment: CliOutputSegment) => void): void => {
+      segmentCallbacks.push(callback);
+      if (segmentBuffer.length > 0) {
+        for (const buffered of segmentBuffer) {
+          callback(buffered);
+        }
+        segmentBuffer.length = 0;
+      }
+    };
+
+    const emitSegment = (segment: CliOutputSegment): void => {
+      if (segmentCallbacks.length === 0) {
+        segmentBuffer.push(segment);
+      } else {
+        for (const cb of segmentCallbacks) {
+          cb(segment);
+        }
+      }
+    };
+
     // Start streamed execution and iterate events
     const done = (async (): Promise<number> => {
       try {
@@ -257,7 +297,7 @@ export class CodexCliAdapter implements CliAdapter {
             return 1;
           }
 
-          this.handleStreamEvent(event, emitOutput);
+          this.handleStreamEvent(event, emitOutput, emitSegment);
         }
 
         return 0;
@@ -273,19 +313,24 @@ export class CodexCliAdapter implements CliAdapter {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         emitOutput(`\n[Codex SDK Error] ${errorMessage}\n`);
+        emitSegment({
+          type: 'error',
+          content: `Codex SDK Error: ${errorMessage}`,
+        });
         return 1;
       }
     })();
 
-    return { abort: abortController, done, onOutput };
+    return { abort: abortController, done, onOutput, onSegment };
   }
 
   /**
-   * Process a single SDK stream event and emit relevant output.
+   * Process a single SDK stream event and emit relevant output + structured segments.
    */
   private handleStreamEvent(
     event: CodexThreadEvent,
-    emitOutput: (data: string) => void
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void
   ): void {
     switch (event.type) {
       case 'item.completed': {
@@ -294,14 +339,16 @@ export class CodexCliAdapter implements CliAdapter {
           case 'agent_message':
             if (item.text) {
               emitOutput(item.text + '\n');
+              emitSegment({ type: 'text', content: item.text });
             }
             break;
           case 'reasoning':
             if (item.text) {
               emitOutput(`[Reasoning] ${item.text}\n`);
+              emitSegment({ type: 'info', content: item.text });
             }
             break;
-          case 'command_execution':
+          case 'command_execution': {
             emitOutput(`$ ${item.command}\n`);
             if (item.aggregated_output) {
               emitOutput(item.aggregated_output);
@@ -312,14 +359,27 @@ export class CodexCliAdapter implements CliAdapter {
             if (item.exit_code !== undefined && item.exit_code !== 0) {
               emitOutput(`[exit code: ${item.exit_code}]\n`);
             }
+            emitSegment({
+              type: 'command',
+              content: item.aggregated_output ?? '',
+              toolName: item.command,
+              exitCode: item.exit_code,
+            });
             break;
+          }
           case 'file_change':
             for (const change of item.changes) {
               emitOutput(`[${change.kind}] ${change.path}\n`);
+              emitSegment({
+                type: 'file-change',
+                content: change.path,
+                changeKind: change.kind,
+              });
             }
             break;
           case 'error':
             emitOutput(`[Error] ${item.message}\n`);
+            emitSegment({ type: 'error', content: item.message });
             break;
           default:
             // Other item types (mcp_tool_call, web_search, todo_list) - no output needed
@@ -329,16 +389,21 @@ export class CodexCliAdapter implements CliAdapter {
       }
       case 'turn.completed':
         if (event.usage) {
-          emitOutput(
-            `\n[Usage: ${event.usage.input_tokens} input, ${event.usage.output_tokens} output tokens]\n`
-          );
+          const usageStr = `Usage: ${event.usage.input_tokens} input, ${event.usage.output_tokens} output tokens`;
+          emitOutput(`\n[${usageStr}]\n`);
+          emitSegment({ type: 'info', content: usageStr });
         }
         break;
       case 'turn.failed':
         emitOutput(`[Turn Failed] ${event.error.message}\n`);
+        emitSegment({
+          type: 'error',
+          content: `Turn Failed: ${event.error.message}`,
+        });
         break;
       case 'error':
         emitOutput(`[Stream Error] ${event.message}\n`);
+        emitSegment({ type: 'error', content: event.message });
         break;
       default:
         // thread.started, turn.started, item.started, item.updated - no output

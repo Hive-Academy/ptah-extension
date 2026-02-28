@@ -15,7 +15,12 @@
  * - 'completed': Agent finished successfully (SubagentStop hook fired)
  * - 'interrupted': Agent was aborted mid-execution (session ended before completion)
  */
-export type SubagentStatus = 'running' | 'completed' | 'interrupted';
+export type SubagentStatus =
+  | 'running'
+  | 'completed'
+  | 'interrupted'
+  | 'background'
+  | 'background_completed';
 
 /**
  * Record tracking a subagent's lifecycle state
@@ -74,6 +79,34 @@ export interface SubagentRecord {
    * Used as stable key for summary content lookup.
    */
   readonly agentId: string;
+
+  /**
+   * Whether this subagent is running in the background.
+   * Background agents outlive the main agent's turn and continue
+   * executing independently. Set when Task tool has run_in_background: true,
+   * or when user moves a running foreground agent to the background.
+   */
+  readonly isBackground?: boolean;
+
+  /**
+   * Path to the background agent's output file.
+   * Returned by the SDK in the placeholder tool_result when
+   * run_in_background: true. Used by TaskOutput tool to retrieve results.
+   */
+  readonly outputFilePath?: string;
+
+  /**
+   * Timestamp (Unix epoch ms) when the agent was moved to background.
+   * May differ from startedAt if the agent was initially foreground
+   * and moved to background via user action.
+   */
+  backgroundStartedAt?: number;
+
+  /**
+   * Timestamp (Unix epoch ms) when the background agent completed.
+   * Only set when status transitions to 'background_completed'.
+   */
+  completedAt?: number;
 }
 
 // TASK_2025_109: SubagentResumeParams and SubagentResumeResult removed

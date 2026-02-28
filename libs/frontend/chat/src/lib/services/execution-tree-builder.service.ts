@@ -465,20 +465,6 @@ export class ExecutionTreeBuilderService {
     // Track toolCallIds that already have a placeholder or agent node
     const usedToolCallIds = new Set<string>();
 
-    // DIAGNOSTIC: Log tool_starts for this message
-    console.log('[ExecutionTreeBuilder] collectTools:', {
-      messageId,
-      depth,
-      toolStartsCount: toolStarts.length,
-      toolStarts: toolStarts.map((t) => ({
-        toolCallId: t.toolCallId,
-        toolName: t.toolName,
-        isTaskTool: t.isTaskTool,
-        source: t.source,
-        parentToolUseId: t.parentToolUseId,
-      })),
-    });
-
     for (const toolStart of toolStarts) {
       // TASK_2025_095: For Task tools that spawn agents, show agent directly instead of Task wrapper
       // This prevents the duplication: Task tool → Agent → tools
@@ -866,19 +852,6 @@ export class ExecutionTreeBuilderService {
     // We create text nodes for text blocks and find matching tool nodes for tool_ref blocks.
     let finalChildren: ExecutionNode[];
 
-    // DIAGNOSTIC: Log buildAgentNode inputs
-    console.log('[ExecutionTreeBuilder] buildAgentNode:', {
-      agentStartId: agentStart.id,
-      toolCallId,
-      effectiveAgentId,
-      agentMessageStartsCount: agentMessageStarts.length,
-      agentChildrenCount: agentChildren.length,
-      agentChildrenTypes: agentChildren.map((c) => c.type),
-      contentBlocksCount: contentBlocks.length,
-      contentBlockTypes: contentBlocks.map((b) => b.type),
-      summaryContentLength: summaryContent?.length ?? 0,
-    });
-
     if (contentBlocks.length > 0) {
       // Use structured content blocks for proper interleaving
       finalChildren = this.buildInterleavedChildren(
@@ -887,15 +860,6 @@ export class ExecutionTreeBuilderService {
         contentBlocks,
         agentChildren
       );
-      // DIAGNOSTIC: Log interleaved result
-      console.log('[ExecutionTreeBuilder] buildInterleavedChildren result:', {
-        resultCount: finalChildren.length,
-        resultTypes: finalChildren.map(
-          (c) => `${c.type}${c.toolCallId ? ':' + c.toolCallId : ''}`
-        ),
-        textNodes: finalChildren.filter((c) => c.type === 'text').length,
-        toolNodes: finalChildren.filter((c) => c.type === 'tool').length,
-      });
     } else if (summaryContent && summaryContent.trim()) {
       // Fallback: Use legacy summaryContent as single text node at beginning
       finalChildren = [...agentChildren];

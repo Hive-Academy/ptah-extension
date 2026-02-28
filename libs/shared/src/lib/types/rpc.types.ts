@@ -1240,6 +1240,18 @@ export interface AgentOrchestrationConfig {
   copilotModel: string;
 }
 
+/** CLI model option for agent:listCliModels */
+export interface CliModelOption {
+  readonly id: string;
+  readonly name: string;
+}
+
+/** Response from agent:listCliModels RPC method */
+export interface AgentListCliModelsResult {
+  gemini: CliModelOption[];
+  copilot: CliModelOption[];
+}
+
 /** Parameters for agent:setConfig RPC method */
 export interface AgentSetConfigParams {
   /** Default CLI to use (null = auto-detect) */
@@ -1544,6 +1556,10 @@ export interface RpcMethodRegistry {
     params: void;
     result: { clis: import('./agent-process.types').CliDetectionResult[] };
   };
+  'agent:listCliModels': {
+    params: void;
+    result: AgentListCliModelsResult;
+  };
 }
 
 /**
@@ -1663,6 +1679,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'agent:getConfig',
   'agent:setConfig',
   'agent:detectClis',
+  'agent:listCliModels',
 ] as const;
 
 /**

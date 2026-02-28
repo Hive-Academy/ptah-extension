@@ -419,12 +419,17 @@ export function formatModelDisplayName(modelId: string): string {
   if (lower.includes('kimi-k2')) return 'Kimi K2';
 
   // Z.AI GLM models
+  if (lower.includes('glm-5-code')) return 'GLM-5 Code';
+  if (lower.includes('glm-5')) return 'GLM-5';
   if (lower.includes('glm-4.7-flash') && !lower.includes('flashx'))
     return 'GLM-4.7 Flash';
   if (lower.includes('glm-4.7-flashx')) return 'GLM-4.7 FlashX';
   if (lower.includes('glm-4.7')) return 'GLM-4.7';
   if (lower.includes('glm-4.6')) return 'GLM-4.6';
+  if (lower.includes('glm-4.5-x') && !lower.includes('air')) return 'GLM-4.5-X';
+  if (lower.includes('glm-4.5-airx')) return 'GLM-4.5 AirX';
   if (lower.includes('glm-4.5-air')) return 'GLM-4.5 Air';
+  if (lower.includes('glm-4.5-flash')) return 'GLM-4.5 Flash';
   if (lower.includes('glm-4.5')) return 'GLM-4.5';
 
   // Fallback: truncate long IDs

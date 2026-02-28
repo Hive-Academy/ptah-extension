@@ -324,6 +324,67 @@ export class AgentSessionWatcherService extends EventEmitter {
   }
 
   /**
+   * Mark an agent as running in the background.
+   *
+   * Background agents are NOT stopped when stopWatching is called with
+   * their agentId from the normal flow. Instead, they continue to be
+   * watched until explicitly stopped via emitBackgroundAgentCompleted.
+   *
+   * @param agentId - The agent's short hex ID
+   */
+  markAsBackground(agentId: string): void {
+    const watch = this.activeWatches.get(agentId);
+    if (!watch) {
+      this.logger.debug(
+        '[AgentSessionWatcher] markAsBackground: watch not found',
+        { agentId }
+      );
+      return;
+    }
+
+    (watch as { isBackground?: boolean }).isBackground = true;
+    this.logger.info('[AgentSessionWatcher] Agent marked as background', {
+      agentId,
+      toolUseId: watch.toolUseId,
+    });
+  }
+
+  /**
+   * Emit a background agent completed event.
+   *
+   * Called by SubagentHookHandler when a background agent's SubagentStop
+   * hook fires. Emits a 'background-agent-completed' event that can be
+   * picked up by ChatRpcHandlers to notify the webview.
+   *
+   * @param agentId - The agent's short hex ID
+   * @param toolCallId - The Task tool_use ID
+   * @param agentType - The agent subtype (e.g., 'Explore', 'software-architect')
+   */
+  emitBackgroundAgentCompleted(
+    agentId: string,
+    toolCallId: string,
+    agentType?: string
+  ): void {
+    const watch = this.activeWatches.get(agentId);
+    const duration = watch
+      ? Date.now() - (watch as { startedAt?: number }).startedAt!
+      : undefined;
+
+    this.logger.info(
+      '[AgentSessionWatcher] Emitting background-agent-completed',
+      { agentId, toolCallId, agentType, duration }
+    );
+
+    this.emit('background-agent-completed', {
+      agentId,
+      toolCallId,
+      agentType: agentType || 'unknown',
+      duration,
+      summaryContent: watch?.summaryContent || '',
+    });
+  }
+
+  /**
    * Ensure we have a directory watcher running
    */
   private async ensureDirectoryWatcher(workspacePath: string): Promise<void> {

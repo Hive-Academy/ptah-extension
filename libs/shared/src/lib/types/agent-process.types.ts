@@ -134,6 +134,42 @@ export interface CliDetectionResult {
 }
 
 // ========================================
+// Structured CLI Output Segments
+// ========================================
+
+/**
+ * Discriminator for structured CLI output segments.
+ * Emitted by SDK-based adapters (Gemini, Codex) that have access
+ * to structured event data. Copilot (raw text) falls back to regex parsing.
+ */
+export type CliOutputSegmentType =
+  | 'text'
+  | 'tool-call'
+  | 'tool-result'
+  | 'tool-result-error'
+  | 'error'
+  | 'info'
+  | 'command'
+  | 'file-change';
+
+/**
+ * A single structured output segment from a CLI agent.
+ * Produced by SDK adapters alongside raw text deltas.
+ */
+export interface CliOutputSegment {
+  readonly type: CliOutputSegmentType;
+  readonly content: string;
+  /** Tool name (for tool-call, tool-result, tool-result-error) */
+  readonly toolName?: string;
+  /** Summarized tool arguments (for tool-call) */
+  readonly toolArgs?: string;
+  /** Exit code (for command segments) */
+  readonly exitCode?: number;
+  /** File change kind: 'added', 'modified', 'deleted' (for file-change) */
+  readonly changeKind?: string;
+}
+
+// ========================================
 // Agent Output Delta (real-time streaming)
 // ========================================
 
@@ -142,4 +178,6 @@ export interface AgentOutputDelta {
   readonly stdoutDelta: string;
   readonly stderrDelta: string;
   readonly timestamp: number;
+  /** Structured output segments from SDK-based adapters (optional — absent for raw CLI adapters) */
+  readonly segments?: readonly CliOutputSegment[];
 }

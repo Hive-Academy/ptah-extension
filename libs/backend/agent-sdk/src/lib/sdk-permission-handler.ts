@@ -379,6 +379,17 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         };
       }
 
+      // Handle AskUserQuestion tool FIRST — it must NEVER be auto-approved.
+      // AskUserQuestion is a user interaction tool that always requires a real response,
+      // regardless of permission level (including YOLO mode). Auto-approving it would
+      // cause the agent to proceed without actual user input.
+      if (toolName === 'AskUserQuestion') {
+        this.logger.info(
+          `[SdkPermissionHandler] Handling AskUserQuestion tool request (bypasses all auto-approval)`
+        );
+        return await this.handleAskUserQuestion(input, options.toolUseID);
+      }
+
       // Permission-level-aware auto-approval
       // 'yolo' mode: auto-approve ALL tools unconditionally
       if (this._permissionLevel === 'yolo') {
@@ -404,15 +415,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
             updatedInput: input,
           };
         }
-      }
-
-      // Handle AskUserQuestion tool - prompt user with clarifying questions
-      // This must be checked BEFORE dangerous tools to use its specialized handler
-      if (toolName === 'AskUserQuestion') {
-        this.logger.info(
-          `[SdkPermissionHandler] Handling AskUserQuestion tool request`
-        );
-        return await this.handleAskUserQuestion(input, options.toolUseID);
       }
 
       // Check if tool has a stored "Always Allow" rule

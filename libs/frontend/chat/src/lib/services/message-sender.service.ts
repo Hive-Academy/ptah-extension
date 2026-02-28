@@ -27,7 +27,6 @@ import {
 import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
-import { SessionLoaderService } from './chat-store/session-loader.service';
 import { MessageValidationService } from './message-validation.service';
 
 /**
@@ -46,7 +45,6 @@ export class MessageSenderService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
-  private readonly sessionLoader = inject(SessionLoaderService);
   private readonly validator = inject(MessageValidationService);
   private readonly modelState = inject(ModelStateService);
 
@@ -313,10 +311,8 @@ export class MessageSenderService {
       } else {
         console.log('[MessageSender] New conversation started:', result.data);
 
-        // Refresh sessions list from backend
-        this.sessionLoader.loadSessions().catch((err) => {
-          console.warn('[MessageSender] Failed to refresh sessions:', err);
-        });
+        // Note: Sessions list refresh moved to handleSessionIdResolved() in ChatStore
+        // At this point metadata doesn't exist yet, so loadSessions() would miss this session
       }
     } catch (error) {
       console.error('[MessageSender] Failed to start new conversation:', error);

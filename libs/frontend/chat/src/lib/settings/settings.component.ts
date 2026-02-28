@@ -36,6 +36,7 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
 import type {
   EnhancedPromptsGetStatusResponse,
   AgentOrchestrationConfig,
+  CliModelOption,
 } from '@ptah-extension/shared';
 import type { CliType } from '@ptah-extension/shared';
 import { ChatStore } from '../services/chat.store';
@@ -127,6 +128,10 @@ export class SettingsComponent implements OnInit {
   readonly agentConfigLoading = signal(false);
   readonly agentConfigError = signal<string | null>(null);
   readonly isDetectingClis = signal(false);
+
+  // CLI model lists (populated from agent:listCliModels RPC)
+  readonly geminiModels = signal<CliModelOption[]>([]);
+  readonly copilotModels = signal<CliModelOption[]>([]);
 
   readonly hasInstalledCli = computed(() => {
     const config = this.agentConfig();
@@ -592,6 +597,7 @@ export class SettingsComponent implements OnInit {
       const result = await this.rpcService.call('agent:getConfig', undefined);
       if (result.isSuccess()) {
         this.agentConfig.set(result.data);
+        this.loadCliModels(); // Fire-and-forget: populate model dropdowns
       } else {
         this.agentConfigError.set(result.error ?? 'Failed to load config');
       }
@@ -599,6 +605,25 @@ export class SettingsComponent implements OnInit {
       this.agentConfigError.set('Failed to load agent orchestration config');
     } finally {
       this.agentConfigLoading.set(false);
+    }
+  }
+
+  /**
+   * Load CLI model lists from backend.
+   * Called after loadAgentConfig succeeds.
+   */
+  async loadCliModels(): Promise<void> {
+    try {
+      const result = await this.rpcService.call(
+        'agent:listCliModels',
+        undefined
+      );
+      if (result.isSuccess()) {
+        this.geminiModels.set(result.data.gemini);
+        this.copilotModels.set(result.data.copilot);
+      }
+    } catch {
+      // Non-fatal: dropdowns will just be empty
     }
   }
 

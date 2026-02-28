@@ -112,8 +112,7 @@ const MAX_BODY_SIZE = 1024 * 1024;
 async function handleHttpRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>,
-  _logger: Logger
+  onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>
 ): Promise<void> {
   // CORS headers for localhost
   res.setHeader('Access-Control-Allow-Origin', 'http://localhost');

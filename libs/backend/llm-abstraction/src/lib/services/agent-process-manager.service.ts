@@ -14,7 +14,7 @@ import { execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'eventemitter3';
-import { TOKENS, Logger } from '@ptah-extension/vscode-core';
+import { TOKENS, Logger, LicenseService } from '@ptah-extension/vscode-core';
 import {
   AgentId,
   AgentStatus,
@@ -25,6 +25,7 @@ import {
   AgentOutput,
   CliType,
 } from '@ptah-extension/shared';
+import type { CliOutputSegment } from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
 import type {
   CliCommandOptions,
@@ -91,15 +92,24 @@ export class AgentProcessManager {
   /** Pending output deltas per agent (throttled to OUTPUT_FLUSH_INTERVAL) */
   private readonly pendingDeltas = new Map<
     string,
-    { stdout: string; stderr: string }
+    { stdout: string; stderr: string; segments: CliOutputSegment[] }
   >();
   /** Flush timers per agent */
   private readonly flushTimers = new Map<string, NodeJS.Timeout>();
 
+  /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
+  private mcpHealthCache: {
+    port: number | undefined;
+    timestamp: number;
+  } | null = null;
+  private static readonly MCP_HEALTH_CACHE_TTL = 30_000;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetection: CliDetectionService
+    private readonly cliDetection: CliDetectionService,
+    @inject(TOKENS.LICENSE_SERVICE)
+    private readonly licenseService: LicenseService
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -196,6 +206,10 @@ export class AgentProcessManager {
       request.workingDirectory ?? this.getWorkspaceRoot();
     this.validateWorkingDirectory(workingDirectory);
 
+    // Resolve MCP port before SDK/CLI branch — both paths need it
+    // Premium-gated: only provided when user is premium AND MCP server is running
+    const mcpPort = await this.resolveMcpPort();
+
     // Branch: SDK-based adapters use runSdk() instead of spawn()
     // SDK adapters run in-process, so shell injection sanitization is not needed
     // and would corrupt legitimate code content (e.g., $, (), {}, backticks).
@@ -207,7 +221,8 @@ export class AgentProcessManager {
         request.task,
         workingDirectory,
         cli,
-        detection.path
+        detection.path,
+        mcpPort
       );
     }
 
@@ -232,6 +247,7 @@ export class AgentProcessManager {
       files: request.files,
       taskFolder: request.taskFolder,
       model: cliModel,
+      mcpPort,
     });
 
     // Create agent ID and info
@@ -331,7 +347,8 @@ export class AgentProcessManager {
     task: string,
     workingDirectory: string,
     cli: CliType,
-    binaryPath?: string
+    binaryPath?: string,
+    mcpPort?: number
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
@@ -373,6 +390,7 @@ export class AgentProcessManager {
       taskFolder: request.taskFolder,
       model: resolvedModel,
       binaryPath,
+      mcpPort,
     });
 
     // Set up timeout (same as CLI path)
@@ -401,6 +419,13 @@ export class AgentProcessManager {
     sdkHandle.onOutput((data: string) => {
       this.appendBuffer(agentId, 'stdout', data);
     });
+
+    // Wire structured segments (if the adapter provides them)
+    if (sdkHandle.onSegment) {
+      sdkHandle.onSegment((segment: CliOutputSegment) => {
+        this.accumulateSegment(agentId, segment);
+      });
+    }
 
     // Wire SDK completion to handleExit (uses hasExited guard to prevent double-exit)
     sdkHandle.done.then(
@@ -620,10 +645,31 @@ export class AgentProcessManager {
   ): void {
     let pending = this.pendingDeltas.get(agentId);
     if (!pending) {
-      pending = { stdout: '', stderr: '' };
+      pending = { stdout: '', stderr: '', segments: [] };
       this.pendingDeltas.set(agentId, pending);
     }
     pending[stream] += data;
+
+    // Start flush timer if not already running
+    if (!this.flushTimers.has(agentId)) {
+      const timer = setTimeout(() => {
+        this.flushDelta(agentId);
+      }, OUTPUT_FLUSH_INTERVAL);
+      this.flushTimers.set(agentId, timer);
+    }
+  }
+
+  /**
+   * Accumulate a structured segment for throttled emission.
+   * Shares the same flush timer as text deltas.
+   */
+  private accumulateSegment(agentId: string, segment: CliOutputSegment): void {
+    let pending = this.pendingDeltas.get(agentId);
+    if (!pending) {
+      pending = { stdout: '', stderr: '', segments: [] };
+      this.pendingDeltas.set(agentId, pending);
+    }
+    pending.segments.push(segment);
 
     // Start flush timer if not already running
     if (!this.flushTimers.has(agentId)) {
@@ -640,7 +686,11 @@ export class AgentProcessManager {
   private flushDelta(agentId: string): void {
     this.flushTimers.delete(agentId);
     const pending = this.pendingDeltas.get(agentId);
-    if (!pending || (!pending.stdout && !pending.stderr)) return;
+    if (
+      !pending ||
+      (!pending.stdout && !pending.stderr && pending.segments.length === 0)
+    )
+      return;
 
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
@@ -650,11 +700,13 @@ export class AgentProcessManager {
       stdoutDelta: pending.stdout,
       stderrDelta: pending.stderr,
       timestamp: Date.now(),
+      ...(pending.segments.length > 0 ? { segments: pending.segments } : {}),
     };
 
     // Reset pending
     pending.stdout = '';
     pending.stderr = '';
+    pending.segments = [];
 
     this.events.emit('agent:output', delta);
   }
@@ -885,6 +937,89 @@ export class AgentProcessManager {
         `Working directory must be within workspace root. ` +
           `Got: ${dir}, Expected prefix: ${workspaceRoot}`
       );
+    }
+  }
+
+  /**
+   * Resolve MCP server port for CLI agents, gated on premium status + server health.
+   * Returns the port number if both conditions are met, undefined otherwise.
+   * Mirrors the premium gating pattern from SdkQueryOptionsBuilder.buildMcpServers().
+   *
+   * Health check results are cached for 30 seconds to avoid repeated HTTP calls
+   * when spawning multiple agents in rapid succession.
+   */
+  private async resolveMcpPort(): Promise<number | undefined> {
+    try {
+      // Check 1: Is user premium? Use cached status first (no network call),
+      // fall back to verifyLicense() if cache is empty.
+      const cached = this.licenseService.getCachedStatus();
+      const status = cached ?? (await this.licenseService.verifyLicense());
+      const isPremium =
+        status.tier === 'pro' ||
+        status.tier === 'trial_pro' ||
+        status.plan?.isPremium === true;
+
+      if (!isPremium) {
+        this.logger.info(
+          '[AgentProcessManager] MCP disabled for CLI agent (not premium)',
+          {
+            tier: status.tier,
+          }
+        );
+        return undefined;
+      }
+
+      // Check 2: Is MCP server running? Use cached health check result if fresh.
+      const configuredPort = vscode.workspace
+        .getConfiguration('ptah')
+        .get<number>('mcpPort', 51820);
+
+      if (
+        this.mcpHealthCache &&
+        Date.now() - this.mcpHealthCache.timestamp <
+          AgentProcessManager.MCP_HEALTH_CACHE_TTL
+      ) {
+        return this.mcpHealthCache.port;
+      }
+
+      // Health check: verify server is actually running
+      try {
+        const response = await fetch(
+          `http://localhost:${configuredPort}/health`,
+          {
+            signal: AbortSignal.timeout(2000),
+          }
+        );
+
+        if (response.ok) {
+          this.mcpHealthCache = { port: configuredPort, timestamp: Date.now() };
+          this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
+            port: configuredPort,
+          });
+          return configuredPort;
+        }
+
+        this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
+        this.logger.info(
+          '[AgentProcessManager] MCP server health check failed',
+          {
+            port: configuredPort,
+            status: response.status,
+          }
+        );
+        return undefined;
+      } catch {
+        this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
+        this.logger.info(
+          '[AgentProcessManager] MCP server not reachable, disabling for CLI agent'
+        );
+        return undefined;
+      }
+    } catch {
+      this.logger.info(
+        '[AgentProcessManager] MCP port resolution failed (license check error)'
+      );
+      return undefined;
     }
   }
 

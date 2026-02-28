@@ -19,7 +19,6 @@ import {
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
-import { SessionLoaderService } from './session-loader.service';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { MessageValidationService } from '../message-validation.service';
 
@@ -29,7 +28,6 @@ export class ConversationService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
-  private readonly sessionLoader = inject(SessionLoaderService);
   private readonly validator = inject(MessageValidationService);
   private readonly injector = inject(Injector); // For lazy injection to avoid circular dependency
 
@@ -318,13 +316,8 @@ export class ConversationService {
         this.tabManager.updateTab(activeTabId, { status: 'streaming' });
         this.sessionManager.setStatus('streaming');
 
-        // Sessions list will be refreshed when real sessionId is stored
-        this.sessionLoader.loadSessions().catch((err) => {
-          console.warn(
-            '[ConversationService] Failed to refresh sessions:',
-            err
-          );
-        });
+        // Note: Sessions list refresh moved to handleSessionIdResolved() in ChatStore
+        // At this point metadata doesn't exist yet, so loadSessions() would miss this session
       }
     } catch (error) {
       console.error(

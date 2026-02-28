@@ -290,6 +290,10 @@ export class SubagentHookHandler {
    * (for UI routing), stops file watching, and marks the subagent
    * as 'completed' in the registry.
    *
+   * For background agents: marks as 'background_completed' and emits
+   * a BackgroundAgentCompletedEvent through the agent watcher so the
+   * webview is notified even after the main turn has completed.
+   *
    * TASK_2025_103: Now updates SubagentRegistryService to mark
    * the subagent as 'completed' when SubagentStop hook fires.
    *
@@ -314,22 +318,53 @@ export class SubagentHookHandler {
         this.agentWatcher.setToolUseId(input.agent_id, toolUseId);
       }
 
-      // Stop watching this agent
-      this.agentWatcher.stopWatching(input.agent_id);
+      // Check if this is a background agent
+      const record = toolUseId ? this.subagentRegistry.get(toolUseId) : null;
+      const isBackground = record?.isBackground === true;
 
-      // TASK_2025_103: Mark subagent as completed in registry
-      // This prevents the subagent from being marked as 'interrupted'
-      // when the session ends normally
-      if (toolUseId) {
-        this.subagentRegistry.update(toolUseId, { status: 'completed' });
-
+      if (isBackground) {
+        // Background agent completed - emit completion event via watcher
+        // and mark as background_completed in registry
         this.logger.info(
-          '[SubagentHookHandler] Subagent marked as completed in registry',
+          '[SubagentHookHandler] Background subagent completed',
           {
             toolCallId: toolUseId,
             agentId: input.agent_id,
+            agentType: record?.agentType,
           }
         );
+
+        // Emit background agent completed event through watcher
+        this.agentWatcher.emitBackgroundAgentCompleted(
+          input.agent_id,
+          toolUseId!,
+          record?.agentType
+        );
+
+        // Stop watching (now that completion event is emitted)
+        this.agentWatcher.stopWatching(input.agent_id);
+
+        // Mark as background_completed (deletes from registry)
+        this.subagentRegistry.update(toolUseId!, {
+          status: 'background_completed',
+          completedAt: Date.now(),
+        });
+      } else {
+        // Foreground agent - normal completion flow
+        this.agentWatcher.stopWatching(input.agent_id);
+
+        // TASK_2025_103: Mark subagent as completed in registry
+        if (toolUseId) {
+          this.subagentRegistry.update(toolUseId, { status: 'completed' });
+
+          this.logger.info(
+            '[SubagentHookHandler] Subagent marked as completed in registry',
+            {
+              toolCallId: toolUseId,
+              agentId: input.agent_id,
+            }
+          );
+        }
       }
 
       this.logger.debug(
@@ -337,6 +372,7 @@ export class SubagentHookHandler {
         {
           agentId: input.agent_id,
           toolUseId,
+          isBackground,
         }
       );
     } catch (error) {

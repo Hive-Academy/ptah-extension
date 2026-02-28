@@ -1,16 +1,15 @@
 /**
  * MCP Response Formatter
  *
- * Converts raw JSON tool results into structured plain text.
+ * Converts raw JSON tool results into structured Markdown
+ * using json2md for declarative JSON-to-Markdown conversion.
  *
- * VS Code renders MCP tool results as PLAIN TEXT (not Markdown),
- * so we use clean key-value formatting that reads well in both
- * the VS Code tool output panel and when consumed by the LLM.
- *
- * Design: indented key-value pairs, dashes for lists, section
- * headers with [brackets]. No Markdown tables/headers/backticks.
+ * All MCP tool results are rendered as proper Markdown with
+ * headers, lists, tables, and paragraphs for readability in
+ * any markdown-aware client (VS Code, Claude, etc.).
  */
 
+import json2md from 'json2md';
 import type {
   SpawnAgentResult,
   AgentProcessInfo,
@@ -22,6 +21,41 @@ import type {
 // ============================================================
 
 /**
+ * Recursively render a DirectoryStructure as an indented bullet list.
+ */
+function renderDirectoryTree(
+  structure: Record<string, unknown>,
+  depth = 0
+): string {
+  const indent = '  '.repeat(depth);
+  const lines: string[] = [];
+
+  const dirs = structure['directories'] as
+    | Array<{ name: string; structure: Record<string, unknown> | null }>
+    | undefined;
+  const files = structure['files'] as
+    | Array<{ name: string; extension: string }>
+    | undefined;
+
+  if (Array.isArray(dirs)) {
+    for (const dir of dirs) {
+      lines.push(`${indent}- **${dir.name}/**`);
+      if (dir.structure) {
+        lines.push(renderDirectoryTree(dir.structure, depth + 1));
+      }
+    }
+  }
+
+  if (Array.isArray(files)) {
+    for (const file of files) {
+      lines.push(`${indent}- ${file.name}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+/**
  * Format ptah_workspace_analyze result
  */
 export function formatWorkspaceAnalysis(result: unknown): string {
@@ -29,64 +63,126 @@ export function formatWorkspaceAnalysis(result: unknown): string {
     const r = result as {
       info?: Record<string, unknown>;
       structure?: Record<string, unknown>;
+      projectInfo?: Record<string, unknown>;
     };
     const info = r?.info ?? {};
     const structure = r?.structure ?? {};
+    const projectInfo = r?.projectInfo;
 
-    const lines: string[] = ['[Workspace Analysis]'];
-
-    // Project info
     const projectType = info['projectType'] ?? info['type'] ?? 'Unknown';
     const rootPath = info['rootPath'] ?? info['path'] ?? '';
-    lines.push(`  Project: ${projectType}`);
-    lines.push(`  Root: ${rootPath}`);
 
-    // Frameworks
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [{ h2: 'Workspace Analysis' }];
+
+    // --- Project Info section ---
+    const projectLines: string[] = [
+      `**Project Type:** ${projectType}`,
+      `**Root:** ${rootPath}`,
+    ];
+
+    if (projectInfo) {
+      if (projectInfo['version'])
+        projectLines.push(`**Version:** ${projectInfo['version']}`);
+      if (projectInfo['description'])
+        projectLines.push(`**Description:** ${projectInfo['description']}`);
+      if (projectInfo['gitRepository'] !== undefined)
+        projectLines.push(
+          `**Git Repository:** ${projectInfo['gitRepository'] ? 'Yes' : 'No'}`
+        );
+      if (typeof projectInfo['totalFiles'] === 'number')
+        projectLines.push(`**Total Files:** ${projectInfo['totalFiles']}`);
+    }
+
+    blocks.push({ p: projectLines.join('  \n') });
+
+    // --- Frameworks ---
     const frameworks = (info['frameworks'] ??
       info['detectedFrameworks'] ??
       []) as Array<Record<string, unknown>>;
     if (Array.isArray(frameworks) && frameworks.length > 0) {
-      lines.push('');
-      lines.push('[Frameworks]');
-      for (const fw of frameworks) {
-        if (typeof fw === 'string') {
-          lines.push(`  - ${fw}`);
-        } else if (fw && typeof fw === 'object') {
-          const name = fw['name'] ?? fw['framework'] ?? 'Unknown';
-          const version = fw['version'] ? ` ${fw['version']}` : '';
-          const category = fw['category'] ? ` (${fw['category']})` : '';
-          lines.push(`  - ${name}${version}${category}`);
+      blocks.push({ h3: 'Frameworks' });
+      const fwItems = frameworks.map((fw) => {
+        if (typeof fw === 'string') return fw;
+        const name = fw['name'] ?? fw['framework'] ?? 'Unknown';
+        const version = fw['version'] ? ` ${fw['version']}` : '';
+        const category = fw['category'] ? ` (${fw['category']})` : '';
+        return `${name}${version}${category}`;
+      });
+      blocks.push({ ul: fwItems });
+    }
+
+    // --- Dependencies (from projectInfo) ---
+    if (projectInfo) {
+      const deps = projectInfo['dependencies'] as string[] | undefined;
+      const devDeps = projectInfo['devDependencies'] as string[] | undefined;
+
+      if (Array.isArray(deps) && deps.length > 0) {
+        blocks.push({ h3: 'Dependencies' });
+        const cappedDeps = deps.slice(0, 15);
+        if (deps.length > 15) {
+          cappedDeps.push(`... and ${deps.length - 15} more`);
         }
+        blocks.push({ ul: cappedDeps });
+      }
+
+      if (Array.isArray(devDeps) && devDeps.length > 0) {
+        blocks.push({ h3: 'Dev Dependencies' });
+        const cappedDevDeps = devDeps.slice(0, 15);
+        if (devDeps.length > 15) {
+          cappedDevDeps.push(`... and ${devDeps.length - 15} more`);
+        }
+        blocks.push({ ul: cappedDevDeps });
       }
     }
 
-    // Structure
-    const dirs = (structure['directories'] ?? structure['dirs'] ?? []) as Array<
-      Record<string, unknown>
-    >;
-    if (Array.isArray(dirs) && dirs.length > 0) {
-      lines.push('');
-      lines.push('[Structure]');
-      for (const dir of dirs) {
-        if (typeof dir === 'string') {
-          lines.push(`  - ${dir}`);
-        } else if (dir && typeof dir === 'object') {
-          const name = dir['name'] ?? dir['path'] ?? '';
-          const files = dir['files'] ?? dir['fileCount'] ?? '';
-          const desc = dir['description'] ?? dir['desc'] ?? '';
-          const extra = [files ? `${files} files` : '', desc]
-            .filter(Boolean)
-            .join(' — ');
-          lines.push(`  - ${name}${extra ? ': ' + extra : ''}`);
-        }
+    // --- File Statistics (from projectInfo) ---
+    if (projectInfo) {
+      const fileStats = projectInfo['fileStatistics'] as
+        | Record<string, number>
+        | undefined;
+      if (fileStats && Object.keys(fileStats).length > 0) {
+        blocks.push({ h3: 'File Statistics' });
+        const rows = Object.entries(fileStats)
+          .sort(([, a], [, b]) => b - a)
+          .slice(0, 20)
+          .map(([ext, count]) => ({ Extension: ext, Count: String(count) }));
+        blocks.push({ table: { headers: ['Extension', 'Count'], rows } });
       }
     }
 
-    if (lines.length <= 3) {
-      return fallbackJson(result);
+    // --- Directory Structure ---
+    const structureData = structure['structure'] ?? structure;
+    const hasDirs =
+      Array.isArray(
+        (structureData as Record<string, unknown>)?.['directories']
+      ) &&
+      ((structureData as Record<string, unknown>)['directories'] as unknown[])
+        .length > 0;
+    const hasFiles =
+      Array.isArray((structureData as Record<string, unknown>)?.['files']) &&
+      ((structureData as Record<string, unknown>)['files'] as unknown[])
+        .length > 0;
+
+    if (hasDirs || hasFiles) {
+      blocks.push({ h3: 'Directory Structure' });
+      const tree = renderDirectoryTree(
+        structureData as Record<string, unknown>
+      );
+      if (tree) {
+        blocks.push({ p: tree });
+      }
     }
 
-    return lines.join('\n');
+    // --- Recommendations ---
+    const recommendations = (structure['recommendations'] ?? []) as string[];
+    if (Array.isArray(recommendations) && recommendations.length > 0) {
+      blocks.push({ h3: 'Recommendations' });
+      blocks.push({ ul: recommendations });
+    }
+
+    const output = json2md(blocks);
+    return output || fallbackJson(result);
   } catch {
     return fallbackJson(result);
   }
@@ -98,23 +194,22 @@ export function formatWorkspaceAnalysis(result: unknown): string {
 export function formatSearchFiles(files: unknown): string {
   try {
     if (!Array.isArray(files)) return fallbackJson(files);
-    if (files.length === 0) return '[File Search]\n  Found: 0 files';
+    if (files.length === 0)
+      return json2md([{ h2: 'File Search' }, { p: 'Found: 0 files' }]);
 
-    const lines: string[] = [
-      '[File Search]',
-      `  Found: ${files.length} file${files.length !== 1 ? 's' : ''}`,
-      '',
-    ];
+    const items = files.map((file, i) => {
+      const path =
+        typeof file === 'string'
+          ? file
+          : file?.path ?? file?.file ?? String(file);
+      return `${i + 1}. ${path}`;
+    });
 
-    for (let i = 0; i < files.length; i++) {
-      const file =
-        typeof files[i] === 'string'
-          ? files[i]
-          : files[i]?.path ?? files[i]?.file ?? String(files[i]);
-      lines.push(`  ${i + 1}. ${file}`);
-    }
-
-    return lines.join('\n');
+    return json2md([
+      { h2: 'File Search' },
+      { p: `Found: ${files.length} file${files.length !== 1 ? 's' : ''}` },
+      { ol: items.map((item) => item.replace(/^\d+\.\s*/, '')) },
+    ]);
   } catch {
     return fallbackJson(files);
   }
@@ -131,7 +226,10 @@ export function formatDiagnostics(diagnostics: unknown): string {
   try {
     if (!Array.isArray(diagnostics)) return fallbackJson(diagnostics);
     if (diagnostics.length === 0)
-      return '[Diagnostics]\n  Errors: 0\n  Warnings: 0\n  No issues found.';
+      return json2md([
+        { h2: 'Diagnostics' },
+        { p: 'Errors: 0 | Warnings: 0 — No issues found.' },
+      ]);
 
     const errors = diagnostics.filter(
       (d: Record<string, unknown>) =>
@@ -150,40 +248,40 @@ export function formatDiagnostics(diagnostics: unknown): string {
         !errors.includes(d) && !warnings.includes(d)
     );
 
-    const lines: string[] = [
-      '[Diagnostics]',
-      `  Errors: ${errors.length}`,
-      `  Warnings: ${warnings.length}`,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'Diagnostics' },
+      {
+        p: `**Errors:** ${errors.length} | **Warnings:** ${warnings.length}${
+          others.length > 0 ? ` | **Other:** ${others.length}` : ''
+        }`,
+      },
     ];
-    if (others.length > 0) {
-      lines.push(`  Other: ${others.length}`);
-    }
 
     if (errors.length > 0) {
-      lines.push('');
-      lines.push('[Errors]');
-      for (const e of errors) {
-        lines.push('  ' + formatDiagnosticItem(e as Record<string, unknown>));
-      }
+      blocks.push({ h3: 'Errors' });
+      blocks.push({
+        ul: errors.map((e: Record<string, unknown>) => formatDiagnosticItem(e)),
+      });
     }
 
     if (warnings.length > 0) {
-      lines.push('');
-      lines.push('[Warnings]');
-      for (const w of warnings) {
-        lines.push('  ' + formatDiagnosticItem(w as Record<string, unknown>));
-      }
+      blocks.push({ h3: 'Warnings' });
+      blocks.push({
+        ul: warnings.map((w: Record<string, unknown>) =>
+          formatDiagnosticItem(w)
+        ),
+      });
     }
 
     if (others.length > 0) {
-      lines.push('');
-      lines.push('[Other]');
-      for (const o of others) {
-        lines.push('  ' + formatDiagnosticItem(o as Record<string, unknown>));
-      }
+      blocks.push({ h3: 'Other' });
+      blocks.push({
+        ul: others.map((o: Record<string, unknown>) => formatDiagnosticItem(o)),
+      });
     }
 
-    return lines.join('\n');
+    return json2md(blocks);
   } catch {
     return fallbackJson(diagnostics);
   }
@@ -198,7 +296,7 @@ function formatDiagnosticItem(d: Record<string, unknown>): string {
   const location = line
     ? `${file}:${line}${col ? ':' + col : ''}`
     : String(file);
-  return `- ${location} —${code} ${message}`;
+  return `\`${location}\` —${code} ${message}`;
 }
 
 function extractRangeLine(range: unknown): number | string | undefined {
@@ -221,26 +319,23 @@ function extractRangeLine(range: unknown): number | string | undefined {
 export function formatLspReferences(refs: unknown): string {
   try {
     if (!Array.isArray(refs)) return fallbackJson(refs);
-    if (refs.length === 0) return '[LSP References]\n  Found: 0 references';
+    if (refs.length === 0)
+      return json2md([{ h2: 'LSP References' }, { p: 'Found: 0 references' }]);
 
-    const lines: string[] = [
-      '[LSP References]',
-      `  Found: ${refs.length} reference${refs.length !== 1 ? 's' : ''}`,
-      '',
-    ];
-
-    for (let i = 0; i < refs.length; i++) {
-      const ref = refs[i] as Record<string, unknown>;
+    const items = refs.map((ref: Record<string, unknown>) => {
       const file = ref['file'] ?? ref['uri'] ?? ref['path'] ?? '';
       const line = ref['line'] ?? '';
       const col = ref['col'] ?? ref['column'] ?? '';
-      const loc = line
-        ? `${file}:${line}${col ? ':' + col : ''}`
-        : String(file);
-      lines.push(`  ${i + 1}. ${loc}`);
-    }
+      return line
+        ? `\`${file}:${line}${col ? ':' + col : ''}\``
+        : `\`${file}\``;
+    });
 
-    return lines.join('\n');
+    return json2md([
+      { h2: 'LSP References' },
+      { p: `Found: ${refs.length} reference${refs.length !== 1 ? 's' : ''}` },
+      { ol: items },
+    ]);
   } catch {
     return fallbackJson(refs);
   }
@@ -252,26 +347,28 @@ export function formatLspReferences(refs: unknown): string {
 export function formatLspDefinitions(defs: unknown): string {
   try {
     if (!Array.isArray(defs)) return fallbackJson(defs);
-    if (defs.length === 0) return '[LSP Definitions]\n  Found: 0 definitions';
+    if (defs.length === 0)
+      return json2md([
+        { h2: 'LSP Definitions' },
+        { p: 'Found: 0 definitions' },
+      ]);
 
-    const lines: string[] = [
-      '[LSP Definitions]',
-      `  Found: ${defs.length} definition${defs.length !== 1 ? 's' : ''}`,
-      '',
-    ];
-
-    for (let i = 0; i < defs.length; i++) {
-      const def = defs[i] as Record<string, unknown>;
+    const items = defs.map((def: Record<string, unknown>) => {
       const file = def['file'] ?? def['uri'] ?? def['path'] ?? '';
       const line = def['line'] ?? '';
       const col = def['col'] ?? def['column'] ?? '';
-      const loc = line
-        ? `${file}:${line}${col ? ':' + col : ''}`
-        : String(file);
-      lines.push(`  ${i + 1}. ${loc}`);
-    }
+      return line
+        ? `\`${file}:${line}${col ? ':' + col : ''}\``
+        : `\`${file}\``;
+    });
 
-    return lines.join('\n');
+    return json2md([
+      { h2: 'LSP Definitions' },
+      {
+        p: `Found: ${defs.length} definition${defs.length !== 1 ? 's' : ''}`,
+      },
+      { ol: items },
+    ]);
   } catch {
     return fallbackJson(defs);
   }
@@ -287,23 +384,24 @@ export function formatLspDefinitions(defs: unknown): string {
 export function formatDirtyFiles(files: unknown): string {
   try {
     if (!Array.isArray(files)) return fallbackJson(files);
-    if (files.length === 0) return '[Dirty Files]\n  Found: 0 unsaved files';
+    if (files.length === 0)
+      return json2md([{ h2: 'Dirty Files' }, { p: 'Found: 0 unsaved files' }]);
 
-    const lines: string[] = [
-      '[Dirty Files]',
-      `  Found: ${files.length} unsaved file${files.length !== 1 ? 's' : ''}`,
-      '',
-    ];
+    const items = files.map((file) => {
+      return typeof file === 'string'
+        ? file
+        : (file as Record<string, unknown>)?.['path'] ?? String(file);
+    });
 
-    for (const file of files) {
-      const path =
-        typeof file === 'string'
-          ? file
-          : (file as Record<string, unknown>)?.['path'] ?? String(file);
-      lines.push(`  - ${path}`);
-    }
-
-    return lines.join('\n');
+    return json2md([
+      { h2: 'Dirty Files' },
+      {
+        p: `Found: ${files.length} unsaved file${
+          files.length !== 1 ? 's' : ''
+        }`,
+      },
+      { ul: items as string[] },
+    ]);
   } catch {
     return fallbackJson(files);
   }
@@ -315,11 +413,12 @@ export function formatDirtyFiles(files: unknown): string {
 export function formatTokenCount(result: unknown): string {
   try {
     const r = result as { file?: string; tokens?: number };
-    return [
-      '[Token Count]',
-      `  File: ${r?.file ?? 'unknown'}`,
-      `  Tokens: ${r?.tokens ?? 0}`,
-    ].join('\n');
+    return json2md([
+      { h2: 'Token Count' },
+      {
+        p: `**File:** ${r?.file ?? 'unknown'}  \n**Tokens:** ${r?.tokens ?? 0}`,
+      },
+    ]);
   } catch {
     return fallbackJson(result);
   }
@@ -334,13 +433,17 @@ export function formatTokenCount(result: unknown): string {
  */
 export function formatAgentSpawn(result: SpawnAgentResult): string {
   try {
-    return [
-      '[Agent Spawned]',
-      `  Agent ID: ${result.agentId}`,
-      `  CLI: ${result.cli}`,
-      `  Status: ${result.status}`,
-      `  Started: ${result.startedAt}`,
-    ].join('\n');
+    return json2md([
+      { h2: 'Agent Spawned' },
+      {
+        p: [
+          `**Agent ID:** ${result.agentId}`,
+          `**CLI:** ${result.cli}`,
+          `**Status:** ${result.status}`,
+          `**Started:** ${result.startedAt}`,
+        ].join('  \n'),
+      },
+    ]);
   } catch {
     return fallbackJson(result);
   }
@@ -354,25 +457,32 @@ export function formatAgentStatus(
 ): string {
   try {
     const agents = Array.isArray(result) ? result : [result];
-    if (agents.length === 0) return '[Agent Status]\n  No agents found.';
+    if (agents.length === 0)
+      return json2md([{ h2: 'Agent Status' }, { p: 'No agents found.' }]);
 
-    const lines: string[] = ['[Agent Status]', `  Total: ${agents.length}`];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'Agent Status' },
+      { p: `**Total:** ${agents.length}` },
+    ];
 
     for (const a of agents) {
       const task =
         a.task.length > 80 ? a.task.substring(0, 77) + '...' : a.task;
-      lines.push('');
-      lines.push(`  Agent: ${a.agentId}`);
-      lines.push(`    CLI: ${a.cli}`);
-      lines.push(`    Status: ${a.status}`);
-      lines.push(`    Task: ${task}`);
-      lines.push(`    Started: ${a.startedAt}`);
+      const lines = [
+        `**CLI:** ${a.cli}`,
+        `**Status:** ${a.status}`,
+        `**Task:** ${task}`,
+        `**Started:** ${a.startedAt}`,
+      ];
       if (a.exitCode !== undefined) {
-        lines.push(`    Exit Code: ${a.exitCode}`);
+        lines.push(`**Exit Code:** ${a.exitCode}`);
       }
+      blocks.push({ h3: `Agent: ${a.agentId}` });
+      blocks.push({ p: lines.join('  \n') });
     }
 
-    return lines.join('\n');
+    return json2md(blocks);
   } catch {
     return fallbackJson(result);
   }
@@ -383,32 +493,31 @@ export function formatAgentStatus(
  */
 export function formatAgentRead(result: AgentOutput): string {
   try {
-    const lines: string[] = [
-      `[Agent Output: ${result.agentId}]`,
-      `  Lines: ${result.lineCount}`,
-      `  Truncated: ${result.truncated ? 'Yes' : 'No'}`,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: `Agent Output: ${result.agentId}` },
+      {
+        p: `**Lines:** ${result.lineCount} | **Truncated:** ${
+          result.truncated ? 'Yes' : 'No'
+        }`,
+      },
     ];
 
     if (result.stdout) {
-      lines.push('');
-      lines.push('[stdout]');
-      // Agent stdout may contain markdown from the CLI tool.
-      // Pass through as-is — the LLM will parse it.
-      lines.push(result.stdout);
+      blocks.push({ h3: 'stdout' });
+      blocks.push({ code: { language: '', content: result.stdout } });
     }
 
     if (result.stderr) {
-      lines.push('');
-      lines.push('[stderr]');
-      lines.push(result.stderr);
+      blocks.push({ h3: 'stderr' });
+      blocks.push({ code: { language: '', content: result.stderr } });
     }
 
     if (!result.stdout && !result.stderr) {
-      lines.push('');
-      lines.push('  No output yet.');
+      blocks.push({ p: '*No output yet.*' });
     }
 
-    return lines.join('\n');
+    return json2md(blocks);
   } catch {
     return fallbackJson(result);
   }
@@ -419,13 +528,17 @@ export function formatAgentRead(result: AgentOutput): string {
  */
 export function formatAgentStop(result: AgentProcessInfo): string {
   try {
-    return [
-      '[Agent Stopped]',
-      `  Agent ID: ${result.agentId}`,
-      `  CLI: ${result.cli}`,
-      `  Status: ${result.status}`,
-      `  Exit Code: ${result.exitCode ?? 'N/A'}`,
-    ].join('\n');
+    return json2md([
+      { h2: 'Agent Stopped' },
+      {
+        p: [
+          `**Agent ID:** ${result.agentId}`,
+          `**CLI:** ${result.cli}`,
+          `**Status:** ${result.status}`,
+          `**Exit Code:** ${result.exitCode ?? 'N/A'}`,
+        ].join('  \n'),
+      },
+    ]);
   } catch {
     return fallbackJson(result);
   }
@@ -439,11 +552,15 @@ export function formatAgentSteer(result: {
   steered: boolean;
 }): string {
   try {
-    return [
-      '[Agent Steered]',
-      `  Agent ID: ${result.agentId}`,
-      `  Steered: ${result.steered ? 'Yes' : 'No'}`,
-    ].join('\n');
+    return json2md([
+      { h2: 'Agent Steered' },
+      {
+        p: [
+          `**Agent ID:** ${result.agentId}`,
+          `**Steered:** ${result.steered ? 'Yes' : 'No'}`,
+        ].join('  \n'),
+      },
+    ]);
   } catch {
     return fallbackJson(result);
   }

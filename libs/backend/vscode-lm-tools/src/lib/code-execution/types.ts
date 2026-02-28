@@ -629,6 +629,18 @@ export interface MCPToolDefinition {
     properties: Record<string, any>;
     required?: string[];
   };
+
+  /** MCP protocol annotations — hints for LLM clients about tool behavior */
+  annotations?: {
+    /** Tool only reads data, does not modify state */
+    readOnlyHint?: boolean;
+    /** Tool may perform destructive/irreversible operations */
+    destructiveHint?: boolean;
+    /** Calling with same args produces same result (safe to retry) */
+    idempotentHint?: boolean;
+    /** Tool interacts with external systems beyond the local environment */
+    openWorldHint?: boolean;
+  };
 }
 
 // ========================================

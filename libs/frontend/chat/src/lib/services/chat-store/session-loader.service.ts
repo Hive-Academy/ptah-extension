@@ -47,6 +47,10 @@ export class SessionLoaderService {
   // Page size constant
   private static readonly SESSIONS_PAGE_SIZE = 10;
 
+  // Debounce timer for coalescing rapid loadSessions() calls
+  private loadSessionsTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly LOAD_SESSIONS_DEBOUNCE_MS = 300;
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
@@ -62,9 +66,33 @@ export class SessionLoaderService {
 
   /**
    * Load sessions from backend via RPC (with pagination)
-   * Resets pagination and loads first page
+   * Debounced (300ms) to coalesce rapid calls (e.g. SESSION_ID_RESOLVED + SESSION_STATS).
+   * Preserves pagination: reloads all pages up to the current offset instead of resetting to page 1.
    */
   async loadSessions(): Promise<void> {
+    // Cancel any pending debounced call
+    if (this.loadSessionsTimer) {
+      clearTimeout(this.loadSessionsTimer);
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      this.loadSessionsTimer = setTimeout(async () => {
+        this.loadSessionsTimer = null;
+        try {
+          await this._loadSessionsImmediate();
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      }, SessionLoaderService.LOAD_SESSIONS_DEBOUNCE_MS);
+    });
+  }
+
+  /**
+   * Internal: Perform the actual session list RPC call.
+   * Preserves pagination by loading all items up to the current offset.
+   */
+  private async _loadSessionsImmediate(): Promise<void> {
     try {
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
@@ -72,12 +100,17 @@ export class SessionLoaderService {
         return;
       }
 
-      // Reset pagination state
-      this._sessionsOffset.set(0);
+      // Preserve pagination: reload all items up to the current offset
+      // so users don't lose their scrolled-through pages on refresh.
+      const currentOffset = this._sessionsOffset();
+      const limit = Math.max(
+        SessionLoaderService.SESSIONS_PAGE_SIZE,
+        currentOffset
+      );
 
       const result = await this.claudeRpcService.call('session:list', {
         workspacePath,
-        limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
+        limit,
         offset: 0,
       });
 

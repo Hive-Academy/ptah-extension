@@ -19,10 +19,7 @@ import { injectable, inject } from 'tsyringe';
 import { mkdir, writeFile } from 'fs/promises';
 import { dirname } from 'path';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
-import type {
-  CliTarget,
-  CliGenerationResult,
-} from '@ptah-extension/shared';
+import type { CliTarget, CliGenerationResult } from '@ptah-extension/shared';
 import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
@@ -72,11 +69,7 @@ export class MultiCliAgentWriterService {
         continue;
       }
 
-      const result = await this.writeForSingleCli(
-        agents,
-        cli,
-        transformer
-      );
+      const result = await this.writeForSingleCli(agents, cli, transformer);
       results.push(result);
     }
 
@@ -96,7 +89,9 @@ export class MultiCliAgentWriterService {
     const paths: string[] = [];
     const errors: string[] = [];
 
-    this.logger.info(`[MultiCliWriter] Writing ${agents.length} agents for ${cli}`);
+    this.logger.info(
+      `[MultiCliWriter] Writing ${agents.length} agents for ${cli}`
+    );
 
     for (const agent of agents) {
       try {
@@ -107,7 +102,11 @@ export class MultiCliAgentWriterService {
         await mkdir(dirname(transformResult.filePath), { recursive: true });
 
         // Write transformed content
-        await writeFile(transformResult.filePath, transformResult.content, 'utf8');
+        await writeFile(
+          transformResult.filePath,
+          transformResult.content,
+          'utf8'
+        );
 
         paths.push(transformResult.filePath);
         agentsWritten++;
@@ -118,7 +117,9 @@ export class MultiCliAgentWriterService {
         );
       } catch (error) {
         agentsFailed++;
-        const errorMsg = `Failed to write ${agent.sourceTemplateId} for ${cli}: ${
+        const errorMsg = `Failed to write ${
+          agent.sourceTemplateId
+        } for ${cli}: ${
           error instanceof Error ? error.message : String(error)
         }`;
         errors.push(errorMsg);

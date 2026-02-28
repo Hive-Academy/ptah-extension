@@ -133,6 +133,15 @@ export class SessionReplayService {
       if (msg.type === 'user' && msg.message?.content) {
         if (msg.isMeta === true) continue;
 
+        // Fallback: detect skill/meta content by patterns when isMeta flag is missing.
+        // The SDK's Skill tool injects newMessages with sourceToolUseID; these are meta.
+        if (
+          (msg as unknown as Record<string, unknown>)['sourceToolUseID'] !==
+          undefined
+        ) {
+          continue;
+        }
+
         // Skip tool_result messages - they are processed as part of tool calls
         const contentRaw = msg.message.content;
         if (

@@ -107,13 +107,13 @@ export class ProviderRpcHandlers {
         // Get API key from per-provider storage (may be null for static-model providers)
         const apiKey = await this.authSecretsService.getProviderKey(providerId);
 
-        // Guard: dynamic providers need an API key to fetch models
+        // Guard: purely dynamic providers (no static fallback) need an API key
         if (!apiKey) {
           const provider = getAnthropicProvider(providerId);
-          const isDynamic =
+          const isPurelyDynamic =
             provider?.modelsEndpoint &&
             (!provider.staticModels || provider.staticModels.length === 0);
-          if (isDynamic) {
+          if (isPurelyDynamic) {
             this.logger.debug(
               'RPC: provider:listModels skipped - no API key for dynamic provider',
               { providerId }

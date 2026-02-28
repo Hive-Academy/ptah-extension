@@ -11,6 +11,7 @@
     "@ptah-extension/vscode-core": "0.0.1",
     "@ptah-extension/shared": "0.0.1",
     "@ptah-extension/workspace-intelligence": "0.0.1",
+    "json2md": "^2.0.1",
     "minimatch": "9.0.3",
     "@ptah-extension/llm-abstraction": "0.0.1"
   }

@@ -31,6 +31,7 @@ import {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
+  getModelPricingDescription,
 } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 
@@ -359,10 +360,15 @@ export class ConfigRpcHandlers {
               }
             }
 
+            // When a provider model is mapped, show its pricing instead of Claude's
+            const description = providerModelId
+              ? getModelPricingDescription(providerModelId)
+              : m.description;
+
             return {
               id: m.value,
               name: m.displayName,
-              description: m.description,
+              description,
               apiName: m.value,
               isSelected: m.value === savedModel,
               isRecommended:

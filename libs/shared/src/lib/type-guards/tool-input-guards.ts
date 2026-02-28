@@ -151,6 +151,12 @@ export interface TaskToolInput {
   subagent_type: string;
   /** Optional agent ID to resume from a previous invocation */
   resume?: string;
+  /** Set to true to run this agent in the background. SDK returns an immediate placeholder tool_result with output_file path. */
+  run_in_background?: boolean;
+  /** Optional model override for the subagent */
+  model?: 'sonnet' | 'opus' | 'haiku';
+  /** Maximum number of agentic turns before stopping */
+  max_turns?: number;
 }
 
 /**
@@ -164,6 +170,17 @@ export interface TaskOutputToolInput {
   block?: boolean;
   /** Max wait time in ms */
   timeout?: number;
+}
+
+/**
+ * TaskStop tool input interface
+ * Tool: TaskStop - Stop a running background task (agent or shell)
+ */
+export interface TaskStopToolInput {
+  /** The ID of the background task to stop */
+  task_id?: string;
+  /** @deprecated Use task_id instead */
+  shell_id?: string;
 }
 
 /**
@@ -768,6 +785,19 @@ export function isTaskOutputToolInput(
 }
 
 /**
+ * Type guard for TaskStop tool input
+ */
+export function isTaskStopToolInput(
+  input: unknown
+): input is TaskStopToolInput {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    ('task_id' in input || 'shell_id' in input)
+  );
+}
+
+/**
  * Type guard for KillShell tool input
  */
 export function isKillShellToolInput(
@@ -1076,6 +1106,7 @@ export type ToolInput =
   | GlobToolInput
   | TaskToolInput
   | TaskOutputToolInput
+  | TaskStopToolInput
   | KillShellToolInput
   | WebFetchToolInput
   | WebSearchToolInput
@@ -1127,6 +1158,7 @@ export interface ToolInputMap {
   Glob: GlobToolInput;
   Task: TaskToolInput;
   TaskOutput: TaskOutputToolInput;
+  TaskStop: TaskStopToolInput;
   KillShell: KillShellToolInput;
   WebFetch: WebFetchToolInput;
   WebSearch: WebSearchToolInput;

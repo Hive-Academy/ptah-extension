@@ -971,6 +971,11 @@ export class ChatStore {
     // StreamingHandler finalizes the message and returns queued content info
     const result = this.streamingHandler.handleSessionStats(stats);
 
+    // Refresh sidebar so session's lastActiveAt timestamp is updated
+    this.sessionLoader.loadSessions().catch((err) => {
+      console.warn('[ChatStore] Failed to refresh sessions after stats:', err);
+    });
+
     // TASK_2025_101: Handle auto-send of queued content here to avoid circular dependency
     // (StreamingHandler → MessageSender → SessionLoader → StreamingHandler)
     if (result && result.queuedContent && result.queuedContent.trim()) {
@@ -1068,6 +1073,14 @@ export class ChatStore {
         });
       }
     }
+
+    // Refresh sidebar session list now that metadata has been created on the backend
+    this.sessionLoader.loadSessions().catch((err) => {
+      console.warn(
+        '[ChatStore] Failed to refresh sessions after ID resolved:',
+        err
+      );
+    });
   }
 
   /**
@@ -1149,5 +1162,11 @@ export class ChatStore {
       currentMessageId: null,
     });
     this.sessionManager.setStatus('loaded');
+
+    // Safety net: refresh sidebar in case session metadata was created before the error.
+    // If the session exists on disk, it will now appear; if not, this is a harmless no-op.
+    this.sessionLoader.loadSessions().catch((err) => {
+      console.warn('[ChatStore] Failed to refresh sessions after error:', err);
+    });
   }
 }

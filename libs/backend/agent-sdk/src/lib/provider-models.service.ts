@@ -5,8 +5,8 @@
  * model tier mappings for Sonnet/Opus/Haiku overrides.
  *
  * Supports:
- * - Dynamic model listing via API (OpenRouter, Moonshot)
- * - Static model lists (Z.AI)
+ * - Dynamic model listing via API (OpenRouter)
+ * - Hybrid: dynamic with static fallback (Moonshot, Z.AI)
  * - Per-provider model cache and tier config persistence
  *
  * Environment Variables Set:
@@ -113,7 +113,31 @@ export class ProviderModelsService {
       throw new Error(`Unknown provider: ${providerId}`);
     }
 
-    // Static models: return from registry directly
+    // Path 1: Has API endpoint AND key → try dynamic first
+    if (provider.modelsEndpoint && apiKey) {
+      try {
+        const result = await this.fetchDynamicModels(
+          providerId,
+          provider,
+          apiKey,
+          toolUseOnly
+        );
+        // Merge static metadata (pricing, toolUse flags) into dynamic results
+        result.models = this.mergeStaticMetadata(result.models, provider);
+        return result;
+      } catch (error) {
+        this.logger.warn(
+          '[ProviderModelsService] Dynamic fetch failed, falling back to static models',
+          {
+            providerId,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+        // Fall through to static fallback
+      }
+    }
+
+    // Path 2: Static fallback (no key, or dynamic failed)
     if (provider.staticModels && provider.staticModels.length > 0) {
       const models: ProviderModelInfo[] = provider.staticModels.map((m) => ({
         id: m.id,
@@ -130,13 +154,17 @@ export class ProviderModelsService {
       return { models: filtered, totalCount: models.length, isStatic: true };
     }
 
-    // Dynamic models: fetch from API with cache
-    if (!provider.modelsEndpoint) {
-      // No endpoint and no static models - return empty
-      return { models: [], totalCount: 0, isStatic: false };
-    }
-
-    return this.fetchDynamicModels(providerId, provider, apiKey, toolUseOnly);
+    // No models available (dynamic-only without key, or provider misconfigured)
+    this.logger.debug(
+      '[ProviderModelsService] No models available for provider',
+      {
+        providerId,
+        hasEndpoint: !!provider.modelsEndpoint,
+        hasStatic: !!provider.staticModels?.length,
+        hasKey: !!apiKey,
+      }
+    );
+    return { models: [], totalCount: 0, isStatic: false };
   }
 
   /**
@@ -193,6 +221,7 @@ export class ProviderModelsService {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(10_000),
       });
 
       if (!response.ok) {
@@ -241,6 +270,48 @@ export class ProviderModelsService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Merge static model metadata (pricing, toolUse, descriptions) into
+   * dynamically fetched models. OpenAI-format /v1/models responses typically
+   * lack pricing and tool-use information, so we enrich them from the
+   * hardcoded static definitions when available.
+   */
+  private mergeStaticMetadata(
+    dynamicModels: ProviderModelInfo[],
+    provider: AnthropicProvider
+  ): ProviderModelInfo[] {
+    if (!provider.staticModels?.length) return dynamicModels;
+
+    const staticMap = new Map(
+      provider.staticModels.map((m) => [m.id.toLowerCase(), m])
+    );
+
+    return dynamicModels.map((model) => {
+      const staticInfo = staticMap.get(model.id.toLowerCase());
+      if (!staticInfo) return model;
+
+      return {
+        ...model,
+        // OR logic: static can supplement dynamic (APIs often underreport tool support)
+        supportsToolUse: model.supportsToolUse || staticInfo.supportsToolUse,
+        inputCostPerToken:
+          model.inputCostPerToken ?? staticInfo.inputCostPerToken,
+        outputCostPerToken:
+          model.outputCostPerToken ?? staticInfo.outputCostPerToken,
+        cacheReadCostPerToken:
+          model.cacheReadCostPerToken ?? staticInfo.cacheReadCostPerToken,
+        cacheCreationCostPerToken:
+          model.cacheCreationCostPerToken ??
+          staticInfo.cacheCreationCostPerToken,
+        // Prefer static display name if dynamic is just the raw ID
+        name:
+          model.name !== model.id ? model.name : staticInfo.name || model.name,
+        description: model.description || staticInfo.description,
+        contextLength: model.contextLength || staticInfo.contextLength,
+      };
+    });
   }
 
   /**

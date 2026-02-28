@@ -15,6 +15,8 @@ import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
+  AgentListCliModelsResult,
+  CliModelOption,
 } from '@ptah-extension/shared';
 import type { CliDetectionResult, CliType } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
@@ -45,9 +47,15 @@ export class AgentRpcHandlers {
     this.registerGetConfig();
     this.registerSetConfig();
     this.registerDetectClis();
+    this.registerListCliModels();
 
     this.logger.debug('Agent orchestration RPC handlers registered', {
-      methods: ['agent:getConfig', 'agent:setConfig', 'agent:detectClis'],
+      methods: [
+        'agent:getConfig',
+        'agent:setConfig',
+        'agent:detectClis',
+        'agent:listCliModels',
+      ],
     });
   }
 
@@ -199,5 +207,98 @@ export class AgentRpcHandlers {
         }
       }
     );
+  }
+
+  /**
+   * agent:listCliModels - List available models for each installed CLI
+   *
+   * For Copilot: dynamically queries VS Code LM API for `copilot/*` models
+   * (same models shown in the VS Code Language Model dropdown), strips the
+   * `copilot/` prefix, and generates clean display names. Falls back to the
+   * adapter's curated list if the LM API call fails.
+   *
+   * For Gemini: uses the adapter's curated list (no VS Code LM integration).
+   */
+  private registerListCliModels(): void {
+    this.rpcHandler.registerMethod<void, AgentListCliModelsResult>(
+      'agent:listCliModels',
+      async () => {
+        try {
+          this.logger.debug('RPC: agent:listCliModels called');
+
+          const modelMap = await this.cliDetection.listModelsForAll();
+
+          // Gemini: use adapter's curated list
+          const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
+
+          // Copilot: try VS Code LM API first for dynamic models
+          let copilot = await this.getCopilotModelsFromVsCodeLm();
+          if (copilot.length === 0) {
+            // Fallback to adapter's curated list
+            copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
+          }
+
+          const result: AgentListCliModelsResult = { gemini, copilot };
+
+          this.logger.debug('RPC: agent:listCliModels success', {
+            geminiCount: result.gemini.length,
+            copilotCount: result.copilot.length,
+          });
+
+          return result;
+        } catch (error) {
+          this.logger.error(
+            'RPC: agent:listCliModels failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          throw error;
+        }
+      }
+    );
+  }
+
+  /**
+   * Query VS Code LM API for Copilot models, strip `copilot/` prefix,
+   * and generate human-readable display names.
+   * Returns empty array on failure (caller falls back to curated list).
+   */
+  private async getCopilotModelsFromVsCodeLm(): Promise<CliModelOption[]> {
+    try {
+      const models = await vscode.lm.selectChatModels();
+
+      // Filter to copilot vendor models only
+      const copilotModels = models.filter((m) => m.vendor === 'copilot');
+      if (copilotModels.length === 0) return [];
+
+      return copilotModels.map((m) => ({
+        // The CLI model ID is the family name without vendor prefix
+        // e.g. "copilot/claude-opus-4.6" → "claude-opus-4.6"
+        id: m.family,
+        name: this.formatModelDisplayName(m.family),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Convert a model family slug to a human-readable name.
+   * e.g. "claude-opus-4.6" → "Claude Opus 4.6"
+   *      "gpt-5.3-codex"   → "GPT 5.3 Codex"
+   *      "gemini-3-pro-preview" → "Gemini 3 Pro Preview"
+   */
+  private formatModelDisplayName(family: string): string {
+    return family
+      .split('-')
+      .map((part) => {
+        // Preserve version numbers as-is (e.g., "4.6", "5.3")
+        if (/^\d/.test(part)) return part;
+        // Uppercase known acronyms
+        const upper = part.toUpperCase();
+        if (['GPT', 'AI'].includes(upper)) return upper;
+        // Title-case everything else
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join(' ');
   }
 }

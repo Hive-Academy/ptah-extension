@@ -136,6 +136,11 @@ export class CodeOutputComponent {
     // Detect language based on tool type using type guards
     let language = 'text';
 
+    // MCP tool responses are already formatted as markdown by mcp-response-formatter
+    if (toolName?.startsWith('mcp__')) {
+      return 'markdown';
+    }
+
     // Use type guards for type-safe property access
     if (
       isReadToolInput(toolInput) ||

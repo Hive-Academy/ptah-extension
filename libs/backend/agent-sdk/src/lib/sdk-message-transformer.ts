@@ -23,6 +23,7 @@ import {
   MessageDeltaEvent,
   SignatureDeltaEvent,
   CompactionCompleteEvent,
+  BackgroundAgentStartedEvent,
   SessionId,
   calculateMessageCost,
   EventSource,
@@ -99,6 +100,14 @@ export class SdkMessageTransformer {
    */
   private toolCallIdByContextAndBlock: Map<string, string> = new Map();
 
+  /**
+   * Tracks Task tool_use IDs that have run_in_background: true.
+   * When the corresponding tool_result arrives, we know this was a background agent
+   * and can emit BackgroundAgentStartedEvent.
+   * Set: toolCallId values
+   */
+  private backgroundTaskToolUseIds: Set<string> = new Set();
+
   constructor(@inject(TOKENS.LOGGER) private logger: Logger) {}
 
   /**
@@ -126,9 +135,29 @@ export class SdkMessageTransformer {
       if (isUserMessage(sdkMessage)) {
         // Skip isMeta messages (skill .md content injected into context).
         // These are conversation context for Claude but should not be displayed in the UI.
+        //
+        // MULTI-LAYER FILTER: The SDK sets isMeta=true on skill content, but some SDK
+        // versions or code paths may strip this flag during the newMessages pipeline.
+        // We use multiple detection strategies as defense-in-depth:
+        //   1. Explicit isMeta flag (primary)
+        //   2. Content-based detection for known SDK meta patterns (fallback)
         if (sdkMessage.isMeta === true) {
+          this.logger.debug(
+            '[SdkMessageTransformer] Skipping isMeta user message (skill/meta content)'
+          );
           return [];
         }
+
+        // Fallback: detect SDK meta messages by content patterns even when isMeta is missing.
+        // The SDK wraps skill content, reminders, memory, etc. with isMeta but this flag
+        // can be lost during tool newMessages pipeline (spread copy, serialization).
+        if (this.isSkillOrMetaContent(sdkMessage)) {
+          this.logger.info(
+            '[SdkMessageTransformer] Skipping user message detected as skill/meta content by pattern (isMeta was missing)'
+          );
+          return [];
+        }
+
         return this.transformUserToFlatEvents(sdkMessage, sessionId);
       }
 
@@ -646,6 +675,22 @@ export class SdkMessageTransformer {
             'prompt' in block.input && typeof block.input['prompt'] === 'string'
               ? block.input['prompt']
               : undefined;
+
+          // Track background Task tool_use IDs for correlation with tool_result
+          const isBackground =
+            'run_in_background' in block.input &&
+            block.input['run_in_background'] === true;
+          if (isBackground) {
+            this.backgroundTaskToolUseIds.add(block.id);
+            this.logger.info(
+              '[SdkMessageTransformer] Detected background Task tool_use',
+              {
+                toolCallId: block.id,
+                agentType,
+                agentDescription,
+              }
+            );
+          }
         }
 
         const toolStartEvent: ToolStartEvent = {
@@ -701,6 +746,43 @@ export class SdkMessageTransformer {
           parentToolUseId: parent_tool_use_id ?? undefined,
         };
         events.push(toolResultEvent);
+
+        // Check if this tool_result is for a background Task tool_use
+        // If so, emit BackgroundAgentStartedEvent with the output file path
+        if (this.backgroundTaskToolUseIds.has(block.tool_use_id)) {
+          this.backgroundTaskToolUseIds.delete(block.tool_use_id);
+
+          // Extract output file path from the SDK placeholder result
+          const outputText =
+            typeof block.content === 'string'
+              ? block.content
+              : JSON.stringify(block.content);
+          const outputFileMatch = outputText?.match(
+            /output_file:\s*(.+?)(?:\n|$)/i
+          );
+
+          const bgEvent: BackgroundAgentStartedEvent = {
+            id: generateEventId(),
+            eventType: 'background_agent_started',
+            timestamp: Date.now(),
+            sessionId: sessionId || '',
+            source: 'complete' as EventSource,
+            messageId,
+            toolCallId: block.tool_use_id,
+            agentType: 'unknown', // Will be enriched by SubagentHookHandler
+            outputFilePath: outputFileMatch?.[1]?.trim(),
+            parentToolUseId: parent_tool_use_id ?? undefined,
+          };
+          events.push(bgEvent);
+
+          this.logger.info(
+            '[SdkMessageTransformer] Emitted background_agent_started event',
+            {
+              toolCallId: block.tool_use_id,
+              outputFilePath: bgEvent.outputFilePath,
+            }
+          );
+        }
       }
     }
 
@@ -791,6 +873,33 @@ export class SdkMessageTransformer {
             parentToolUseId: parent_tool_use_id ?? undefined,
           };
           events.push(toolResultEvent);
+
+          // Check if this tool_result is for a background Task tool_use
+          if (this.backgroundTaskToolUseIds.has(toolResultBlock.tool_use_id)) {
+            this.backgroundTaskToolUseIds.delete(toolResultBlock.tool_use_id);
+
+            const outputText =
+              typeof toolResultBlock.content === 'string'
+                ? toolResultBlock.content
+                : JSON.stringify(toolResultBlock.content);
+            const outputFileMatch = outputText?.match(
+              /output_file:\s*(.+?)(?:\n|$)/i
+            );
+
+            const bgEvent: BackgroundAgentStartedEvent = {
+              id: generateEventId(),
+              eventType: 'background_agent_started',
+              timestamp: Date.now(),
+              sessionId: sessionId || '',
+              source: 'complete' as EventSource,
+              messageId,
+              toolCallId: toolResultBlock.tool_use_id,
+              agentType: 'unknown',
+              outputFilePath: outputFileMatch?.[1]?.trim(),
+              parentToolUseId: parent_tool_use_id ?? undefined,
+            };
+            events.push(bgEvent);
+          }
         }
       }
 
@@ -879,11 +988,81 @@ export class SdkMessageTransformer {
   }
 
   /**
+   * Detect skill/meta content by message patterns when isMeta flag is missing.
+   *
+   * The Claude Agent SDK injects various meta messages (skill content, reminders,
+   * plan files, memory, etc.) with isMeta=true. However, when these arrive via
+   * the Skill tool's newMessages pipeline, the flag can be lost during spread
+   * copy operations. This method detects such messages by content patterns.
+   *
+   * Known SDK meta content markers:
+   * - <skill-format>true</skill-format>  (skill loading metadata tag)
+   * - <command-message>  (command/skill invocation tag)
+   * - "Base directory for this skill:"  (legacy skill injection prefix)
+   * - sourceToolUseID starting with "Skill_"  (Skill tool injected messages)
+   * - Messages with both skill tags and large content (skill .md body)
+   */
+  private isSkillOrMetaContent(sdkMessage: SDKUserMessage): boolean {
+    // Check sourceToolUseID — Skill tool injects messages with sourceToolUseID like "Skill_0"
+    const sourceToolUseId = (sdkMessage as unknown as Record<string, unknown>)[
+      'sourceToolUseID'
+    ] as string | undefined;
+    if (sourceToolUseId && typeof sourceToolUseId === 'string') {
+      // Any message injected by the Skill tool is meta content
+      return true;
+    }
+
+    // Extract text content for pattern matching
+    const content = sdkMessage.message?.content;
+    if (!content) return false;
+
+    let textContent = '';
+    if (typeof content === 'string') {
+      textContent = content;
+    } else if (Array.isArray(content)) {
+      textContent = content
+        .filter(
+          (block): block is { type: 'text'; text: string } =>
+            typeof block === 'object' &&
+            block !== null &&
+            'type' in block &&
+            block.type === 'text' &&
+            'text' in block
+        )
+        .map((block) => block.text)
+        .join('\n');
+    }
+
+    if (!textContent) return false;
+
+    // Check for SDK meta content markers
+    // These tags are injected by the SDK and should never appear in user input
+    if (textContent.includes('<skill-format>true</skill-format>')) return true;
+    if (textContent.includes('<command-message>')) return true;
+    if (textContent.startsWith('Base directory for this skill:')) return true;
+
+    // Check for invoked_skills pattern (SDK injects these with isMeta during resume)
+    if (
+      textContent.startsWith(
+        'The following skills were invoked in this session'
+      )
+    )
+      return true;
+
+    // Check for plan_file_reference pattern
+    if (textContent.startsWith('A plan file exists from plan mode at:'))
+      return true;
+
+    return false;
+  }
+
+  /**
    * Clear streaming state - called for reset scenarios
    * TASK_2025_096 FIX: Clears all per-context tracking
    */
   clearStreamingState(): void {
     this.currentMessageIdByContext.clear();
     this.toolCallIdByContextAndBlock.clear();
+    this.backgroundTaskToolUseIds.clear();
   }
 }

@@ -561,9 +561,7 @@ export class LlmRpcHandlers {
         family: m.family,
         version: m.version,
         maxInputTokens: m.maxInputTokens,
-        displayName: `${m.vendor}/${m.family}${
-          m.version ? ` (${m.version})` : ''
-        }`,
+        displayName: this.formatVsCodeModelName(m.family, m.version),
       }));
 
       this.logger.debug(
@@ -586,6 +584,37 @@ export class LlmRpcHandlers {
       // Return empty array on error
       return [];
     }
+  }
+
+  /**
+   * Format a VS Code LM model family slug into a human-readable name.
+   * Strips vendor prefix and converts slug to title case.
+   *
+   * Examples:
+   *   "claude-opus-4.6"         → "Claude Opus 4.6"
+   *   "gpt-5.3-codex"           → "GPT 5.3 Codex"
+   *   "gemini-3-pro-preview"    → "Gemini 3 Pro Preview"
+   *   "gpt-4o-mini"             → "GPT 4o Mini"
+   *   "copilot-fast"            → "Copilot Fast"
+   *
+   * Appends version in parentheses if present:
+   *   "gpt-4o-mini", "2024-07-18" → "GPT 4o Mini (2024-07-18)"
+   */
+  private formatVsCodeModelName(family: string, version?: string): string {
+    const name = family
+      .split('-')
+      .map((part) => {
+        // Preserve version numbers as-is (e.g., "4.6", "5.3", "4o", "2024")
+        if (/^\d/.test(part)) return part;
+        // Uppercase known acronyms
+        const upper = part.toUpperCase();
+        if (['GPT', 'AI'].includes(upper)) return upper;
+        // Title-case everything else
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join(' ');
+
+    return version ? `${name} (${version})` : name;
   }
 }
 

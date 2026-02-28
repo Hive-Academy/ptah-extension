@@ -1197,6 +1197,70 @@ Optimized for VS Code sidebar (200-600px)
 }
 
 /* ============================================================================
+AGENT PROSE — Compact prose for sidebar agent cards (380px wide)
+Scales down the main .prose typography while preserving visual hierarchy.
+============================================================================ */
+
+.agent-prose {
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.agent-prose h1,
+.agent-prose h2 {
+  font-size: 0.95em;
+  margin-top: 0.75em;
+  margin-bottom: 0.35em;
+  padding-bottom: 0.2em;
+}
+
+.agent-prose h3 {
+  font-size: 0.9em;
+  margin-top: 0.6em;
+  margin-bottom: 0.25em;
+}
+
+.agent-prose p {
+  margin-bottom: 0.4em;
+}
+
+.agent-prose ul,
+.agent-prose ol {
+  margin: 0.35em 0;
+  padding-left: 1.25em;
+}
+
+.agent-prose li {
+  margin-bottom: 0.2em;
+}
+
+.agent-prose code {
+  font-size: 0.85em;
+  padding: 0.05em 0.3em;
+}
+
+.agent-prose pre {
+  padding: 0.5em 0.65em;
+  margin: 0.5em 0;
+  font-size: 0.85em;
+}
+
+.agent-prose blockquote {
+  padding: 0.35em 0.5em;
+  margin: 0.5em 0;
+}
+
+.agent-prose .prose-list-card {
+  padding: 0.3em 0.5em;
+  font-size: 0.9em;
+}
+
+.agent-prose .callout {
+  padding: 0.3em 0.5em;
+  font-size: 0.85em;
+}
+
+/* ============================================================================
 UTILITY CLASSES
 ============================================================================ */
 

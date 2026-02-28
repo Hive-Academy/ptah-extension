@@ -43,7 +43,7 @@ const CLI_CONFIGS: CliTestConfig[] = [
     args: [
       '-p',
       TEST_PROMPT,
-      '--allow-all-tools',
+      '--yolo',
       '--no-ask-user',
       '--silent',
       '--no-custom-instructions',

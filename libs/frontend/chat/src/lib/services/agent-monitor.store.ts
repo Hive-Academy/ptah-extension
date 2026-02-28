@@ -11,6 +11,7 @@ import type {
   AgentOutputDelta,
   AgentStatus,
   CliType,
+  CliOutputSegment,
 } from '@ptah-extension/shared';
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
@@ -26,6 +27,8 @@ export interface MonitoredAgent {
   stderr: string;
   exitCode?: number;
   expanded: boolean;
+  /** Structured output segments from SDK-based adapters (Gemini, Codex). Empty for raw CLI adapters (Copilot). */
+  segments: CliOutputSegment[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -117,6 +120,7 @@ export class AgentMonitorStore implements OnDestroy {
         stdout: '',
         stderr: '',
         expanded: true,
+        segments: [],
       });
       return next;
     });
@@ -148,6 +152,9 @@ export class AgentMonitorStore implements OnDestroy {
           updated.stderr + delta.stderrDelta,
           MAX_FRONTEND_BUFFER
         );
+      }
+      if (delta.segments && delta.segments.length > 0) {
+        updated.segments = [...updated.segments, ...delta.segments];
       }
 
       next.set(delta.agentId, updated);

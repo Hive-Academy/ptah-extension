@@ -38,7 +38,7 @@ import type {
  */
 export type SubagentRegistration = Omit<
   SubagentRecord,
-  'status' | 'interruptedAt'
+  'status' | 'interruptedAt' | 'completedAt' | 'backgroundStartedAt'
 >;
 
 /**
@@ -158,7 +158,17 @@ export class SubagentRegistryService {
    */
   update(
     toolCallId: string,
-    updates: Partial<Pick<SubagentRecord, 'status' | 'interruptedAt'>>
+    updates: Partial<
+      Pick<
+        SubagentRecord,
+        | 'status'
+        | 'interruptedAt'
+        | 'isBackground'
+        | 'outputFilePath'
+        | 'backgroundStartedAt'
+        | 'completedAt'
+      >
+    >
   ): void {
     const record = this.registry.get(toolCallId);
     if (!record) {
@@ -169,26 +179,45 @@ export class SubagentRegistryService {
       return;
     }
 
-    // FIX: If marking as 'completed', delete immediately to prevent memory accumulation
-    // Completed subagents cannot be resumed, so there's no reason to keep them
-    if (updates.status === 'completed') {
+    // FIX: If marking as 'completed' or 'background_completed', delete immediately
+    // to prevent memory accumulation. Completed subagents cannot be resumed.
+    if (
+      updates.status === 'completed' ||
+      updates.status === 'background_completed'
+    ) {
       this.registry.delete(toolCallId);
       this.logger.debug(
         '[SubagentRegistryService.update] Subagent completed and removed',
         {
           toolCallId,
           agentType: record.agentType,
+          status: updates.status,
         }
       );
       return;
     }
 
-    // Apply updates for non-completed status (e.g., 'interrupted', 'running')
+    // Apply updates for non-completed status (e.g., 'interrupted', 'running', 'background')
     if (updates.status !== undefined) {
       record.status = updates.status;
     }
     if (updates.interruptedAt !== undefined) {
       record.interruptedAt = updates.interruptedAt;
+    }
+    if (updates.isBackground !== undefined) {
+      (record as { isBackground?: boolean }).isBackground =
+        updates.isBackground;
+    }
+    if (updates.outputFilePath !== undefined) {
+      (record as { outputFilePath?: string }).outputFilePath =
+        updates.outputFilePath;
+    }
+    if (updates.backgroundStartedAt !== undefined) {
+      (record as { backgroundStartedAt?: number }).backgroundStartedAt =
+        updates.backgroundStartedAt;
+    }
+    if (updates.completedAt !== undefined) {
+      (record as { completedAt?: number }).completedAt = updates.completedAt;
     }
 
     this.logger.debug('[SubagentRegistryService.update] Subagent updated', {
@@ -273,6 +302,29 @@ export class SubagentRegistryService {
   }
 
   /**
+   * Get all background agents, optionally filtered by parent session ID.
+   *
+   * Background agents have status 'background' and are still running
+   * independently of the main agent's turn.
+   *
+   * @param parentSessionId - Optional filter by parent session
+   * @returns Array of background SubagentRecords
+   */
+  getBackgroundAgents(parentSessionId?: string): SubagentRecord[] {
+    const background: SubagentRecord[] = [];
+
+    for (const record of this.registry.values()) {
+      if (record.status === 'background' && !this.isExpired(record)) {
+        if (!parentSessionId || record.parentSessionId === parentSessionId) {
+          background.push(record);
+        }
+      }
+    }
+
+    return background;
+  }
+
+  /**
    * Get resumable subagents filtered by parent session ID.
    *
    * @param parentSessionId - Filter by parent session
@@ -313,7 +365,8 @@ export class SubagentRegistryService {
     for (const record of this.registry.values()) {
       if (
         record.parentSessionId === parentSessionId &&
-        record.status === 'running'
+        record.status === 'running' &&
+        !record.isBackground // Background agents outlive the session turn
       ) {
         record.status = 'interrupted';
         record.interruptedAt = interruptedAt;

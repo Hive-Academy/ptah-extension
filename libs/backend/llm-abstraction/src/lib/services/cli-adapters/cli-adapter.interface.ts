@@ -6,7 +6,17 @@
  * 1. Implement this interface
  * 2. Register in CliDetectionService
  */
-import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
+import type {
+  CliType,
+  CliDetectionResult,
+  CliOutputSegment,
+} from '@ptah-extension/shared';
+
+/** Model info returned by CLI adapter's listModels() */
+export interface CliModelInfo {
+  readonly id: string;
+  readonly name: string;
+}
 
 export interface CliCommandOptions {
   readonly task: string;
@@ -17,6 +27,8 @@ export interface CliCommandOptions {
   readonly model?: string;
   /** Resolved absolute binary path from CLI detection. SDK adapters that spawn child processes should use this instead of bare binary names (avoids ENOENT on Windows). */
   readonly binaryPath?: string;
+  /** Port of the running Ptah HTTP MCP server. When provided, adapters that support it will configure a direct MCP connection (bypassing VS Code's IDE bridge which blocks headless permissions). */
+  readonly mcpPort?: number;
 }
 
 export interface CliCommand {
@@ -36,6 +48,8 @@ export interface SdkHandle {
   readonly done: Promise<number>;
   /** Register a callback to receive output data from the SDK execution. */
   readonly onOutput: (callback: (data: string) => void) => void;
+  /** Register a callback to receive structured output segments. Optional — only SDK adapters with structured event data implement this. */
+  readonly onSegment?: (callback: (segment: CliOutputSegment) => void) => void;
 }
 
 export interface CliAdapter {
@@ -71,4 +85,10 @@ export interface CliAdapter {
    * Adapters that return a value here are "SDK-based" adapters.
    */
   runSdk?(options: CliCommandOptions): Promise<SdkHandle>;
+
+  /**
+   * Optional: List available models for this CLI.
+   * Returns curated/dynamic model list, or null if not supported.
+   */
+  listModels?(): Promise<CliModelInfo[]>;
 }

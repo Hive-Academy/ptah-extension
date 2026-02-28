@@ -40,9 +40,12 @@ export function buildWorkspaceNamespace(
 
   return {
     analyze: async () => {
-      const info = await workspaceAnalyzer.getCurrentWorkspaceInfo();
-      const structure = await workspaceAnalyzer.analyzeWorkspaceStructure();
-      return { info, structure };
+      const [info, structure, projectInfo] = await Promise.all([
+        workspaceAnalyzer.getCurrentWorkspaceInfo(),
+        workspaceAnalyzer.analyzeWorkspaceStructure(),
+        workspaceAnalyzer.getProjectInfo().catch(() => undefined),
+      ]);
+      return { info, structure, projectInfo };
     },
     getInfo: async () => workspaceAnalyzer.getCurrentWorkspaceInfo(),
     getProjectType: async () => {

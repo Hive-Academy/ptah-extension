@@ -2,6 +2,7 @@ export type {
   CliAdapter,
   CliCommand,
   CliCommandOptions,
+  CliModelInfo,
   SdkHandle,
 } from './cli-adapter.interface';
 export {

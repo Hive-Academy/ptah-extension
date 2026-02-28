@@ -480,6 +480,13 @@ export class StreamingHandlerService {
           };
         }
 
+        // Background agent events - handled in Phase 3 (frontend UI)
+        case 'background_agent_started':
+        case 'background_agent_progress':
+        case 'background_agent_completed':
+        case 'background_agent_stopped':
+          break;
+
         default:
           assertNever(
             event,

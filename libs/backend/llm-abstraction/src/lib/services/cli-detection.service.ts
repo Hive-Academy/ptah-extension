@@ -11,7 +11,10 @@ import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { CliType, CliDetectionResult } from '@ptah-extension/shared';
-import type { CliAdapter } from './cli-adapters/cli-adapter.interface';
+import type {
+  CliAdapter,
+  CliModelInfo,
+} from './cli-adapters/cli-adapter.interface';
 import { GeminiCliAdapter } from './cli-adapters/gemini-cli.adapter';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotCliAdapter } from './cli-adapters/copilot-cli.adapter';
@@ -22,6 +25,8 @@ export class CliDetectionService {
   private detectionCache: Map<CliType, CliDetectionResult> | null = null;
   /** In-flight detection promise to prevent concurrent detection races */
   private detectionInFlight: Promise<CliDetectionResult[]> | null = null;
+  /** Cached model lists per CLI type */
+  private modelCache: Map<CliType, CliModelInfo[]> | null = null;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     // Register headless CLI adapters only (no vscode-lm — that's for Ptah AI chat)
@@ -123,10 +128,53 @@ export class CliDetectionService {
   }
 
   /**
+   * List available models for all installed CLIs that support listModels().
+   * Results are cached until invalidateCache() is called.
+   */
+  async listModelsForAll(): Promise<Record<string, CliModelInfo[]>> {
+    if (this.modelCache) {
+      const result: Record<string, CliModelInfo[]> = {};
+      for (const [cli, models] of this.modelCache) {
+        result[cli] = models;
+      }
+      return result;
+    }
+
+    const detections = await this.detectAll();
+    const cache = new Map<CliType, CliModelInfo[]>();
+
+    for (const detection of detections) {
+      if (!detection.installed) continue;
+
+      const adapter = this.adapters.get(detection.cli);
+      if (!adapter?.listModels) continue;
+
+      try {
+        const models = await adapter.listModels();
+        cache.set(detection.cli, models);
+      } catch (error) {
+        this.logger.warn(
+          `[CliDetection] Failed to list models for ${detection.cli}`,
+          { error: error instanceof Error ? error.message : String(error) }
+        );
+      }
+    }
+
+    this.modelCache = cache;
+
+    const result: Record<string, CliModelInfo[]> = {};
+    for (const [cli, models] of cache) {
+      result[cli] = models;
+    }
+    return result;
+  }
+
+  /**
    * Invalidate the detection cache (forces re-detection on next call)
    */
   invalidateCache(): void {
     this.detectionCache = null;
     this.detectionInFlight = null;
+    this.modelCache = null;
   }
 }

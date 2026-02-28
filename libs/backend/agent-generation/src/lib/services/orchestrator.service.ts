@@ -480,15 +480,11 @@ export class AgentGenerationOrchestratorService {
           // Phase 5 failure is non-fatal
           this.logger.warn('Phase 5 failed (non-fatal)', {
             error:
-              cliError instanceof Error
-                ? cliError.message
-                : String(cliError),
+              cliError instanceof Error ? cliError.message : String(cliError),
           });
           warnings.push(
             `Multi-CLI distribution failed: ${
-              cliError instanceof Error
-                ? cliError.message
-                : String(cliError)
+              cliError instanceof Error ? cliError.message : String(cliError)
             }`
           );
         }

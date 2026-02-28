@@ -22,6 +22,7 @@ import {
   SDK_TOKENS,
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
+  ProviderModelsService,
 } from '@ptah-extension/agent-sdk';
 import {
   AuthGetAuthStatusParams,
@@ -41,7 +42,9 @@ export class AuthRpcHandlers {
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecretsService: IAuthSecretsService,
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
-    private readonly sdkAdapter: SdkAgentAdapter
+    private readonly sdkAdapter: SdkAgentAdapter,
+    @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
+    private readonly providerModels: ProviderModelsService
   ) {}
 
   /**
@@ -261,6 +264,9 @@ export class AuthRpcHandlers {
             // Empty string = clear the provider's key
             await this.authSecretsService.deleteProviderKey(targetProviderId);
           }
+
+          // Invalidate model cache so next fetch uses the new key
+          this.providerModels.clearCache(targetProviderId);
         }
 
         // TASK_2025_129 Batch 3: Save selected Anthropic-compatible provider ID

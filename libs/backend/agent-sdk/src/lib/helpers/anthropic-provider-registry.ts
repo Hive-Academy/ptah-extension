@@ -108,6 +108,7 @@ export const ANTHROPIC_PROVIDERS = [
     description: 'Kimi models via Anthropic-compatible API',
     keyPlaceholder: 'Enter Moonshot API key...',
     maskedKeyDisplay: '••••••••••••',
+    modelsEndpoint: 'https://api.moonshot.ai/v1/models',
     staticModels: [
       {
         id: 'kimi-k2',
@@ -157,15 +158,35 @@ export const ANTHROPIC_PROVIDERS = [
     description: 'GLM models via Anthropic-compatible API',
     keyPlaceholder: 'Enter Z.AI API key...',
     maskedKeyDisplay: '••••••••••••',
+    // Z.AI has no /v1/models API — static models only
+    // @see https://docs.z.ai/guides/overview/pricing
     staticModels: [
+      {
+        id: 'glm-5',
+        name: 'GLM-5',
+        description: 'Opus-class high-intelligence model (200K context)',
+        contextLength: 200000,
+        supportsToolUse: true,
+        inputCostPerToken: 1.0e-6, // $1.00 per 1M tokens
+        outputCostPerToken: 3.2e-6, // $3.20 per 1M tokens
+      },
+      {
+        id: 'glm-5-code',
+        name: 'GLM-5 Code',
+        description: 'Optimized for coding tasks (200K context)',
+        contextLength: 200000,
+        supportsToolUse: true,
+        inputCostPerToken: 1.2e-6, // $1.20 per 1M tokens
+        outputCostPerToken: 5.0e-6, // $5.00 per 1M tokens
+      },
       {
         id: 'glm-4.7',
         name: 'GLM-4.7',
-        description: 'Flagship model (200K context)',
+        description: 'Sonnet-class flagship model (200K context)',
         contextLength: 200000,
         supportsToolUse: true,
-        inputCostPerToken: 0.38e-6, // $0.38 per 1M tokens
-        outputCostPerToken: 1.7e-6, // $1.70 per 1M tokens
+        inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
+        outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
       },
       {
         id: 'glm-4.7-flashx',
@@ -173,17 +194,17 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Fast performance (200K context)',
         contextLength: 200000,
         supportsToolUse: true,
-        inputCostPerToken: 0.38e-6, // $0.38 per 1M tokens
-        outputCostPerToken: 1.7e-6, // $1.70 per 1M tokens
+        inputCostPerToken: 0.07e-6, // $0.07 per 1M tokens
+        outputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
       },
       {
         id: 'glm-4.7-flash',
         name: 'GLM-4.7 Flash',
-        description: 'Free/lightweight (200K context)',
+        description: 'Free lightweight model (200K context)',
         contextLength: 200000,
         supportsToolUse: true,
-        inputCostPerToken: 0.06e-6, // $0.06 per 1M tokens
-        outputCostPerToken: 0.4e-6, // $0.40 per 1M tokens
+        inputCostPerToken: 0, // Free
+        outputCostPerToken: 0, // Free
       },
       {
         id: 'glm-4.6',
@@ -191,8 +212,17 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Unified reasoning (200K context)',
         contextLength: 200000,
         supportsToolUse: true,
-        inputCostPerToken: 0.3e-6, // $0.30 per 1M tokens
-        outputCostPerToken: 0.9e-6, // $0.90 per 1M tokens
+        inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
+        outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+      },
+      {
+        id: 'glm-4.5-x',
+        name: 'GLM-4.5-X',
+        description: 'Premium extended thinking (128K context)',
+        contextLength: 128000,
+        supportsToolUse: true,
+        inputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+        outputCostPerToken: 8.9e-6, // $8.90 per 1M tokens
       },
       {
         id: 'glm-4.5',
@@ -200,8 +230,17 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Hybrid thinking (128K context)',
         contextLength: 128000,
         supportsToolUse: true,
-        inputCostPerToken: 0.38e-6, // $0.38 per 1M tokens
-        outputCostPerToken: 1.7e-6, // $1.70 per 1M tokens
+        inputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
+        outputCostPerToken: 2.2e-6, // $2.20 per 1M tokens
+      },
+      {
+        id: 'glm-4.5-airx',
+        name: 'GLM-4.5 AirX',
+        description: 'Accelerated MoE variant (128K context)',
+        contextLength: 128000,
+        supportsToolUse: true,
+        inputCostPerToken: 1.1e-6, // $1.10 per 1M tokens
+        outputCostPerToken: 4.5e-6, // $4.50 per 1M tokens
       },
       {
         id: 'glm-4.5-air',
@@ -209,8 +248,17 @@ export const ANTHROPIC_PROVIDERS = [
         description: 'Lightweight MoE (128K context)',
         contextLength: 128000,
         supportsToolUse: true,
-        inputCostPerToken: 0.19e-6, // $0.19 per 1M tokens
-        outputCostPerToken: 0.85e-6, // $0.85 per 1M tokens
+        inputCostPerToken: 0.2e-6, // $0.20 per 1M tokens
+        outputCostPerToken: 1.1e-6, // $1.10 per 1M tokens
+      },
+      {
+        id: 'glm-4.5-flash',
+        name: 'GLM-4.5 Flash',
+        description: 'Free lightweight model (128K context)',
+        contextLength: 128000,
+        supportsToolUse: true,
+        inputCostPerToken: 0, // Free
+        outputCostPerToken: 0, // Free
       },
     ],
   },
