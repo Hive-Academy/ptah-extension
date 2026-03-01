@@ -148,6 +148,11 @@ export type StrictMessageType =
   | 'workspaceChanged'
   // Setup Wizard Messages
   | 'setup-wizard:scan-progress'
+  // Agent Permission Messages (TASK_2025_162: Copilot SDK)
+  | 'agent-monitor:permission-request'
+  | 'agent-monitor:permission-response'
+  | 'agent-monitor:user-input-request'
+  | 'agent-monitor:user-input-response'
   | string; // Allow extensibility for custom message types
 
 /**
@@ -335,6 +340,14 @@ export const MESSAGE_TYPES = {
   AGENT_MONITOR_SPAWNED: 'agent-monitor:spawned',
   AGENT_MONITOR_OUTPUT: 'agent-monitor:output',
   AGENT_MONITOR_EXITED: 'agent-monitor:exited',
+
+  // ---- Agent Permission Messages (TASK_2025_162: Copilot SDK) ----
+  // CLI agent tool permission routing (Copilot SDK permission hooks)
+  AGENT_MONITOR_PERMISSION_REQUEST: 'agent-monitor:permission-request',
+  AGENT_MONITOR_PERMISSION_RESPONSE: 'agent-monitor:permission-response',
+  // CLI agent user input routing (Copilot SDK onUserInputRequest)
+  AGENT_MONITOR_USER_INPUT_REQUEST: 'agent-monitor:user-input-request',
+  AGENT_MONITOR_USER_INPUT_RESPONSE: 'agent-monitor:user-input-response',
 } as const;
 
 /**

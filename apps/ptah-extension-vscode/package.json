@@ -328,6 +328,11 @@
           "default": "",
           "description": "Default model for Copilot CLI agents. Leave empty for Copilot's default."
         },
+        "ptah.copilot.useSdk": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the Copilot SDK (Technical Preview) instead of CLI spawning. Enables structured events, permission routing, session resume, and crash recovery. Requires extension reload to take effect."
+        },
         "ptah.customAgents": {
           "type": "array",
           "default": [],
