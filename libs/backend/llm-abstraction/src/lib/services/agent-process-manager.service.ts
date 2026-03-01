@@ -387,7 +387,11 @@ export class AgentProcessManager {
       model: resolvedModel,
     });
 
-    if (request.resumeSessionId && request.cli !== 'gemini') {
+    if (
+      request.resumeSessionId &&
+      request.cli !== 'gemini' &&
+      request.cli !== 'copilot'
+    ) {
       this.logger.warn(
         `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`
       );
@@ -480,6 +484,127 @@ export class AgentProcessManager {
     this.events.emit('agent:spawned', tracked.info);
 
     return spawnResult;
+  }
+
+  /**
+   * Spawn an agent from a pre-built SdkHandle (e.g., custom agent).
+   * Same lifecycle management as doSpawnSdk() but skips CLI detection.
+   */
+  async spawnFromSdkHandle(
+    sdkHandle: SdkHandle,
+    meta: {
+      task: string;
+      cli: CliType;
+      workingDirectory: string;
+      taskFolder?: string;
+      parentSessionId?: string;
+      customAgentName?: string;
+      timeout?: number;
+    }
+  ): Promise<SpawnAgentResult> {
+    // Increment spawning counter synchronously before any async work
+    this.spawning++;
+
+    try {
+      // Check concurrent limit (include in-flight spawns)
+      const maxConcurrent = this.getMaxConcurrentAgents();
+      const runningCount = this.getRunningCount();
+      if (runningCount + this.spawning > maxConcurrent) {
+        throw new Error(
+          `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
+            `Stop a running agent before spawning a new one. ` +
+            `Running agents: ${this.getRunningAgentIds().join(', ')}`
+        );
+      }
+
+      // Validate working directory is within workspace root (same as doSpawn path)
+      this.validateWorkingDirectory(meta.workingDirectory);
+
+      const agentId = AgentId.create();
+      const startedAt = new Date().toISOString();
+
+      const info: AgentProcessInfo = {
+        agentId,
+        cli: meta.cli,
+        task: meta.task,
+        workingDirectory: meta.workingDirectory,
+        taskFolder: meta.taskFolder,
+        status: 'running',
+        startedAt,
+        parentSessionId: meta.parentSessionId,
+        customAgentName: meta.customAgentName,
+      };
+
+      // Set up timeout
+      const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
+      const timeoutHandle = setTimeout(() => {
+        this.handleTimeout(agentId);
+      }, timeout);
+
+      // Track the SDK agent (process is null, abort via sdkAbortController)
+      const tracked: TrackedAgent = {
+        info,
+        process: null,
+        sdkAbortController: sdkHandle.abort,
+        stdoutBuffer: '',
+        stderrBuffer: '',
+        timeoutHandle,
+        stdoutLineCount: 0,
+        stderrLineCount: 0,
+        truncated: false,
+        hasExited: false,
+      };
+
+      this.agents.set(agentId, tracked);
+
+      // Wire SDK output to the agent's stdout buffer
+      sdkHandle.onOutput((data: string) => {
+        this.appendBuffer(agentId, 'stdout', data);
+      });
+
+      // Wire structured segments (if the adapter provides them)
+      if (sdkHandle.onSegment) {
+        sdkHandle.onSegment((segment: CliOutputSegment) => {
+          this.accumulateSegment(agentId, segment);
+        });
+      }
+
+      // Wire SDK completion to handleExit
+      sdkHandle.done.then(
+        (exitCode) => {
+          this.handleExit(agentId, exitCode, null);
+        },
+        (error: unknown) => {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          this.logger.error('[AgentProcessManager] SDK handle error', {
+            agentId,
+            error: message,
+          });
+          this.handleExit(agentId, 1, null);
+        }
+      );
+
+      const spawnResult: SpawnAgentResult = {
+        agentId,
+        cli: meta.cli,
+        status: 'running',
+        startedAt,
+        customAgentName: meta.customAgentName,
+      };
+
+      this.events.emit('agent:spawned', tracked.info);
+
+      this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
+        agentId,
+        cli: meta.cli,
+        customAgentName: meta.customAgentName,
+      });
+
+      return spawnResult;
+    } finally {
+      this.spawning--;
+    }
   }
 
   /**
@@ -621,6 +746,26 @@ export class AgentProcessManager {
         clearTimeout(tracked.cleanupHandle);
       }
       this.cleanupFlushTimer(agentId);
+    }
+
+    // Dispose SDK adapters that hold long-lived client processes (TASK_2025_162).
+    // Fire-and-forget: errors are logged but do not block shutdown.
+    try {
+      const copilotAdapter = this.cliDetection.getAdapter('copilot');
+      if (
+        copilotAdapter &&
+        'dispose' in copilotAdapter &&
+        typeof (copilotAdapter as { dispose: () => Promise<void> }).dispose ===
+          'function'
+      ) {
+        await (copilotAdapter as { dispose: () => Promise<void> }).dispose();
+        this.logger.info('[AgentProcessManager] Copilot SDK adapter disposed');
+      }
+    } catch (error) {
+      this.logger.warn(
+        '[AgentProcessManager] Failed to dispose Copilot SDK adapter',
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
 
     this.logger.info(

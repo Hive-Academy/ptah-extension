@@ -936,12 +936,12 @@ Note: The developer must verify how `VSCodeService.postMessage()` works. Check `
 
 ---
 
-## Batch 5: Session Resume + Dispose Lifecycle -- PENDING
+## Batch 5: Session Resume + Dispose Lifecycle -- IMPLEMENTED
 
 **Developer**: backend-developer
 **Tasks**: 2 | **Dependencies**: Batch 2
 
-### Task 5.1: Verify session resume in CopilotSdkAdapter -- PENDING
+### Task 5.1: Verify session resume in CopilotSdkAdapter -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\llm-abstraction\src\lib\services\cli-adapters\copilot-sdk.adapter.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md lines 836-838

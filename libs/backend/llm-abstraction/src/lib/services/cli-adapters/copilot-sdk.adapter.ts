@@ -99,6 +99,10 @@ interface SdkResumeConfig {
   workingDirectory?: string;
   onPermissionRequest?: SdkPermissionHandler;
   hooks?: SdkSessionHooks;
+  systemMessage?:
+    | { mode?: 'append'; content?: string }
+    | { mode: 'replace'; content: string };
+  mcpServers?: Record<string, SdkMcpServerConfig>;
   [key: string]: unknown;
 }
 
@@ -438,6 +442,27 @@ export class CopilotSdkAdapter implements CliAdapter {
 
         if (options.model) {
           resumeConfig.model = options.model;
+        }
+
+        // Re-provide system message on resume so the SDK has project context
+        // even after a session reconnect (ResumeSessionConfig supports this)
+        if (options.projectGuidance) {
+          resumeConfig.systemMessage = {
+            mode: 'append',
+            content: options.projectGuidance,
+          };
+        }
+
+        // Re-provide MCP server config on resume so tools remain available
+        // (ResumeSessionConfig supports mcpServers)
+        if (options.mcpPort) {
+          resumeConfig.mcpServers = {
+            ptah: {
+              type: 'http',
+              url: `http://localhost:${options.mcpPort}`,
+              tools: ['*'],
+            },
+          };
         }
 
         session = await this.client!.resumeSession(
