@@ -12,6 +12,7 @@
     "tsyringe": "^4.10.0",
     "@types/vscode": "^1.103.0",
     "zod": "^4.1.12",
-    "@ptah-extension/vscode-lm-tools": "0.0.1"
+    "@ptah-extension/vscode-lm-tools": "0.0.1",
+    "@ptah-extension/llm-abstraction": "0.0.1"
   }
 }

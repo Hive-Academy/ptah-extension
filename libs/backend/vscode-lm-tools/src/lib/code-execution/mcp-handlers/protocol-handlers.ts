@@ -31,6 +31,7 @@ import {
   buildAgentStatusTool,
   buildAgentReadTool,
   buildAgentSteerTool,
+  buildAgentListTool,
   buildAgentStopTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
@@ -48,6 +49,7 @@ import {
   formatAgentRead,
   formatAgentSteer,
   formatAgentStop,
+  formatAgentList,
 } from './mcp-response-formatter';
 
 /**
@@ -166,6 +168,7 @@ function handleToolsList(request: MCPRequest): MCPResponse {
         buildAgentReadTool(),
         buildAgentSteerTool(),
         buildAgentStopTool(),
+        buildAgentListTool(),
         // Power-user tools
         buildExecuteCodeTool(),
         buildApprovalPromptTool(),
@@ -312,9 +315,11 @@ async function handleIndividualTool(
 
       // Agent orchestration tools (TASK_2025_157)
       case 'ptah_agent_spawn': {
+        const MAX_TASK_LENGTH = 100 * 1024; // 100KB
+
         const {
-          task,
           cli,
+          customAgentId,
           workingDirectory,
           timeout,
           files,
@@ -324,6 +329,7 @@ async function handleIndividualTool(
         } = args as {
           task: string;
           cli?: string;
+          customAgentId?: string;
           workingDirectory?: string;
           timeout?: number;
           files?: string[];
@@ -332,8 +338,42 @@ async function handleIndividualTool(
           resume_session_id?: string;
         };
 
+        // Validate task parameter: must be a non-empty string within size limits
+        const task = (args as Record<string, unknown>)?.['task'];
+        if (!task || typeof task !== 'string') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "task" parameter is required and must be a string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+        if (task.length > MAX_TASK_LENGTH) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Error: "task" exceeds maximum length of ${MAX_TASK_LENGTH} bytes.`,
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
         logger.info('[MCP] ptah_agent_spawn invoked', 'CodeExecutionMCP', {
-          cli: cli ?? 'auto-detect',
+          cli: cli ?? (customAgentId ? 'custom' : 'auto-detect'),
+          customAgentId,
           model: model ?? 'default',
           task: task.substring(0, 100) + (task.length > 100 ? '...' : ''),
           timeout,
@@ -345,6 +385,7 @@ async function handleIndividualTool(
         const result = await ptahAPI.agent.spawn({
           task,
           cli: cli as CliType | undefined,
+          customAgentId,
           workingDirectory,
           timeout,
           files,
@@ -410,6 +451,16 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentStop(result),
+          deps
+        );
+      }
+
+      case 'ptah_agent_list': {
+        logger.info('[MCP] ptah_agent_list called', 'CodeExecutionMCP');
+        const agents = await ptahAPI.agent.list();
+        return createToolSuccessResponse(
+          request,
+          formatAgentList(agents),
           deps
         );
       }

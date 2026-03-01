@@ -87,6 +87,9 @@ import {
  * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency
  * between vscode-lm-tools -> agent-sdk. Must match the string in:
  * libs/backend/agent-sdk/src/lib/di/tokens.ts
+ *
+ * @see SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER in libs/backend/agent-sdk/src/lib/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
 
@@ -94,8 +97,21 @@ const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
  * Duplicated from SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE to avoid circular dependency
  * between vscode-lm-tools -> agent-sdk. Must match the string in:
  * libs/backend/agent-sdk/src/lib/di/tokens.ts
+ *
+ * @see SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE in libs/backend/agent-sdk/src/lib/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const SDK_ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
+
+/**
+ * Duplicated from SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY to avoid circular dependency
+ * between vscode-lm-tools -> agent-sdk. Must match the string in:
+ * libs/backend/agent-sdk/src/lib/di/tokens.ts
+ *
+ * @see SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY in libs/backend/agent-sdk/src/lib/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const SDK_CUSTOM_AGENT_REGISTRY = Symbol.for('SdkCustomAgentRegistry');
 
 @injectable()
 export class PtahAPIBuilder {
@@ -244,6 +260,7 @@ export class PtahAPIBuilder {
       agent: buildAgentNamespace({
         agentProcessManager: this.agentProcessManager,
         cliDetectionService: this.cliDetectionService,
+        workspaceRoot: workspaceRoot.fsPath,
         getActiveSessionId: () => {
           // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
           // In single-session mode (current), there's at most one.
@@ -279,6 +296,50 @@ export class PtahAPIBuilder {
               workspacePath
             );
             return content ?? undefined;
+          } catch {
+            return undefined;
+          }
+        },
+        getCustomAgentRegistry: () => {
+          // Resolve CustomAgentRegistry lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
+          // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
+          if (!container.isRegistered(SDK_CUSTOM_AGENT_REGISTRY)) {
+            return undefined;
+          }
+          try {
+            return container.resolve<{
+              listAgents(): Promise<
+                Array<{
+                  id: string;
+                  name: string;
+                  providerName: string;
+                  hasApiKey: boolean;
+                  enabled: boolean;
+                }>
+              >;
+              spawnAgent(
+                id: string,
+                task: string,
+                projectGuidance?: string
+              ): Promise<
+                | {
+                    handle: {
+                      abort: AbortController;
+                      done: Promise<number>;
+                      onOutput: (cb: (data: string) => void) => void;
+                    };
+                    agentName: string;
+                  }
+                | {
+                    status:
+                      | 'not_found'
+                      | 'disabled'
+                      | 'no_api_key'
+                      | 'unknown_provider';
+                    message: string;
+                  }
+              >;
+            }>(SDK_CUSTOM_AGENT_REGISTRY);
           } catch {
             return undefined;
           }

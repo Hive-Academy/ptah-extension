@@ -83,6 +83,9 @@ export class AgentRpcHandlers {
           );
           const detectedClis = await this.cliDetection.detectAll();
 
+          const copilotConfig =
+            vscode.workspace.getConfiguration('ptah.copilot');
+
           const result: AgentOrchestrationConfig = {
             detectedClis,
             defaultCli: config.get<CliType | null>('defaultCli', null),
@@ -90,6 +93,7 @@ export class AgentRpcHandlers {
             defaultTimeout: config.get<number>('defaultTimeout', 10),
             geminiModel: config.get<string>('geminiModel', ''),
             copilotModel: config.get<string>('copilotModel', ''),
+            copilotUseSdk: copilotConfig.get<boolean>('useSdk', false),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -164,6 +168,16 @@ export class AgentRpcHandlers {
           await config.update(
             'copilotModel',
             params.copilotModel || undefined,
+            vscode.ConfigurationTarget.Global
+          );
+        }
+
+        if (params.copilotUseSdk !== undefined) {
+          const copilotConfig =
+            vscode.workspace.getConfiguration('ptah.copilot');
+          await copilotConfig.update(
+            'useSdk',
+            params.copilotUseSdk,
             vscode.ConfigurationTarget.Global
           );
         }

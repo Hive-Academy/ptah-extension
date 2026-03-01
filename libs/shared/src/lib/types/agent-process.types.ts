@@ -57,7 +57,7 @@ export type AgentStatus =
 // CLI Type
 // ========================================
 
-export type CliType = 'gemini' | 'codex' | 'copilot';
+export type CliType = 'gemini' | 'codex' | 'copilot' | 'custom';
 
 // ========================================
 // Agent Process Info (tracked per agent)
@@ -77,6 +77,8 @@ export interface AgentProcessInfo {
   readonly cliSessionId?: string;
   /** Parent Ptah Claude SDK session that spawned this CLI agent via ptah_agent_spawn. */
   readonly parentSessionId?: string;
+  /** Display name of the custom agent (only set when cli === 'custom') */
+  readonly customAgentName?: string;
 }
 
 // ========================================
@@ -104,6 +106,8 @@ export interface SpawnAgentRequest {
   readonly parentSessionId?: string;
   /** Project-specific guidance (enhanced prompts). Injected by MCP server, NOT set by callers. */
   readonly projectGuidance?: string;
+  /** Custom agent ID from CustomAgentRegistry. When set, spawns via custom agent instead of CLI. */
+  readonly customAgentId?: string;
 }
 
 // ========================================
@@ -131,6 +135,8 @@ export interface SpawnAgentResult {
   readonly startedAt: string;
   /** CLI-native session ID captured from init event (e.g., Gemini UUID). Null if not yet available. */
   readonly cliSessionId?: string;
+  /** Display name of the custom agent (only set when cli === 'custom') */
+  readonly customAgentName?: string;
 }
 
 // ========================================
@@ -143,6 +149,12 @@ export interface CliDetectionResult {
   readonly path?: string;
   readonly version?: string;
   readonly supportsSteer: boolean;
+  /** Custom agent registry ID (only set when cli === 'custom') */
+  readonly customAgentId?: string;
+  /** Display name of the custom agent (only set when cli === 'custom') */
+  readonly customAgentName?: string;
+  /** Provider name (e.g., 'OpenRouter', 'Moonshot') — only set when cli === 'custom' */
+  readonly providerName?: string;
 }
 
 // ========================================

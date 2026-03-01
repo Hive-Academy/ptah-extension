@@ -28,6 +28,7 @@ import type {
   QualityHistoryEntry,
 } from './quality-assessment.types';
 import type { CustomAgentSummary } from './custom-agent.types';
+import type { AgentPermissionDecision } from './agent-permission.types';
 
 // ============================================================
 // Chat RPC Types
@@ -1243,6 +1244,8 @@ export interface AgentOrchestrationConfig {
   geminiModel: string;
   /** Per-CLI model: Copilot CLI model (empty string = CLI default) */
   copilotModel: string;
+  /** Whether to use Copilot SDK instead of CLI spawning (TASK_2025_162) */
+  copilotUseSdk: boolean;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -1269,6 +1272,8 @@ export interface AgentSetConfigParams {
   geminiModel?: string;
   /** Copilot CLI model override (empty string = CLI default) */
   copilotModel?: string;
+  /** Whether to use Copilot SDK instead of CLI spawning (TASK_2025_162) */
+  copilotUseSdk?: boolean;
 }
 
 // ============================================================
@@ -1651,6 +1656,11 @@ export interface RpcMethodRegistry {
     params: void;
     result: AgentListCliModelsResult;
   };
+  /** Route user's permission decision to Copilot SDK bridge (TASK_2025_162) */
+  'agent:permissionResponse': {
+    params: AgentPermissionDecision;
+    result: { success: boolean; error?: string };
+  };
 
   // ---- Custom Agent Methods (TASK_2025_167) ----
   'customAgent:list': {
@@ -1797,6 +1807,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'agent:setConfig',
   'agent:detectClis',
   'agent:listCliModels',
+  'agent:permissionResponse', // TASK_2025_162: Copilot SDK permission response
 
   // Custom Agent Methods (TASK_2025_167)
   'customAgent:list',

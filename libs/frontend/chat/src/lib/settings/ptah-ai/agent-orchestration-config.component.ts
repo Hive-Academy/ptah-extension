@@ -146,6 +146,30 @@ import type {
                 }
               </select>
             </div>
+
+            <!-- Copilot SDK toggle -->
+            <div class="mt-2 pt-2 border-t border-base-300/50">
+              <div class="flex items-center justify-between">
+                <div>
+                  <label
+                    for="copilot-use-sdk"
+                    class="text-[10px] text-base-content/50 block"
+                  >
+                    Use Copilot SDK
+                  </label>
+                  <span class="text-[9px] text-base-content/40">
+                    Structured events &amp; permissions (reload required)
+                  </span>
+                </div>
+                <input
+                  id="copilot-use-sdk"
+                  type="checkbox"
+                  class="toggle toggle-xs toggle-primary"
+                  [checked]="agentConfig()!.copilotUseSdk"
+                  (change)="setCopilotUseSdk($any($event.target).checked)"
+                />
+              </div>
+            </div>
             }
           </div>
           }
@@ -348,6 +372,17 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         (c) => c.cli === cli && c.installed
       ) ?? false
     );
+  }
+
+  async setCopilotUseSdk(enabled: boolean): Promise<void> {
+    const result = await this.rpcService.call('agent:setConfig', {
+      copilotUseSdk: enabled,
+    });
+    if (result.isSuccess()) {
+      this.agentConfig.update((c) =>
+        c ? { ...c, copilotUseSdk: enabled } : c
+      );
+    }
   }
 
   async setAgentModel(cli: 'gemini' | 'copilot', model: string): Promise<void> {

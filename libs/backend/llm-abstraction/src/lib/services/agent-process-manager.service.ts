@@ -85,6 +85,8 @@ export class AgentProcessManager {
   private readonly agents = new Map<string, TrackedAgent>();
   /** Counter for in-flight spawn operations (not yet in agents map) */
   private spawning = 0;
+  /** Promise-based mutex to serialize spawn operations and prevent TOCTOU race in concurrent limit check */
+  private spawnMutex: Promise<void> = Promise.resolve();
 
   /** EventEmitter for agent lifecycle events (spawned, output, exited) */
   readonly events = new EventEmitter();
@@ -118,14 +120,16 @@ export class AgentProcessManager {
    * Spawn a new CLI agent process
    */
   async spawn(request: SpawnAgentRequest): Promise<SpawnAgentResult> {
-    // Increment spawning counter synchronously before any async work
-    this.spawning++;
+    return this.acquireSpawnLock(async () => {
+      // Increment spawning counter synchronously before any async work
+      this.spawning++;
 
-    try {
-      return await this.doSpawn(request);
-    } finally {
-      this.spawning--;
-    }
+      try {
+        return await this.doSpawn(request);
+      } finally {
+        this.spawning--;
+      }
+    });
   }
 
   /**
@@ -411,18 +415,116 @@ export class AgentProcessManager {
 
     // Capture CLI session ID immediately if available (e.g., from sync init)
     const initialCliSessionId = sdkHandle.getSessionId?.();
+    const infoWithSession = initialCliSessionId
+      ? { ...info, cliSessionId: initialCliSessionId }
+      : info;
 
-    // Set up timeout (same as CLI path)
     const timeout = Math.min(request.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
+
+    return this.trackSdkHandle(
+      sdkHandle,
+      infoWithSession,
+      timeout,
+      // Late capture: session_id arrives in init event (first JSONL line).
+      // Passed as callback so trackSdkHandle can invoke it on each segment.
+      () => sdkHandle.getSessionId?.()
+    );
+  }
+
+  /**
+   * Spawn an agent from a pre-built SdkHandle (e.g., custom agent).
+   * Same lifecycle management as doSpawnSdk() but skips CLI detection.
+   */
+  async spawnFromSdkHandle(
+    sdkHandle: SdkHandle,
+    meta: {
+      task: string;
+      cli: CliType;
+      workingDirectory: string;
+      taskFolder?: string;
+      parentSessionId?: string;
+      customAgentName?: string;
+      timeout?: number;
+    }
+  ): Promise<SpawnAgentResult> {
+    return this.acquireSpawnLock(async () => {
+      // Increment spawning counter synchronously before any async work
+      this.spawning++;
+
+      try {
+        // Check concurrent limit (include in-flight spawns)
+        const maxConcurrent = this.getMaxConcurrentAgents();
+        const runningCount = this.getRunningCount();
+        if (runningCount + this.spawning > maxConcurrent) {
+          throw new Error(
+            `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
+              `Stop a running agent before spawning a new one. ` +
+              `Running agents: ${this.getRunningAgentIds().join(', ')}`
+          );
+        }
+
+        // Validate working directory is within workspace root (same as doSpawn path)
+        this.validateWorkingDirectory(meta.workingDirectory);
+
+        const agentId = AgentId.create();
+        const startedAt = new Date().toISOString();
+
+        const info: AgentProcessInfo = {
+          agentId,
+          cli: meta.cli,
+          task: meta.task,
+          workingDirectory: meta.workingDirectory,
+          taskFolder: meta.taskFolder,
+          status: 'running',
+          startedAt,
+          parentSessionId: meta.parentSessionId,
+          customAgentName: meta.customAgentName,
+        };
+
+        const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
+
+        this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
+          agentId,
+          cli: meta.cli,
+          customAgentName: meta.customAgentName,
+        });
+
+        return this.trackSdkHandle(sdkHandle, info, timeout);
+      } finally {
+        this.spawning--;
+      }
+    });
+  }
+
+  /**
+   * Wire an SdkHandle for lifecycle tracking: timeout, output capture, exit handling.
+   *
+   * Shared by doSpawnSdk() and spawnFromSdkHandle() to eliminate duplicated
+   * tracking logic (~80% of each method was identical).
+   *
+   * @param sdkHandle   - SDK handle to track
+   * @param info        - Agent process info (agentId, cli, task, etc.)
+   * @param timeout     - Timeout in milliseconds
+   * @param captureSessionId - Optional callback to capture CLI session ID
+   *   from async init events (e.g., Gemini's init JSONL segment). Called on
+   *   each structured segment until a session ID is captured.
+   */
+  private trackSdkHandle(
+    sdkHandle: SdkHandle,
+    info: AgentProcessInfo,
+    timeout: number,
+    captureSessionId?: () => string | undefined
+  ): SpawnAgentResult {
+    const agentId = info.agentId;
+
+    // Set up timeout
     const timeoutHandle = setTimeout(() => {
       this.handleTimeout(agentId);
     }, timeout);
 
     // Track the SDK agent (process is null, abort via sdkAbortController)
     const tracked: TrackedAgent = {
-      info: initialCliSessionId
-        ? { ...info, cliSessionId: initialCliSessionId }
-        : info,
+      info,
       process: null,
       sdkAbortController: sdkHandle.abort,
       stdoutBuffer: '',
@@ -449,8 +551,8 @@ export class AgentProcessManager {
         // Late capture: session_id arrives in init event (first JSONL line).
         // The init event is typically the very first segment, but we check on
         // every segment to be safe (idempotent -- only captures once).
-        if (!tracked.info.cliSessionId) {
-          const sessionId = sdkHandle.getSessionId?.();
+        if (captureSessionId && !tracked.info.cliSessionId) {
+          const sessionId = captureSessionId();
           if (sessionId) {
             tracked.info = { ...tracked.info, cliSessionId: sessionId };
           }
@@ -475,136 +577,16 @@ export class AgentProcessManager {
 
     const spawnResult: SpawnAgentResult = {
       agentId,
-      cli,
+      cli: info.cli,
       status: 'running',
-      startedAt,
-      cliSessionId: initialCliSessionId,
+      startedAt: info.startedAt,
+      cliSessionId: info.cliSessionId,
+      customAgentName: info.customAgentName,
     };
 
     this.events.emit('agent:spawned', tracked.info);
 
     return spawnResult;
-  }
-
-  /**
-   * Spawn an agent from a pre-built SdkHandle (e.g., custom agent).
-   * Same lifecycle management as doSpawnSdk() but skips CLI detection.
-   */
-  async spawnFromSdkHandle(
-    sdkHandle: SdkHandle,
-    meta: {
-      task: string;
-      cli: CliType;
-      workingDirectory: string;
-      taskFolder?: string;
-      parentSessionId?: string;
-      customAgentName?: string;
-      timeout?: number;
-    }
-  ): Promise<SpawnAgentResult> {
-    // Increment spawning counter synchronously before any async work
-    this.spawning++;
-
-    try {
-      // Check concurrent limit (include in-flight spawns)
-      const maxConcurrent = this.getMaxConcurrentAgents();
-      const runningCount = this.getRunningCount();
-      if (runningCount + this.spawning > maxConcurrent) {
-        throw new Error(
-          `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
-            `Stop a running agent before spawning a new one. ` +
-            `Running agents: ${this.getRunningAgentIds().join(', ')}`
-        );
-      }
-
-      // Validate working directory is within workspace root (same as doSpawn path)
-      this.validateWorkingDirectory(meta.workingDirectory);
-
-      const agentId = AgentId.create();
-      const startedAt = new Date().toISOString();
-
-      const info: AgentProcessInfo = {
-        agentId,
-        cli: meta.cli,
-        task: meta.task,
-        workingDirectory: meta.workingDirectory,
-        taskFolder: meta.taskFolder,
-        status: 'running',
-        startedAt,
-        parentSessionId: meta.parentSessionId,
-        customAgentName: meta.customAgentName,
-      };
-
-      // Set up timeout
-      const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
-      const timeoutHandle = setTimeout(() => {
-        this.handleTimeout(agentId);
-      }, timeout);
-
-      // Track the SDK agent (process is null, abort via sdkAbortController)
-      const tracked: TrackedAgent = {
-        info,
-        process: null,
-        sdkAbortController: sdkHandle.abort,
-        stdoutBuffer: '',
-        stderrBuffer: '',
-        timeoutHandle,
-        stdoutLineCount: 0,
-        stderrLineCount: 0,
-        truncated: false,
-        hasExited: false,
-      };
-
-      this.agents.set(agentId, tracked);
-
-      // Wire SDK output to the agent's stdout buffer
-      sdkHandle.onOutput((data: string) => {
-        this.appendBuffer(agentId, 'stdout', data);
-      });
-
-      // Wire structured segments (if the adapter provides them)
-      if (sdkHandle.onSegment) {
-        sdkHandle.onSegment((segment: CliOutputSegment) => {
-          this.accumulateSegment(agentId, segment);
-        });
-      }
-
-      // Wire SDK completion to handleExit
-      sdkHandle.done.then(
-        (exitCode) => {
-          this.handleExit(agentId, exitCode, null);
-        },
-        (error: unknown) => {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          this.logger.error('[AgentProcessManager] SDK handle error', {
-            agentId,
-            error: message,
-          });
-          this.handleExit(agentId, 1, null);
-        }
-      );
-
-      const spawnResult: SpawnAgentResult = {
-        agentId,
-        cli: meta.cli,
-        status: 'running',
-        startedAt,
-        customAgentName: meta.customAgentName,
-      };
-
-      this.events.emit('agent:spawned', tracked.info);
-
-      this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
-        agentId,
-        cli: meta.cli,
-        customAgentName: meta.customAgentName,
-      });
-
-      return spawnResult;
-    } finally {
-      this.spawning--;
-    }
   }
 
   /**
@@ -776,6 +758,31 @@ export class AgentProcessManager {
   // ========================================
   // Private Methods
   // ========================================
+
+  /**
+   * Serialize spawn operations to prevent TOCTOU race conditions in
+   * the concurrent limit check. Without this mutex, two spawn() calls
+   * arriving simultaneously could both pass the limit check before
+   * either registers in the agents map.
+   *
+   * Uses a Promise-chain pattern: each call chains onto the previous,
+   * ensuring sequential execution while remaining non-blocking.
+   * try/finally guarantees the lock is released even on exceptions.
+   */
+  private acquireSpawnLock<T>(fn: () => Promise<T>): Promise<T> {
+    const release = this.spawnMutex;
+    let resolve: () => void;
+    this.spawnMutex = new Promise<void>((r) => {
+      resolve = r;
+    });
+    return release.then(async () => {
+      try {
+        return await fn();
+      } finally {
+        resolve!();
+      }
+    });
+  }
 
   private appendBuffer(
     agentId: string,

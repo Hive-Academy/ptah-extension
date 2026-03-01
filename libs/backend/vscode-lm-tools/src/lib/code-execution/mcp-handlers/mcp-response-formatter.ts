@@ -14,6 +14,7 @@ import type {
   SpawnAgentResult,
   AgentProcessInfo,
   AgentOutput,
+  CliDetectionResult,
 } from '@ptah-extension/shared';
 
 // ============================================================
@@ -429,16 +430,72 @@ export function formatTokenCount(result: unknown): string {
 // ============================================================
 
 /**
+ * Format CLI label for display: shows custom agent name when applicable.
+ * Extracted to eliminate repeated inline formatting across agent formatters.
+ */
+function formatCliLabel(cli: string, customAgentName?: string): string {
+  return cli === 'custom' && customAgentName
+    ? `custom (${customAgentName})`
+    : cli;
+}
+
+/**
+ * Format ptah_agent_list result as a markdown table
+ */
+export function formatAgentList(agents: CliDetectionResult[]): string {
+  try {
+    if (agents.length === 0) {
+      return json2md([
+        { h2: 'Available Agents' },
+        {
+          p: 'No agents found. Install a CLI agent (Gemini, Codex, Copilot) or configure a custom agent.',
+        },
+      ]);
+    }
+
+    const rows = agents.map((agent) => {
+      if (agent.cli === 'custom') {
+        return {
+          Agent: agent.customAgentName ?? 'Unknown',
+          Type: 'custom',
+          Status: 'available',
+          Capabilities: `provider: ${
+            agent.providerName ?? 'Unknown'
+          }, customAgentId: ${agent.customAgentId ?? 'N/A'}`,
+        };
+      }
+
+      return {
+        Agent: agent.cli,
+        Type: 'cli',
+        Status: agent.installed ? 'installed' : 'not installed',
+        Capabilities: agent.supportsSteer ? 'steer: yes' : 'steer: no',
+      };
+    });
+
+    return json2md([
+      { h2: 'Available Agents' },
+      { p: `**Total:** ${agents.length}` },
+      { table: { headers: ['Agent', 'Type', 'Status', 'Capabilities'], rows } },
+    ]);
+  } catch {
+    return fallbackJson(agents);
+  }
+}
+
+/**
  * Format ptah_agent_spawn result
  */
 export function formatAgentSpawn(result: SpawnAgentResult): string {
   try {
+    const cliLabel = formatCliLabel(result.cli, result.customAgentName);
+
     return json2md([
       { h2: 'Agent Spawned' },
       {
         p: [
           `**Agent ID:** ${result.agentId}`,
-          `**CLI:** ${result.cli}`,
+          `**CLI:** ${cliLabel}`,
           `**Status:** ${result.status}`,
           `**Started:** ${result.startedAt}`,
           ...(result.cliSessionId
@@ -472,8 +529,9 @@ export function formatAgentStatus(
     for (const a of agents) {
       const task =
         a.task.length > 80 ? a.task.substring(0, 77) + '...' : a.task;
+      const cliLabel = formatCliLabel(a.cli, a.customAgentName);
       const lines = [
-        `**CLI:** ${a.cli}`,
+        `**CLI:** ${cliLabel}`,
         `**Status:** ${a.status}`,
         `**Task:** ${task}`,
         `**Started:** ${a.startedAt}`,
@@ -534,12 +592,14 @@ export function formatAgentRead(result: AgentOutput): string {
  */
 export function formatAgentStop(result: AgentProcessInfo): string {
   try {
+    const cliLabel = formatCliLabel(result.cli, result.customAgentName);
+
     return json2md([
       { h2: 'Agent Stopped' },
       {
         p: [
           `**Agent ID:** ${result.agentId}`,
-          `**CLI:** ${result.cli}`,
+          `**CLI:** ${cliLabel}`,
           `**Status:** ${result.status}`,
           ...(result.cliSessionId
             ? [`**CLI Session ID:** ${result.cliSessionId}`]

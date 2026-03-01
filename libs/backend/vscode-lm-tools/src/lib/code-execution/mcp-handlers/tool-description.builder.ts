@@ -259,11 +259,12 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
   return {
     name: 'ptah_agent_spawn',
     description:
-      'Spawn a headless CLI agent (Gemini, Codex, or Copilot) to work on a task in the background. ' +
+      'Spawn a headless agent to work on a task in the background. ' +
+      'Supports CLI agents (Gemini, Codex, Copilot) and custom agents (OpenRouter, Moonshot, Z.AI). ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
-      'To resume a previous session, pass resume_session_id with the CLI session ID ' +
-      '(available from previous spawn results or session metadata). ' +
+      'For custom agents, pass customAgentId (from ptah_agent_list). ' +
+      'To resume a previous CLI session, pass resume_session_id with the CLI session ID. ' +
       'Ideal for delegating: code reviews, test generation, documentation, ' +
       'and other independent subtasks.',
     inputSchema: {
@@ -280,7 +281,15 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           enum: ['gemini', 'codex', 'copilot'],
           description:
             'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
-            'Omit to use the default (auto-detected or user-configured).',
+            'Omit to use the default (auto-detected or user-configured). ' +
+            'Not needed when using customAgentId.',
+        },
+        customAgentId: {
+          type: 'string',
+          description:
+            'ID of a custom agent to use (from ptah_agent_list results where cli="custom"). ' +
+            'Custom agents are user-configured Anthropic-compatible providers ' +
+            '(OpenRouter, Moonshot, Z.AI, etc.). When set, cli parameter is ignored.',
         },
         workingDirectory: {
           type: 'string',
@@ -400,6 +409,25 @@ export function buildAgentSteerTool(): MCPToolDefinition {
       },
       required: ['agentId', 'instruction'],
     },
+  };
+}
+
+/**
+ * Build the ptah_agent_list tool definition
+ * List all available agents (CLI and custom)
+ */
+export function buildAgentListTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_agent_list',
+    description:
+      'List all available agents (CLI and custom) that can be spawned. ' +
+      'Returns agent type, installation status, and capabilities. ' +
+      'Custom agents include customAgentId needed for ptah_agent_spawn.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
   };
 }
 
