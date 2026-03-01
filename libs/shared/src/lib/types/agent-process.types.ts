@@ -102,6 +102,8 @@ export interface SpawnAgentRequest {
   readonly resumeSessionId?: string;
   /** Parent Ptah Claude SDK session ID. Injected by MCP server, NOT set by callers. */
   readonly parentSessionId?: string;
+  /** Project-specific guidance (enhanced prompts). Injected by MCP server, NOT set by callers. */
+  readonly projectGuidance?: string;
 }
 
 // ========================================

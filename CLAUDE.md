@@ -229,12 +229,19 @@ For workspace-wide operations, consult the [Nx CLI documentation](#general-guide
 
 ## **IMPORTANT**: There's a file modification bug in Claude Code. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Always use full paths for all of our Read/Write/Modify operations
 
-## ORCHESTRATION & WORKFLOW
+## ORCHESTRATION & WORKFLOW (BLOCKING REQUIREMENT)
 
-**For complete orchestration workflow, task management, and git commit standards, see:**
+**CRITICAL: Orchestration is the DEFAULT entry point for all engineering work.** When the user requests any implementation task (feature, bugfix, refactoring, docs, research, devops, creative), you MUST invoke the `orchestration` skill BEFORE writing any code or using EnterPlanMode. Do NOT bypass orchestration by defaulting to internal planning or direct implementation.
 
-- **Skill**: `.claude/skills/orchestration/SKILL.md`
-- **Command**: `/orchestrate [task]` or `/orchestrate TASK_2025_XXX`
+**The ONLY exceptions where you may skip orchestration:**
+
+- Pure Q&A questions ("what does X do?", "explain this code")
+- Single-line or trivial edits (typo fix, add a console.log, rename a variable)
+- Running commands or checking status (build, test, lint, git status)
+- User explicitly says "don't orchestrate" or "just do it directly"
+
+**Skill**: `.claude/skills/orchestration/SKILL.md`
+**Command**: `/orchestrate [task]` or `/orchestrate TASK_2025_XXX`
 
 **Supported Workflows**: FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, CREATIVE
 

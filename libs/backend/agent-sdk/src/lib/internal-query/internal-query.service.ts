@@ -63,9 +63,9 @@ import type {
 // Constants
 // ============================================================================
 
+import { PTAH_MCP_PORT } from '../constants';
+
 const SERVICE_TAG = '[InternalQuery]';
-/** Default port for Ptah HTTP MCP server */
-const PTAH_MCP_PORT = 51820;
 /** Default max turns for internal queries */
 const DEFAULT_MAX_TURNS = 25;
 

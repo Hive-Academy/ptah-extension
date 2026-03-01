@@ -69,6 +69,14 @@ export type {
   ProviderStaticModel,
 } from './lib/helpers';
 
+// Shared prompt-building functions (used by SdkQueryOptionsBuilder and CustomAgentAdapter)
+export {
+  assembleSystemPromptAppend,
+  buildModelIdentityPrompt,
+  getActiveProviderId,
+} from './lib/helpers';
+export type { AssembleSystemPromptInput } from './lib/helpers';
+
 // ============================================================
 // Enhanced Prompts System (TASK_2025_137)
 // AI-powered, project-specific prompt generation
@@ -165,6 +173,7 @@ export {
 // User-configured adapters for Anthropic-compatible providers
 // ============================================================
 export { CustomAgentAdapter, CustomAgentRegistry } from './lib/custom-agent';
+export type { CustomAgentPremiumConfig } from './lib/custom-agent';
 
 // ============================================================
 // Stream Processing (shared SDK stream processor)

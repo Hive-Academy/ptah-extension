@@ -266,7 +266,31 @@ export class ChatRpcHandlers {
       };
     }
 
-    // Start the custom agent session
+    // Resolve premium capabilities (same as main SDK adapter path)
+    const licenseStatus = await this.licenseService.verifyLicense();
+    const isPremium = this.isPremiumTier(licenseStatus);
+    const mcpServerRunning = this.isMcpServerRunning();
+
+    this.logger.info('[RPC] chat:start - custom agent premium config', {
+      tabId,
+      customAgentId: agentId,
+      isPremium,
+      mcpServerRunning,
+    });
+
+    // Register MCP server for subagent discovery (premium only)
+    if (isPremium && mcpServerRunning) {
+      this.codeExecutionMcp.ensureRegisteredForSubagents();
+    }
+
+    // Resolve enhanced prompts and plugins for premium users
+    const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
+      workspacePath,
+      isPremium
+    );
+    const pluginPaths = this.resolvePluginPaths(isPremium);
+
+    // Start the custom agent session with full premium capabilities
     const stream = await adapter.startChatSession({
       tabId,
       workspaceId: workspacePath,
@@ -276,6 +300,10 @@ export class ChatRpcHandlers {
       name,
       prompt,
       files: options?.files,
+      isPremium,
+      mcpServerRunning,
+      enhancedPromptsContent,
+      pluginPaths,
     });
 
     // Track this session as belonging to the custom agent
@@ -328,6 +356,14 @@ export class ChatRpcHandlers {
         success: false,
         error: `Custom agent not found: ${customAgentId}`,
       };
+    }
+
+    // Ensure MCP server is registered for subagent discovery (premium only)
+    if (this.isMcpServerRunning()) {
+      const licenseCheck = await this.licenseService.verifyLicense();
+      if (this.isPremiumTier(licenseCheck)) {
+        this.codeExecutionMcp.ensureRegisteredForSubagents();
+      }
     }
 
     // Check if the session needs to be resumed first

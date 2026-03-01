@@ -249,6 +249,7 @@ export class AgentProcessManager {
       model: cliModel,
       mcpPort,
       resumeSessionId: request.resumeSessionId,
+      projectGuidance: request.projectGuidance,
     });
 
     // Create agent ID and info
@@ -401,6 +402,7 @@ export class AgentProcessManager {
       binaryPath,
       mcpPort,
       resumeSessionId: request.resumeSessionId,
+      projectGuidance: request.projectGuidance,
     });
 
     // Capture CLI session ID immediately if available (e.g., from sync init)

@@ -26,6 +26,8 @@ export interface AgentNamespaceDependencies {
   cliDetectionService: CliDetectionService;
   /** Function that returns the currently active SDK session ID. Called at spawn time to link CLI agents to their parent session. */
   getActiveSessionId?: () => string | undefined;
+  /** Returns project-specific guidance from enhanced prompts (async). Called at spawn time to inject project context into CLI agents. */
+  getProjectGuidance?: () => Promise<string | undefined>;
 }
 
 /**
@@ -34,15 +36,24 @@ export interface AgentNamespaceDependencies {
 export function buildAgentNamespace(
   deps: AgentNamespaceDependencies
 ): AgentNamespace {
-  const { agentProcessManager, cliDetectionService, getActiveSessionId } = deps;
+  const {
+    agentProcessManager,
+    cliDetectionService,
+    getActiveSessionId,
+    getProjectGuidance,
+  } = deps;
 
   return {
     spawn: async (request) => {
-      // Inject parentSessionId from the active SDK session context at spawn time
+      // Inject parentSessionId and projectGuidance at spawn time
       const activeSessionId = getActiveSessionId?.();
-      const enrichedRequest = activeSessionId
-        ? { ...request, parentSessionId: activeSessionId }
-        : request;
+      const projectGuidance = await getProjectGuidance?.();
+
+      const enrichedRequest = {
+        ...request,
+        ...(activeSessionId && { parentSessionId: activeSessionId }),
+        ...(projectGuidance && { projectGuidance }),
+      };
       return agentProcessManager.spawn(enrichedRequest);
     },
 

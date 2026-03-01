@@ -5,4 +5,5 @@
  */
 
 export { CustomAgentAdapter } from './custom-agent-adapter';
+export type { CustomAgentPremiumConfig } from './custom-agent-adapter';
 export { CustomAgentRegistry } from './custom-agent-registry';

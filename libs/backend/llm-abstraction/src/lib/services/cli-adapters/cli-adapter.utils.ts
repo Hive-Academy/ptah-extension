@@ -60,10 +60,21 @@ export const CLI_CLEAN_ENV: Record<string, string> = {
 
 /**
  * Build a task prompt string from CLI command options.
+ * Optionally prepends project-specific guidance from enhanced prompts.
  * Appends file context and task folder instructions to the base task.
+ *
+ * Adapters with native system prompt support (Gemini via GEMINI_SYSTEM_MD)
+ * should strip projectGuidance before calling this function to avoid duplication.
  */
 export function buildTaskPrompt(options: CliCommandOptions): string {
-  let taskPrompt = options.task;
+  let taskPrompt = '';
+
+  // Prepend project-specific guidance (from enhanced prompts)
+  if (options.projectGuidance) {
+    taskPrompt += options.projectGuidance + '\n\n---\n\n';
+  }
+
+  taskPrompt += options.task;
 
   if (options.files && options.files.length > 0) {
     taskPrompt += `\n\nFocus on these files:\n${options.files

@@ -13,8 +13,9 @@
  * See: https://geminicli.com/docs/
  */
 import { execFile } from 'child_process';
+import { writeFileSync } from 'fs';
 import { readFile, writeFile, mkdir } from 'fs/promises';
-import { homedir } from 'os';
+import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { promisify } from 'util';
 import type {
@@ -239,6 +240,16 @@ export class GeminiCliAdapter implements CliAdapter {
   }
 
   /**
+   * Write project guidance to a temp file for GEMINI_SYSTEM_MD env var.
+   * Gemini CLI reads system instructions from the file path in this env var.
+   */
+  private writeSystemPromptFile(content: string): string {
+    const tmpPath = join(tmpdir(), `ptah-gemini-system-${Date.now()}.md`);
+    writeFileSync(tmpPath, content, 'utf8');
+    return tmpPath;
+  }
+
+  /**
    * Run task via Gemini CLI with structured JSONL output.
    *
    * Spawns: gemini --prompt= --output-format stream-json --yolo
@@ -254,7 +265,19 @@ export class GeminiCliAdapter implements CliAdapter {
     // Configure Ptah MCP server (or clean up if no port)
     await this.configureMcpServer(options.mcpPort);
 
-    const taskPrompt = buildTaskPrompt(options);
+    // Handle project guidance via Gemini's native system prompt mechanism (GEMINI_SYSTEM_MD)
+    // This avoids polluting the task prompt and uses the model's system instruction slot.
+    const spawnEnv: Record<string, string> = {};
+    if (options.projectGuidance) {
+      const tmpPath = this.writeSystemPromptFile(options.projectGuidance);
+      spawnEnv['GEMINI_SYSTEM_MD'] = tmpPath;
+    }
+
+    // Build task prompt WITHOUT project guidance (handled via env var above)
+    const taskPrompt = buildTaskPrompt({
+      ...options,
+      projectGuidance: undefined,
+    });
     const abortController = new AbortController();
 
     // Session ID captured from init event (closure scoped per invocation)
@@ -330,6 +353,7 @@ export class GeminiCliAdapter implements CliAdapter {
     const binary = options.binaryPath ?? 'gemini';
     const child = spawnCli(binary, args, {
       cwd: options.workingDirectory,
+      env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
     });
 
     // Explicit UTF-8 encoding prevents Buffer concatenation issues

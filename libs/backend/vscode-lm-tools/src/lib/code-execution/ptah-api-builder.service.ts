@@ -90,6 +90,13 @@ import {
  */
 const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
 
+/**
+ * Duplicated from SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE to avoid circular dependency
+ * between vscode-lm-tools -> agent-sdk. Must match the string in:
+ * libs/backend/agent-sdk/src/lib/di/tokens.ts
+ */
+const SDK_ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
+
 @injectable()
 export class PtahAPIBuilder {
   constructor(
@@ -251,6 +258,27 @@ export class PtahAPIBuilder {
             }>(SDK_SESSION_LIFECYCLE_MANAGER);
             const ids = manager.getActiveSessionIds();
             return ids.length > 0 ? (ids[0] as string) : undefined;
+          } catch {
+            return undefined;
+          }
+        },
+        getProjectGuidance: async () => {
+          // Resolve EnhancedPromptsService lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
+          // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
+          if (!container.isRegistered(SDK_ENHANCED_PROMPTS_SERVICE)) {
+            return undefined;
+          }
+          try {
+            const service = container.resolve<{
+              getProjectGuidanceContent(
+                workspacePath: string
+              ): Promise<string | null>;
+            }>(SDK_ENHANCED_PROMPTS_SERVICE);
+            const workspacePath = this.getWorkspaceRoot().fsPath;
+            const content = await service.getProjectGuidanceContent(
+              workspacePath
+            );
+            return content ?? undefined;
           } catch {
             return undefined;
           }

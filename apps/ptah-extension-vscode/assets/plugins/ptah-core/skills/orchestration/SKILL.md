@@ -1,17 +1,22 @@
 ---
 name: orchestration
-description: >
-  Development workflow orchestration for software engineering tasks.
-  Use when: (1) Implementing new features, (2) Fixing bugs, (3) Refactoring code,
-  (4) Creating documentation, (5) Research & investigation, (6) DevOps/infrastructure,
-  (7) Landing pages and marketing content.
-  Supports full (PM->Architect->Dev->QA), partial, or minimal workflows.
-  Invoked via /orchestrate command or directly when task analysis suggests delegation.
+description: "Development workflow orchestration for software engineering tasks. TRIGGER when: user asks to implement/add/create/build a feature, fix/debug a bug, refactor/optimize code, create documentation, research/investigate/analyze a technical topic, set up CI/CD/Docker/deploy infrastructure, or create landing pages/marketing/brand content. Also TRIGGER when task involves 3+ files, requires architectural decisions, or is ambiguous and needs scoping. TRIGGER for ANY implementation task — this is the DEFAULT entry point for all engineering work, not a last resort. DO NOT TRIGGER when: user asks a question about the codebase (Q&A like 'what does X do?'), requests a single-line or trivial edit (typo, console.log, rename), asks to run a command or check status, asks to review/explain code without changes, or explicitly opts out of orchestration. Supports 8 task types: FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE. Each type has an optimized workflow (full/partial/minimal) with specialist agents and user validation checkpoints."
 ---
 
 # Orchestration Skill
 
 Multi-phase development workflow orchestration with dynamic strategies and user validation checkpoints. **You are the orchestrator** - coordinate agents, manage state, verify deliverables.
+
+## Pre-flight: Task Analysis (RUN FIRST)
+
+**Before any other step**, classify the user's request:
+
+1. **Detect task type** using the keyword matrix below
+2. **Select workflow depth** (Full / Partial / Minimal) based on complexity
+3. **Announce** the detected type, selected workflow, and planned agent sequence to the user
+4. **Proceed** with the appropriate strategy — never fall back to internal planning or direct coding
+
+If the task type is ambiguous, ask the user to clarify rather than defaulting to direct implementation.
 
 ## Quick Start
 

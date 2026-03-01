@@ -31,6 +31,8 @@ export interface CliCommandOptions {
   readonly mcpPort?: number;
   /** Resume a previous CLI session by its CLI-native session ID. When set, the adapter adds appropriate resume flags (e.g., --resume for Gemini). */
   readonly resumeSessionId?: string;
+  /** Project-specific guidance to provide as system context. Adapters with native system prompt support (Gemini) handle this natively; others prepend to task prompt via buildTaskPrompt(). */
+  readonly projectGuidance?: string;
 }
 
 export interface CliCommand {

@@ -36,12 +36,7 @@ import {
 import type { SDKUserMessage } from './session-lifecycle-manager';
 import { getAnthropicProvider } from './anthropic-provider-registry';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
-
-/**
- * Default port for Ptah HTTP MCP server
- * From vscode-lm-tools/CodeExecutionMCP
- */
-const PTAH_MCP_PORT = 51820;
+import { PTAH_MCP_PORT } from '../constants';
 
 /**
  * Build model identity clarification prompt for third-party providers
@@ -56,7 +51,7 @@ const PTAH_MCP_PORT = 51820;
  * @param providerId - The active provider ID (e.g., 'moonshot', 'zhipu')
  * @returns Identity clarification prompt, or undefined if using Anthropic directly
  */
-function buildModelIdentityPrompt(
+export function buildModelIdentityPrompt(
   providerId: string | null,
   authEnv: AuthEnv
 ): string | undefined {
@@ -98,7 +93,7 @@ This clarification takes precedence over any other identity instructions in the 
  * Get the active provider ID from environment
  * Returns the provider ID if using a third-party provider, null if using Anthropic directly
  */
-function getActiveProviderId(authEnv: AuthEnv): string | null {
+export function getActiveProviderId(authEnv: AuthEnv): string | null {
   const baseUrl = authEnv.ANTHROPIC_BASE_URL;
   if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
     return null;
@@ -114,6 +109,89 @@ function getActiveProviderId(authEnv: AuthEnv): string | null {
   }
 
   return null;
+}
+
+/**
+ * Input for assembleSystemPromptAppend() pure function.
+ * Encapsulates all parameters needed to build the system prompt append string
+ * for both SdkQueryOptionsBuilder and CustomAgentAdapter.
+ */
+export interface AssembleSystemPromptInput {
+  /** Active provider ID (from getActiveProviderId) - for model identity clarification */
+  providerId: string | null;
+  /** AuthEnv for the session - used by buildModelIdentityPrompt */
+  authEnv: AuthEnv;
+  /** User's custom system prompt (from sessionConfig or UI) */
+  userSystemPrompt?: string;
+  /** Whether the user has premium features */
+  isPremium: boolean;
+  /** Whether the MCP server is currently running */
+  mcpServerRunning: boolean;
+  /** Enhanced prompts content (AI-generated guidance) */
+  enhancedPromptsContent?: string;
+  /** Selected preset: 'claude_code', 'enhanced', or undefined for auto-select */
+  preset?: string;
+}
+
+/**
+ * Assemble the system prompt append string from its constituent parts.
+ *
+ * Shared function used by SdkQueryOptionsBuilder and CustomAgentAdapter.
+ * Note: Uses dynamic require() for PTAH_SYSTEM_PROMPT to avoid circular deps.
+ * Assembles from:
+ * 1. Model identity clarification (for third-party providers)
+ * 2. User's custom system prompt
+ * 3. Preset-based prompt (enhanced or PTAH_CORE_SYSTEM_PROMPT)
+ * 4. MCP documentation (PTAH_SYSTEM_PROMPT) for premium users with MCP server
+ *
+ * @param input - All parameters needed for prompt assembly
+ * @returns Assembled append string, or undefined if no parts to append
+ */
+export function assembleSystemPromptAppend(
+  input: AssembleSystemPromptInput
+): string | undefined {
+  const {
+    providerId,
+    authEnv,
+    userSystemPrompt,
+    isPremium,
+    mcpServerRunning,
+    enhancedPromptsContent,
+    preset,
+  } = input;
+
+  const appendParts: string[] = [];
+
+  // 1. Model identity clarification for third-party providers
+  const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
+  if (identityPrompt) {
+    appendParts.push(identityPrompt);
+  }
+
+  // 2. User's custom system prompt
+  if (userSystemPrompt) {
+    appendParts.push(userSystemPrompt);
+  }
+
+  // 3. Determine which preset to use
+  const useEnhanced =
+    (preset === 'enhanced' || (!preset && !!enhancedPromptsContent)) &&
+    !!enhancedPromptsContent;
+  const useCorePrompt = preset === 'claude_code' || (!useEnhanced && isPremium);
+
+  if (useEnhanced) {
+    appendParts.push(enhancedPromptsContent!);
+  } else if (useCorePrompt) {
+    appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+  }
+
+  // 4. MCP documentation for premium users with MCP server (applies to both presets)
+  if (isPremium && mcpServerRunning) {
+    const { PTAH_SYSTEM_PROMPT } = require('@ptah-extension/vscode-lm-tools');
+    appendParts.push(PTAH_SYSTEM_PROMPT);
+  }
+
+  return appendParts.length > 0 ? appendParts.join('\n\n') : undefined;
 }
 
 /**
@@ -410,93 +488,33 @@ export class SdkQueryOptionsBuilder {
     enhancedPromptsContent?: string,
     mcpServerRunning = true
   ): SdkQueryOptions['systemPrompt'] {
-    const appendParts: string[] = [];
-
-    // TASK_2025_134: Add model identity clarification for third-party providers
-    // This ensures models like Kimi K2 correctly identify themselves instead of
-    // claiming to be Claude (which happens due to the claude_code preset's system prompt)
+    // TASK_2025_134: Detect third-party provider for identity clarification
     const activeProviderId = getActiveProviderId(this.authEnv);
-    const identityPrompt = buildModelIdentityPrompt(
-      activeProviderId,
-      this.authEnv
-    );
-    if (identityPrompt) {
+
+    if (activeProviderId) {
       this.logger.info(
         `[SdkQueryOptionsBuilder] Third-party provider detected (${activeProviderId}) - adding identity clarification`
       );
-      appendParts.push(identityPrompt);
     }
 
-    // Add user's custom system prompt if provided
-    if (sessionConfig?.systemPrompt) {
-      appendParts.push(sessionConfig.systemPrompt);
-    }
+    // Delegate to shared pure function
+    const assembledAppend = assembleSystemPromptAppend({
+      providerId: activeProviderId,
+      authEnv: this.authEnv,
+      userSystemPrompt: sessionConfig?.systemPrompt,
+      isPremium,
+      mcpServerRunning,
+      enhancedPromptsContent,
+      preset: sessionConfig?.preset,
+    });
 
-    // Determine which preset to use
-    // When no explicit preset is selected (userPreset undefined):
-    //   - If enhanced prompts are available → use them (auto-select enhanced)
-    //   - If premium but no enhanced prompts → use core prompt
-    //   - If free tier → no additional prompt
-    const userPreset = sessionConfig?.preset;
-    const useEnhanced =
-      (userPreset === 'enhanced' ||
-        (!userPreset && !!enhancedPromptsContent)) &&
-      !!enhancedPromptsContent;
-    const useCorePrompt =
-      userPreset === 'claude_code' || (!useEnhanced && isPremium);
-
-    // Add preset-based prompt
-    if (useEnhanced) {
-      // User explicitly selected enhanced OR auto-selected (enhanced available)
-      appendParts.push(enhancedPromptsContent!);
-      this.logger.debug(
-        '[SdkQueryOptionsBuilder] Using enhanced prompts content',
-        {
-          contentLength: enhancedPromptsContent!.length,
-          explicitSelection: userPreset === 'enhanced',
-        }
-      );
-    } else if (useCorePrompt) {
-      // User explicitly selected claude_code OR auto-selected (premium without enhanced)
-      appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
-      this.logger.debug(
-        '[SdkQueryOptionsBuilder] Using PTAH_CORE_SYSTEM_PROMPT for premium user',
-        { explicitSelection: userPreset === 'claude_code' }
-      );
-    }
-    // Free tier without preset: No additional prompt (uses default claude_code preset)
-
-    // ALWAYS inject PTAH_SYSTEM_PROMPT (MCP documentation) for premium users with MCP server
-    // This applies to BOTH presets (enhanced AND claude_code)
-    if (isPremium && mcpServerRunning) {
-      // Import PTAH_SYSTEM_PROMPT dynamically to avoid circular dependencies
-
-      const { PTAH_SYSTEM_PROMPT } = require('@ptah-extension/vscode-lm-tools');
-      appendParts.push(PTAH_SYSTEM_PROMPT);
-      this.logger.debug(
-        '[SdkQueryOptionsBuilder] Added MCP documentation to system prompt',
-        {
-          isPremium,
-          mcpServerRunning,
-          preset: useEnhanced ? 'enhanced' : 'claude_code',
-        }
-      );
-    }
-
-    const assembledAppend =
-      appendParts.length > 0 ? appendParts.join('\n\n') : undefined;
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
       isPremium,
       mcpServerRunning,
-      preset: userPreset || 'auto',
-      selectedPreset: useEnhanced
-        ? 'enhanced'
-        : useCorePrompt
-        ? 'claude_code'
-        : 'none',
+      preset: sessionConfig?.preset || 'auto',
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
-      hasIdentityPrompt: !!identityPrompt,
+      hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
       hasMcpDocs: isPremium && mcpServerRunning,
       totalAppendLength: assembledAppend?.length ?? 0,

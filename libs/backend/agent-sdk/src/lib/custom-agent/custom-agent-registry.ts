@@ -27,6 +27,9 @@ import { SDK_TOKENS } from '../di/tokens';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { SdkPermissionHandler } from '../sdk-permission-handler';
+import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
+import type { CompactionHookHandler } from '../helpers/compaction-hook-handler';
+import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
 import {
   ANTHROPIC_PROVIDERS,
   getAnthropicProvider,
@@ -78,7 +81,13 @@ export class CustomAgentRegistry {
     @inject(SDK_TOKENS.SDK_MESSAGE_TRANSFORMER)
     private readonly messageTransformer: SdkMessageTransformer,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
-    private readonly permissionHandler: SdkPermissionHandler
+    private readonly permissionHandler: SdkPermissionHandler,
+    @inject(SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER)
+    private readonly subagentHookHandler: SubagentHookHandler,
+    @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
+    private readonly compactionHookHandler: CompactionHookHandler,
+    @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
+    private readonly compactionConfigProvider: CompactionConfigProvider
   ) {
     this.logger.info('[CustomAgentRegistry] Registry initialized');
   }
@@ -323,14 +332,17 @@ export class CustomAgentRegistry {
       return undefined;
     }
 
-    // Create and initialize adapter
+    // Create and initialize adapter with hook/compaction services
     const adapter = new CustomAgentAdapter(
       agentConfig,
       apiKey,
       this.logger,
       this.moduleLoader,
       this.messageTransformer,
-      this.permissionHandler
+      this.permissionHandler,
+      this.subagentHookHandler,
+      this.compactionHookHandler,
+      this.compactionConfigProvider
     );
 
     const success = await adapter.initialize();

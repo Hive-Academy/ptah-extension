@@ -629,6 +629,31 @@ export class EnhancedPromptsService {
   }
 
   /**
+   * Get only the project-specific guidance content from the enhanced prompt.
+   *
+   * Extracts the "## Project-Specific Guidance" section and all its subsections
+   * (Project Context, Framework Guidelines, Coding Standards, Architecture Notes)
+   * while excluding PTAH_CORE_SYSTEM_PROMPT and PTAH_SYSTEM_PROMPT which are
+   * Claude-specific and not applicable to CLI agents (Gemini, Codex, Copilot).
+   *
+   * @param workspacePath - Workspace to get guidance for
+   * @returns Project-specific guidance content, or null if disabled/unavailable
+   */
+  async getProjectGuidanceContent(
+    workspacePath: string
+  ): Promise<string | null> {
+    const state = await this.loadState(workspacePath);
+    if (!state.enabled || !state.generatedPrompt) return null;
+
+    // Extract project-specific guidance (after the marker)
+    const marker = '## Project-Specific Guidance';
+    const idx = state.generatedPrompt.indexOf(marker);
+    if (idx === -1) return null;
+
+    return state.generatedPrompt.substring(idx).trim();
+  }
+
+  /**
    * Check if the service is currently generating a prompt
    */
   isGeneratingPrompt(): boolean {

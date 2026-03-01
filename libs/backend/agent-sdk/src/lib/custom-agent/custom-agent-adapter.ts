@@ -39,6 +39,15 @@ import {
   seedStaticModelPricing,
   resolveActualModelForPricing,
 } from '../helpers/anthropic-provider-registry';
+import {
+  assembleSystemPromptAppend,
+  getActiveProviderId,
+  type SdkQueryOptions,
+} from '../helpers/sdk-query-options-builder';
+import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
+import type { CompactionHookHandler } from '../helpers/compaction-hook-handler';
+import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
+import type { CompactionStartCallback } from '../helpers/compaction-hook-handler';
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -46,6 +55,10 @@ import type {
   Query,
   QueryFunction,
   UserMessageContent,
+  McpHttpServerConfig,
+  SdkPluginConfig,
+  HookEvent,
+  HookCallbackMatcher,
 } from '../types/sdk-types/claude-sdk.types';
 import {
   isResultMessage,
@@ -55,6 +68,25 @@ import {
   isAssistantMessage,
   isCompactBoundary,
 } from '../types/sdk-types/claude-sdk.types';
+
+import { PTAH_MCP_PORT } from '../constants';
+
+/**
+ * Premium capabilities passed from the RPC handler layer.
+ * These are resolved at chat:start / chat:continue time and passed
+ * into startChatSession() / resumeSession() so the adapter can
+ * configure the SDK query with full Ptah enhancements.
+ */
+export interface CustomAgentPremiumConfig {
+  /** Whether the user has a premium (Pro) license */
+  isPremium?: boolean;
+  /** Whether the MCP server is currently running */
+  mcpServerRunning?: boolean;
+  /** AI-generated enhanced prompts content */
+  enhancedPromptsContent?: string;
+  /** Resolved plugin directory paths */
+  pluginPaths?: string[];
+}
 
 /**
  * Tracks an active session within the custom agent adapter
@@ -120,6 +152,11 @@ export class CustomAgentAdapter implements IAIProvider {
   private readonly messageTransformer: SdkMessageTransformer;
   private readonly permissionHandler: SdkPermissionHandler;
 
+  /** Optional hook handlers for subagent and compaction lifecycle */
+  private readonly subagentHookHandler?: SubagentHookHandler;
+  private readonly compactionHookHandler?: CompactionHookHandler;
+  private readonly compactionConfigProvider?: CompactionConfigProvider;
+
   /**
    * Create a CustomAgentAdapter for a specific provider configuration.
    *
@@ -129,6 +166,9 @@ export class CustomAgentAdapter implements IAIProvider {
    * @param moduleLoader - SDK module loader (shared, stateless)
    * @param messageTransformer - Message-to-event converter (shared, stateless)
    * @param permissionHandler - Permission handler (shared, stateless)
+   * @param subagentHookHandler - Optional subagent hook handler for lifecycle tracking
+   * @param compactionHookHandler - Optional compaction hook handler for UI notification
+   * @param compactionConfigProvider - Optional compaction config provider
    */
   constructor(
     config: CustomAgentConfig,
@@ -136,7 +176,10 @@ export class CustomAgentAdapter implements IAIProvider {
     logger: Logger,
     moduleLoader: SdkModuleLoader,
     messageTransformer: SdkMessageTransformer,
-    permissionHandler: SdkPermissionHandler
+    permissionHandler: SdkPermissionHandler,
+    subagentHookHandler?: SubagentHookHandler,
+    compactionHookHandler?: CompactionHookHandler,
+    compactionConfigProvider?: CompactionConfigProvider
   ) {
     this.config = config;
     this.apiKey = apiKey;
@@ -144,6 +187,9 @@ export class CustomAgentAdapter implements IAIProvider {
     this.moduleLoader = moduleLoader;
     this.messageTransformer = messageTransformer;
     this.permissionHandler = permissionHandler;
+    this.subagentHookHandler = subagentHookHandler;
+    this.compactionHookHandler = compactionHookHandler;
+    this.compactionConfigProvider = compactionConfigProvider;
 
     // Create isolated AuthEnv (NOT the DI singleton)
     this.authEnv = createEmptyAuthEnv();
@@ -277,7 +323,7 @@ export class CustomAgentAdapter implements IAIProvider {
       name?: string;
       prompt?: string;
       files?: string[];
-    }
+    } & CustomAgentPremiumConfig
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
@@ -325,13 +371,20 @@ export class CustomAgentAdapter implements IAIProvider {
       abortController
     );
 
-    // Build query options with isolated AuthEnv
-    const queryOptions = this.buildQueryOptions(
+    // Build query options with isolated AuthEnv + premium capabilities
+    const queryOptions = this.buildQueryOptions({
       userMessageStream,
       abortController,
       model,
-      config.projectPath
-    );
+      projectPath: config.projectPath,
+      sessionId: trackingId as string,
+      isPremium: config.isPremium,
+      mcpServerRunning: config.mcpServerRunning,
+      enhancedPromptsContent: config.enhancedPromptsContent,
+      pluginPaths: config.pluginPaths,
+      systemPrompt: config.systemPrompt,
+      preset: config.preset,
+    });
 
     // Start SDK query
     const sdkQuery = queryFn({
@@ -356,7 +409,7 @@ export class CustomAgentAdapter implements IAIProvider {
    */
   async resumeSession(
     sessionId: SessionId,
-    config?: AISessionConfig & { tabId?: string }
+    config?: AISessionConfig & { tabId?: string } & CustomAgentPremiumConfig
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
@@ -406,14 +459,21 @@ export class CustomAgentAdapter implements IAIProvider {
       abortController
     );
 
-    // Build query options with resume
-    const queryOptions = this.buildQueryOptions(
+    // Build query options with resume + premium capabilities
+    const queryOptions = this.buildQueryOptions({
       userMessageStream,
       abortController,
       model,
-      config?.projectPath,
-      sessionId as string
-    );
+      projectPath: config?.projectPath,
+      resumeSessionId: sessionId as string,
+      sessionId: sessionId as string,
+      isPremium: config?.isPremium,
+      mcpServerRunning: config?.mcpServerRunning,
+      enhancedPromptsContent: config?.enhancedPromptsContent,
+      pluginPaths: config?.pluginPaths,
+      systemPrompt: config?.systemPrompt,
+      preset: config?.preset,
+    });
 
     // Start SDK query with resume
     const sdkQuery = queryFn({
@@ -698,28 +758,118 @@ export class CustomAgentAdapter implements IAIProvider {
   }
 
   /**
-   * Build SDK query options with isolated AuthEnv
+   * Build SDK query options with isolated AuthEnv and premium capabilities
    */
-  private buildQueryOptions(
-    userMessageStream: AsyncIterable<SDKUserMessage>,
-    abortController: AbortController,
-    model: string,
-    projectPath?: string,
-    resumeSessionId?: string
-  ): {
+  private buildQueryOptions(input: {
+    userMessageStream: AsyncIterable<SDKUserMessage>;
+    abortController: AbortController;
+    model: string;
+    projectPath?: string;
+    resumeSessionId?: string;
+    sessionId?: string;
+    isPremium?: boolean;
+    mcpServerRunning?: boolean;
+    enhancedPromptsContent?: string;
+    pluginPaths?: string[];
+    systemPrompt?: string;
+    preset?: string;
+    onCompactionStart?: CompactionStartCallback;
+  }): {
     prompt: AsyncIterable<SDKUserMessage>;
-    options: Record<string, unknown>;
+    options: SdkQueryOptions;
   } {
+    const {
+      userMessageStream,
+      abortController,
+      model,
+      projectPath,
+      resumeSessionId,
+      sessionId,
+      isPremium = false,
+      mcpServerRunning = true,
+      enhancedPromptsContent,
+      pluginPaths,
+      systemPrompt: userSystemPrompt,
+      preset,
+      onCompactionStart,
+    } = input;
+
     const cwd = projectPath || process.cwd();
 
     // Create permission callback
     const canUseTool = this.permissionHandler.createCallback();
+
+    // Build system prompt with full premium capabilities
+    const activeProviderId = getActiveProviderId(this.authEnv);
+    const systemPromptAppend = assembleSystemPromptAppend({
+      providerId: activeProviderId,
+      authEnv: this.authEnv,
+      userSystemPrompt,
+      isPremium,
+      mcpServerRunning,
+      enhancedPromptsContent,
+      preset,
+    });
+
+    // Build MCP servers config
+    const mcpServers: Record<string, McpHttpServerConfig> =
+      isPremium && mcpServerRunning
+        ? {
+            ptah: {
+              type: 'http' as const,
+              url: `http://localhost:${PTAH_MCP_PORT}`,
+            },
+          }
+        : {};
+
+    // Build plugins config
+    const plugins: SdkPluginConfig[] | undefined =
+      pluginPaths && pluginPaths.length > 0
+        ? pluginPaths.map((p) => ({ type: 'local' as const, path: p }))
+        : undefined;
+
+    // Build hooks (subagent + compaction) if handlers are available
+    let hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
+    if (this.subagentHookHandler || this.compactionHookHandler) {
+      hooks = {};
+      if (this.subagentHookHandler) {
+        const subagentHooks = this.subagentHookHandler.createHooks(
+          cwd,
+          sessionId
+        );
+        Object.assign(hooks, subagentHooks);
+      }
+      if (this.compactionHookHandler) {
+        const compactionHooks = this.compactionHookHandler.createHooks(
+          sessionId ?? '',
+          onCompactionStart
+        );
+        Object.assign(hooks, compactionHooks);
+      }
+    }
+
+    // Get compaction configuration if provider is available
+    const compactionConfig = this.compactionConfigProvider?.getConfig();
+    const compactionControl = compactionConfig?.enabled
+      ? {
+          enabled: true,
+          contextTokenThreshold: compactionConfig.contextTokenThreshold,
+        }
+      : undefined;
 
     this.logger.info('[CustomAgentAdapter] Building query options', {
       model,
       cwd,
       isResume: !!resumeSessionId,
       baseUrl: this.authEnv.ANTHROPIC_BASE_URL,
+      isPremium,
+      mcpServerRunning,
+      mcpEnabled: Object.keys(mcpServers).length > 0,
+      hasEnhancedPrompts: !!enhancedPromptsContent,
+      pluginCount: pluginPaths?.length ?? 0,
+      hasHooks: !!hooks,
+      compactionEnabled: compactionConfig?.enabled ?? false,
+      hasIdentityPrompt: !!activeProviderId,
     });
 
     return {
@@ -732,12 +882,13 @@ export class CustomAgentAdapter implements IAIProvider {
         systemPrompt: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
+          append: systemPromptAppend,
         },
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
-        mcpServers: {},
+        mcpServers,
         permissionMode: 'default',
         canUseTool,
         includePartialMessages: true,
@@ -752,6 +903,9 @@ export class CustomAgentAdapter implements IAIProvider {
             `[CustomAgentAdapter] CLI stderr (${this.config.name}): ${data}`
           );
         },
+        hooks,
+        plugins,
+        compactionControl,
       },
     };
   }
