@@ -75,7 +75,13 @@ export type {
   CliCommand,
   CliCommandOptions,
   CliModelInfo,
+  SdkHandle,
 } from './lib/services/cli-adapters';
+
+// ========================================
+// Copilot SDK Permission Bridge (TASK_2025_162)
+// ========================================
+export { CopilotPermissionBridge } from './lib/services/cli-adapters';
 
 // ========================================
 // CLI Skill Sync (TASK_2025_160)

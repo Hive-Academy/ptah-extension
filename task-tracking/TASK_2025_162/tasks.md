@@ -259,7 +259,7 @@ Add after the `ptah.agentOrchestration.copilotModel` block (after line 330), bef
 **Developer**: backend-developer
 **Tasks**: 5 | **Dependencies**: Batch 1
 
-### Task 2.1: Create CopilotPermissionBridge -- PENDING
+### Task 2.1: Create CopilotPermissionBridge -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\llm-abstraction\src\lib\services\cli-adapters\copilot-permission-bridge.ts` (CREATE)
 **Spec Reference**: implementation-plan.md lines 349-445
@@ -413,7 +413,7 @@ export class CopilotPermissionBridge {
 
 ---
 
-### Task 2.2: Create CopilotSdkAdapter -- PENDING
+### Task 2.2: Create CopilotSdkAdapter -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\llm-abstraction\src\lib\services\cli-adapters\copilot-sdk.adapter.ts` (CREATE)
 **Spec Reference**: implementation-plan.md lines 161-331
@@ -481,7 +481,7 @@ Key SDK event type -> CliOutputSegment mapping:
 
 ---
 
-### Task 2.3: Update CLI adapters barrel export -- PENDING
+### Task 2.3: Update CLI adapters barrel export -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\llm-abstraction\src\lib\services\cli-adapters\index.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md lines 766-768
@@ -503,7 +503,7 @@ export { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 ---
 
-### Task 2.4: Conditional adapter registration in CliDetectionService -- PENDING
+### Task 2.4: Conditional adapter registration in CliDetectionService -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\llm-abstraction\src\lib\services\cli-detection.service.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md lines 548-572
@@ -550,7 +550,7 @@ if (useCopilotSdk) {
 
 ---
 
-### Task 2.5: Update llm-abstraction barrel export -- PENDING
+### Task 2.5: Update llm-abstraction barrel export -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\backend\llm-abstraction\src\index.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md lines 767-768

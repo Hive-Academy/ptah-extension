@@ -1,0 +1,221 @@
+/**
+ * Copilot Permission Bridge
+ * TASK_2025_162: Bidirectional async communication between the Copilot SDK's
+ * permission hooks and the webview UI.
+ *
+ * Handles TWO SDK permission systems:
+ * 1. `hooks.onPreToolUse` -- called before tool execution, returns permissionDecision
+ * 2. `onPermissionRequest` -- called for shell/file operations, returns PermissionRequestResult
+ *
+ * Both are routed through the same internal mechanism:
+ * - Store pending requests as Map<requestId, Promise resolver>
+ * - Emit 'permission-request' event for RPC forwarding to webview
+ * - Resolve when user responds (or auto-deny on timeout)
+ *
+ * Auto-approves read-only tools and 'read' permission kinds to reduce friction.
+ */
+import { EventEmitter } from 'eventemitter3';
+import { v4 as uuidv4 } from 'uuid';
+import type {
+  AgentPermissionRequest,
+  AgentPermissionDecision,
+} from '@ptah-extension/shared';
+
+/** Default timeout for permission requests: 60 seconds */
+const PERMISSION_TIMEOUT = 60_000;
+
+/** Tool names that are always auto-approved (read-only operations) */
+const AUTO_APPROVE_TOOLS = new Set([
+  'View',
+  'Read',
+  'Glob',
+  'Grep',
+  'LS',
+  'view',
+  'read',
+  'glob',
+  'grep',
+  'ls',
+  'list_directory',
+  'read_file',
+  'search_file_content',
+]);
+
+/** Permission kinds that are always auto-approved */
+const AUTO_APPROVE_KINDS = new Set(['read']);
+
+interface PendingRequest {
+  readonly resolve: (decision: AgentPermissionDecision) => void;
+  readonly timeout: ReturnType<typeof setTimeout>;
+}
+
+export class CopilotPermissionBridge {
+  /** Event emitter for RPC forwarding. Emits 'permission-request' events. */
+  readonly events = new EventEmitter();
+
+  /** Map of requestId -> { resolve, timeout } for pending permission requests */
+  private readonly pending = new Map<string, PendingRequest>();
+
+  /**
+   * Request permission for a tool use (from hooks.onPreToolUse).
+   * Returns the PreToolUseHookOutput format expected by the SDK.
+   *
+   * @param params.agentId - The Ptah agent ID requesting permission
+   * @param params.toolName - Tool name from PreToolUseHookInput
+   * @param params.toolArgs - Tool arguments (unknown from SDK, serialized to JSON string)
+   * @returns PreToolUseHookOutput with permissionDecision and optional reason
+   */
+  async requestToolPermission(params: {
+    agentId: string;
+    toolName: string;
+    toolArgs: unknown;
+  }): Promise<{
+    permissionDecision: 'allow' | 'deny';
+    permissionDecisionReason?: string;
+  }> {
+    if (AUTO_APPROVE_TOOLS.has(params.toolName)) {
+      return { permissionDecision: 'allow' };
+    }
+
+    const decision = await this.requestPermissionInternal({
+      agentId: params.agentId,
+      kind: 'write',
+      toolName: params.toolName,
+      toolArgs:
+        typeof params.toolArgs === 'string'
+          ? params.toolArgs
+          : JSON.stringify(params.toolArgs ?? {}),
+      description: `Copilot wants to use ${params.toolName}`,
+    });
+
+    return {
+      permissionDecision: decision.decision === 'allow' ? 'allow' : 'deny',
+      permissionDecisionReason: decision.reason,
+    };
+  }
+
+  /**
+   * Request permission for a shell/file operation (from onPermissionRequest).
+   * Returns the PermissionRequestResult format expected by the SDK.
+   *
+   * @param params.agentId - The Ptah agent ID requesting permission
+   * @param params.kind - Permission kind: "shell", "write", "mcp", "read", "url"
+   * @param params.toolCallId - Optional tool call ID from the SDK
+   * @param params.details - Additional details about the operation
+   * @returns PermissionRequestResult with kind field
+   */
+  async requestFilePermission(params: {
+    agentId: string;
+    kind: string;
+    toolCallId?: string;
+    details: Record<string, unknown>;
+  }): Promise<{
+    kind: 'approved' | 'denied-interactively-by-user';
+  }> {
+    if (AUTO_APPROVE_KINDS.has(params.kind)) {
+      return { kind: 'approved' };
+    }
+
+    const decision = await this.requestPermissionInternal({
+      agentId: params.agentId,
+      kind: params.kind,
+      toolName: params.kind,
+      toolArgs: JSON.stringify(params.details),
+      description: `Copilot requests ${params.kind} permission`,
+    });
+
+    return {
+      kind:
+        decision.decision === 'allow'
+          ? 'approved'
+          : 'denied-interactively-by-user',
+    };
+  }
+
+  /**
+   * Internal permission request mechanism shared by both hook handlers.
+   * Creates a Promise, stores the resolver, emits an event, and waits
+   * for resolution or timeout.
+   */
+  private async requestPermissionInternal(params: {
+    agentId: string;
+    kind: string;
+    toolName: string;
+    toolArgs: string;
+    description: string;
+  }): Promise<AgentPermissionDecision> {
+    const requestId = uuidv4();
+    const now = Date.now();
+    const request: AgentPermissionRequest = {
+      requestId,
+      agentId: params.agentId,
+      kind: params.kind,
+      toolName: params.toolName,
+      toolArgs: params.toolArgs,
+      description: params.description,
+      timestamp: now,
+      timeoutAt: now + PERMISSION_TIMEOUT,
+    };
+
+    return new Promise<AgentPermissionDecision>((resolve) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(requestId);
+        resolve({
+          requestId,
+          decision: 'deny',
+          reason: 'Timed out waiting for user response',
+        });
+      }, PERMISSION_TIMEOUT);
+
+      this.pending.set(requestId, {
+        resolve: (decision: AgentPermissionDecision) => {
+          clearTimeout(timeout);
+          this.pending.delete(requestId);
+          resolve(decision);
+        },
+        timeout,
+      });
+
+      // Emit event for RPC forwarding to webview
+      this.events.emit('permission-request', request);
+    });
+  }
+
+  /**
+   * Resolve a pending permission request.
+   * Called from the RPC handler when the user responds via the webview UI.
+   *
+   * @param requestId - The request ID to resolve
+   * @param decision - The user's decision (allow or deny)
+   */
+  resolvePermission(
+    requestId: string,
+    decision: AgentPermissionDecision
+  ): void {
+    const entry = this.pending.get(requestId);
+    if (entry) {
+      entry.resolve(decision);
+    }
+  }
+
+  /**
+   * Cleanup all pending requests by resolving them with 'deny'.
+   * Called on agent abort/exit to prevent hanging SDK hooks.
+   */
+  cleanup(): void {
+    for (const [id, entry] of this.pending) {
+      clearTimeout(entry.timeout);
+      entry.resolve({
+        requestId: id,
+        decision: 'deny',
+        reason: 'Agent stopped',
+      });
+    }
+    this.pending.clear();
+  }
+
+  /** Number of pending requests (for testing/diagnostics) */
+  get pendingCount(): number {
+    return this.pending.size;
+  }
+}

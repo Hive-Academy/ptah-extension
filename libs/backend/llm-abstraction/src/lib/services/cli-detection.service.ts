@@ -2,9 +2,10 @@
  * CLI Detection Service
  * TASK_2025_157: Auto-detect installed CLI agents (Gemini, Codex)
  * TASK_2025_158: Added VS Code Language Model adapter
+ * TASK_2025_162: Added Copilot SDK adapter with feature flag
  *
  * Detects on first call and caches results.
- * Registered adapters: Gemini CLI, Codex CLI, VS Code LM.
+ * Registered adapters: Gemini CLI, Codex CLI, Copilot CLI/SDK.
  * Exposes detection results for MCP tools and namespace.
  */
 import { injectable, inject } from 'tsyringe';
@@ -18,6 +19,8 @@ import type {
 import { GeminiCliAdapter } from './cli-adapters/gemini-cli.adapter';
 import { CodexCliAdapter } from './cli-adapters/codex-cli.adapter';
 import { CopilotCliAdapter } from './cli-adapters/copilot-cli.adapter';
+import { CopilotSdkAdapter } from './cli-adapters/copilot-sdk.adapter';
+import { CopilotPermissionBridge } from './cli-adapters/copilot-permission-bridge';
 
 @injectable()
 export class CliDetectionService {
@@ -32,7 +35,24 @@ export class CliDetectionService {
     // Register headless CLI adapters only (no vscode-lm — that's for Ptah AI chat)
     this.adapters.set('gemini', new GeminiCliAdapter());
     this.adapters.set('codex', new CodexCliAdapter());
-    this.adapters.set('copilot', new CopilotCliAdapter());
+
+    // Feature flag: use SDK adapter for Copilot if enabled (TASK_2025_162)
+    const useCopilotSdk = vscode.workspace
+      .getConfiguration('ptah.copilot')
+      .get<boolean>('useSdk', false);
+
+    if (useCopilotSdk) {
+      const permissionBridge = new CopilotPermissionBridge();
+      this.adapters.set('copilot', new CopilotSdkAdapter(permissionBridge));
+      this.logger.info(
+        '[CliDetection] Copilot SDK adapter registered (feature flag enabled)'
+      );
+    } else {
+      this.adapters.set('copilot', new CopilotCliAdapter());
+      this.logger.info(
+        '[CliDetection] Copilot CLI adapter registered (default)'
+      );
+    }
 
     this.logger.info(
       '[CliDetection] Service initialized with adapters: gemini, codex, copilot'
