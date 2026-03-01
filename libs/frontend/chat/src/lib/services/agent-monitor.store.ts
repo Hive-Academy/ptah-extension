@@ -12,6 +12,7 @@ import type {
   AgentStatus,
   CliType,
   CliOutputSegment,
+  AgentPermissionRequest,
 } from '@ptah-extension/shared';
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
@@ -39,6 +40,8 @@ export interface MonitoredAgent {
    * immutable), this field may be updated during the agent's lifetime.
    */
   cliSessionId?: string;
+  /** Pending permission request from the agent (Copilot SDK) */
+  pendingPermission?: AgentPermissionRequest | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -185,11 +188,37 @@ export class AgentMonitorStore implements OnDestroy {
         status: info.status,
         exitCode: info.exitCode,
         cliSessionId: info.cliSessionId || agent.cliSessionId,
+        pendingPermission: null,
       });
       return next;
     });
 
     this.syncTick();
+  }
+
+  /** Handle incoming permission request from Copilot SDK agent */
+  onPermissionRequest(request: AgentPermissionRequest): void {
+    this._agents.update((map) => {
+      const agent = map.get(request.agentId);
+      if (!agent) return map;
+      const next = new Map(map);
+      next.set(request.agentId, {
+        ...agent,
+        pendingPermission: request,
+      });
+      return next;
+    });
+  }
+
+  /** Clear pending permission from agent (after user responds) */
+  clearPermission(agentId: string): void {
+    this._agents.update((map) => {
+      const agent = map.get(agentId);
+      if (!agent) return map;
+      const next = new Map(map);
+      next.set(agentId, { ...agent, pendingPermission: null });
+      return next;
+    });
   }
 
   toggleAgentExpanded(agentId: string): void {

@@ -21,6 +21,8 @@ import {
 import { LucideAngularModule, ChevronDown, ChevronRight } from 'lucide-angular';
 import { NgClass, SlicePipe } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';
+import { VSCodeService } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import type { MonitoredAgent } from '../../services/agent-monitor.store';
 
@@ -131,6 +133,52 @@ interface StderrSegment {
           {{ agent().task }}
         </p>
       </div>
+
+      <!-- Permission request (Copilot SDK) -->
+      @if (agent().pendingPermission) {
+      <div
+        class="border-t border-warning/20 bg-warning/5 px-3 py-2 flex-shrink-0"
+      >
+        <div class="flex items-center gap-2 mb-1.5">
+          <span class="badge badge-sm badge-warning">Permission</span>
+          <span class="text-[10px] text-base-content/60">
+            {{ agent().pendingPermission!.description }}
+          </span>
+        </div>
+        <div class="flex items-center gap-1.5 mb-1">
+          <code
+            class="text-[10px] font-mono text-accent bg-base-200/60 px-1.5 py-0.5 rounded"
+          >
+            {{ agent().pendingPermission!.toolName }}
+          </code>
+          @if (agent().pendingPermission!.toolArgs) {
+          <span
+            class="text-[10px] text-base-content/40 font-mono truncate max-w-[200px]"
+          >
+            {{ agent().pendingPermission!.toolArgs }}
+          </span>
+          }
+        </div>
+        <div class="flex gap-2 mt-2">
+          <button
+            type="button"
+            class="btn btn-xs btn-success"
+            (click)="allowPermission()"
+            aria-label="Allow tool permission"
+          >
+            Allow
+          </button>
+          <button
+            type="button"
+            class="btn btn-xs btn-error btn-outline"
+            (click)="denyPermission()"
+            aria-label="Deny tool permission"
+          >
+            Deny
+          </button>
+        </div>
+      </div>
+      }
 
       <!-- Output -->
       @if (agent().stdout || agent().stderr || agent().segments.length > 0) {
@@ -345,6 +393,7 @@ export class AgentCardComponent {
   readonly toggleExpanded = output<void>();
 
   private readonly store = inject(AgentMonitorStore);
+  private readonly vscode = inject(VSCodeService);
 
   readonly ChevronDownIcon = ChevronDown;
   readonly ChevronRightIcon = ChevronRight;
@@ -407,6 +456,32 @@ export class AgentCardComponent {
         });
       }
     });
+  }
+
+  /** Send "allow" decision for the pending permission request */
+  allowPermission(): void {
+    const perm = this.agent().pendingPermission;
+    if (!perm) return;
+    this.vscode.postMessage({
+      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
+      payload: { requestId: perm.requestId, decision: 'allow' },
+    });
+    this.store.clearPermission(this.agent().agentId);
+  }
+
+  /** Send "deny" decision for the pending permission request */
+  denyPermission(): void {
+    const perm = this.agent().pendingPermission;
+    if (!perm) return;
+    this.vscode.postMessage({
+      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
+      payload: {
+        requestId: perm.requestId,
+        decision: 'deny',
+        reason: 'User denied',
+      },
+    });
+    this.store.clearPermission(this.agent().agentId);
   }
 }
 
