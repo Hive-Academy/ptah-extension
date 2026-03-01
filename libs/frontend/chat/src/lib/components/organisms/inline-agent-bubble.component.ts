@@ -63,15 +63,19 @@ import { DurationBadgeComponent } from '../atoms/duration-badge.component';
   template: `
     <!-- TASK_2025_109: Enhanced styling for interrupted agents -->
     <!-- Interrupted agents get warning border + tinted background to stand out -->
+    <!-- Background agents get dashed border + info tint -->
     <div
       class="my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
       [ngClass]="{
-        'bg-base-200/50': !isInterrupted(),
+        'bg-base-200/50': !isInterrupted() && !isBackground(),
         'bg-warning/10': isInterrupted(),
         'border-warning': isInterrupted(),
-        'ring-1': isInterrupted(),
+        'ring-1': isInterrupted() || isBackground(),
         'ring-warning/30': isInterrupted(),
-        'streaming-border-glow': isStreaming()
+        'streaming-border-glow': isStreaming() && !isBackground(),
+        'bg-info/5': isBackground() && !isInterrupted(),
+        'border-dashed': isBackground(),
+        'ring-info/20': isBackground() && !isInterrupted()
       }"
       [style.border-left-color]="isInterrupted() ? null : agentColor()"
     >
@@ -113,8 +117,19 @@ import { DurationBadgeComponent } from '../atoms/duration-badge.component';
           }
         </div>
 
-        <!-- Streaming/Interrupted badge or stats -->
-        @if (isStreaming()) {
+        <!-- Streaming/Interrupted/Background badge or stats -->
+        @if (isBackground() && isStreaming()) {
+        <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
+          <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
+          <span class="text-[9px]">Background</span>
+        </span>
+        } @else if (isBackground() && !isInterrupted() && !isStreaming()) {
+        <span
+          class="badge badge-xs badge-outline badge-info gap-1 flex-shrink-0"
+        >
+          <span class="text-[9px]">Background</span>
+        </span>
+        } @else if (isStreaming()) {
         <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
           <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
           <span class="text-[9px]">Streaming</span>
@@ -405,6 +420,9 @@ export class InlineAgentBubbleComponent {
 
   // Computed: was agent interrupted (TASK_2025_098)
   readonly isInterrupted = computed(() => this.node().status === 'interrupted');
+
+  // Computed: is background agent
+  readonly isBackground = computed(() => this.node().isBackground === true);
 
   // TASK_2025_109: isResumable computed removed - Resume button no longer needed
   // Subagent resumption is now handled via context injection in chat:continue RPC.

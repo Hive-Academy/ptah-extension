@@ -172,6 +172,12 @@ export interface ChatResumeResult {
    * Populated from SubagentRegistryService.getResumableBySession().
    */
   resumableSubagents?: import('./subagent-registry.types').SubagentRecord[];
+  /**
+   * CLI agent sessions linked to this parent session (TASK_2025_161/168)
+   * Enables displaying and resuming CLI sessions (e.g., Gemini) when loading saved sessions.
+   * Populated from SessionMetadataStore.cliSessions[].
+   */
+  cliSessions?: import('./agent-process.types').CliSessionReference[];
   error?: string;
 }
 
@@ -1242,10 +1248,8 @@ export interface AgentOrchestrationConfig {
   defaultTimeout: number;
   /** Per-CLI model: Gemini CLI model (empty string = CLI default) */
   geminiModel: string;
-  /** Per-CLI model: Copilot CLI model (empty string = CLI default) */
+  /** Per-CLI model: Copilot model (empty string = default) */
   copilotModel: string;
-  /** Whether to use Copilot SDK instead of CLI spawning (TASK_2025_162) */
-  copilotUseSdk: boolean;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -1270,10 +1274,8 @@ export interface AgentSetConfigParams {
   defaultTimeout?: number;
   /** Gemini CLI model override (empty string = CLI default) */
   geminiModel?: string;
-  /** Copilot CLI model override (empty string = CLI default) */
+  /** Copilot model override (empty string = default) */
   copilotModel?: string;
-  /** Whether to use Copilot SDK instead of CLI spawning (TASK_2025_162) */
-  copilotUseSdk?: boolean;
 }
 
 // ============================================================
@@ -1661,6 +1663,19 @@ export interface RpcMethodRegistry {
     params: AgentPermissionDecision;
     result: { success: boolean; error?: string };
   };
+  /** List background agents for a session (TASK_2025_168) */
+  'agent:backgroundList': {
+    params: { sessionId?: string };
+    result: {
+      agents: Array<{
+        toolCallId: string;
+        agentId: string;
+        agentType: string;
+        status: string;
+        startedAt: number;
+      }>;
+    };
+  };
 
   // ---- Custom Agent Methods (TASK_2025_167) ----
   'customAgent:list': {
@@ -1808,6 +1823,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'agent:detectClis',
   'agent:listCliModels',
   'agent:permissionResponse', // TASK_2025_162: Copilot SDK permission response
+  'agent:backgroundList', // TASK_2025_168: Background agent listing
 
   // Custom Agent Methods (TASK_2025_167)
   'customAgent:list',

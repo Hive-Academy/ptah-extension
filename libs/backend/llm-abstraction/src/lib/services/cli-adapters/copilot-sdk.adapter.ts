@@ -3,8 +3,8 @@
  * TASK_2025_162: SDK-based Copilot integration using @github/copilot-sdk
  *
  * Uses the Copilot SDK for structured event streaming, permission hooks,
- * session management, and crash recovery. Replaces raw CLI spawning
- * when the feature flag `ptah.copilot.useSdk` is enabled.
+ * session management, and crash recovery. This is the sole Copilot adapter
+ * (TASK_2025_169 removed the raw CLI fallback).
  *
  * Architecture:
  * - CopilotClient is singleton (one CLI process per extension lifetime)
@@ -212,7 +212,7 @@ interface CopilotSdkModule {
 // End Local SDK Types
 // ========================================
 
-/** Copilot CLI model list (from `copilot --help` output, same as CopilotCliAdapter) */
+/** Copilot CLI model list (from `copilot --help` output) */
 const COPILOT_MODELS: CliModelInfo[] = [
   { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6' },
   { id: 'claude-opus-4.6', name: 'Claude Opus 4.6' },
@@ -248,8 +248,7 @@ export class CopilotSdkAdapter implements CliAdapter {
   }
 
   /**
-   * Detect if Copilot CLI is installed.
-   * Same detection as CopilotCliAdapter -- the SDK needs the CLI binary.
+   * Detect if Copilot CLI binary is installed (required by the SDK).
    */
   async detect(): Promise<CliDetectionResult> {
     try {
@@ -287,23 +286,11 @@ export class CopilotSdkAdapter implements CliAdapter {
   }
 
   /**
-   * Build command for the raw CLI spawn fallback path.
-   * Only used when runSdk() is not available. Kept for interface compliance.
+   * Required by CliAdapter interface. Not used at runtime — this adapter
+   * always uses runSdk() which routes through the Copilot SDK session API.
    */
-  buildCommand(options: CliCommandOptions): CliCommand {
-    const taskPrompt = buildTaskPrompt(options);
-    return {
-      binary: 'copilot',
-      args: [
-        '-p',
-        taskPrompt,
-        '--yolo',
-        '--autopilot',
-        '--no-ask-user',
-        '--silent',
-        '--no-custom-instructions',
-      ],
-    };
+  buildCommand(_options: CliCommandOptions): CliCommand {
+    return { binary: 'copilot', args: [] };
   }
 
   supportsSteer(): boolean {

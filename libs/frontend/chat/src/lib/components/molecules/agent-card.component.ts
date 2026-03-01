@@ -416,7 +416,7 @@ export class AgentCardComponent {
   /**
    * Parse agent output into structured segments for formatted rendering.
    * Prefers structured segments from SDK adapters (Gemini, Codex).
-   * Falls back to regex parsing for raw CLI adapters (Copilot).
+   * Falls back to regex parsing for adapters without structured segments.
    */
   readonly parsedOutput = computed((): RenderSegment[] => {
     const agent = this.agent();

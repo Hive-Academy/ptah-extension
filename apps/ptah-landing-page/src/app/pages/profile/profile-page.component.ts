@@ -12,7 +12,14 @@ import {
   ViewportAnimationConfig,
   ViewportAnimationDirective,
 } from '@hive-academy/angular-gsap';
-import { LucideAngularModule, Settings, Shield } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Settings,
+  Shield,
+  GraduationCap,
+  MessageSquare,
+  User,
+} from 'lucide-angular';
 import { Subject, takeUntil } from 'rxjs';
 import { NavigationComponent } from '../../components/navigation.component';
 import { AuthService } from '../../services/auth.service';
@@ -23,6 +30,10 @@ import {
   ProfileHeaderComponent,
 } from './components';
 import { LicenseData } from './models/license-data.interface';
+import { SessionsGridComponent } from '../sessions/components/sessions-grid.component';
+import { ContactFormComponent } from '../contact/components/contact-form.component';
+
+export type ProfileTab = 'account' | 'sessions' | 'contact';
 
 /**
  * ProfilePageComponent - Enhanced user account dashboard
@@ -59,6 +70,8 @@ import { LicenseData } from './models/license-data.interface';
     ProfileDetailsComponent,
     ProfileFeaturesComponent,
     NavigationComponent,
+    SessionsGridComponent,
+    ContactFormComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100">
@@ -101,6 +114,72 @@ import { LicenseData } from './models/license-data.interface';
 
       <!-- Content Container -->
       <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-6">
+        <!-- Tab Navigation -->
+        <div
+          class="flex gap-1 bg-base-200/50 border border-white/10 rounded-xl p-1 mb-6"
+          role="tablist"
+        >
+          <button
+            type="button"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'account'"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
+            [class]="
+              activeTab() === 'account'
+                ? 'bg-base-300 text-amber-400 shadow-sm'
+                : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
+            "
+            (click)="activeTab.set('account')"
+          >
+            <lucide-angular
+              [img]="UserIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Account
+          </button>
+          <button
+            type="button"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'sessions'"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
+            [class]="
+              activeTab() === 'sessions'
+                ? 'bg-base-300 text-amber-400 shadow-sm'
+                : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
+            "
+            (click)="activeTab.set('sessions')"
+          >
+            <lucide-angular
+              [img]="GraduationCapIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Sessions
+          </button>
+          <button
+            type="button"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'contact'"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200"
+            [class]="
+              activeTab() === 'contact'
+                ? 'bg-base-300 text-amber-400 shadow-sm'
+                : 'text-white/50 hover:text-white/80 hover:bg-base-300/50'
+            "
+            (click)="activeTab.set('contact')"
+          >
+            <lucide-angular
+              [img]="MessageSquareIcon"
+              class="w-4 h-4"
+              aria-hidden="true"
+            />
+            Contact
+          </button>
+        </div>
+
+        <!-- Tab Content -->
+        @switch (activeTab()) { @case ('account') {
         <!-- Account Details & Upgrade CTA -->
         <ptah-profile-details
           [license]="license()"
@@ -153,6 +232,28 @@ import { LicenseData } from './models/license-data.interface';
             Documentation
           </a>
         </div>
+        } @case ('sessions') {
+        <!-- Sessions Tab -->
+        <div class="mb-8">
+          <h2 class="text-xl font-semibold text-white mb-1">
+            Learning Sessions
+          </h2>
+          <p class="text-white/50 text-sm mb-6">
+            2-hour live consulting sessions to help you master Ptah and
+            supercharge your development workflow.
+          </p>
+          <ptah-sessions-grid />
+        </div>
+        } @case ('contact') {
+        <!-- Contact Tab -->
+        <div class="mb-8">
+          <h2 class="text-xl font-semibold text-white mb-1">Get in Touch</h2>
+          <p class="text-white/50 text-sm mb-6">
+            Have a question, feedback, or need help? We'd love to hear from you.
+          </p>
+          <ptah-contact-form />
+        </div>
+        } }
       </div>
       }
     </div>
@@ -169,6 +270,9 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   /** Lucide icon references */
   public readonly SettingsIcon = Settings;
   public readonly ShieldIcon = Shield;
+  public readonly GraduationCapIcon = GraduationCap;
+  public readonly MessageSquareIcon = MessageSquare;
+  public readonly UserIcon = User;
 
   private readonly http = inject(HttpClient);
   private readonly authService = inject(AuthService);
@@ -181,6 +285,9 @@ export class ProfilePageComponent implements OnInit, OnDestroy {
   /** Timeout IDs for cleanup on destroy */
   private syncSuccessTimeoutId?: ReturnType<typeof setTimeout>;
   private syncErrorTimeoutId?: ReturnType<typeof setTimeout>;
+
+  // Tab state
+  public readonly activeTab = signal<ProfileTab>('account');
 
   // State signals
   public readonly license = signal<LicenseData | null>(null);

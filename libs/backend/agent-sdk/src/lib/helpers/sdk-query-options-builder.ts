@@ -34,7 +34,10 @@ import {
   SdkPluginConfig,
 } from '../types/sdk-types/claude-sdk.types';
 import type { SDKUserMessage } from './session-lifecycle-manager';
-import { getAnthropicProvider } from './anthropic-provider-registry';
+import {
+  getAnthropicProvider,
+  ANTHROPIC_PROVIDERS,
+} from './anthropic-provider-registry';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
 
@@ -99,9 +102,8 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
     return null;
   }
 
-  // Check which provider matches this base URL
-  const providers = ['openrouter', 'moonshot', 'zhipu'] as const;
-  for (const id of providers) {
+  // Check which provider matches this base URL (derived from registry to prevent ID mismatches)
+  for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
     const provider = getAnthropicProvider(id);
     if (provider && baseUrl.includes(new URL(provider.baseUrl).hostname)) {
       return id;

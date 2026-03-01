@@ -289,7 +289,7 @@ export class RpcMethodRegistrationService {
 
   /**
    * Wire Copilot SDK permission bridge events to webview.
-   * Only active when the Copilot SDK adapter is registered (feature flag enabled).
+   * Always active — the Copilot SDK adapter is the sole Copilot adapter.
    * Permission requests are forwarded as fire-and-forget broadcasts.
    * TASK_2025_162: Copilot SDK Integration
    */

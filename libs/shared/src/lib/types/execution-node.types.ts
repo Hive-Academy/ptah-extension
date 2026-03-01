@@ -222,6 +222,9 @@ export interface ExecutionNode {
 
   /** Whether this node is highlighted (e.g., during search) */
   readonly isHighlighted?: boolean;
+
+  /** Whether this is a background agent (continues executing independently of main turn) */
+  readonly isBackground?: boolean;
 }
 
 // ============================================================================
@@ -529,6 +532,7 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     children: z.array(ExecutionNodeSchema),
     isCollapsed: z.boolean(),
     isHighlighted: z.boolean().optional(),
+    isBackground: z.boolean().optional(),
   })
 );
 

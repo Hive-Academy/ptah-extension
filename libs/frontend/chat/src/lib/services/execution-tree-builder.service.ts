@@ -15,7 +15,7 @@
  * ```
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import type {
   ExecutionNode,
   MessageStartEvent,
@@ -26,6 +26,7 @@ import type {
 } from '@ptah-extension/shared';
 import { createExecutionNode } from '@ptah-extension/shared';
 import type { StreamingState } from './chat.types';
+import { BackgroundAgentStore } from './background-agent.store';
 
 /**
  * Maximum recursion depth for tool children to prevent stack overflow.
@@ -65,11 +66,15 @@ interface TreeCacheEntry {
    * Ensures cache invalidates when new content blocks are added for interleaving.
    */
   agentContentBlocksCount: number;
+  /** Background agent count for cache invalidation when agents are registered */
+  backgroundAgentCount: number;
   tree: ExecutionNode[];
 }
 
 @Injectable({ providedIn: 'root' })
 export class ExecutionTreeBuilderService {
+  private readonly backgroundAgentStore = inject(BackgroundAgentStore);
+
   /**
    * PERFORMANCE OPTIMIZATION: Memoization cache for tree building
    * Key: Unique identifier for the streaming state (could be session-based)
@@ -130,6 +135,9 @@ export class ExecutionTreeBuilderService {
     for (const blocks of streamingState.agentContentBlocksMap.values()) {
       agentContentBlocksCount += blocks.length;
     }
+    // Background agent count: invalidate cache when agents are registered as background
+    const backgroundAgentCount =
+      this.backgroundAgentStore.backgroundToolCallIds().size;
 
     // Check cache for existing tree with matching fingerprint
     const cached = this.treeCache.get(cacheKey);
@@ -140,7 +148,8 @@ export class ExecutionTreeBuilderService {
       cached.textAccumulatorsSize === textAccumulatorsSize &&
       cached.toolInputAccumulatorsSize === toolInputAccumulatorsSize &&
       cached.agentSummaryTotalLength === agentSummaryTotalLength &&
-      cached.agentContentBlocksCount === agentContentBlocksCount
+      cached.agentContentBlocksCount === agentContentBlocksCount &&
+      cached.backgroundAgentCount === backgroundAgentCount
     ) {
       // Cache hit - return existing tree without rebuilding
       return cached.tree;
@@ -229,6 +238,7 @@ export class ExecutionTreeBuilderService {
       toolInputAccumulatorsSize,
       agentSummaryTotalLength,
       agentContentBlocksCount,
+      backgroundAgentCount,
       tree: rootNodes,
     });
 
@@ -712,6 +722,9 @@ export class ExecutionTreeBuilderService {
               state
             );
 
+            const isPlaceholderBackground =
+              this.backgroundAgentStore.isBackgroundAgent(toolStart.toolCallId);
+
             const placeholderAgent = createExecutionNode({
               id: `agent-placeholder-${toolStart.toolCallId}`,
               type: 'agent',
@@ -726,6 +739,7 @@ export class ExecutionTreeBuilderService {
               // summaryContent no longer needed on node - it's now a child text node
               ...placeholderStats, // TASK_2025_132: Spread agentModel, tokenUsage, cost, duration
               model: placeholderStats.agentModel, // TASK_2025_132: Also set model field for consistency
+              ...(isPlaceholderBackground ? { isBackground: true } : {}),
             });
 
             // Mark this toolCallId as used to prevent duplicates
@@ -891,6 +905,9 @@ export class ExecutionTreeBuilderService {
     );
 
     // Create the AGENT node
+    const isBackground =
+      this.backgroundAgentStore.isBackgroundAgent(toolCallId);
+
     return createExecutionNode({
       id: agentStart.id,
       type: 'agent',
@@ -904,6 +921,7 @@ export class ExecutionTreeBuilderService {
       agentId: effectiveAgentId, // TASK_2025_099 FIX: Use effectiveAgentId (from hook if needed)
       ...stats, // TASK_2025_132: Spread agentModel, tokenUsage, cost, duration
       model: stats.agentModel, // TASK_2025_132: Also set model field for consistency
+      ...(isBackground ? { isBackground: true } : {}),
     });
   }
 
@@ -1359,6 +1377,9 @@ export class ExecutionTreeBuilderService {
 
       // Create the AGENT node from agent_start event
       // This wraps the nested content in a proper agent bubble
+      const isToolChildBackground =
+        this.backgroundAgentStore.isBackgroundAgent(toolCallId);
+
       const agentNode = createExecutionNode({
         id: agentStart.id,
         type: 'agent',
@@ -1373,6 +1394,7 @@ export class ExecutionTreeBuilderService {
         // summaryContent no longer needed on node - it's now a child text node
         ...toolChildStats, // TASK_2025_132: Spread agentModel, tokenUsage, cost, duration
         model: toolChildStats.agentModel, // TASK_2025_132: Also set model field for consistency
+        ...(isToolChildBackground ? { isBackground: true } : {}),
       });
 
       children.push(agentNode);

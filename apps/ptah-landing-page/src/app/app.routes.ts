@@ -4,8 +4,6 @@ import { PricingPageComponent } from './pages/pricing/pricing-page.component';
 import { AuthPageComponent } from './pages/auth/auth-page.component';
 import { ProfilePageComponent } from './pages/profile/profile-page.component';
 import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.component';
-import { ContactPageComponent } from './pages/contact/contact-page.component';
-import { SessionsPageComponent } from './pages/sessions/sessions-page.component';
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
 import { DocsPageComponent } from './pages/docs/docs-page.component';
@@ -21,7 +19,9 @@ import { TrialStatusGuard } from './guards/trial-status.guard';
  * - `/pricing` → Pricing plans page (protected by TrialStatusGuard)
  * - `/login` → Unified auth page (Sign In mode) - GuestGuard redirects to /profile if already logged in
  * - `/signup` → Unified auth page (Sign Up mode) - GuestGuard redirects to /profile if already logged in
- * - `/profile` → User license dashboard (protected by AuthGuard + TrialStatusGuard)
+ * - `/profile` → User dashboard with tabs: Account, Sessions, Contact (protected by AuthGuard + TrialStatusGuard)
+ * - `/sessions` → Redirects to /profile (sessions tab lives under profile)
+ * - `/contact` → Redirects to /profile (contact tab lives under profile)
  * - `/trial-ended` → Trial expired page (protected by AuthGuard only)
  * - `/**` → Wildcard redirects to home (404 handling)
  *
@@ -71,15 +71,14 @@ export const routes: Routes = [
     component: ProfilePageComponent,
     canActivate: [AuthGuard, TrialStatusGuard], // Auth + trial status check
   },
+  // Redirect old standalone pages to profile (now tabs within profile)
   {
     path: 'contact',
-    component: ContactPageComponent,
-    canActivate: [AuthGuard, TrialStatusGuard],
+    redirectTo: 'profile',
   },
   {
     path: 'sessions',
-    component: SessionsPageComponent,
-    canActivate: [AuthGuard, TrialStatusGuard],
+    redirectTo: 'profile',
   },
   {
     path: 'trial-ended',

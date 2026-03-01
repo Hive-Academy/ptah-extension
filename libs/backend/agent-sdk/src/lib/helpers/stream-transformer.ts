@@ -448,11 +448,8 @@ export class StreamTransformer {
               );
               logger.error(
                 `[StreamTransformer] Current: ANTHROPIC_API_KEY=${
-                  process.env['ANTHROPIC_API_KEY']
-                    ? `SET (${process.env['ANTHROPIC_API_KEY'].substring(
-                        0,
-                        10
-                      )}...)`
+                  authEnv.ANTHROPIC_API_KEY
+                    ? `SET (${authEnv.ANTHROPIC_API_KEY.substring(0, 10)}...)`
                     : 'NOT SET'
                 }`
               );

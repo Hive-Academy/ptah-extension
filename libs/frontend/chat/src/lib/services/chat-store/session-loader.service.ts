@@ -24,6 +24,7 @@ import {
 import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';
+import { AgentMonitorStore } from '../agent-monitor.store';
 import { createEmptyStreamingState } from '../chat.types';
 
 @Injectable({ providedIn: 'root' })
@@ -33,6 +34,7 @@ export class SessionLoaderService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly streamingHandler = inject(StreamingHandlerService);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
 
   // ============================================================================
   // STATE SIGNALS
@@ -268,6 +270,8 @@ export class SessionLoaderService {
       const stats = resumeResult.data?.stats;
       // TASK_2025_103 FIX: Get resumable subagents for marking interrupted agents
       const resumableSubagents = resumeResult.data?.resumableSubagents;
+      // TASK_2025_168: Get CLI sessions for agent monitor display
+      const cliSessions = resumeResult.data?.cliSessions;
 
       // Store preloaded stats and session model for display (old sessions)
       if (stats) {
@@ -297,6 +301,11 @@ export class SessionLoaderService {
         );
 
         this.sessionManager.setStatus('loaded');
+
+        // TASK_2025_168: Load CLI sessions into agent monitor panel
+        if (cliSessions && cliSessions.length > 0) {
+          this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+        }
       } else if (resumeResult.success && messages && messages.length > 0) {
         // Fallback: Use simple messages if no events (backward compatibility)
         // Convert simple messages to ExecutionChatMessage format
@@ -316,6 +325,11 @@ export class SessionLoaderService {
           streamingState: null,
         });
         this.sessionManager.setStatus('loaded');
+
+        // TASK_2025_168: Also load CLI sessions in fallback branch
+        if (cliSessions && cliSessions.length > 0) {
+          this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+        }
       } else {
         console.error(
           '[SessionLoaderService] Failed to resume session:',

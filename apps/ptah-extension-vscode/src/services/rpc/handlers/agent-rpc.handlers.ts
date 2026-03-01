@@ -15,6 +15,7 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
 } from '@ptah-extension/llm-abstraction';
+import { SDK_TOKENS, CustomAgentRegistry } from '@ptah-extension/agent-sdk';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -41,7 +42,9 @@ export class AgentRpcHandlers {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetection: CliDetectionService
+    private readonly cliDetection: CliDetectionService,
+    @inject(SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY)
+    private readonly customAgentRegistry: CustomAgentRegistry
   ) {}
 
   /**
@@ -81,10 +84,26 @@ export class AgentRpcHandlers {
           const config = vscode.workspace.getConfiguration(
             'ptah.agentOrchestration'
           );
-          const detectedClis = await this.cliDetection.detectAll();
+          const cliResults = await this.cliDetection.detectAll();
 
-          const copilotConfig =
-            vscode.workspace.getConfiguration('ptah.copilot');
+          // Merge custom agents as CLI entries alongside gemini/codex/copilot
+          let detectedClis: CliDetectionResult[] = [...cliResults];
+          try {
+            const customAgents = await this.customAgentRegistry.listAgents();
+            const customClis: CliDetectionResult[] = customAgents
+              .filter((a) => a.enabled && a.hasApiKey)
+              .map((a) => ({
+                cli: 'custom' as const,
+                installed: true,
+                supportsSteer: false,
+                customAgentId: a.id,
+                customAgentName: a.name,
+                providerName: a.providerName,
+              }));
+            detectedClis = [...cliResults, ...customClis];
+          } catch {
+            // Non-fatal: custom agent listing may fail
+          }
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
@@ -93,7 +112,6 @@ export class AgentRpcHandlers {
             defaultTimeout: config.get<number>('defaultTimeout', 10),
             geminiModel: config.get<string>('geminiModel', ''),
             copilotModel: config.get<string>('copilotModel', ''),
-            copilotUseSdk: copilotConfig.get<boolean>('useSdk', false),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -118,6 +136,7 @@ export class AgentRpcHandlers {
    *
    * Writes to VS Code workspace configuration.
    * Only updates fields that are provided in params.
+   * Retries once if settings.json has unsaved changes (dirty file).
    */
   private registerSetConfig(): void {
     this.rpcHandler.registerMethod<
@@ -127,60 +146,7 @@ export class AgentRpcHandlers {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
 
-        const config = vscode.workspace.getConfiguration(
-          'ptah.agentOrchestration'
-        );
-
-        if (params.defaultCli !== undefined) {
-          await config.update(
-            'defaultCli',
-            params.defaultCli,
-            vscode.ConfigurationTarget.Global
-          );
-        }
-
-        if (params.maxConcurrentAgents !== undefined) {
-          const clamped = Math.max(1, Math.min(10, params.maxConcurrentAgents));
-          await config.update(
-            'maxConcurrentAgents',
-            clamped,
-            vscode.ConfigurationTarget.Global
-          );
-        }
-
-        if (params.defaultTimeout !== undefined) {
-          await config.update(
-            'defaultTimeout',
-            params.defaultTimeout,
-            vscode.ConfigurationTarget.Global
-          );
-        }
-
-        if (params.geminiModel !== undefined) {
-          await config.update(
-            'geminiModel',
-            params.geminiModel || undefined,
-            vscode.ConfigurationTarget.Global
-          );
-        }
-
-        if (params.copilotModel !== undefined) {
-          await config.update(
-            'copilotModel',
-            params.copilotModel || undefined,
-            vscode.ConfigurationTarget.Global
-          );
-        }
-
-        if (params.copilotUseSdk !== undefined) {
-          const copilotConfig =
-            vscode.workspace.getConfiguration('ptah.copilot');
-          await copilotConfig.update(
-            'useSdk',
-            params.copilotUseSdk,
-            vscode.ConfigurationTarget.Global
-          );
-        }
+        await this.applyConfigUpdates(params);
 
         this.logger.debug('RPC: agent:setConfig success');
         return { success: true };
@@ -194,6 +160,120 @@ export class AgentRpcHandlers {
         return { success: false, error: errorMessage };
       }
     });
+  }
+
+  /**
+   * Apply all config updates, retrying once if settings.json has unsaved changes.
+   *
+   * VS Code rejects config.update() when the user settings file is dirty
+   * (has unsaved changes in the editor). This method catches that specific
+   * error, saves only the dirty settings document, and retries once.
+   */
+  private async applyConfigUpdates(
+    params: AgentSetConfigParams
+  ): Promise<void> {
+    try {
+      await this.doApplyConfigUpdates(params);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Detect the specific "unsaved changes" error from VS Code config API
+      const hasDirtySettings = vscode.workspace.textDocuments.some(
+        (doc) =>
+          doc.isDirty &&
+          doc.uri.scheme === 'vscode-userdata' &&
+          doc.uri.path.endsWith('settings.json')
+      );
+      if (message.includes('unsaved changes') || hasDirtySettings) {
+        this.logger.info(
+          'RPC: agent:setConfig retrying after saving dirty settings file'
+        );
+        // Save only the dirty settings document (not all open files)
+        await this.saveDirtySettingsDocument();
+        // Delay to let VS Code process the save
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        // Retry once
+        await this.doApplyConfigUpdates(params);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Save only the user settings document if it's dirty.
+   * Falls back to saving the active editor if the settings document isn't found directly.
+   */
+  private async saveDirtySettingsDocument(): Promise<void> {
+    // Try to find the settings document among open text documents
+    const settingsDoc = vscode.workspace.textDocuments.find(
+      (doc) =>
+        doc.isDirty &&
+        doc.uri.path.endsWith('settings.json') &&
+        (doc.uri.scheme === 'vscode-userdata' || doc.uri.scheme === 'file')
+    );
+    if (settingsDoc) {
+      await settingsDoc.save();
+      return;
+    }
+    // Fallback: save the active text editor if it's a settings file
+    const activeEditor = vscode.window.activeTextEditor;
+    if (
+      activeEditor?.document.isDirty &&
+      activeEditor.document.uri.path.endsWith('settings.json')
+    ) {
+      await activeEditor.document.save();
+    }
+  }
+
+  /**
+   * Perform the actual VS Code configuration updates for all provided params.
+   */
+  private async doApplyConfigUpdates(
+    params: AgentSetConfigParams
+  ): Promise<void> {
+    const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
+
+    if (params.defaultCli !== undefined) {
+      await config.update(
+        'defaultCli',
+        params.defaultCli,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+
+    if (params.maxConcurrentAgents !== undefined) {
+      const clamped = Math.max(1, Math.min(10, params.maxConcurrentAgents));
+      await config.update(
+        'maxConcurrentAgents',
+        clamped,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+
+    if (params.defaultTimeout !== undefined) {
+      const clampedTimeout = Math.max(1, Math.min(120, params.defaultTimeout));
+      await config.update(
+        'defaultTimeout',
+        clampedTimeout,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+
+    if (params.geminiModel !== undefined) {
+      await config.update(
+        'geminiModel',
+        params.geminiModel || undefined,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+
+    if (params.copilotModel !== undefined) {
+      await config.update(
+        'copilotModel',
+        params.copilotModel || undefined,
+        vscode.ConfigurationTarget.Global
+      );
+    }
   }
 
   /**

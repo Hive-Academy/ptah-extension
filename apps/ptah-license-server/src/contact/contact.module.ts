@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../app/auth/auth.module';
 import { EmailModule } from '../email/email.module';
 import { ContactController } from './contact.controller';
 import { ContactService } from './contact.service';
@@ -12,10 +13,10 @@ import { ContactService } from './contact.service';
  *
  * Dependencies:
  * - EmailModule (email delivery)
- * - AuthModule (JwtAuthGuard - imported globally via APP_GUARD)
+ * - AuthModule (JwtAuthGuard + AuthService)
  */
 @Module({
-  imports: [EmailModule],
+  imports: [AuthModule, EmailModule],
   controllers: [ContactController],
   providers: [ContactService],
 })

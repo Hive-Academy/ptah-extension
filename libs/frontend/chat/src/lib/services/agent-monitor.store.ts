@@ -13,6 +13,7 @@ import type {
   CliType,
   CliOutputSegment,
   AgentPermissionRequest,
+  CliSessionReference,
 } from '@ptah-extension/shared';
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
@@ -28,7 +29,7 @@ export interface MonitoredAgent {
   stderr: string;
   exitCode?: number;
   expanded: boolean;
-  /** Structured output segments from SDK-based adapters (Gemini, Codex). Empty for raw CLI adapters (Copilot). */
+  /** Structured output segments from SDK-based adapters (Gemini, Codex, Copilot). */
   segments: CliOutputSegment[];
   /** Parent Ptah Claude SDK session that spawned this agent */
   readonly parentSessionId?: string;
@@ -230,6 +231,56 @@ export class AgentMonitorStore implements OnDestroy {
       next.set(agentId, { ...agent, expanded: !agent.expanded });
       return next;
     });
+  }
+
+  /**
+   * Load CLI sessions from a saved session's metadata (TASK_2025_168).
+   * Converts CliSessionReference[] to MonitoredAgent[] and adds them to the store.
+   * Called when loading/resuming a session that had CLI agents spawned.
+   * Clears non-running agents first to prevent stale accumulation across session switches.
+   * Auto-opens the panel if sessions are loaded.
+   */
+  loadCliSessions(
+    cliSessions: CliSessionReference[],
+    parentSessionId?: string
+  ): void {
+    if (cliSessions.length === 0) return;
+
+    this._agents.update((map) => {
+      // Clear non-running agents to prevent accumulation across session switches
+      const next = new Map<string, MonitoredAgent>();
+      for (const [id, agent] of map) {
+        if (agent.status === 'running') {
+          next.set(id, agent);
+        }
+      }
+
+      for (const ref of cliSessions) {
+        // Skip if a live agent with same ID is already running
+        if (!next.has(ref.agentId)) {
+          const ts = new Date(ref.startedAt).getTime();
+          next.set(ref.agentId, {
+            agentId: ref.agentId,
+            cli: ref.cli,
+            task: ref.task,
+            status: ref.status,
+            startedAt: Number.isNaN(ts) ? Date.now() : ts,
+            stdout: '',
+            stderr: '',
+            expanded: false,
+            segments: [],
+            cliSessionId: ref.cliSessionId,
+            parentSessionId,
+          });
+        }
+      }
+      return next;
+    });
+
+    // Auto-open panel to show loaded sessions
+    if (!this._userExplicitlyClosed) {
+      this._panelOpen.set(true);
+    }
   }
 
   clearCompleted(): void {

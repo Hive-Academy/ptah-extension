@@ -44,6 +44,7 @@ import {
   getActiveProviderId,
   type SdkQueryOptions,
 } from '../helpers/sdk-query-options-builder';
+import { buildSafeEnv } from '../helpers/build-safe-env';
 import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import type { CompactionHookHandler } from '../helpers/compaction-hook-handler';
 import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
@@ -893,11 +894,8 @@ export class CustomAgentAdapter implements IAIProvider {
         canUseTool,
         includePartialMessages: true,
         settingSources: ['user', 'project', 'local'] as const,
-        // Merge isolated AuthEnv with process.env
-        env: { ...process.env, ...this.authEnv } as Record<
-          string,
-          string | undefined
-        >,
+        // Safe env: platform essentials + provider auth only (no host secret leaks)
+        env: buildSafeEnv(this.authEnv),
         stderr: (data: string) => {
           this.logger.error(
             `[CustomAgentAdapter] CLI stderr (${this.config.name}): ${data}`

@@ -204,6 +204,11 @@
         </button>
         }
 
+        <!-- Background agent badge -->
+        @if (backgroundAgentStore.totalCount() > 0) {
+        <ptah-background-agent-badge />
+        }
+
         <!-- Notification bell -->
         @if (chatStore.licenseStatus(); as license) {
         <ptah-notification-bell

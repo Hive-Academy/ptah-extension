@@ -5,7 +5,7 @@ import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
 import { ContactService } from './contact.service';
 import { ContactMessageDto } from './dto/contact-message.dto';
 
-@Controller('api/v1/contact')
+@Controller('v1/contact')
 export class ContactController {
   private readonly logger = new Logger(ContactController.name);
 

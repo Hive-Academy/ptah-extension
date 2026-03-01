@@ -35,6 +35,7 @@ import {
   SessionId,
   FlatStreamEventUnion,
   BackgroundAgentCompletedEvent,
+  BackgroundAgentStartedEvent,
   ChatStartParams,
   ChatStartResult,
   ChatContinueParams,
@@ -44,6 +45,7 @@ import {
   ChatResumeParams,
   ChatResumeResult,
   MESSAGE_TYPES,
+  type CliSessionReference,
 } from '@ptah-extension/shared';
 
 interface WebviewManager {
@@ -80,7 +82,13 @@ export class ChatRpcHandlers {
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
     private readonly agentSessionWatcher: AgentSessionWatcherService,
     @inject(SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY)
-    private readonly customAgentRegistry: CustomAgentRegistry
+    private readonly customAgentRegistry: CustomAgentRegistry,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly sessionMetadataStore: {
+      get(sessionId: string): Promise<{
+        cliSessions?: readonly CliSessionReference[] | undefined;
+      } | null>;
+    }
   ) {}
 
   /**
@@ -291,10 +299,13 @@ export class ChatRpcHandlers {
     const pluginPaths = this.resolvePluginPaths(isPremium);
 
     // Start the custom agent session with full premium capabilities
+    // NOTE: Don't pass options.model here — it comes from the main Claude model
+    // selector (e.g. "claude-sonnet-4-5-20250929") which is irrelevant for custom
+    // agents. The adapter's resolveModel() will use its own config:
+    // selectedModel → tierMappings → provider defaults.
     const stream = await adapter.startChatSession({
       tabId,
       workspaceId: workspacePath,
-      model: options?.model,
       systemPrompt: options?.systemPrompt,
       projectPath: workspacePath,
       name,
@@ -893,6 +904,25 @@ IMPORTANT INSTRUCTIONS:
           const resumableSubagents =
             this.subagentRegistry.getResumableBySession(sessionId);
 
+          // TASK_2025_168: Query CLI sessions from session metadata
+          let cliSessions: CliSessionReference[] | undefined;
+          try {
+            const metadata = await this.sessionMetadataStore.get(sessionId);
+            if (metadata?.cliSessions && metadata.cliSessions.length > 0) {
+              cliSessions = [...metadata.cliSessions];
+              this.logger.info('[RPC] CLI sessions found for session', {
+                sessionId,
+                cliSessionCount: cliSessions.length,
+              });
+            }
+          } catch (error) {
+            // SessionMetadataStore may not have data for this session
+            this.logger.debug('[RPC] Could not query CLI sessions', {
+              sessionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+
           this.logger.info('[RPC] Session history loaded from JSONL', {
             sessionId,
             messageCount: messages.length,
@@ -900,9 +930,17 @@ IMPORTANT INSTRUCTIONS:
             hasStats: !!stats,
             totalCost: stats?.totalCost,
             resumableSubagentCount: resumableSubagents.length,
+            cliSessionCount: cliSessions?.length ?? 0,
           });
 
-          return { success: true, messages, events, stats, resumableSubagents };
+          return {
+            success: true,
+            messages,
+            events,
+            stats,
+            resumableSubagents,
+            cliSessions,
+          };
         } catch (error) {
           this.logger.error(
             'RPC: chat:resume failed',
@@ -1024,17 +1062,25 @@ IMPORTANT INSTRUCTIONS:
         }>;
       }
     >('agent:backgroundList', async (params) => {
-      const agents = this.subagentRegistry
-        .getBackgroundAgents(params.sessionId)
-        .map((record) => ({
-          toolCallId: record.toolCallId,
-          agentId: record.agentId,
-          agentType: record.agentType,
-          status: record.status,
-          startedAt: record.startedAt,
-        }));
+      try {
+        const agents = this.subagentRegistry
+          .getBackgroundAgents(params.sessionId)
+          .map((record) => ({
+            toolCallId: record.toolCallId,
+            agentId: record.agentId,
+            agentType: record.agentType,
+            status: record.status,
+            startedAt: record.startedAt,
+          }));
 
-      return { agents };
+        return { agents };
+      } catch (error) {
+        this.logger.error(
+          'RPC: agent:backgroundList failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return { agents: [] };
+      }
     });
   }
 
@@ -1098,8 +1144,7 @@ IMPORTANT INSTRUCTIONS:
 
         // When a background_agent_started event arrives, mark the agent in registry
         if (event.eventType === 'background_agent_started') {
-          const bgEvent =
-            event as import('@ptah-extension/shared').BackgroundAgentStartedEvent;
+          const bgEvent = event as BackgroundAgentStartedEvent;
           if (bgEvent.toolCallId) {
             this.subagentRegistry.update(bgEvent.toolCallId, {
               status: 'background',

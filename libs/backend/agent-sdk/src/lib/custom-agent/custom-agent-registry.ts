@@ -42,6 +42,7 @@ import {
   type AnthropicProvider,
 } from '../helpers/anthropic-provider-registry';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
+import { buildSafeEnv } from '../helpers/build-safe-env';
 import { CustomAgentAdapter } from './custom-agent-adapter';
 
 /**
@@ -458,7 +459,7 @@ export class CustomAgentRegistry {
             allowDangerouslySkipPermissions: true,
             includePartialMessages: false,
             // Only pass platform-essential + auth vars; never spread process.env wholesale
-            env: this.buildSafeEnv(testAdapter['authEnv']),
+            env: buildSafeEnv(testAdapter['authEnv']),
           } as Options,
         });
 
@@ -638,7 +639,7 @@ export class CustomAgentRegistry {
         permissionMode: 'default',
         includePartialMessages: false,
         persistSession: false,
-        env: this.buildSafeEnv(authEnv),
+        env: buildSafeEnv(authEnv),
       } as Options,
     });
 
@@ -772,39 +773,6 @@ export class CustomAgentRegistry {
       sanitized = sanitized.substring(0, 497) + '...';
     }
     return sanitized.trim();
-  }
-
-  /**
-   * Build a minimal environment for custom agent processes.
-   *
-   * Only passes platform-essential variables (PATH, HOME, TEMP, etc.)
-   * plus the provider-specific auth variables (e.g., ANTHROPIC_API_KEY,
-   * ANTHROPIC_BASE_URL, tier mappings). This prevents leaking sensitive
-   * host environment variables to third-party API endpoints.
-   *
-   * @param authEnv - Provider-specific environment variables
-   * @returns Minimal env safe for custom agent processes
-   */
-  private buildSafeEnv(authEnv: AuthEnv): Record<string, string | undefined> {
-    return {
-      // Platform essentials for process execution
-      PATH: process.env['PATH'],
-      HOME: process.env['HOME'],
-      USERPROFILE: process.env['USERPROFILE'],
-      // Temp directories (cross-platform)
-      TMPDIR: process.env['TMPDIR'],
-      TEMP: process.env['TEMP'],
-      TMP: process.env['TMP'],
-      // Windows system essentials
-      APPDATA: process.env['APPDATA'],
-      LOCALAPPDATA: process.env['LOCALAPPDATA'],
-      SystemRoot: process.env['SystemRoot'],
-      COMSPEC: process.env['COMSPEC'],
-      // Locale
-      LANG: process.env['LANG'],
-      // Provider-specific auth and config (e.g., ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL)
-      ...authEnv,
-    };
   }
 
   /**

@@ -57,8 +57,8 @@ import type {
         </div>
 
         <p class="text-xs text-base-content/70 mb-3">
-          Headless CLI agents (Gemini CLI, Codex CLI, Copilot CLI) for parallel
-          task execution.
+          Headless agents (Gemini CLI, Codex CLI, Copilot) for parallel task
+          execution.
         </p>
 
         <!-- Error display -->
@@ -80,14 +80,20 @@ import type {
           <div class="text-xs font-medium text-base-content/70">
             Detected CLIs
           </div>
-          @for (cli of agentConfig()!.detectedClis; track cli.cli) {
+          @for (cli of agentConfig()!.detectedClis; track cli.customAgentId ??
+          cli.cli) {
           <div class="p-2 border border-base-300 rounded bg-base-200/30">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <lucide-angular [img]="TerminalIcon" class="w-3.5 h-3.5" />
                 <span class="text-xs font-medium capitalize">{{
-                  cli.cli
+                  cli.customAgentName ?? cli.cli
                 }}</span>
+                @if (cli.providerName) {
+                <span class="badge badge-primary badge-xs">{{
+                  cli.providerName
+                }}</span>
+                }
               </div>
               <div class="flex items-center gap-1.5">
                 @if (cli.installed) {
@@ -114,12 +120,18 @@ import type {
               <select
                 id="agent-gemini-model"
                 class="select select-bordered select-xs w-full"
-                [value]="agentConfig()!.geminiModel"
                 (change)="setAgentModel('gemini', $any($event.target).value)"
               >
-                <option value="">Default</option>
+                <option value="" [selected]="!agentConfig()!.geminiModel">
+                  Default
+                </option>
                 @for (model of geminiModels(); track model.id) {
-                <option [value]="model.id">{{ model.name }}</option>
+                <option
+                  [value]="model.id"
+                  [selected]="model.id === agentConfig()!.geminiModel"
+                >
+                  {{ model.name }}
+                </option>
                 }
               </select>
             </div>
@@ -137,38 +149,20 @@ import type {
               <select
                 id="agent-copilot-model"
                 class="select select-bordered select-xs w-full"
-                [value]="agentConfig()!.copilotModel"
                 (change)="setAgentModel('copilot', $any($event.target).value)"
               >
-                <option value="">Default</option>
+                <option value="" [selected]="!agentConfig()!.copilotModel">
+                  Default
+                </option>
                 @for (model of copilotModels(); track model.id) {
-                <option [value]="model.id">{{ model.name }}</option>
+                <option
+                  [value]="model.id"
+                  [selected]="model.id === agentConfig()!.copilotModel"
+                >
+                  {{ model.name }}
+                </option>
                 }
               </select>
-            </div>
-
-            <!-- Copilot SDK toggle -->
-            <div class="mt-2 pt-2 border-t border-base-300/50">
-              <div class="flex items-center justify-between">
-                <div>
-                  <label
-                    for="copilot-use-sdk"
-                    class="text-[10px] text-base-content/50 block"
-                  >
-                    Use Copilot SDK
-                  </label>
-                  <span class="text-[9px] text-base-content/40">
-                    Structured events &amp; permissions (reload required)
-                  </span>
-                </div>
-                <input
-                  id="copilot-use-sdk"
-                  type="checkbox"
-                  class="toggle toggle-xs toggle-primary"
-                  [checked]="agentConfig()!.copilotUseSdk"
-                  (change)="setCopilotUseSdk($any($event.target).checked)"
-                />
-              </div>
             </div>
             }
           </div>
@@ -189,7 +183,7 @@ import type {
               Codex CLI: <code>npm install -g &#64;openai/codex</code>
             </span>
             <span class="text-base-content/50">
-              Copilot CLI: <code>npm install -g &#64;github/copilot-cli</code>
+              Copilot: <code>npm install -g &#64;github/copilot-cli</code>
             </span>
           </div>
         </div>
@@ -210,9 +204,11 @@ import type {
             (change)="setAgentDefaultCli($any($event.target).value)"
           >
             <option value="auto">Auto-detect</option>
-            @for (cli of agentConfig()!.detectedClis; track cli.cli) { @if
-            (cli.installed) {
-            <option [value]="cli.cli">{{ cli.cli | titlecase }}</option>
+            @for (cli of agentConfig()!.detectedClis; track cli.customAgentId ??
+            cli.cli) { @if (cli.installed) {
+            <option [value]="cli.customAgentId ?? cli.cli">
+              {{ cli.customAgentName ?? (cli.cli | titlecase) }}
+            </option>
             } }
           </select>
         </div>
@@ -372,17 +368,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         (c) => c.cli === cli && c.installed
       ) ?? false
     );
-  }
-
-  async setCopilotUseSdk(enabled: boolean): Promise<void> {
-    const result = await this.rpcService.call('agent:setConfig', {
-      copilotUseSdk: enabled,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) =>
-        c ? { ...c, copilotUseSdk: enabled } : c
-      );
-    }
   }
 
   async setAgentModel(cli: 'gemini' | 'copilot', model: string): Promise<void> {

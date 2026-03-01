@@ -44,5 +44,11 @@ export { ChatMessageHandler } from './chat-message-handler.service';
 // AgentMonitorStore - Real-time agent process monitoring state
 export { AgentMonitorStore, type MonitoredAgent } from './agent-monitor.store';
 
+// BackgroundAgentStore - Background agent monitoring state
+export {
+  BackgroundAgentStore,
+  type BackgroundAgentEntry,
+} from './background-agent.store';
+
 // AgentMonitorMessageHandler - Routes agent monitor messages to store
 export { AgentMonitorMessageHandler } from './agent-monitor-message-handler.service';

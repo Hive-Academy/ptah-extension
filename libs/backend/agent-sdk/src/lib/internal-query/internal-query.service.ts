@@ -38,13 +38,17 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { AuthEnv } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import { SdkAgentAdapter } from '../sdk-agent-adapter';
 import { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import { CompactionConfigProvider } from '../helpers/compaction-config-provider';
 import { CompactionHookHandler } from '../helpers/compaction-hook-handler';
-import { getAnthropicProvider } from '../helpers/anthropic-provider-registry';
+import {
+  getAnthropicProvider,
+  ANTHROPIC_PROVIDERS,
+} from '../helpers/anthropic-provider-registry';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import type {
   Options as SdkQueryOptions,
@@ -109,7 +113,9 @@ export class InternalQueryService {
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
-    private readonly compactionHookHandler: CompactionHookHandler
+    private readonly compactionHookHandler: CompactionHookHandler,
+    @inject(SDK_TOKENS.SDK_AUTH_ENV)
+    private readonly authEnv: AuthEnv
   ) {}
 
   /**
@@ -203,7 +209,7 @@ export class InternalQueryService {
    * - System prompt: identity prompt + custom append + enhanced prompts / PTAH_CORE
    * - MCP servers: configured when premium + running
    * - Hooks: subagent + compaction lifecycle hooks
-   * - Environment: passes process.env (includes API keys)
+   * - Environment: merges process.env with AuthEnv singleton (TASK_2025_164)
    * - Settings: loads user, project, local sources (CLAUDE.md)
    *
    * Note: Compaction behavior is managed through PreCompact hooks (see buildHooks()),
@@ -265,8 +271,11 @@ export class InternalQueryService {
       // Don't persist internal sessions to disk
       persistSession: false,
 
-      // Pass environment (includes ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, etc.)
-      env: process.env,
+      // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
+      env: { ...process.env, ...this.authEnv } as Record<
+        string,
+        string | undefined
+      >,
 
       // Load user/project/local settings (CLAUDE.md files, etc.)
       settingSources: ['user', 'project', 'local'],
@@ -358,26 +367,24 @@ export class InternalQueryService {
    * the claude_code preset injects "You are Claude" into the system prompt.
    * This clarification overrides that for models that aren't Claude.
    *
-   * Note: Direct process.env access follows the same pattern as
-   * SdkQueryOptionsBuilder. Centralizing env access into DI is tracked
-   * as future tech debt.
+   * Uses the DI-injected AuthEnv singleton (TASK_2025_164) — matches
+   * the pattern in SdkQueryOptionsBuilder.buildModelIdentityPrompt().
    */
   private buildIdentityPrompt(): string | undefined {
-    const baseUrl = process.env['ANTHROPIC_BASE_URL'];
+    const baseUrl = this.authEnv.ANTHROPIC_BASE_URL;
     if (!baseUrl || baseUrl.includes('api.anthropic.com')) {
       return undefined; // Using Anthropic directly — no clarification needed
     }
 
     // Detect which provider is active
-    const providerIds = ['openrouter', 'moonshot', 'zhipu'] as const;
-    for (const id of providerIds) {
+    for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
       const provider = getAnthropicProvider(id);
       if (provider && baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-        // Get actual model from tier env vars
+        // Get actual model from AuthEnv tier vars
         const actualModel =
-          process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] ||
-          process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] ||
-          process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
+          this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+          this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+          this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
         if (!actualModel) {
           return undefined; // No tier mapping — likely using Anthropic directly

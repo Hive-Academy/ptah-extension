@@ -33,6 +33,7 @@ import { EventDeduplicationService } from './event-deduplication.service';
 import { BatchedUpdateService } from './batched-update.service';
 import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
+import { BackgroundAgentStore } from '../background-agent.store';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -44,6 +45,7 @@ export class StreamingHandlerService {
   private readonly batchedUpdate = inject(BatchedUpdateService);
   private readonly finalization = inject(MessageFinalizationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
+  private readonly backgroundAgentStore = inject(BackgroundAgentStore);
 
   /**
    * Clean up deduplication state for a session.
@@ -480,11 +482,17 @@ export class StreamingHandlerService {
           };
         }
 
-        // Background agent events - handled in Phase 3 (frontend UI)
         case 'background_agent_started':
+          this.backgroundAgentStore.onStarted(event);
+          break;
         case 'background_agent_progress':
+          this.backgroundAgentStore.onProgress(event);
+          break;
         case 'background_agent_completed':
+          this.backgroundAgentStore.onCompleted(event);
+          break;
         case 'background_agent_stopped':
+          this.backgroundAgentStore.onStopped(event);
           break;
 
         default:

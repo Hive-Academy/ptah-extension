@@ -35,8 +35,10 @@ import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notification-bell.component';
+import { BackgroundAgentBadgeComponent } from '../molecules/background-agent-badge.component';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
+import { BackgroundAgentStore } from '../../services/background-agent.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
 import {
@@ -88,6 +90,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     TrialEndedModalComponent,
     ThemeToggleComponent,
     NotificationBellComponent,
+    BackgroundAgentBadgeComponent,
     NgOptimizedImage,
     LucideAngularModule,
     FormsModule,
@@ -103,6 +106,7 @@ export class AppShellComponent {
 
   readonly chatStore = inject(ChatStore);
   readonly agentMonitorStore = inject(AgentMonitorStore);
+  readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
   private readonly vscodeService = inject(VSCodeService);

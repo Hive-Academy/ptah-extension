@@ -13,7 +13,7 @@ import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
 import { SessionService } from './session.service';
 import { SessionRequestDto } from './dto/session-request.dto';
 
-@Controller('api/v1/sessions')
+@Controller('v1/sessions')
 export class SessionController {
   private readonly logger = new Logger(SessionController.name);
 
