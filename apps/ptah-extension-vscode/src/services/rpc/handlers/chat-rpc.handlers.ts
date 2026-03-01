@@ -26,7 +26,7 @@ import {
   SessionHistoryReaderService,
   SDK_TOKENS,
   PluginLoaderService,
-  CustomAgentRegistry,
+  PtahCliRegistry,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-sdk';
 
@@ -81,8 +81,8 @@ export class ChatRpcHandlers {
     private readonly pluginLoader: PluginLoaderService,
     @inject(TOKENS.AGENT_SESSION_WATCHER_SERVICE)
     private readonly agentSessionWatcher: AgentSessionWatcherService,
-    @inject(SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY)
-    private readonly customAgentRegistry: CustomAgentRegistry,
+    @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly sessionMetadataStore: {
       get(sessionId: string): Promise<{
@@ -235,42 +235,42 @@ export class ChatRpcHandlers {
   }
 
   /**
-   * Track which sessions are owned by custom agent adapters.
-   * Maps sessionId (or tabId used as sessionId) -> customAgentId.
+   * Track which sessions are owned by Ptah CLI adapters.
+   * Maps sessionId (or tabId used as sessionId) -> ptahCliId.
    * Used by chat:continue and chat:abort to delegate to the correct adapter.
    */
-  private customAgentSessions = new Map<string, string>();
+  private ptahCliSessions = new Map<string, string>();
 
   // ============================================================================
-  // CUSTOM AGENT DISPATCH METHODS (TASK_2025_167)
+  // PTAH CLI DISPATCH METHODS (TASK_2025_167)
   // ============================================================================
 
   /**
-   * Handle chat:start for custom agent sessions.
+   * Handle chat:start for Ptah CLI sessions.
    *
-   * Gets the adapter from CustomAgentRegistry, starts a chat session,
+   * Gets the adapter from PtahCliRegistry, starts a chat session,
    * and streams events to the webview using the same streaming mechanism
    * as the main SdkAgentAdapter.
    */
-  private async handleCustomAgentStart(
+  private async handlePtahCliStart(
     params: ChatStartParams
   ): Promise<ChatStartResult> {
     const { prompt, tabId, workspacePath, options, name } = params;
-    const agentId = params.customAgentId as string; // Guaranteed non-null by caller
+    const agentId = params.ptahCliId as string; // Guaranteed non-null by caller
 
-    this.logger.info('[RPC] chat:start - custom agent dispatch', {
+    this.logger.info('[RPC] chat:start - Ptah CLI dispatch', {
       tabId,
-      customAgentId: agentId,
+      ptahCliId: agentId,
       workspacePath,
     });
 
     // Get the adapter from the registry
-    const adapter = await this.customAgentRegistry.getAdapter(agentId);
+    const adapter = await this.ptahCliRegistry.getAdapter(agentId);
     if (!adapter) {
-      this.logger.error(`[RPC] Custom agent adapter not found: ${agentId}`);
+      this.logger.error(`[RPC] Ptah CLI adapter not found: ${agentId}`);
       return {
         success: false,
-        error: `Custom agent not found or not configured: ${agentId}`,
+        error: `Ptah CLI agent not found or not configured: ${agentId}`,
       };
     }
 
@@ -279,9 +279,9 @@ export class ChatRpcHandlers {
     const isPremium = this.isPremiumTier(licenseStatus);
     const mcpServerRunning = this.isMcpServerRunning();
 
-    this.logger.info('[RPC] chat:start - custom agent premium config', {
+    this.logger.info('[RPC] chat:start - Ptah CLI premium config', {
       tabId,
-      customAgentId: agentId,
+      ptahCliId: agentId,
       isPremium,
       mcpServerRunning,
     });
@@ -298,7 +298,7 @@ export class ChatRpcHandlers {
     );
     const pluginPaths = this.resolvePluginPaths(isPremium);
 
-    // Start the custom agent session with full premium capabilities
+    // Start the Ptah CLI session with full premium capabilities
     // NOTE: Don't pass options.model here — it comes from the main Claude model
     // selector (e.g. "claude-sonnet-4-5-20250929") which is irrelevant for custom
     // agents. The adapter's resolveModel() will use its own config:
@@ -317,16 +317,16 @@ export class ChatRpcHandlers {
       pluginPaths,
     });
 
-    // Track this session as belonging to the custom agent
+    // Track this session as belonging to the Ptah CLI agent
     // Use tabId as the initial session key (real sessionId comes later via stream events)
-    this.customAgentSessions.set(tabId, agentId);
+    this.ptahCliSessions.set(tabId, agentId);
 
     // Stream events to webview using the same mechanism as the main adapter
     this.streamExecutionNodesToWebview(tabId as SessionId, stream, tabId);
 
-    this.logger.info('[RPC] chat:start - custom agent session started', {
+    this.logger.info('[RPC] chat:start - Ptah CLI session started', {
       tabId,
-      customAgentId: agentId,
+      ptahCliId: agentId,
       agentName: adapter.info.name,
     });
 
@@ -334,38 +334,38 @@ export class ChatRpcHandlers {
   }
 
   /**
-   * Handle chat:continue for custom agent sessions.
+   * Handle chat:continue for Ptah CLI sessions.
    *
-   * Checks if the session belongs to a custom agent and delegates
+   * Checks if the session belongs to a Ptah CLI agent and delegates
    * message sending to the correct adapter.
    */
-  private async handleCustomAgentContinue(
+  private async handlePtahCliContinue(
     params: ChatContinueParams
   ): Promise<ChatContinueResult> {
     const { prompt, sessionId, tabId } = params;
-    const customAgentId =
-      this.customAgentSessions.get(sessionId as string) ||
-      this.customAgentSessions.get(tabId);
+    const ptahCliAgentId =
+      this.ptahCliSessions.get(sessionId as string) ||
+      this.ptahCliSessions.get(tabId);
 
-    if (!customAgentId) {
-      // Not a custom agent session - caller should fall through to main adapter
-      return { success: false, error: '__NOT_CUSTOM_AGENT__' };
+    if (!ptahCliAgentId) {
+      // Not a Ptah CLI session - caller should fall through to main adapter
+      return { success: false, error: '__NOT_PTAH_CLI__' };
     }
 
-    this.logger.info('[RPC] chat:continue - custom agent dispatch', {
+    this.logger.info('[RPC] chat:continue - Ptah CLI dispatch', {
       sessionId,
       tabId,
-      customAgentId,
+      ptahCliAgentId,
     });
 
-    const adapter = await this.customAgentRegistry.getAdapter(customAgentId);
+    const adapter = await this.ptahCliRegistry.getAdapter(ptahCliAgentId);
     if (!adapter) {
       this.logger.error(
-        `[RPC] Custom agent adapter not found for continue: ${customAgentId}`
+        `[RPC] Ptah CLI adapter not found for continue: ${ptahCliAgentId}`
       );
       return {
         success: false,
-        error: `Custom agent not found: ${customAgentId}`,
+        error: `Ptah CLI agent not found: ${ptahCliAgentId}`,
       };
     }
 
@@ -381,12 +381,12 @@ export class ChatRpcHandlers {
     const health = adapter.getHealth();
     if (health.status !== 'available') {
       this.logger.warn(
-        `[RPC] Custom agent adapter not available for continue: ${customAgentId}`,
+        `[RPC] Ptah CLI adapter not available for continue: ${ptahCliAgentId}`,
         { status: health.status }
       );
       return {
         success: false,
-        error: `Custom agent not available: ${
+        error: `Ptah CLI agent not available: ${
           health.errorMessage || health.status
         }`,
       };
@@ -400,48 +400,48 @@ export class ChatRpcHandlers {
   }
 
   /**
-   * Handle chat:abort for custom agent sessions.
+   * Handle chat:abort for Ptah CLI sessions.
    */
-  private async handleCustomAgentAbort(
+  private async handlePtahCliAbort(
     params: ChatAbortParams
   ): Promise<ChatAbortResult> {
     const { sessionId } = params;
-    const customAgentId = this.customAgentSessions.get(sessionId as string);
+    const ptahCliAgentId = this.ptahCliSessions.get(sessionId as string);
 
-    if (!customAgentId) {
-      // Not a custom agent session
-      return { success: false, error: '__NOT_CUSTOM_AGENT__' };
+    if (!ptahCliAgentId) {
+      // Not a Ptah CLI session
+      return { success: false, error: '__NOT_PTAH_CLI__' };
     }
 
-    this.logger.info('[RPC] chat:abort - custom agent dispatch', {
+    this.logger.info('[RPC] chat:abort - Ptah CLI dispatch', {
       sessionId,
-      customAgentId,
+      ptahCliAgentId,
     });
 
-    const adapter = await this.customAgentRegistry.getAdapter(customAgentId);
+    const adapter = await this.ptahCliRegistry.getAdapter(ptahCliAgentId);
     if (adapter) {
       adapter.endSession(sessionId);
     }
 
     // Clean up tracking
-    this.customAgentSessions.delete(sessionId as string);
+    this.ptahCliSessions.delete(sessionId as string);
 
     return { success: true };
   }
 
   /**
-   * Track a custom agent session by its real session ID.
-   * Called when SESSION_ID_RESOLVED is received for a custom agent session.
+   * Track a Ptah CLI session by its real session ID.
+   * Called when SESSION_ID_RESOLVED is received for a Ptah CLI session.
    */
-  trackCustomAgentSession(tabId: string, realSessionId: string): void {
-    const customAgentId = this.customAgentSessions.get(tabId);
-    if (customAgentId) {
-      // Also map the real session ID to the custom agent
-      this.customAgentSessions.set(realSessionId, customAgentId);
-      this.logger.debug('[RPC] Custom agent session ID tracked', {
+  trackPtahCliSession(tabId: string, realSessionId: string): void {
+    const ptahCliAgentId = this.ptahCliSessions.get(tabId);
+    if (ptahCliAgentId) {
+      // Also map the real session ID to the Ptah CLI agent
+      this.ptahCliSessions.set(realSessionId, ptahCliAgentId);
+      this.logger.debug('[RPC] Ptah CLI session ID tracked', {
         tabId,
         realSessionId,
-        customAgentId,
+        ptahCliAgentId,
       });
     }
   }
@@ -483,13 +483,13 @@ export class ChatRpcHandlers {
             tabId,
             workspacePath,
             sessionName: name,
-            customAgentId: params.customAgentId,
+            ptahCliId: params.ptahCliId,
           });
 
-          // TASK_2025_167: Custom agent dispatch
-          // If customAgentId is set, delegate to the custom agent adapter
-          if (params.customAgentId) {
-            return await this.handleCustomAgentStart(params);
+          // TASK_2025_167: Ptah CLI dispatch
+          // If ptahCliId is set, delegate to the Ptah CLI adapter
+          if (params.ptahCliId) {
+            return await this.handlePtahCliStart(params);
           }
 
           // TASK_2025_108: Get license status for premium feature gating
@@ -597,12 +597,10 @@ export class ChatRpcHandlers {
             sessionName: name,
           });
 
-          // TASK_2025_167: Check if this is a custom agent session
-          const customAgentResult = await this.handleCustomAgentContinue(
-            params
-          );
-          if (customAgentResult.error !== '__NOT_CUSTOM_AGENT__') {
-            return customAgentResult;
+          // TASK_2025_167: Check if this is a Ptah CLI session
+          const ptahCliResult = await this.handlePtahCliContinue(params);
+          if (ptahCliResult.error !== '__NOT_PTAH_CLI__') {
+            return ptahCliResult;
           }
 
           // Ensure MCP server is registered in .mcp.json for subagent discovery (premium only)
@@ -853,17 +851,14 @@ IMPORTANT INSTRUCTIONS:
             workspacePath: workspacePath || '(empty)',
             resolvedWorkspacePath,
             usedFallback: !workspacePath,
-            customAgentId: params.customAgentId,
+            ptahCliId: params.ptahCliId,
           });
 
-          // TASK_2025_167: Track custom agent session for subsequent chat:continue/abort
-          if (params.customAgentId) {
-            this.customAgentSessions.set(
-              sessionId as string,
-              params.customAgentId
-            );
+          // TASK_2025_167: Track Ptah CLI session for subsequent chat:continue/abort
+          if (params.ptahCliId) {
+            this.ptahCliSessions.set(sessionId as string, params.ptahCliId);
             if (params.tabId) {
-              this.customAgentSessions.set(params.tabId, params.customAgentId);
+              this.ptahCliSessions.set(params.tabId, params.ptahCliId);
             }
           }
 
@@ -966,9 +961,9 @@ IMPORTANT INSTRUCTIONS:
           const { sessionId } = params;
           this.logger.debug('RPC: chat:abort called', { sessionId });
 
-          // TASK_2025_167: Check if this is a custom agent session
-          const customAbortResult = await this.handleCustomAgentAbort(params);
-          if (customAbortResult.error !== '__NOT_CUSTOM_AGENT__') {
+          // TASK_2025_167: Check if this is a Ptah CLI session
+          const customAbortResult = await this.handlePtahCliAbort(params);
+          if (customAbortResult.error !== '__NOT_PTAH_CLI__') {
             return customAbortResult;
           }
 
@@ -1224,6 +1219,10 @@ IMPORTANT INSTRUCTIONS:
         sessionId,
         error: errorMessage,
       });
+    } finally {
+      // Clean up Ptah CLI session tracking on stream completion (natural or error)
+      this.ptahCliSessions.delete(sessionId as string);
+      this.ptahCliSessions.delete(tabId);
     }
   }
 }

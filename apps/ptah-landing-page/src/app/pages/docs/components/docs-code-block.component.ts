@@ -12,35 +12,37 @@ import { LucideAngularModule, Copy, Check, Terminal } from 'lucide-angular';
   imports: [CommonModule, LucideAngularModule],
   template: `
     <div
-      class="rounded-xl overflow-hidden border border-amber-500/15 bg-slate-900/80 backdrop-blur-sm"
+      class="rounded-xl overflow-hidden border border-secondary/20 bg-base-200 backdrop-blur-sm"
     >
       <!-- Header bar -->
       <div
-        class="flex items-center justify-between px-4 py-2 bg-slate-800/60 border-b border-amber-500/10"
+        class="flex items-center justify-between px-4 py-2 bg-base-300/60 border-b border-secondary/10"
       >
         <div class="flex items-center gap-2">
           <lucide-angular
             [img]="TerminalIcon"
-            class="w-3.5 h-3.5 text-amber-400/60"
+            class="w-3.5 h-3.5 text-secondary/60"
             aria-hidden="true"
           />
           @if (label()) {
-          <span class="text-xs text-white/40 font-medium">{{ label() }}</span>
+          <span class="text-xs text-neutral-content/40 font-medium">{{
+            label()
+          }}</span>
           }
         </div>
         <button
           type="button"
-          class="flex items-center gap-1.5 text-xs text-white/40 hover:text-amber-400 transition-colors px-2 py-1 rounded-md hover:bg-white/5"
+          class="flex items-center gap-1.5 text-xs text-neutral-content/40 hover:text-secondary transition-colors px-2 py-1 rounded-md hover:bg-base-300/50"
           aria-label="Copy code to clipboard"
           (click)="copyToClipboard()"
         >
           @if (copied()) {
           <lucide-angular
             [img]="CheckIcon"
-            class="w-3.5 h-3.5 text-green-400"
+            class="w-3.5 h-3.5 text-success"
             aria-hidden="true"
           />
-          <span class="text-green-400">Copied</span>
+          <span class="text-success">Copied</span>
           } @else {
           <lucide-angular
             [img]="CopyIcon"
@@ -54,7 +56,7 @@ import { LucideAngularModule, Copy, Check, Terminal } from 'lucide-angular';
       <!-- Code content -->
       <pre
         class="p-4 overflow-x-auto text-sm leading-relaxed"
-      ><code class="font-mono text-white/80">{{ code() }}</code></pre>
+      ><code class="font-mono text-base-content/80">{{ code() }}</code></pre>
     </div>
   `,
   styles: [

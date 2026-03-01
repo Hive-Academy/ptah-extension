@@ -80,14 +80,14 @@ import type {
           <div class="text-xs font-medium text-base-content/70">
             Detected CLIs
           </div>
-          @for (cli of agentConfig()!.detectedClis; track cli.customAgentId ??
+          @for (cli of agentConfig()!.detectedClis; track cli.ptahCliId ??
           cli.cli) {
           <div class="p-2 border border-base-300 rounded bg-base-200/30">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <lucide-angular [img]="TerminalIcon" class="w-3.5 h-3.5" />
                 <span class="text-xs font-medium capitalize">{{
-                  cli.customAgentName ?? cli.cli
+                  cli.ptahCliName ?? cli.cli
                 }}</span>
                 @if (cli.providerName) {
                 <span class="badge badge-primary badge-xs">{{
@@ -204,10 +204,10 @@ import type {
             (change)="setAgentDefaultCli($any($event.target).value)"
           >
             <option value="auto">Auto-detect</option>
-            @for (cli of agentConfig()!.detectedClis; track cli.customAgentId ??
+            @for (cli of agentConfig()!.detectedClis; track cli.ptahCliId ??
             cli.cli) { @if (cli.installed) {
-            <option [value]="cli.customAgentId ?? cli.cli">
-              {{ cli.customAgentName ?? (cli.cli | titlecase) }}
+            <option [value]="cli.ptahCliId ?? cli.cli">
+              {{ cli.ptahCliName ?? (cli.cli | titlecase) }}
             </option>
             } }
           </select>

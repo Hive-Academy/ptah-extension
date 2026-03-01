@@ -1,23 +1,23 @@
 /**
- * Custom Agent Registry - Manages lifecycle of CustomAgentAdapter instances
+ * Ptah CLI Registry - Manages lifecycle of PtahCliAdapter instances
  *
- * DI-injectable singleton that handles CRUD operations for custom agent
+ * DI-injectable singleton that handles CRUD operations for Ptah CLI
  * configurations and lazily creates/caches adapter instances.
  *
  * Storage:
- * - Config: ConfigManager (VS Code workspace settings) under `customAgents`
- * - API keys: AuthSecretsService (VS Code SecretStorage) under `customAgent.{id}`
+ * - Config: ConfigManager (VS Code workspace settings) under `ptahCliAgents`
+ * - API keys: AuthSecretsService (VS Code SecretStorage) under `ptahCli.{id}`
  *
- * @see TASK_2025_167 Batch 2 - Custom Agent Adapter + Registry
+ * @see TASK_2025_167 Batch 2 - Ptah CLI Adapter + Registry
  */
 
 import { randomUUID } from 'node:crypto';
 import { injectable, inject } from 'tsyringe';
 import {
   type AuthEnv,
-  type CustomAgentConfig,
-  type CustomAgentSummary,
-  type CustomAgentState,
+  type PtahCliConfig,
+  type PtahCliSummary,
+  type PtahCliState,
   createEmptyAuthEnv,
 } from '@ptah-extension/shared';
 import {
@@ -43,18 +43,18 @@ import {
 } from '../helpers/anthropic-provider-registry';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
 import { buildSafeEnv } from '../helpers/build-safe-env';
-import { CustomAgentAdapter } from './custom-agent-adapter';
+import { PtahCliAdapter } from './ptah-cli-adapter';
 
 /**
- * Secret key prefix for custom agent API keys
- * Full key format: `customAgent.{agentId}`
+ * Secret key prefix for Ptah CLI API keys
+ * Full key format: `ptahCli.{agentId}`
  */
-const CUSTOM_AGENT_KEY_PREFIX = 'customAgent';
+const PTAH_CLI_KEY_PREFIX = 'ptahCli';
 
 /**
- * Config key for custom agent configurations in ConfigManager
+ * Config key for Ptah CLI configurations in ConfigManager
  */
-const CUSTOM_AGENTS_CONFIG_KEY = 'customAgents';
+const PTAH_CLI_AGENTS_CONFIG_KEY = 'ptahCliAgents';
 
 /**
  * Discriminated union result for spawnAgent() failure cases.
@@ -67,28 +67,31 @@ export type SpawnAgentFailure = {
 };
 
 /**
- * Generate a cryptographically random ID for new custom agent instances.
- * Uses crypto.randomUUID() for unpredictable identifiers with `ca-` prefix
- * for visual identification as a custom agent ID.
+ * Generate a cryptographically random ID for new Ptah CLI instances.
+ * Uses crypto.randomUUID() for unpredictable identifiers with `pc-` prefix
+ * for visual identification as a Ptah CLI ID.
  */
 function generateAgentId(): string {
-  return `ca-${randomUUID()}`;
+  return `pc-${randomUUID()}`;
 }
 
 /**
- * CustomAgentRegistry - Manages the lifecycle of CustomAgentAdapter instances
+ * PtahCliRegistry - Manages the lifecycle of PtahCliAdapter instances
  *
  * Responsibilities:
- * - CRUD operations for custom agent configurations
+ * - CRUD operations for Ptah CLI configurations
  * - API key storage via AuthSecretsService
  * - Lazy initialization and caching of adapter instances
  * - Connection testing for validation
  * - Provider listing for UI
  */
 @injectable()
-export class CustomAgentRegistry {
+export class PtahCliRegistry {
   /** Cached adapter instances (lazy-initialized) */
-  private adapters = new Map<string, CustomAgentAdapter>();
+  private adapters = new Map<string, PtahCliAdapter>();
+
+  /** Cached migration promise to ensure one-time execution */
+  private migrationPromise: Promise<void> | null = null;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -108,29 +111,30 @@ export class CustomAgentRegistry {
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
     private readonly compactionConfigProvider: CompactionConfigProvider
   ) {
-    this.logger.info('[CustomAgentRegistry] Registry initialized');
+    this.logger.info('[PtahCliRegistry] Registry initialized');
   }
 
   /**
-   * List all configured custom agents with their status
+   * List all configured Ptah CLI agents with their status
    *
    * Loads configs from ConfigManager and checks API key existence
    * for each agent to determine status.
    */
-  async listAgents(): Promise<CustomAgentSummary[]> {
+  async listAgents(): Promise<PtahCliSummary[]> {
+    await this.ensureMigrated();
     const configs = this.loadConfigs();
-    const summaries: CustomAgentSummary[] = [];
+    const summaries: PtahCliSummary[] = [];
 
     for (const agentConfig of configs) {
       const hasKey = await this.authSecrets.hasProviderKey(
-        `${CUSTOM_AGENT_KEY_PREFIX}.${agentConfig.id}`
+        `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`
       );
 
       const provider = getAnthropicProvider(agentConfig.providerId);
       const modelCount = provider?.staticModels?.length ?? 0;
 
       // Determine status based on adapter state
-      let status: CustomAgentState['status'] = 'unconfigured';
+      let status: PtahCliState['status'] = 'unconfigured';
       if (hasKey) {
         const adapter = this.adapters.get(agentConfig.id);
         if (adapter) {
@@ -159,13 +163,13 @@ export class CustomAgentRegistry {
       });
     }
 
-    this.logger.info(`[CustomAgentRegistry] Listed ${summaries.length} agents`);
+    this.logger.info(`[PtahCliRegistry] Listed ${summaries.length} agents`);
 
     return summaries;
   }
 
   /**
-   * Create a new custom agent configuration
+   * Create a new Ptah CLI configuration
    *
    * @param name - User-facing display name
    * @param providerId - Anthropic-compatible provider ID from registry
@@ -176,7 +180,8 @@ export class CustomAgentRegistry {
     name: string,
     providerId: string,
     apiKey: string
-  ): Promise<CustomAgentSummary> {
+  ): Promise<PtahCliSummary> {
+    await this.ensureMigrated();
     // Validate provider exists
     const provider = getAnthropicProvider(providerId);
     if (!provider) {
@@ -190,7 +195,7 @@ export class CustomAgentRegistry {
     const tierMappings = this.buildDefaultTierMappings(provider);
 
     // Create config
-    const newConfig: CustomAgentConfig = {
+    const newConfig: PtahCliConfig = {
       id,
       name,
       providerId,
@@ -199,19 +204,28 @@ export class CustomAgentRegistry {
       updatedAt: Date.now(),
     };
 
-    // Save config to ConfigManager
-    const configs = this.loadConfigs();
-    configs.push(newConfig);
-    await this.saveConfigs(configs);
-
-    // Save API key to AuthSecretsService
+    // Save API key first (SecretStorage is more failure-prone)
     await this.authSecrets.setProviderKey(
-      `${CUSTOM_AGENT_KEY_PREFIX}.${id}`,
+      `${PTAH_CLI_KEY_PREFIX}.${id}`,
       apiKey
     );
 
+    // Then save config; rollback key if config save fails
+    try {
+      const configs = this.loadConfigs();
+      configs.push(newConfig);
+      await this.saveConfigs(configs);
+    } catch (err) {
+      await this.authSecrets
+        .deleteProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`)
+        .catch(() => {
+          /* rollback best-effort */
+        });
+      throw err;
+    }
+
     this.logger.info(
-      `[CustomAgentRegistry] Created agent "${name}" (${id}) for provider "${provider.name}"`
+      `[PtahCliRegistry] Created agent "${name}" (${id}) for provider "${provider.name}"`
     );
 
     const modelCount = provider.staticModels?.length ?? 0;
@@ -229,7 +243,7 @@ export class CustomAgentRegistry {
   }
 
   /**
-   * Update an existing custom agent configuration
+   * Update an existing Ptah CLI configuration
    *
    * @param id - Agent ID to update
    * @param updates - Partial config updates
@@ -238,10 +252,7 @@ export class CustomAgentRegistry {
   async updateAgent(
     id: string,
     updates: Partial<
-      Pick<
-        CustomAgentConfig,
-        'name' | 'enabled' | 'tierMappings' | 'selectedModel'
-      >
+      Pick<PtahCliConfig, 'name' | 'enabled' | 'tierMappings' | 'selectedModel'>
     >,
     apiKey?: string
   ): Promise<void> {
@@ -253,7 +264,7 @@ export class CustomAgentRegistry {
 
     // Apply updates
     const existing = configs[index];
-    const updated: CustomAgentConfig = {
+    const updated: PtahCliConfig = {
       ...existing,
       ...updates,
       updatedAt: Date.now(),
@@ -266,7 +277,7 @@ export class CustomAgentRegistry {
     // Optionally update API key
     if (apiKey !== undefined) {
       await this.authSecrets.setProviderKey(
-        `${CUSTOM_AGENT_KEY_PREFIX}.${id}`,
+        `${PTAH_CLI_KEY_PREFIX}.${id}`,
         apiKey
       );
     }
@@ -279,12 +290,12 @@ export class CustomAgentRegistry {
     }
 
     this.logger.info(
-      `[CustomAgentRegistry] Updated agent "${updated.name}" (${id})`
+      `[PtahCliRegistry] Updated agent "${updated.name}" (${id})`
     );
   }
 
   /**
-   * Delete a custom agent configuration
+   * Delete a Ptah CLI configuration
    *
    * @param id - Agent ID to delete
    */
@@ -300,19 +311,15 @@ export class CustomAgentRegistry {
     const configs = this.loadConfigs();
     const filtered = configs.filter((c) => c.id !== id);
     if (filtered.length === configs.length) {
-      this.logger.warn(
-        `[CustomAgentRegistry] Agent not found for deletion: ${id}`
-      );
+      this.logger.warn(`[PtahCliRegistry] Agent not found for deletion: ${id}`);
       return;
     }
     await this.saveConfigs(filtered);
 
     // Delete API key
-    await this.authSecrets.deleteProviderKey(
-      `${CUSTOM_AGENT_KEY_PREFIX}.${id}`
-    );
+    await this.authSecrets.deleteProviderKey(`${PTAH_CLI_KEY_PREFIX}.${id}`);
 
-    this.logger.info(`[CustomAgentRegistry] Deleted agent: ${id}`);
+    this.logger.info(`[PtahCliRegistry] Deleted agent: ${id}`);
   }
 
   /**
@@ -321,7 +328,8 @@ export class CustomAgentRegistry {
    * @param id - Agent ID
    * @returns Initialized adapter, or undefined if config/key not found
    */
-  async getAdapter(id: string): Promise<CustomAgentAdapter | undefined> {
+  async getAdapter(id: string): Promise<PtahCliAdapter | undefined> {
+    await this.ensureMigrated();
     // Return cached adapter if available and initialized
     const existing = this.adapters.get(id);
     if (existing) {
@@ -338,21 +346,21 @@ export class CustomAgentRegistry {
     const configs = this.loadConfigs();
     const agentConfig = configs.find((c) => c.id === id);
     if (!agentConfig) {
-      this.logger.warn(`[CustomAgentRegistry] Agent config not found: ${id}`);
+      this.logger.warn(`[PtahCliRegistry] Agent config not found: ${id}`);
       return undefined;
     }
 
     // Get API key
     const apiKey = await this.authSecrets.getProviderKey(
-      `${CUSTOM_AGENT_KEY_PREFIX}.${id}`
+      `${PTAH_CLI_KEY_PREFIX}.${id}`
     );
     if (!apiKey) {
-      this.logger.warn(`[CustomAgentRegistry] No API key for agent: ${id}`);
+      this.logger.warn(`[PtahCliRegistry] No API key for agent: ${id}`);
       return undefined;
     }
 
     // Create and initialize adapter with hook/compaction services
-    const adapter = new CustomAgentAdapter(
+    const adapter = new PtahCliAdapter(
       agentConfig,
       apiKey,
       this.logger,
@@ -367,7 +375,7 @@ export class CustomAgentRegistry {
     const success = await adapter.initialize();
     if (!success) {
       this.logger.error(
-        `[CustomAgentRegistry] Failed to initialize adapter for agent: ${id}`
+        `[PtahCliRegistry] Failed to initialize adapter for agent: ${id}`
       );
       return undefined;
     }
@@ -376,14 +384,14 @@ export class CustomAgentRegistry {
     this.adapters.set(id, adapter);
 
     this.logger.info(
-      `[CustomAgentRegistry] Created and initialized adapter for agent "${agentConfig.name}" (${id})`
+      `[PtahCliRegistry] Created and initialized adapter for agent "${agentConfig.name}" (${id})`
     );
 
     return adapter;
   }
 
   /**
-   * Test connection to a custom agent's provider
+   * Test connection to a Ptah CLI agent's provider
    *
    * Performs a minimal query to validate the API key and provider connectivity.
    *
@@ -396,20 +404,8 @@ export class CustomAgentRegistry {
     const startTime = Date.now();
 
     try {
-      // Get or create the adapter
-      const adapter = await this.getAdapter(id);
-      if (!adapter) {
-        return {
-          success: false,
-          error: 'Agent not found or API key not configured',
-        };
-      }
-
-      // Attempt a minimal query to test connectivity
-      // We create a one-shot query with a simple prompt
       const queryFn = await this.moduleLoader.getQueryFunction();
 
-      // Build minimal test options
       const configs = this.loadConfigs();
       const agentConfig = configs.find((c) => c.id === id);
       if (!agentConfig) {
@@ -417,14 +413,14 @@ export class CustomAgentRegistry {
       }
 
       const apiKey = await this.authSecrets.getProviderKey(
-        `${CUSTOM_AGENT_KEY_PREFIX}.${id}`
+        `${PTAH_CLI_KEY_PREFIX}.${id}`
       );
       if (!apiKey) {
         return { success: false, error: 'API key not configured' };
       }
 
-      // Create a temporary adapter just for the test if needed
-      const testAdapter = new CustomAgentAdapter(
+      // Create a temporary adapter for the test (not cached)
+      const testAdapter = new PtahCliAdapter(
         agentConfig,
         apiKey,
         this.logger,
@@ -446,7 +442,7 @@ export class CustomAgentRegistry {
           prompt: 'Say "ok" and nothing else.',
           options: {
             abortController,
-            model: adapter['resolveModel'](),
+            model: testAdapter['resolveModel'](),
             maxTurns: 1,
             systemPrompt: {
               type: 'preset' as const,
@@ -475,7 +471,7 @@ export class CustomAgentRegistry {
 
         if (receivedResponse) {
           this.logger.info(
-            `[CustomAgentRegistry] Connection test PASSED for agent ${id} (${latencyMs}ms)`
+            `[PtahCliRegistry] Connection test PASSED for agent ${id} (${latencyMs}ms)`
           );
           return { success: true, latencyMs };
         } else {
@@ -493,7 +489,7 @@ export class CustomAgentRegistry {
       const errorMsg = error instanceof Error ? error.message : String(error);
 
       this.logger.error(
-        `[CustomAgentRegistry] Connection test FAILED for agent ${id} (${latencyMs}ms): ${errorMsg}`
+        `[PtahCliRegistry] Connection test FAILED for agent ${id} (${latencyMs}ms): ${errorMsg}`
       );
 
       return {
@@ -514,10 +510,10 @@ export class CustomAgentRegistry {
   }
 
   /**
-   * Spawn a headless custom agent as a background worker.
+   * Spawn a headless Ptah CLI agent as a background worker.
    * Returns an SdkHandle compatible with AgentProcessManager.spawnFromSdkHandle().
    *
-   * @param id - Custom agent ID
+   * @param id - Ptah CLI agent ID
    * @param task - Task prompt for the agent
    * @param projectGuidance - Optional project-specific guidance to append to system prompt
    * @returns SdkHandle + agentName, or undefined if agent not found / no API key
@@ -531,36 +527,32 @@ export class CustomAgentRegistry {
     const configs = this.loadConfigs();
     const agentConfig = configs.find((c) => c.id === id);
     if (!agentConfig) {
-      this.logger.warn(
-        `[CustomAgentRegistry] spawnAgent: config not found: ${id}`
-      );
+      this.logger.warn(`[PtahCliRegistry] spawnAgent: config not found: ${id}`);
       return {
         status: 'not_found',
-        message: `Custom agent "${id}" not found in configuration`,
+        message: `Ptah CLI agent "${id}" not found in configuration`,
       };
     }
 
     if (!agentConfig.enabled) {
-      this.logger.warn(
-        `[CustomAgentRegistry] spawnAgent: agent disabled: ${id}`
-      );
+      this.logger.warn(`[PtahCliRegistry] spawnAgent: agent disabled: ${id}`);
       return {
         status: 'disabled',
-        message: `Custom agent "${id}" is disabled`,
+        message: `Ptah CLI agent "${id}" is disabled`,
       };
     }
 
     // Get API key
     const apiKey = await this.authSecrets.getProviderKey(
-      `${CUSTOM_AGENT_KEY_PREFIX}.${id}`
+      `${PTAH_CLI_KEY_PREFIX}.${id}`
     );
     if (!apiKey) {
       this.logger.warn(
-        `[CustomAgentRegistry] spawnAgent: no API key for agent: ${id}`
+        `[PtahCliRegistry] spawnAgent: no API key for agent: ${id}`
       );
       return {
         status: 'no_api_key',
-        message: `No API key configured for custom agent "${id}"`,
+        message: `No API key configured for Ptah CLI agent "${id}"`,
       };
     }
 
@@ -568,11 +560,11 @@ export class CustomAgentRegistry {
     const provider = getAnthropicProvider(agentConfig.providerId);
     if (!provider) {
       this.logger.error(
-        `[CustomAgentRegistry] spawnAgent: unknown provider: ${agentConfig.providerId}`
+        `[PtahCliRegistry] spawnAgent: unknown provider: ${agentConfig.providerId}`
       );
       return {
         status: 'unknown_provider',
-        message: `Unknown provider "${agentConfig.providerId}" for custom agent "${id}"`,
+        message: `Unknown provider "${agentConfig.providerId}" for Ptah CLI agent "${id}"`,
       };
     }
 
@@ -691,7 +683,7 @@ export class CustomAgentRegistry {
             rawMessage.includes('abort') || rawMessage.includes('cancel');
           if (!isAbort) {
             this.logger.error(
-              `[CustomAgentRegistry] spawnAgent query error: ${rawMessage}`
+              `[PtahCliRegistry] spawnAgent query error: ${rawMessage}`
             );
             // Forward sanitized error message to output (strips API keys, tokens, stack traces)
             const sanitized = this.sanitizeErrorMessage(rawMessage);
@@ -713,7 +705,7 @@ export class CustomAgentRegistry {
     };
 
     this.logger.info(
-      `[CustomAgentRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${model}`
+      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${model}`
     );
 
     return { handle, agentName: agentConfig.name };
@@ -724,16 +716,85 @@ export class CustomAgentRegistry {
    */
   disposeAll(): void {
     this.logger.info(
-      `[CustomAgentRegistry] Disposing ${this.adapters.size} active adapters`
+      `[PtahCliRegistry] Disposing ${this.adapters.size} active adapters`
     );
 
     for (const [id, adapter] of this.adapters.entries()) {
-      this.logger.debug(`[CustomAgentRegistry] Disposing adapter: ${id}`);
+      this.logger.debug(`[PtahCliRegistry] Disposing adapter: ${id}`);
       adapter.dispose();
     }
 
     this.adapters.clear();
-    this.logger.info('[CustomAgentRegistry] All adapters disposed');
+    this.logger.info('[PtahCliRegistry] All adapters disposed');
+  }
+
+  // ============================================================================
+  // Migration
+  // ============================================================================
+
+  /**
+   * Ensure legacy config/secret migration has run exactly once.
+   * Safe to call multiple times; the migration promise is cached.
+   */
+  private async ensureMigrated(): Promise<void> {
+    if (!this.migrationPromise) {
+      this.migrationPromise = this.migrateFromLegacyKeys();
+    }
+    return this.migrationPromise;
+  }
+
+  /**
+   * One-time migration from legacy customAgents config key and secret prefix.
+   * Reads from old key, writes to new key, migrates secret storage prefixes.
+   */
+  private async migrateFromLegacyKeys(): Promise<void> {
+    const LEGACY_CONFIG_KEY = 'customAgents';
+    const LEGACY_KEY_PREFIX = 'customAgent';
+
+    const legacyConfigs = this.config.getWithDefault<PtahCliConfig[]>(
+      LEGACY_CONFIG_KEY,
+      []
+    );
+    if (legacyConfigs.length === 0) return;
+
+    const currentConfigs = this.config.getWithDefault<PtahCliConfig[]>(
+      PTAH_CLI_AGENTS_CONFIG_KEY,
+      []
+    );
+    if (currentConfigs.length > 0) return;
+
+    this.logger.info(
+      '[PtahCliRegistry] Migrating legacy customAgents config...'
+    );
+
+    await this.config.set(PTAH_CLI_AGENTS_CONFIG_KEY, legacyConfigs);
+
+    for (const agentConfig of legacyConfigs) {
+      try {
+        const legacyKey = await this.authSecrets.getProviderKey(
+          `${LEGACY_KEY_PREFIX}.${agentConfig.id}`
+        );
+        if (legacyKey) {
+          await this.authSecrets.setProviderKey(
+            `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
+            legacyKey
+          );
+          await this.authSecrets.deleteProviderKey(
+            `${LEGACY_KEY_PREFIX}.${agentConfig.id}`
+          );
+        }
+      } catch {
+        this.logger.warn(
+          `[PtahCliRegistry] Failed to migrate secret for agent ${agentConfig.id}`
+        );
+      }
+    }
+
+    await this.config.set(LEGACY_CONFIG_KEY, undefined);
+
+    this.logger.info(
+      `[PtahCliRegistry] Migrated ${legacyConfigs.length} agents to new config key`
+    );
   }
 
   // ============================================================================
@@ -776,20 +837,20 @@ export class CustomAgentRegistry {
   }
 
   /**
-   * Load custom agent configs from ConfigManager
+   * Load Ptah CLI configs from ConfigManager
    */
-  private loadConfigs(): CustomAgentConfig[] {
-    return this.config.getWithDefault<CustomAgentConfig[]>(
-      CUSTOM_AGENTS_CONFIG_KEY,
+  private loadConfigs(): PtahCliConfig[] {
+    return this.config.getWithDefault<PtahCliConfig[]>(
+      PTAH_CLI_AGENTS_CONFIG_KEY,
       []
     );
   }
 
   /**
-   * Save custom agent configs to ConfigManager
+   * Save Ptah CLI configs to ConfigManager
    */
-  private async saveConfigs(configs: CustomAgentConfig[]): Promise<void> {
-    await this.config.set(CUSTOM_AGENTS_CONFIG_KEY, configs);
+  private async saveConfigs(configs: PtahCliConfig[]): Promise<void> {
+    await this.config.set(PTAH_CLI_AGENTS_CONFIG_KEY, configs);
   }
 
   /**
@@ -801,7 +862,7 @@ export class CustomAgentRegistry {
    */
   private buildDefaultTierMappings(
     provider: AnthropicProvider
-  ): CustomAgentConfig['tierMappings'] {
+  ): PtahCliConfig['tierMappings'] {
     if (!provider.staticModels || provider.staticModels.length === 0) {
       return undefined;
     }

@@ -14,7 +14,7 @@ import { Component, ChangeDetectionStrategy } from '@angular/core';
           </span>
         </h1>
         <p class="text-white/60 text-lg max-w-xl mx-auto mb-4">
-          2-hour live consulting sessions to help you master Ptah and
+          4&#x2013;5 hour live consulting sessions to help you master Ptah and
           supercharge your development workflow.
         </p>
         <div

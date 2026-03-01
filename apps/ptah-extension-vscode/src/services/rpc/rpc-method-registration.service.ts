@@ -60,7 +60,7 @@ import { QualityRpcHandlers } from './handlers/quality-rpc.handlers';
 import { WizardGenerationRpcHandlers } from './handlers/wizard-generation-rpc.handlers'; // TASK_2025_148
 import { PluginRpcHandlers } from './handlers/plugin-rpc.handlers'; // TASK_2025_153
 import { AgentRpcHandlers } from './handlers/agent-rpc.handlers'; // TASK_2025_157
-import { CustomAgentRpcHandlers } from './handlers/custom-agent-rpc.handlers'; // TASK_2025_167
+import { PtahCliRpcHandlers } from './handlers/ptah-cli-rpc.handlers'; // TASK_2025_167
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -105,7 +105,7 @@ export class RpcMethodRegistrationService {
     private readonly wizardGenerationHandlers: WizardGenerationRpcHandlers, // TASK_2025_148
     private readonly pluginHandlers: PluginRpcHandlers, // TASK_2025_153
     private readonly agentHandlers: AgentRpcHandlers, // TASK_2025_157
-    private readonly customAgentHandlers: CustomAgentRpcHandlers, // TASK_2025_167
+    private readonly ptahCliHandlers: PtahCliRpcHandlers, // TASK_2025_167
     private readonly container: DependencyContainer
   ) {
     // Setup SDK callbacks and listeners
@@ -140,7 +140,7 @@ export class RpcMethodRegistrationService {
     this.wizardGenerationHandlers.register(); // TASK_2025_148
     this.pluginHandlers.register(); // TASK_2025_153
     this.agentHandlers.register(); // TASK_2025_157
-    this.customAgentHandlers.register(); // TASK_2025_167
+    this.ptahCliHandlers.register(); // TASK_2025_167
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -250,6 +250,12 @@ export class RpcMethodRegistrationService {
         ): Promise<void>;
       }>(SDK_TOKENS.SDK_SESSION_METADATA_STORE);
 
+      // Capture accumulated output for persistence (if agent is still tracked)
+      const agentProcessManager = this.container.resolve(AgentProcessManager);
+      const persistedOutput = agentProcessManager.readOutputForPersistence(
+        info.agentId
+      );
+
       const ref: CliSessionReference = {
         cliSessionId,
         cli: info.cli,
@@ -257,6 +263,10 @@ export class RpcMethodRegistrationService {
         task: info.task,
         startedAt: info.startedAt,
         status: info.status,
+        ...(persistedOutput?.stdout ? { stdout: persistedOutput.stdout } : {}),
+        ...(persistedOutput?.segments?.length
+          ? { segments: persistedOutput.segments }
+          : {}),
       };
 
       retryWithBackoff(

@@ -7,52 +7,65 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { LucideAngularModule, MessageSquare } from 'lucide-angular';
 
 type FormState = 'idle' | 'submitting' | 'success' | 'error';
 
 @Component({
   selector: 'ptah-contact-form',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, LucideAngularModule],
   template: `
-    <section class="pb-20 px-4 sm:px-6 lg:px-16">
-      <div class="max-w-2xl mx-auto">
-        @if (formState() === 'success') {
+    <div>
+      @if (formState() === 'success') {
+      <div
+        class="bg-success/10 border border-success/30 rounded-2xl p-6 text-center"
+      >
+        <h3 class="text-lg font-semibold text-success mb-2">Message Sent!</h3>
+        <p class="text-neutral-content">
+          We've received your message and will get back to you as soon as
+          possible.
+        </p>
+        <button
+          type="button"
+          class="mt-4 text-secondary hover:text-secondary/80 text-sm font-medium transition-colors"
+          (click)="resetForm()"
+        >
+          Send another message
+        </button>
+      </div>
+      } @else {
+      <div
+        class="bg-base-200/80 backdrop-blur-xl border border-secondary/20 rounded-2xl overflow-hidden"
+      >
+        <!-- Card header -->
         <div
-          class="bg-green-500/10 border border-green-500/30 rounded-xl p-6 text-center"
+          class="px-6 py-4 border-b border-secondary/10 flex items-center gap-2"
         >
-          <div class="text-3xl mb-3">✅</div>
-          <h3 class="text-lg font-semibold text-green-400 mb-2">
-            Message Sent!
-          </h3>
-          <p class="text-white/60">
-            We've received your message and will get back to you as soon as
-            possible.
-          </p>
-          <button
-            type="button"
-            class="mt-4 text-amber-400 hover:text-amber-300 text-sm font-medium transition-colors"
-            (click)="resetForm()"
-          >
-            Send another message
-          </button>
+          <lucide-angular
+            [img]="MessageSquareIcon"
+            class="w-5 h-5 text-secondary"
+            aria-hidden="true"
+          />
+          <h2 class="font-display text-lg font-semibold">Get in Touch</h2>
         </div>
-        } @else {
-        <form
-          class="bg-slate-900/50 border border-white/10 rounded-xl p-6 sm:p-8 space-y-6"
-          (ngSubmit)="onSubmit()"
-        >
+
+        <form class="p-6 space-y-5" (ngSubmit)="onSubmit()">
+          <p class="text-neutral-content text-sm">
+            Have a question, feedback, or need help? We'd love to hear from you.
+          </p>
+
           <!-- Subject -->
           <div>
             <label
               for="subject"
-              class="block text-sm font-medium text-white/80 mb-2"
+              class="block text-sm font-medium text-base-content mb-2"
               >Subject</label
             >
             <input
               id="subject"
               type="text"
-              class="input input-bordered w-full bg-slate-800/50 border-white/10 text-white placeholder-white/30 focus:border-amber-500/50 focus:outline-none"
+              class="input input-bordered w-full bg-base-300/50 border-secondary/10 text-base-content placeholder-neutral-content/30 focus:border-secondary/50 focus:outline-none"
               placeholder="What is this about?"
               [(ngModel)]="subject"
               name="subject"
@@ -66,12 +79,12 @@ type FormState = 'idle' | 'submitting' | 'success' | 'error';
           <div>
             <label
               for="category"
-              class="block text-sm font-medium text-white/80 mb-2"
+              class="block text-sm font-medium text-base-content mb-2"
               >Category</label
             >
             <select
               id="category"
-              class="select select-bordered w-full bg-slate-800/50 border-white/10 text-white focus:border-amber-500/50 focus:outline-none"
+              class="select select-bordered w-full bg-base-300/50 border-secondary/10 text-base-content focus:border-secondary/50 focus:outline-none"
               [(ngModel)]="category"
               name="category"
             >
@@ -87,12 +100,12 @@ type FormState = 'idle' | 'submitting' | 'success' | 'error';
           <div>
             <label
               for="message"
-              class="block text-sm font-medium text-white/80 mb-2"
+              class="block text-sm font-medium text-base-content mb-2"
               >Message</label
             >
             <textarea
               id="message"
-              class="textarea textarea-bordered w-full bg-slate-800/50 border-white/10 text-white placeholder-white/30 focus:border-amber-500/50 focus:outline-none min-h-[160px]"
+              class="textarea textarea-bordered w-full bg-base-300/50 border-secondary/10 text-base-content placeholder-neutral-content/30 focus:border-secondary/50 focus:outline-none min-h-[160px]"
               placeholder="Tell us more..."
               [(ngModel)]="message"
               name="message"
@@ -104,7 +117,7 @@ type FormState = 'idle' | 'submitting' | 'success' | 'error';
 
           @if (formState() === 'error') {
           <div
-            class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-red-400 text-sm"
+            class="bg-error/10 border border-error/30 rounded-lg p-3 text-error text-sm"
           >
             {{ errorMessage() }}
           </div>
@@ -113,7 +126,7 @@ type FormState = 'idle' | 'submitting' | 'success' | 'error';
           <!-- Submit -->
           <button
             type="submit"
-            class="btn w-full bg-gradient-to-r from-amber-500 to-amber-600 text-slate-900 font-semibold hover:from-amber-400 hover:to-amber-500 border-none"
+            class="btn w-full btn-secondary font-semibold"
             [disabled]="formState() === 'submitting'"
           >
             @if (formState() === 'submitting') {
@@ -121,9 +134,9 @@ type FormState = 'idle' | 'submitting' | 'success' | 'error';
             Sending... } @else { Send Message }
           </button>
         </form>
-        }
       </div>
-    </section>
+      }
+    </div>
   `,
   styles: [
     `
@@ -136,6 +149,8 @@ type FormState = 'idle' | 'submitting' | 'success' | 'error';
 })
 export class ContactFormComponent {
   private readonly http = inject(HttpClient);
+
+  public readonly MessageSquareIcon = MessageSquare;
 
   public subject = '';
   public message = '';

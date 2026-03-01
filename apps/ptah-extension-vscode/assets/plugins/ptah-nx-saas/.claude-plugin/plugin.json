@@ -1,7 +1,7 @@
 {
   "name": "ptah-nx-saas",
-  "description": "NX monorepo and SaaS architecture - Nx workspace setup, NestJS patterns, multi-tenancy, and SaaS initialization",
-  "version": "1.0.0",
+  "description": "NX monorepo and SaaS architecture - Nx workspace setup, NestJS patterns, webhook architecture, resilient service patterns, SaaS platform monetization, production deployment, and SaaS initialization",
+  "version": "2.0.0",
   "author": {
     "name": "Ptah"
   },

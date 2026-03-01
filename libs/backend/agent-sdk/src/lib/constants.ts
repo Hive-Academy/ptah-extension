@@ -7,7 +7,7 @@
 
 /**
  * Default port for Ptah HTTP MCP server.
- * Used by SdkQueryOptionsBuilder, CustomAgentAdapter, and InternalQueryService.
+ * Used by SdkQueryOptionsBuilder, PtahCliAdapter, and InternalQueryService.
  * Matches the port configured in vscode-lm-tools/CodeExecutionMCP.
  */
 export const PTAH_MCP_PORT = 51820;

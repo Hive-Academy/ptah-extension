@@ -27,7 +27,7 @@ import type {
   ProjectIntelligence,
   QualityHistoryEntry,
 } from './quality-assessment.types';
-import type { CustomAgentSummary } from './custom-agent.types';
+import type { PtahCliSummary } from './ptah-cli.types';
 import type { AgentPermissionDecision } from './agent-permission.types';
 
 // ============================================================
@@ -47,8 +47,8 @@ export interface ChatStartParams {
   name?: string;
   /** Workspace path for context */
   workspacePath?: string;
-  /** Custom agent instance ID (TASK_2025_167: routes to custom agent adapter) */
-  customAgentId?: string;
+  /** Ptah CLI agent instance ID (TASK_2025_170: routes to Ptah CLI agent adapter) */
+  ptahCliId?: string;
   /** Additional options */
   options?: {
     model?: string;
@@ -126,8 +126,8 @@ export interface ChatResumeParams {
   workspacePath?: string;
   /** Model to use (if different from session's original model) */
   model?: string;
-  /** Custom agent instance ID (TASK_2025_167: routes to custom agent adapter) */
-  customAgentId?: string;
+  /** Ptah CLI agent instance ID (TASK_2025_170: routes to Ptah CLI agent adapter) */
+  ptahCliId?: string;
 }
 
 /** Response from chat:resume RPC method */
@@ -1279,33 +1279,33 @@ export interface AgentSetConfigParams {
 }
 
 // ============================================================
-// Custom Agent RPC Types (TASK_2025_167)
+// Ptah CLI Agent RPC Types (TASK_2025_167 → TASK_2025_170)
 // ============================================================
 
-/** Parameters for customAgent:list RPC method */
-export type CustomAgentListParams = Record<string, never>;
+/** Parameters for ptahCli:list RPC method */
+export type PtahCliListParams = Record<string, never>;
 
-/** Response from customAgent:list RPC method */
-export interface CustomAgentListResult {
-  agents: CustomAgentSummary[];
+/** Response from ptahCli:list RPC method */
+export interface PtahCliListResult {
+  agents: PtahCliSummary[];
 }
 
-/** Parameters for customAgent:create RPC method */
-export interface CustomAgentCreateParams {
+/** Parameters for ptahCli:create RPC method */
+export interface PtahCliCreateParams {
   name: string;
   providerId: string;
   apiKey: string;
 }
 
-/** Response from customAgent:create RPC method */
-export interface CustomAgentCreateResult {
+/** Response from ptahCli:create RPC method */
+export interface PtahCliCreateResult {
   success: boolean;
-  agent?: CustomAgentSummary;
+  agent?: PtahCliSummary;
   error?: string;
 }
 
-/** Parameters for customAgent:update RPC method */
-export interface CustomAgentUpdateParams {
+/** Parameters for ptahCli:update RPC method */
+export interface PtahCliUpdateParams {
   id: string;
   name?: string;
   enabled?: boolean;
@@ -1318,42 +1318,42 @@ export interface CustomAgentUpdateParams {
   selectedModel?: string;
 }
 
-/** Response from customAgent:update RPC method */
-export interface CustomAgentUpdateResult {
+/** Response from ptahCli:update RPC method */
+export interface PtahCliUpdateResult {
   success: boolean;
   error?: string;
 }
 
-/** Parameters for customAgent:delete RPC method */
-export interface CustomAgentDeleteParams {
+/** Parameters for ptahCli:delete RPC method */
+export interface PtahCliDeleteParams {
   id: string;
 }
 
-/** Response from customAgent:delete RPC method */
-export interface CustomAgentDeleteResult {
+/** Response from ptahCli:delete RPC method */
+export interface PtahCliDeleteResult {
   success: boolean;
   error?: string;
 }
 
-/** Parameters for customAgent:testConnection RPC method */
-export interface CustomAgentTestConnectionParams {
+/** Parameters for ptahCli:testConnection RPC method */
+export interface PtahCliTestConnectionParams {
   id: string;
 }
 
-/** Response from customAgent:testConnection RPC method */
-export interface CustomAgentTestConnectionResult {
+/** Response from ptahCli:testConnection RPC method */
+export interface PtahCliTestConnectionResult {
   success: boolean;
   latencyMs?: number;
   error?: string;
 }
 
-/** Parameters for customAgent:listModels RPC method */
-export interface CustomAgentListModelsParams {
+/** Parameters for ptahCli:listModels RPC method */
+export interface PtahCliListModelsParams {
   id: string;
 }
 
-/** Response from customAgent:listModels RPC method */
-export interface CustomAgentListModelsResult {
+/** Response from ptahCli:listModels RPC method */
+export interface PtahCliListModelsResult {
   models: Array<{
     id: string;
     name: string;
@@ -1677,30 +1677,30 @@ export interface RpcMethodRegistry {
     };
   };
 
-  // ---- Custom Agent Methods (TASK_2025_167) ----
-  'customAgent:list': {
-    params: CustomAgentListParams;
-    result: CustomAgentListResult;
+  // ---- Ptah CLI Agent Methods (TASK_2025_167 → TASK_2025_170) ----
+  'ptahCli:list': {
+    params: PtahCliListParams;
+    result: PtahCliListResult;
   };
-  'customAgent:create': {
-    params: CustomAgentCreateParams;
-    result: CustomAgentCreateResult;
+  'ptahCli:create': {
+    params: PtahCliCreateParams;
+    result: PtahCliCreateResult;
   };
-  'customAgent:update': {
-    params: CustomAgentUpdateParams;
-    result: CustomAgentUpdateResult;
+  'ptahCli:update': {
+    params: PtahCliUpdateParams;
+    result: PtahCliUpdateResult;
   };
-  'customAgent:delete': {
-    params: CustomAgentDeleteParams;
-    result: CustomAgentDeleteResult;
+  'ptahCli:delete': {
+    params: PtahCliDeleteParams;
+    result: PtahCliDeleteResult;
   };
-  'customAgent:testConnection': {
-    params: CustomAgentTestConnectionParams;
-    result: CustomAgentTestConnectionResult;
+  'ptahCli:testConnection': {
+    params: PtahCliTestConnectionParams;
+    result: PtahCliTestConnectionResult;
   };
-  'customAgent:listModels': {
-    params: CustomAgentListModelsParams;
-    result: CustomAgentListModelsResult;
+  'ptahCli:listModels': {
+    params: PtahCliListModelsParams;
+    result: PtahCliListModelsResult;
   };
 }
 
@@ -1825,13 +1825,13 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'agent:permissionResponse', // TASK_2025_162: Copilot SDK permission response
   'agent:backgroundList', // TASK_2025_168: Background agent listing
 
-  // Custom Agent Methods (TASK_2025_167)
-  'customAgent:list',
-  'customAgent:create',
-  'customAgent:update',
-  'customAgent:delete',
-  'customAgent:testConnection',
-  'customAgent:listModels',
+  // Ptah CLI Agent Methods (TASK_2025_167 → TASK_2025_170)
+  'ptahCli:list',
+  'ptahCli:create',
+  'ptahCli:update',
+  'ptahCli:delete',
+  'ptahCli:testConnection',
+  'ptahCli:listModels',
 ] as const;
 
 /**

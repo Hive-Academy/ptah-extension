@@ -69,7 +69,7 @@ export type {
   ProviderStaticModel,
 } from './lib/helpers';
 
-// Shared prompt-building functions (used by SdkQueryOptionsBuilder and CustomAgentAdapter)
+// Shared prompt-building functions (used by SdkQueryOptionsBuilder and PtahCliAdapter)
 export {
   assembleSystemPromptAppend,
   buildModelIdentityPrompt,
@@ -169,11 +169,11 @@ export {
 } from './lib/helpers';
 
 // ============================================================
-// Custom Agent (TASK_2025_167)
+// Ptah CLI (TASK_2025_167)
 // User-configured adapters for Anthropic-compatible providers
 // ============================================================
-export { CustomAgentAdapter, CustomAgentRegistry } from './lib/custom-agent';
-export type { CustomAgentPremiumConfig } from './lib/custom-agent';
+export { PtahCliAdapter, PtahCliRegistry } from './lib/ptah-cli';
+export type { PtahCliPremiumConfig } from './lib/ptah-cli';
 
 // ============================================================
 // Stream Processing (shared SDK stream processor)

@@ -57,7 +57,7 @@ export type AgentStatus =
 // CLI Type
 // ========================================
 
-export type CliType = 'gemini' | 'codex' | 'copilot' | 'custom';
+export type CliType = 'gemini' | 'codex' | 'copilot' | 'ptah-cli';
 
 // ========================================
 // Agent Process Info (tracked per agent)
@@ -77,8 +77,8 @@ export interface AgentProcessInfo {
   readonly cliSessionId?: string;
   /** Parent Ptah Claude SDK session that spawned this CLI agent via ptah_agent_spawn. */
   readonly parentSessionId?: string;
-  /** Display name of the custom agent (only set when cli === 'custom') */
-  readonly customAgentName?: string;
+  /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
+  readonly ptahCliName?: string;
 }
 
 // ========================================
@@ -106,8 +106,8 @@ export interface SpawnAgentRequest {
   readonly parentSessionId?: string;
   /** Project-specific guidance (enhanced prompts). Injected by MCP server, NOT set by callers. */
   readonly projectGuidance?: string;
-  /** Custom agent ID from CustomAgentRegistry. When set, spawns via custom agent instead of CLI. */
-  readonly customAgentId?: string;
+  /** Ptah CLI agent ID from PtahCliRegistry. When set, spawns via Ptah CLI agent instead of CLI. */
+  readonly ptahCliId?: string;
 }
 
 // ========================================
@@ -135,8 +135,8 @@ export interface SpawnAgentResult {
   readonly startedAt: string;
   /** CLI-native session ID captured from init event (e.g., Gemini UUID). Null if not yet available. */
   readonly cliSessionId?: string;
-  /** Display name of the custom agent (only set when cli === 'custom') */
-  readonly customAgentName?: string;
+  /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
+  readonly ptahCliName?: string;
 }
 
 // ========================================
@@ -149,11 +149,11 @@ export interface CliDetectionResult {
   readonly path?: string;
   readonly version?: string;
   readonly supportsSteer: boolean;
-  /** Custom agent registry ID (only set when cli === 'custom') */
-  readonly customAgentId?: string;
-  /** Display name of the custom agent (only set when cli === 'custom') */
-  readonly customAgentName?: string;
-  /** Provider name (e.g., 'OpenRouter', 'Moonshot') — only set when cli === 'custom' */
+  /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli') */
+  readonly ptahCliId?: string;
+  /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
+  readonly ptahCliName?: string;
+  /** Provider name (e.g., 'OpenRouter', 'Moonshot') — only set when cli === 'ptah-cli' */
   readonly providerName?: string;
 }
 
@@ -227,4 +227,8 @@ export interface CliSessionReference {
   readonly startedAt: string;
   /** Final agent status */
   readonly status: AgentStatus;
+  /** Persisted raw stdout output (capped at 100KB). Absent in older sessions. */
+  readonly stdout?: string;
+  /** Persisted structured output segments. Absent in older sessions. */
+  readonly segments?: readonly CliOutputSegment[];
 }

@@ -14,8 +14,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { createReadStream } from 'fs';
-import { createInterface } from 'readline';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -150,30 +148,29 @@ export class JsonlReaderService {
       );
     }
 
+    // Read the entire file as a string and split by newline.
+    // We avoid createReadStream + readline because VS Code extension host's
+    // Node.js environment has a broken StringDecoder constructor that crashes
+    // when createReadStream uses encoding: 'utf8'. File size is already
+    // bounded by the 50MB check above, so this is safe.
+    const content = await fs.readFile(filePath, 'utf8');
+    const lines = content.split('\n');
     const messages: SessionHistoryMessage[] = [];
-    const stream = createReadStream(filePath, { encoding: 'utf8' });
-    const reader = createInterface({ input: stream });
 
-    try {
-      for await (const line of reader) {
-        if (!line.trim()) continue;
+    for (const line of lines) {
+      if (!line.trim()) continue;
 
-        try {
-          const parsed = JSON.parse(line) as JsonlMessageLine;
-          // Convert to SessionHistoryMessage format (preserves extra fields)
-          messages.push(this.convertToSessionHistoryMessage(parsed));
-        } catch {
-          // Skip malformed lines - don't throw
-          this.logger.debug('[JsonlReader] Skipping malformed JSONL line', {
-            filePath,
-            linePreview: line.substring(0, 100),
-          });
-        }
+      try {
+        const parsed = JSON.parse(line) as JsonlMessageLine;
+        // Convert to SessionHistoryMessage format (preserves extra fields)
+        messages.push(this.convertToSessionHistoryMessage(parsed));
+      } catch {
+        // Skip malformed lines - don't throw
+        this.logger.debug('[JsonlReader] Skipping malformed JSONL line', {
+          filePath,
+          linePreview: line.substring(0, 100),
+        });
       }
-    } finally {
-      // Always close streams to prevent resource leaks
-      reader.close();
-      stream.destroy();
     }
 
     return messages;

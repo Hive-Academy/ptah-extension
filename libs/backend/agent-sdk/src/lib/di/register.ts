@@ -49,7 +49,7 @@ import {
 } from '../prompt-harness';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
-import { CustomAgentRegistry } from '../custom-agent';
+import { PtahCliRegistry } from '../ptah-cli';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -312,12 +312,12 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Custom Agent Registry (TASK_2025_167)
-  // Manages lifecycle of user-configured custom agent adapters
+  // Ptah CLI Registry (TASK_2025_167)
+  // Manages lifecycle of user-configured Ptah CLI adapters
   // ============================================================
   container.register(
-    SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY,
-    { useClass: CustomAgentRegistry },
+    SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
+    { useClass: PtahCliRegistry },
     { lifecycle: Lifecycle.Singleton }
   );
 

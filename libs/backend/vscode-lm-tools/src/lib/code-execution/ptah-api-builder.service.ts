@@ -104,14 +104,14 @@ const SDK_SESSION_LIFECYCLE_MANAGER = Symbol.for('SdkSessionLifecycleManager');
 const SDK_ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
 
 /**
- * Duplicated from SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY to avoid circular dependency
+ * Duplicated from SDK_TOKENS.SDK_PTAH_CLI_REGISTRY to avoid circular dependency
  * between vscode-lm-tools -> agent-sdk. Must match the string in:
  * libs/backend/agent-sdk/src/lib/di/tokens.ts
  *
- * @see SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY in libs/backend/agent-sdk/src/lib/di/tokens.ts
+ * @see SDK_TOKENS.SDK_PTAH_CLI_REGISTRY in libs/backend/agent-sdk/src/lib/di/tokens.ts
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
-const SDK_CUSTOM_AGENT_REGISTRY = Symbol.for('SdkCustomAgentRegistry');
+const SDK_PTAH_CLI_REGISTRY = Symbol.for('SdkPtahCliRegistry');
 
 @injectable()
 export class PtahAPIBuilder {
@@ -300,10 +300,10 @@ export class PtahAPIBuilder {
             return undefined;
           }
         },
-        getCustomAgentRegistry: () => {
-          // Resolve CustomAgentRegistry lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
+        getPtahCliRegistry: () => {
+          // Resolve PtahCliRegistry lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
           // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
-          if (!container.isRegistered(SDK_CUSTOM_AGENT_REGISTRY)) {
+          if (!container.isRegistered(SDK_PTAH_CLI_REGISTRY)) {
             return undefined;
           }
           try {
@@ -339,7 +339,7 @@ export class PtahAPIBuilder {
                     message: string;
                   }
               >;
-            }>(SDK_CUSTOM_AGENT_REGISTRY);
+            }>(SDK_PTAH_CLI_REGISTRY);
           } catch {
             return undefined;
           }

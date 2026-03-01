@@ -30,4 +30,4 @@ export { QualityRpcHandlers } from './quality-rpc.handlers';
 export { WizardGenerationRpcHandlers } from './wizard-generation-rpc.handlers'; // TASK_2025_148
 export { PluginRpcHandlers } from './plugin-rpc.handlers'; // TASK_2025_153
 export { AgentRpcHandlers } from './agent-rpc.handlers'; // TASK_2025_157
-export { CustomAgentRpcHandlers } from './custom-agent-rpc.handlers'; // TASK_2025_167
+export { PtahCliRpcHandlers } from './ptah-cli-rpc.handlers'; // TASK_2025_167

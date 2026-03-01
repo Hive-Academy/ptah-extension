@@ -90,6 +90,7 @@ You have access to **agent orchestration tools** that let you spawn background w
 | \`ptah_agent_read\` | Read agent output so far |
 | \`ptah_agent_steer\` | Send instruction to running CLI agent (Gemini only) |
 | \`ptah_agent_stop\` | Stop a running agent |
+| \`ptah_agent_list\` | List all available agents and their status |
 
 ### Available Agents
 
@@ -97,28 +98,28 @@ You have access to **agent orchestration tools** that let you spawn background w
 |-------|------|--------------|
 | \`gemini\` | CLI process | Gemini CLI installed (\`gemini\` on PATH) |
 | \`codex\` | SDK (in-process) | \`@openai/codex-sdk\` npm package + OpenAI API key |
-| \`copilot\` | CLI process | Copilot CLI installed (\`copilot\` on PATH) |
-| \`custom\` | SDK (in-process) | User-configured Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.) |
+| \`copilot\` | SDK (in-process) | \`@github/copilot-sdk\` + VS Code GitHub auth |
+| \`ptah-cli\` | SDK (in-process) | User-configured Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.) |
 
-### Custom Agents
+### Ptah CLI Agents
 
-Custom agents are user-configured providers visible via \`ptah_agent_list\` (entries with \`cli: "custom"\`).
-Each has a \`customAgentId\` you pass to \`ptah_agent_spawn\` instead of \`cli\`:
+Ptah CLI agents are user-configured providers visible via \`ptah_agent_list\` (entries with \`cli: "ptah-cli"\`).
+Each has a \`ptahCliId\` you pass to \`ptah_agent_spawn\` instead of \`cli\`:
 
 \`\`\`
-ptah_agent_spawn { task: "Review this code", customAgentId: "ca-1234567890-abc123def" }
+ptah_agent_spawn { task: "Review this code", ptahCliId: "ca-1234567890-abc123def" }
 \`\`\`
 
-To discover available custom agents:
-1. Call \`ptah_agent_list\` — look for entries with \`cli: "custom"\`
-2. Use the \`customAgentId\` field from those entries in \`ptah_agent_spawn\`
+To discover available Ptah CLI agents:
+1. Call \`ptah_agent_list\` — look for entries with \`cli: "ptah-cli"\`
+2. Use the \`ptahCliId\` field from those entries in \`ptah_agent_spawn\`
 
 ### Workflow Example
 
 1. **Spawn 3 parallel agents**:
    - \`ptah_agent_spawn { task: "Review src/auth.ts for security issues", cli: "gemini" }\`
    - \`ptah_agent_spawn { task: "Write unit tests for src/utils.ts", cli: "codex" }\`
-   - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", customAgentId: "ca-..." }\`
+   - \`ptah_agent_spawn { task: "Document the API endpoints in src/routes/", ptahCliId: "ca-..." }\`
 2. **Continue**: Work on your main task
 3. **Check**: \`ptah_agent_status {}\` — check all agents at once
 4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get results from each

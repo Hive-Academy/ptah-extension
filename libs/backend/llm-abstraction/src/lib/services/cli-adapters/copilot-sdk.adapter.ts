@@ -624,9 +624,13 @@ export class CopilotSdkAdapter implements CliAdapter {
       }
     });
 
-    // Done promise: resolves when session becomes idle or errors out
+    // Done promise: resolves when session becomes idle or errors out.
+    // `doneResolve` is hoisted so abort/send-error handlers can also resolve it.
     let doneResolved = false;
+    let doneResolve: (code: number) => void;
     const done = new Promise<number>((resolve) => {
+      doneResolve = resolve;
+
       session.on('session.idle', () => {
         if (!doneResolved) {
           doneResolved = true;
@@ -671,6 +675,7 @@ export class CopilotSdkAdapter implements CliAdapter {
       });
       if (!doneResolved) {
         doneResolved = true;
+        doneResolve(1);
       }
     });
 
@@ -685,6 +690,7 @@ export class CopilotSdkAdapter implements CliAdapter {
       });
       if (!doneResolved) {
         doneResolved = true;
+        doneResolve(1);
       }
     };
     abortController.signal.addEventListener('abort', onAbort);

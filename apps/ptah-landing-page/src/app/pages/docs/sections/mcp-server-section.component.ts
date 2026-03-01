@@ -21,6 +21,7 @@ import {
 import { DocsCodeBlockComponent } from '../components/docs-code-block.component';
 import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
+import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
 
 @Component({
   selector: 'ptah-docs-mcp-server',
@@ -31,23 +32,24 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     DocsCodeBlockComponent,
     DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
+    DocsCollapsibleCardComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="mcp-server">
       <h2
         viewportAnimation
         [viewportConfig]="headingConfig"
-        class="text-2xl sm:text-3xl font-display font-bold text-white/90 mb-3"
+        class="text-2xl sm:text-3xl font-display font-bold text-base-content mb-3"
       >
         Ptah MCP Server
       </h2>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="text-white/50 mb-4 max-w-2xl"
+        class="text-neutral-content mb-4 max-w-2xl"
       >
         Ptah includes a built-in
-        <strong class="text-white/70"
+        <strong class="text-base-content/70"
           >MCP (Model Context Protocol) server</strong
         >
         that runs inside the VS Code extension host. It gives AI subagents
@@ -57,133 +59,148 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="text-white/40 text-sm mb-8 max-w-2xl"
+        class="text-neutral-content/60 text-sm mb-8 max-w-2xl"
       >
         Instead of Claude manually exploring files and running bash commands, it
         queries Ptah's APIs to get structured, accurate results in a single
-        call. This is a <strong class="text-white/60">Pro feature</strong> —
+        call. This is a
+        <strong class="text-neutral-content">Pro feature</strong> —
         automatically enabled when you have an active license.
       </p>
 
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
         <!-- How it works -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="ServerIcon"
+          title="How It Works"
+          [expanded]="true"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="ServerIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <h3 class="text-lg font-semibold text-white/90">How It Works</h3>
-          </div>
-          <p class="text-sm text-white/50 mb-4">
+          <p class="text-sm text-neutral-content mb-4">
             When the extension starts, the MCP server launches on a local port
             and registers itself in your workspace's
             <code
-              class="px-1 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-xs font-mono text-amber-400/80"
+              class="px-1 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
               >.mcp.json</code
             >. Every AI subagent spawned via the
             <code
-              class="px-1 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-xs font-mono text-amber-400/80"
+              class="px-1 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
               >Task</code
             >
             tool automatically discovers it and gains access to all Ptah tools.
           </p>
-          <p class="text-sm text-white/50">
+          <p class="text-sm text-neutral-content">
             Claude receives a system prompt that instructs it to prefer Ptah
             tools over built-in alternatives — so it uses
-            <code class="text-amber-400/70 text-xs">ptah_get_diagnostics</code>
+            <code class="text-secondary/70 text-xs">ptah_get_diagnostics</code>
             instead of running a build to check errors, or
-            <code class="text-amber-400/70 text-xs">ptah_lsp_references</code>
+            <code class="text-secondary/70 text-xs">ptah_lsp_references</code>
             instead of grepping for symbol usages.
           </p>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- MCP Tools Grid -->
         <div>
-          <h3 class="text-base font-semibold text-white/80 mb-4">
+          <h3 class="text-base font-semibold text-base-content/80 mb-4">
             Available MCP Tools
           </h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             @for (tool of mcpTools; track tool.name) {
             <div
-              class="flex items-start gap-3 px-4 py-3 rounded-xl bg-slate-800/30 border border-amber-500/10"
+              class="flex items-start gap-3 px-4 py-3 rounded-xl bg-base-300/50 border border-secondary/10"
             >
               <lucide-angular
                 [img]="tool.icon"
-                class="w-4 h-4 text-amber-400/70 shrink-0 mt-0.5"
+                class="w-4 h-4 text-secondary/70 shrink-0 mt-0.5"
                 aria-hidden="true"
               />
               <div>
-                <code class="text-sm font-mono text-white/80">{{
+                <code class="text-sm font-mono text-base-content/80">{{
                   tool.name
                 }}</code>
-                <p class="text-xs text-white/40 mt-0.5">
+                <p class="text-xs text-neutral-content/60 mt-0.5">
                   {{ tool.description }}
                 </p>
               </div>
             </div>
             }
           </div>
+
+          <h4 class="text-sm font-medium text-neutral-content/60 mt-5 mb-3">
+            Agent Orchestration (6 tools)
+          </h4>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            @for (tool of agentMcpTools; track tool.name) {
+            <div
+              class="flex items-start gap-3 px-4 py-3 rounded-xl bg-base-300/50 border border-secondary/10"
+            >
+              <lucide-angular
+                [img]="ServerIcon"
+                class="w-4 h-4 text-secondary/70 shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
+              <div>
+                <code class="text-sm font-mono text-base-content/80">{{
+                  tool.name
+                }}</code>
+                <p class="text-xs text-neutral-content/60 mt-0.5">
+                  {{ tool.description }}
+                </p>
+              </div>
+            </div>
+            }
+          </div>
+          <p class="text-xs text-neutral-content/40 mt-3">
+            See
+            <a
+              href="#agent-orchestration"
+              class="text-secondary/70 hover:text-secondary underline underline-offset-2"
+              >Agent Orchestration</a
+            >
+            for detailed usage and the fire-and-check workflow.
+          </p>
         </div>
 
         <!-- API Namespaces -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="BrainCircuitIcon"
+          title="16 API Namespaces"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="BrainCircuitIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <h3 class="text-lg font-semibold text-white/90">
-              15 API Namespaces
-            </h3>
-          </div>
-          <p class="text-sm text-white/50 mb-4">
+          <p class="text-sm text-neutral-content mb-4">
             The
-            <code class="text-amber-400/70 text-xs">execute_code</code> tool
+            <code class="text-secondary/70 text-xs">execute_code</code> tool
             gives Claude access to the full
-            <code class="text-amber-400/70 text-xs">ptah.*</code> API. Claude
+            <code class="text-secondary/70 text-xs">ptah.*</code> API. Claude
             can write TypeScript that queries your workspace, analyzes code
-            structure, accesses LSP features, and even calls other AI models.
+            structure, accesses LSP features, spawns background agents, and even
+            calls other AI models.
           </p>
 
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
             @for (ns of apiNamespaces; track ns.name) {
             <div
-              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-700/20 border border-slate-600/20"
+              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/30 border border-secondary/10"
             >
               <lucide-angular
                 [img]="ArrowRightIcon"
-                class="w-3 h-3 text-amber-400/50 shrink-0"
+                class="w-3 h-3 text-secondary/50 shrink-0"
                 aria-hidden="true"
               />
               <div>
-                <code class="text-xs font-mono text-amber-400/70">{{
+                <code class="text-xs font-mono text-secondary/70">{{
                   ns.name
                 }}</code>
-                <span class="text-xs text-white/30 ml-1.5">{{ ns.hint }}</span>
+                <span class="text-xs text-neutral-content/40 ml-1.5">{{
+                  ns.hint
+                }}</span>
               </div>
             </div>
             }
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- Example -->
         <div>
-          <h3 class="text-base font-semibold text-white/80 mb-3">
+          <h3 class="text-base font-semibold text-base-content/80 mb-3">
             What Claude Can Do
           </h3>
           <ptah-docs-code-block
@@ -194,18 +211,18 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
 
         <!-- Security -->
         <div
-          class="flex items-start gap-3 p-4 rounded-xl bg-amber-500/5 border border-amber-500/15"
+          class="flex items-start gap-3 p-4 rounded-xl bg-secondary/5 border border-secondary/20"
         >
           <lucide-angular
             [img]="ShieldCheckIcon"
-            class="w-5 h-5 text-green-400 shrink-0 mt-0.5"
+            class="w-5 h-5 text-success shrink-0 mt-0.5"
             aria-hidden="true"
           />
-          <div class="text-sm text-white/60">
-            <strong class="text-white/80">Security model:</strong> Read-only
-            operations (workspace info, diagnostics, file search) run without
-            prompts. Modifications (file writes, git operations) trigger a
-            permission dialog in VS Code. All code execution has configurable
+          <div class="text-sm text-neutral-content">
+            <strong class="text-base-content/80">Security model:</strong>
+            Read-only operations (workspace info, diagnostics, file search) run
+            without prompts. Modifications (file writes, git operations) trigger
+            a permission dialog in VS Code. All code execution has configurable
             timeouts and results are truncated at 50KB to prevent context
             overflow.
           </div>
@@ -282,8 +299,32 @@ export class McpServerSectionComponent {
     },
     {
       name: 'execute_code',
-      description: 'Run TypeScript with access to all 15 ptah.* APIs',
+      description: 'Run TypeScript with access to all 16 ptah.* APIs',
       icon: BrainCircuit,
+    },
+  ];
+
+  public readonly agentMcpTools = [
+    {
+      name: 'ptah_agent_spawn',
+      description: 'Launch a background agent with a task',
+    },
+    {
+      name: 'ptah_agent_status',
+      description: 'Check progress of running agents',
+    },
+    {
+      name: 'ptah_agent_read',
+      description: 'Read agent output (stdout/stderr)',
+    },
+    {
+      name: 'ptah_agent_steer',
+      description: 'Send instructions to a running agent',
+    },
+    { name: 'ptah_agent_stop', description: 'Stop a running agent process' },
+    {
+      name: 'ptah_agent_list',
+      description: 'List all available agents and status',
     },
   ];
 
@@ -303,6 +344,7 @@ export class McpServerSectionComponent {
     { name: 'ptah.ide.lsp', hint: 'LSP features' },
     { name: 'ptah.ide.editor', hint: 'editor state' },
     { name: 'ptah.ide.actions', hint: 'refactoring' },
+    { name: 'ptah.agent', hint: 'background agents' },
   ];
 
   public readonly exampleCode = `// Claude autonomously queries your workspace:

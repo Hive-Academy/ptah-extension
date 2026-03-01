@@ -16,6 +16,7 @@ import {
 } from 'lucide-angular';
 import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
+import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
 
 @Component({
   selector: 'ptah-docs-chat-dashboard',
@@ -25,20 +26,21 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     LucideAngularModule,
     DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
+    DocsCollapsibleCardComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="chat-dashboard">
       <h2
         viewportAnimation
         [viewportConfig]="headingConfig"
-        class="text-2xl sm:text-3xl font-display font-bold text-white/90 mb-3"
+        class="text-2xl sm:text-3xl font-display font-bold text-base-content mb-3"
       >
         Chat &amp; Dashboard
       </h2>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="text-white/50 mb-8 max-w-2xl"
+        class="text-neutral-content mb-8 max-w-2xl"
       >
         A native VS Code chat interface with real-time agent visualization and a
         performance dashboard for tracking costs, tokens, and agent efficiency.
@@ -46,29 +48,13 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
 
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
         <!-- ExecutionNode Tree -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="GitForkIcon"
+          title="Recursive ExecutionNode Tree"
+          subtitle="See your agents think in real-time"
+          [expanded]="true"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="GitForkIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <div>
-              <h3 class="text-lg font-semibold text-white/90">
-                Recursive ExecutionNode Tree
-              </h3>
-              <span class="text-xs text-white/40"
-                >See your agents think in real-time</span
-              >
-            </div>
-          </div>
-          <p class="text-sm text-white/50 mb-4">
+          <p class="text-sm text-neutral-content mb-4">
             Every agent action renders as a live execution tree. You can see the
             main agent spawning sub-agents (e.g., Software Architect handing off
             to Frontend Developer), every tool call with file paths, thinking
@@ -77,19 +63,21 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
 
           <!-- Visual tree example -->
           <div
-            class="rounded-lg bg-slate-900/60 border border-slate-700/40 p-4 font-mono text-xs leading-relaxed"
+            class="rounded-lg bg-base-300 border border-secondary/10 p-4 font-mono text-xs leading-relaxed"
           >
-            <div class="text-white/70">
-              <span class="text-amber-400">User:</span> "Create a login page"
+            <div class="text-base-content/70">
+              <span class="text-secondary">User:</span> "Create a login page"
             </div>
-            <div class="ml-4 mt-1.5 text-white/50">
+            <div class="ml-4 mt-1.5 text-neutral-content">
               <div>
                 <span class="text-blue-400">Main Agent</span>
-                <span class="text-white/30"> THINKING...</span>
+                <span class="text-neutral-content/40"> THINKING...</span>
               </div>
               <div class="ml-4 mt-1">
                 <span class="text-green-400/70">TOOL:</span> read-file
-                <span class="text-white/30">("src/app/routes.ts")</span>
+                <span class="text-neutral-content/40"
+                  >("src/app/routes.ts")</span
+                >
               </div>
               <div class="ml-4 mt-1">
                 <span class="text-purple-400/70">AGENT SPAWN:</span>
@@ -97,86 +85,61 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
               </div>
               <div class="ml-8 mt-0.5">
                 <span class="text-blue-400/70">Thinking:</span>
-                <span class="text-white/30"
+                <span class="text-neutral-content/40"
                   >"I'll create LoginComponent..."</span
                 >
               </div>
               <div class="ml-8 mt-0.5">
                 <span class="text-green-400/70">TOOL:</span> write-file
-                <span class="text-white/30">("src/app/login/...")</span>
+                <span class="text-neutral-content/40"
+                  >("src/app/login/...")</span
+                >
               </div>
               <div class="ml-4 mt-1">
                 <span class="text-blue-400">Response:</span>
-                <span class="text-white/30">"Login page created with..."</span>
+                <span class="text-neutral-content/40"
+                  >"Login page created with..."</span
+                >
               </div>
             </div>
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- Chat Features -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="MessageSquareIcon"
+          title="Chat Features"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="MessageSquareIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <h3 class="text-lg font-semibold text-white/90">Chat Features</h3>
-          </div>
-
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             @for (feature of chatFeatures; track feature.label) {
             <div
-              class="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-slate-700/20 border border-slate-600/20"
+              class="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
             >
               <lucide-angular
                 [img]="feature.icon"
-                class="w-4 h-4 text-amber-400/60 shrink-0 mt-0.5"
+                class="w-4 h-4 text-secondary/60 shrink-0 mt-0.5"
                 aria-hidden="true"
               />
               <div>
-                <span class="text-sm text-white/80 font-medium">{{
+                <span class="text-sm text-base-content/80 font-medium">{{
                   feature.label
                 }}</span>
-                <p class="text-xs text-white/40 mt-0.5">
+                <p class="text-xs text-neutral-content/60 mt-0.5">
                   {{ feature.description }}
                 </p>
               </div>
             </div>
             }
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- Dashboard -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="BarChart3Icon"
+          title="Performance Dashboard"
+          subtitle="Track costs, tokens, and agent efficiency"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="BarChart3Icon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <div>
-              <h3 class="text-lg font-semibold text-white/90">
-                Performance Dashboard
-              </h3>
-              <span class="text-xs text-white/40"
-                >Track costs, tokens, and agent efficiency</span
-              >
-            </div>
-          </div>
-          <p class="text-sm text-white/50 mb-4">
+          <p class="text-sm text-neutral-content mb-4">
             The dashboard provides real-time and historical analytics for all
             your AI sessions. Filter by time range (24h, 7d, 30d, 90d) and
             export data as CSV or JSON.
@@ -185,20 +148,20 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
             @for (metric of dashboardMetrics; track metric.label) {
             <div
-              class="text-center px-3 py-3 rounded-lg bg-slate-700/20 border border-slate-600/20"
+              class="text-center px-3 py-3 rounded-lg bg-base-300/30 border border-secondary/10"
             >
               <lucide-angular
                 [img]="metric.icon"
-                class="w-4 h-4 text-amber-400/50 mx-auto mb-1.5"
+                class="w-4 h-4 text-secondary/50 mx-auto mb-1.5"
                 aria-hidden="true"
               />
-              <span class="text-xs text-white/50 block">{{
+              <span class="text-xs text-neutral-content block">{{
                 metric.label
               }}</span>
             </div>
             }
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
       </div>
 
       <ng-container media>

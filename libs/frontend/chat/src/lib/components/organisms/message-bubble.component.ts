@@ -1,6 +1,7 @@
 import {
   Component,
   input,
+  computed,
   ChangeDetectionStrategy,
   inject,
 } from '@angular/core';
@@ -79,6 +80,20 @@ export class MessageBubbleComponent {
   readonly PaperclipIcon = Paperclip;
   readonly ptahIconUri = this.vscode.getPtahIconUri();
   readonly ptahUserIconUri = this.vscode.getPtahUserIconUri();
+
+  /**
+   * User message display content with <system-reminder> tags stripped.
+   * The backend wraps attachment instructions in <system-reminder> XML
+   * so the frontend can hide them from the user bubble while keeping
+   * them visible to the LLM. Matches the stripping pattern used in
+   * CodeOutputComponent and ToolInputDisplayComponent.
+   */
+  readonly userDisplayContent = computed(() => {
+    const raw = this.message().rawContent || '';
+    return raw
+      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
+      .trim();
+  });
 
   /**
    * Permission lookup function to pass to execution tree

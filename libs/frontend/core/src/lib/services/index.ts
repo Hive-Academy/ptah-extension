@@ -43,8 +43,8 @@ export {
   type RpcCallOptions,
 } from './claude-rpc.service';
 
-// Custom Agent State Service (TASK_2025_167)
-export { CustomAgentStateService } from './custom-agent-state.service';
+// Ptah CLI State Service (TASK_2025_167 -> TASK_2025_170)
+export { PtahCliStateService } from './ptah-cli-state.service';
 
 // Discovery Facades (Phase 2 - TASK_2025_019)
 export {

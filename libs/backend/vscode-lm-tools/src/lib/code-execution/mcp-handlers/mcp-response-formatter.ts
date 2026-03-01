@@ -430,13 +430,11 @@ export function formatTokenCount(result: unknown): string {
 // ============================================================
 
 /**
- * Format CLI label for display: shows custom agent name when applicable.
+ * Format CLI label for display: shows Ptah CLI agent name when applicable.
  * Extracted to eliminate repeated inline formatting across agent formatters.
  */
-function formatCliLabel(cli: string, customAgentName?: string): string {
-  return cli === 'custom' && customAgentName
-    ? `custom (${customAgentName})`
-    : cli;
+function formatCliLabel(cli: string, ptahCliName?: string): string {
+  return cli === 'ptah-cli' && ptahCliName ? `ptah-cli (${ptahCliName})` : cli;
 }
 
 /**
@@ -448,20 +446,20 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
       return json2md([
         { h2: 'Available Agents' },
         {
-          p: 'No agents found. Install a CLI agent (Gemini, Codex, Copilot) or configure a custom agent.',
+          p: 'No agents found. Install a CLI agent (Gemini, Codex, Copilot) or configure a Ptah CLI agent.',
         },
       ]);
     }
 
     const rows = agents.map((agent) => {
-      if (agent.cli === 'custom') {
+      if (agent.cli === 'ptah-cli') {
         return {
-          Agent: agent.customAgentName ?? 'Unknown',
-          Type: 'custom',
+          Agent: agent.ptahCliName ?? 'Unknown',
+          Type: 'ptah-cli',
           Status: 'available',
           Capabilities: `provider: ${
             agent.providerName ?? 'Unknown'
-          }, customAgentId: ${agent.customAgentId ?? 'N/A'}`,
+          }, ptahCliId: ${agent.ptahCliId ?? 'N/A'}`,
         };
       }
 
@@ -488,7 +486,7 @@ export function formatAgentList(agents: CliDetectionResult[]): string {
  */
 export function formatAgentSpawn(result: SpawnAgentResult): string {
   try {
-    const cliLabel = formatCliLabel(result.cli, result.customAgentName);
+    const cliLabel = formatCliLabel(result.cli, result.ptahCliName);
 
     return json2md([
       { h2: 'Agent Spawned' },
@@ -529,7 +527,7 @@ export function formatAgentStatus(
     for (const a of agents) {
       const task =
         a.task.length > 80 ? a.task.substring(0, 77) + '...' : a.task;
-      const cliLabel = formatCliLabel(a.cli, a.customAgentName);
+      const cliLabel = formatCliLabel(a.cli, a.ptahCliName);
       const lines = [
         `**CLI:** ${cliLabel}`,
         `**Status:** ${a.status}`,
@@ -592,7 +590,7 @@ export function formatAgentRead(result: AgentOutput): string {
  */
 export function formatAgentStop(result: AgentProcessInfo): string {
   try {
-    const cliLabel = formatCliLabel(result.cli, result.customAgentName);
+    const cliLabel = formatCliLabel(result.cli, result.ptahCliName);
 
     return json2md([
       { h2: 'Agent Stopped' },

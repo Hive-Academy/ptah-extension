@@ -328,17 +328,17 @@
           "default": "",
           "description": "Default model for Copilot agents. Leave empty for Copilot's default."
         },
-        "ptah.customAgents": {
+        "ptah.ptahCliAgents": {
           "type": "array",
           "default": [],
-          "description": "Custom agent configurations for Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.).",
+          "description": "Ptah CLI agent configurations for Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.).",
           "scope": "resource",
           "items": {
             "type": "object",
             "properties": {
               "id": {
                 "type": "string",
-                "description": "Unique agent instance ID."
+                "description": "Unique Ptah CLI agent instance ID."
               },
               "name": {
                 "type": "string",

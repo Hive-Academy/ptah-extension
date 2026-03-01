@@ -319,7 +319,7 @@ async function handleIndividualTool(
 
         const {
           cli,
-          customAgentId,
+          ptahCliId,
           workingDirectory,
           timeout,
           files,
@@ -329,7 +329,7 @@ async function handleIndividualTool(
         } = args as {
           task: string;
           cli?: string;
-          customAgentId?: string;
+          ptahCliId?: string;
           workingDirectory?: string;
           timeout?: number;
           files?: string[];
@@ -372,8 +372,8 @@ async function handleIndividualTool(
         }
 
         logger.info('[MCP] ptah_agent_spawn invoked', 'CodeExecutionMCP', {
-          cli: cli ?? (customAgentId ? 'custom' : 'auto-detect'),
-          customAgentId,
+          cli: cli ?? (ptahCliId ? 'ptah-cli' : 'auto-detect'),
+          ptahCliId,
           model: model ?? 'default',
           task: task.substring(0, 100) + (task.length > 100 ? '...' : ''),
           timeout,
@@ -385,7 +385,7 @@ async function handleIndividualTool(
         const result = await ptahAPI.agent.spawn({
           task,
           cli: cli as CliType | undefined,
-          customAgentId,
+          ptahCliId,
           workingDirectory,
           timeout,
           files,

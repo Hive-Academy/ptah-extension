@@ -12,6 +12,7 @@ import {
 } from 'lucide-angular';
 
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
+import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
 
 interface PluginSkill {
   name: string;
@@ -34,68 +35,51 @@ interface PluginData {
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsSectionShellComponent,
+    DocsCollapsibleCardComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="plugins">
       <h2
         viewportAnimation
         [viewportConfig]="headingConfig"
-        class="text-2xl sm:text-3xl font-display font-bold text-white/90 mb-3"
+        class="text-2xl sm:text-3xl font-display font-bold text-base-content mb-3"
       >
         Plugins
       </h2>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="text-white/50 mb-8 max-w-2xl"
+        class="text-neutral-content mb-8 max-w-2xl"
       >
         Extend Ptah with skill plugins that add specialized agents, workflows,
         and code patterns. Browse and install plugins from the
-        <strong class="text-white/70">"Configure Ptah Skills"</strong> modal in
-        the settings panel.
+        <strong class="text-base-content/70">"Configure Ptah Skills"</strong>
+        modal in the settings panel.
       </p>
 
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
-        @for (plugin of plugins; track plugin.name) {
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        @for (plugin of plugins; track plugin.name; let first = $first) {
+        <ptah-docs-collapsible-card
+          [icon]="plugin.isDefault ? PackageIcon : PuzzleIcon"
+          [title]="plugin.name"
+          [subtitle]="plugin.isDefault ? 'Default' : ''"
+          [expanded]="first"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="plugin.isDefault ? PackageIcon : PuzzleIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <h3 class="text-lg font-semibold text-white/90">
-                {{ plugin.name }}
-              </h3>
-              @if (plugin.isDefault) {
-              <span
-                class="px-2 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-xs font-medium text-amber-400"
-                >Default</span
-              >
-              }
-            </div>
-          </div>
-
-          <p class="text-sm text-white/50 mb-4">{{ plugin.description }}</p>
+          <p class="text-sm text-neutral-content mb-4">
+            {{ plugin.description }}
+          </p>
 
           <!-- Badges -->
           <div class="flex items-center gap-3 mb-4">
             <span
-              class="px-2.5 py-1 rounded-lg bg-slate-700/40 border border-slate-600/30 text-xs text-white/60"
+              class="px-2.5 py-1 rounded-lg bg-base-300/50 border border-secondary/10 text-xs text-neutral-content"
             >
               {{ plugin.skillCount }}
               {{ plugin.skillCount === 1 ? 'skill' : 'skills' }}
             </span>
             @if (plugin.commandCount > 0) {
             <span
-              class="px-2.5 py-1 rounded-lg bg-slate-700/40 border border-slate-600/30 text-xs text-white/60"
+              class="px-2.5 py-1 rounded-lg bg-base-300/50 border border-secondary/10 text-xs text-neutral-content"
             >
               {{ plugin.commandCount }}+ commands
             </span>
@@ -106,18 +90,18 @@ interface PluginData {
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             @for (skill of plugin.skills; track skill.name) {
             <div
-              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-700/30 border border-slate-600/30"
+              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
             >
               <lucide-angular
                 [img]="ArrowRightIcon"
-                class="w-3 h-3 text-amber-400/60 shrink-0"
+                class="w-3 h-3 text-secondary/60 shrink-0"
                 aria-hidden="true"
               />
-              <span class="text-sm text-white/70">{{ skill.name }}</span>
+              <span class="text-sm text-base-content/70">{{ skill.name }}</span>
             </div>
             }
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
         }
       </div>
 
@@ -196,14 +180,18 @@ export class PluginsSectionComponent {
     {
       name: 'Ptah NX SaaS',
       description:
-        'Enterprise-grade skills for NestJS backend patterns, Nx workspace architecture, and full-stack SaaS project scaffolding.',
+        'Enterprise-grade skills for NestJS backend patterns, Nx workspace architecture, webhook handling, resilient service design, SaaS monetization, and production deployment.',
       isDefault: false,
-      skillCount: 3,
-      commandCount: 0,
+      skillCount: 7,
+      commandCount: 2,
       skills: [
         { name: 'NestJS Patterns' },
         { name: 'NX Workspace Architect' },
-        { name: 'SaaS Initializer' },
+        { name: 'SaaS Initializer', command: '/init-saas' },
+        { name: 'Webhook Architecture' },
+        { name: 'Resilient NestJS Patterns' },
+        { name: 'SaaS Platform Patterns' },
+        { name: 'NestJS Deployment' },
       ],
     },
     {

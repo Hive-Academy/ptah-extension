@@ -14,7 +14,7 @@ import { Injectable, inject, signal, Injector } from '@angular/core';
 import {
   ClaudeRpcService,
   VSCodeService,
-  CustomAgentStateService,
+  PtahCliStateService,
 } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
@@ -33,7 +33,7 @@ export class ConversationService {
   private readonly tabManager = inject(TabManagerService);
   private readonly sessionManager = inject(SessionManager);
   private readonly validator = inject(MessageValidationService);
-  private readonly customAgentState = inject(CustomAgentStateService);
+  private readonly ptahCliState = inject(PtahCliStateService);
   private readonly injector = inject(Injector); // For lazy injection to avoid circular dependency
 
   // ============================================================================
@@ -301,14 +301,13 @@ export class ConversationService {
       });
 
       // Call RPC to start NEW chat - using tabId for correlation
-      // TASK_2025_167: Pass customAgentId if a custom agent is selected
-      const customAgentId =
-        this.customAgentState.selectedAgentId() ?? undefined;
+      // TASK_2025_170: Pass ptahCliId if a Ptah CLI agent is selected
+      const ptahCliId = this.ptahCliState.selectedAgentId() ?? undefined;
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
         tabId: activeTabId, // Frontend correlation ID
         workspacePath,
-        customAgentId, // TASK_2025_167: Route to custom agent adapter
+        ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
         options: files ? { files } : undefined,
       });
 

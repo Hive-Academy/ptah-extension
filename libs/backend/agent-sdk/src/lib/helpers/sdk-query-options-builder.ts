@@ -116,7 +116,7 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
 /**
  * Input for assembleSystemPromptAppend() pure function.
  * Encapsulates all parameters needed to build the system prompt append string
- * for both SdkQueryOptionsBuilder and CustomAgentAdapter.
+ * for both SdkQueryOptionsBuilder and PtahCliAdapter.
  */
 export interface AssembleSystemPromptInput {
   /** Active provider ID (from getActiveProviderId) - for model identity clarification */
@@ -138,7 +138,7 @@ export interface AssembleSystemPromptInput {
 /**
  * Assemble the system prompt append string from its constituent parts.
  *
- * Shared function used by SdkQueryOptionsBuilder and CustomAgentAdapter.
+ * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
  * Note: Uses dynamic require() for PTAH_SYSTEM_PROMPT to avoid circular deps.
  * Assembles from:
  * 1. Model identity clarification (for third-party providers)

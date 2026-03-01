@@ -62,6 +62,12 @@ const OUTPUT_FLUSH_INTERVAL = 200;
  */
 // const SHELL_METACHAR_PATTERN = /[`$(){}|&<>^;%!]/g; // REMOVED — see comment above
 
+/** Maximum number of accumulated segments kept per agent for persistence */
+const MAX_ACCUMULATED_SEGMENTS = 500;
+
+/** Maximum stdout size (bytes) returned for persistence */
+const MAX_STDOUT_PERSISTENCE_SIZE = 100 * 1024; // 100 KB
+
 interface TrackedAgent {
   info: AgentProcessInfo;
   /** Child process for CLI-based agents, null for SDK-based agents */
@@ -78,6 +84,8 @@ interface TrackedAgent {
   hasExited: boolean;
   /** Cleanup timer handle for TTL-based removal from map */
   cleanupHandle?: NodeJS.Timeout;
+  /** Accumulated structured segments for persistence (capped at MAX_ACCUMULATED_SEGMENTS) */
+  accumulatedSegments: CliOutputSegment[];
 }
 
 @injectable()
@@ -309,6 +317,7 @@ export class AgentProcessManager {
       stderrLineCount: 0,
       truncated: false,
       hasExited: false,
+      accumulatedSegments: [],
     };
 
     this.agents.set(agentId, tracked);
@@ -443,7 +452,7 @@ export class AgentProcessManager {
       workingDirectory: string;
       taskFolder?: string;
       parentSessionId?: string;
-      customAgentName?: string;
+      ptahCliName?: string;
       timeout?: number;
     }
   ): Promise<SpawnAgentResult> {
@@ -478,7 +487,7 @@ export class AgentProcessManager {
           status: 'running',
           startedAt,
           parentSessionId: meta.parentSessionId,
-          customAgentName: meta.customAgentName,
+          ptahCliName: meta.ptahCliName,
         };
 
         const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
@@ -486,7 +495,7 @@ export class AgentProcessManager {
         this.logger.info('[AgentProcessManager] Spawned agent from SdkHandle', {
           agentId,
           cli: meta.cli,
-          customAgentName: meta.customAgentName,
+          ptahCliName: meta.ptahCliName,
         });
 
         return this.trackSdkHandle(sdkHandle, info, timeout);
@@ -534,6 +543,7 @@ export class AgentProcessManager {
       stderrLineCount: 0,
       truncated: false,
       hasExited: false,
+      accumulatedSegments: [],
     };
 
     this.agents.set(agentId, tracked);
@@ -581,7 +591,7 @@ export class AgentProcessManager {
       status: 'running',
       startedAt: info.startedAt,
       cliSessionId: info.cliSessionId,
-      customAgentName: info.customAgentName,
+      ptahCliName: info.ptahCliName,
     };
 
     this.events.emit('agent:spawned', tracked.info);
@@ -641,6 +651,28 @@ export class AgentProcessManager {
       stderr,
       lineCount: tracked.stdoutLineCount + tracked.stderrLineCount,
       truncated: tracked.truncated,
+    };
+  }
+
+  /**
+   * Read accumulated output for session persistence.
+   * Returns stdout (capped at 100KB) and structured segments for storage
+   * in CliSessionReference. Returns undefined if the agent is not found.
+   */
+  readOutputForPersistence(
+    agentId: string
+  ): { stdout: string; segments: CliOutputSegment[] } | undefined {
+    const tracked = this.agents.get(agentId);
+    if (!tracked) return undefined;
+
+    let stdout = tracked.stdoutBuffer;
+    if (stdout.length > MAX_STDOUT_PERSISTENCE_SIZE) {
+      stdout = stdout.slice(-MAX_STDOUT_PERSISTENCE_SIZE);
+    }
+
+    return {
+      stdout,
+      segments: [...tracked.accumulatedSegments],
     };
   }
 
@@ -850,6 +882,15 @@ export class AgentProcessManager {
       this.pendingDeltas.set(agentId, pending);
     }
     pending.segments.push(segment);
+
+    // Also accumulate for persistence (capped)
+    const tracked = this.agents.get(agentId);
+    if (
+      tracked &&
+      tracked.accumulatedSegments.length < MAX_ACCUMULATED_SEGMENTS
+    ) {
+      tracked.accumulatedSegments.push(segment);
+    }
 
     // Start flush timer if not already running
     if (!this.flushTimers.has(agentId)) {

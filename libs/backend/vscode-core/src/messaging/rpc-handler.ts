@@ -63,7 +63,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'quality:', // TASK_2025_144: Quality Dashboard (assessment, history, export)
   'plugins:', // TASK_2025_153: Plugin configuration (list, get-config, save-config)
   'agent:', // TASK_2025_157: Agent orchestration (getConfig, setConfig, detectClis)
-  'customAgent:', // TASK_2025_167: Custom agent management (list, create, update, delete, testConnection, listModels)
+  'ptahCli:', // TASK_2025_170: Ptah CLI agent management (list, create, update, delete, testConnection, listModels)
 ] as const;
 
 /**
@@ -92,7 +92,7 @@ const PRO_ONLY_METHOD_PREFIXES = [
   'wizard:', // setup_wizard feature (deep-analyze, recommend-agents)
   'enhancedPrompts:', // TASK_2025_137: Enhanced Prompts (Pro-only intelligent prompt generation)
   'agent:', // TASK_2025_157: Agent orchestration (Pro-only headless CLI agents)
-  'customAgent:', // TASK_2025_167: Custom agent management (Pro-only)
+  'ptahCli:', // TASK_2025_170: Ptah CLI agent management (Pro-only)
 ] as const;
 
 /**

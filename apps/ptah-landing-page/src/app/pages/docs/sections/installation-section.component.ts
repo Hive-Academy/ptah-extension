@@ -27,7 +27,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       <h2
         viewportAnimation
         [viewportConfig]="headingConfig"
-        class="text-2xl sm:text-3xl font-display font-bold text-white/90 mb-8"
+        class="text-2xl sm:text-3xl font-display font-bold text-base-content mb-8"
       >
         Installation &amp; Pro Trial
       </h2>
@@ -39,16 +39,16 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
         >
           <p class="mb-2">
             Open VS Code and search for
-            <strong class="text-white/80">"Ptah"</strong> in the Extensions
-            panel (<kbd
-              class="px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-xs font-mono text-amber-400/80"
+            <strong class="text-base-content/80">"Ptah"</strong> in the
+            Extensions panel (<kbd
+              class="px-1.5 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
               >Ctrl+Shift+X</kbd
             >), or install directly from the
             <a
               href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-amber-400 hover:text-amber-300 underline underline-offset-2"
+              class="text-secondary hover:text-secondary/80 underline underline-offset-2"
               >VS Code Marketplace</a
             >.
           </p>
@@ -59,7 +59,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             Visit
             <a
               href="https://ptah.live/signup"
-              class="text-amber-400 hover:text-amber-300 underline underline-offset-2"
+              class="text-secondary hover:text-secondary/80 underline underline-offset-2"
               >ptah.live/signup</a
             >
             to create a free account. No credit card required — your 14-day Pro
@@ -80,16 +80,16 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       <div
         viewportAnimation
         [viewportConfig]="calloutConfig"
-        class="mt-8 flex items-start gap-3 p-4 rounded-xl bg-amber-500/5 border border-amber-500/15"
+        class="mt-8 flex items-start gap-3 p-4 rounded-xl bg-secondary/5 border border-secondary/20"
       >
         <lucide-angular
           [img]="SparklesIcon"
-          class="w-5 h-5 text-amber-400 shrink-0 mt-0.5"
+          class="w-5 h-5 text-secondary shrink-0 mt-0.5"
           aria-hidden="true"
         />
-        <p class="text-sm text-white/60">
-          <strong class="text-white/80">Pro trial includes:</strong> All 13 AI
-          agents, orchestration workflows, multi-provider support, plugin
+        <p class="text-sm text-neutral-content">
+          <strong class="text-base-content/80">Pro trial includes:</strong> All
+          13 AI agents, orchestration workflows, multi-provider support, plugin
           system, and the full setup wizard — free for 14 days.
         </p>
       </div>
@@ -105,7 +105,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             loop
             playsinline
             preload="metadata"
-            class="w-full rounded-xl border border-white/10 shadow-2xl"
+            class="w-full rounded-xl border border-secondary/10 shadow-2xl"
           >
             <source src="assets/videos/install.mp4" type="video/mp4" />
           </video>
@@ -113,7 +113,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
           >
             <span
-              class="px-3 py-1.5 rounded-lg bg-slate-900/80 border border-amber-500/20 text-xs font-medium text-white/90 backdrop-blur-sm"
+              class="px-3 py-1.5 rounded-lg bg-base-200/80 border border-secondary/20 text-xs font-medium text-base-content/90 backdrop-blur-sm"
             >
               Click to play / pause
             </span>

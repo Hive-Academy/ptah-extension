@@ -7,6 +7,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
+import { LucideAngularModule, GraduationCap } from 'lucide-angular';
 import { SESSION_TOPICS, SessionTopic } from '../../../config/sessions.config';
 import { SessionCardComponent } from './session-card.component';
 import { SessionRegistrationModalComponent } from './session-registration-modal.component';
@@ -18,42 +19,87 @@ import { PADDLE_CONFIG } from '../../../config/paddle.config';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule,
+    LucideAngularModule,
     SessionCardComponent,
     SessionRegistrationModalComponent,
   ],
   template: `
-    <section class="pb-20 px-4 sm:px-6 lg:px-16">
+    <div>
+      <!-- Unified session card -->
       <div
-        class="max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+        class="bg-base-200/80 backdrop-blur-xl border border-secondary/20 rounded-2xl overflow-hidden"
       >
-        @for (topic of topics; track topic.id) {
-        <ptah-session-card
-          [topic]="topic"
-          [isFreeEligible]="hasFreeSession()"
-          (register)="onRegister($event)"
-        />
-        }
+        <!-- Card header -->
+        <div
+          class="px-6 py-4 border-b border-secondary/10 flex items-center gap-2"
+        >
+          <lucide-angular
+            [img]="GraduationCapIcon"
+            class="w-5 h-5 text-secondary"
+            aria-hidden="true"
+          />
+          <h2 class="font-display text-lg font-semibold">Learning Sessions</h2>
+        </div>
+
+        <!-- Description + pricing -->
+        <div class="px-6 py-5 border-b border-secondary/10">
+          <p class="text-neutral-content text-sm max-w-lg">
+            4&#x2013;5 hour live consulting deep-dives to help you master Ptah
+            and supercharge your development workflow. Pick a topic below.
+          </p>
+          <div
+            class="inline-flex items-center gap-3 mt-3 bg-base-300/50 border border-secondary/10 rounded-full px-4 py-2"
+          >
+            <span class="text-success font-medium text-sm"
+              >First session FREE for community members</span
+            >
+            <span class="text-neutral-content/20">|</span>
+            <span class="text-neutral-content text-sm"
+              >$100 per session after</span
+            >
+          </div>
+        </div>
+
+        <!-- Topic sections -->
+        <div class="divide-y divide-secondary/10">
+          @for (topic of topics; track topic.id) {
+          <ptah-session-card
+            [topic]="topic"
+            [isFreeEligible]="hasFreeSession()"
+            (register)="onRegister($event)"
+          />
+          }
+        </div>
+
+        <!-- Card footer -->
+        <div
+          class="px-6 py-4 bg-base-300/30 border-t border-secondary/10 text-center"
+        >
+          <span class="text-neutral-content text-xs"
+            >Sessions are conducted live via screen share. You'll receive
+            scheduling details after registration.</span
+          >
+        </div>
       </div>
 
       @if (successMessage()) {
-      <div class="max-w-2xl mx-auto mt-8">
+      <div class="mt-6">
         <div
-          class="bg-green-500/10 border border-green-500/30 rounded-xl p-6 text-center"
+          class="bg-success/10 border border-success/30 rounded-xl p-6 text-center"
         >
-          <div class="text-3xl mb-3">✅</div>
-          <p class="text-green-400 font-medium">{{ successMessage() }}</p>
+          <p class="text-success font-medium">{{ successMessage() }}</p>
         </div>
       </div>
       } @if (errorMessage()) {
-      <div class="max-w-2xl mx-auto mt-8">
+      <div class="mt-6">
         <div
-          class="bg-red-500/10 border border-red-500/30 rounded-xl p-6 text-center"
+          class="bg-error/10 border border-error/30 rounded-xl p-6 text-center"
         >
-          <p class="text-red-400">{{ errorMessage() }}</p>
+          <p class="text-error">{{ errorMessage() }}</p>
         </div>
       </div>
       }
-    </section>
+    </div>
 
     <!-- Registration Modal -->
     <ptah-session-registration-modal
@@ -77,6 +123,8 @@ export class SessionsGridComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly paddleCheckout = inject(PaddleCheckoutService);
   private readonly paddleConfig = inject(PADDLE_CONFIG);
+
+  public readonly GraduationCapIcon = GraduationCap;
 
   public readonly topics = SESSION_TOPICS;
   public readonly hasFreeSession = signal(false);

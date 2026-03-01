@@ -65,11 +65,17 @@ export class AttachmentProcessorService {
    * - Images are converted to base64 blocks
    * - Text files are read and wrapped in XML tags
    * - Folders are passed as references (agent will explore using its tools)
+   *
+   * Appends a single <system-reminder> block at the end with consolidated
+   * instructions for all referenced attachments. The frontend strips
+   * <system-reminder> tags from the user bubble display.
    */
   async processAttachments(
     files: readonly string[]
   ): Promise<UserMessageContentBlock[]> {
     const blocks: UserMessageContentBlock[] = [];
+    const folderPaths: string[] = [];
+    const referencedFilePaths: string[] = [];
 
     for (const file of files) {
       try {
@@ -79,6 +85,7 @@ export class AttachmentProcessorService {
         if (stats.isDirectory()) {
           const folderBlock = this.processFolderReference(file);
           blocks.push(folderBlock);
+          folderPaths.push(file);
           continue;
         }
 
@@ -90,8 +97,16 @@ export class AttachmentProcessorService {
         } else {
           // Treat everything else as text (with size check)
           // We could add a binary check here if needed, but for now assuming non-image = text
+          const isLargeFile =
+            stats.size >= this.SMALL_FILE_THRESHOLD ||
+            stats.size > this.MAX_TEXT_FILE_SIZE;
           const textBlock = await this.processTextFile(file, stats.size);
-          if (textBlock) blocks.push(textBlock);
+          if (textBlock) {
+            blocks.push(textBlock);
+            if (isLargeFile) {
+              referencedFilePaths.push(file);
+            }
+          }
         }
       } catch (error) {
         this.logger.warn(
@@ -101,12 +116,23 @@ export class AttachmentProcessorService {
       }
     }
 
+    // Append a single consolidated <system-reminder> for all referenced attachments
+    const systemReminder = this.buildAttachmentReminder(
+      folderPaths,
+      referencedFilePaths
+    );
+    if (systemReminder) {
+      blocks.push(systemReminder);
+    }
+
     return blocks;
   }
 
   /**
-   * Process folder reference - don't read contents, just pass path for agent to explore
-   * The agent will use its tools (Read, Glob, Grep) to explore the folder as needed
+   * Process folder reference - don't read contents, just pass path for agent to explore.
+   * The agent will use its tools (Read, Glob, Grep) to explore the folder as needed.
+   * Description/instructions are consolidated in a single <system-reminder> block
+   * appended by buildAttachmentReminder() to avoid repetition.
    */
   private processFolderReference(folderPath: string): UserMessageContentBlock {
     this.logger.debug(
@@ -115,10 +141,7 @@ export class AttachmentProcessorService {
 
     return {
       type: 'text',
-      text: `<folder path="${folderPath}">
-This folder is attached for reference. Use Glob to list files and Read to examine contents as needed.
-Example: Glob pattern "${folderPath}/**/*" to see all files.
-</folder>`,
+      text: `<folder path="${folderPath}" />`,
     };
   }
 
@@ -221,8 +244,10 @@ Example: Glob pattern "${folderPath}/**/*" to see all files.
   }
 
   /**
-   * Process file as path reference - Claude will use Read tool to access content
-   * This is more token-efficient for large files and allows selective reading
+   * Process file as path reference - Claude will use Read tool to access content.
+   * This is more token-efficient for large files and allows selective reading.
+   * Description/instructions are consolidated in a single <system-reminder> block
+   * appended by buildAttachmentReminder() to avoid repetition.
    */
   private processFileReference(
     filePath: string,
@@ -233,10 +258,47 @@ Example: Glob pattern "${folderPath}/**/*" to see all files.
 
     return {
       type: 'text',
-      text: `<file path="${filePath}" size="${size}" sizeKB="${sizeKB}" extension="${ext}">
-This file is attached for reference. Use the Read tool to examine its contents when needed.
-You can read specific sections using offset and limit parameters for large files.
-</file>`,
+      text: `<file path="${filePath}" size="${size}" sizeKB="${sizeKB}" extension="${ext}" />`,
+    };
+  }
+
+  /**
+   * Build a single consolidated <system-reminder> block for all referenced attachments.
+   * Contains instructions for using Glob/Read tools. The frontend strips
+   * <system-reminder> tags from user bubble display so these instructions
+   * are only visible to the LLM.
+   */
+  private buildAttachmentReminder(
+    folderPaths: string[],
+    referencedFilePaths: string[]
+  ): UserMessageContentBlock | null {
+    if (folderPaths.length === 0 && referencedFilePaths.length === 0) {
+      return null;
+    }
+
+    const lines: string[] = [];
+
+    if (folderPaths.length > 0) {
+      lines.push(
+        'The above folders are attached for reference. Use Glob to list files and Read to examine contents as needed.'
+      );
+      for (const fp of folderPaths) {
+        lines.push(`Example: Glob pattern "${fp}/**/*" to see all files.`);
+      }
+    }
+
+    if (referencedFilePaths.length > 0) {
+      lines.push(
+        'The above files are attached for reference. Use the Read tool to examine their contents when needed.'
+      );
+      lines.push(
+        'You can read specific sections using offset and limit parameters for large files.'
+      );
+    }
+
+    return {
+      type: 'text',
+      text: `<system-reminder>\n${lines.join('\n')}\n</system-reminder>`,
     };
   }
 

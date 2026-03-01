@@ -14,6 +14,7 @@ import {
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
 import { DocsCodeBlockComponent } from '../components/docs-code-block.component';
+import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
 
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 
@@ -25,6 +26,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     LucideAngularModule,
     DocsStepCardComponent,
     DocsCodeBlockComponent,
+    DocsCollapsibleCardComponent,
     DocsSectionShellComponent,
   ],
   template: `
@@ -32,54 +34,41 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       <h2
         viewportAnimation
         [viewportConfig]="headingConfig"
-        class="text-2xl sm:text-3xl font-display font-bold text-white/90 mb-3"
+        class="text-2xl sm:text-3xl font-display font-bold text-base-content mb-3"
       >
         Authentication Setup
       </h2>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="text-white/50 mb-4 max-w-2xl"
+        class="text-neutral-content mb-4 max-w-2xl"
       >
-        Ptah offers five authentication methods. Choose the one that matches
+        Ptah offers four authentication methods. Choose the one that matches
         your subscription or preferred provider.
       </p>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="text-white/40 text-sm mb-8 max-w-2xl"
+        class="text-neutral-content/60 text-sm mb-8 max-w-2xl"
       >
         Open the Ptah sidebar → click the
-        <strong class="text-white/60">gear icon</strong> to access settings.
-        You'll see five tabs: <strong class="text-white/60">Provider</strong>,
-        <strong class="text-white/60">OAuth</strong>,
-        <strong class="text-white/60">API Key</strong>, and
-        <strong class="text-white/60">Auto</strong>.
+        <strong class="text-neutral-content">gear icon</strong> to access
+        settings. You'll see four tabs:
+        <strong class="text-neutral-content">Provider</strong>,
+        <strong class="text-neutral-content">OAuth</strong>,
+        <strong class="text-neutral-content">API Key</strong>, and
+        <strong class="text-neutral-content">Auto</strong>.
       </p>
 
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
         <!-- OAuth Token -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="ShieldCheckIcon"
+          title="OAuth Token"
+          subtitle="Claude Max / Pro subscription"
+          [expanded]="true"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="ShieldCheckIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <div>
-              <h3 class="text-lg font-semibold text-white/90">OAuth Token</h3>
-              <span class="text-xs text-amber-400/60"
-                >Claude Max / Pro subscription</span
-              >
-            </div>
-          </div>
-          <p class="text-sm text-white/50 mb-4">
+          <p class="text-sm text-neutral-content mb-4">
             If you have a Claude Max or Pro subscription, use your OAuth token.
             This covers usage under your existing subscription — no per-token
             charges.
@@ -104,38 +93,23 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
                 Follow the terminal prompts. Once complete, copy the token
                 (starts with
                 <code
-                  class="px-1 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-xs font-mono text-amber-400/80"
+                  class="px-1 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
                   >sk-ant-oat01-</code
                 >) and paste it in the
-                <strong class="text-white/80">OAuth</strong> tab in Ptah
+                <strong class="text-base-content/80">OAuth</strong> tab in Ptah
                 settings.
               </p>
             </ptah-docs-step-card>
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- API Key -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="KeyIcon"
+          title="API Key"
+          subtitle="Anthropic Console — pay-per-token"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="KeyIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <div>
-              <h3 class="text-lg font-semibold text-white/90">API Key</h3>
-              <span class="text-xs text-amber-400/60"
-                >Anthropic Console — pay-per-token</span
-              >
-            </div>
-          </div>
-          <p class="text-sm text-white/50 mb-4">
+          <p class="text-sm text-neutral-content mb-4">
             Use a direct Anthropic API key for pay-per-token billing. No
             subscription required — you pay only for what you use.
           </p>
@@ -148,12 +122,12 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
                   href="https://console.anthropic.com/settings/keys"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-amber-400 hover:text-amber-300 underline underline-offset-2"
+                  class="text-secondary hover:text-secondary/80 underline underline-offset-2"
                   >console.anthropic.com/settings/keys</a
                 >
                 → Create Key. Keys start with
                 <code
-                  class="px-1 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-xs font-mono text-amber-400/80"
+                  class="px-1 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
                   >sk-ant-api03-</code
                 >.
               </p>
@@ -165,109 +139,83 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             >
               <p>
                 Open Ptah settings →
-                <strong class="text-white/80">API Key</strong> tab → paste your
-                key → Save &amp; Test.
+                <strong class="text-base-content/80">API Key</strong> tab →
+                paste your key → Save &amp; Test.
               </p>
             </ptah-docs-step-card>
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- Third-party Providers -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="LayersIcon"
+          title="Provider"
+          subtitle="OpenRouter, Moonshot (Kimi), Z.AI (GLM) — no Claude subscription needed"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="LayersIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <div>
-              <h3 class="text-lg font-semibold text-white/90">Provider</h3>
-              <span class="text-xs text-amber-400/60"
-                >OpenRouter, Moonshot (Kimi), Z.AI (GLM) — no Claude
-                subscription needed</span
-              >
-            </div>
-          </div>
-          <p class="text-sm text-white/50 mb-4">
+          <p class="text-sm text-neutral-content mb-4">
             Use third-party AI providers with your own API key from that
             provider. These providers speak an Anthropic-compatible API, so Ptah
             routes requests through them seamlessly —
-            <strong class="text-white/70"
+            <strong class="text-base-content/70"
               >no Claude subscription required</strong
             >.
           </p>
-          <p class="text-sm text-white/50 mb-4">
-            Select the <strong class="text-white/80">Provider</strong> tab,
-            choose your provider from the dropdown, and enter your API key. Each
+          <p class="text-sm text-neutral-content mb-4">
+            Select the
+            <strong class="text-base-content/80">Provider</strong> tab, choose
+            your provider from the dropdown, and enter your API key. Each
             provider's key is stored separately, so you can switch between
             providers without losing credentials.
           </p>
-          <p class="text-sm text-white/40 italic">
+          <p class="text-sm text-neutral-content/60 italic">
             See the
             <a
               href="#providers"
-              class="text-amber-400/80 hover:text-amber-300 underline underline-offset-2"
+              class="text-secondary/80 hover:text-secondary/80 underline underline-offset-2"
               >Provider APIs</a
             >
             section below for details on each provider and their available
             models.
           </p>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- Auto Mode -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="SettingsIcon"
+          title="Auto"
+          subtitle="Tries all configured credentials automatically"
         >
-          <div class="flex items-center gap-3 mb-4">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="SettingsIcon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <div>
-              <h3 class="text-lg font-semibold text-white/90">Auto</h3>
-              <span class="text-xs text-amber-400/60"
-                >Tries all configured credentials automatically</span
-              >
-            </div>
-          </div>
-          <p class="text-sm text-white/50">
+          <p class="text-sm text-neutral-content">
             Auto mode detects and uses the first available credential in
             priority order:
-            <strong class="text-white/70"> Provider → OAuth → API Key</strong>.
-            Configure multiple credentials and Ptah will use whichever is
+            <strong class="text-base-content/70">
+              Provider → OAuth → API Key</strong
+            >. Configure multiple credentials and Ptah will use whichever is
             available. All credential fields are shown simultaneously in this
             mode.
           </p>
-        </div>
+        </ptah-docs-collapsible-card>
       </div>
 
       <!-- Test connection tip -->
       <div
         viewportAnimation
         [viewportConfig]="tipConfig"
-        class="mt-8 flex items-start gap-3 p-4 rounded-xl bg-amber-500/5 border border-amber-500/15"
+        class="mt-8 flex items-start gap-3 p-4 rounded-xl bg-secondary/5 border border-secondary/20"
       >
         <lucide-angular
           [img]="ShieldCheckIcon"
-          class="w-5 h-5 text-green-400 shrink-0 mt-0.5"
+          class="w-5 h-5 text-success shrink-0 mt-0.5"
           aria-hidden="true"
         />
-        <p class="text-sm text-white/60">
-          <strong class="text-white/80">Always test your connection:</strong>
+        <p class="text-sm text-neutral-content">
+          <strong class="text-base-content/80"
+            >Always test your connection:</strong
+          >
           After entering credentials, click
-          <strong class="text-white/80">Save &amp; Test Connection</strong>.
-          Ptah will verify your credentials are valid and show a success or
+          <strong class="text-base-content/80"
+            >Save &amp; Test Connection</strong
+          >. Ptah will verify your credentials are valid and show a success or
           error message with specific troubleshooting tips.
         </p>
       </div>

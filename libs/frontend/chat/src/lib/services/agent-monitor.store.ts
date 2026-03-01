@@ -265,10 +265,10 @@ export class AgentMonitorStore implements OnDestroy {
             task: ref.task,
             status: ref.status,
             startedAt: Number.isNaN(ts) ? Date.now() : ts,
-            stdout: '',
+            stdout: ref.stdout ?? '',
             stderr: '',
             expanded: false,
-            segments: [],
+            segments: ref.segments ? [...ref.segments] : [],
             cliSessionId: ref.cliSessionId,
             parentSessionId,
           });

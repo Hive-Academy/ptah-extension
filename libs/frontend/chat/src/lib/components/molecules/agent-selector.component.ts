@@ -5,10 +5,10 @@
  * Separated from @ trigger to provide cleaner UX - @ is now for files/folders only.
  *
  * TASK_2025_167: Extended to show custom agents alongside built-in agents.
- * Custom agents are fetched from CustomAgentStateService and displayed in a
+ * Ptah CLI agents are fetched from PtahCliStateService and displayed in a
  * separate section with provider badges and a "clear" option.
  *
- * Pattern: Signal-based state from AgentDiscoveryFacade + CustomAgentStateService
+ * Pattern: Signal-based state from AgentDiscoveryFacade + PtahCliStateService
  * UI: NativeDropdownComponent from @ptah-extension/ui with Floating UI positioning
  * Keyboard Navigation: Parent manages activeIndex signal for NativeOptionComponent
  */

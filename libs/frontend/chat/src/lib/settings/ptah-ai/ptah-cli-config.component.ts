@@ -4,7 +4,9 @@ import {
   ChangeDetectionStrategy,
   computed,
   signal,
+  output,
   OnInit,
+  OnDestroy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
@@ -20,16 +22,13 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-angular';
-import {
-  ClaudeRpcService,
-  CustomAgentStateService,
-} from '@ptah-extension/core';
+import { ClaudeRpcService, PtahCliStateService } from '@ptah-extension/core';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
-import type { CustomAgentSummary } from '@ptah-extension/shared';
+import type { PtahCliSummary } from '@ptah-extension/shared';
 
 /**
- * Known provider definitions for the custom agent creation form.
- * These are Anthropic-compatible providers supported by the custom agent adapter.
+ * Known provider definitions for the Ptah CLI agent creation form.
+ * These are Anthropic-compatible providers supported by the Ptah CLI adapter.
  */
 interface ProviderOption {
   readonly id: string;
@@ -56,13 +55,15 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
 ] as const;
 
 /**
- * CustomAgentConfigComponent - CRUD management for custom agent instances
+ * PtahCliConfigComponent - CRUD management for Ptah CLI agent instances
+ *
+ * TASK_2025_170: Renamed from CustomAgentConfigComponent
  *
  * Complexity Level: 2 (Medium - form with CRUD operations and service delegation)
  * Patterns: Signal-based state, composition, DaisyUI styling
  *
  * Responsibilities:
- * - List configured custom agents with status, provider, enable toggle
+ * - List configured Ptah CLI agents with status, provider, enable toggle
  * - Add new agent via inline form (name, provider, API key)
  * - Edit agent configuration (name, API key)
  * - Delete agent with confirmation dialog
@@ -70,14 +71,14 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
  * - Enable/disable toggle per agent
  *
  * RPC Methods Used:
- * - customAgent:list    -> List all agents
- * - customAgent:create  -> Create new agent
- * - customAgent:update  -> Update agent config
- * - customAgent:delete  -> Delete agent
- * - customAgent:testConnection -> Test API connection
+ * - ptahCli:list    -> List all agents
+ * - ptahCli:create  -> Create new agent
+ * - ptahCli:update  -> Update agent config
+ * - ptahCli:delete  -> Delete agent
+ * - ptahCli:testConnection -> Test API connection
  */
 @Component({
-  selector: 'ptah-custom-agent-config',
+  selector: 'ptah-cli-config',
   standalone: true,
   imports: [FormsModule, LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -89,14 +90,14 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
           <div class="flex items-center gap-1.5">
             <lucide-angular [img]="BotIcon" class="w-4 h-4 text-primary" />
             <h2 class="text-xs font-medium uppercase tracking-wide">
-              Custom Agents
+              Ptah CLI Agents
             </h2>
           </div>
           <button
             class="btn btn-ghost btn-xs gap-1"
             (click)="toggleAddForm()"
             [disabled]="isLoading()"
-            aria-label="Add custom agent"
+            aria-label="Add Ptah CLI agent"
           >
             @if (showAddForm()) {
             <lucide-angular [img]="XIcon" class="w-3 h-3" />
@@ -109,7 +110,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
         </div>
 
         <p class="text-xs text-base-content/70 mb-3">
-          Connect external AI providers (OpenRouter, Moonshot, Z.AI) as custom
+          Connect external AI providers (OpenRouter, Moonshot, Z.AI) as Ptah CLI
           agents for chat.
         </p>
 
@@ -132,7 +133,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
         @if (isLoading() && agents().length === 0) {
         <div class="flex items-center gap-2 text-xs text-base-content/50 py-2">
           <span class="loading loading-spinner loading-xs"></span>
-          <span>Loading custom agents...</span>
+          <span>Loading Ptah CLI agents...</span>
         </div>
         }
 
@@ -142,7 +143,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
           class="border border-primary/20 rounded p-3 mb-3 bg-base-100 space-y-2"
         >
           <div class="text-xs font-medium text-base-content/70 mb-1">
-            New Custom Agent
+            New Ptah CLI Agent
           </div>
 
           <!-- Name -->
@@ -286,6 +287,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
                   class="toggle toggle-xs toggle-primary"
                   [checked]="agent.enabled"
                   (change)="toggleEnabled(agent)"
+                  [disabled]="isUpdating()"
                   [attr.aria-label]="
                     (agent.enabled ? 'Disable' : 'Enable') + ' ' + agent.name
                   "
@@ -408,7 +410,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
             [img]="BotIcon"
             class="w-6 h-6 mx-auto mb-2 opacity-30"
           />
-          <p>No custom agents configured.</p>
+          <p>No Ptah CLI agents configured.</p>
           <p class="mt-1">
             Click
             <button class="link link-primary" (click)="toggleAddForm()">
@@ -422,10 +424,13 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
     </div>
   `,
 })
-export class CustomAgentConfigComponent implements OnInit {
+export class PtahCliConfigComponent implements OnInit, OnDestroy {
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
-  private readonly customAgentState = inject(CustomAgentStateService);
+  private readonly ptahCliState = inject(PtahCliStateService);
+
+  /** Emitted after successful create/update/delete so siblings can refresh */
+  readonly ptahCliChanged = output<void>();
 
   // Lucide icons
   readonly BotIcon = Bot;
@@ -447,7 +452,7 @@ export class CustomAgentConfigComponent implements OnInit {
   // ============================================================================
 
   // Agent list
-  readonly agents = signal<CustomAgentSummary[]>([]);
+  readonly agents = signal<PtahCliSummary[]>([]);
   readonly isLoading = signal(false);
   readonly error = signal<string | null>(null);
   readonly successMessage = signal<string | null>(null);
@@ -473,6 +478,9 @@ export class CustomAgentConfigComponent implements OnInit {
     error?: string;
   } | null>(null);
 
+  // Toggle concurrency guard
+  readonly isUpdating = signal(false);
+
   // Auto-clear timers
   private successTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -496,6 +504,13 @@ export class CustomAgentConfigComponent implements OnInit {
     await this.loadAgents();
   }
 
+  ngOnDestroy(): void {
+    if (this.successTimer) {
+      clearTimeout(this.successTimer);
+      this.successTimer = null;
+    }
+  }
+
   // ============================================================================
   // AGENT LIST
   // ============================================================================
@@ -505,21 +520,26 @@ export class CustomAgentConfigComponent implements OnInit {
     this.error.set(null);
     try {
       const result = await this.rpcService.call(
-        'customAgent:list',
+        'ptahCli:list',
         {} as Record<string, never>
       );
       if (result.isSuccess()) {
         this.agents.set(result.data.agents);
-        // TASK_2025_167: Refresh CustomAgentStateService so agent selector
+        // TASK_2025_170: Refresh PtahCliStateService so agent selector
         // dropdown stays in sync with settings changes
-        this.customAgentState.refresh().catch(() => {
+        this.ptahCliState.refresh().catch(() => {
           // Non-critical: agent selector will refresh on next open
         });
       } else {
-        this.error.set(result.error ?? 'Failed to load custom agents');
+        this.error.set(result.error ?? 'Failed to load Ptah CLI agents');
       }
-    } catch {
-      this.error.set('Failed to load custom agents');
+    } catch (err) {
+      console.error('[PtahCliConfig]', err);
+      this.error.set(
+        `Failed to load Ptah CLI agents: ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`
+      );
     } finally {
       this.isLoading.set(false);
     }
@@ -542,7 +562,7 @@ export class CustomAgentConfigComponent implements OnInit {
     this.isCreating.set(true);
     this.error.set(null);
     try {
-      const result = await this.rpcService.call('customAgent:create', {
+      const result = await this.rpcService.call('ptahCli:create', {
         name: this.newAgentName().trim(),
         providerId: this.newAgentProvider(),
         apiKey: this.newAgentApiKey().trim(),
@@ -553,13 +573,19 @@ export class CustomAgentConfigComponent implements OnInit {
         this.resetAddForm();
         this.showAddForm.set(false);
         await this.loadAgents();
+        this.ptahCliChanged.emit();
       } else {
         this.error.set(
           result.data?.error ?? result.error ?? 'Failed to create agent'
         );
       }
-    } catch {
-      this.error.set('Failed to create agent');
+    } catch (err) {
+      console.error('[PtahCliConfig]', err);
+      this.error.set(
+        `Failed to create agent: ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`
+      );
     } finally {
       this.isCreating.set(false);
     }
@@ -576,7 +602,7 @@ export class CustomAgentConfigComponent implements OnInit {
   // EDIT AGENT
   // ============================================================================
 
-  startEdit(agent: CustomAgentSummary): void {
+  startEdit(agent: PtahCliSummary): void {
     this.editingAgentId.set(agent.id);
     this.editName.set(agent.name);
   }
@@ -592,7 +618,7 @@ export class CustomAgentConfigComponent implements OnInit {
 
     this.error.set(null);
     try {
-      const result = await this.rpcService.call('customAgent:update', {
+      const result = await this.rpcService.call('ptahCli:update', {
         id: agentId,
         name,
       });
@@ -601,13 +627,19 @@ export class CustomAgentConfigComponent implements OnInit {
         this.showSuccess('Agent updated');
         this.cancelEdit();
         await this.loadAgents();
+        this.ptahCliChanged.emit();
       } else {
         this.error.set(
           result.data?.error ?? result.error ?? 'Failed to update agent'
         );
       }
-    } catch {
-      this.error.set('Failed to update agent');
+    } catch (err) {
+      console.error('[PtahCliConfig]', err);
+      this.error.set(
+        `Failed to update agent: ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`
+      );
     }
   }
 
@@ -615,10 +647,12 @@ export class CustomAgentConfigComponent implements OnInit {
   // TOGGLE ENABLED
   // ============================================================================
 
-  async toggleEnabled(agent: CustomAgentSummary): Promise<void> {
+  async toggleEnabled(agent: PtahCliSummary): Promise<void> {
+    if (this.isUpdating()) return;
+    this.isUpdating.set(true);
     this.error.set(null);
     try {
-      const result = await this.rpcService.call('customAgent:update', {
+      const result = await this.rpcService.call('ptahCli:update', {
         id: agent.id,
         enabled: !agent.enabled,
       });
@@ -630,17 +664,25 @@ export class CustomAgentConfigComponent implements OnInit {
             a.id === agent.id ? { ...a, enabled: !a.enabled } : a
           )
         );
-        // TASK_2025_167: Refresh state service for agent selector sync
-        this.customAgentState.refresh().catch(() => {
+        // Refresh state service for agent selector sync
+        this.ptahCliState.refresh().catch(() => {
           // Non-critical: agent selector will refresh on next open
         });
+        this.ptahCliChanged.emit();
       } else {
         this.error.set(
           result.data?.error ?? result.error ?? 'Failed to toggle agent'
         );
       }
-    } catch {
-      this.error.set('Failed to toggle agent');
+    } catch (err) {
+      console.error('[PtahCliConfig]', err);
+      this.error.set(
+        `Failed to toggle agent: ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`
+      );
+    } finally {
+      this.isUpdating.set(false);
     }
   }
 
@@ -648,9 +690,9 @@ export class CustomAgentConfigComponent implements OnInit {
   // DELETE AGENT
   // ============================================================================
 
-  async deleteAgent(agent: CustomAgentSummary): Promise<void> {
+  async deleteAgent(agent: PtahCliSummary): Promise<void> {
     const confirmed = await this.confirmDialog.confirm({
-      title: 'Delete Custom Agent',
+      title: 'Delete Ptah CLI Agent',
       message: `Are you sure you want to delete "${agent.name}"? This action cannot be undone.`,
       confirmLabel: 'Delete',
       confirmStyle: 'error',
@@ -660,20 +702,26 @@ export class CustomAgentConfigComponent implements OnInit {
 
     this.error.set(null);
     try {
-      const result = await this.rpcService.call('customAgent:delete', {
+      const result = await this.rpcService.call('ptahCli:delete', {
         id: agent.id,
       });
 
       if (result.isSuccess() && result.data.success) {
         this.showSuccess(`Agent "${agent.name}" deleted`);
         await this.loadAgents();
+        this.ptahCliChanged.emit();
       } else {
         this.error.set(
           result.data?.error ?? result.error ?? 'Failed to delete agent'
         );
       }
-    } catch {
-      this.error.set('Failed to delete agent');
+    } catch (err) {
+      console.error('[PtahCliConfig]', err);
+      this.error.set(
+        `Failed to delete agent: ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`
+      );
     }
   }
 
@@ -688,7 +736,7 @@ export class CustomAgentConfigComponent implements OnInit {
     this.error.set(null);
 
     try {
-      const result = await this.rpcService.call('customAgent:testConnection', {
+      const result = await this.rpcService.call('ptahCli:testConnection', {
         id: agentId,
       });
 
@@ -706,11 +754,14 @@ export class CustomAgentConfigComponent implements OnInit {
           error: result.error ?? 'Connection test failed',
         });
       }
-    } catch {
+    } catch (err) {
+      console.error('[PtahCliConfig]', err);
       this.testResultAgentId.set(agentId);
       this.testResult.set({
         success: false,
-        error: 'Connection test failed',
+        error: `Connection test failed: ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`,
       });
     } finally {
       this.testingAgentId.set(null);

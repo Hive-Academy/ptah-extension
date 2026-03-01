@@ -260,10 +260,10 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
     name: 'ptah_agent_spawn',
     description:
       'Spawn a headless agent to work on a task in the background. ' +
-      'Supports CLI agents (Gemini, Codex, Copilot) and custom agents (OpenRouter, Moonshot, Z.AI). ' +
+      'Supports CLI agents (Gemini, Codex, Copilot) and Ptah CLI agents (OpenRouter, Moonshot, Z.AI). ' +
       'The agent runs while you continue working. ' +
       'Use ptah_agent_status to check progress and ptah_agent_read to get output. ' +
-      'For custom agents, pass customAgentId (from ptah_agent_list). ' +
+      'For Ptah CLI agents, pass ptahCliId (from ptah_agent_list). ' +
       'To resume a previous CLI session, pass resume_session_id with the CLI session ID. ' +
       'Ideal for delegating: code reviews, test generation, documentation, ' +
       'and other independent subtasks.',
@@ -282,13 +282,13 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
           description:
             'Which CLI agent to use. Each requires its CLI installed on PATH. ' +
             'Omit to use the default (auto-detected or user-configured). ' +
-            'Not needed when using customAgentId.',
+            'Not needed when using ptahCliId.',
         },
-        customAgentId: {
+        ptahCliId: {
           type: 'string',
           description:
-            'ID of a custom agent to use (from ptah_agent_list results where cli="custom"). ' +
-            'Custom agents are user-configured Anthropic-compatible providers ' +
+            'ID of a Ptah CLI agent to use (from ptah_agent_list results where cli="ptah-cli"). ' +
+            'Ptah CLI agents are user-configured Anthropic-compatible providers ' +
             '(OpenRouter, Moonshot, Z.AI, etc.). When set, cli parameter is ignored.',
         },
         workingDirectory: {
@@ -420,9 +420,9 @@ export function buildAgentListTool(): MCPToolDefinition {
   return {
     name: 'ptah_agent_list',
     description:
-      'List all available agents (CLI and custom) that can be spawned. ' +
+      'List all available agents (CLI and Ptah CLI) that can be spawned. ' +
       'Returns agent type, installation status, and capabilities. ' +
-      'Custom agents include customAgentId needed for ptah_agent_spawn.',
+      'Ptah CLI agents include ptahCliId needed for ptah_agent_spawn.',
     inputSchema: {
       type: 'object',
       properties: {},

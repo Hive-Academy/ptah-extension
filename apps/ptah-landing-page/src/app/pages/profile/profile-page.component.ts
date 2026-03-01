@@ -235,22 +235,11 @@ export type ProfileTab = 'account' | 'sessions' | 'contact';
         } @case ('sessions') {
         <!-- Sessions Tab -->
         <div class="mb-8">
-          <h2 class="text-xl font-semibold text-white mb-1">
-            Learning Sessions
-          </h2>
-          <p class="text-white/50 text-sm mb-6">
-            2-hour live consulting sessions to help you master Ptah and
-            supercharge your development workflow.
-          </p>
           <ptah-sessions-grid />
         </div>
         } @case ('contact') {
         <!-- Contact Tab -->
         <div class="mb-8">
-          <h2 class="text-xl font-semibold text-white mb-1">Get in Touch</h2>
-          <p class="text-white/50 text-sm mb-6">
-            Have a question, feedback, or need help? We'd love to hear from you.
-          </p>
           <ptah-contact-form />
         </div>
         } }

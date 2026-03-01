@@ -6,8 +6,8 @@
  * ANTHROPIC_BASE_URL, tier mappings). This prevents leaking sensitive
  * host environment variables to third-party API endpoints.
  *
- * Used by both CustomAgentRegistry (for validation queries) and
- * CustomAgentAdapter (for chat sessions).
+ * Used by both PtahCliRegistry (for validation queries) and
+ * PtahCliAdapter (for chat sessions).
  *
  * @param authEnv - Provider-specific environment variables
  * @returns Minimal env safe for custom agent processes

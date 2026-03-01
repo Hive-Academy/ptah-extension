@@ -11,6 +11,7 @@ import {
   CheckCircle2,
 } from 'lucide-angular';
 import { DocsCodeBlockComponent } from '../components/docs-code-block.component';
+import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
 import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 
@@ -21,6 +22,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsCodeBlockComponent,
+    DocsCollapsibleCardComponent,
     DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
   ],
@@ -29,18 +31,18 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       <h2
         viewportAnimation
         [viewportConfig]="headingConfig"
-        class="text-2xl sm:text-3xl font-display font-bold text-white/90 mb-3"
+        class="text-2xl sm:text-3xl font-display font-bold text-base-content mb-3"
       >
         Orchestration Workflow
       </h2>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="text-white/50 mb-8 max-w-2xl"
+        class="text-neutral-content mb-8 max-w-2xl"
       >
         The
         <code
-          class="px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-sm font-mono text-amber-400/80"
+          class="px-1.5 py-0.5 rounded bg-base-300 border border-secondary/10 text-sm font-mono text-secondary/80"
           >/orchestrate</code
         >
         command delegates complex tasks across specialized AI agents with user
@@ -50,37 +52,34 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
         <!-- Usage example -->
         <div>
-          <h3 class="text-base font-semibold text-white/80 mb-3">
+          <h3 class="text-base font-semibold text-base-content/80 mb-3">
             Quick Start
           </h3>
           <ptah-docs-code-block [code]="orchestrateExample" label="Ptah Chat" />
         </div>
 
         <!-- Workflow types -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="WorkflowIcon"
+          title="Workflow Types"
+          [expanded]="true"
         >
-          <h3 class="text-base font-semibold text-white/80 mb-4">
-            Workflow Types
-          </h3>
           <div class="flex flex-wrap gap-2">
             @for (type of workflowTypes; track type) {
             <span
-              class="px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-400/80 font-medium"
+              class="px-3 py-1.5 rounded-lg bg-secondary/10 border border-secondary/20 text-sm text-secondary/80 font-medium"
             >
               {{ type }}
             </span>
             }
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- Agent delegation flow -->
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="WorkflowIcon"
+          title="Agent Delegation Flow"
         >
-          <h3 class="text-base font-semibold text-white/80 mb-5">
-            Agent Delegation Flow
-          </h3>
           <div class="flex flex-col items-center gap-2">
             @for (agent of agentFlow; track agent.name; let last = $last) {
             <div class="flex items-center gap-3 w-full max-w-xs">
@@ -88,50 +87,52 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
                 class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 border"
                 [ngClass]="
                   agent.highlight
-                    ? 'bg-amber-500/20 border-amber-500/30'
-                    : 'bg-slate-700/40 border-slate-600/30'
+                    ? 'bg-secondary/20 border-secondary/30'
+                    : 'bg-base-300/50 border-secondary/10'
                 "
               >
                 <span
                   class="text-xs font-bold"
                   [ngClass]="
-                    agent.highlight ? 'text-amber-400' : 'text-white/50'
+                    agent.highlight ? 'text-secondary' : 'text-neutral-content'
                   "
                 >
                   {{ agent.abbr }}
                 </span>
               </div>
               <div class="flex-1">
-                <span class="text-sm font-medium text-white/80">{{
+                <span class="text-sm font-medium text-base-content/80">{{
                   agent.name
                 }}</span>
-                <span class="text-xs text-white/40 ml-2">{{ agent.role }}</span>
+                <span class="text-xs text-neutral-content/60 ml-2">{{
+                  agent.role
+                }}</span>
               </div>
             </div>
             @if (!last) {
             <lucide-angular
               [img]="ArrowDownIcon"
-              class="w-4 h-4 text-white/20"
+              class="w-4 h-4 text-neutral-content/20"
               aria-hidden="true"
             />
             } }
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- User checkpoints -->
         <div
-          class="flex items-start gap-3 p-4 rounded-xl bg-amber-500/5 border border-amber-500/15"
+          class="flex items-start gap-3 p-4 rounded-xl bg-secondary/5 border border-secondary/20"
         >
           <lucide-angular
             [img]="CheckCircle2Icon"
-            class="w-5 h-5 text-green-400 shrink-0 mt-0.5"
+            class="w-5 h-5 text-success shrink-0 mt-0.5"
             aria-hidden="true"
           />
-          <p class="text-sm text-white/60">
-            <strong class="text-white/80">User checkpoints:</strong> You approve
-            each stage before the workflow proceeds — plans, architecture
-            decisions, implementation strategies, and final code review. Nothing
-            ships without your sign-off.
+          <p class="text-sm text-neutral-content">
+            <strong class="text-base-content/80">User checkpoints:</strong> You
+            approve each stage before the workflow proceeds — plans,
+            architecture decisions, implementation strategies, and final code
+            review. Nothing ships without your sign-off.
           </p>
         </div>
       </div>

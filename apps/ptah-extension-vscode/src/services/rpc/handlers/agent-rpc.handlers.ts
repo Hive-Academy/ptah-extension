@@ -15,7 +15,7 @@ import {
   CliDetectionService,
   CopilotPermissionBridge,
 } from '@ptah-extension/llm-abstraction';
-import { SDK_TOKENS, CustomAgentRegistry } from '@ptah-extension/agent-sdk';
+import { SDK_TOKENS, PtahCliRegistry } from '@ptah-extension/agent-sdk';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -43,8 +43,8 @@ export class AgentRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
-    @inject(SDK_TOKENS.SDK_CUSTOM_AGENT_REGISTRY)
-    private readonly customAgentRegistry: CustomAgentRegistry
+    @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
+    private readonly ptahCliRegistry: PtahCliRegistry
   ) {}
 
   /**
@@ -86,24 +86,8 @@ export class AgentRpcHandlers {
           );
           const cliResults = await this.cliDetection.detectAll();
 
-          // Merge custom agents as CLI entries alongside gemini/codex/copilot
-          let detectedClis: CliDetectionResult[] = [...cliResults];
-          try {
-            const customAgents = await this.customAgentRegistry.listAgents();
-            const customClis: CliDetectionResult[] = customAgents
-              .filter((a) => a.enabled && a.hasApiKey)
-              .map((a) => ({
-                cli: 'custom' as const,
-                installed: true,
-                supportsSteer: false,
-                customAgentId: a.id,
-                customAgentName: a.name,
-                providerName: a.providerName,
-              }));
-            detectedClis = [...cliResults, ...customClis];
-          } catch {
-            // Non-fatal: custom agent listing may fail
-          }
+          // Merge Ptah CLI agents as CLI entries alongside gemini/codex/copilot
+          const detectedClis = await this.mergePtahCliAgents(cliResults);
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
@@ -290,14 +274,17 @@ export class AgentRpcHandlers {
           this.logger.debug('RPC: agent:detectClis called');
 
           this.cliDetection.invalidateCache();
-          const clis = await this.cliDetection.detectAll();
+          const cliResults = await this.cliDetection.detectAll();
+
+          // Merge Ptah CLI agents alongside detected CLIs (same logic as getConfig)
+          const detectedClis = await this.mergePtahCliAgents(cliResults);
 
           this.logger.debug('RPC: agent:detectClis success', {
-            cliCount: clis.length,
-            installedCount: clis.filter((c) => c.installed).length,
+            cliCount: detectedClis.length,
+            installedCount: detectedClis.filter((c) => c.installed).length,
           });
 
-          return { clis };
+          return { clis: detectedClis };
         } catch (error) {
           this.logger.error(
             'RPC: agent:detectClis failed',
@@ -355,6 +342,31 @@ export class AgentRpcHandlers {
         }
       }
     );
+  }
+
+  /**
+   * Merge Ptah CLI agents into CLI detection results.
+   * Each enabled agent with an API key appears as a `ptah-cli` entry.
+   */
+  private async mergePtahCliAgents(
+    cliResults: CliDetectionResult[]
+  ): Promise<CliDetectionResult[]> {
+    try {
+      const ptahCliAgents = await this.ptahCliRegistry.listAgents();
+      const ptahClis: CliDetectionResult[] = ptahCliAgents
+        .filter((a) => a.enabled && a.hasApiKey)
+        .map((a) => ({
+          cli: 'ptah-cli' as const,
+          installed: true,
+          supportsSteer: false,
+          ptahCliId: a.id,
+          ptahCliName: a.name,
+          providerName: a.providerName,
+        }));
+      return [...cliResults, ...ptahClis];
+    } catch {
+      return cliResults;
+    }
   }
 
   /**

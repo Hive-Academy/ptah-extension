@@ -1,16 +1,16 @@
 /**
- * Custom Agent Type Definitions (TASK_2025_167)
+ * Ptah CLI Agent Type Definitions (TASK_2025_167 → TASK_2025_170)
  *
- * Types for user-configured custom agent instances that connect to
+ * Types for user-configured Ptah CLI agent instances that connect to
  * Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.)
  * via the Claude Agent SDK's query() function.
  */
 
 /**
- * Persisted configuration for a single custom agent instance.
- * Stored in VS Code workspace settings under ptah.customAgents[].
+ * Persisted configuration for a single Ptah CLI agent instance.
+ * Stored in VS Code workspace settings under ptah.ptahCliAgents[].
  */
-export interface CustomAgentConfig {
+export interface PtahCliConfig {
   /** Unique instance ID (UUID, generated on creation) */
   readonly id: string;
   /** User-facing display name (e.g., "My Kimi Agent") */
@@ -32,9 +32,9 @@ export interface CustomAgentConfig {
 }
 
 /**
- * Runtime state for a custom agent (not persisted).
+ * Runtime state for a Ptah CLI agent (not persisted).
  */
-export interface CustomAgentState {
+export interface PtahCliState {
   readonly initialized: boolean;
   readonly status: 'available' | 'error' | 'initializing' | 'unconfigured';
   readonly errorMessage?: string;
@@ -43,13 +43,13 @@ export interface CustomAgentState {
 /**
  * Summary information sent to the frontend for agent selection.
  */
-export interface CustomAgentSummary {
+export interface PtahCliSummary {
   readonly id: string;
   readonly name: string;
   readonly providerName: string;
   readonly providerId: string;
   readonly hasApiKey: boolean;
-  readonly status: CustomAgentState['status'];
+  readonly status: PtahCliState['status'];
   readonly enabled: boolean;
   readonly modelCount: number;
 }

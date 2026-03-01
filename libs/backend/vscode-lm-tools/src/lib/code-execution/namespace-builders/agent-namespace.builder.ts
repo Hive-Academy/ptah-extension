@@ -23,14 +23,14 @@ import type {
 const MAX_WAIT_TIMEOUT = 30 * 60 * 1000;
 
 /**
- * Minimal summary returned by CustomAgentRegistry.listAgents().
+ * Minimal summary returned by PtahCliRegistry.listAgents().
  * Only includes fields needed by the agent namespace builder.
  *
- * @see CustomAgentSummary in libs/shared/src/lib/types/custom-agent.types.ts for the full type
- * @see CustomAgentRegistry.listAgents() in libs/backend/agent-sdk/src/lib/custom-agent/custom-agent-registry.ts
- * @warning Keep fields in sync with the canonical CustomAgentSummary type
+ * @see PtahCliSummary in libs/shared/src/lib/types/ptah-cli.types.ts for the full type
+ * @see PtahCliRegistry.listAgents() in libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts
+ * @warning Keep fields in sync with the canonical PtahCliSummary type
  */
-interface CustomAgentListEntry {
+interface PtahCliListEntry {
   id: string;
   name: string;
   providerName: string;
@@ -43,7 +43,7 @@ interface CustomAgentListEntry {
  * Mirrors SpawnAgentFailure from @ptah-extension/agent-sdk -- duplicated
  * here to avoid circular dependency between vscode-lm-tools -> agent-sdk.
  *
- * @see SpawnAgentFailure in libs/backend/agent-sdk/src/lib/custom-agent/custom-agent-registry.ts
+ * @see SpawnAgentFailure in libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts
  * @warning Keep status values in sync with the canonical type
  */
 interface SpawnAgentFailure {
@@ -52,15 +52,15 @@ interface SpawnAgentFailure {
 }
 
 /**
- * Minimal interface for CustomAgentRegistry to avoid circular dependency
+ * Minimal interface for PtahCliRegistry to avoid circular dependency
  * between vscode-lm-tools -> agent-sdk. Only includes methods used by the
  * agent namespace builder.
  *
- * @see CustomAgentRegistry in libs/backend/agent-sdk/src/lib/custom-agent/custom-agent-registry.ts
- * @warning If CustomAgentRegistry's public API changes, this interface MUST be updated
+ * @see PtahCliRegistry in libs/backend/agent-sdk/src/lib/ptah-cli/ptah-cli-registry.ts
+ * @warning If PtahCliRegistry's public API changes, this interface MUST be updated
  */
-interface CustomAgentRegistryLike {
-  listAgents(): Promise<CustomAgentListEntry[]>;
+interface PtahCliRegistryLike {
+  listAgents(): Promise<PtahCliListEntry[]>;
   spawnAgent(
     id: string,
     task: string,
@@ -80,8 +80,8 @@ export interface AgentNamespaceDependencies {
   getActiveSessionId?: () => string | undefined;
   /** Returns project-specific guidance from enhanced prompts (async). Called at spawn time to inject project context into CLI agents. */
   getProjectGuidance?: () => Promise<string | undefined>;
-  /** Lazy resolver for CustomAgentRegistry (avoids hard dependency on agent-sdk) */
-  getCustomAgentRegistry?: () => CustomAgentRegistryLike | undefined;
+  /** Lazy resolver for PtahCliRegistry (avoids hard dependency on agent-sdk) */
+  getPtahCliRegistry?: () => PtahCliRegistryLike | undefined;
 }
 
 /**
@@ -96,7 +96,7 @@ export function buildAgentNamespace(
     workspaceRoot,
     getActiveSessionId,
     getProjectGuidance,
-    getCustomAgentRegistry,
+    getPtahCliRegistry,
   } = deps;
 
   return {
@@ -105,23 +105,23 @@ export function buildAgentNamespace(
       const activeSessionId = getActiveSessionId?.();
       const projectGuidance = await getProjectGuidance?.();
 
-      // Route custom agent spawn through CustomAgentRegistry
-      if (request.customAgentId) {
-        const registry = getCustomAgentRegistry?.();
+      // Route Ptah CLI agent spawn through PtahCliRegistry
+      if (request.ptahCliId) {
+        const registry = getPtahCliRegistry?.();
         if (!registry) {
           throw new Error(
-            'Custom agent registry not available. Custom agents require the Agent SDK.'
+            'Ptah CLI registry not available. Ptah CLI agents require the Agent SDK.'
           );
         }
 
         const result = await registry.spawnAgent(
-          request.customAgentId,
+          request.ptahCliId,
           request.task,
           projectGuidance
         );
         if ('status' in result) {
           throw new Error(
-            `Custom agent spawn failed: ${result.message}. ` +
+            `Ptah CLI agent spawn failed: ${result.message}. ` +
               'Use ptah_agent_list to see available agents.'
           );
         }
@@ -132,11 +132,11 @@ export function buildAgentNamespace(
 
         return agentProcessManager.spawnFromSdkHandle(result.handle, {
           task: request.task,
-          cli: 'custom',
+          cli: 'ptah-cli',
           workingDirectory,
           taskFolder: request.taskFolder,
           parentSessionId: activeSessionId,
-          customAgentName: result.agentName,
+          ptahCliName: result.agentName,
           timeout: request.timeout,
         });
       }
@@ -166,30 +166,30 @@ export function buildAgentNamespace(
     },
 
     list: async () => {
-      // Merge CLI agents with custom agents
+      // Merge CLI agents with Ptah CLI agents
       const cliResults = await cliDetectionService.detectAll();
 
-      const registry = getCustomAgentRegistry?.();
+      const registry = getPtahCliRegistry?.();
       if (!registry) {
         return cliResults;
       }
 
       try {
-        const customAgents = await registry.listAgents();
-        const customResults: CliDetectionResult[] = customAgents
+        const ptahCliAgents = await registry.listAgents();
+        const ptahCliResults: CliDetectionResult[] = ptahCliAgents
           .filter((a) => a.enabled && a.hasApiKey)
           .map((a) => ({
-            cli: 'custom' as const,
+            cli: 'ptah-cli' as const,
             installed: true,
             supportsSteer: false,
-            customAgentId: a.id,
-            customAgentName: a.name,
+            ptahCliId: a.id,
+            ptahCliName: a.name,
             providerName: a.providerName,
           }));
 
-        return [...cliResults, ...customResults];
+        return [...cliResults, ...ptahCliResults];
       } catch {
-        // If listing custom agents fails, still return CLI agents
+        // If listing Ptah CLI agents fails, still return CLI agents
         return cliResults;
       }
     },

@@ -15,7 +15,7 @@ export const SESSION_TOPICS: SessionTopic[] = [
     description:
       'Learn how to set up Ptah for NX workspaces, leverage agent orchestration across multiple projects, and harness workspace intelligence for maximum productivity.',
     icon: 'layers',
-    duration: '2 hours',
+    duration: '4-5 hours',
     topics: [
       'NX workspace configuration for Ptah',
       'Multi-project agent orchestration',
@@ -31,7 +31,7 @@ export const SESSION_TOPICS: SessionTopic[] = [
     description:
       "Master the PM to Architect to Developer pipeline, learn task tracking best practices, and create custom agents tailored to your team's workflow.",
     icon: 'git-branch',
-    duration: '2 hours',
+    duration: '4-5 hours',
     topics: [
       'PM → Architect → Dev pipeline',
       'Task tracking with orchestration',
@@ -47,7 +47,7 @@ export const SESSION_TOPICS: SessionTopic[] = [
     description:
       'From setup wizard to advanced usage — learn chat tips, MCP integration, cost tracking, and everything you need to be productive with Ptah from day one.',
     icon: 'rocket',
-    duration: '2 hours',
+    duration: '4-5 hours',
     topics: [
       'Setup wizard walkthrough',
       'Chat tips and shortcuts',

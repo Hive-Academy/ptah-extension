@@ -1,16 +1,16 @@
 /**
- * Custom Agent Adapter - IAIProvider for Anthropic-compatible providers
+ * Ptah CLI Adapter - IAIProvider for Anthropic-compatible providers
  *
- * Implements IAIProvider for user-configured custom agent instances that connect
+ * Implements IAIProvider for user-configured Ptah CLI instances that connect
  * to third-party Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI)
  * via the Claude Agent SDK's query() function.
  *
  * Key architecture decisions:
- * - NOT DI-injectable: Instances are created by CustomAgentRegistry, not the DI container
+ * - NOT DI-injectable: Instances are created by PtahCliRegistry, not the DI container
  * - Fully independent from SdkAgentAdapter: Own AuthEnv, session tracking, stream transformation
  * - Shares STATELESS services: SdkModuleLoader, SdkMessageTransformer, SdkPermissionHandler
  *
- * @see TASK_2025_167 Batch 2 - Custom Agent Adapter + Registry
+ * @see TASK_2025_167 Batch 2 - Ptah CLI Adapter + Registry
  */
 
 import {
@@ -32,7 +32,7 @@ import type { Logger } from '@ptah-extension/vscode-core';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
 import type { SdkMessageTransformer } from '../sdk-message-transformer';
 import type { SdkPermissionHandler } from '../sdk-permission-handler';
-import type { CustomAgentConfig } from '@ptah-extension/shared';
+import type { PtahCliConfig } from '@ptah-extension/shared';
 import {
   getAnthropicProvider,
   getProviderAuthEnvVar,
@@ -78,7 +78,7 @@ import { PTAH_MCP_PORT } from '../constants';
  * into startChatSession() / resumeSession() so the adapter can
  * configure the SDK query with full Ptah enhancements.
  */
-export interface CustomAgentPremiumConfig {
+export interface PtahCliPremiumConfig {
   /** Whether the user has a premium (Pro) license */
   isPremium?: boolean;
   /** Whether the MCP server is currently running */
@@ -90,9 +90,9 @@ export interface CustomAgentPremiumConfig {
 }
 
 /**
- * Tracks an active session within the custom agent adapter
+ * Tracks an active session within the Ptah CLI adapter
  */
-interface CustomActiveSession {
+interface PtahCliActiveSession {
   readonly sessionId: SessionId;
   readonly abortController: AbortController;
   query: Query | null;
@@ -102,9 +102,9 @@ interface CustomActiveSession {
 }
 
 /**
- * Provider capabilities for custom agent adapter
+ * Provider capabilities for Ptah CLI adapter
  */
-const CUSTOM_AGENT_CAPABILITIES: ProviderCapabilities = {
+const PTAH_CLI_CAPABILITIES: ProviderCapabilities = {
   streaming: true,
   fileAttachments: true,
   contextManagement: true,
@@ -116,21 +116,21 @@ const CUSTOM_AGENT_CAPABILITIES: ProviderCapabilities = {
 };
 
 /**
- * CustomAgentAdapter - IAIProvider for Anthropic-compatible providers
+ * PtahCliAdapter - IAIProvider for Anthropic-compatible providers
  *
- * Created by CustomAgentRegistry (NOT DI-injectable).
+ * Created by PtahCliRegistry (NOT DI-injectable).
  * Each instance connects to a specific provider using its own AuthEnv,
  * session map, and stream transformation logic.
  */
-export class CustomAgentAdapter implements IAIProvider {
-  readonly providerId: ProviderId = 'custom-agent';
+export class PtahCliAdapter implements IAIProvider {
+  readonly providerId: ProviderId = 'ptah-cli';
   readonly info: ProviderInfo;
 
   /** Isolated AuthEnv for this adapter instance */
   private authEnv: AuthEnv;
 
   /** Active sessions managed by this adapter */
-  private activeSessions = new Map<string, CustomActiveSession>();
+  private activeSessions = new Map<string, PtahCliActiveSession>();
 
   /** Health status */
   private health: ProviderHealth = {
@@ -141,8 +141,8 @@ export class CustomAgentAdapter implements IAIProvider {
   /** Whether the adapter has been initialized */
   private initialized = false;
 
-  /** The user's custom agent configuration */
-  private readonly config: CustomAgentConfig;
+  /** The user's Ptah CLI configuration */
+  private readonly config: PtahCliConfig;
 
   /** API key for this provider */
   private readonly apiKey: string;
@@ -159,9 +159,9 @@ export class CustomAgentAdapter implements IAIProvider {
   private readonly compactionConfigProvider?: CompactionConfigProvider;
 
   /**
-   * Create a CustomAgentAdapter for a specific provider configuration.
+   * Create a PtahCliAdapter for a specific provider configuration.
    *
-   * @param config - User's custom agent configuration
+   * @param config - User's Ptah CLI configuration
    * @param apiKey - The provider API key
    * @param logger - Logger instance (shared)
    * @param moduleLoader - SDK module loader (shared, stateless)
@@ -172,7 +172,7 @@ export class CustomAgentAdapter implements IAIProvider {
    * @param compactionConfigProvider - Optional compaction config provider
    */
   constructor(
-    config: CustomAgentConfig,
+    config: PtahCliConfig,
     apiKey: string,
     logger: Logger,
     moduleLoader: SdkModuleLoader,
@@ -198,21 +198,21 @@ export class CustomAgentAdapter implements IAIProvider {
     // Build provider info from config
     const provider = getAnthropicProvider(config.providerId);
     this.info = {
-      id: 'custom-agent' as ProviderId,
+      id: 'ptah-cli' as ProviderId,
       name: config.name,
       version: '1.0.0',
       description: provider
         ? `${provider.name} - ${provider.description}`
-        : `Custom agent: ${config.name}`,
+        : `Ptah CLI: ${config.name}`,
       vendor: provider?.name ?? 'Unknown',
-      capabilities: CUSTOM_AGENT_CAPABILITIES,
+      capabilities: PTAH_CLI_CAPABILITIES,
       maxContextTokens: 200000,
       supportedModels: [],
     };
   }
 
   /**
-   * Get the custom agent config ID
+   * Get the Ptah CLI config ID
    */
   get agentId(): string {
     return this.config.id;
@@ -232,14 +232,14 @@ export class CustomAgentAdapter implements IAIProvider {
   async initialize(): Promise<boolean> {
     try {
       this.logger.info(
-        `[CustomAgentAdapter] Initializing adapter for "${this.config.name}" (provider: ${this.config.providerId})`
+        `[PtahCliAdapter] Initializing adapter for "${this.config.name}" (provider: ${this.config.providerId})`
       );
 
       // Step 1: Look up provider definition
       const provider = getAnthropicProvider(this.config.providerId);
       if (!provider) {
         const errorMessage = `Unknown provider: ${this.config.providerId}`;
-        this.logger.error(`[CustomAgentAdapter] ${errorMessage}`);
+        this.logger.error(`[PtahCliAdapter] ${errorMessage}`);
         this.health = {
           status: 'error' as ProviderStatus,
           lastCheck: Date.now(),
@@ -284,7 +284,7 @@ export class CustomAgentAdapter implements IAIProvider {
       };
 
       this.logger.info(
-        `[CustomAgentAdapter] Initialized successfully for "${this.config.name}"`,
+        `[PtahCliAdapter] Initialized successfully for "${this.config.name}"`,
         {
           baseUrl: provider.baseUrl,
           authEnvVar,
@@ -300,7 +300,7 @@ export class CustomAgentAdapter implements IAIProvider {
       const errorObj =
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(
-        `[CustomAgentAdapter] Initialization failed for "${this.config.name}"`,
+        `[PtahCliAdapter] Initialization failed for "${this.config.name}"`,
         errorObj
       );
       this.health = {
@@ -324,11 +324,11 @@ export class CustomAgentAdapter implements IAIProvider {
       name?: string;
       prompt?: string;
       files?: string[];
-    } & CustomAgentPremiumConfig
+    } & PtahCliPremiumConfig
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        `CustomAgentAdapter "${this.config.name}" not initialized. Call initialize() first.`
+        `PtahCliAdapter "${this.config.name}" not initialized. Call initialize() first.`
       );
     }
 
@@ -336,7 +336,7 @@ export class CustomAgentAdapter implements IAIProvider {
     const trackingId = tabId as SessionId;
 
     this.logger.info(
-      `[CustomAgentAdapter] Starting chat session for tab: ${tabId}`,
+      `[PtahCliAdapter] Starting chat session for tab: ${tabId}`,
       { agentName: this.config.name, providerId: this.config.providerId }
     );
 
@@ -347,7 +347,7 @@ export class CustomAgentAdapter implements IAIProvider {
     const abortController = new AbortController();
 
     // Create and register session
-    const session: CustomActiveSession = {
+    const session: PtahCliActiveSession = {
       sessionId: trackingId,
       abortController,
       query: null,
@@ -397,7 +397,7 @@ export class CustomAgentAdapter implements IAIProvider {
     session.query = sdkQuery;
 
     this.logger.info(
-      `[CustomAgentAdapter] Query started for session: ${trackingId}`,
+      `[PtahCliAdapter] Query started for session: ${trackingId}`,
       { model }
     );
 
@@ -410,11 +410,11 @@ export class CustomAgentAdapter implements IAIProvider {
    */
   async resumeSession(
     sessionId: SessionId,
-    config?: AISessionConfig & { tabId?: string } & CustomAgentPremiumConfig
+    config?: AISessionConfig & { tabId?: string } & PtahCliPremiumConfig
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        `CustomAgentAdapter "${this.config.name}" not initialized. Call initialize() first.`
+        `PtahCliAdapter "${this.config.name}" not initialized. Call initialize() first.`
       );
     }
 
@@ -422,7 +422,7 @@ export class CustomAgentAdapter implements IAIProvider {
     const existingSession = this.activeSessions.get(sessionId as string);
     if (existingSession && existingSession.query) {
       this.logger.info(
-        `[CustomAgentAdapter] Session ${sessionId} already active, returning existing stream`
+        `[PtahCliAdapter] Session ${sessionId} already active, returning existing stream`
       );
       return this.createTransformedStream(
         existingSession.query,
@@ -433,7 +433,7 @@ export class CustomAgentAdapter implements IAIProvider {
 
     const model = this.resolveModel(config?.model);
 
-    this.logger.info(`[CustomAgentAdapter] Resuming session: ${sessionId}`, {
+    this.logger.info(`[PtahCliAdapter] Resuming session: ${sessionId}`, {
       agentName: this.config.name,
     });
 
@@ -441,7 +441,7 @@ export class CustomAgentAdapter implements IAIProvider {
     const abortController = new AbortController();
 
     // Register session
-    const session: CustomActiveSession = {
+    const session: PtahCliActiveSession = {
       sessionId,
       abortController,
       query: null,
@@ -495,18 +495,18 @@ export class CustomAgentAdapter implements IAIProvider {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
       this.logger.warn(
-        `[CustomAgentAdapter] Cannot end session - not found: ${sessionId}`
+        `[PtahCliAdapter] Cannot end session - not found: ${sessionId}`
       );
       return;
     }
 
-    this.logger.info(`[CustomAgentAdapter] Ending session: ${sessionId}`);
+    this.logger.info(`[PtahCliAdapter] Ending session: ${sessionId}`);
 
     // Interrupt the query before aborting
     if (session.query) {
       session.query.interrupt().catch((err) => {
         this.logger.debug(
-          `[CustomAgentAdapter] Interrupt cleanup for session ${sessionId}`,
+          `[PtahCliAdapter] Interrupt cleanup for session ${sessionId}`,
           err
         );
       });
@@ -518,7 +518,7 @@ export class CustomAgentAdapter implements IAIProvider {
     // Remove from active sessions
     this.activeSessions.delete(sessionId as string);
 
-    this.logger.info(`[CustomAgentAdapter] Session ended: ${sessionId}`);
+    this.logger.info(`[PtahCliAdapter] Session ended: ${sessionId}`);
   }
 
   /**
@@ -531,10 +531,10 @@ export class CustomAgentAdapter implements IAIProvider {
   ): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
-      throw new Error(`[CustomAgentAdapter] Session not found: ${sessionId}`);
+      throw new Error(`[PtahCliAdapter] Session not found: ${sessionId}`);
     }
 
-    this.logger.info(`[CustomAgentAdapter] Sending message to ${sessionId}`, {
+    this.logger.info(`[PtahCliAdapter] Sending message to ${sessionId}`, {
       contentLength: content.length,
     });
 
@@ -550,7 +550,7 @@ export class CustomAgentAdapter implements IAIProvider {
       session.resolveNext = null;
     }
 
-    this.logger.info(`[CustomAgentAdapter] Message queued for ${sessionId}`);
+    this.logger.info(`[PtahCliAdapter] Message queued for ${sessionId}`);
   }
 
   /**
@@ -572,7 +572,7 @@ export class CustomAgentAdapter implements IAIProvider {
    */
   async reset(): Promise<void> {
     this.logger.info(
-      `[CustomAgentAdapter] Resetting adapter "${this.config.name}"...`
+      `[PtahCliAdapter] Resetting adapter "${this.config.name}"...`
     );
     this.dispose();
     await this.initialize();
@@ -583,16 +583,16 @@ export class CustomAgentAdapter implements IAIProvider {
    */
   dispose(): void {
     this.logger.info(
-      `[CustomAgentAdapter] Disposing adapter "${this.config.name}"...`
+      `[PtahCliAdapter] Disposing adapter "${this.config.name}"...`
     );
 
     for (const [sessionId, session] of this.activeSessions.entries()) {
-      this.logger.debug(`[CustomAgentAdapter] Ending session: ${sessionId}`);
+      this.logger.debug(`[PtahCliAdapter] Ending session: ${sessionId}`);
       session.abortController.abort();
       if (session.query) {
         session.query.interrupt().catch((err) => {
           this.logger.debug(
-            `[CustomAgentAdapter] Interrupt cleanup for session ${sessionId}`,
+            `[PtahCliAdapter] Interrupt cleanup for session ${sessionId}`,
             err
           );
         });
@@ -606,9 +606,7 @@ export class CustomAgentAdapter implements IAIProvider {
       lastCheck: Date.now(),
     };
 
-    this.logger.info(
-      `[CustomAgentAdapter] Disposed adapter "${this.config.name}"`
-    );
+    this.logger.info(`[PtahCliAdapter] Disposed adapter "${this.config.name}"`);
   }
 
   // ============================================================================
@@ -693,7 +691,7 @@ export class CustomAgentAdapter implements IAIProvider {
           const session = activeSessions.get(sessionId as string);
           if (!session) {
             logger.warn(
-              `[CustomAgentAdapter] Session ${sessionId} not found - ending stream`
+              `[PtahCliAdapter] Session ${sessionId} not found - ending stream`
             );
             return;
           }
@@ -703,7 +701,7 @@ export class CustomAgentAdapter implements IAIProvider {
             const message = session.messageQueue.shift();
             if (message) {
               logger.debug(
-                `[CustomAgentAdapter] Yielding message (${session.messageQueue.length} remaining)`
+                `[PtahCliAdapter] Yielding message (${session.messageQueue.length} remaining)`
               );
               yield message;
             }
@@ -749,7 +747,7 @@ export class CustomAgentAdapter implements IAIProvider {
 
           if (waitResult === 'aborted') {
             logger.debug(
-              `[CustomAgentAdapter] Stream ended for ${sessionId}: aborted`
+              `[PtahCliAdapter] Stream ended for ${sessionId}: aborted`
             );
             return;
           }
@@ -858,7 +856,7 @@ export class CustomAgentAdapter implements IAIProvider {
         }
       : undefined;
 
-    this.logger.info('[CustomAgentAdapter] Building query options', {
+    this.logger.info('[PtahCliAdapter] Building query options', {
       model,
       cwd,
       isResume: !!resumeSessionId,
@@ -898,7 +896,7 @@ export class CustomAgentAdapter implements IAIProvider {
         env: buildSafeEnv(this.authEnv),
         stderr: (data: string) => {
           this.logger.error(
-            `[CustomAgentAdapter] CLI stderr (${this.config.name}): ${data}`
+            `[PtahCliAdapter] CLI stderr (${this.config.name}): ${data}`
           );
         },
         hooks,
@@ -912,7 +910,7 @@ export class CustomAgentAdapter implements IAIProvider {
    * Create a transformed async iterable stream that converts SDK messages
    * to FlatStreamEventUnion events for UI rendering.
    *
-   * This is the custom adapter's own stream transformation, independent from
+   * This is the Ptah CLI adapter's own stream transformation, independent from
    * the DI-injected StreamTransformer used by SdkAgentAdapter.
    */
   private createTransformedStream(
@@ -939,7 +937,7 @@ export class CustomAgentAdapter implements IAIProvider {
               const realSessionId = sdkMessage.session_id;
               effectiveSessionId = realSessionId as SessionId;
               logger.info(
-                `[CustomAgentAdapter] Real session ID resolved: ${realSessionId}`
+                `[PtahCliAdapter] Real session ID resolved: ${realSessionId}`
               );
             }
 
@@ -957,7 +955,7 @@ export class CustomAgentAdapter implements IAIProvider {
                   sdkMessage.usage.cache_creation_input_tokens ?? 0,
               });
               logger.info(
-                `[CustomAgentAdapter] Result stats: cost=$${totalCost.toFixed(
+                `[PtahCliAdapter] Result stats: cost=$${totalCost.toFixed(
                   4
                 )}, ` +
                   `tokens=${sdkMessage.usage.input_tokens}in/${sdkMessage.usage.output_tokens}out, ` +
@@ -985,7 +983,7 @@ export class CustomAgentAdapter implements IAIProvider {
           }
 
           logger.info(
-            `[CustomAgentAdapter] Stream ended for ${sessionId}: ${sdkMessageCount} SDK messages, ${yieldedEventCount} events yielded`
+            `[PtahCliAdapter] Stream ended for ${sessionId}: ${sdkMessageCount} SDK messages, ${yieldedEventCount} events yielded`
           );
         } catch (error) {
           const errorObj =
@@ -1001,11 +999,11 @@ export class CustomAgentAdapter implements IAIProvider {
 
           if (isUserAbort) {
             logger.info(
-              `[CustomAgentAdapter] Session ${sessionId} aborted by user`
+              `[PtahCliAdapter] Session ${sessionId} aborted by user`
             );
           } else {
             logger.error(
-              `[CustomAgentAdapter] Session ${sessionId} error: ${errorObj.message}`,
+              `[PtahCliAdapter] Session ${sessionId} error: ${errorObj.message}`,
               errorObj
             );
 
@@ -1020,14 +1018,14 @@ export class CustomAgentAdapter implements IAIProvider {
 
             if (isAuthError) {
               logger.error(
-                `[CustomAgentAdapter] AUTHENTICATION ERROR for "${initialModel}" - check API key configuration`
+                `[PtahCliAdapter] AUTHENTICATION ERROR for "${initialModel}" - check API key configuration`
               );
             }
           }
 
           throw error;
         } finally {
-          logger.info(`[CustomAgentAdapter] Session ${sessionId} stream ended`);
+          logger.info(`[PtahCliAdapter] Session ${sessionId} stream ended`);
         }
       },
     };

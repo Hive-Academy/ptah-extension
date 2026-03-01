@@ -1,55 +1,56 @@
 /**
- * CustomAgentStateService - Signal-based state management for custom agent selection
- * TASK_2025_167 Batch 4: Tracks selected custom agent for chat routing
+ * PtahCliStateService - Signal-based state management for Ptah CLI agent selection
+ * TASK_2025_167 Batch 4: Tracks selected Ptah CLI agent for chat routing
+ * TASK_2025_170: Renamed from CustomAgentStateService to PtahCliStateService
  *
  * Manages:
- * - List of enabled custom agents (fetched via RPC)
- * - Currently selected custom agent ID (null = use default provider)
- * - Integration with chat:start RPC via customAgentId param
+ * - List of enabled Ptah CLI agents (fetched via RPC)
+ * - Currently selected Ptah CLI agent ID (null = use default provider)
+ * - Integration with chat:start RPC via ptahCliId param
  *
  * Pattern: Follows ModelStateService pattern (private _signal, public asReadonly)
  */
 
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ClaudeRpcService } from './claude-rpc.service';
-import type { CustomAgentSummary } from '@ptah-extension/shared';
+import type { PtahCliSummary } from '@ptah-extension/shared';
 
 @Injectable({ providedIn: 'root' })
-export class CustomAgentStateService {
+export class PtahCliStateService {
   private readonly rpc = inject(ClaudeRpcService);
 
   // Private mutable signals
-  private readonly _agents = signal<CustomAgentSummary[]>([]);
+  private readonly _agents = signal<PtahCliSummary[]>([]);
   private readonly _selectedAgentId = signal<string | null>(null);
   private readonly _isLoading = signal(false);
   private readonly _isLoaded = signal(false);
 
   // Public readonly signals
 
-  /** All custom agents (enabled and disabled) */
+  /** All Ptah CLI agents (enabled and disabled) */
   readonly agents = this._agents.asReadonly();
 
-  /** Only enabled custom agents (shown in agent selector dropdown) */
+  /** Only enabled Ptah CLI agents (shown in agent selector dropdown) */
   readonly enabledAgents = computed(() =>
     this._agents().filter((a) => a.enabled && a.status === 'available')
   );
 
-  /** Currently selected custom agent ID (null = default provider) */
+  /** Currently selected Ptah CLI agent ID (null = default provider) */
   readonly selectedAgentId = this._selectedAgentId.asReadonly();
 
-  /** Whether a custom agent is currently selected */
-  readonly hasCustomAgentSelected = computed(
+  /** Whether a Ptah CLI agent is currently selected */
+  readonly hasPtahCliSelected = computed(
     () => this._selectedAgentId() !== null
   );
 
-  /** The selected custom agent summary (null if none selected) */
+  /** The selected Ptah CLI agent summary (null if none selected) */
   readonly selectedAgent = computed(() => {
     const id = this._selectedAgentId();
     if (!id) return null;
     return this._agents().find((a) => a.id === id) ?? null;
   });
 
-  /** Display name for the selected custom agent */
+  /** Display name for the selected Ptah CLI agent */
   readonly selectedAgentName = computed(() => {
     const agent = this.selectedAgent();
     return agent?.name ?? null;
@@ -62,27 +63,27 @@ export class CustomAgentStateService {
   readonly isLoaded = this._isLoaded.asReadonly();
 
   constructor() {
-    // Load custom agents on initialization
+    // Load Ptah CLI agents on initialization
     this.loadAgents();
   }
 
   /**
-   * Select a custom agent for chat routing
-   * @param agentId - Custom agent ID, or null to deselect
+   * Select a Ptah CLI agent for chat routing
+   * @param agentId - Ptah CLI agent ID, or null to deselect
    */
   selectAgent(agentId: string | null): void {
     this._selectedAgentId.set(agentId);
   }
 
   /**
-   * Clear the custom agent selection (revert to default provider)
+   * Clear the Ptah CLI agent selection (revert to default provider)
    */
   clearSelection(): void {
     this._selectedAgentId.set(null);
   }
 
   /**
-   * Load custom agents from backend
+   * Load Ptah CLI agents from backend
    */
   async loadAgents(): Promise<void> {
     if (this._isLoading()) return;
@@ -90,7 +91,7 @@ export class CustomAgentStateService {
     this._isLoading.set(true);
     try {
       const result = await this.rpc.call(
-        'customAgent:list',
+        'ptahCli:list',
         {} as Record<string, never>
       );
       if (result.isSuccess()) {
@@ -100,7 +101,8 @@ export class CustomAgentStateService {
         const selectedId = this._selectedAgentId();
         if (selectedId) {
           const stillValid = result.data.agents.some(
-            (a) => a.id === selectedId && a.enabled && a.status === 'available'
+            (a: PtahCliSummary) =>
+              a.id === selectedId && a.enabled && a.status === 'available'
           );
           if (!stillValid) {
             this._selectedAgentId.set(null);
@@ -108,7 +110,7 @@ export class CustomAgentStateService {
         }
       }
     } catch {
-      console.error('[CustomAgentStateService] Failed to load custom agents');
+      console.error('[PtahCliStateService] Failed to load Ptah CLI agents');
     } finally {
       this._isLoading.set(false);
       this._isLoaded.set(true);

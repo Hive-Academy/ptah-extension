@@ -16,6 +16,7 @@ import {
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
 import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
+import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
 
 @Component({
   selector: 'ptah-docs-setup-wizard',
@@ -26,20 +27,21 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     DocsStepCardComponent,
     DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
+    DocsCollapsibleCardComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="setup-wizard">
       <h2
         viewportAnimation
         [viewportConfig]="headingConfig"
-        class="text-2xl sm:text-3xl font-display font-bold text-white/90 mb-3"
+        class="text-2xl sm:text-3xl font-display font-bold text-base-content mb-3"
       >
         Setup Wizard
       </h2>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
-        class="text-white/50 mb-8 max-w-2xl"
+        class="text-neutral-content mb-8 max-w-2xl"
       >
         The setup wizard scans your workspace and configures Ptah's AI agents
         for your project automatically.
@@ -47,38 +49,25 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
 
       <!-- Wizard Steps -->
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
-        <div
-          class="rounded-xl border border-amber-500/15 bg-slate-800/30 p-5 sm:p-6"
+        <ptah-docs-collapsible-card
+          [icon]="Wand2Icon"
+          title="6-Step Setup Wizard"
+          [expanded]="true"
         >
-          <div class="flex items-center gap-3 mb-5">
-            <div
-              class="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center"
-            >
-              <lucide-angular
-                [img]="Wand2Icon"
-                class="w-4 h-4 text-amber-400"
-                aria-hidden="true"
-              />
-            </div>
-            <h3 class="text-lg font-semibold text-white/90">
-              6-Step Setup Wizard
-            </h3>
-          </div>
-
           <!-- Step flow visualization -->
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
             @for (step of wizardSteps; track step.label; let i = $index) {
             <div
-              class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-slate-700/30 border border-slate-600/30"
+              class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-base-300/50 border border-secondary/10"
             >
               <div
-                class="w-6 h-6 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0"
+                class="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center shrink-0"
               >
-                <span class="text-xs font-bold text-amber-400">{{
+                <span class="text-xs font-bold text-secondary">{{
                   i + 1
                 }}</span>
               </div>
-              <span class="text-sm text-white/70">{{ step.label }}</span>
+              <span class="text-sm text-base-content/70">{{ step.label }}</span>
             </div>
             }
           </div>
@@ -87,11 +76,13 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             <ptah-docs-step-card [stepNumber]="1" title="Open the Setup Wizard">
               <p>
                 Click the
-                <strong class="text-white/80">Setup Wizard</strong> button in
-                the Ptah sidebar, or run the
-                <strong class="text-white/80">Ptah: Run Setup Wizard</strong>
+                <strong class="text-base-content/80">Setup Wizard</strong>
+                button in the Ptah sidebar, or run the
+                <strong class="text-base-content/80"
+                  >Ptah: Run Setup Wizard</strong
+                >
                 command from the Command Palette (<kbd
-                  class="px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600/50 text-xs font-mono text-amber-400/80"
+                  class="px-1.5 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/80"
                   >Ctrl+Shift+P</kbd
                 >).
               </p>
@@ -116,7 +107,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
               </p>
             </ptah-docs-step-card>
           </div>
-        </div>
+        </ptah-docs-collapsible-card>
       </div>
 
       <ng-container media>

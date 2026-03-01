@@ -21,7 +21,7 @@ import { LicenseStatusCardComponent } from './license/license-status-card.compon
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
-import { CustomAgentConfigComponent } from './ptah-ai/custom-agent-config.component';
+import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -57,7 +57,7 @@ import { ChatStore } from '../services/chat.store';
     EnhancedPromptsConfigComponent,
     VscodeLmConfigComponent,
     AgentOrchestrationConfigComponent,
-    CustomAgentConfigComponent,
+    PtahCliConfigComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -158,5 +158,13 @@ export class SettingsComponent implements OnInit {
    */
   onModelChanged(): void {
     this.agentOrchestrationConfig()?.redetectClis();
+  }
+
+  /**
+   * Called when Ptah CLI config (custom agents) changes (create/update/delete).
+   * Refreshes the Agent Orchestration panel to reflect new CLI agents.
+   */
+  onPtahCliChanged(): void {
+    this.agentOrchestrationConfig()?.loadAgentConfig();
   }
 }

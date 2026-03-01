@@ -58,7 +58,7 @@ import type {
     PermissionRequestCardComponent,
   ],
   template: `
-    <div class="bg-base-200/30 rounded my-0.5 border border-base-300/50">
+    <div class="bg-base-200/60 rounded my-0.5 border border-base-300/60">
       <!-- Header (clickable to toggle) -->
       <ptah-tool-call-header
         [node]="node()"
@@ -92,6 +92,13 @@ import type {
         <ng-content />
       </div>
       }
+    </div>
+
+    <!-- Separator between tool cards -->
+    <div class="flex items-center gap-2 my-1.5 px-1">
+      <div class="flex-1 border-t border-base-300/40"></div>
+      <div class="w-1 h-1 rounded-full bg-base-300/60"></div>
+      <div class="flex-1 border-t border-base-300/40"></div>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

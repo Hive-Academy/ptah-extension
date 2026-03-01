@@ -17,7 +17,7 @@ export * from './lib/types/model-autopilot.types';
 export * from './lib/types/agent-process.types';
 export * from './lib/types/cli-skill-sync.types';
 export * from './lib/types/auth-env.types';
-export * from './lib/types/custom-agent.types';
+export * from './lib/types/ptah-cli.types';
 export * from './lib/types/agent-permission.types';
 
 // Type guards
