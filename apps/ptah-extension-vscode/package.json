@@ -327,6 +327,62 @@
           ],
           "default": "",
           "description": "Default model for Copilot CLI agents. Leave empty for Copilot's default."
+        },
+        "ptah.customAgents": {
+          "type": "array",
+          "default": [],
+          "description": "Custom agent configurations for Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.).",
+          "scope": "resource",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique agent instance ID."
+              },
+              "name": {
+                "type": "string",
+                "description": "User-facing display name."
+              },
+              "providerId": {
+                "type": "string",
+                "description": "Anthropic-compatible provider ID."
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "Whether this agent is enabled."
+              },
+              "tierMappings": {
+                "type": "object",
+                "description": "Model tier mappings.",
+                "properties": {
+                  "sonnet": {
+                    "type": "string"
+                  },
+                  "opus": {
+                    "type": "string"
+                  },
+                  "haiku": {
+                    "type": "string"
+                  }
+                }
+              },
+              "selectedModel": {
+                "type": "string",
+                "description": "Selected model ID (overrides tier)."
+              },
+              "updatedAt": {
+                "type": "number",
+                "description": "Timestamp of last configuration change."
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "providerId",
+              "enabled"
+            ]
+          }
         }
       }
     }
