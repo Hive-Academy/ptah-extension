@@ -11,12 +11,16 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
-import { CliDetectionService } from '@ptah-extension/llm-abstraction';
+import {
+  CliDetectionService,
+  CopilotPermissionBridge,
+} from '@ptah-extension/llm-abstraction';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
   AgentListCliModelsResult,
   CliModelOption,
+  AgentPermissionDecision,
 } from '@ptah-extension/shared';
 import type { CliDetectionResult, CliType } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
@@ -48,6 +52,7 @@ export class AgentRpcHandlers {
     this.registerSetConfig();
     this.registerDetectClis();
     this.registerListCliModels();
+    this.registerPermissionResponse(); // TASK_2025_162
 
     this.logger.debug('Agent orchestration RPC handlers registered', {
       methods: [
@@ -55,6 +60,7 @@ export class AgentRpcHandlers {
         'agent:setConfig',
         'agent:detectClis',
         'agent:listCliModels',
+        'agent:permissionResponse',
       ],
     });
   }
@@ -300,5 +306,47 @@ export class AgentRpcHandlers {
         return part.charAt(0).toUpperCase() + part.slice(1);
       })
       .join(' ');
+  }
+
+  /**
+   * agent:permissionResponse - Route user's permission decision to Copilot SDK bridge
+   *
+   * Called by the webview when the user clicks Allow/Deny on a permission dialog.
+   * Resolves the pending permission Promise in the CopilotPermissionBridge, which
+   * unblocks the SDK's onPreToolUse hook.
+   *
+   * TASK_2025_162: Copilot SDK Integration
+   */
+  private registerPermissionResponse(): void {
+    this.rpcHandler.registerMethod<
+      AgentPermissionDecision,
+      { success: boolean; error?: string }
+    >('agent:permissionResponse', async (params) => {
+      try {
+        this.logger.debug('RPC: agent:permissionResponse called', {
+          requestId: params.requestId,
+          decision: params.decision,
+        });
+
+        const copilotAdapter = this.cliDetection.getAdapter('copilot');
+        if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
+          const bridge = (
+            copilotAdapter as { permissionBridge: CopilotPermissionBridge }
+          ).permissionBridge;
+          bridge.resolvePermission(params.requestId, params);
+          return { success: true };
+        }
+
+        return { success: false, error: 'Copilot SDK adapter not active' };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'RPC: agent:permissionResponse failed',
+          error instanceof Error ? error : new Error(errorMessage)
+        );
+        return { success: false, error: errorMessage };
+      }
+    });
   }
 }

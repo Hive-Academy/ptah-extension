@@ -582,12 +582,12 @@ export { CopilotPermissionBridge } from './lib/services/cli-adapters';
 
 ---
 
-## Batch 3: RPC Event Forwarding -- PENDING
+## Batch 3: RPC Event Forwarding -- IMPLEMENTED
 
 **Developer**: backend-developer
 **Tasks**: 2 | **Dependencies**: Batch 2
 
-### Task 3.1: Forward permission events from extension to webview -- PENDING
+### Task 3.1: Forward permission events from extension to webview -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\rpc-method-registration.service.ts` (MODIFY)
 **Spec Reference**: implementation-plan.md lines 596-618

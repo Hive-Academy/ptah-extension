@@ -24,7 +24,11 @@ import {
   CommandManager,
   verifyRpcRegistration,
 } from '@ptah-extension/vscode-core';
-import { AgentProcessManager } from '@ptah-extension/llm-abstraction';
+import {
+  AgentProcessManager,
+  CliDetectionService,
+  CopilotPermissionBridge,
+} from '@ptah-extension/llm-abstraction';
 import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
   SessionId,
@@ -34,6 +38,7 @@ import {
   AgentOutputDelta,
   CliSessionReference,
 } from '@ptah-extension/shared';
+import type { AgentPermissionRequest } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
 
@@ -216,6 +221,9 @@ export class RpcMethodRegistrationService {
       );
 
       this.logger.info('[RPC] Agent monitor listeners registered');
+
+      // Wire Copilot SDK permission bridge events (TASK_2025_162)
+      this.setupCopilotPermissionForwarding();
     } catch (error) {
       // AgentProcessManager may not be registered yet in some configurations
       this.logger.warn(
@@ -274,6 +282,52 @@ export class RpcMethodRegistrationService {
       // SessionMetadataStore may not be available in all configurations
       this.logger.warn(
         '[RPC] Could not persist CLI session reference',
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Wire Copilot SDK permission bridge events to webview.
+   * Only active when the Copilot SDK adapter is registered (feature flag enabled).
+   * Permission requests are forwarded as fire-and-forget broadcasts.
+   * TASK_2025_162: Copilot SDK Integration
+   */
+  private setupCopilotPermissionForwarding(): void {
+    try {
+      const cliDetection = this.container.resolve<CliDetectionService>(
+        TOKENS.CLI_DETECTION_SERVICE
+      );
+      const copilotAdapter = cliDetection.getAdapter('copilot');
+
+      if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
+        const bridge = (
+          copilotAdapter as { permissionBridge: CopilotPermissionBridge }
+        ).permissionBridge;
+
+        bridge.events.on(
+          'permission-request',
+          (request: AgentPermissionRequest) => {
+            this.webviewManager
+              .broadcastMessage(
+                MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
+                request
+              )
+              .catch((error) => {
+                this.logger.error(
+                  '[RPC] Failed to send agent permission request to webview',
+                  error instanceof Error ? error : new Error(String(error))
+                );
+              });
+          }
+        );
+
+        this.logger.info('[RPC] Copilot SDK permission forwarding registered');
+      }
+    } catch (error) {
+      // CliDetectionService may not be available in some configurations
+      this.logger.debug(
+        '[RPC] Copilot SDK permission forwarding not available',
         error instanceof Error ? error : new Error(String(error))
       );
     }
