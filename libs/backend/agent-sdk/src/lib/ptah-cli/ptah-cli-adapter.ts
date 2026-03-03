@@ -615,36 +615,14 @@ export class PtahCliAdapter implements IAIProvider {
 
   /**
    * Resolve which model to use for a session.
-   * Priority: explicit model param > selectedModel config > first tier mapping > fallback
+   *
+   * Always returns a valid Anthropic model name. Custom provider models
+   * (e.g., "kimi-k2", "glm-5") are routed via ANTHROPIC_DEFAULT_*_MODEL
+   * env vars set in initializeAuth(), not through this model param.
+   * The SDK validates model names against Anthropic's list before
+   * consulting env vars, so passing custom model names directly fails.
    */
-  private resolveModel(explicitModel?: string): string {
-    if (explicitModel) {
-      return explicitModel;
-    }
-
-    // Check selectedModel in config
-    if (this.config.selectedModel) {
-      return this.config.selectedModel;
-    }
-
-    // Fall back to first tier mapping
-    if (this.config.tierMappings?.sonnet) {
-      return this.config.tierMappings.sonnet;
-    }
-    if (this.config.tierMappings?.opus) {
-      return this.config.tierMappings.opus;
-    }
-    if (this.config.tierMappings?.haiku) {
-      return this.config.tierMappings.haiku;
-    }
-
-    // Final fallback - provider's first static model
-    const provider = getAnthropicProvider(this.config.providerId);
-    if (provider?.staticModels && provider.staticModels.length > 0) {
-      return provider.staticModels[0].id;
-    }
-
-    // Last resort - the SDK will use its default
+  private resolveModel(_explicitModel?: string): string {
     return 'claude-sonnet-4-20250514';
   }
 

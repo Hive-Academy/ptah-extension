@@ -8,6 +8,8 @@
  */
 import crossSpawn from 'cross-spawn';
 import whichLib from 'which';
+import { readFile } from 'fs/promises';
+import * as path from 'path';
 import type { ChildProcess } from 'child_process';
 import type { CliCommandOptions } from './cli-adapter.interface';
 
@@ -88,4 +90,41 @@ export function buildTaskPrompt(options: CliCommandOptions): string {
   }
 
   return taskPrompt;
+}
+
+/**
+ * On Windows, npm-installed CLIs are .cmd wrapper scripts that cannot be
+ * executed by bare `spawn()` (results in EINVAL). This parses the .cmd
+ * wrapper to extract the actual underlying script or binary path.
+ *
+ * npm .cmd wrappers reference the real target as `"%dp0%\<relative_path>"`.
+ * We extract the last such reference (the actual binary/script invocation).
+ *
+ * Returns the original path unchanged on non-Windows or non-.cmd paths.
+ */
+export async function resolveWindowsCmd(binaryPath: string): Promise<string> {
+  if (process.platform !== 'win32') return binaryPath;
+  if (!binaryPath.toLowerCase().endsWith('.cmd')) return binaryPath;
+
+  try {
+    const content = await readFile(binaryPath, 'utf8');
+    const dir = path.dirname(binaryPath);
+
+    // npm .cmd wrappers use %~dp0 or %dp0% as the wrapper's directory.
+    // The actual target is the last "%~dp0\<path>" or "%dp0%\<path>" reference.
+    const regex = /"%(?:~dp0|dp0)%\\([^"]+)"/g;
+    let lastMatch: string | null = null;
+    let m;
+    while ((m = regex.exec(content)) !== null) {
+      lastMatch = m[1];
+    }
+
+    if (lastMatch) {
+      return path.join(dir, lastMatch);
+    }
+  } catch {
+    // Can't read/parse .cmd file — fall through to original
+  }
+
+  return binaryPath;
 }

@@ -72,6 +72,8 @@ interface GeminiStreamEvent {
 export class GeminiCliAdapter implements CliAdapter {
   readonly name = 'gemini' as const;
   readonly displayName = 'Gemini CLI';
+  /** Gemini runs as an external CLI process — cannot access VS Code internal APIs exposed by Ptah MCP server */
+  readonly supportsMcp = false;
 
   async detect(): Promise<CliDetectionResult> {
     try {
@@ -193,49 +195,28 @@ export class GeminiCliAdapter implements CliAdapter {
   }
 
   /**
-   * Configure Ptah MCP server in ~/.gemini/settings.json.
-   * Merges ptah server entry with existing user config (preserves other settings).
-   * When mcpPort is not provided, removes the ptah entry for clean state.
+   * Remove stale ptah MCP entry from ~/.gemini/settings.json.
+   * Prior versions wrote this entry via configureMcpServer(); Gemini cannot
+   * use VS Code internal APIs so the entry causes connection errors/hangs.
    * Non-fatal: errors are silently caught.
    */
-  private async configureMcpServer(mcpPort?: number): Promise<void> {
+  private async cleanupStaleMcpEntry(): Promise<void> {
     try {
-      const geminiDir = join(homedir(), '.gemini');
-      const settingsPath = join(geminiDir, 'settings.json');
+      const settingsPath = join(homedir(), '.gemini', 'settings.json');
+      const content = await readFile(settingsPath, 'utf8');
+      const settings = JSON.parse(content) as Record<string, unknown>;
+      const mcpServers = settings['mcpServers'] as
+        | Record<string, unknown>
+        | undefined;
+      if (!mcpServers?.['ptah']) return; // Nothing to clean up
 
-      // Read existing settings (preserve user's other servers/config)
-      let settings: Record<string, unknown> = {};
-      try {
-        const content = await readFile(settingsPath, 'utf8');
-        settings = JSON.parse(content) as Record<string, unknown>;
-      } catch {
-        // File doesn't exist or invalid JSON — start fresh
+      delete mcpServers['ptah'];
+      if (Object.keys(mcpServers).length === 0) {
+        delete settings['mcpServers'];
       }
-
-      // Ensure mcpServers object exists
-      const mcpServers = (settings['mcpServers'] ?? {}) as Record<
-        string,
-        unknown
-      >;
-
-      if (mcpPort) {
-        // Add/update ptah MCP server entry
-        mcpServers['ptah'] = {
-          httpUrl: `http://localhost:${mcpPort}`,
-          trust: true,
-          timeout: 30000,
-        };
-      } else {
-        // Remove ptah entry (user is not premium or server not running)
-        delete mcpServers['ptah'];
-      }
-
-      settings['mcpServers'] = mcpServers;
-
-      await mkdir(geminiDir, { recursive: true });
       await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
     } catch {
-      // Non-fatal — worst case, Gemini runs without MCP tools
+      // Non-fatal — file may not exist or never had a ptah entry
     }
   }
 
@@ -262,8 +243,11 @@ export class GeminiCliAdapter implements CliAdapter {
       await this.ensureFolderTrusted(options.workingDirectory);
     }
 
-    // Configure Ptah MCP server (or clean up if no port)
-    await this.configureMcpServer(options.mcpPort);
+    // Skip Ptah MCP server — unlike Copilot/Codex which use in-process SDKs,
+    // Gemini runs as an external CLI process that cannot access VS Code internal
+    // APIs (workspace, diagnostics, symbols, etc.) exposed by our MCP server.
+    // Clean up any stale ptah entry from ~/.gemini/settings.json left by prior versions.
+    await this.cleanupStaleMcpEntry();
 
     // Handle project guidance via Gemini's native system prompt mechanism (GEMINI_SYSTEM_MD)
     // This avoids polluting the task prompt and uses the model's system instruction slot.
@@ -289,11 +273,14 @@ export class GeminiCliAdapter implements CliAdapter {
       '--yolo', // Auto-approve all tool calls (orchestrated context)
     ];
 
-    // Resume mode: use --resume <id> instead of --prompt=
+    // --prompt= is the headless mode trigger — actual prompt comes from stdin.
+    // Required in BOTH fresh and resume modes, otherwise Gemini enters interactive
+    // mode and exits immediately when stdin closes (ENODATA / exit code 0).
+    args.push('--prompt=');
+
+    // Resume mode: additionally pass --resume <id> to load prior session context
     if (options.resumeSessionId) {
       args.push('--resume', options.resumeSessionId);
-    } else {
-      args.push('--prompt='); // Headless mode trigger — actual prompt comes from stdin
     }
 
     // Add model if specified
@@ -361,18 +348,19 @@ export class GeminiCliAdapter implements CliAdapter {
     child.stderr?.setEncoding('utf8');
 
     // Write prompt to stdin then close.
-    // Fresh mode: stdin IS the prompt (--prompt= is empty, Gemini appends stdin).
-    // Resume mode: Gemini loads existing session context; stdin provides a new follow-up prompt.
-    if (!options.resumeSessionId) {
-      child.stdin?.write(taskPrompt + '\n');
-      child.stdin?.end();
+    // Fresh mode: stdin IS the full task prompt (--prompt= is empty, Gemini reads stdin).
+    // Resume mode: Gemini loads existing session context from the resumed session.
+    //   The original task is already in that context, so re-sending it is redundant
+    //   and may cause Gemini to believe the work is already done. Instead, send a
+    //   short continuation prompt that tells it to pick up where it left off.
+    if (options.resumeSessionId) {
+      child.stdin?.write(
+        'Continue working on the previous task. Pick up where you left off.\n'
+      );
     } else {
-      // Resume mode: write new prompt if present, then close stdin
-      if (taskPrompt.trim()) {
-        child.stdin?.write(taskPrompt + '\n');
-      }
-      child.stdin?.end();
+      child.stdin?.write(taskPrompt + '\n');
     }
+    child.stdin?.end();
 
     // Abort handler: kill the child process
     const onAbort = (): void => {

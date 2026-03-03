@@ -53,6 +53,13 @@ module.exports = {
         return callback(); // Bundle it
       }
 
+      // Bundle @github/copilot-sdk and @github/copilot - both ESM-only
+      // ("type": "module", exports only "import"). Same treatment as
+      // claude-agent-sdk: must be bundled for CJS interop
+      if (request.startsWith('@github/copilot')) {
+        return callback(); // Bundle it
+      }
+
       // @google/genai - REMOVED (SDK-only migration: Google GenAI provider removed)
       // @google/gemini-cli-core - REMOVED (SDK-only migration: CLI auth removed)
 

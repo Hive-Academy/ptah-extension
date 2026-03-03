@@ -13,9 +13,9 @@ import {
   Loader2,
   AlertTriangle,
 } from 'lucide-angular';
-import { ToolIconComponent } from '../atoms/tool-icon.component';
-import { FilePathLinkComponent } from '../atoms/file-path-link.component';
-import { DurationBadgeComponent } from '../atoms/duration-badge.component';
+import { ToolIconComponent } from '../../atoms/tool-icon.component';
+import { FilePathLinkComponent } from '../../atoms/file-path-link.component';
+import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
 import type { ExecutionNode } from '@ptah-extension/shared';
 import {
   isReadToolInput,

@@ -133,12 +133,22 @@ export interface ExecuteQueryResult {
 /**
  * Manages SDK session lifecycle (runtime only)
  *
- * Uses a single sessionId (the real SDK UUID) everywhere.
- * No placeholder IDs, no mapping needed.
+ * Sessions are pre-registered with the frontend tab ID (e.g., `tab_xxx`)
+ * before the SDK query starts. Once the SDK returns the real session UUID
+ * from the system 'init' message, resolveRealSessionId() records the mapping.
+ * getActiveSessionIds() then returns the real UUIDs so that spawned CLI
+ * agents receive the correct parentSessionId for session persistence.
  */
 @injectable()
 export class SessionLifecycleManager {
   private activeSessions = new Map<string, ActiveSession>();
+
+  /**
+   * Mapping from tab ID → real SDK session UUID.
+   * Populated by resolveRealSessionId() when the SDK init message arrives.
+   * Used by getActiveSessionIds() to return real UUIDs instead of tab IDs.
+   */
+  private tabIdToRealId = new Map<string, string>();
 
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
@@ -231,10 +241,27 @@ export class SessionLifecycleManager {
   }
 
   /**
-   * Get all active session IDs
+   * Record the mapping from tab ID to real SDK session UUID.
+   * Called when the SDK system 'init' message resolves the real session ID.
+   * After this, getActiveSessionIds() returns the real UUID instead of the tab ID.
+   */
+  resolveRealSessionId(tabId: string, realSessionId: string): void {
+    if (this.activeSessions.has(tabId)) {
+      this.tabIdToRealId.set(tabId, realSessionId);
+      this.logger.info(
+        `[SessionLifecycle] Resolved real session ID: ${tabId} -> ${realSessionId}`
+      );
+    }
+  }
+
+  /**
+   * Get all active session IDs.
+   * Returns real SDK UUIDs when resolved, tab IDs otherwise.
    */
   getActiveSessionIds(): SessionId[] {
-    return Array.from(this.activeSessions.keys()) as SessionId[];
+    return Array.from(this.activeSessions.keys()).map(
+      (key) => (this.tabIdToRealId.get(key) || key) as SessionId
+    );
   }
 
   /**
@@ -292,8 +319,9 @@ export class SessionLifecycleManager {
     // Abort the session (kills the process after interrupt signal sent)
     session.abortController.abort();
 
-    // Remove from active sessions
+    // Remove from active sessions and clean up tab-to-real mapping
     this.activeSessions.delete(sessionId as string);
+    this.tabIdToRealId.delete(sessionId as string);
 
     this.logger.info(`[SessionLifecycle] Session ended: ${sessionId}`);
   }
@@ -327,6 +355,7 @@ export class SessionLifecycleManager {
     }
 
     this.activeSessions.clear();
+    this.tabIdToRealId.clear();
     this.logger.info('[SessionLifecycle] All sessions disposed');
   }
 

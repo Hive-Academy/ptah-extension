@@ -528,6 +528,13 @@ export class SdkAgentAdapter implements IAIProvider {
       realSessionId: string
     ) => {
       await this.metadataStore.touch(realSessionId);
+
+      // Update SessionLifecycleManager so getActiveSessionIds() returns
+      // the real UUID (same as new-session path).
+      if (tabId) {
+        this.sessionLifecycle.resolveRealSessionId(tabId, realSessionId);
+      }
+
       if (this.sessionIdResolvedCallback) {
         this.sessionIdResolvedCallback(tabId, realSessionId);
       }
@@ -579,6 +586,13 @@ export class SdkAgentAdapter implements IAIProvider {
 
       // Save session metadata to persistent storage
       await this.metadataStore.create(realSessionId, workspaceId, sessionName);
+
+      // Update SessionLifecycleManager so getActiveSessionIds() returns
+      // the real UUID. This ensures agents spawned after this point get
+      // the correct parentSessionId for CLI session persistence.
+      if (tabId) {
+        this.sessionLifecycle.resolveRealSessionId(tabId, realSessionId);
+      }
 
       // Notify webview of the resolved session ID
       // TASK_2025_095: Pass tabId so frontend can find tab directly

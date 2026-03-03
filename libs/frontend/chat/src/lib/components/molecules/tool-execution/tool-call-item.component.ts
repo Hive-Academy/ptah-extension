@@ -9,7 +9,7 @@ import {
 import { ToolCallHeaderComponent } from './tool-call-header.component';
 import { ToolInputDisplayComponent } from './tool-input-display.component';
 import { ToolOutputDisplayComponent } from './tool-output-display.component';
-import { PermissionRequestCardComponent } from './permission-request-card.component';
+import { PermissionRequestCardComponent } from '../permissions/permission-request-card.component';
 import type {
   ExecutionNode,
   PermissionRequest,

@@ -86,6 +86,15 @@ export interface CliAdapter {
   parseOutput(raw: string): string;
 
   /**
+   * Whether this adapter supports the Ptah MCP server connection.
+   * Adapters that run in-process via the Claude Agent SDK (Codex, Copilot)
+   * can access VS Code internal APIs through MCP. External CLI processes
+   * (Gemini) cannot and should return false.
+   * Defaults to true when not specified (backwards-compatible).
+   */
+  readonly supportsMcp?: boolean;
+
+  /**
    * Optional: Run task via SDK instead of CLI subprocess.
    * If implemented, AgentProcessManager will use this instead of buildCommand() + spawn().
    * Adapters that return a value here are "SDK-based" adapters.

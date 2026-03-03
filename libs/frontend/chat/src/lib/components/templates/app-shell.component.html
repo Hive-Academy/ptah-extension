@@ -181,8 +181,7 @@
 
       <!-- Header actions -->
       <div class="flex gap-1">
-        <!-- Agent monitor toggle (only visible when agents exist) -->
-        @if (agentMonitorStore.agentCount() > 0) {
+        <!-- Agent monitor toggle (always visible) -->
         <button
           class="btn btn-square btn-ghost btn-sm relative"
           aria-label="Toggle agent monitor"
@@ -200,9 +199,13 @@
           <span
             class="absolute top-0 right-0 w-2 h-2 bg-info rounded-full animate-pulse"
           ></span>
+          } @if (agentMonitorStore.agentCount() > 0 &&
+          !agentMonitorStore.hasRunningAgents()) {
+          <span
+            class="absolute top-0 right-0 w-1.5 h-1.5 bg-base-content/30 rounded-full"
+          ></span>
           }
         </button>
-        }
 
         <!-- Background agent badge -->
         @if (backgroundAgentStore.totalCount() > 0) {
@@ -296,6 +299,11 @@
       <ptah-chat-view />
     </div>
   </div>
+
+  <!-- Resize handle (visible only when agent panel is open) -->
+  @if (agentMonitorStore.panelOpen()) {
+  <ptah-resize-handle />
+  }
 
   <!-- Right sidebar: Agent Monitor Panel -->
   <ptah-agent-monitor-panel />

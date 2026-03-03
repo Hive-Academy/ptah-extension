@@ -218,9 +218,11 @@ export class AgentProcessManager {
       request.workingDirectory ?? this.getWorkspaceRoot();
     this.validateWorkingDirectory(workingDirectory);
 
-    // Resolve MCP port before SDK/CLI branch — both paths need it
-    // Premium-gated: only provided when user is premium AND MCP server is running
-    const mcpPort = await this.resolveMcpPort();
+    // Resolve MCP port before SDK/CLI branch — only for adapters that support it.
+    // Premium-gated: only provided when user is premium AND MCP server is running.
+    // Adapters that declare supportsMcp=false (e.g., Gemini) skip the health check.
+    const mcpPort =
+      adapter.supportsMcp !== false ? await this.resolveMcpPort() : undefined;
 
     // Branch: SDK-based adapters use runSdk() instead of spawn()
     // SDK adapters run in-process, so shell injection sanitization is not needed
@@ -378,6 +380,14 @@ export class AgentProcessManager {
       status: 'running',
       startedAt,
       parentSessionId: request.parentSessionId,
+      // Pre-set cliSessionId for resume: we already know the CLI session being
+      // resumed, so make it available on the agent:spawned event immediately.
+      // This enables spawn-time persistence (linking to parent session before
+      // the agent exits). The late-capture callback will update it if the init
+      // event returns a different session ID.
+      ...(request.resumeSessionId
+        ? { cliSessionId: request.resumeSessionId }
+        : {}),
     };
 
     // Resolve model: use explicit request.model, else per-CLI config, else CLI default
@@ -559,11 +569,13 @@ export class AgentProcessManager {
         this.accumulateSegment(agentId, segment);
 
         // Late capture: session_id arrives in init event (first JSONL line).
-        // The init event is typically the very first segment, but we check on
-        // every segment to be safe (idempotent -- only captures once).
-        if (captureSessionId && !tracked.info.cliSessionId) {
+        // For fresh agents, cliSessionId starts undefined and is captured here.
+        // For resumed agents, cliSessionId is pre-set to resumeSessionId; we
+        // still check the init event in case the CLI returns a different ID
+        // (e.g., new session instead of true resume).
+        if (captureSessionId) {
           const sessionId = captureSessionId();
-          if (sessionId) {
+          if (sessionId && sessionId !== tracked.info.cliSessionId) {
             tracked.info = { ...tracked.info, cliSessionId: sessionId };
           }
         }
@@ -652,6 +664,19 @@ export class AgentProcessManager {
       lineCount: tracked.stdoutLineCount + tracked.stderrLineCount,
       truncated: tracked.truncated,
     };
+  }
+
+  /**
+   * Update parentSessionId for all tracked agents that match the given tab ID.
+   * Called when the real session UUID is resolved from the SDK, replacing the
+   * temporary tab ID so that CLI session persistence uses the correct parent.
+   */
+  resolveParentSessionId(tabId: string, realSessionId: string): void {
+    for (const tracked of this.agents.values()) {
+      if (tracked.info.parentSessionId === tabId) {
+        tracked.info.parentSessionId = realSessionId;
+      }
+    }
   }
 
   /**
@@ -903,6 +928,7 @@ export class AgentProcessManager {
 
   /**
    * Flush accumulated deltas for an agent and emit 'agent:output' event.
+   * Merges consecutive text segments before emitting to reduce webview overhead.
    */
   private flushDelta(agentId: string): void {
     this.flushTimers.delete(agentId);
@@ -916,12 +942,14 @@ export class AgentProcessManager {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
 
+    const mergedSegments = mergeConsecutiveTextSegments(pending.segments);
+
     const delta: AgentOutputDelta = {
       agentId: AgentId.from(agentId),
       stdoutDelta: pending.stdout,
       stderrDelta: pending.stderr,
       timestamp: Date.now(),
-      ...(pending.segments.length > 0 ? { segments: pending.segments } : {}),
+      ...(mergedSegments.length > 0 ? { segments: mergedSegments } : {}),
     };
 
     // Reset pending
@@ -1086,7 +1114,7 @@ export class AgentProcessManager {
 
   private getMaxConcurrentAgents(): number {
     const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
-    return config.get<number>('maxConcurrentAgents', 3);
+    return config.get<number>('maxConcurrentAgents', 5);
   }
 
   private async getDefaultCli(): Promise<CliType | null> {
@@ -1251,4 +1279,52 @@ export class AgentProcessManager {
     const lines = str.split('\n');
     return lines.slice(-n).join('\n');
   }
+}
+
+/**
+ * Merge consecutive segments of the same streamable type into a single segment.
+ * SDK adapters (e.g. Copilot) emit per-token text/thinking segments which causes
+ * one-word-per-line rendering in the agent card. This collapses adjacent
+ * segments of the same type while preserving segment-type boundaries.
+ *
+ * Mergeable types: 'text', 'thinking' (both are content-only streaming types).
+ */
+function mergeConsecutiveTextSegments(
+  segments: CliOutputSegment[]
+): CliOutputSegment[] {
+  if (segments.length <= 1) return segments;
+
+  const result: CliOutputSegment[] = [];
+  let buffer = '';
+  let bufferType: 'text' | 'thinking' | null = null;
+
+  for (const seg of segments) {
+    if (seg.type === 'text' || seg.type === 'thinking') {
+      if (bufferType === seg.type) {
+        // Same type — accumulate
+        buffer += seg.content;
+      } else {
+        // Different type — flush previous buffer
+        if (buffer && bufferType) {
+          result.push({ type: bufferType, content: buffer });
+        }
+        buffer = seg.content;
+        bufferType = seg.type;
+      }
+    } else {
+      // Non-mergeable segment — flush buffer and push
+      if (buffer && bufferType) {
+        result.push({ type: bufferType, content: buffer });
+        buffer = '';
+        bufferType = null;
+      }
+      result.push(seg);
+    }
+  }
+
+  if (buffer && bufferType) {
+    result.push({ type: bufferType, content: buffer });
+  }
+
+  return result;
 }

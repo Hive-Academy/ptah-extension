@@ -16,16 +16,16 @@
 import { TestBed } from '@angular/core/testing';
 import { signal } from '@angular/core';
 import { ChatInputComponent } from './chat-input.component';
-import { ChatStore } from '../../services/chat.store';
-import { TabManagerService } from '../../services/tab-manager.service';
-import { FilePickerService } from '../../services/file-picker.service';
+import { ChatStore } from '../../../services/chat.store';
+import { TabManagerService } from '../../../services/tab-manager.service';
+import { FilePickerService } from '../../../services/file-picker.service';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
 } from '@ptah-extension/core';
-import type { AtTriggerEvent } from '../../directives/at-trigger.directive';
-import type { SlashTriggerEvent } from '../../directives/slash-trigger.directive';
+import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
+import type { SlashTriggerEvent } from '../../../directives/slash-trigger.directive';
 
 describe('ChatInputComponent', () => {
   let component: ChatInputComponent;

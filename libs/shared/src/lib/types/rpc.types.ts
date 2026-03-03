@@ -1663,6 +1663,27 @@ export interface RpcMethodRegistry {
     params: AgentPermissionDecision;
     result: { success: boolean; error?: string };
   };
+  /** Stop a running CLI agent by agentId */
+  'agent:stop': {
+    params: { agentId: string };
+    result: { success: boolean; error?: string };
+  };
+  /** Resume a CLI agent session by spawning a new process with resumeSessionId (TASK_2025_173) */
+  'agent:resumeCliSession': {
+    params: {
+      /** CLI-native session ID to resume */
+      cliSessionId: string;
+      /** Which CLI adapter produced this session */
+      cli: import('./agent-process.types').CliType;
+      /** Task description to re-use */
+      task: string;
+      /** Parent Ptah session ID (for re-linking) */
+      parentSessionId?: string;
+      /** Ptah CLI agent ID (for ptah-cli type agents) */
+      ptahCliId?: string;
+    };
+    result: { success: boolean; agentId?: string; error?: string };
+  };
   /** List background agents for a session (TASK_2025_168) */
   'agent:backgroundList': {
     params: { sessionId?: string };
@@ -1823,6 +1844,8 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'agent:detectClis',
   'agent:listCliModels',
   'agent:permissionResponse', // TASK_2025_162: Copilot SDK permission response
+  'agent:stop',
+  'agent:resumeCliSession', // TASK_2025_173: CLI agent session resume
   'agent:backgroundList', // TASK_2025_168: Background agent listing
 
   // Ptah CLI Agent Methods (TASK_2025_167 → TASK_2025_170)

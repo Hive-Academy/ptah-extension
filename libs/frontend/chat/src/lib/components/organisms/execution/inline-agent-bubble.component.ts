@@ -22,8 +22,8 @@ import {
   // TASK_2025_109: PlayCircle removed - Resume button no longer needed
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution-node.component';
-import { TypingCursorComponent } from '../atoms/typing-cursor.component';
-import { CostBadgeComponent } from '../atoms/cost-badge.component';
+import { TypingCursorComponent } from '../../atoms/typing-cursor.component';
+import { CostBadgeComponent } from '../../atoms/cost-badge.component';
 import type {
   ExecutionNode,
   PermissionRequest,
@@ -31,8 +31,8 @@ import type {
 } from '@ptah-extension/shared';
 import { NgClass } from '@angular/common';
 import { formatModelDisplayName } from '@ptah-extension/shared';
-import { TokenBadgeComponent } from '../atoms/token-badge.component';
-import { DurationBadgeComponent } from '../atoms/duration-badge.component';
+import { TokenBadgeComponent } from '../../atoms/token-badge.component';
+import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
 
 /**
  * InlineAgentBubbleComponent - Unified agent rendering for both streaming and replay

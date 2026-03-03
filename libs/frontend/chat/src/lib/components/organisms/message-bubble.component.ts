@@ -15,7 +15,7 @@ import {
   Folder,
   Paperclip,
 } from 'lucide-angular';
-import { ExecutionNodeComponent } from './execution-node.component';
+import { ExecutionNodeComponent } from './execution/execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
 import { StreamingQuotesComponent } from '../atoms/streaming-quotes.component';
 import { CopyButtonComponent } from '../atoms/copy-button.component';

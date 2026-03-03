@@ -62,6 +62,7 @@ export interface WebviewMessageHandlerConfig {
  *      - `MESSAGE_TYPES.RPC_REQUEST`, `MESSAGE_TYPES.RPC_CALL`: RPC method invocation
  *      - `MESSAGE_TYPES.SDK_PERMISSION_RESPONSE`: Claude SDK permission response
  *      - `MESSAGE_TYPES.MCP_PERMISSION_RESPONSE`: Code Execution MCP permission response
+ *      - `MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE`: Copilot agent permission response
  *    - All webviews automatically support these message types
  *
  * 3. **Fallback Layer** - Executed THIRD (if not handled)
@@ -209,6 +210,10 @@ export class WebviewMessageHandlerService {
           await this.handleAskUserQuestionResponse(webviewId, message);
           return;
 
+        case MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE:
+          await this.handleAgentMonitorPermissionResponse(webviewId, message);
+          return;
+
         default:
           this.logger.debug(`[${webviewId}] Unhandled message type`, {
             type: message.type,
@@ -349,6 +354,58 @@ export class WebviewMessageHandlerService {
     } catch (error) {
       this.logger.error(
         `[${webviewId}] Failed to process AskUserQuestion response`,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Handle Copilot agent permission responses (CLI sub-agent)
+   *
+   * SYSTEM 3: Copilot SDK Agent Permissions (separate from main SDK + MCP)
+   * - Triggered by: User clicking Allow/Deny on agent card permission UI
+   * - Message type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE
+   * - Delegates to: RPC method 'agent:permissionResponse' (registered in AgentRpcHandlers)
+   *   which resolves the pending Promise in CopilotPermissionBridge
+   *
+   * This handler forwards the raw postMessage to the existing RPC method
+   * rather than duplicating the bridge resolution logic.
+   */
+  private async handleAgentMonitorPermissionResponse(
+    webviewId: string,
+    message: any
+  ): Promise<void> {
+    try {
+      const payload = message.payload;
+      if (!payload?.requestId) {
+        this.logger.warn(
+          `[${webviewId}] Agent permission response missing requestId`
+        );
+        return;
+      }
+
+      // Delegate to the existing RPC handler 'agent:permissionResponse'
+      // which resolves the CopilotPermissionBridge pending Promise
+      const response = await this.rpcHandler.handleMessage({
+        method: 'agent:permissionResponse',
+        params: payload,
+        correlationId: payload.requestId,
+      });
+
+      if (response.success) {
+        this.logger.info(`[${webviewId}] Agent permission response processed`, {
+          requestId: payload.requestId,
+          decision: payload.decision,
+        });
+      } else {
+        this.logger.warn(`[${webviewId}] Agent permission response failed`, {
+          requestId: payload.requestId,
+          error: response.error,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `[${webviewId}] Failed to process agent permission response`,
         error instanceof Error ? error : new Error(String(error))
       );
     }

@@ -184,6 +184,15 @@ export class RpcMethodRegistrationService {
                 error instanceof Error ? error : new Error(String(error))
               );
             });
+
+          // Persist CLI session reference at spawn time (not just exit).
+          // For resumed agents, cliSessionId is pre-set from resumeSessionId,
+          // so the link to the parent session is established immediately.
+          // Without this, closing the session while the agent is still running
+          // would lose the reference (it wouldn't appear on session reload).
+          if (info.parentSessionId && info.cliSessionId) {
+            this.persistCliSessionReference(info);
+          }
         }
       );
 
@@ -213,8 +222,10 @@ export class RpcMethodRegistrationService {
               );
             });
 
-          // Persist CLI session reference to parent session metadata (fire-and-forget)
-          if (info.cliSessionId && info.parentSessionId) {
+          // Persist CLI session reference to parent session metadata (fire-and-forget).
+          // cliSessionId is optional: PtahCli agents don't have native CLI sessions,
+          // so we fall back to agentId as the reference key in persistCliSessionReference().
+          if (info.parentSessionId) {
             this.persistCliSessionReference(info);
           }
         }
@@ -239,8 +250,13 @@ export class RpcMethodRegistrationService {
    * Fire-and-forget: errors are caught and logged, never block exit event forwarding.
    */
   private persistCliSessionReference(info: AgentProcessInfo): void {
-    const { cliSessionId, parentSessionId } = info;
-    if (!cliSessionId || !parentSessionId) return;
+    const { parentSessionId } = info;
+    if (!parentSessionId) return;
+
+    // Use cliSessionId if available, otherwise fall back to agentId.
+    // PtahCli agents (headless SDK queries) don't have native CLI sessions,
+    // but we still persist their references for the agent monitor panel.
+    const effectiveCliSessionId = info.cliSessionId || info.agentId;
 
     try {
       const metadataStore = this.container.resolve<{
@@ -251,13 +267,17 @@ export class RpcMethodRegistrationService {
       }>(SDK_TOKENS.SDK_SESSION_METADATA_STORE);
 
       // Capture accumulated output for persistence (if agent is still tracked)
-      const agentProcessManager = this.container.resolve(AgentProcessManager);
+      // MUST resolve by TOKEN — resolving by class creates a new empty instance
+      // because AgentProcessManager is registered under TOKENS.AGENT_PROCESS_MANAGER
+      const agentProcessManager = this.container.resolve<AgentProcessManager>(
+        TOKENS.AGENT_PROCESS_MANAGER
+      );
       const persistedOutput = agentProcessManager.readOutputForPersistence(
         info.agentId
       );
 
       const ref: CliSessionReference = {
-        cliSessionId,
+        cliSessionId: effectiveCliSessionId,
         cli: info.cli,
         agentId: info.agentId,
         task: info.task,
@@ -274,19 +294,35 @@ export class RpcMethodRegistrationService {
         {
           retries: 3,
           initialDelay: 1000,
-          shouldRetry: () => true,
+          // Don't retry "parent not found" errors — the parent session ID may
+          // still be a tab ID (not yet resolved to real SDK UUID). The re-persist
+          // logic in setupSessionIdResolvedCallback handles this timing race.
+          shouldRetry: (error: unknown) => {
+            const msg = error instanceof Error ? error.message : String(error);
+            return !msg.includes('Parent session not found');
+          },
         }
       )
         .then(() => {
           this.logger.info(
-            `[RPC] CLI session reference persisted: ${cliSessionId} -> parent ${parentSessionId}`
+            `[RPC] CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`
           );
         })
         .catch((error) => {
-          this.logger.error(
-            '[RPC] Failed to persist CLI session reference after retries',
-            error instanceof Error ? error : new Error(String(error))
-          );
+          const msg = error instanceof Error ? error.message : String(error);
+          if (msg.includes('Parent session not found')) {
+            // Expected when agent exits before session ID resolves from tab ID
+            // to real SDK UUID. The re-persist in setupSessionIdResolvedCallback
+            // will handle this once the real session ID is available.
+            this.logger.debug(
+              `[RPC] CLI session persist deferred (parent not yet resolved): ${parentSessionId}`
+            );
+          } else {
+            this.logger.error(
+              '[RPC] Failed to persist CLI session reference after retries',
+              error instanceof Error ? error : new Error(msg)
+            );
+          }
         });
     } catch (error) {
       // SessionMetadataStore may not be available in all configurations
@@ -353,6 +389,38 @@ export class RpcMethodRegistrationService {
         this.logger.info(
           `[RPC] Session ID resolved from SDK: tabId=${tabId} -> real=${realSessionId}`
         );
+
+        // Update any CLI agents spawned with the tab ID as parentSessionId
+        // so that CLI session persistence uses the correct real session UUID.
+        if (tabId) {
+          try {
+            const agentProcessManager =
+              this.container.resolve<AgentProcessManager>(
+                TOKENS.AGENT_PROCESS_MANAGER
+              );
+            agentProcessManager.resolveParentSessionId(tabId, realSessionId);
+
+            // Re-persist any already-exited agents whose CLI sessions couldn't be
+            // persisted earlier (because parentSessionId was still a tab ID).
+            // This handles the timing race where agents exit before session ID resolves.
+            const allAgents =
+              agentProcessManager.getStatus() as AgentProcessInfo[];
+            const exitedWithParent = allAgents.filter(
+              (a) =>
+                a.parentSessionId === realSessionId && a.status !== 'running'
+            );
+            if (exitedWithParent.length > 0) {
+              this.logger.info(
+                `[RPC] Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`
+              );
+            }
+            for (const exitedInfo of exitedWithParent) {
+              this.persistCliSessionReference(exitedInfo);
+            }
+          } catch {
+            // AgentProcessManager may not be registered yet
+          }
+        }
 
         // Notify frontend with tabId for direct routing
         // tabId: used to find the tab directly (no temp ID lookup needed)

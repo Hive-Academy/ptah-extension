@@ -174,11 +174,10 @@
     <!-- Tab 3: Ptah AI                              -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'ptah-ai') { @if (isPremium()) {
-    <!-- Agent Orchestration (TASK_2025_157) -->
-    <ptah-agent-orchestration-config />
-
-    <!-- Ptah CLI Agents (TASK_2025_167 → TASK_2025_170) -->
-    <ptah-cli-config (ptahCliChanged)="onPtahCliChanged()" />
+    <!-- Agent Orchestration + Ptah CLI Agents (unified panel) -->
+    <ptah-agent-orchestration-config>
+      <ptah-cli-config (ptahCliChanged)="onPtahCliChanged()" />
+    </ptah-agent-orchestration-config>
 
     } @else {
     <!-- Upsell for non-premium users -->

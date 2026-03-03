@@ -565,8 +565,8 @@ ${message}
         throw new Error('File path cannot be empty');
       }
 
-      // Read file
-      const uri = vscode.Uri.file(filePath);
+      // Read file — resolve relative paths against workspace root
+      const uri = resolveWorkspacePath(filePath);
       let fileContent: string;
 
       try {

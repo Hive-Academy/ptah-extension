@@ -34,28 +34,57 @@ libs/frontend/chat/src/lib/
 │   │   ├── file-path-link.component.ts
 │   │   └── tool-icon.component.ts
 │   │
-│   ├── molecules/                  # Combinations of atoms
-│   │   ├── thinking-block.component.ts
-│   │   ├── tool-call-header.component.ts
-│   │   ├── agent-summary.component.ts
-│   │   ├── chat-input.component.ts
-│   │   ├── chat-empty-state.component.ts
-│   │   ├── session-cost-summary.component.ts
-│   │   ├── setup-status-widget.component.ts
-│   │   ├── agent-selector.component.ts
-│   │   ├── model-selector.component.ts
-│   │   ├── autopilot-popover.component.ts
-│   │   ├── confirmation-dialog.component.ts
-│   │   ├── code-output.component.ts
-│   │   ├── permission-request-card.component.ts
-│   │   ├── tab-item.component.ts
-│   │   └── todo-list-display.component.ts
+│   ├── molecules/                  # Combinations of atoms (grouped by feature)
+│   │   ├── tool-execution/             # Tool call display pipeline
+│   │   │   ├── tool-call-item.component.ts
+│   │   │   ├── tool-call-header.component.ts
+│   │   │   ├── tool-input-display.component.ts
+│   │   │   ├── tool-output-display.component.ts
+│   │   │   ├── code-output.component.ts
+│   │   │   ├── diff-display.component.ts
+│   │   │   └── todo-list-display.component.ts
+│   │   ├── permissions/                # Permission request flow
+│   │   │   ├── permission-badge.component.ts
+│   │   │   ├── permission-request-card.component.ts
+│   │   │   └── deny-message-popover.component.ts
+│   │   ├── chat-input/                 # Input area + selectors
+│   │   │   ├── chat-input.component.ts
+│   │   │   ├── agent-selector.component.ts
+│   │   │   ├── model-selector.component.ts
+│   │   │   └── autopilot-popover.component.ts
+│   │   ├── trial-billing/              # Trial/subscription UI
+│   │   │   ├── trial-banner.component.ts
+│   │   │   ├── trial-ended-modal.component.ts
+│   │   │   └── community-upgrade-banner.component.ts
+│   │   ├── notifications/              # Header notifs + banners
+│   │   │   ├── notification-bell.component.ts
+│   │   │   ├── background-agent-badge.component.ts
+│   │   │   ├── compaction-notification.component.ts
+│   │   │   └── resume-notification-banner.component.ts
+│   │   ├── session/                    # Session stats + tab item
+│   │   │   ├── session-cost-summary.component.ts
+│   │   │   ├── session-stats-summary.component.ts
+│   │   │   └── tab-item.component.ts
+│   │   ├── setup-plugins/              # Setup & plugin config
+│   │   │   ├── setup-status-widget.component.ts
+│   │   │   ├── plugin-status-widget.component.ts
+│   │   │   ├── plugin-browser-modal.component.ts
+│   │   │   └── chat-empty-state.component.ts
+│   │   ├── agent-card/                 # Agent card (WIP refactor)
+│   │   │   └── agent-card.component.ts (+ sub-components)
+│   │   ├── agent-summary.component.ts        # Standalone
+│   │   ├── thinking-block.component.ts       # Standalone
+│   │   ├── question-card.component.ts        # Standalone
+│   │   └── confirmation-dialog.component.ts  # Standalone
 │   │
 │   ├── organisms/                  # Complex sections
-│   │   ├── execution-node.component.ts      # RECURSIVE tree visualization
-│   │   ├── inline-agent-bubble.component.ts
-│   │   ├── agent-execution.component.ts
-│   │   └── message-bubble.component.ts
+│   │   ├── execution/                  # Recursive execution visualization
+│   │   │   ├── execution-node.component.ts   # RECURSIVE tree visualization
+│   │   │   ├── inline-agent-bubble.component.ts
+│   │   │   └── agent-execution.component.ts
+│   │   ├── message-bubble.component.ts
+│   │   ├── agent-monitor-panel.component.ts
+│   │   └── tab-bar.component.ts
 │   │
 │   ├── templates/                  # Page layouts
 │   │   ├── chat-view.component.ts
@@ -827,9 +856,18 @@ nx build chat
 ## File Paths Reference
 
 - **Components**: `src/lib/components/`
-  - **Atoms**: `atoms/*.component.ts`
-  - **Molecules**: `molecules/*.component.ts`
-  - **Organisms**: `organisms/*.component.ts`
+  - **Atoms**: `atoms/*.component.ts` (flat — 15 basic building blocks)
+  - **Molecules**: `molecules/<feature>/*.component.ts` (grouped by business feature)
+    - `tool-execution/` — tool call display pipeline (7 files)
+    - `permissions/` — permission request flow (3 files)
+    - `chat-input/` — input area + selectors (5 files)
+    - `trial-billing/` — trial/subscription UI (3 files)
+    - `notifications/` — header notifs + banners (4 files)
+    - `session/` — session stats + tab item (3 files)
+    - `setup-plugins/` — setup & plugin config (4 files)
+    - `agent-card/` — agent card (WIP separate refactor)
+    - Standalone at root: `agent-summary`, `thinking-block`, `question-card`, `confirmation-dialog`
+  - **Organisms**: `organisms/*.component.ts` + `organisms/execution/` sub-folder
   - **Templates**: `templates/*.component.ts`
   - **Autocomplete**: `file-suggestions/*.component.ts`
 - **Services**: `src/lib/services/`

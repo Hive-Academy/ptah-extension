@@ -14,9 +14,9 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-angular';
-import { AgentSummaryComponent } from '../molecules/agent-summary.component';
+import { AgentSummaryComponent } from '../../molecules/agent-summary.component';
 import { ExecutionNodeComponent } from './execution-node.component';
-import { TypingCursorComponent } from '../atoms/typing-cursor.component';
+import { TypingCursorComponent } from '../../atoms/typing-cursor.component';
 import type { ExecutionNode, AgentInfo } from '@ptah-extension/shared';
 
 /**

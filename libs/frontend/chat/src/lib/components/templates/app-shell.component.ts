@@ -27,15 +27,16 @@ import {
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
 import { ConfirmationDialogComponent } from '../molecules/confirmation-dialog.component';
-import { TrialEndedModalComponent } from '../molecules/trial-ended-modal.component';
+import { TrialEndedModalComponent } from '../molecules/trial-billing/trial-ended-modal.component';
 import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
+import { ResizeHandleComponent } from '../atoms/resize-handle.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
-import { NotificationBellComponent } from '../molecules/notification-bell.component';
-import { BackgroundAgentBadgeComponent } from '../molecules/background-agent-badge.component';
+import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
+import { BackgroundAgentBadgeComponent } from '../molecules/notifications/background-agent-badge.component';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { BackgroundAgentStore } from '../../services/background-agent.store';
@@ -96,6 +97,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     FormsModule,
     NativePopoverComponent,
     AgentMonitorPanelComponent,
+    ResizeHandleComponent,
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,

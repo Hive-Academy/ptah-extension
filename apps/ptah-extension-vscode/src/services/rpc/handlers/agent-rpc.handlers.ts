@@ -14,6 +14,7 @@ import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
 import {
   CliDetectionService,
   CopilotPermissionBridge,
+  AgentProcessManager,
 } from '@ptah-extension/llm-abstraction';
 import { SDK_TOKENS, PtahCliRegistry } from '@ptah-extension/agent-sdk';
 import type {
@@ -44,7 +45,9 @@ export class AgentRpcHandlers {
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
     @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
-    private readonly ptahCliRegistry: PtahCliRegistry
+    private readonly ptahCliRegistry: PtahCliRegistry,
+    @inject(TOKENS.AGENT_PROCESS_MANAGER)
+    private readonly agentProcessManager: AgentProcessManager
   ) {}
 
   /**
@@ -56,6 +59,8 @@ export class AgentRpcHandlers {
     this.registerDetectClis();
     this.registerListCliModels();
     this.registerPermissionResponse(); // TASK_2025_162
+    this.registerAgentStop();
+    this.registerResumeCliSession(); // TASK_2025_173
 
     this.logger.debug('Agent orchestration RPC handlers registered', {
       methods: [
@@ -64,6 +69,8 @@ export class AgentRpcHandlers {
         'agent:detectClis',
         'agent:listCliModels',
         'agent:permissionResponse',
+        'agent:stop',
+        'agent:resumeCliSession',
       ],
     });
   }
@@ -92,7 +99,7 @@ export class AgentRpcHandlers {
           const result: AgentOrchestrationConfig = {
             detectedClis,
             defaultCli: config.get<CliType | null>('defaultCli', null),
-            maxConcurrentAgents: config.get<number>('maxConcurrentAgents', 3),
+            maxConcurrentAgents: config.get<number>('maxConcurrentAgents', 5),
             defaultTimeout: config.get<number>('defaultTimeout', 10),
             geminiModel: config.get<string>('geminiModel', ''),
             copilotModel: config.get<string>('copilotModel', ''),
@@ -362,6 +369,7 @@ export class AgentRpcHandlers {
           ptahCliId: a.id,
           ptahCliName: a.name,
           providerName: a.providerName,
+          providerId: a.providerId,
         }));
       return [...cliResults, ...ptahClis];
     } catch {
@@ -449,6 +457,96 @@ export class AgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:permissionResponse failed',
+          error instanceof Error ? error : new Error(errorMessage)
+        );
+        return { success: false, error: errorMessage };
+      }
+    });
+  }
+
+  /**
+   * agent:stop - Stop a running CLI agent by agentId.
+   *
+   * Called from the agent monitor panel's stop button.
+   * Delegates to AgentProcessManager.stop() which handles both
+   * CLI processes (SIGTERM/taskkill) and SDK agents (AbortController).
+   */
+  private registerAgentStop(): void {
+    this.rpcHandler.registerMethod<
+      { agentId: string },
+      { success: boolean; error?: string }
+    >('agent:stop', async (params) => {
+      try {
+        this.logger.debug('RPC: agent:stop called', {
+          agentId: params.agentId,
+        });
+
+        const result = await this.agentProcessManager.stop(params.agentId);
+
+        this.logger.info('RPC: agent:stop success', {
+          agentId: params.agentId,
+          status: result.status,
+        });
+
+        return { success: true };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'RPC: agent:stop failed',
+          error instanceof Error ? error : new Error(errorMessage)
+        );
+        return { success: false, error: errorMessage };
+      }
+    });
+  }
+
+  /**
+   * agent:resumeCliSession - Resume a CLI agent session.
+   *
+   * Spawns a new CLI agent process with resumeSessionId set,
+   * which triggers the adapter's resume flow (--resume for Gemini,
+   * client.resumeSession() for Copilot, etc.).
+   *
+   * TASK_2025_173: CLI agent session resume-on-click
+   */
+  private registerResumeCliSession(): void {
+    this.rpcHandler.registerMethod<
+      {
+        cliSessionId: string;
+        cli: CliType;
+        task: string;
+        parentSessionId?: string;
+        ptahCliId?: string;
+      },
+      { success: boolean; agentId?: string; error?: string }
+    >('agent:resumeCliSession', async (params) => {
+      try {
+        this.logger.debug('RPC: agent:resumeCliSession called', {
+          cliSessionId: params.cliSessionId,
+          cli: params.cli,
+        });
+
+        const result = await this.agentProcessManager.spawn({
+          cli: params.cli,
+          task: params.task,
+          resumeSessionId: params.cliSessionId,
+          parentSessionId: params.parentSessionId,
+          ptahCliId: params.ptahCliId,
+        });
+
+        this.logger.info('RPC: agent:resumeCliSession success', {
+          agentId: result.agentId,
+          cli: params.cli,
+          resumedFrom: params.cliSessionId,
+        });
+
+        return { success: true, agentId: result.agentId };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          'RPC: agent:resumeCliSession failed',
           error instanceof Error ? error : new Error(errorMessage)
         );
         return { success: false, error: errorMessage };

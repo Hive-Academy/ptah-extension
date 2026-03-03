@@ -24,7 +24,7 @@ import {
   NativeOptionComponent,
   KeyboardNavigationService,
 } from '@ptah-extension/ui';
-import { ChatStore } from '../../services/chat.store';
+import { ChatStore } from '../../../services/chat.store';
 import { SessionId } from '@ptah-extension/shared';
 
 @Component({

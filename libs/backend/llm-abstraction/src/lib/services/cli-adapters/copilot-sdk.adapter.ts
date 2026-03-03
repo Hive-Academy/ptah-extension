@@ -47,6 +47,7 @@ import {
   stripAnsiCodes,
   buildTaskPrompt,
   resolveCliPath,
+  resolveWindowsCmd,
 } from './cli-adapter.utils';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
@@ -211,6 +212,24 @@ interface CopilotSdkModule {
 // ========================================
 // End Local SDK Types
 // ========================================
+
+// ========================================
+// Tool Classification Helpers
+// ========================================
+
+/** Shell/command execution tool names across providers */
+function isShellTool(toolName: string): boolean {
+  return /^(run_shell_command|bash|shell|execute_command|terminal)$/i.test(
+    toolName
+  );
+}
+
+/** File write/edit tool names across providers */
+function isFileWriteTool(toolName: string): boolean {
+  return /^(write_file|edit|replace|create_file|patch_file|write|insert)$/i.test(
+    toolName
+  );
+}
 
 /** Copilot CLI model list (from `copilot --help` output) */
 const COPILOT_MODELS: CliModelInfo[] = [
@@ -381,6 +400,10 @@ export class CopilotSdkAdapter implements CliAdapter {
 
     // Track whether we received streaming deltas (to skip full assistant.message)
     let receivedDeltas = false;
+    // Track whether we received reasoning deltas (to skip full assistant.reasoning)
+    let receivedReasoningDeltas = false;
+    // Track toolCallId -> toolName for enriched tool.execution_complete handling
+    const toolCallIdToName = new Map<string, string>();
     // Track the actual session ID (may differ from our requested one)
     let actualSessionId: string = sessionId;
 
@@ -544,10 +567,16 @@ export class CopilotSdkAdapter implements CliAdapter {
     session.on('tool.execution_start', (event: SdkSessionEvent) => {
       const toolName = event.data['toolName'] as string;
       const toolArgs = event.data['arguments'] as unknown;
+      const toolCallId = event.data['toolCallId'] as string | undefined;
       const argsStr =
         toolArgs !== undefined && toolArgs !== null
           ? this.summarizeToolArgs(toolName, toolArgs)
           : undefined;
+
+      // Track toolCallId -> toolName for enriched completion handling
+      if (toolCallId) {
+        toolCallIdToName.set(toolCallId, toolName);
+      }
 
       emitOutput(
         `\n**Tool:** \`${toolName}\`${argsStr ? ` ${argsStr}` : ''}\n`
@@ -560,7 +589,7 @@ export class CopilotSdkAdapter implements CliAdapter {
       });
     });
 
-    // tool.execution_complete -> tool-result or tool-result-error segment
+    // tool.execution_complete -> tool-result, command, file-change, or tool-result-error segment
     session.on('tool.execution_complete', (event: SdkSessionEvent) => {
       const success = event.data['success'] as boolean;
       const result = event.data['result'] as
@@ -569,18 +598,49 @@ export class CopilotSdkAdapter implements CliAdapter {
       const error = event.data['error'] as
         | { message?: string; code?: string }
         | undefined;
+      const toolCallId = event.data['toolCallId'] as string | undefined;
+      const exitCode = event.data['exitCode'] as number | undefined;
+
+      // Look up tool name from tracking map for enriched segment types
+      const toolName = toolCallId
+        ? toolCallIdToName.get(toolCallId)
+        : undefined;
 
       if (success && result) {
         const content = result.content ?? '';
-        // Truncate long tool output for readability
         const truncated =
           content.length > 2000
             ? content.substring(0, 2000) + '\n... [truncated]'
             : content;
-        emitOutput(
-          `\n<details><summary>Tool result</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n</details>\n\n`
-        );
-        emitSegment({ type: 'tool-result', content: truncated });
+
+        // Emit enriched segment types based on tool name
+        if (toolName && isShellTool(toolName)) {
+          emitOutput(`\n$ ${toolName}\n${truncated}\n`);
+          emitSegment({
+            type: 'command',
+            content: truncated,
+            toolName,
+            exitCode: exitCode ?? 0,
+          });
+        } else if (toolName && isFileWriteTool(toolName)) {
+          // Detect change kind from content heuristics
+          const changeKind = /\b(created|new file)\b/i.test(content)
+            ? 'added'
+            : /\b(deleted|removed)\b/i.test(content)
+            ? 'deleted'
+            : 'modified';
+          emitOutput(`\n[${changeKind}] ${truncated}\n`);
+          emitSegment({
+            type: 'file-change',
+            content: truncated,
+            changeKind,
+          });
+        } else {
+          emitOutput(
+            `\n<details><summary>Tool result</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n</details>\n\n`
+          );
+          emitSegment({ type: 'tool-result', content: truncated });
+        }
       } else if (error) {
         const errorMsg = error.message ?? 'Unknown error';
         emitOutput(`\n**Tool Error:** ${errorMsg}\n`);
@@ -622,6 +682,42 @@ export class CopilotSdkAdapter implements CliAdapter {
         emitOutput(`\n[${usageStr}]\n`);
         emitSegment({ type: 'info', content: usageStr });
       }
+    });
+
+    // assistant.reasoning_delta -> thinking segment (streaming reasoning content)
+    session.on('assistant.reasoning_delta', (event: SdkSessionEvent) => {
+      receivedReasoningDeltas = true;
+      const delta = event.data['deltaContent'] as string | undefined;
+      if (delta) {
+        emitSegment({ type: 'thinking', content: delta });
+      }
+    });
+
+    // assistant.reasoning -> thinking segment (full reasoning, skip if streaming deltas received)
+    session.on('assistant.reasoning', (event: SdkSessionEvent) => {
+      const content = event.data['content'] as string | undefined;
+      if (!receivedReasoningDeltas && content) {
+        emitSegment({ type: 'thinking', content });
+      }
+    });
+
+    // session.compaction_start -> info segment
+    session.on('session.compaction_start', () => {
+      emitOutput('\n[Copilot SDK] Context compaction started...\n');
+      emitSegment({ type: 'info', content: 'Context compaction started...' });
+    });
+
+    // session.compaction_complete -> info segment with token stats
+    session.on('session.compaction_complete', (event: SdkSessionEvent) => {
+      const tokensBefore = event.data['tokensBefore'] as number | undefined;
+      const tokensAfter = event.data['tokensAfter'] as number | undefined;
+      const parts: string[] = ['Context compaction complete'];
+      if (tokensBefore !== undefined && tokensAfter !== undefined) {
+        parts.push(`${tokensBefore} → ${tokensAfter} tokens`);
+      }
+      const msg = parts.join(': ');
+      emitOutput(`\n[Copilot SDK] ${msg}\n`);
+      emitSegment({ type: 'info', content: msg });
     });
 
     // Done promise: resolves when session becomes idle or errors out.
@@ -730,7 +826,9 @@ export class CopilotSdkAdapter implements CliAdapter {
     };
 
     if (binaryPath) {
-      clientOptions.cliPath = binaryPath;
+      // On Windows, npm wraps CLIs in .cmd batch scripts that can't be
+      // executed by bare spawn() (EINVAL). Resolve to the actual binary.
+      clientOptions.cliPath = await resolveWindowsCmd(binaryPath);
     }
 
     if (token) {

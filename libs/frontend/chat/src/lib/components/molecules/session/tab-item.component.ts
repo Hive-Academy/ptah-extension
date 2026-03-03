@@ -6,7 +6,7 @@ import {
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { LucideAngularModule, X } from 'lucide-angular';
-import { TabState } from '../../services/chat.types';
+import { TabState } from '../../../services/chat.types';
 
 /**
  * TabItemComponent - Individual tab in tab bar

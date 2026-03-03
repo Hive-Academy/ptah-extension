@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
-import { TabItemComponent } from '../molecules/tab-item.component';
+import { TabItemComponent } from '../molecules/session/tab-item.component';
 import { TabManagerService } from '../../services/tab-manager.service';
 
 /**

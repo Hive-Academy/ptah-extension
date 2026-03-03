@@ -5,7 +5,7 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
-import { ExpandableContentComponent } from '../atoms/expandable-content.component';
+import { ExpandableContentComponent } from '../../atoms/expandable-content.component';
 import { type ExecutionNode, isWriteToolInput } from '@ptah-extension/shared';
 
 /**

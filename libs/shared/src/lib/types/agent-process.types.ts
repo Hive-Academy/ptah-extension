@@ -75,8 +75,9 @@ export interface AgentProcessInfo {
   readonly pid?: number;
   /** CLI-native session ID (e.g., Gemini's UUID from init event). Enables session resume. */
   readonly cliSessionId?: string;
-  /** Parent Ptah Claude SDK session that spawned this CLI agent via ptah_agent_spawn. */
-  readonly parentSessionId?: string;
+  /** Parent Ptah Claude SDK session that spawned this CLI agent via ptah_agent_spawn.
+   *  Mutable: initially set to tab ID, then resolved to real SDK UUID. */
+  parentSessionId?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
   readonly ptahCliName?: string;
 }
@@ -155,6 +156,8 @@ export interface CliDetectionResult {
   readonly ptahCliName?: string;
   /** Provider name (e.g., 'OpenRouter', 'Moonshot') — only set when cli === 'ptah-cli' */
   readonly providerName?: string;
+  /** Provider ID (e.g., 'moonshot', 'z-ai') — only set when cli === 'ptah-cli' */
+  readonly providerId?: string;
 }
 
 // ========================================
@@ -168,6 +171,7 @@ export interface CliDetectionResult {
  */
 export type CliOutputSegmentType =
   | 'text'
+  | 'thinking'
   | 'tool-call'
   | 'tool-result'
   | 'tool-result-error'

@@ -286,7 +286,7 @@
         },
         "ptah.agentOrchestration.maxConcurrentAgents": {
           "type": "number",
-          "default": 3,
+          "default": 5,
           "minimum": 1,
           "maximum": 10,
           "description": "Maximum number of concurrent CLI agent processes."

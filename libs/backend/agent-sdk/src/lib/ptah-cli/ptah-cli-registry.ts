@@ -18,6 +18,7 @@ import {
   type PtahCliConfig,
   type PtahCliSummary,
   type PtahCliState,
+  type CliOutputSegment,
   createEmptyAuthEnv,
 } from '@ptah-extension/shared';
 import {
@@ -34,6 +35,7 @@ import type { SdkPermissionHandler } from '../sdk-permission-handler';
 import type { SubagentHookHandler } from '../helpers/subagent-hook-handler';
 import type { CompactionHookHandler } from '../helpers/compaction-hook-handler';
 import type { CompactionConfigProvider } from '../helpers/compaction-config-provider';
+import type { ProviderModelsService } from '../provider-models.service';
 import {
   ANTHROPIC_PROVIDERS,
   getAnthropicProvider,
@@ -42,6 +44,26 @@ import {
   type AnthropicProvider,
 } from '../helpers/anthropic-provider-registry';
 import type { Options } from '../types/sdk-types/claude-sdk.types';
+import {
+  isStreamEvent,
+  isAssistantMessage,
+  isResultMessage,
+  isSuccessResult,
+  isErrorResult,
+  isSystemInit,
+  isCompactBoundary,
+  isUserMessage,
+  isToolProgress,
+  isToolUseSummary,
+  isContentBlockStart,
+  isContentBlockDelta,
+  isTextBlock,
+  isToolUseBlock,
+  isThinkingBlock,
+  isTextDelta,
+  isInputJsonDelta,
+  isThinkingDelta,
+} from '../types/sdk-types/claude-sdk.types';
 import { buildSafeEnv } from '../helpers/build-safe-env';
 import { PtahCliAdapter } from './ptah-cli-adapter';
 
@@ -109,7 +131,9 @@ export class PtahCliRegistry {
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
     private readonly compactionHookHandler: CompactionHookHandler,
     @inject(SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER)
-    private readonly compactionConfigProvider: CompactionConfigProvider
+    private readonly compactionConfigProvider: CompactionConfigProvider,
+    @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
+    private readonly providerModels: ProviderModelsService
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -359,9 +383,19 @@ export class PtahCliRegistry {
       return undefined;
     }
 
+    // Resolve effective tiers (agent override > main settings > provider default)
+    const provider = getAnthropicProvider(agentConfig.providerId);
+    const effectiveTiers = provider
+      ? this.resolveEffectiveTiers(agentConfig, provider)
+      : agentConfig.tierMappings;
+    const configWithTiers: PtahCliConfig = {
+      ...agentConfig,
+      tierMappings: effectiveTiers,
+    };
+
     // Create and initialize adapter with hook/compaction services
     const adapter = new PtahCliAdapter(
-      agentConfig,
+      configWithTiers,
       apiKey,
       this.logger,
       this.moduleLoader,
@@ -419,9 +453,19 @@ export class PtahCliRegistry {
         return { success: false, error: 'API key not configured' };
       }
 
+      // Resolve effective tiers for the test adapter
+      const testProvider = getAnthropicProvider(agentConfig.providerId);
+      const testTiers = testProvider
+        ? this.resolveEffectiveTiers(agentConfig, testProvider)
+        : agentConfig.tierMappings;
+      const testConfig: PtahCliConfig = {
+        ...agentConfig,
+        tierMappings: testTiers,
+      };
+
       // Create a temporary adapter for the test (not cached)
       const testAdapter = new PtahCliAdapter(
-        agentConfig,
+        testConfig,
         apiKey,
         this.logger,
         this.moduleLoader,
@@ -574,28 +618,28 @@ export class PtahCliRegistry {
     const authEnvVar = getProviderAuthEnvVar(agentConfig.providerId);
     authEnv[authEnvVar] = apiKey;
 
-    // Apply tier mappings
-    if (agentConfig.tierMappings) {
-      if (agentConfig.tierMappings.sonnet) {
-        authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL =
-          agentConfig.tierMappings.sonnet;
+    // Apply effective tier mappings (agent override > main settings > provider default)
+    const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);
+    if (effectiveTiers) {
+      if (effectiveTiers.sonnet) {
+        authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = effectiveTiers.sonnet;
       }
-      if (agentConfig.tierMappings.opus) {
-        authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = agentConfig.tierMappings.opus;
+      if (effectiveTiers.opus) {
+        authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = effectiveTiers.opus;
       }
-      if (agentConfig.tierMappings.haiku) {
-        authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = agentConfig.tierMappings.haiku;
+      if (effectiveTiers.haiku) {
+        authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = effectiveTiers.haiku;
       }
     }
 
     seedStaticModelPricing(agentConfig.providerId);
 
-    // Resolve model
-    const model =
-      agentConfig.selectedModel ??
-      agentConfig.tierMappings?.sonnet ??
-      provider.staticModels?.[0]?.id ??
-      'claude-sonnet-4-20250514';
+    // Resolve model for SDK: must use a valid Anthropic model name.
+    // Custom provider models (e.g., "kimi-k2") are routed via
+    // ANTHROPIC_DEFAULT_SONNET_MODEL env var, not the model param.
+    // The SDK validates model names against Anthropic's list before
+    // consulting env vars, so passing "kimi-k2" directly would fail.
+    const model = 'claude-sonnet-4-20250514';
 
     // Build system prompt append with optional project guidance
     let systemPromptAppend = '';
@@ -609,8 +653,38 @@ export class PtahCliRegistry {
     // Build abort controller
     const abortController = new AbortController();
 
-    // Output callbacks
+    // Output callbacks (raw text — backward compatible)
     const outputCallbacks: ((data: string) => void)[] = [];
+
+    // Structured segment buffering (same pattern as Copilot/Gemini adapters)
+    const segmentBuffer: CliOutputSegment[] = [];
+    const segmentCallbacks: Array<(segment: CliOutputSegment) => void> = [];
+
+    const onSegment = (callback: (segment: CliOutputSegment) => void): void => {
+      segmentCallbacks.push(callback);
+      if (segmentBuffer.length > 0) {
+        for (const buffered of segmentBuffer) {
+          callback(buffered);
+        }
+        segmentBuffer.length = 0;
+      }
+    };
+
+    const emitSegment = (segment: CliOutputSegment): void => {
+      if (segmentCallbacks.length === 0) {
+        segmentBuffer.push(segment);
+      } else {
+        for (const cb of segmentCallbacks) {
+          cb(segment);
+        }
+      }
+    };
+
+    const emitOutput = (data: string): void => {
+      for (const cb of outputCallbacks) {
+        cb(data);
+      }
+    };
 
     // Start SDK query
     const sdkQuery = queryFn({
@@ -635,44 +709,232 @@ export class PtahCliRegistry {
       } as Options,
     });
 
-    // Consume the async iterable in background, forwarding text to callbacks
+    // Consume the async iterable in background, forwarding structured
+    // segments and raw text to registered callbacks.
+    //
+    // Uses Claude Agent SDK type guards to handle each SDKMessage variant
+    // natively rather than pattern-matching on raw field values.
     const done = new Promise<number>((resolve) => {
       (async () => {
+        // Track streaming state to avoid duplicate emissions
+        let receivedTextDeltas = false;
+        let receivedThinkingDeltas = false;
+        // Accumulate tool_use input_json_delta fragments per content block index
+        const pendingToolArgs = new Map<
+          number,
+          { name: string; id: string; jsonFragments: string[] }
+        >();
+
         try {
           for await (const msg of sdkQuery) {
-            // Extract text content from assistant messages
-            if (msg.type === 'assistant' && msg.message?.content) {
-              const content = msg.message.content;
-              if (Array.isArray(content)) {
-                for (const block of content) {
-                  if (block.type === 'text' && typeof block.text === 'string') {
-                    for (const cb of outputCallbacks) {
-                      cb(block.text);
+            // ── system init ─────────────────────────────────
+            if (isSystemInit(msg)) {
+              const model = msg.model ?? 'unknown';
+              emitOutput(`[PtahCli] Session started (model: ${model})\n`);
+              emitSegment({
+                type: 'info',
+                content: `Session started: ${msg.session_id} (model: ${model})`,
+              });
+              continue;
+            }
+
+            // ── compact_boundary ────────────────────────────
+            if (isCompactBoundary(msg)) {
+              const tokens = msg.compact_metadata?.pre_tokens;
+              const content = tokens
+                ? `Context compaction (${tokens} tokens before)`
+                : 'Context compaction';
+              emitOutput(`\n[${content}]\n`);
+              emitSegment({ type: 'info', content });
+              continue;
+            }
+
+            // ── stream_event (streaming deltas) ─────────────
+            if (isStreamEvent(msg)) {
+              const event = msg.event;
+
+              // content_block_start: detect tool_use / thinking / text block starts
+              if (isContentBlockStart(event)) {
+                const block = event.content_block;
+                if (isToolUseBlock(block)) {
+                  const argsStr = this.summarizeToolInput(block.input);
+                  pendingToolArgs.set(event.index, {
+                    name: block.name,
+                    id: block.id,
+                    jsonFragments: [],
+                  });
+                  emitOutput(
+                    `\n**Tool:** \`${block.name}\`${
+                      argsStr ? ` ${argsStr}` : ''
+                    }\n`
+                  );
+                  emitSegment({
+                    type: 'tool-call',
+                    content: '',
+                    toolName: block.name,
+                    toolArgs: argsStr,
+                  });
+                }
+                continue;
+              }
+
+              // content_block_delta: streaming content
+              if (isContentBlockDelta(event)) {
+                const delta = event.delta;
+
+                if (isTextDelta(delta)) {
+                  receivedTextDeltas = true;
+                  emitOutput(delta.text);
+                  emitSegment({ type: 'text', content: delta.text });
+                } else if (isThinkingDelta(delta)) {
+                  receivedThinkingDeltas = true;
+                  emitSegment({ type: 'thinking', content: delta.thinking });
+                } else if (isInputJsonDelta(delta)) {
+                  // Accumulate tool input JSON fragments
+                  const pending = pendingToolArgs.get(event.index);
+                  if (pending) {
+                    pending.jsonFragments.push(delta.partial_json);
+                  }
+                }
+                continue;
+              }
+
+              // Other stream events (message_start, message_delta, etc.)
+              // are structural — no user-visible segments needed
+              continue;
+            }
+
+            // ── assistant (complete message — fallback if no streaming) ──
+            if (isAssistantMessage(msg)) {
+              const blocks = msg.message?.content;
+              if (Array.isArray(blocks)) {
+                for (const block of blocks) {
+                  if (isTextBlock(block)) {
+                    if (!receivedTextDeltas) {
+                      emitOutput(block.text);
+                      emitSegment({ type: 'text', content: block.text });
+                    }
+                  } else if (isToolUseBlock(block)) {
+                    // Tool calls may already have been emitted via
+                    // content_block_start; only emit if no streaming
+                    if (!receivedTextDeltas) {
+                      const argsStr = this.summarizeToolInput(block.input);
+                      emitOutput(
+                        `\n**Tool:** \`${block.name}\`${
+                          argsStr ? ` ${argsStr}` : ''
+                        }\n`
+                      );
+                      emitSegment({
+                        type: 'tool-call',
+                        content: '',
+                        toolName: block.name,
+                        toolArgs: argsStr,
+                      });
+                    }
+                  } else if (isThinkingBlock(block)) {
+                    if (!receivedThinkingDeltas) {
+                      emitSegment({
+                        type: 'thinking',
+                        content: block.thinking,
+                      });
                     }
                   }
                 }
               }
+              // Reset streaming flags for next turn
+              receivedTextDeltas = false;
+              receivedThinkingDeltas = false;
+              pendingToolArgs.clear();
+              continue;
             }
-            // Extract text deltas from stream events
-            if (
-              msg.type === 'stream_event' &&
-              msg.event?.type === 'content_block_delta'
-            ) {
-              const eventRecord = msg.event as unknown as Record<
-                string,
-                unknown
-              >;
-              const delta = eventRecord['delta'] as
-                | Record<string, unknown>
-                | undefined;
-              if (
-                delta?.['type'] === 'text_delta' &&
-                typeof delta['text'] === 'string'
-              ) {
-                for (const cb of outputCallbacks) {
-                  cb(delta['text']);
+
+            // ── user message (contains tool results) ────────
+            if (isUserMessage(msg)) {
+              const content = msg.message?.content;
+              if (Array.isArray(content)) {
+                for (const block of content) {
+                  if (block.type === 'tool_result') {
+                    const resultText =
+                      typeof block.content === 'string'
+                        ? block.content
+                        : Array.isArray(block.content)
+                        ? block.content
+                            .filter(
+                              (b): b is { type: 'text'; text: string } =>
+                                b.type === 'text'
+                            )
+                            .map((b) => b.text)
+                            .join('\n')
+                        : '';
+                    const truncated =
+                      resultText.length > 2000
+                        ? resultText.substring(0, 2000) + '\n... [truncated]'
+                        : resultText;
+
+                    if (block.is_error) {
+                      emitOutput(`\n**Tool Error:** ${truncated}\n`);
+                      emitSegment({
+                        type: 'tool-result-error',
+                        content: truncated,
+                      });
+                    } else {
+                      emitOutput(
+                        `\n<details><summary>Tool result</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n</details>\n\n`
+                      );
+                      emitSegment({
+                        type: 'tool-result',
+                        content: truncated,
+                      });
+                    }
+                  }
                 }
               }
+              continue;
+            }
+
+            // ── result (final message with usage) ───────────
+            if (isResultMessage(msg)) {
+              if (isSuccessResult(msg)) {
+                const parts: string[] = [];
+                if (msg.usage) {
+                  parts.push(`${msg.usage.input_tokens} input`);
+                  parts.push(`${msg.usage.output_tokens} output`);
+                }
+                if (msg.total_cost_usd !== undefined) {
+                  parts.push(`$${msg.total_cost_usd.toFixed(4)}`);
+                }
+                if (msg.duration_ms !== undefined) {
+                  parts.push(`${(msg.duration_ms / 1000).toFixed(1)}s`);
+                }
+                parts.push(`${msg.num_turns} turns`);
+                const usageStr = `Completed: ${parts.join(', ')}`;
+                emitOutput(`\n[${usageStr}]\n`);
+                emitSegment({ type: 'info', content: usageStr });
+              } else if (isErrorResult(msg)) {
+                const errorMsg =
+                  msg.errors?.join('; ') ?? `Error: ${msg.subtype}`;
+                emitOutput(`\n[Error: ${errorMsg}]\n`);
+                emitSegment({ type: 'error', content: errorMsg });
+              }
+              continue;
+            }
+
+            // ── tool_progress ───────────────────────────────
+            if (isToolProgress(msg)) {
+              emitSegment({
+                type: 'info',
+                content: `${
+                  msg.tool_name
+                } running (${msg.elapsed_time_seconds.toFixed(0)}s)`,
+              });
+              continue;
+            }
+
+            // ── tool_use_summary ────────────────────────────
+            if (isToolUseSummary(msg)) {
+              emitOutput(`\n${msg.summary}\n`);
+              emitSegment({ type: 'info', content: msg.summary });
+              continue;
             }
           }
           resolve(0);
@@ -687,9 +949,8 @@ export class PtahCliRegistry {
             );
             // Forward sanitized error message to output (strips API keys, tokens, stack traces)
             const sanitized = this.sanitizeErrorMessage(rawMessage);
-            for (const cb of outputCallbacks) {
-              cb(`\n[Error: ${sanitized}]\n`);
-            }
+            emitOutput(`\n[Error: ${sanitized}]\n`);
+            emitSegment({ type: 'error', content: sanitized });
           }
           resolve(1);
         }
@@ -702,10 +963,13 @@ export class PtahCliRegistry {
       onOutput: (callback) => {
         outputCallbacks.push(callback);
       },
+      onSegment,
     };
 
+    const providerModel =
+      effectiveTiers?.sonnet ?? provider.staticModels?.[0]?.id ?? 'default';
     this.logger.info(
-      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${model}`
+      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${providerModel} (SDK model: ${model})`
     );
 
     return { handle, agentName: agentConfig.name };
@@ -802,6 +1066,47 @@ export class PtahCliRegistry {
   // ============================================================================
 
   /**
+   * Summarize tool input for display in structured segments.
+   *
+   * Extracts the most useful field from the tool input object
+   * (e.g., file_path for file tools, command for shell tools)
+   * and truncates to a readable length.
+   *
+   * @param input - Raw tool input from SDK ToolUseBlock
+   * @returns Human-readable summary string, or undefined if empty
+   */
+  private summarizeToolInput(
+    input: Record<string, unknown> | undefined
+  ): string | undefined {
+    if (!input || Object.keys(input).length === 0) return undefined;
+
+    // Prioritize the most informative field
+    const displayField =
+      input['file_path'] ??
+      input['command'] ??
+      input['path'] ??
+      input['query'] ??
+      input['pattern'] ??
+      input['url'];
+
+    if (typeof displayField === 'string') {
+      const truncated =
+        displayField.length > 120
+          ? displayField.substring(0, 117) + '...'
+          : displayField;
+      return truncated;
+    }
+
+    // Fallback: stringify first few keys
+    try {
+      const str = JSON.stringify(input);
+      return str.length > 150 ? str.substring(0, 147) + '...' : str;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * Sanitize error messages before forwarding to output callbacks or users.
    *
    * Third-party API error messages may contain sensitive information such as
@@ -851,6 +1156,55 @@ export class PtahCliRegistry {
    */
   private async saveConfigs(configs: PtahCliConfig[]): Promise<void> {
     await this.config.set(PTAH_CLI_AGENTS_CONFIG_KEY, configs);
+  }
+
+  /**
+   * Resolve effective tier mappings for a Ptah CLI agent.
+   *
+   * Priority (highest wins):
+   * 1. Per-agent tierMappings stored in PtahCliConfig (agent-level override)
+   * 2. Main agent settings from ProviderModelsService (global provider config)
+   * 3. Provider's first static model as sonnet fallback
+   *
+   * This ensures Ptah CLI agents inherit model tiers configured in the main
+   * settings UI unless the agent has its own explicit override.
+   */
+  private resolveEffectiveTiers(
+    agentConfig: PtahCliConfig,
+    provider: AnthropicProvider
+  ): PtahCliConfig['tierMappings'] {
+    // Read global tier mappings from main agent settings
+    const mainTiers = this.providerModels.getModelTiers(agentConfig.providerId);
+
+    // Per-agent overrides (if set)
+    const agentTiers = agentConfig.tierMappings;
+
+    // Merge: agent-level > main settings > provider default
+    const defaultSonnet = provider.staticModels?.[0]?.id ?? undefined;
+
+    const sonnet =
+      agentTiers?.sonnet || mainTiers.sonnet || defaultSonnet || undefined;
+    const opus = agentTiers?.opus || mainTiers.opus || undefined;
+    const haiku = agentTiers?.haiku || mainTiers.haiku || undefined;
+
+    if (!sonnet && !opus && !haiku) {
+      return undefined;
+    }
+
+    this.logger.debug(
+      `[PtahCliRegistry] Resolved effective tiers for "${agentConfig.name}"`,
+      {
+        agentTiers,
+        mainTiers,
+        resolved: { sonnet, opus, haiku },
+      }
+    );
+
+    return {
+      ...(sonnet ? { sonnet } : {}),
+      ...(opus ? { opus } : {}),
+      ...(haiku ? { haiku } : {}),
+    };
   }
 
   /**

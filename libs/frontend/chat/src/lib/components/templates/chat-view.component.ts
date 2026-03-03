@@ -13,13 +13,13 @@ import {
 import { NgOptimizedImage } from '@angular/common';
 import { LucideAngularModule, Bell } from 'lucide-angular';
 import { MessageBubbleComponent } from '../organisms/message-bubble.component';
-import { ChatInputComponent } from '../molecules/chat-input.component';
-import { PermissionBadgeComponent } from '../molecules/permission-badge.component';
+import { ChatInputComponent } from '../molecules/chat-input/chat-input.component';
+import { PermissionBadgeComponent } from '../molecules/permissions/permission-badge.component';
 import { QuestionCardComponent } from '../molecules/question-card.component';
-import { ChatEmptyStateComponent } from '../molecules/chat-empty-state.component';
-import { SessionStatsSummaryComponent } from '../molecules/session-stats-summary.component';
+import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
+import { SessionStatsSummaryComponent } from '../molecules/session/session-stats-summary.component';
 // TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection
-import { CompactionNotificationComponent } from '../molecules/compaction-notification.component';
+import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
 import {

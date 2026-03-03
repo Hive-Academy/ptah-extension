@@ -78,10 +78,9 @@ import type {
         @if (agentConfig()) {
         <div class="space-y-2 mb-3">
           <div class="text-xs font-medium text-base-content/70">
-            Detected CLIs
+            System CLIs
           </div>
-          @for (cli of agentConfig()!.detectedClis; track cli.ptahCliId ??
-          cli.cli) {
+          @for (cli of systemClis(); track cli.cli) {
           <div class="p-2 border border-base-300 rounded bg-base-200/30">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
@@ -189,6 +188,12 @@ import type {
         </div>
         }
 
+        <!-- Projected content slot for Ptah CLI Agents -->
+        <ng-content />
+
+        <!-- Settings divider -->
+        <div class="divider my-2 text-[10px] opacity-50">Settings</div>
+
         <!-- Default CLI -->
         <div class="mb-3">
           <label
@@ -288,9 +293,14 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   readonly geminiModels = signal<CliModelOption[]>([]);
   readonly copilotModels = signal<CliModelOption[]>([]);
 
-  readonly hasInstalledCli = computed(() => {
+  /** System CLIs only (excludes ptah-cli entries shown via projected content) */
+  readonly systemClis = computed(() => {
     const config = this.agentConfig();
-    return config ? config.detectedClis.some((c) => c.installed) : false;
+    return config ? config.detectedClis.filter((c) => !c.ptahCliId) : [];
+  });
+
+  readonly hasInstalledCli = computed(() => {
+    return this.systemClis().some((c) => c.installed);
   });
 
   async ngOnInit(): Promise<void> {

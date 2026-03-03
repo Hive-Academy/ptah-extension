@@ -19,6 +19,9 @@ import type {
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
 const MAX_FRONTEND_BUFFER = 50 * 1024;
 
+/** Maximum number of simultaneously expanded agent cards */
+const MAX_EXPANDED_AGENTS = 2;
+
 export interface MonitoredAgent {
   readonly agentId: string;
   readonly cli: CliType;
@@ -29,6 +32,8 @@ export interface MonitoredAgent {
   stderr: string;
   exitCode?: number;
   expanded: boolean;
+  /** Order in which this card was expanded (for auto-collapse of oldest). */
+  expandedAt?: number;
   /** Structured output segments from SDK-based adapters (Gemini, Codex, Copilot). */
   segments: CliOutputSegment[];
   /** Parent Ptah Claude SDK session that spawned this agent */
@@ -52,6 +57,8 @@ export class AgentMonitorStore implements OnDestroy {
   private readonly _panelOpen = signal(false);
   /** Tracks whether the user explicitly closed the panel (prevents auto-reopen) */
   private _userExplicitlyClosed = false;
+  /** Monotonic counter for tracking expand order (oldest = lowest value) */
+  private _expandOrder = 0;
 
   /**
    * Shared tick signal incremented every 1s while agents are running.
@@ -125,6 +132,7 @@ export class AgentMonitorStore implements OnDestroy {
 
     this._agents.update((map) => {
       const next = new Map(map);
+      const order = this._expandOrder++;
       next.set(info.agentId, {
         agentId: info.agentId,
         cli: info.cli,
@@ -134,10 +142,12 @@ export class AgentMonitorStore implements OnDestroy {
         stdout: '',
         stderr: '',
         expanded: true,
+        expandedAt: order,
         segments: [],
         parentSessionId: info.parentSessionId,
         cliSessionId: info.cliSessionId,
       });
+      this.enforceMaxExpanded(next);
       return next;
     });
 
@@ -170,7 +180,30 @@ export class AgentMonitorStore implements OnDestroy {
         );
       }
       if (delta.segments && delta.segments.length > 0) {
-        updated.segments = [...updated.segments, ...delta.segments];
+        // Merge last existing segment with first incoming segment of the same
+        // streamable type (text or thinking) to prevent fragmentation across flush boundaries
+        const existing = updated.segments;
+        const incoming = delta.segments;
+        const lastIdx = existing.length - 1;
+        const lastType = lastIdx >= 0 ? existing[lastIdx].type : null;
+        const firstIncomingType = incoming[0].type;
+        if (
+          lastIdx >= 0 &&
+          (lastType === 'text' || lastType === 'thinking') &&
+          lastType === firstIncomingType
+        ) {
+          const merged = [
+            ...existing.slice(0, lastIdx),
+            {
+              ...existing[lastIdx],
+              content: existing[lastIdx].content + incoming[0].content,
+            },
+            ...incoming.slice(1),
+          ];
+          updated.segments = merged;
+        } else {
+          updated.segments = [...existing, ...incoming];
+        }
       }
 
       next.set(delta.agentId, updated);
@@ -228,9 +261,43 @@ export class AgentMonitorStore implements OnDestroy {
       if (!agent) return map;
 
       const next = new Map(map);
-      next.set(agentId, { ...agent, expanded: !agent.expanded });
+
+      if (agent.expanded) {
+        // Collapsing — just toggle off
+        next.set(agentId, { ...agent, expanded: false, expandedAt: undefined });
+      } else {
+        // Expanding — assign order and enforce max-2 rule
+        const order = this._expandOrder++;
+        next.set(agentId, { ...agent, expanded: true, expandedAt: order });
+        this.enforceMaxExpanded(next);
+      }
+
       return next;
     });
+  }
+
+  /**
+   * Enforce that at most MAX_EXPANDED_AGENTS are expanded at once.
+   * Collapses the oldest expanded card(s) when the limit is exceeded.
+   * Mutates the provided map in place (caller creates the new Map).
+   */
+  private enforceMaxExpanded(map: Map<string, MonitoredAgent>): void {
+    const expanded = Array.from(map.values()).filter((a) => a.expanded);
+    if (expanded.length <= MAX_EXPANDED_AGENTS) return;
+
+    // Sort by expandedAt ascending — oldest first
+    expanded.sort((a, b) => (a.expandedAt ?? 0) - (b.expandedAt ?? 0));
+
+    // Collapse the oldest until we're at the limit
+    const toCollapse = expanded.length - MAX_EXPANDED_AGENTS;
+    for (let i = 0; i < toCollapse; i++) {
+      const agent = expanded[i];
+      map.set(agent.agentId, {
+        ...agent,
+        expanded: false,
+        expandedAt: undefined,
+      });
+    }
   }
 
   /**
@@ -281,6 +348,20 @@ export class AgentMonitorStore implements OnDestroy {
     if (!this._userExplicitlyClosed) {
       this._panelOpen.set(true);
     }
+  }
+
+  /**
+   * Remove a single agent card from the store.
+   * Used when resuming a stopped agent — the old card is removed and a new
+   * one is created by the incoming agent:spawned event.
+   */
+  removeAgent(agentId: string): void {
+    this._agents.update((map) => {
+      if (!map.has(agentId)) return map;
+      const next = new Map(map);
+      next.delete(agentId);
+      return next;
+    });
   }
 
   clearCompleted(): void {

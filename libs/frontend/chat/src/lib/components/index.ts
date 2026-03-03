@@ -25,47 +25,78 @@ export * from './atoms/duration-badge.component';
 export * from './atoms/streaming-text-reveal.component';
 export * from './atoms/typing-cursor.component';
 export * from './atoms/theme-toggle.component';
+export * from './atoms/resize-handle.component';
 
 // ============================================================================
-// MOLECULES - Combinations of atoms
+// MOLECULES - Standalone (ungrouped)
 // ============================================================================
 export * from './molecules/thinking-block.component';
-export * from './molecules/tool-call-item.component';
 export * from './molecules/agent-summary.component';
-export * from './molecules/chat-input.component';
-export * from './molecules/session-cost-summary.component';
-export * from './molecules/setup-status-widget.component';
-export * from './molecules/permission-badge.component';
-export * from './molecules/deny-message-popover.component';
-// TASK_2025_109: resume-notification-banner.component removed - now uses context injection
-export * from './molecules/compaction-notification.component';
 export {
   QuestionCardComponent,
   type AskUserQuestionRequest,
   type AskUserQuestionResponse,
 } from './molecules/question-card.component';
-// TASK_2025_142: Trial reminder UI components
-export * from './molecules/trial-banner.component';
-export * from './molecules/trial-ended-modal.component';
-// TASK_2025_143: Community upgrade banner for downgraded users
-export * from './molecules/community-upgrade-banner.component';
-// Notification bell for header (replaces inline trial/community banners)
-export * from './molecules/notification-bell.component';
-// Background agent badge for header
-export * from './molecules/background-agent-badge.component';
-// TASK_2025_153: Plugin configuration UI components
-export * from './molecules/plugin-status-widget.component';
-export * from './molecules/plugin-browser-modal.component';
 
 // ============================================================================
-// ORGANISMS - Complex sections
+// MOLECULES - Tool Execution
 // ============================================================================
-export * from './organisms/execution-node.component';
-export * from './organisms/inline-agent-bubble.component';
-export * from './organisms/agent-execution.component';
+export * from './molecules/tool-execution/tool-call-item.component';
+
+// ============================================================================
+// MOLECULES - Permissions
+// ============================================================================
+export * from './molecules/permissions/permission-badge.component';
+export * from './molecules/permissions/deny-message-popover.component';
+
+// ============================================================================
+// MOLECULES - Chat Input
+// ============================================================================
+export * from './molecules/chat-input/chat-input.component';
+
+// ============================================================================
+// MOLECULES - Session
+// ============================================================================
+export * from './molecules/session/session-cost-summary.component';
+
+// ============================================================================
+// MOLECULES - Trial & Billing
+// ============================================================================
+export * from './molecules/trial-billing/trial-banner.component';
+export * from './molecules/trial-billing/trial-ended-modal.component';
+export * from './molecules/trial-billing/community-upgrade-banner.component';
+
+// ============================================================================
+// MOLECULES - Notifications
+// ============================================================================
+export * from './molecules/notifications/notification-bell.component';
+export * from './molecules/notifications/background-agent-badge.component';
+export * from './molecules/notifications/compaction-notification.component';
+
+// ============================================================================
+// MOLECULES - Setup & Plugins
+// ============================================================================
+export * from './molecules/setup-plugins/setup-status-widget.component';
+export * from './molecules/setup-plugins/plugin-status-widget.component';
+export * from './molecules/setup-plugins/plugin-browser-modal.component';
+
+// ============================================================================
+// MOLECULES - Agent Card (WIP - separate refactor)
+// ============================================================================
+export * from './molecules/agent-card/agent-card.component';
+
+// ============================================================================
+// ORGANISMS - Execution
+// ============================================================================
+export * from './organisms/execution/execution-node.component';
+export * from './organisms/execution/inline-agent-bubble.component';
+export * from './organisms/execution/agent-execution.component';
+
+// ============================================================================
+// ORGANISMS - Standalone
+// ============================================================================
 export * from './organisms/message-bubble.component';
 export * from './organisms/agent-monitor-panel.component';
-export * from './molecules/agent-card.component';
 
 // ============================================================================
 // TEMPLATES - Page layouts

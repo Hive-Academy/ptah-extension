@@ -3,7 +3,8 @@
  *
  * Right sidebar that shows real-time agent monitoring.
  * Auto-opens when agents spawn, streams output live.
- * Cards share available height equally.
+ * Accordion layout: max 2 expanded cards at a time (55vh min-height each),
+ * collapsed cards show only the header row. Container scrolls when needed.
  *
  * Responsive widths:
  *   default: 460px, xl (1280px+): 540px, 2xl (1536px+): 640px
@@ -12,7 +13,8 @@
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
 import { LucideAngularModule, X, Trash2 } from 'lucide-angular';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
-import { AgentCardComponent } from '../molecules/agent-card.component';
+import { PanelResizeService } from '../../services/panel-resize.service';
+import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
 
 @Component({
   selector: 'ptah-agent-monitor-panel',
@@ -36,14 +38,17 @@ import { AgentCardComponent } from '../molecules/agent-card.component';
   `,
   template: `
     <aside
-      class="flex flex-col bg-base-200 border-l border-base-content/5 transition-all duration-300 overflow-hidden h-full"
+      class="flex flex-col bg-base-200 border-l border-base-content/5 overflow-hidden h-full"
       [class.agent-panel-open]="store.panelOpen()"
       [class.w-0]="!store.panelOpen()"
+      [class.transition-all]="!resizeService.dragging()"
+      [class.duration-300]="!resizeService.dragging()"
+      [style.width.px]="store.panelOpen() ? resizeService.customWidth() : null"
     >
       <!-- Header -->
       <div
         class="flex items-center justify-between px-3 py-2 border-b border-base-content/10 flex-shrink-0"
-        style="min-width: 460px"
+        style="min-width: 300px"
       >
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Agents</span>
@@ -73,15 +78,15 @@ import { AgentCardComponent } from '../molecules/agent-card.component';
         </div>
       </div>
 
-      <!-- Agent list: flex layout distributes height equally among cards -->
+      <!-- Agent list: accordion layout — expanded cards get definite 55vh height, collapsed cards auto-size to header -->
       <div
         class="flex-1 overflow-y-auto p-2 flex flex-col gap-2 min-h-0"
-        style="min-width: 460px"
+        style="min-width: 300px"
       >
         @for (agent of store.agents(); track agent.agentId) {
         <div
-          class="flex-1 min-h-[120px]"
-          [style.max-height.%]="100 / store.agentCount()"
+          class="flex-shrink-0"
+          [style.height]="agent.expanded ? '55vh' : null"
         >
           <ptah-agent-card
             class="block h-full"
@@ -103,6 +108,7 @@ import { AgentCardComponent } from '../molecules/agent-card.component';
 })
 export class AgentMonitorPanelComponent {
   readonly store = inject(AgentMonitorStore);
+  readonly resizeService = inject(PanelResizeService);
 
   readonly XIcon = X;
   readonly Trash2Icon = Trash2;

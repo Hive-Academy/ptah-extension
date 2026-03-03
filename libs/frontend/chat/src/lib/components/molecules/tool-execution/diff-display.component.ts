@@ -6,7 +6,7 @@ import {
 } from '@angular/core';
 import { MarkdownModule } from 'ngx-markdown';
 import { LucideAngularModule, FileEdit, CheckCircle } from 'lucide-angular';
-import { FilePathLinkComponent } from '../atoms/file-path-link.component';
+import { FilePathLinkComponent } from '../../atoms/file-path-link.component';
 import type { EditToolInput } from '@ptah-extension/shared';
 
 /**

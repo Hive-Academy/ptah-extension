@@ -10,7 +10,7 @@ import {
 } from './todo-list-display.component';
 import { DiffDisplayComponent } from './diff-display.component';
 import { CodeOutputComponent } from './code-output.component';
-import { ErrorAlertComponent } from '../atoms/error-alert.component';
+import { ErrorAlertComponent } from '../../atoms/error-alert.component';
 import {
   type ExecutionNode,
   isTodoWriteToolInput,

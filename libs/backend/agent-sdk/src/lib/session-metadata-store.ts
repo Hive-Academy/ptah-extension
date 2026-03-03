@@ -184,33 +184,38 @@ export class SessionMetadataStore {
   ): Promise<void> {
     const metadata = await this.get(sessionId);
     if (!metadata) {
-      this.logger.warn(
-        `[SessionMetadataStore] Cannot add CLI session - parent session not found: ${sessionId}`
-      );
-      return;
+      throw new Error(`Parent session not found: ${sessionId}`);
     }
 
     const existing = metadata.cliSessions ?? [];
-    // Deduplicate by cliSessionId
-    const alreadyExists = existing.some(
+    // Upsert by cliSessionId: if a reference with the same cliSessionId already
+    // exists, replace it with the new one (preserves updated status, stdout, and
+    // segments from resumed sessions). Otherwise append.
+    const existingIndex = existing.findIndex(
       (s) => s.cliSessionId === cliSession.cliSessionId
     );
-    if (alreadyExists) {
-      this.logger.debug(
-        `[SessionMetadataStore] CLI session ${cliSession.cliSessionId} already linked to ${sessionId}`
+
+    let updated: readonly CliSessionReference[];
+    if (existingIndex >= 0) {
+      // Replace existing reference with updated data (resume scenario)
+      const mutable = [...existing];
+      mutable[existingIndex] = cliSession;
+      updated = mutable;
+      this.logger.info(
+        `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`
       );
-      return;
+    } else {
+      updated = [...existing, cliSession];
+      this.logger.info(
+        `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`
+      );
     }
 
     await this.save({
       ...metadata,
       lastActiveAt: Date.now(),
-      cliSessions: [...existing, cliSession],
+      cliSessions: updated,
     });
-
-    this.logger.info(
-      `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`
-    );
   }
 
   /**

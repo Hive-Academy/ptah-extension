@@ -21,7 +21,7 @@ import {
   ClaudeRpcService,
   CommandDiscoveryFacade,
 } from '@ptah-extension/core';
-import { ChatStore } from '../../services/chat.store';
+import { ChatStore } from '../../../services/chat.store';
 
 /**
  * ChatEmptyStateComponent - Egyptian-themed empty state for chat view with tabbed navigation

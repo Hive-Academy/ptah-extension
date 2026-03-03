@@ -52,3 +52,6 @@ export {
 
 // AgentMonitorMessageHandler - Routes agent monitor messages to store
 export { AgentMonitorMessageHandler } from './agent-monitor-message-handler.service';
+
+// PanelResizeService - Standalone panel width state for drag-to-resize
+export { PanelResizeService } from './panel-resize.service';

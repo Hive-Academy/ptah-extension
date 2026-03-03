@@ -14,8 +14,8 @@ import {
   XCircle,
 } from 'lucide-angular';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { BackgroundAgentStore } from '../../services/background-agent.store';
-import { TabManagerService } from '../../services/tab-manager.service';
+import { BackgroundAgentStore } from '../../../services/background-agent.store';
+import { TabManagerService } from '../../../services/tab-manager.service';
 
 /**
  * BackgroundAgentBadgeComponent - Header badge with popover for monitoring background agents

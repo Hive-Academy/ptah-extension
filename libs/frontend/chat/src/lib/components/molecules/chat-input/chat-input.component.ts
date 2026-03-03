@@ -10,8 +10,8 @@ import {
   OnInit,
 } from '@angular/core';
 import { LucideAngularModule, Send, Zap, Square, Clock } from 'lucide-angular';
-import { ChatStore } from '../../services/chat.store';
-import { TabManagerService } from '../../services/tab-manager.service';
+import { ChatStore } from '../../../services/chat.store';
+import { TabManagerService } from '../../../services/tab-manager.service';
 import {
   AutopilotStateService,
   CommandDiscoveryFacade,
@@ -23,20 +23,20 @@ import {
   FilePickerService,
   type FileSuggestion,
   type ChatFile,
-} from '../../services/file-picker.service';
+} from '../../../services/file-picker.service';
 import {
   UnifiedSuggestionsDropdownComponent,
   type SuggestionItem,
-} from '../file-suggestions/unified-suggestions-dropdown.component';
-import { FileTagComponent } from '../file-suggestions/file-tag.component';
+} from '../../file-suggestions/unified-suggestions-dropdown.component';
+import { FileTagComponent } from '../../file-suggestions/file-tag.component';
 import {
   AtTriggerDirective,
   type AtTriggerEvent,
-} from '../../directives/at-trigger.directive';
+} from '../../../directives/at-trigger.directive';
 import {
   SlashTriggerDirective,
   type SlashTriggerEvent,
-} from '../../directives/slash-trigger.directive';
+} from '../../../directives/slash-trigger.directive';
 import { AgentSelectorComponent } from './agent-selector.component';
 
 /**
