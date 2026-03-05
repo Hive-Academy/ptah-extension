@@ -25,7 +25,6 @@ import {
   ClaudeRpcService,
 } from '@ptah-extension/core';
 import type { AtTriggerEvent } from '../../../directives/at-trigger.directive';
-import type { SlashTriggerEvent } from '../../../directives/slash-trigger.directive';
 
 describe('ChatInputComponent', () => {
   let component: ChatInputComponent;
@@ -174,7 +173,7 @@ describe('ChatInputComponent', () => {
 
       // Verify: filteredSuggestions should use searchFiles with latest query
       // Access the computed to trigger evaluation
-      const _ = component.filteredSuggestions();
+      component.filteredSuggestions();
 
       // searchFiles should have been called (from filteredSuggestions computed)
       // and the query should be the LATEST one ("portal.comp"), not the stale "portal"
@@ -222,7 +221,7 @@ describe('ChatInputComponent', () => {
       component.handleQueryChanged('portal');
 
       // Access filteredSuggestions to trigger evaluation
-      const _ = component.filteredSuggestions();
+      component.filteredSuggestions();
 
       // searchFiles should be called with the latest query
       expect(mockFilePicker.searchFiles).toHaveBeenCalled();
@@ -466,7 +465,7 @@ describe('ChatInputComponent', () => {
 
       // Access filteredSuggestions to verify searchFiles is called
       mockFilePicker.searchFiles.mockClear();
-      const _ = component.filteredSuggestions();
+      component.filteredSuggestions();
 
       // searchFiles should be called with "portal" (latest), NOT "" (stale)
       expect(mockFilePicker.searchFiles).toHaveBeenCalledWith('portal');

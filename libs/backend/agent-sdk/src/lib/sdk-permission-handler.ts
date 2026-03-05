@@ -29,15 +29,11 @@ import {
   MESSAGE_TYPES,
   type QuestionItem,
   type PermissionResponse,
-  type PermissionRequest as SharedPermissionRequest,
   type PermissionRule,
   type ISdkPermissionHandler,
   type PermissionLevel,
 } from '@ptah-extension/shared';
 import {
-  ContentBlock,
-  ToolUseBlock,
-  isToolUseBlock,
   CanUseTool,
   PermissionResult,
   PermissionUpdate,
@@ -1079,7 +1075,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     this.pendingRequestContext.clear();
 
     // Clear all question request timeouts
-    for (const [requestId, pending] of this.pendingQuestionRequests.entries()) {
+    for (const [_requestId, pending] of this.pendingQuestionRequests.entries()) {
       clearTimeout(pending.timer);
       pending.resolve(null); // Resolve with null on dispose
     }

@@ -578,7 +578,7 @@ export class WebviewHtmlGenerator {
         name: workspaceFolder.name,
         path: workspaceFolder.uri.fsPath,
       };
-    } catch (error) {
+    } catch {
       return null;
     }
   }

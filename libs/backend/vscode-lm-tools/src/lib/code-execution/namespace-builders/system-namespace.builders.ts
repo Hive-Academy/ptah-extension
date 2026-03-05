@@ -961,7 +961,7 @@ export function buildFilesNamespace(
       // Check if file exists before reading
       try {
         await fileSystemManager.stat(uri);
-      } catch (error) {
+      } catch {
         throw new Error(`File not found: ${uri.fsPath}`);
       }
       const content = await fileSystemManager.readFile(uri);
@@ -972,7 +972,7 @@ export function buildFilesNamespace(
       // Check if file exists before reading
       try {
         await fileSystemManager.stat(uri);
-      } catch (error) {
+      } catch {
         throw new Error(`File not found: ${uri.fsPath}`);
       }
       const content = await fileSystemManager.readFile(uri);
@@ -995,7 +995,7 @@ export function buildFilesNamespace(
         if (stat.type !== vscode.FileType.Directory) {
           throw new Error(`Path is not a directory: ${uri.fsPath}`);
         }
-      } catch (error) {
+      } catch {
         throw new Error(`Directory not found: ${uri.fsPath}`);
       }
       const entries = await fileSystemManager.readDirectory(uri);

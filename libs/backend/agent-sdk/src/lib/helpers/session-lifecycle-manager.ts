@@ -31,8 +31,6 @@ import { SDK_TOKENS } from '../di/tokens';
 import {
   SDKUserMessage,
   SDKMessage,
-  UUID,
-  UserMessageContent,
   ContentBlock,
   Options,
 } from '../types/sdk-types/claude-sdk.types';

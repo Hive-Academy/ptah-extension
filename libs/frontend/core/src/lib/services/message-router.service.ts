@@ -69,7 +69,6 @@ export class MessageRouterService {
  * so the message listener is active before any components render.
  */
 export function initializeMessageRouter(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _router: MessageRouterService
 ): () => void {
   return () => {

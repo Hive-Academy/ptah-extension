@@ -197,7 +197,7 @@ export class StatusBarManager {
       this.updateItemMetrics(itemId, 'update', false);
 
       return true;
-    } catch (error) {
+    } catch {
       // Update error metrics
       this.updateItemMetrics(itemId, 'update', true);
 
@@ -229,7 +229,7 @@ export class StatusBarManager {
       }
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -258,7 +258,7 @@ export class StatusBarManager {
       }
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -268,9 +268,10 @@ export class StatusBarManager {
    * This should be called when status bar item commands are executed
    *
    * @param itemId - ID of the status bar item that was clicked
-   * @param command - Optional command that was executed
+   * @param _command - Optional command that was executed
    */
-  trackClick(itemId: string, command?: string): void {
+  trackClick(itemId: string, _command?: string): void {
+    void _command; // Reserved for future analytics enrichment
     if (!this.statusBarItems.has(itemId)) {
       return;
     }
@@ -343,7 +344,7 @@ export class StatusBarManager {
       this.itemMetrics.delete(itemId);
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -357,7 +358,7 @@ export class StatusBarManager {
       this.statusBarItems.forEach((item) => item.dispose());
       this.statusBarItems.clear();
       this.itemMetrics.clear();
-    } catch (error) {
+    } catch {
       // Silently handle disposal errors
     }
   }

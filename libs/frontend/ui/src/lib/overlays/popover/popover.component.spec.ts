@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Component, signal } from '@angular/core';
 import { PopoverComponent } from './popover.component';
-import { FocusTrapFactory } from '@angular/cdk/a11y';
+
 
 /**
  * Test host component to provide required inputs and test interactions

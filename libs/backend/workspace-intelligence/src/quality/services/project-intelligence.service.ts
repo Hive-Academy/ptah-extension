@@ -464,7 +464,7 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
    * @returns Minimal ProjectIntelligence
    */
   private createMinimalIntelligence(
-    workspaceUri: vscode.Uri
+    _workspaceUri: vscode.Uri
   ): ProjectIntelligence {
     const minimalContext = this.createMinimalContext();
     const minimalAssessment = this.createMinimalAssessment();

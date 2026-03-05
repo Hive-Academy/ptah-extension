@@ -17,7 +17,6 @@ import {
   PtahCliStateService,
 } from '@ptah-extension/core';
 import {
-  ChatSessionSummary,
   createExecutionChatMessage,
   SessionId,
 } from '@ptah-extension/shared';

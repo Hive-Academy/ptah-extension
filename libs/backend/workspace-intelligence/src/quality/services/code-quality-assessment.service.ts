@@ -17,13 +17,12 @@ import type {
   QualityGapPriority,
   SamplingConfig,
   AntiPattern,
-  DEFAULT_SAMPLING_CONFIG,
 } from '@ptah-extension/shared';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { WorkspaceIndexerService } from '../../file-indexing/workspace-indexer.service';
 import { FileSystemService } from '../../services/file-system.service';
 import { FileRelevanceScorerService } from '../../context-analysis/file-relevance-scorer.service';
-import { FileType, IndexedFile } from '../../types/workspace.types';
+import { IndexedFile } from '../../types/workspace.types';
 import type {
   ICodeQualityAssessmentService,
   IAntiPatternDetectionService,

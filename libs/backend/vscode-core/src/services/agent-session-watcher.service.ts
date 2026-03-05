@@ -242,7 +242,7 @@ export class AgentSessionWatcherService extends EventEmitter {
 
     // Check if there are any pending files that match this agent
     // (agent file may have been created before we started watching)
-    this.matchPendingFiles(agentId, sessionId);
+    this.matchPendingFiles(agentId);
   }
 
   /**
@@ -852,7 +852,7 @@ export class AgentSessionWatcherService extends EventEmitter {
    * Extract agentId from the pending file's path and match directly.
    * This prevents wrong matches when multiple agents share the same sessionId.
    */
-  private matchPendingFiles(agentId: string, _sessionId: string): void {
+  private matchPendingFiles(agentId: string): void {
     const watch = this.activeWatches.get(agentId);
     if (!watch) return;
 

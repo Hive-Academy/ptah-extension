@@ -1,7 +1,5 @@
 import 'reflect-metadata';
 import { TemplateGeneratorService } from './template-generator.service';
-import { TemplateOrchestratorService } from './template-orchestrator.service';
-import { WorkspaceAnalyzerService } from '@ptah-extension/workspace-intelligence';
 import { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { ProjectConfig, ProjectContext } from '../interfaces';

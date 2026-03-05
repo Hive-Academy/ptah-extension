@@ -360,13 +360,19 @@ export class ChatInputComponent implements OnInit {
       const searchResults = this.filePicker.searchFiles(query);
       return searchResults.map((f) => {
         const isFolder = f.type === 'directory';
-        const { type: _originalType, ...rest } = f;
         return {
           type: 'file' as const,
           icon: isFolder ? '📁' : '📄',
           description: f.directory,
           isFolder,
-          ...rest,
+          path: f.path,
+          name: f.name,
+          directory: f.directory,
+          extension: f.extension,
+          size: f.size,
+          lastModified: f.lastModified,
+          isImage: f.isImage,
+          isText: f.isText,
         } as SuggestionItem;
       });
     }
@@ -494,7 +500,7 @@ export class ChatInputComponent implements OnInit {
    * Handle debounced / trigger from SlashTriggerDirective
    * Does NOT overwrite _currentQuery — handleQueryChanged already has the latest value.
    */
-  handleSlashTriggered(_event: SlashTriggerEvent): void {
+  handleSlashTriggered(): void {
     // Debounced trigger - no query update needed
   }
 

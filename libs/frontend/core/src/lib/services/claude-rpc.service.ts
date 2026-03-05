@@ -8,11 +8,8 @@ import {
   RpcMethodName,
   RpcMethodParams,
   RpcMethodResult,
-  SessionListParams,
   SessionListResult,
-  SessionLoadParams,
   SessionLoadResult,
-  FileOpenParams,
   FileOpenResult,
   MESSAGE_TYPES,
   // TASK_2025_109: SubagentResumeResult removed - now uses context injection

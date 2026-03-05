@@ -2,7 +2,6 @@ import { injectable, inject } from 'tsyringe';
 import { Result } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { IContentProcessor, MessageContent } from '../interfaces';
-import { TemplateProcessingError } from '../errors';
 
 /**
  * Content Processor Service

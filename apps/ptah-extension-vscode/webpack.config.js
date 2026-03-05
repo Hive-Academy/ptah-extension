@@ -33,7 +33,7 @@ module.exports = {
       vscode: 'commonjs vscode', // Don't bundle VS Code API, it's provided by the host
     },
     // Custom externals function for LLM provider tree-shaking
-    function ({ context, request }, callback) {
+    function ({ request }, callback) {
       // === BUNDLE THESE (critical for extension to work) ===
 
       // Bundle reflect-metadata and tsyringe (required for DI)

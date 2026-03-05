@@ -17,7 +17,6 @@ import type {
   WorkspaceContext,
   ProjectIntelligence,
   PrescriptiveGuidance,
-  AntiPatternType,
   QualityHistoryEntry,
 } from '@ptah-extension/shared';
 import type * as vscode from 'vscode';

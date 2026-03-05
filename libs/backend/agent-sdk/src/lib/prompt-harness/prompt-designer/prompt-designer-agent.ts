@@ -27,7 +27,6 @@ import {
   type PromptDesignerConfig,
   type PromptGenerationProgress,
   type PromptDesignerResponse,
-  PromptDesignerResponseSchema,
   DEFAULT_PROMPT_DESIGNER_CONFIG,
 } from './prompt-designer.types';
 import {

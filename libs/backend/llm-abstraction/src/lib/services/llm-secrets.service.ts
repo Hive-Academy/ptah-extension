@@ -290,8 +290,6 @@ export class LlmSecretsService implements ILlmSecretsService {
       return false;
     }
 
-    const trimmedKey = key.trim();
-
     switch (provider) {
       case 'vscode-lm':
         // VS Code LM doesn't use API keys

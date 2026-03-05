@@ -43,7 +43,6 @@ import type {
   HoverInfo,
   SignatureHelp,
   ActiveEditorInfo,
-  VisibleRange,
   TestItem,
   TestRunOptions,
   TestResult,
@@ -760,6 +759,7 @@ function buildTestingNamespace(): TestingNamespace {
      * @returns Test results with passed/failed/skipped counts
      */
     run: async (options?: TestRunOptions): Promise<TestResult> => {
+      void options; // Reserved for when test controller integration is available
       // VS Code doesn't provide a global "run all tests" API
       // Test execution requires a TestController
       // Return zero results as graceful degradation

@@ -8,7 +8,6 @@ import {
 } from '@angular/core';
 import { LucideAngularModule, Puzzle, XCircle } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
-import type { PluginInfo, PluginConfigState } from '@ptah-extension/shared';
 
 /**
  * PluginStatusWidgetComponent - Plugin configuration status widget

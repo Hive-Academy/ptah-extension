@@ -16,7 +16,6 @@ import 'reflect-metadata';
 import { PromptDesignerAgent } from './prompt-designer-agent';
 import type {
   PromptDesignerInput,
-  PromptDesignerOutput,
   PromptGenerationProgress,
 } from './prompt-designer.types';
 

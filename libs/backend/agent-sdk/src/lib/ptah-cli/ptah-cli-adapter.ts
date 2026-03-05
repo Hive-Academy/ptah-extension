@@ -54,7 +54,6 @@ import type {
   SDKUserMessage,
   Options,
   Query,
-  QueryFunction,
   UserMessageContent,
   McpHttpServerConfig,
   SdkPluginConfig,
@@ -64,9 +63,6 @@ import type {
 import {
   isResultMessage,
   isSystemInit,
-  isStreamEvent,
-  isUserMessage,
-  isAssistantMessage,
   isCompactBoundary,
 } from '../types/sdk-types/claude-sdk.types';
 

@@ -14,8 +14,6 @@ import type {
   QualityAssessment,
   QualityHistoryEntry,
   ProjectIntelligence,
-  AntiPattern,
-  QualityGap,
 } from '@ptah-extension/shared';
 
 import type { Logger } from '@ptah-extension/vscode-core';

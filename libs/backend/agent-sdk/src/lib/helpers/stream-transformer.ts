@@ -25,7 +25,6 @@ import { SdkMessageTransformer } from '../sdk-message-transformer';
 import { SDK_TOKENS } from '../di/tokens';
 import {
   SDKMessage,
-  SDKResultMessage,
   isResultMessage,
   isSystemInit,
   isCompactBoundary,

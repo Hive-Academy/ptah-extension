@@ -426,7 +426,7 @@ export class PtahCliRegistry {
         });
 
         let receivedResponse = false;
-        for await (const msg of testQuery) {
+        for await (const _msg of testQuery) {
           receivedResponse = true;
           break;
         }
@@ -547,10 +547,10 @@ export class PtahCliRegistry {
     // Build callback infrastructure
     const {
       outputCallbacks,
-      segmentBuffer,
-      segmentCallbacks,
-      streamEventBuffer,
-      streamEventCallbacks,
+      segmentBuffer: _segmentBuffer,
+      segmentCallbacks: _segmentCallbacks,
+      streamEventBuffer: _streamEventBuffer,
+      streamEventCallbacks: _streamEventCallbacks,
       onSegment,
       emitSegment,
       emitOutput,

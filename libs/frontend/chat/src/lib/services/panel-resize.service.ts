@@ -13,7 +13,7 @@
  *   - MAX_WIDTH_RATIO: 60% of viewport (prevents chat area collapse)
  */
 
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 
 const MIN_WIDTH = 300;
 const MAX_WIDTH_RATIO = 0.6;

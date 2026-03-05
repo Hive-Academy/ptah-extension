@@ -31,7 +31,6 @@ import {
 } from '@ptah-extension/llm-abstraction';
 import { SdkAgentAdapter, SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import {
-  SessionId,
   retryWithBackoff,
   MESSAGE_TYPES,
   AgentProcessInfo,

@@ -433,28 +433,6 @@ export class SetupRpcHandlers {
             'Multi-phase analysis detected, returning all agents recommended'
           );
 
-          // Resolve recommendation service to get the agent catalog
-          type RecommendationServiceType = {
-            calculateRecommendations: (
-              analysis: DeepProjectAnalysis
-            ) => AgentRecommendation[];
-          };
-
-          let recommendationService: RecommendationServiceType;
-          try {
-            recommendationService =
-              this.resolveService<RecommendationServiceType>(
-                AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
-                'AgentRecommendationService'
-              );
-          } catch {
-            recommendationService =
-              this.resolveService<RecommendationServiceType>(
-                AgentRecommendationService as unknown as symbol,
-                'AgentRecommendationService (direct)'
-              );
-          }
-
           // Get all agents by running with a dummy analysis, then override scores
           const agentCatalog: Array<{ id: string; category: AgentCategory }> = [
             { id: 'project-manager', category: 'planning' },

@@ -306,7 +306,6 @@ export class ContextService {
   /**
    * Update file content (for future use)
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async updateFileContent(filePath: string, _content: string): Promise<void> {
     // This method is called when a file's content changes
     // For now, we just log it. In the future, we might want to

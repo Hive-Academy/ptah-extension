@@ -203,7 +203,7 @@ export class OutputManager {
       channel.clear();
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -227,7 +227,7 @@ export class OutputManager {
       channel.show(preserveFocus);
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -250,7 +250,7 @@ export class OutputManager {
       channel.hide();
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -319,7 +319,7 @@ export class OutputManager {
       this.channelMetrics.delete(channelName);
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -333,7 +333,7 @@ export class OutputManager {
       this.outputChannels.forEach((channel) => channel.dispose());
       this.outputChannels.clear();
       this.channelMetrics.clear();
-    } catch (error) {
+    } catch {
       // Silently handle disposal errors
     }
   }

@@ -106,7 +106,7 @@ export function buildOrchestrationNamespace(
       const content = await vscode.workspace.fs.readFile(statePath);
       const jsonString = Buffer.from(content).toString('utf8');
       return JSON.parse(jsonString) as OrchestrationState;
-    } catch (error) {
+    } catch {
       // File doesn't exist or is invalid JSON
       return null;
     }

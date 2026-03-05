@@ -4,10 +4,7 @@ import {
   computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import {
-  TodoListDisplayComponent,
-  type TodoWriteInput,
-} from './todo-list-display.component';
+import { TodoListDisplayComponent } from './todo-list-display.component';
 import { DiffDisplayComponent } from './diff-display.component';
 import { CodeOutputComponent } from './code-output.component';
 import { ErrorAlertComponent } from '../../atoms/error-alert.component';
@@ -18,7 +15,6 @@ import {
   isEditToolOutput,
   type TodoWriteToolInput,
   type EditToolInput,
-  type EditToolOutput,
 } from '@ptah-extension/shared';
 
 /**

@@ -210,7 +210,6 @@ export class VSCodeService {
  * Ensures VSCodeService is initialized before application bootstrap.
  */
 export function initializeVSCodeService(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _vscodeService: VSCodeService
 ): () => void {
   return () => {

@@ -10,7 +10,7 @@
  */
 
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import { ClaudeRpcService } from './claude-rpc.service';
 import { MessageHandler } from './message-router.types';
 import {
   PermissionLevel,

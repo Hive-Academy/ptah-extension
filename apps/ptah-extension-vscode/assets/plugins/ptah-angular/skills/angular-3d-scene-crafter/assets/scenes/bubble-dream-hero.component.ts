@@ -18,7 +18,7 @@
  * - Iridescence: Add [iridescence]="1.0" for soap bubble effect
  * - Nebula colors: primaryColor and secondaryColor for background mood
  */
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import {
   AmbientLightComponent,
   BloomEffectComponent,

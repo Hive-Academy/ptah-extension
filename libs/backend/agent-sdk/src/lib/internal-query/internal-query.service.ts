@@ -52,7 +52,6 @@ import {
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import type {
   Options as SdkQueryOptions,
-  QueryFunction,
   HookEvent,
   HookCallbackMatcher,
   McpHttpServerConfig,

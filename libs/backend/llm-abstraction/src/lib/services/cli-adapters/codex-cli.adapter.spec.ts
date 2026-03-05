@@ -77,9 +77,6 @@ type FakeCodexEvent =
     }
   | { type: 'error'; message: string };
 
-// Track how many times the SDK module was "imported"
-let sdkImportCallCount = 0;
-
 const mockRunStreamed = jest.fn();
 const mockStartThread = jest.fn();
 const mockCodexConstructor = jest.fn();
@@ -89,7 +86,6 @@ const mockCodexConstructor = jest.fn();
  * The adapter uses a cached dynamic import() so we mock the module itself.
  */
 jest.mock('@openai/codex-sdk', () => {
-  sdkImportCallCount++;
   return {
     __esModule: true,
     Codex: mockCodexConstructor,
@@ -111,7 +107,6 @@ describe('CodexCliAdapter', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    sdkImportCallCount = 0;
 
     // Default mock setup: Codex constructor returns client with startThread
     mockCodexConstructor.mockImplementation(() => ({

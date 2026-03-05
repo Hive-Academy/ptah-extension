@@ -438,7 +438,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
 
   describe('shutdownAll() with SDK agents', () => {
     it('should stop all running SDK agents', async () => {
-      const result = await manager.spawn({
+      await manager.spawn({
         task: 'Task 1',
         cli: 'codex',
         workingDirectory: '/workspace/root',

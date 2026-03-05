@@ -152,7 +152,7 @@ export class VsCodeLmProvider extends BaseLlmProvider {
   async getStructuredCompletion<T extends z.ZodTypeAny>(
     prompt: LlmPromptInput,
     schema: T,
-    completionConfig?: LlmCompletionConfig
+    _completionConfig?: LlmCompletionConfig
   ): Promise<Result<z.infer<T>, LlmProviderError>> {
     if (!this.model) {
       return Result.err(
@@ -251,7 +251,7 @@ Respond with valid JSON only:`;
 
     try {
       return await this.model.countTokens(text);
-    } catch (error) {
+    } catch {
       // Fallback to approximation on error
       return Math.ceil(text.length / 4);
     }

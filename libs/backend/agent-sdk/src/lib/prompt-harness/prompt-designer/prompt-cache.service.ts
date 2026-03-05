@@ -27,7 +27,6 @@ import {
   createInvalidationEvent,
   DEFAULT_CACHE_TTL_MS,
   CACHE_CONFIG_VERSION,
-  INVALIDATION_TRIGGER_FILES,
   type CacheKeyComponents,
   type InvalidationEvent,
   type InvalidationReason,

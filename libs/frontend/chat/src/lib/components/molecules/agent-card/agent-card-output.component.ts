@@ -12,7 +12,6 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   viewChild,
-  signal,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { MarkdownModule } from 'ngx-markdown';

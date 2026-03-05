@@ -24,7 +24,6 @@ import type {
   ToolResultEvent,
   AgentStartEvent,
   MessageCompleteEvent,
-  MessageTokenUsage,
 } from '@ptah-extension/shared';
 import { isTaskToolInput } from '@ptah-extension/shared';
 import type { ContentBlock } from './history.types';

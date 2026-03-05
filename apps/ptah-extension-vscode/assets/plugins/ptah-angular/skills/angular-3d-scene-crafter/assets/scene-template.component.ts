@@ -7,36 +7,21 @@ import {
 import {
   Scene3dComponent,
   // Primitives
-  BoxComponent,
   SphereComponent,
-  CylinderComponent,
   TorusComponent,
-  PolyhedronComponent,
   // Space & Cosmic
-  PlanetComponent,
   StarFieldComponent,
-  NebulaVolumetricComponent,
   // Lights
   AmbientLightComponent,
-  DirectionalLightComponent,
   PointLightComponent,
-  SpotLightComponent,
   // Effects
   EffectComposerComponent,
   BloomEffectComponent,
-  SelectiveBloomEffectComponent,
-  EnvironmentComponent,
-  // Text
-  TroikaTextComponent,
-  GlowTroikaTextComponent,
   // Directives (imported as directives, not components)
   Float3dDirective,
   Rotate3dDirective,
-  MouseTracking3dDirective,
   // Controls
   OrbitControlsComponent,
-  // Organization
-  FogComponent,
 } from '@hive-academy/angular-3d';
 
 /**

@@ -577,7 +577,7 @@ describe('CodeQualityAssessmentService - Adaptive Sampling', () => {
   let service: CodeQualityAssessmentService;
 
   beforeEach(() => {
-    const mockLogger = createMockLogger();
+    createMockLogger();
     // Create service with minimal mock dependencies
     // Only testing the pure utility methods that don't need injected services
     service = Object.create(CodeQualityAssessmentService.prototype);

@@ -45,7 +45,6 @@ import type {
 } from '@ptah-extension/agent-generation';
 import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import { Result } from '@ptah-extension/shared';
-import type { ProjectAnalysisResult } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
 
 /**
