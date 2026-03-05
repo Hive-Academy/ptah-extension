@@ -207,7 +207,9 @@ export class ChatMessageHandler implements MessageHandler {
       );
       return;
     }
-    this.chatStore.handleQuestionRequest(payload);
+    this.chatStore.handleQuestionRequest(
+      payload as import('../components/molecules/question-card.component').AskUserQuestionRequest
+    );
   }
 
   // PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution

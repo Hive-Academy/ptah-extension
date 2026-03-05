@@ -10,9 +10,11 @@ import {
   SubagentRecord,
   LicenseGetStatusResponse,
   InlineImageAttachment,
+} from '@ptah-extension/shared';
+import type {
   AskUserQuestionRequest,
   AskUserQuestionResponse,
-} from '@ptah-extension/shared';
+} from '../components/molecules/question-card.component';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';

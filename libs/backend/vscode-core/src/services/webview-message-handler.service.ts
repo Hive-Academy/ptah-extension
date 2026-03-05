@@ -325,7 +325,7 @@ export class WebviewMessageHandlerService {
         }>(TOKENS.PERMISSION_PROMPT_SERVICE);
         permissionService.resolveRequest(message.payload);
         this.logger.info(`[${webviewId}] MCP Permission response processed`, {
-          requestId: message.payload?.id,
+          requestId: (message.payload as { id?: string } | undefined)?.id,
         });
       } else {
         this.logger.warn(

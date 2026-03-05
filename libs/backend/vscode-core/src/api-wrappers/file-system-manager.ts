@@ -156,10 +156,7 @@ export class FileSystemManager {
       await this.validateFileOperation(uri, 'write');
 
       // Perform write operation with configured options
-      await vscode.workspace.fs.writeFile(uri, content, {
-        create: options.create ?? true,
-        overwrite: options.overwrite ?? true,
-      });
+      await vscode.workspace.fs.writeFile(uri, content);
       const duration = Date.now() - startTime;
 
       // Update metrics

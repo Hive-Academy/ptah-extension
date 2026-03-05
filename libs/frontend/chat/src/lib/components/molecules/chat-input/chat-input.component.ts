@@ -164,7 +164,7 @@ interface PastedImage {
             (atQueryChanged)="handleQueryChanged($event)"
             ptahSlashTrigger
             (slashActivated)="handleSlashActivated($event)"
-            (slashTriggered)="handleSlashTriggered($event)"
+            (slashTriggered)="handleSlashTriggered()"
             (slashClosed)="handleSlashClosed()"
             (slashQueryChanged)="handleQueryChanged($event)"
           ></textarea>
