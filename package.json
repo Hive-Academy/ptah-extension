@@ -159,6 +159,7 @@
     "@types/vscode": "^1.103.0",
     "@types/which": "^3.0.4",
     "@typescript-eslint/utils": "^8.29.0",
+    "@vscode/vsce": "^3.7.1",
     "@workos-inc/node": "^7.77.0",
     "angular-eslint": "^20.0.0",
     "autoprefixer": "^10.4.22",
