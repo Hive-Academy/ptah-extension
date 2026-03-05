@@ -1,0 +1,43 @@
+name: Publish Extension
+
+on:
+  push:
+    branches:
+      - release/extension
+  workflow_dispatch:
+    inputs:
+      pre-release:
+        description: 'Publish as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Build and package extension
+        run: npx nx run ptah-extension-vscode:package
+
+      - name: Publish to VS Code Marketplace
+        run: |
+          cd dist/apps/ptah-extension-vscode
+          if [ "${{ github.event.inputs.pre-release }}" = "true" ]; then
+            npx @vscode/vsce publish --pre-release --pat ${{ secrets.VSCE_PAT }}
+          else
+            npx @vscode/vsce publish --pat ${{ secrets.VSCE_PAT }}
+          fi
