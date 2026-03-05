@@ -529,25 +529,50 @@ Based on examining the current `apps/ptah-extension-vscode/package.json` and `.v
 
 ### Issues to Address Before Publishing
 
-| Issue                                              | Severity | Current                      | Recommended                                  |
-| -------------------------------------------------- | -------- | ---------------------------- | -------------------------------------------- |
-| Activation event `"*"`                             | HIGH     | `["*"]`                      | `["onView:ptah.main"]`                       |
-| Invalid categories                                 | MEDIUM   | `["AI", "Chat"]` included    | Remove, keep `["Machine Learning", "Other"]` |
-| No `galleryBanner`                                 | LOW      | Missing                      | Add with brand colors                        |
-| No `license` field                                 | MEDIUM   | Missing                      | Add `"license": "SEE LICENSE IN LICENSE"`    |
-| No `badges`                                        | LOW      | Missing                      | Add marketplace badges                       |
-| `.vscodeignore` includes `node_modules` exceptions | MEDIUM   | `!node_modules/rxjs/**` etc. | Remove if using bundler                      |
-| Missing `preview` field                            | LOW      | Missing                      | Add `"preview": true` for initial launch     |
-| Engine version possibly too low                    | LOW      | `^1.74.0`                    | Verify against APIs actually used            |
+| Issue                                              | Severity | Current                      | Recommended                                  | Status       |
+| -------------------------------------------------- | -------- | ---------------------------- | -------------------------------------------- | ------------ |
+| Activation event `"*"`                             | HIGH     | `["*"]`                      | `["onView:ptah.main"]`                       | **TODO**     |
+| Invalid categories                                 | MEDIUM   | `["AI", "Chat"]` included    | Remove, keep `["Machine Learning", "Other"]` | **TODO**     |
+| No `galleryBanner`                                 | LOW      | Missing                      | Add with brand colors                        | **TODO**     |
+| No `license` field                                 | MEDIUM   | Missing                      | Add `"license": "SEE LICENSE IN LICENSE"`    | **TODO**     |
+| No `badges`                                        | LOW      | Missing                      | Add marketplace badges                       | **TODO**     |
+| `.vscodeignore` includes `node_modules` exceptions | MEDIUM   | `!node_modules/rxjs/**` etc. | Remove if using bundler                      | **RESOLVED** |
+| Missing `preview` field                            | LOW      | Missing                      | Add `"preview": true` for initial launch     | **TODO**     |
+| Engine version possibly too low                    | LOW      | `^1.74.0`                    | Verify against APIs actually used            | **TODO**     |
+| Missing runtime dependencies in package.json       | CRITICAL | Only rxjs, uuid, zod listed  | Add all 13 externalized packages             | **RESOLVED** |
+| No LICENSE file at root                            | MEDIUM   | Missing                      | Create LICENSE file                          | **TODO**     |
+
+### Resolved Issues (March 2026)
+
+**1. Missing runtime dependencies** — The Webpack config externalizes all lowercase packages via a catch-all regex (`/^[a-z\-0-9]+/`), but the extension's `package.json` only listed 3 of the ~15 required packages. This caused `Cannot find module 'tslib'` on activation. Fixed by adding all externalized packages to `dependencies`: `tslib`, `async-mutex`, `cross-spawn`, `eventemitter3`, `gray-matter`, `json2md`, `jsonrepair`, `minimatch`, `picomatch`, `tree-sitter`, `tree-sitter-javascript`, `tree-sitter-typescript`, `which`.
+
+**2. `.vscodeignore` rewritten** — Simplified to exclude source files, dev artifacts, tests, and source maps (`**/*.map`). No longer excludes `node_modules` (runtime deps must ship in the .vsix).
+
+**3. `--no-dependencies` flag removed** — The vsce package command was using `--no-dependencies` which prevented `node_modules` from being included in the .vsix. Removed so that runtime dependencies are properly bundled.
+
+**4. `@openai/codex-sdk` excluded** — This package is 102 MB and is only needed when users have Codex CLI installed. Removed from `optionalDependencies`. The adapter handles the missing module at runtime.
+
+**5. Nx `package` target fixed** — Updated to use Windows-compatible PowerShell commands, properly copies `.vscodeignore`, `README.md`, and LICENSE to dist before packaging.
+
+**6. Stale build artifacts** — The `dist/` directory accumulated stale chunks from previous builds (Google, OpenAI providers removed during SDK-only migration, old Angular webview chunks). A clean rebuild reduced webview from 89 MB to 2.3 MB and removed ~11 MB of dead extension chunks.
+
+### Current VSIX Metrics
+
+| Metric             | Value                                                        |
+| ------------------ | ------------------------------------------------------------ |
+| Total files        | ~1,800                                                       |
+| Compressed size    | ~8.5 MB                                                      |
+| Largest components | tree-sitter packages (~46 MB uncompressed), main.js (3.3 MB) |
+| Webview            | 13 files, 2.3 MB                                             |
 
 ### Recommended Publishing Sequence
 
-1. Fix all HIGH/MEDIUM issues above
+1. Fix remaining TODO issues above (activation events, categories, LICENSE, etc.)
 2. Create the publisher `ptah-extensions` on the marketplace
 3. Generate an Azure DevOps PAT with Marketplace (Manage) scope
-4. Build and package locally: `vsce package`
-5. Test the `.vsix` file by installing it manually in VS Code
-6. Publish as pre-release first: `vsce publish --pre-release`
+4. Build and package: `npx nx run ptah-extension-vscode:package`
+5. Test the `.vsix` on a clean machine (see [INSTALLATION.md](../INSTALLATION.md))
+6. Publish as pre-release first: `npx @vscode/vsce publish --pre-release --pat <TOKEN>`
 7. After validation, publish stable release
 8. Set up GitHub Actions for automated future publishing
 

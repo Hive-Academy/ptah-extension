@@ -8,11 +8,84 @@ This reference documents all user validation checkpoints in the orchestration wo
 
 | Checkpoint | Name                    | When              | Purpose                        | Response Expected                            |
 | ---------- | ----------------------- | ----------------- | ------------------------------ | -------------------------------------------- |
+| **0.1**    | CLI Agent Discovery     | Before any agent  | Discover & enable CLI helpers  | yes / no / auto                              |
 | **0**      | Scope Clarification     | Before PM         | Clarify ambiguous requests     | Answers or "use your judgment"               |
 | **1**      | Requirements Validation | After PM          | Approve task-description.md    | "APPROVED" or feedback                       |
 | **1.5**    | Technical Clarification | Before Architect  | Technical preferences          | Answers or "use your judgment"               |
 | **2**      | Architecture Validation | After Architect   | Approve implementation-plan.md | "APPROVED" or feedback                       |
 | **3**      | QA Choice               | After Development | Select QA agents               | tester/style/logic/visual/reviewers/all/skip |
+
+---
+
+## Checkpoint 0.1: CLI Agent Discovery
+
+### When to Present
+
+At the very start of orchestration, before any sub-agent is invoked.
+
+### Trigger Conditions
+
+Always run `ptah_agent_list` at orchestration start. Present the checkpoint if at least one CLI agent is available.
+
+### Skip Conditions
+
+Skip this checkpoint if:
+
+- `ptah_agent_list` returns no available CLI agents
+- User previously set CLI agent preference in project-level settings
+- Task is Minimal pattern (single developer or reviewer)
+
+### Template
+
+```markdown
+---
+CLI AGENT DISCOVERY - TASK_[ID]
+---
+
+I discovered the following CLI agents available on your system:
+
+| CLI Agent | Status    |
+| --------- | --------- |
+| [agent]   | Available |
+| [agent]   | Available |
+
+These can be used as **junior helpers** by sub-agents (PM, Architect, Developers, etc.)
+to speed up focused sub-tasks like codebase analysis, test scaffolding, and file reviews.
+
+**Sub-agents retain full quality ownership** — CLI agents handle grunt work only.
+
+---
+
+## Would you like sub-agents to utilize CLI agents as junior helpers?
+
+Options:
+
+1. **yes** — Enable CLI delegation for all sub-agents
+2. **no** — Sub-agents work alone (standard mode)
+3. **auto** — Sub-agents decide on their own when to delegate
+
+---
+```
+
+### Response Handling
+
+| Response | Action                                                                                      |
+| -------- | ------------------------------------------------------------------------------------------- |
+| **yes**  | Store `cli_delegation: enabled` in context.md. Inject CLI block into all sub-agent prompts. |
+| **no**   | Store `cli_delegation: disabled` in context.md. No CLI injection.                           |
+| **auto** | Store `cli_delegation: auto` in context.md. Inject CLI block with "use your judgment" note. |
+
+### Context.md Entry
+
+When CLI delegation is enabled or auto, add to context.md:
+
+```markdown
+## CLI Agent Delegation
+
+**Mode**: [enabled|disabled|auto]
+**Available Agents**: [list from ptah_agent_list]
+**Selection Priority**: ptah-cli > gemini > codex > copilot
+```
 
 ---
 
@@ -384,6 +457,9 @@ Please choose how to proceed:
 New Task Start
      │
      v
+[Checkpoint 0.1: CLI Agent Discovery]  ←─ Auto (if agents available)
+     │
+     v
 [Checkpoint 0: Scope Clarification]  ←─ Optional
      │
      v
@@ -426,3 +502,4 @@ New Task Start
 - **agent-catalog.md**: QA agents invoked from Checkpoint 3
 - **team-leader-modes.md**: MODE transitions trigger checkpoints
 - **git-standards.md**: Hook failure protocol at commit time
+- **cli-agent-delegation.md**: CLI agent discovery, delegation patterns, prompt injection

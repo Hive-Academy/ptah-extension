@@ -1,6 +1,6 @@
 # Execution Strategies Reference
 
-Detailed workflow diagrams and guidance for all 6 execution strategies plus creative workflows.
+Detailed workflow diagrams and guidance for all 8 task type workflows.
 
 ---
 
@@ -15,6 +15,7 @@ Detailed workflow diagrams and guidance for all 6 execution strategies plus crea
 | RESEARCH      | Investigation  | Researcher                           | None                                  |
 | DEVOPS        | Infrastructure | PM, Architect, DevOps Engineer, QA   | Requirements, Architecture, QA        |
 | SAAS_INIT     | Full+Discovery | PM, Architect, Team-Leader, Devs     | Scope, PRD, Architecture, Batches     |
+| CREATIVE      | Design-first   | ui-ux-designer, content-writer, Dev  | Design system check                   |
 
 ---
 
@@ -72,6 +73,14 @@ Phase 8: modernization-detector --> Creates future-enhancements.md
 | researcher-expert | Technical complexity > 3, unknown libraries/APIs, needs POC |
 | ui-ux-designer    | Landing pages, visual redesigns, new UI components          |
 
+### CLI Agent Delegation Opportunities
+
+- **Phase 1 (PM)**: Spawn CLI agents to survey codebase areas, analyze file structures, and gather dependency info before writing requirements
+- **Phase 2 (Research)**: Spawn parallel CLI agents for independent research threads (external docs + codebase analysis)
+- **Phase 4 (Architect)**: Spawn CLI agents to analyze existing patterns in target modules, check DI graphs, verify import paths
+- **Phase 5 (Development)**: Team-leader spawns CLI developer agents for independent batch sub-tasks; developers spawn CLI agents for test scaffolding
+- **Phase 6 (QA)**: Reviewers spawn CLI agents for parallel file-level reviews; tester spawns CLI agents for per-module test generation
+
 ---
 
 ## BUGFIX (Streamlined)
@@ -95,6 +104,11 @@ team-leader MODE 1 --> MODE 2 (loop) --> MODE 3
 - **Unknown cause**: Add researcher-expert before team-leader
 - **Known cause**: Skip directly to team-leader MODE 1
 - **Single-file fix**: Consider minimal pattern (direct developer)
+
+### CLI Agent Delegation Opportunities
+
+- **Research phase**: Spawn CLI agents to trace error paths, analyze stack traces, search for similar patterns across the codebase
+- **Development phase**: Developer spawns CLI agents to verify the fix doesn't break related modules (parallel file analysis)
 
 ---
 
@@ -126,6 +140,12 @@ Refactoring requirements are typically clear:
 
 The architect designs HOW to refactor; no scope discovery needed.
 
+### CLI Agent Delegation Opportunities
+
+- **Architect phase**: Spawn CLI agents to analyze existing patterns in modules being refactored, identify all usages and dependents
+- **Development phase**: Spawn CLI agents for parallel file-level refactoring of independent modules
+- **QA phase**: Spawn CLI agents for parallel style/logic reviews of all refactored files
+
 ---
 
 ## DOCUMENTATION (Minimal)
@@ -156,6 +176,11 @@ Git
 | CI/CD docs         | devops-engineer    |
 | General guides     | frontend-developer |
 
+### CLI Agent Delegation Opportunities
+
+- **PM phase**: Spawn CLI agents to survey existing docs, identify gaps, and catalog undocumented APIs
+- **Developer phase**: Spawn CLI agents to extract JSDoc/type info from source files for documentation drafts
+
 ---
 
 ## RESEARCH (Investigation Only)
@@ -177,6 +202,11 @@ If research concludes implementation is needed:
 1. Research report becomes input to PM
 2. Switch to FEATURE strategy
 3. PM references research-report.md in task-description.md
+
+### CLI Agent Delegation Opportunities
+
+- **Research phase**: Highest impact — spawn parallel CLI agents for independent deep-dives (one for external API docs, one for codebase usage patterns, one for competitor analysis)
+- Research benefits the most from CLI delegation since parallel information gathering dramatically speeds up investigation
 
 ---
 
@@ -223,6 +253,11 @@ Invoke DEVOPS strategy when task involves:
 **Key Signal**: Work is 100% infrastructure (no application business logic)
 
 **Developer**: Always use `devops-engineer` (NOT backend-developer)
+
+### CLI Agent Delegation Opportunities
+
+- **Architect phase**: Spawn CLI agents to analyze existing CI/CD configs, Docker setups, and infrastructure patterns
+- **DevOps Engineer phase**: Spawn CLI agents for parallel config file generation (Dockerfile, docker-compose, GitHub Actions workflows)
 
 ---
 
@@ -354,6 +389,12 @@ Developers reference these skills during implementation:
 | Auth, multitenancy   | nestjs-backend-patterns   |
 | Entities, aggregates | ddd-architecture          |
 | Angular components   | angular-frontend-patterns |
+
+### CLI Agent Delegation Opportunities
+
+- **Phase 1 (PM)**: Spawn CLI agents to research SaaS patterns, analyze reference architectures, survey existing Nx workspace configs
+- **Phase 2 (Architect)**: Spawn CLI agents to validate proposed library structure against Nx best practices, check for naming conflicts
+- **Phase 4 (Development)**: Spawn CLI agents for parallel batch implementation — each batch can use CLI agents for scaffolding independent libraries
 
 ---
 
@@ -537,6 +578,12 @@ Developer should:
 - Use design system tokens exactly
 - Generate/source assets from briefs
 ```
+
+### CLI Agent Delegation Opportunities (Creative)
+
+- **Content Writer phase**: Spawn CLI agents to research codebase features for technical accuracy, extract API signatures, and draft content sections in parallel
+- **Frontend Developer phase**: Spawn CLI agents for component scaffolding, asset manifest generation
+- **Note**: ui-ux-designer should NOT delegate to CLI agents — interactive design requires direct engagement
 
 ---
 

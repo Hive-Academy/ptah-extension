@@ -6,24 +6,30 @@ Comprehensive catalog of all 14 specialist agents with capabilities, triggers, a
 
 ## Agent Capability Matrix
 
-| Agent                    | Write Code | Design | Review | Plan  | Research | Content | Browser |
-| ------------------------ | :--------: | :----: | :----: | :---: | :------: | :-----: | :-----: |
-| project-manager          |     -      |   -    |   -    | **P** |    S     |    -    |    -    |
-| software-architect       |     -      | **P**  |   S    | **P** |    S     |    -    |    -    |
-| team-leader              |     -      |   -    |   S    | **P** |    -     |    -    |    -    |
-| backend-developer        |   **P**    |   S    |   -    |   -   |    -     |    -    |    -    |
-| frontend-developer       |   **P**    |   S    |   -    |   -   |    -     |    -    |    -    |
-| devops-engineer          |   **P**    |   S    |   -    |   -   |    S     |    -    |    -    |
-| senior-tester            |   **P**    |   -    | **P**  |   -   |    -     |    -    |    -    |
-| code-style-reviewer      |     -      |   -    | **P**  |   -   |    -     |    -    |    -    |
-| code-logic-reviewer      |     -      |   -    | **P**  |   -   |    -     |    -    |    -    |
-| visual-reviewer          |     -      |   -    | **P**  |   -   |    -     |    -    |  **P**  |
-| researcher-expert        |     -      |   -    |   -    |   -   |  **P**   |    S    |    -    |
-| modernization-detector   |     -      |   -    |   S    |   -   |  **P**   |    -    |    -    |
-| ui-ux-designer           |     -      | **P**  |   -    |   S   |    -     |    S    |    -    |
-| technical-content-writer |     -      |   S    |   -    |   -   |    -     |  **P**  |    -    |
+| Agent                    | Write Code | Design | Review | Plan  | Research | Content | Browser | CLI Delegation |
+| ------------------------ | :--------: | :----: | :----: | :---: | :------: | :-----: | :-----: | :------------: |
+| project-manager          |     -      |   -    |   -    | **P** |    S     |    -    |    -    |       S        |
+| software-architect       |     -      | **P**  |   S    | **P** |    S     |    -    |    -    |       S        |
+| team-leader              |     -      |   -    |   S    | **P** |    -     |    -    |    -    |     **P**      |
+| backend-developer        |   **P**    |   S    |   -    |   -   |    -     |    -    |    -    |       S        |
+| frontend-developer       |   **P**    |   S    |   -    |   -   |    -     |    -    |    -    |       S        |
+| devops-engineer          |   **P**    |   S    |   -    |   -   |    S     |    -    |    -    |       S        |
+| senior-tester            |   **P**    |   -    | **P**  |   -   |    -     |    -    |    -    |     **P**      |
+| code-style-reviewer      |     -      |   -    | **P**  |   -   |    -     |    -    |    -    |       S        |
+| code-logic-reviewer      |     -      |   -    | **P**  |   -   |    -     |    -    |    -    |       S        |
+| visual-reviewer          |     -      |   -    | **P**  |   -   |    -     |    -    |  **P**  |       -        |
+| researcher-expert        |     -      |   -    |   -    |   -   |  **P**   |    S    |    -    |     **P**      |
+| modernization-detector   |     -      |   -    |   S    |   -   |  **P**   |    -    |    -    |       S        |
+| ui-ux-designer           |     -      | **P**  |   -    |   S   |    -     |    S    |    -    |       -        |
+| technical-content-writer |     -      |   S    |   -    |   -   |    -     |  **P**  |    -    |       S        |
 
 **Legend**: **P** = Primary capability, S = Secondary capability, - = Not applicable
+
+### CLI Delegation Column
+
+- **P** (Primary): Agent benefits greatly from CLI delegation — parallel analysis, batch test generation, multi-file reviews
+- **S** (Secondary): Agent can delegate occasional sub-tasks for speed
+- **-**: Agent should not delegate (visual-reviewer needs browser tools, ui-ux-designer needs interactive design)
 
 ---
 
@@ -752,3 +758,121 @@ Promise.all([Task({ subagent_type: 'technical-content-writer', prompt: 'landing 
 // Run in parallel when batches are independent
 Promise.all([Task({ subagent_type: 'backend-developer', prompt: 'Batch 1...' }), Task({ subagent_type: 'frontend-developer', prompt: 'Batch 2...' })]);
 ```
+
+---
+
+## CLI Agent Delegation Prompt Injection
+
+When CLI Agent Delegation Mode is active (Checkpoint 0.1 = "yes" or "auto"), the following block is appended to every sub-agent's invocation prompt. Role-specific examples are injected per agent type.
+
+**Note**: The per-role examples below are the injection templates appended to sub-agent prompts. For extended examples with full `ptah_agent_spawn` calls and detailed task prompts, see [cli-agent-delegation.md](references/cli-agent-delegation.md#per-role-delegation-examples).
+
+### Standard Injection Block
+
+```markdown
+## CLI Agent Delegation (Junior Helpers)
+
+You have CLI agents available as junior helpers. Use them for focused,
+independently-executable sub-tasks to speed up your work.
+
+**Available agents** (from discovery):
+[injected from ptah_agent_list — e.g., "gemini, ptah-cli"]
+
+**How to delegate:**
+
+1. Spawn: `ptah_agent_spawn { task: "...", cli: "gemini", taskFolder: "...", files: [...] }`
+2. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
+3. Read: `ptah_agent_read { agentId: "..." }`
+4. Use the results in your deliverable
+
+**Rules:**
+
+- Max 3 concurrent CLI agents
+- CLI agents have NO shared context — include ALL necessary info in the task prompt
+- CLI agents should NOT commit to git
+- YOU own the quality — review CLI agent output before incorporating
+- Delegate grunt work, keep synthesis and decisions to yourself
+```
+
+### Per-Agent Role-Specific Examples
+
+Append these examples to the injection block based on the sub-agent being invoked:
+
+#### project-manager
+
+```
+**When to delegate:** Research specific codebase areas, analyze dependencies, survey file structures
+**Example:** ptah_agent_spawn { task: "List all Angular components in libs/frontend/ and categorize by Atomic Design level", cli: "gemini" }
+```
+
+#### software-architect
+
+```
+**When to delegate:** Analyze existing patterns in specific modules, check dependency graphs, POC spikes
+**Example:** ptah_agent_spawn { task: "Analyze the DI setup in libs/backend/vscode-core/src. List all tokens and providers.", cli: "gemini" }
+```
+
+#### team-leader
+
+```
+**When to delegate:** Spawn CLI developer agents for batch sub-tasks, parallel file verification
+**Example:** ptah_agent_spawn { task: "Verify these files exist and are non-empty: [list]", cli: "gemini" }
+```
+
+#### backend-developer
+
+```
+**When to delegate:** Test scaffolding, boilerplate generation, sub-tasks within a batch
+**Example:** ptah_agent_spawn { task: "Create unit test scaffolding for AgentProcessManager with describe/it blocks", cli: "codex" }
+```
+
+#### frontend-developer
+
+```
+**When to delegate:** Component scaffolding, style migration, template generation
+**Example:** ptah_agent_spawn { task: "Generate Angular standalone component skeleton for 'StatusBadge' following project conventions", cli: "gemini" }
+```
+
+#### devops-engineer
+
+```
+**When to delegate:** Config file generation, script writing, Dockerfile creation
+**Example:** ptah_agent_spawn { task: "Generate a multi-stage Dockerfile for Node.js 20 with Alpine base", cli: "codex" }
+```
+
+#### senior-tester
+
+```
+**When to delegate:** Test file generation per module (in parallel), fixture creation, coverage analysis
+**Example:** Spawn 3 agents for 3 modules: ptah_agent_spawn { task: "Write Jest tests for [module]...", cli: "gemini" } (x3)
+```
+
+#### code-style-reviewer / code-logic-reviewer
+
+```
+**When to delegate:** File-level reviews across many files in parallel
+**Example:** Spawn agents per file: ptah_agent_spawn { task: "Review [file] for naming conventions and error handling", cli: "gemini" }
+```
+
+#### researcher-expert
+
+```
+**When to delegate:** Parallel deep-dives into different aspects of a technology/codebase
+**Example:** Spawn 2 agents: one for external docs research, one for codebase usage analysis
+```
+
+#### modernization-detector
+
+```
+**When to delegate:** Parallel analysis of different modules for improvement opportunities
+**Example:** ptah_agent_spawn { task: "Analyze libs/backend/vscode-core/ for deprecated API usage and modernization opportunities", cli: "gemini" }
+```
+
+#### technical-content-writer
+
+```
+**When to delegate:** Draft sections, research codebase features for content accuracy
+**Example:** ptah_agent_spawn { task: "Read libs/backend/agent-sdk/src and produce a technical summary of capabilities", cli: "gemini" }
+```
+
+See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive delegation reference.

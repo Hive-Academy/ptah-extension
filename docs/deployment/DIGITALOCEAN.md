@@ -620,6 +620,32 @@ docker compose -f docker-compose.prod.yml restart
 
 ---
 
-**Document Version**: 3.0
-**Last Updated**: 2026-02-08
+## VS Code Extension Deployment
+
+The extension is deployed separately from the server infrastructure. See:
+
+- **[PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md#5-vs-code-extension)** — Build pipeline, runtime dependencies, packaging, and publishing
+- **[research-vscode-extension-publishing.md](./research-vscode-extension-publishing.md)** — Marketplace requirements, pre-publish checklist, and CI/CD setup
+- **[INSTALLATION.md](../INSTALLATION.md)** — End-user installation guide (VSIX staging and marketplace)
+
+### Quick Reference
+
+```bash
+# Build and package the extension
+npx nx run ptah-extension-vscode:package
+
+# Output: dist/apps/ptah-extension-vscode/ptah-extension-vscode-<version>.vsix (~8.5 MB)
+
+# Install on test machine
+code --install-extension ptah-extension-vscode-0.1.0.vsix
+
+# Publish to marketplace
+cd dist/apps/ptah-extension-vscode
+npx @vscode/vsce publish --pat <AZURE_DEVOPS_PAT>
+```
+
+---
+
+**Document Version**: 4.0
+**Last Updated**: 2026-03-05
 **Architecture**: Droplet ($6/month) + App Platform (free) + Self-hosted PostgreSQL

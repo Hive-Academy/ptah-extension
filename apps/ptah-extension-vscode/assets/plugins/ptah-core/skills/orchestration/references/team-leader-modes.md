@@ -30,7 +30,7 @@ Task({
   description: 'Decompose TASK_[ID] into batches',
   prompt: `You are team-leader in MODE 1: DECOMPOSITION for TASK_[ID].
 
-**Task Folder**: D:\\projects\\ptah-extension\\task-tracking\\TASK_[ID]\\
+**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_[ID]
 **User Request**: "[original request from context.md]"
 
 Read implementation-plan.md and create tasks.md with batched tasks.
@@ -144,6 +144,61 @@ See team-leader.md for detailed MODE 2 instructions.`,
      v                 v
 "NEXT BATCH      "ALL BATCHES
  ASSIGNED"        COMPLETE"
+```
+
+### CLI-Enhanced MODE 2 (When CLI Delegation Active)
+
+When CLI Agent Delegation Mode is active, team-leader MODE 2 gains the ability to spawn CLI agents for parallel batch work and verification.
+
+#### CLI Developer Agents for Batch Implementation
+
+Instead of (or alongside) invoking a single sub-agent developer for a batch, the team-leader can spawn CLI developer agents for independent sub-tasks within a batch:
+
+```
+# Team-leader spawns CLI agents for independent tasks in Batch 2
+agent1 = ptah_agent_spawn {
+  task: "Implement the AgentStatusBadge component following the spec in task-tracking/TASK_2025_042/tasks.md Task 2.1. Use Angular standalone component with signals. Reference libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts for conventions.",
+  cli: "gemini",
+  taskFolder: "D:/projects/ptah-extension/task-tracking/TASK_2025_042",
+  files: ["libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts"]
+}
+
+agent2 = ptah_agent_spawn {
+  task: "Implement the AgentOutputPanel component following the spec in task-tracking/TASK_2025_042/tasks.md Task 2.2. Use Angular standalone component with signals.",
+  cli: "gemini",
+  taskFolder: "D:/projects/ptah-extension/task-tracking/TASK_2025_042"
+}
+
+# Wait for both, read results, verify, then commit
+```
+
+#### When to Use CLI Developer Agents
+
+| Scenario                              | Use CLI Agents?                    |
+| ------------------------------------- | ---------------------------------- |
+| Batch has 3+ independent tasks        | Yes — spawn CLI agents in parallel |
+| Batch has tightly coupled tasks       | No — use sub-agent developer       |
+| Batch needs cross-file refactoring    | No — use sub-agent developer       |
+| Batch is boilerplate/scaffolding      | Yes — CLI agents excel at this     |
+| Batch requires architecture decisions | No — use sub-agent developer       |
+
+#### CLI Verification Pattern
+
+Team-leader can also use CLI agents to verify batch deliverables in parallel:
+
+```
+# After developer returns, verify files in parallel
+verify1 = ptah_agent_spawn {
+  task: "Read the file [path] and verify it: 1) Compiles (no syntax errors), 2) Exports expected symbols, 3) Follows project conventions. Report issues.",
+  cli: "gemini",
+  files: ["[path]"]
+}
+
+verify2 = ptah_agent_spawn {
+  task: "Read the file [path] and verify it...",
+  cli: "gemini",
+  files: ["[path]"]
+}
 ```
 
 ### Handling Team-Leader Responses
@@ -292,3 +347,4 @@ Development phase complete. Proceed to QA checkpoint.
 - **checkpoints.md**: QA Choice checkpoint follows MODE 3
 - **git-standards.md**: Commit format rules enforced in MODE 2
 - **task-tracking.md**: tasks.md document format and status tracking
+- **cli-agent-delegation.md**: CLI agent spawning patterns, task prompts, error handling for team-leader CLI-enhanced MODE 2

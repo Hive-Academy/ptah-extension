@@ -160,6 +160,12 @@ See [agent-name].md for detailed instructions.`,
 
 ## Validation Checkpoints
 
+### Checkpoint 0.1: CLI Agent Discovery (before any agent invocation)
+
+Run `ptah_agent_list` and present results to user. Ask whether sub-agents should utilize CLI agents as junior helpers. Store selection in `context.md`. Skipped for Minimal pattern tasks or when no CLI agents are available. See [checkpoints.md](references/checkpoints.md) for the full template.
+
+### Standard Checkpoints
+
 After PM or Architect deliverables, present to user:
 
 ```
@@ -204,6 +210,87 @@ See [team-leader-modes.md](references/team-leader-modes.md) for detailed integra
 
 ---
 
+## CLI Agent Delegation Mode
+
+Enable a **3-tier hierarchy** where sub-agents can delegate focused sub-tasks to CLI agents as junior helpers, speeding up grunt work through parallelization.
+
+```
+Tier 1: Claude (Orchestrator) — coordinates workflow
+  └── Tier 2: Sub-agents (Senior Leads) — via Agent tool
+        └── Tier 3: CLI agents (Junior Helpers) — via ptah_agent_spawn
+```
+
+### How It Works
+
+1. **Discovery**: At orchestration start, run `ptah_agent_list` to find available CLI agents
+2. **Checkpoint 0.1**: Present available agents to user and ask whether to enable delegation
+3. **Injection**: When enabled, every sub-agent prompt gets a CLI delegation instruction block appended
+4. **Execution**: Sub-agents decide when to delegate sub-tasks vs do work directly
+
+### Quick Reference
+
+| Aspect                 | Detail                                                |
+| ---------------------- | ----------------------------------------------------- |
+| **Activation**         | Checkpoint 0.1 (auto-discovered, user-confirmed)      |
+| **Available agents**   | gemini, codex, copilot, ptah-cli (user-configured)    |
+| **Concurrency limit**  | Max 3 CLI agents simultaneously                       |
+| **Selection priority** | ptah-cli > gemini > codex > copilot                   |
+| **Sub-agent autonomy** | Sub-agents decide when/whether to delegate            |
+| **Quality ownership**  | Sub-agents own quality — must review CLI agent output |
+
+### When to Delegate (Sub-agent Guidance)
+
+| Delegate These                              | Keep These                               |
+| ------------------------------------------- | ---------------------------------------- |
+| File-level analysis and surveys             | Architecture and cross-cutting decisions |
+| Test scaffolding and boilerplate generation | User-facing deliverables and synthesis   |
+| Parallel reviews across many files          | Git commits                              |
+| Config file / Dockerfile generation         | Interactive user questioning             |
+| Codebase research and dependency analysis   | Security-critical review decisions       |
+
+See [cli-agent-delegation.md](references/cli-agent-delegation.md) for the comprehensive reference.
+
+### CLI Delegation Prompt Injection
+
+When CLI Agent Mode is active, append this block to every sub-agent's invocation prompt:
+
+```markdown
+## CLI Agent Delegation (Junior Helpers)
+
+You have CLI agents available as junior helpers. Use them for focused,
+independently-executable sub-tasks to speed up your work.
+
+**Available agents** (from discovery):
+[injected agent list from ptah_agent_list results]
+
+**How to delegate:**
+
+1. Spawn: `ptah_agent_spawn { task: "...", cli: "gemini", taskFolder: "...", files: [...] }`
+2. Poll: `ptah_agent_status { agentId: "..." }` (repeat until not "running")
+3. Read: `ptah_agent_read { agentId: "..." }`
+4. Use the results in your deliverable
+
+**How to resume a timed-out/failed agent:**
+
+1. Get session ID: `ptah_agent_status { agentId: "..." }` → note the `CLI Session ID`
+2. Resume: `ptah_agent_spawn { task: "Continue the previous task", resume_session_id: "<cliSessionId>", ... }`
+   The agent loads the old session context and continues from where it left off.
+
+**Rules:**
+
+- Max 3 concurrent CLI agents
+- CLI agents have NO shared context — include ALL necessary info in the task prompt
+- CLI agents should NOT commit to git
+- YOU own the quality — review CLI agent output before incorporating
+- Delegate grunt work, keep synthesis and decisions to yourself
+- When a CLI agent times out or fails, **resume it** instead of re-spawning from scratch
+
+**When to delegate:**
+[role-specific examples injected per agent type — see agent-catalog.md]
+```
+
+---
+
 ## Error Handling
 
 ### Validation Rejection
@@ -226,14 +313,15 @@ See [checkpoints.md](references/checkpoints.md) for error handling templates.
 
 ## Reference Index
 
-| Reference                                               | Load When                    | Content                              |
-| ------------------------------------------------------- | ---------------------------- | ------------------------------------ |
-| [strategies.md](references/strategies.md)               | Selecting/executing strategy | 6 strategy flows, creative workflows |
-| [agent-catalog.md](references/agent-catalog.md)         | Determining agent            | 14 agent profiles, capability matrix |
-| [team-leader-modes.md](references/team-leader-modes.md) | Invoking team-leader         | MODE 1/2/3 patterns                  |
-| [task-tracking.md](references/task-tracking.md)         | Managing state               | Folder structure, registry           |
-| [checkpoints.md](references/checkpoints.md)             | Presenting checkpoints       | Templates, error handling            |
-| [git-standards.md](references/git-standards.md)         | Creating commits             | Commitlint, hook protocol            |
+| Reference                                                     | Load When                    | Content                               |
+| ------------------------------------------------------------- | ---------------------------- | ------------------------------------- |
+| [strategies.md](references/strategies.md)                     | Selecting/executing strategy | 8 task type workflows                 |
+| [agent-catalog.md](references/agent-catalog.md)               | Determining agent            | 14 agent profiles, capability matrix  |
+| [team-leader-modes.md](references/team-leader-modes.md)       | Invoking team-leader         | MODE 1/2/3 patterns                   |
+| [task-tracking.md](references/task-tracking.md)               | Managing state               | Folder structure, registry            |
+| [checkpoints.md](references/checkpoints.md)                   | Presenting checkpoints       | Templates, error handling             |
+| [git-standards.md](references/git-standards.md)               | Creating commits             | Commitlint, hook protocol             |
+| [cli-agent-delegation.md](references/cli-agent-delegation.md) | CLI agent mode active        | 3-tier hierarchy, delegation patterns |
 
 ### Loading Protocol
 

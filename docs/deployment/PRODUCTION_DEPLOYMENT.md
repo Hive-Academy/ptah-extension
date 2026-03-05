@@ -219,12 +219,72 @@ The extension uses centralized `PtahUrls` constants from `libs/shared`. All prod
 
 **No runtime environment variables needed.** URLs are compiled into the extension bundle.
 
-Build and package:
+### Build and Package
 
 ```bash
-npm run build:all
-npx vsce package
+# Full pipeline (build + package in one command)
+npx nx run ptah-extension-vscode:package
+
+# Output: dist/apps/ptah-extension-vscode/ptah-extension-vscode-<version>.vsix
 ```
+
+The `package` target handles the complete pipeline:
+
+1. Builds all library dependencies (shared, vscode-core, agent-sdk, etc.)
+2. Builds the Angular webview (production)
+3. Bundles extension host code with Webpack (main.js + SDK vendor chunks)
+4. Copies `.vscodeignore`, `README.md`, LICENSE, assets, plugins, and templates to dist
+5. Installs runtime `node_modules` in dist (externalized deps: tslib, tree-sitter, etc.)
+6. Runs `@vscode/vsce package` to produce the `.vsix`
+
+### Runtime Dependencies (Externalized by Webpack)
+
+The Webpack config bundles `@ptah-extension/*`, `@anthropic-ai/claude-agent-sdk`, `@github/copilot-sdk`, `tsyringe`, and `reflect-metadata` directly into the JS output. All other packages are externalized to `require()` at runtime and must be listed in the extension's `package.json` `dependencies`:
+
+| Package                                                             | Purpose                                             |
+| ------------------------------------------------------------------- | --------------------------------------------------- |
+| `tslib`                                                             | TypeScript helper library (required by compiled TS) |
+| `async-mutex`                                                       | Concurrency control                                 |
+| `cross-spawn`                                                       | Cross-platform process spawning                     |
+| `eventemitter3`                                                     | Event bus                                           |
+| `gray-matter`                                                       | Frontmatter parsing for templates                   |
+| `json2md`                                                           | JSON to Markdown conversion                         |
+| `jsonrepair`                                                        | JSON repair for LLM outputs                         |
+| `minimatch` / `picomatch`                                           | Glob pattern matching                               |
+| `tree-sitter` / `tree-sitter-javascript` / `tree-sitter-typescript` | Code parsing (workspace intelligence)               |
+| `which`                                                             | CLI tool detection                                  |
+| `rxjs`                                                              | Reactive streams                                    |
+| `uuid`                                                              | ID generation                                       |
+| `zod`                                                               | Schema validation                                   |
+
+> **Important**: `@openai/codex-sdk` is **not** included as a dependency (102 MB). It is loaded dynamically at runtime only when the user has Codex CLI installed. The adapter handles the missing module gracefully.
+
+### Staging / Pre-release Testing
+
+Before publishing to the marketplace, test with a `.vsix` on a separate machine:
+
+```bash
+# On the build machine
+npx nx run ptah-extension-vscode:package
+# Copy the .vsix to the test machine
+
+# On the test machine
+code --install-extension ptah-extension-vscode-0.1.0.vsix
+```
+
+See [INSTALLATION.md](../INSTALLATION.md) for detailed installation instructions.
+
+### VSIX Size Budget
+
+| Component                                  | Compressed Size |
+| ------------------------------------------ | --------------- |
+| Extension bundle (main.js + vendor chunks) | ~1.5 MB         |
+| Webview (Angular SPA)                      | ~1 MB           |
+| Assets + plugins + templates               | ~1.5 MB         |
+| Runtime node_modules                       | ~4.5 MB         |
+| **Total .vsix**                            | **~8.5 MB**     |
+
+> Target: under 10 MB. Extensions over 20 MB may face marketplace scrutiny.
 
 ---
 
@@ -271,11 +331,23 @@ docker compose -f docker-compose.prod.yml exec license-server npx prisma migrate
 ### VS Code Extension (Marketplace)
 
 ```bash
-npx vsce package                    # Creates .vsix
-npx vsce publish                    # Publishes to marketplace
-# OR
-npx vsce publish --pat <TOKEN>      # With personal access token
+# Build and package (Nx pipeline)
+npx nx run ptah-extension-vscode:package
+
+# The .vsix is at: dist/apps/ptah-extension-vscode/ptah-extension-vscode-<version>.vsix
+
+# Install locally for testing
+code --install-extension dist/apps/ptah-extension-vscode/ptah-extension-vscode-0.1.0.vsix
+
+# Publish to marketplace (requires Azure DevOps PAT)
+cd dist/apps/ptah-extension-vscode
+npx @vscode/vsce publish --pat <TOKEN>
+
+# Publish as pre-release (use odd minor version: 0.1.0, 0.3.0)
+npx @vscode/vsce publish --pre-release --pat <TOKEN>
 ```
+
+> **Prerequisites**: `npm install --save-dev @vscode/vsce` (already in devDependencies). Requires Node.js 20+.
 
 ---
 
