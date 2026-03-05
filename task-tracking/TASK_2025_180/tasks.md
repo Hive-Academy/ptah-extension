@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_180
 
-**Total Tasks**: 16 | **Batches**: 4 | **Status**: 0/4 complete
+**Total Tasks**: 16 | **Batches**: 4 | **Status**: 4/4 complete
 
 ---
 
@@ -36,13 +36,14 @@
 
 ## Batch 1: Infrastructure - Caddy + Docker Compose Hardening
 
-**Status**: IN PROGRESS
+**Status**: COMPLETE
+**Commit**: 05cd4a29
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: None
 
 ### Task 1.1: Create Caddyfile
 
-**Status**: IMPLEMENTED
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\caddy\Caddyfile
 **Action**: CREATE
 **Spec Reference**: implementation-plan.md: Work Item 1, lines 68-84
@@ -66,7 +67,7 @@
 
 ### Task 1.2: Modify docker-compose.prod.yml - Replace nginx+certbot with Caddy
 
-**Status**: IMPLEMENTED
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\docker-compose.prod.yml
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 1, lines 95-133
@@ -93,7 +94,7 @@
 
 ### Task 1.3: Delete nginx directory and files
 
-**Status**: IMPLEMENTED
+**Status**: COMPLETE
 **Files**:
 
 - D:\projects\ptah-extension\nginx\nginx.conf (DELETE)
@@ -112,7 +113,7 @@
 
 ### Task 1.4: Add Docker log rotation to DIGITALOCEAN.md
 
-**Status**: IMPLEMENTED
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\docs\deployment\DIGITALOCEAN.md
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 6, lines 346-375
@@ -139,13 +140,14 @@
 
 ## Batch 2: CI/CD Pipelines
 
-**Status**: PENDING
+**Status**: COMPLETE
+**Commit**: 0821afab
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 1 (docker-compose.prod.yml must have Caddy already)
 
 ### Task 2.1: Enhance CI workflow with test and typecheck
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\.github\workflows\ci.yml
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 2, lines 143-164
@@ -163,7 +165,7 @@
 
 ### Task 2.2: Create server deployment workflow
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\.github\workflows\deploy-server.yml
 **Action**: CREATE
 **Spec Reference**: implementation-plan.md: Work Item 3, lines 167-230
@@ -188,7 +190,7 @@
 
 ### Task 2.3: Create extension publishing workflow
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\.github\workflows\publish-extension.yml
 **Action**: CREATE
 **Spec Reference**: implementation-plan.md: Work Item 4, lines 263-317
@@ -206,7 +208,7 @@
 
 ### Task 2.4: Add GHCR image tag to docker-compose.prod.yml
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\docker-compose.prod.yml
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 3, lines 237-257
@@ -237,13 +239,14 @@
 
 ## Batch 3: Health Check Endpoint
 
-**Status**: PENDING
+**Status**: COMPLETE
+**Commit**: d38535d7
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: None (independent of Batches 1-2)
 
 ### Task 3.1: Create health controller
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\apps\ptah-license-server\src\health\health.controller.ts
 **Action**: CREATE
 **Spec Reference**: implementation-plan.md: Work Item 11, lines 637-685
@@ -267,7 +270,7 @@
 
 ### Task 3.2: Create health module
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\apps\ptah-license-server\src\health\health.module.ts
 **Action**: CREATE
 **Spec Reference**: implementation-plan.md: Work Item 11, lines 692-708
@@ -282,7 +285,7 @@
 
 ### Task 3.3: Import HealthModule in AppModule
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\apps\ptah-license-server\src\app\app.module.ts
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 11, lines 712-721
@@ -297,7 +300,7 @@
 
 ### Task 3.4: Update Dockerfile HEALTHCHECK
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\apps\ptah-license-server\Dockerfile
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 11, lines 724-738
@@ -324,13 +327,14 @@
 
 ## Batch 4: Documentation Updates
 
-**Status**: PENDING
+**Status**: COMPLETE
+**Commit**: 28a2cf96
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 1 (DIGITALOCEAN.md log rotation already added)
 
 ### Task 4.1: Move swap setup to mandatory initial setup in DIGITALOCEAN.md
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\docs\deployment\DIGITALOCEAN.md
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 7, lines 379-426
@@ -346,7 +350,7 @@
 
 ### Task 4.2: Add SSH hardening to DIGITALOCEAN.md
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\docs\deployment\DIGITALOCEAN.md
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 8, lines 430-493
@@ -363,7 +367,7 @@
 
 ### Task 4.3: Reconcile Neon vs self-hosted PostgreSQL in PRODUCTION_DEPLOYMENT.md
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\docs\deployment\PRODUCTION_DEPLOYMENT.md
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 9, lines 496-564
@@ -379,7 +383,7 @@
 
 ### Task 4.4: Add secret rotation strategy to PRODUCTION_DEPLOYMENT.md
 
-**Status**: PENDING
+**Status**: COMPLETE
 **File**: D:\projects\ptah-extension\docs\deployment\PRODUCTION_DEPLOYMENT.md
 **Action**: MODIFY
 **Spec Reference**: implementation-plan.md: Work Item 10, lines 567-620

@@ -352,7 +352,7 @@ npx @vscode/vsce publish --pre-release --pat <TOKEN>
 | Check                   | Command / Action                                         |
 | ----------------------- | -------------------------------------------------------- |
 | Landing page loads      | Visit `https://ptah.live`                                |
-| API health              | `curl https://api.ptah.live/api`                         |
+| API health              | `curl https://api.ptah.live/api/health`                  |
 | Auth flow               | Click "Login" on landing page, complete OAuth            |
 | Paddle checkout         | Click "Upgrade to Pro" on pricing page                   |
 | Webhook delivery        | Check Paddle dashboard > Webhooks > Logs                 |
@@ -380,16 +380,23 @@ The license server suppresses `debug` and `verbose` NestJS logs when `NODE_ENV=p
 
 All secrets in `.env.prod` should be rotated on a regular schedule. Mark your calendar.
 
-| Secret              | Rotation Schedule | How to Rotate                                           |
-| ------------------- | ----------------- | ------------------------------------------------------- |
-| `JWT_SECRET`        | Every 6 months    | Generate new value, restart server. Active JWTs expire. |
-| `ADMIN_API_KEY`     | Quarterly         | Generate new value, update any scripts using it.        |
-| `ADMIN_SECRET`      | Quarterly         | Generate new value, restart server.                     |
-| `POSTGRES_PASSWORD` | Annually          | Update in .env.prod, run ALTER ROLE in psql, restart.   |
-| `WORKOS_API_KEY`    | Per WorkOS policy | Regenerate in WorkOS dashboard, update .env.prod.       |
-| `PADDLE_API_KEY`    | Per Paddle policy | Regenerate in Paddle dashboard, update .env.prod.       |
-| `RESEND_API_KEY`    | Per Resend policy | Regenerate in Resend dashboard, update .env.prod.       |
-| `VSCE_PAT`          | Before expiry     | Azure DevOps PATs expire after max 1 year. Regenerate.  |
+| Secret              | Rotation Schedule | How to Rotate                                                                            |
+| ------------------- | ----------------- | ---------------------------------------------------------------------------------------- |
+| `JWT_SECRET`        | Every 6 months    | Generate new value, restart server. Active JWTs expire.                                  |
+| `ADMIN_API_KEY`     | Quarterly         | Generate new value, update any scripts using it.                                         |
+| `ADMIN_SECRET`      | Quarterly         | Generate new value, restart server.                                                      |
+| `POSTGRES_PASSWORD` | Annually          | ALTER ROLE in psql first, then update .env.prod, restart license-server only. See below. |
+| `WORKOS_API_KEY`    | Per WorkOS policy | Regenerate in WorkOS dashboard, update .env.prod.                                        |
+| `PADDLE_API_KEY`    | Per Paddle policy | Regenerate in Paddle dashboard, update .env.prod.                                        |
+| `RESEND_API_KEY`    | Per Resend policy | Regenerate in Resend dashboard, update .env.prod.                                        |
+
+### GitHub Actions Secrets
+
+These secrets live in **GitHub Settings > Secrets and variables > Actions**, not in `.env.prod`:
+
+| Secret     | Rotation Schedule | How to Rotate                                                                                        |
+| ---------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
+| `VSCE_PAT` | Before expiry     | Azure DevOps PATs expire after max 1 year. Regenerate in Azure DevOps and update in GitHub Settings. |
 
 ### Rotation Procedure
 
@@ -409,16 +416,22 @@ curl https://api.ptah.live/api/health
 
 ### PostgreSQL Password Rotation
 
+> **Important:** The `POSTGRES_PASSWORD` environment variable is only used by PostgreSQL during **initial database creation** (`initdb`). Changing the env var alone does **not** change the database password. You must ALTER the role inside PostgreSQL first.
+
 ```bash
-# 1. Connect to PostgreSQL container
+# 1. Connect to PostgreSQL container and change the password
 docker exec -it ptah_postgres_prod psql -U ptah -d ptah_db
-
-# 2. Change password
 ALTER ROLE ptah WITH PASSWORD 'new-password-here';
+\q
 
-# 3. Update .env.prod with new POSTGRES_PASSWORD
-# 4. Restart license-server (it reads DATABASE_URL from env)
+# 2. Update POSTGRES_PASSWORD in .env.prod to match the new password
+nano /opt/ptah-extension/.env.prod
+
+# 3. Restart ONLY license-server (not postgres — its password is already changed in the DB)
 docker compose -f docker-compose.prod.yml restart license-server
+
+# 4. Verify service is healthy
+curl https://api.ptah.live/api/health
 ```
 
 ---

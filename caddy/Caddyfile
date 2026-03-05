@@ -9,6 +9,10 @@
 # need to be re-issued (Let's Encrypt has rate limits).
 
 api.ptah.live {
+    request_body {
+        max_size 10MB
+    }
+
     reverse_proxy license-server:3000 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}

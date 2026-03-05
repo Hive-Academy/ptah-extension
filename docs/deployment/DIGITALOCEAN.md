@@ -334,7 +334,7 @@ When you start the production stack (Step 5), Caddy will:
 After starting the stack, verify the certificate:
 
 ```bash
-curl -I https://api.ptah.live/api
+curl -I https://api.ptah.live/api/health
 ```
 
 ---
@@ -366,7 +366,7 @@ ptah_caddy                 running                  0.0.0.0:80->80/tcp, 0.0.0.0:
 ### Verify the API
 
 ```bash
-curl https://api.ptah.live/api
+curl https://api.ptah.live/api/health
 ```
 
 ---
@@ -458,6 +458,20 @@ doctl apps create --spec .do/app.yaml
 
 ---
 
+## GitHub Actions Secrets
+
+The CI/CD workflows require secrets configured in **GitHub Settings > Secrets and variables > Actions**:
+
+| Secret            | Purpose                                        | How to Obtain                                                 |
+| ----------------- | ---------------------------------------------- | ------------------------------------------------------------- |
+| `DROPLET_SSH_KEY` | SSH private key for deploying to the Droplet   | Generate with `ssh-keygen`; add public key to Droplet         |
+| `DROPLET_HOST`    | Droplet public IP address                      | From DigitalOcean Droplet dashboard                           |
+| `DROPLET_USER`    | SSH user on the Droplet (`root` or `deploy`)   | Configured during Droplet setup (Step 2)                      |
+| `GHCR_PAT`        | GitHub PAT with `packages:read` scope          | GitHub Settings > Developer settings > Personal access tokens |
+| `VSCE_PAT`        | Azure DevOps PAT with Marketplace Manage scope | Azure DevOps > User settings > Personal access tokens         |
+
+---
+
 ## Monitoring and Troubleshooting
 
 ### View Logs
@@ -479,7 +493,7 @@ docker compose -f docker-compose.prod.yml logs --tail 100 license-server
 
 ```bash
 # API health
-curl https://api.ptah.live/api
+curl https://api.ptah.live/api/health
 
 # PostgreSQL health
 docker exec ptah_postgres_prod pg_isready -U ptah -d ptah_db

@@ -4,6 +4,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -14,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
  *
  * Route: GET /api/health (global prefix 'api' set in main.ts)
  */
+@SkipThrottle()
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
@@ -29,7 +31,7 @@ export class HealthController {
    * Throws ServiceUnavailableException (HTTP 503) when database is unreachable.
    */
   @Get()
-  public async check() {
+  async check() {
     try {
       await this.prisma.user.count();
       return {

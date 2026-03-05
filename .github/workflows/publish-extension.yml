@@ -30,6 +30,9 @@ jobs:
 
       - run: npm ci --legacy-peer-deps
 
+      - name: Quality gates
+        run: npx nx run-many -t lint test typecheck --projects=ptah-extension-vscode
+
       - name: Build and package extension
         run: npx nx run ptah-extension-vscode:package
 
