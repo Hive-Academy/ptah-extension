@@ -76,7 +76,7 @@ This guide provides step-by-step instructions for deploying Ptah to production u
     |  FREE             |                     +-------------------+
     +-------------------+                     |                   |
                                               |  +-------------+ |
-                                              |  | nginx       | |
+                                              |  | Caddy       | |
                                               |  | (SSL/proxy) | |
                                               |  +------+------+ |
                                               |         |         |
@@ -191,6 +191,27 @@ adduser deploy
 usermod -aG docker deploy
 ```
 
+### Configure Docker Log Rotation
+
+Create the Docker daemon configuration to prevent log files from consuming all disk space:
+
+```bash
+cat > /etc/docker/daemon.json << 'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+
+# Restart Docker to apply
+systemctl restart docker
+```
+
+This limits each container to 30MB of logs (3 files x 10MB). On a 25GB disk, this is essential to prevent disk exhaustion.
+
 ### Install Git
 
 ```bash
@@ -246,33 +267,18 @@ Fill in all values including WorkOS, Paddle, and Resend credentials. See `.env.p
 
 ## Step 4: SSL Certificate Setup
 
-### Initial Certificate (Before Starting Stack)
+Caddy automatically obtains and renews SSL certificates via Let's Encrypt. No manual certificate setup is required.
 
-First, start only nginx with a temporary HTTP-only config to obtain the certificate:
+When you start the production stack (Step 5), Caddy will:
 
-```bash
-# Start only PostgreSQL and license-server first
-docker compose -f docker-compose.prod.yml up -d postgres license-server
-
-# Start nginx (it will fail on SSL the first time if no cert exists)
-# Temporarily comment out the SSL server block in nginx/conf.d/api.conf
-# Then start nginx
-docker compose -f docker-compose.prod.yml up -d nginx
-
-# Obtain SSL certificate
-docker compose -f docker-compose.prod.yml run --rm certbot \
-  certonly --webroot -w /var/www/certbot -d api.ptah.live
-
-# Restore the full nginx config with SSL
-# Restart nginx to pick up the certificate
-docker compose -f docker-compose.prod.yml restart nginx
-```
-
-### Auto-Renewal
-
-The certbot container automatically renews certificates every 12 hours. No additional configuration is needed.
+1. Listen on port 80 for the ACME HTTP-01 challenge
+2. Obtain a certificate for `api.ptah.live` from Let's Encrypt
+3. Redirect all HTTP traffic to HTTPS
+4. Automatically renew certificates before expiry
 
 ### Verify SSL
+
+After starting the stack, verify the certificate:
 
 ```bash
 curl -I https://api.ptah.live/api
@@ -301,8 +307,7 @@ docker compose -f docker-compose.prod.yml logs -f license-server
 NAME                       STATUS                   PORTS
 ptah_postgres_prod         running (healthy)        5432/tcp
 ptah_license_server_prod   running                  3000/tcp
-ptah_nginx                 running                  0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
-ptah_certbot               running
+ptah_caddy                 running                  0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
 ```
 
 ### Verify the API
@@ -411,7 +416,7 @@ docker compose -f docker-compose.prod.yml logs -f
 # Specific service
 docker compose -f docker-compose.prod.yml logs -f license-server
 docker compose -f docker-compose.prod.yml logs -f postgres
-docker compose -f docker-compose.prod.yml logs -f nginx
+docker compose -f docker-compose.prod.yml logs -f caddy
 
 # Last 100 lines
 docker compose -f docker-compose.prod.yml logs --tail 100 license-server
@@ -466,10 +471,10 @@ docker compose -f docker-compose.prod.yml ps
 **Solutions**:
 
 - Verify DNS A record points to Droplet IP: `dig A api.ptah.live`
-- Check certbot logs: `docker compose -f docker-compose.prod.yml logs certbot`
-- Manually trigger renewal: `docker compose -f docker-compose.prod.yml run --rm certbot renew`
+- Check Caddy logs: `docker compose -f docker-compose.prod.yml logs caddy`
+- Caddy automatically retries certificate issuance; check for ACME errors in logs
 
-#### 4. nginx 502 Bad Gateway
+#### 4. Caddy 502 Bad Gateway
 
 **Solutions**:
 
@@ -584,7 +589,7 @@ Before going live:
 - [ ] Firewall (ufw) only allows ports 22, 80, 443
 - [ ] SSH key authentication only (disable password auth)
 - [ ] `.env.prod` is NOT committed to git
-- [ ] HTTPS enforced via nginx redirect
+- [ ] HTTPS enforced via Caddy (automatic)
 - [ ] WorkOS redirect URI matches production URL
 - [ ] Paddle webhook URL configured
 - [ ] Resend sender domain verified

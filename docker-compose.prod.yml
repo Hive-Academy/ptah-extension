@@ -2,14 +2,12 @@
 # Ptah Extension - Production Docker Compose (DigitalOcean Droplet)
 # =============================================================================
 #
-# Production stack: PostgreSQL + License Server + nginx (SSL) + Certbot
+# Production stack: PostgreSQL + License Server + Caddy (auto-HTTPS)
 #
 # INITIAL SETUP:
 #   1. Copy .env.prod.example to .env.prod and fill in secrets
 #   2. Run: docker compose -f docker-compose.prod.yml up -d
-#   3. Issue SSL cert: docker compose -f docker-compose.prod.yml run --rm certbot
-#      certonly --webroot -w /var/www/certbot -d api.ptah.live
-#   4. Restart nginx: docker compose -f docker-compose.prod.yml restart nginx
+#   3. Caddy automatically obtains and renews SSL certificates via Let's Encrypt
 #
 # =============================================================================
 
@@ -66,35 +64,25 @@ services:
       - ptah-network
 
   # ---------------------------------------------------------------------------
-  # nginx - Reverse Proxy with SSL
+  # Caddy - Reverse Proxy with Auto-HTTPS (Let's Encrypt)
   # ---------------------------------------------------------------------------
-  nginx:
-    image: nginx:alpine
-    container_name: ptah_nginx
+  caddy:
+    image: caddy:2-alpine
+    container_name: ptah_caddy
     restart: always
     ports:
       - '80:80'
       - '443:443'
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - certbot-etc:/etc/letsencrypt:ro
-      - certbot-var:/var/www/certbot:ro
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
     depends_on:
       - license-server
-    networks:
-      - ptah-network
-
-  # ---------------------------------------------------------------------------
-  # Certbot - SSL Certificate Auto-Renewal
-  # ---------------------------------------------------------------------------
-  certbot:
-    image: certbot/certbot
-    container_name: ptah_certbot
-    volumes:
-      - certbot-etc:/etc/letsencrypt
-      - certbot-var:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done'"
+    deploy:
+      resources:
+        limits:
+          memory: 64M
     networks:
       - ptah-network
 
@@ -104,10 +92,10 @@ services:
 volumes:
   postgres-data:
     name: ptah_postgres_prod_data
-  certbot-etc:
-    name: ptah_certbot_etc
-  certbot-var:
-    name: ptah_certbot_var
+  caddy-data:
+    name: ptah_caddy_data
+  caddy-config:
+    name: ptah_caddy_config
 
 # =============================================================================
 # Networks
