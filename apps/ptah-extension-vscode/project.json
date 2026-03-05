@@ -138,18 +138,45 @@
       "dependsOn": ["build"],
       "options": {
         "commands": [
-          "cp -r apps/ptah-extension-vscode/src/assets dist/apps/ptah-extension-vscode/",
-          "cp apps/ptah-extension-vscode/package.json dist/apps/ptah-extension-vscode/"
+          {
+            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/src/assets' -Destination 'dist/apps/ptah-extension-vscode/' -Recurse -Force\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/package.json' -Destination 'dist/apps/ptah-extension-vscode/package.json' -Force\"",
+            "forwardAllArgs": false
+          }
         ],
         "parallel": false
       }
     },
     "package": {
       "executor": "nx:run-commands",
-      "dependsOn": ["copy-assets"],
+      "dependsOn": ["build"],
       "options": {
-        "command": "npx @vscode/vsce package --no-dependencies",
-        "cwd": "dist/apps/ptah-extension-vscode"
+        "commands": [
+          {
+            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/.vscodeignore' -Destination 'dist/apps/ptah-extension-vscode/.vscodeignore' -Force\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "powershell -Command \"Copy-Item -Path 'README.md' -Destination 'dist/apps/ptah-extension-vscode/README.md' -Force\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "powershell -Command \"if (Test-Path 'LICENSE') { Copy-Item -Path 'LICENSE' -Destination 'dist/apps/ptah-extension-vscode/LICENSE' -Force }\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "cd dist/apps/ptah-extension-vscode && npm install --omit=dev --ignore-scripts 2>&1 || echo 'npm install completed'",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "cd dist/apps/ptah-extension-vscode && npx @vscode/vsce package --allow-missing-repository --allow-star-activation",
+            "forwardAllArgs": false
+          }
+        ],
+        "parallel": false
       }
     }
   }

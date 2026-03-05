@@ -1,40 +1,43 @@
-# Build outputs
-.vscode-test/**
-out/test/**
-
-# Source files
+# Source files (not in dist)
 src/**
-*.md
-!readme.md
+**/*.ts
+!**/*.js
+**/*.map
+tsconfig*.json
+webpack.config.js
+project.json
 
 # Development files
 .vscode/**
+.vscode-test/**
 .gitignore
-tsconfig.json
-webpack.config.js
-.eslintrc.json
+.eslintrc*
+.prettierrc*
 
-# Dependencies
-node_modules/**
-!node_modules/rxjs/**
-!node_modules/uuid/**
+# Build intermediates
+out/**
 
-# Documentation and examples
+# Documentation
 docs/**
 examples/**
+CLAUDE.md
 
-# Images (if not needed for runtime)
-images/**
+# Tests
+**/*.test.js
+**/*.spec.js
+**/test/**
 
 # Git
 .git/**
 .github/**
 
-# Logs
-logs/**
-*.log
-*.vsix
-
 # OS files
 .DS_Store
 Thumbs.db
+
+# Source maps (not needed for staging/production)
+**/*.map
+
+# Misc
+*.vsix
+*.log

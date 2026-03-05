@@ -276,6 +276,13 @@ export class RpcMethodRegistrationService {
         info.agentId
       );
 
+      if (!persistedOutput && info.status !== 'running') {
+        this.logger.warn(
+          `[RPC] Agent ${info.agentId} output unavailable for persistence (already cleaned up?)`,
+          { cli: info.cli, status: info.status }
+        );
+      }
+
       const ref: CliSessionReference = {
         cliSessionId: effectiveCliSessionId,
         cli: info.cli,
@@ -287,6 +294,10 @@ export class RpcMethodRegistrationService {
         ...(persistedOutput?.segments?.length
           ? { segments: persistedOutput.segments }
           : {}),
+        ...(persistedOutput?.streamEvents?.length
+          ? { streamEvents: persistedOutput.streamEvents }
+          : {}),
+        ...(info.ptahCliId ? { ptahCliId: info.ptahCliId } : {}),
       };
 
       retryWithBackoff(

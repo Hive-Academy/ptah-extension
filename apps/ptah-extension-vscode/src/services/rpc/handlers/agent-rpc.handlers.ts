@@ -62,6 +62,18 @@ export class AgentRpcHandlers {
     this.registerAgentStop();
     this.registerResumeCliSession(); // TASK_2025_173
 
+    // Initialize Copilot auto-approve from saved config (default: true)
+    const copilotAutoApprove = vscode.workspace
+      .getConfiguration('ptah.agentOrchestration')
+      .get<boolean>('copilotAutoApprove', true);
+    const copilotAdapter = this.cliDetection.getAdapter('copilot');
+    if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
+      const bridge = (
+        copilotAdapter as { permissionBridge: CopilotPermissionBridge }
+      ).permissionBridge;
+      bridge.setAutoApprove(copilotAutoApprove);
+    }
+
     this.logger.debug('Agent orchestration RPC handlers registered', {
       methods: [
         'agent:getConfig',
@@ -103,6 +115,7 @@ export class AgentRpcHandlers {
             defaultTimeout: config.get<number>('defaultTimeout', 10),
             geminiModel: config.get<string>('geminiModel', ''),
             copilotModel: config.get<string>('copilotModel', ''),
+            copilotAutoApprove: config.get<boolean>('copilotAutoApprove', true),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -264,6 +277,23 @@ export class AgentRpcHandlers {
         params.copilotModel || undefined,
         vscode.ConfigurationTarget.Global
       );
+    }
+
+    if (params.copilotAutoApprove !== undefined) {
+      await config.update(
+        'copilotAutoApprove',
+        params.copilotAutoApprove,
+        vscode.ConfigurationTarget.Global
+      );
+
+      // Sync to the live CopilotPermissionBridge
+      const copilotAdapter = this.cliDetection.getAdapter('copilot');
+      if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
+        const bridge = (
+          copilotAdapter as { permissionBridge: CopilotPermissionBridge }
+        ).permissionBridge;
+        bridge.setAutoApprove(params.copilotAutoApprove);
+      }
     }
   }
 
@@ -504,9 +534,12 @@ export class AgentRpcHandlers {
   /**
    * agent:resumeCliSession - Resume a CLI agent session.
    *
-   * Spawns a new CLI agent process with resumeSessionId set,
-   * which triggers the adapter's resume flow (--resume for Gemini,
-   * client.resumeSession() for Copilot, etc.).
+   * For real CLIs (Gemini, Copilot, Codex): spawns a new CLI process with
+   * resumeSessionId set (--resume flag, client.resumeSession(), etc.).
+   *
+   * For Ptah CLI: routes through PtahCliRegistry.spawnAgent() with
+   * resumeSessionId, since ptah-cli is an in-process SDK adapter, not a
+   * real CLI binary.
    *
    * TASK_2025_173: CLI agent session resume-on-click
    */
@@ -525,15 +558,36 @@ export class AgentRpcHandlers {
         this.logger.debug('RPC: agent:resumeCliSession called', {
           cliSessionId: params.cliSessionId,
           cli: params.cli,
-        });
-
-        const result = await this.agentProcessManager.spawn({
-          cli: params.cli,
-          task: params.task,
-          resumeSessionId: params.cliSessionId,
-          parentSessionId: params.parentSessionId,
           ptahCliId: params.ptahCliId,
         });
+
+        let result;
+
+        // Resolve ptahCliId for backward compatibility: old sessions may not
+        // have ptahCliId persisted. Fall back to the first enabled agent.
+        let ptahCliId = params.ptahCliId;
+        if (params.cli === 'ptah-cli' && !ptahCliId) {
+          ptahCliId = await this.resolveDefaultPtahCliId();
+        }
+
+        if (params.cli === 'ptah-cli' && ptahCliId) {
+          // Ptah CLI: route through PtahCliRegistry (SDK adapter, not a real CLI binary)
+          result = await this.resumePtahCliSession({ ...params, ptahCliId });
+        } else if (params.cli === 'ptah-cli') {
+          // No ptah-cli agents available
+          throw new Error(
+            'No Ptah CLI agents configured. Add one in Agent Orchestration settings.'
+          );
+        } else {
+          // Real CLIs: route through AgentProcessManager.spawn()
+          result = await this.agentProcessManager.spawn({
+            cli: params.cli,
+            task: params.task,
+            resumeSessionId: params.cliSessionId,
+            parentSessionId: params.parentSessionId,
+            ptahCliId: params.ptahCliId,
+          });
+        }
 
         this.logger.info('RPC: agent:resumeCliSession success', {
           agentId: result.agentId,
@@ -552,5 +606,65 @@ export class AgentRpcHandlers {
         return { success: false, error: errorMessage };
       }
     });
+  }
+
+  /**
+   * Resume a Ptah CLI agent session via PtahCliRegistry.
+   * Ptah CLI is an in-process SDK adapter — it cannot be spawned as a CLI binary.
+   * Instead, we call PtahCliRegistry.spawnAgent() with resumeSessionId which
+   * sets the SDK's native `resume` field in query options.
+   */
+  private async resumePtahCliSession(params: {
+    cliSessionId: string;
+    cli: CliType;
+    task: string;
+    parentSessionId?: string;
+    ptahCliId: string;
+  }): Promise<import('@ptah-extension/shared').SpawnAgentResult> {
+    const workspaceRoot =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+
+    const spawnResult = await this.ptahCliRegistry.spawnAgent(
+      params.ptahCliId,
+      params.task,
+      {
+        workingDirectory: workspaceRoot,
+        resumeSessionId: params.cliSessionId,
+      }
+    );
+
+    if ('status' in spawnResult) {
+      throw new Error(`Ptah CLI agent resume failed: ${spawnResult.message}`);
+    }
+
+    return this.agentProcessManager.spawnFromSdkHandle(spawnResult.handle, {
+      task: params.task,
+      cli: 'ptah-cli',
+      workingDirectory: workspaceRoot,
+      parentSessionId: params.parentSessionId,
+      ptahCliName: spawnResult.agentName,
+      ptahCliId: params.ptahCliId,
+    });
+  }
+
+  /**
+   * Resolve a default ptahCliId when the session doesn't have one stored
+   * (backward compatibility for sessions created before ptahCliId tracking).
+   * Returns the first enabled agent with an API key, or undefined if none available.
+   */
+  private async resolveDefaultPtahCliId(): Promise<string | undefined> {
+    try {
+      const agents = await this.ptahCliRegistry.listAgents();
+      const enabled = agents.find((a) => a.enabled && a.hasApiKey);
+      if (enabled) {
+        this.logger.info(
+          'RPC: agent:resumeCliSession resolved default ptahCliId',
+          { ptahCliId: enabled.id, name: enabled.name }
+        );
+      }
+      return enabled?.id;
+    } catch {
+      return undefined;
+    }
   }
 }

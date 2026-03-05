@@ -18,6 +18,7 @@ import {
   SessionListResult,
   SessionLoadParams,
   SessionLoadResult,
+  CliSessionReference,
 } from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -48,6 +49,7 @@ export class SessionRpcHandlers {
     this.registerSessionLoad();
     this.registerSessionDelete();
     this.registerSessionValidate();
+    this.registerSessionCliSessions();
 
     this.logger.debug('Session RPC handlers registered', {
       methods: [
@@ -55,6 +57,7 @@ export class SessionRpcHandlers {
         'session:load',
         'session:delete',
         'session:validate',
+        'session:cli-sessions',
       ],
     });
   }
@@ -252,6 +255,36 @@ export class SessionRpcHandlers {
         }
       }
     );
+  }
+
+  /**
+   * session:cli-sessions - Get CLI sessions for a given parent session
+   *
+   * Lightweight endpoint that returns only CLI session references from metadata.
+   * Used by the frontend to restore agent monitor panel when webview reopens
+   * with a previously active session (tab restored from localStorage).
+   */
+  private registerSessionCliSessions(): void {
+    this.rpcHandler.registerMethod<
+      { sessionId: string },
+      { cliSessions: CliSessionReference[] }
+    >('session:cli-sessions', async (params: { sessionId: string }) => {
+      try {
+        const { sessionId } = params;
+        const metadata = await this.metadataStore.get(sessionId);
+        const cliSessions = metadata?.cliSessions
+          ? [...metadata.cliSessions]
+          : [];
+
+        return { cliSessions };
+      } catch (error) {
+        this.logger.error(
+          'RPC: session:cli-sessions failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return { cliSessions: [] };
+      }
+    });
   }
 
   /**

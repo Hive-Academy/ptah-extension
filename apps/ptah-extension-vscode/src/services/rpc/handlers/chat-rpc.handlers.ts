@@ -19,7 +19,7 @@ import {
   SubagentRegistryService,
   LicenseService,
   AgentSessionWatcherService,
-  type LicenseStatus,
+  isPremiumTier,
 } from '@ptah-extension/vscode-core';
 import {
   SdkAgentAdapter,
@@ -90,22 +90,6 @@ export class ChatRpcHandlers {
       } | null>;
     }
   ) {}
-
-  /**
-   * Determines if the license grants premium (Pro) features
-   * Premium = valid license AND Pro tier (pro or trial_pro)
-   *
-   * @param licenseStatus - The license status from verification
-   * @returns true if the user has premium features enabled
-   */
-  private isPremiumTier(licenseStatus: LicenseStatus): boolean {
-    return (
-      licenseStatus.valid &&
-      (licenseStatus.plan?.isPremium === true ||
-        licenseStatus.tier === 'pro' ||
-        licenseStatus.tier === 'trial_pro')
-    );
-  }
 
   /**
    * Checks if the MCP server is currently running (TASK_2025_108)
@@ -276,7 +260,7 @@ export class ChatRpcHandlers {
 
     // Resolve premium capabilities (same as main SDK adapter path)
     const licenseStatus = await this.licenseService.verifyLicense();
-    const isPremium = this.isPremiumTier(licenseStatus);
+    const isPremium = isPremiumTier(licenseStatus);
     const mcpServerRunning = this.isMcpServerRunning();
 
     this.logger.info('[RPC] chat:start - Ptah CLI premium config', {
@@ -372,7 +356,7 @@ export class ChatRpcHandlers {
     // Ensure MCP server is registered for subagent discovery (premium only)
     if (this.isMcpServerRunning()) {
       const licenseCheck = await this.licenseService.verifyLicense();
-      if (this.isPremiumTier(licenseCheck)) {
+      if (isPremiumTier(licenseCheck)) {
         this.codeExecutionMcp.ensureRegisteredForSubagents();
       }
     }
@@ -422,6 +406,9 @@ export class ChatRpcHandlers {
     if (adapter) {
       adapter.endSession(sessionId);
     }
+
+    // TASK_2025_175: Stop all agent session watchers for Ptah CLI sessions too
+    this.agentSessionWatcher.stopAllForSession(sessionId as string);
 
     // Clean up tracking
     this.ptahCliSessions.delete(sessionId as string);
@@ -494,7 +481,7 @@ export class ChatRpcHandlers {
 
           // TASK_2025_108: Get license status for premium feature gating
           const licenseStatus = await this.licenseService.verifyLicense();
-          const isPremium = this.isPremiumTier(licenseStatus);
+          const isPremium = isPremiumTier(licenseStatus);
           const mcpServerRunning = this.isMcpServerRunning();
 
           this.logger.info('[ptah.main] chat:start - session config', {
@@ -547,6 +534,7 @@ export class ChatRpcHandlers {
           // TASK_2025_093: Single config argument with tabId as primary tracking key
           // Prompt and files are now passed in config, not via separate sendMessageToSession
           // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
+          const images = options?.images ?? [];
           const stream = await this.sdkAdapter.startChatSession({
             tabId, // REQUIRED: Primary tracking key for multi-tab isolation
             workspaceId: workspacePath,
@@ -556,6 +544,7 @@ export class ChatRpcHandlers {
             name,
             prompt, // Initial prompt passed in config
             files,
+            images, // TASK_2025_176: Inline pasted/dropped images
             isPremium, // TASK_2025_108: Enable premium features for licensed users
             mcpServerRunning, // TASK_2025_108: MCP server availability check
             enhancedPromptsContent, // TASK_2025_151: AI-generated system prompt for premium users
@@ -607,7 +596,7 @@ export class ChatRpcHandlers {
           // Must run outside the resume block — active sessions also spawn subagents
           if (this.isMcpServerRunning()) {
             const licenseCheck = await this.licenseService.verifyLicense();
-            if (this.isPremiumTier(licenseCheck)) {
+            if (isPremiumTier(licenseCheck)) {
               this.codeExecutionMcp.ensureRegisteredForSubagents();
             }
           }
@@ -620,7 +609,7 @@ export class ChatRpcHandlers {
 
             // TASK_2025_108: Get license status for premium feature gating in resumed sessions
             const licenseStatus = await this.licenseService.verifyLicense();
-            const isPremium = this.isPremiumTier(licenseStatus);
+            const isPremium = isPremiumTier(licenseStatus);
             const mcpServerRunning = this.isMcpServerRunning();
 
             this.logger.info(
@@ -804,11 +793,13 @@ IMPORTANT INSTRUCTIONS:
           }
 
           // Now send the message to the (now active) session
+          const images = params.images ?? [];
           await this.sdkAdapter.sendMessageToSession(
             sessionId,
             enhancedPrompt,
             {
               files,
+              images,
             }
           );
 
@@ -968,6 +959,11 @@ IMPORTANT INSTRUCTIONS:
           }
 
           await this.sdkAdapter.interruptSession(sessionId);
+
+          // TASK_2025_175: Stop all agent session watchers for this session.
+          // This ensures background agent watchers don't continue emitting
+          // events to a dead session after abort.
+          this.agentSessionWatcher.stopAllForSession(sessionId as string);
 
           return { success: true };
         } catch (error) {
