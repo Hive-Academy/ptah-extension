@@ -16,8 +16,8 @@ Complete checklist for deploying Ptah to production across all layers.
 └──────────────────────┬──────────────────────────────────┘
                        │
 ┌──────────────────────▼──────────────────────────────────┐
-│  Neon PostgreSQL (Azure East US 2)                      │
-│  Production branch: br-royal-boat-a8l68lc1              │
+│  Self-hosted PostgreSQL 16 (Docker on Droplet)          │
+│  Container: ptah_postgres_prod                          │
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
@@ -95,25 +95,19 @@ Dashboard: https://resend.com/
 | 2    | Create API Key → copy `re_...`              |
 | 3    | Free tier: 3,000 emails/month               |
 
-### 2.4 Neon (Database)
+### 2.4 PostgreSQL (Self-Hosted)
 
-Dashboard: https://console.neon.tech/
+PostgreSQL runs as a Docker container on the same droplet. No external database service required.
 
-The database is already provisioned:
+| Setting   | Value                                    |
+| --------- | ---------------------------------------- |
+| Container | `ptah_postgres_prod`                     |
+| Image     | `postgres:16-alpine`                     |
+| Database  | `ptah_db`                                |
+| User      | `ptah`                                   |
+| Port      | 5432 (internal, not exposed to internet) |
 
-| Setting           | Value                                                  |
-| ----------------- | ------------------------------------------------------ |
-| Project           | `ptah-extension` (`steep-wave-47825660`)               |
-| Production branch | `br-royal-boat-a8l68lc1`                               |
-| Endpoint          | `ep-misty-fog-a8sd45ut-pooler.eastus2.azure.neon.tech` |
-| Database          | `neondb`                                               |
-| Role              | `neondb_owner`                                         |
-
-Connection string format:
-
-```
-postgresql://neondb_owner:<PASSWORD>@ep-misty-fog-a8sd45ut-pooler.eastus2.azure.neon.tech/neondb?sslmode=require
-```
+Configuration is managed via `.env.prod`. See [DIGITALOCEAN.md](./DIGITALOCEAN.md) for setup.
 
 ---
 
@@ -129,7 +123,9 @@ NODE_ENV=production
 PORT=3000
 
 # ── Database ──
-DATABASE_URL="postgresql://neondb_owner:<PASSWORD>@ep-misty-fog-a8sd45ut-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
+# DATABASE_URL is constructed automatically by docker-compose.prod.yml
+# from POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB variables.
+# Do NOT set DATABASE_URL manually in .env.prod.
 
 # ── Authentication (JWT) ──
 JWT_SECRET=<generated-hex-64-chars>
@@ -380,13 +376,60 @@ The license server suppresses `debug` and `verbose` NestJS logs when `NODE_ENV=p
 
 ---
 
-## 10. Cost Summary
+## 10. Secret Rotation Strategy
+
+All secrets in `.env.prod` should be rotated on a regular schedule. Mark your calendar.
+
+| Secret              | Rotation Schedule | How to Rotate                                           |
+| ------------------- | ----------------- | ------------------------------------------------------- |
+| `JWT_SECRET`        | Every 6 months    | Generate new value, restart server. Active JWTs expire. |
+| `ADMIN_API_KEY`     | Quarterly         | Generate new value, update any scripts using it.        |
+| `ADMIN_SECRET`      | Quarterly         | Generate new value, restart server.                     |
+| `POSTGRES_PASSWORD` | Annually          | Update in .env.prod, run ALTER ROLE in psql, restart.   |
+| `WORKOS_API_KEY`    | Per WorkOS policy | Regenerate in WorkOS dashboard, update .env.prod.       |
+| `PADDLE_API_KEY`    | Per Paddle policy | Regenerate in Paddle dashboard, update .env.prod.       |
+| `RESEND_API_KEY`    | Per Resend policy | Regenerate in Resend dashboard, update .env.prod.       |
+| `VSCE_PAT`          | Before expiry     | Azure DevOps PATs expire after max 1 year. Regenerate.  |
+
+### Rotation Procedure
+
+```bash
+# 1. Generate new secret value
+openssl rand -hex 32
+
+# 2. Edit .env.prod on the droplet
+nano /opt/ptah-extension/.env.prod
+
+# 3. Restart affected services
+docker compose -f docker-compose.prod.yml restart license-server
+
+# 4. Verify service is healthy
+curl https://api.ptah.live/api/health
+```
+
+### PostgreSQL Password Rotation
+
+```bash
+# 1. Connect to PostgreSQL container
+docker exec -it ptah_postgres_prod psql -U ptah -d ptah_db
+
+# 2. Change password
+ALTER ROLE ptah WITH PASSWORD 'new-password-here';
+
+# 3. Update .env.prod with new POSTGRES_PASSWORD
+# 4. Restart license-server (it reads DATABASE_URL from env)
+docker compose -f docker-compose.prod.yml restart license-server
+```
+
+---
+
+## 11. Cost Summary
 
 | Service                                 | Cost              |
 | --------------------------------------- | ----------------- |
 | DigitalOcean Droplet (API + DB proxy)   | $6/month          |
 | DigitalOcean App Platform (static site) | Free              |
-| Neon PostgreSQL (Free tier)             | Free              |
+| PostgreSQL (self-hosted on Droplet)     | $0 (included)     |
 | WorkOS (Free tier, up to 1M users)      | Free              |
 | Resend (3,000 emails/month)             | Free              |
 | Paddle                                  | % per transaction |

@@ -218,14 +218,59 @@ This limits each container to 30MB of logs (3 files x 10MB). On a 25GB disk, thi
 apt install -y git
 ```
 
-### Configure Firewall
+### Configure Firewall and SSH Hardening
 
 ```bash
-ufw allow OpenSSH
+# Rate-limit SSH (blocks IPs with 6+ connection attempts in 30 seconds)
+ufw limit OpenSSH
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw enable
 ```
+
+### Install fail2ban
+
+```bash
+apt install -y fail2ban
+systemctl enable fail2ban
+systemctl start fail2ban
+```
+
+fail2ban monitors SSH login attempts and bans IPs after repeated failures. Default config is sufficient.
+
+### Disable Password Authentication
+
+> **Prerequisite**: Ensure your SSH key is added to the droplet before disabling password auth.
+
+```bash
+# Edit SSH config
+sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+
+# Restart SSH
+systemctl restart sshd
+```
+
+### Configure Swap Space (Required)
+
+A 1GB droplet **requires** swap space for stability. Without swap, the OOM killer will terminate containers under memory pressure.
+
+```bash
+# Create 1GB swap file
+fallocate -l 1G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+
+# Make persistent across reboots
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+
+# Optimize swappiness (prefer RAM, use swap only when necessary)
+echo 'vm.swappiness=10' >> /etc/sysctl.conf
+sysctl -p
+```
+
+Verify: `free -h` should show 1.0G swap.
 
 ---
 
@@ -262,6 +307,14 @@ openssl rand -hex 32  # For ADMIN_SECRET
 ```
 
 Fill in all values including WorkOS, Paddle, and Resend credentials. See `.env.prod.example` for the full list.
+
+### Secure .env.prod File Permissions
+
+```bash
+chmod 600 .env.prod
+```
+
+This ensures only the file owner (root) can read the secrets.
 
 ---
 
@@ -454,16 +507,8 @@ docker compose -f docker-compose.prod.yml ps
 **Solutions**:
 
 - Check memory: `free -h` and `docker stats`
-- Add swap space:
-
-  ```bash
-  fallocate -l 1G /swapfile
-  chmod 600 /swapfile
-  mkswap /swapfile
-  swapon /swapfile
-  echo '/swapfile none swap sw 0 0' >> /etc/fstab
-  ```
-
+- Verify swap is enabled (configured in Step 2): `swapon --show`
+- If swap is missing, follow the swap setup in Step 2
 - Upgrade to $12/month Droplet (2GB RAM) if persistent
 
 #### 3. SSL Certificate Not Provisioning
