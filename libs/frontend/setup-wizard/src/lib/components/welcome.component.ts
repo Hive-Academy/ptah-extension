@@ -286,7 +286,7 @@ export class WelcomeComponent implements OnInit {
   protected readonly isLoadingAnalysis = signal(false);
   protected readonly loadingFilename = signal<string | null>(null);
 
-  ngOnInit(): void {
+  public ngOnInit(): void {
     this.loadSavedAnalyses();
   }
 

@@ -79,7 +79,7 @@ export class DocsCollapsibleCardComponent {
 
   public readonly ChevronDownIcon = ChevronDown;
 
-  constructor() {
+  public constructor() {
     effect(() => {
       this.isExpanded.set(this.expanded());
     });

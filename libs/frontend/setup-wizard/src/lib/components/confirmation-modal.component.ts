@@ -117,7 +117,7 @@ import { NgClass } from '@angular/common';
   `,
 })
 export class ConfirmationModalComponent {
-  readonly modal = viewChild.required<ElementRef<HTMLDialogElement>>('modal');
+  public readonly modal = viewChild.required<ElementRef<HTMLDialogElement>>('modal');
 
   // Inputs
   public readonly title = input.required<string>();
@@ -128,20 +128,20 @@ export class ConfirmationModalComponent {
   public readonly confirmClass = input<string>('btn-primary');
 
   // Outputs
-  confirmed = output<void>();
-  cancelled = output<void>();
+  public readonly confirmed = output<void>();
+  public readonly cancelled = output<void>();
 
   /**
    * Show the modal
    */
-  show(): void {
+  public show(): void {
     this.modal().nativeElement.showModal();
   }
 
   /**
    * Hide the modal
    */
-  hide(): void {
+  public hide(): void {
     this.modal().nativeElement.close();
   }
 

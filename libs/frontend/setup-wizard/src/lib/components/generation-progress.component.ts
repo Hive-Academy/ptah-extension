@@ -541,7 +541,7 @@ export class GenerationProgressComponent implements OnDestroy {
    * Cleanup on component destruction.
    * Clears pending retries and retry counts to prevent memory leaks.
    */
-  ngOnDestroy(): void {
+  public ngOnDestroy(): void {
     this.pendingRetries.clear();
     this.retryCounts.clear();
   }

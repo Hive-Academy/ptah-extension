@@ -206,7 +206,7 @@ export class AnalysisResultsComponent {
   protected readonly XCircleIcon = XCircle;
   protected readonly AlertTriangleIcon = AlertTriangle;
 
-  readonly alertModal =
+  public readonly alertModal =
     viewChild.required<ConfirmationModalComponent>('alertModal');
 
   public readonly confirmationMessage = `Manual adjustment is coming soon!

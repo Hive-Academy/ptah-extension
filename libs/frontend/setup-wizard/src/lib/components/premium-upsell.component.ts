@@ -175,17 +175,17 @@ export class PremiumUpsellComponent {
   /**
    * List of premium features to display
    */
-  readonly features = input<string[]>([]);
+  public readonly features = input<string[]>([]);
 
   /**
    * Error message to display (from network error during license check)
    */
-  readonly errorMessage = input<string | null>(null);
+  public readonly errorMessage = input<string | null>(null);
 
   /**
    * Event emitted when user clicks retry button
    */
-  readonly retry = output<void>();
+  public readonly retry = output<void>();
 
   /**
    * Loading state for URL opening

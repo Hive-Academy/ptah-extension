@@ -387,7 +387,7 @@ export class ScanProgressComponent implements OnInit {
     { id: 'elevation-plan', label: 'Elevation', icon: Lightbulb },
   ];
 
-  readonly confirmModal =
+  public readonly confirmModal =
     viewChild.required<ConfirmationModalComponent>('confirmModal');
 
   /**
@@ -479,13 +479,13 @@ export class ScanProgressComponent implements OnInit {
     return 'bg-base-200 border border-base-300/50 opacity-60';
   }
 
-  constructor() {
+  public constructor() {
     this.destroyRef.onDestroy(() => {
       this.isDestroyed = true;
     });
   }
 
-  ngOnInit(): void {
+  public ngOnInit(): void {
     this.startAnalysis();
   }
 

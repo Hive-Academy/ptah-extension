@@ -224,8 +224,8 @@ export class WizardViewComponent {
   private readonly wizardState = inject(SetupWizardStateService);
   private readonly rpcService = inject(ClaudeRpcService);
 
-  readonly currentStep = this.wizardState.currentStep;
-  readonly stepIndex = this.wizardState.stepIndex;
+  public readonly currentStep = this.wizardState.currentStep;
+  public readonly stepIndex = this.wizardState.stepIndex;
 
   // Step order for navigation
   private readonly stepOrder: WizardStep[] = [
@@ -295,7 +295,7 @@ export class WizardViewComponent {
     'Project-specific rule customization',
   ];
 
-  constructor() {
+  public constructor() {
     // Check license on component initialization
     this.checkLicense();
   }

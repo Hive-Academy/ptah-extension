@@ -70,7 +70,7 @@ export class ToolOutputFormatterService {
    * @param rawJson - The full raw JSON content for parsing
    * @returns Markdown-formatted string with code blocks
    */
-  formatToolInput(content: string, rawJson: string): string {
+  public formatToolInput(content: string, rawJson: string): string {
     // Try to parse as JSON to detect file paths for language detection
     try {
       const parsed = JSON.parse(rawJson);
@@ -115,7 +115,7 @@ export class ToolOutputFormatterService {
    * @param toolInput - Optional tool input content for language detection
    * @returns Markdown-formatted string
    */
-  formatToolResult(
+  public formatToolResult(
     content: string,
     toolName?: string,
     toolInput?: string
@@ -138,7 +138,7 @@ export class ToolOutputFormatterService {
    * @param content - Raw content that may contain MCP JSON blocks
    * @returns Extracted text content, or original content if not MCP format
    */
-  extractMCPContent(content: string): string {
+  public extractMCPContent(content: string): string {
     const trimmed = content.trim();
     if (!trimmed.startsWith('[')) return content;
 
@@ -173,7 +173,7 @@ export class ToolOutputFormatterService {
    * @param content - Content potentially containing system-reminder tags
    * @returns Content with system-reminder blocks removed
    */
-  stripSystemReminders(content: string): string {
+  public stripSystemReminders(content: string): string {
     return content
       .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
       .trim();
@@ -186,7 +186,7 @@ export class ToolOutputFormatterService {
    * @param content - Content with potential line number prefixes
    * @returns Content with line numbers stripped
    */
-  stripLineNumbers(content: string): string {
+  public stripLineNumbers(content: string): string {
     return content
       .split('\n')
       .map((line) => {
@@ -220,7 +220,7 @@ export class ToolOutputFormatterService {
    * @param filePath - File path (may use forward or backslashes)
    * @returns Language identifier string, or empty string for unknown extensions
    */
-  getLanguageFromPath(filePath: string): string {
+  public getLanguageFromPath(filePath: string): string {
     const normalized = filePath.replace(/\\/g, '/');
     const ext = '.' + normalized.split('.').pop()?.toLowerCase();
     return this.languageMap[ext] || '';
@@ -235,7 +235,7 @@ export class ToolOutputFormatterService {
    * @param toolInputContent - Optional raw tool input content to parse for API calls
    * @returns Display label (e.g., 'ptah.workspace.analyze()' or 'execute_code')
    */
-  getToolGroupLabel(toolName: string, toolInputContent?: string): string {
+  public getToolGroupLabel(toolName: string, toolInputContent?: string): string {
     if (toolInputContent) {
       const match = toolInputContent.match(this.ptahApiCallPattern);
       if (match) {
@@ -252,7 +252,7 @@ export class ToolOutputFormatterService {
    * @param content - Raw text content from the stream
    * @returns Markdown-formatted string
    */
-  formatTextContent(content: string): string {
+  public formatTextContent(content: string): string {
     if (!content) return '';
 
     const processed = this.unescapeStringLiterals(content);

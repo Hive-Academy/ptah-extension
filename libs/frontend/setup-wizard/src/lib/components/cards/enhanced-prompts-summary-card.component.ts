@@ -100,7 +100,7 @@ import type { EnhancedPromptsSummary } from '@ptah-extension/shared';
 })
 export class EnhancedPromptsSummaryCardComponent {
   /** Summary data from the backend */
-  readonly summary = input.required<EnhancedPromptsSummary>();
+  public readonly summary = input.required<EnhancedPromptsSummary>();
 
   protected readonly SparklesIcon = Sparkles;
   protected readonly CircleCheckIcon = CircleCheck;

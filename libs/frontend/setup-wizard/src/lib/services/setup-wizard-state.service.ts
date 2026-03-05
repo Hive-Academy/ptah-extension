@@ -375,60 +375,60 @@ export class SetupWizardStateService {
   /**
    * Public readonly signal for current wizard step
    */
-  readonly currentStep = this.currentStepSignal.asReadonly();
+  public readonly currentStep = this.currentStepSignal.asReadonly();
 
   /**
    * Public readonly signal for detected project context
    */
-  readonly projectContext = this.projectContextSignal.asReadonly();
+  public readonly projectContext = this.projectContextSignal.asReadonly();
 
   /**
    * Public readonly signal for available agents
    */
-  readonly availableAgents = this.availableAgentsSignal.asReadonly();
+  public readonly availableAgents = this.availableAgentsSignal.asReadonly();
 
   /**
    * Public readonly signal for generation progress
    */
-  readonly generationProgress = this.generationProgressSignal.asReadonly();
+  public readonly generationProgress = this.generationProgressSignal.asReadonly();
 
   /**
    * Public readonly signal for scan progress
    */
-  readonly scanProgress = this.scanProgressSignal.asReadonly();
+  public readonly scanProgress = this.scanProgressSignal.asReadonly();
 
   /**
    * Public readonly signal for analysis stream messages.
    * Used by AnalysisTranscriptComponent to display live agent transcript.
    */
-  readonly analysisStream = this.analysisStreamSignal.asReadonly();
+  public readonly analysisStream = this.analysisStreamSignal.asReadonly();
 
   /**
    * Public readonly signal for generation stream messages.
    * Used by GenerationProgressComponent to display live agent transcript during content generation.
    */
-  readonly generationStream = this.generationStreamSignal.asReadonly();
+  public readonly generationStream = this.generationStreamSignal.asReadonly();
 
   /**
    * Public readonly signal for enhance stream messages.
    * Used by PromptEnhancementComponent to display live agent transcript during enhanced prompts generation.
    */
-  readonly enhanceStream = this.enhanceStreamSignal.asReadonly();
+  public readonly enhanceStream = this.enhanceStreamSignal.asReadonly();
 
   /**
    * Public readonly signal for analysis results
    */
-  readonly analysisResults = this.analysisResultsSignal.asReadonly();
+  public readonly analysisResults = this.analysisResultsSignal.asReadonly();
 
   /**
    * Public readonly signal for completion data
    */
-  readonly completionData = this.completionDataSignal.asReadonly();
+  public readonly completionData = this.completionDataSignal.asReadonly();
 
   /**
    * Public readonly signal for error state
    */
-  readonly errorState = this.errorStateSignal.asReadonly();
+  public readonly errorState = this.errorStateSignal.asReadonly();
 
   // === Deep Analysis Public Signals (TASK_2025_111) ===
 
@@ -436,26 +436,26 @@ export class SetupWizardStateService {
    * Public readonly signal for deep project analysis results.
    * Use this to display architecture patterns, key files, and code health.
    */
-  readonly deepAnalysis = this.deepAnalysisSignal.asReadonly();
+  public readonly deepAnalysis = this.deepAnalysisSignal.asReadonly();
 
   /**
    * Public readonly signal for agent recommendations.
    * Contains all 13 agents with relevance scores and matched criteria.
    */
-  readonly recommendations = this.recommendationsSignal.asReadonly();
+  public readonly recommendations = this.recommendationsSignal.asReadonly();
 
   /**
    * Public readonly signal for generation progress.
    * Tracks individual progress of agents.
    */
-  readonly skillGenerationProgress =
+  public readonly skillGenerationProgress =
     this.skillGenerationProgressSignal.asReadonly();
 
   /**
    * Public readonly signal for selected agents map.
    * Provides direct access to agent selection state.
    */
-  readonly selectedAgentsMap = this.selectedAgentsMapSignal.asReadonly();
+  public readonly selectedAgentsMap = this.selectedAgentsMapSignal.asReadonly();
 
   // === Fallback Warning Public Signal ===
 
@@ -463,32 +463,32 @@ export class SetupWizardStateService {
    * Public readonly signal for fallback warning message.
    * Non-null when agentic analysis fell back to quick analysis mode.
    */
-  readonly fallbackWarning = this.fallbackWarningSignal.asReadonly();
+  public readonly fallbackWarning = this.fallbackWarningSignal.asReadonly();
 
   // === Enhanced Prompts Public Signals ===
 
   /**
    * Public readonly signal for Enhanced Prompts generation status.
    */
-  readonly enhancedPromptsStatus =
+  public readonly enhancedPromptsStatus =
     this.enhancedPromptsStatusSignal.asReadonly();
 
   /**
    * Public readonly signal for Enhanced Prompts error message.
    */
-  readonly enhancedPromptsError = this.enhancedPromptsErrorSignal.asReadonly();
+  public readonly enhancedPromptsError = this.enhancedPromptsErrorSignal.asReadonly();
 
   /**
    * Public readonly signal for Enhanced Prompts detected stack labels.
    */
-  readonly enhancedPromptsDetectedStack =
+  public readonly enhancedPromptsDetectedStack =
     this.enhancedPromptsDetectedStackSignal.asReadonly();
 
   /**
    * Public readonly signal for Enhanced Prompts generation summary.
    * Contains section metadata (names, word counts) without actual content.
    */
-  readonly enhancedPromptsSummary =
+  public readonly enhancedPromptsSummary =
     this.enhancedPromptsSummarySignal.asReadonly();
 
   // === Saved Analysis History Public Signals ===
@@ -497,12 +497,12 @@ export class SetupWizardStateService {
    * Public readonly signal for saved analyses metadata.
    * Used by the welcome component to display analysis history cards.
    */
-  readonly savedAnalyses = this.savedAnalysesSignal.asReadonly();
+  public readonly savedAnalyses = this.savedAnalysesSignal.asReadonly();
 
   /**
    * Public readonly signal for whether the current analysis was loaded from history.
    */
-  readonly analysisLoadedFromHistory =
+  public readonly analysisLoadedFromHistory =
     this.analysisLoadedFromHistorySignal.asReadonly();
 
   // === Multi-Phase Analysis Public Signals (TASK_2025_154) ===
@@ -510,40 +510,40 @@ export class SetupWizardStateService {
   /**
    * Public readonly signal for current phase number (1-based).
    */
-  readonly currentPhaseNumber = this._currentPhaseNumber.asReadonly();
+  public readonly currentPhaseNumber = this._currentPhaseNumber.asReadonly();
 
   /**
    * Public readonly signal for total number of phases.
    */
-  readonly totalPhaseCount = this._totalPhaseCount.asReadonly();
+  public readonly totalPhaseCount = this._totalPhaseCount.asReadonly();
 
   /**
    * Public readonly signal for per-phase status tracking.
    */
-  readonly phaseStatuses = this._phaseStatuses.asReadonly();
+  public readonly phaseStatuses = this._phaseStatuses.asReadonly();
 
   /**
    * Public readonly signal for multi-phase analysis result.
    * Non-null when the wizard used the multi-phase pipeline.
    */
-  readonly multiPhaseResult = this.multiPhaseResultSignal.asReadonly();
+  public readonly multiPhaseResult = this.multiPhaseResultSignal.asReadonly();
 
   /**
    * Computed signal indicating whether a multi-phase analysis is active.
    * True when totalPhaseCount is set and greater than zero.
    */
-  readonly isMultiPhaseAnalysis = computed(
+  public readonly isMultiPhaseAnalysis = computed(
     () => this._totalPhaseCount() !== null && this._totalPhaseCount()! > 0
   );
 
   /**
    * Computed signal indicating whether we have a completed multi-phase result.
    */
-  readonly hasMultiPhaseResult = computed(
+  public readonly hasMultiPhaseResult = computed(
     () => this.multiPhaseResultSignal() !== null
   );
 
-  constructor() {
+  public constructor() {
     this.ensureMessageListenerRegistered();
   }
 
@@ -566,14 +566,14 @@ export class SetupWizardStateService {
   /**
    * Selected agents count (for display)
    */
-  readonly selectedCount = computed(() => {
+  public readonly selectedCount = computed(() => {
     return this.availableAgentsSignal().filter((a) => a.selected).length;
   });
 
   /**
    * Can proceed to next step (validation logic)
    */
-  readonly canProceed = computed(() => {
+  public readonly canProceed = computed(() => {
     const step = this.currentStepSignal();
     switch (step) {
       case 'premium-check':
@@ -600,7 +600,7 @@ export class SetupWizardStateService {
   /**
    * Overall wizard completion percentage (0-100)
    */
-  readonly percentComplete = computed(() => {
+  public readonly percentComplete = computed(() => {
     const step = this.currentStepSignal();
     const progress = this.generationProgressSignal();
 
@@ -623,7 +623,7 @@ export class SetupWizardStateService {
    * Current step index (0-based) for the UI progress indicator.
    * Excludes 'premium-check' since that step is not displayed in the stepper.
    */
-  readonly stepIndex = computed(() => {
+  public readonly stepIndex = computed(() => {
     const step = this.currentStepSignal();
     const uiStepOrder: WizardStep[] = [
       'welcome',
@@ -644,7 +644,7 @@ export class SetupWizardStateService {
    * Computed signal for recommended agents (score >= 75).
    * Returns agents that are highly relevant to the project.
    */
-  readonly recommendedAgents = computed(() => {
+  public readonly recommendedAgents = computed(() => {
     return this.recommendationsSignal().filter(
       (recommendation) => recommendation.relevanceScore >= 75
     );
@@ -654,7 +654,7 @@ export class SetupWizardStateService {
    * Computed signal for total generation items count.
    * Counts selected agents only.
    */
-  readonly totalGenerationItems = computed(() => {
+  public readonly totalGenerationItems = computed(() => {
     const selectedAgents = this.selectedAgentsMapSignal();
     return Object.values(selectedAgents).filter(Boolean).length;
   });
@@ -663,7 +663,7 @@ export class SetupWizardStateService {
    * Computed signal for generation completion percentage.
    * Based on skill generation progress items.
    */
-  readonly generationCompletionPercentage = computed(() => {
+  public readonly generationCompletionPercentage = computed(() => {
     const items = this.skillGenerationProgressSignal();
     if (items.length === 0) return 0;
 
@@ -676,7 +676,7 @@ export class SetupWizardStateService {
   /**
    * Computed signal indicating if all generation items are complete.
    */
-  readonly isGenerationComplete = computed(() => {
+  public readonly isGenerationComplete = computed(() => {
     const items = this.skillGenerationProgressSignal();
     if (items.length === 0) return false;
 
@@ -688,7 +688,7 @@ export class SetupWizardStateService {
   /**
    * Computed signal for generation items with errors.
    */
-  readonly failedGenerationItems = computed(() => {
+  public readonly failedGenerationItems = computed(() => {
     return this.skillGenerationProgressSignal().filter(
       (item) => item.status === 'error'
     );
@@ -705,7 +705,7 @@ export class SetupWizardStateService {
    * - 'enhance': requires deepAnalysis loaded
    * - Others: only accessible via normal flow
    */
-  canJumpToStep(step: WizardStep): boolean {
+  public canJumpToStep(step: WizardStep): boolean {
     const hasAnalysis =
       this.multiPhaseResultSignal() !== null ||
       this.deepAnalysisSignal() !== null;
@@ -726,28 +726,28 @@ export class SetupWizardStateService {
   /**
    * Set current wizard step
    */
-  setCurrentStep(step: WizardStep): void {
+  public setCurrentStep(step: WizardStep): void {
     this.currentStepSignal.set(step);
   }
 
   /**
    * Update project context from scan results
    */
-  setProjectContext(context: ProjectContext): void {
+  public setProjectContext(context: ProjectContext): void {
     this.projectContextSignal.set(context);
   }
 
   /**
    * Set available agents (from backend)
    */
-  setAvailableAgents(agents: AgentSelection[]): void {
+  public setAvailableAgents(agents: AgentSelection[]): void {
     this.availableAgentsSignal.set(agents);
   }
 
   /**
    * Toggle agent selection
    */
-  toggleAgentSelection(agentId: string): void {
+  public toggleAgentSelection(agentId: string): void {
     this.availableAgentsSignal.update((agents) =>
       agents.map((agent) =>
         agent.id === agentId ? { ...agent, selected: !agent.selected } : agent
@@ -758,14 +758,14 @@ export class SetupWizardStateService {
   /**
    * Update generation progress
    */
-  updateGenerationProgress(progress: GenerationProgress): void {
+  public updateGenerationProgress(progress: GenerationProgress): void {
     this.generationProgressSignal.set(progress);
   }
 
   /**
    * Reset wizard state (for restart)
    */
-  reset(): void {
+  public reset(): void {
     this.currentStepSignal.set('welcome');
     this.projectContextSignal.set(null);
     this.availableAgentsSignal.set([]);
@@ -805,7 +805,7 @@ export class SetupWizardStateService {
    *
    * @param analysis - Comprehensive project analysis from backend
    */
-  setDeepAnalysis(analysis: ProjectAnalysisResult): void {
+  public setDeepAnalysis(analysis: ProjectAnalysisResult): void {
     this.deepAnalysisSignal.set(analysis);
   }
 
@@ -815,7 +815,7 @@ export class SetupWizardStateService {
    *
    * @param recommendations - Array of agent recommendations with scores
    */
-  setRecommendations(recommendations: AgentRecommendation[]): void {
+  public setRecommendations(recommendations: AgentRecommendation[]): void {
     this.recommendationsSignal.set(recommendations);
 
     // Auto-select agents with score >= 80 (highly recommended)
@@ -831,7 +831,7 @@ export class SetupWizardStateService {
    *
    * @param agentId - Agent identifier to toggle
    */
-  toggleAgentRecommendationSelection(agentId: string): void {
+  public toggleAgentRecommendationSelection(agentId: string): void {
     this.selectedAgentsMapSignal.update((selected) => ({
       ...selected,
       [agentId]: !selected[agentId],
@@ -843,14 +843,14 @@ export class SetupWizardStateService {
    *
    * @param selections - Map of agentId to selection state
    */
-  setAgentSelections(selections: Record<string, boolean>): void {
+  public setAgentSelections(selections: Record<string, boolean>): void {
     this.selectedAgentsMapSignal.set(selections);
   }
 
   /**
    * Select all recommended agents (score >= 75).
    */
-  selectAllRecommended(): void {
+  public selectAllRecommended(): void {
     this.selectedAgentsMapSignal.update((selected) => {
       const updated = { ...selected };
       for (const rec of this.recommendationsSignal()) {
@@ -865,7 +865,7 @@ export class SetupWizardStateService {
   /**
    * Deselect all agents.
    */
-  deselectAllAgents(): void {
+  public deselectAllAgents(): void {
     this.selectedAgentsMapSignal.update((selected) => {
       const updated = { ...selected };
       for (const key of Object.keys(updated)) {
@@ -881,7 +881,7 @@ export class SetupWizardStateService {
    * Set or clear the fallback warning message.
    * Called when agentic analysis falls back to quick analysis mode.
    */
-  setFallbackWarning(warning: string | null): void {
+  public setFallbackWarning(warning: string | null): void {
     this.fallbackWarningSignal.set(warning);
   }
 
@@ -890,21 +890,21 @@ export class SetupWizardStateService {
   /**
    * Set Enhanced Prompts generation status.
    */
-  setEnhancedPromptsStatus(status: EnhancedPromptsWizardStatus): void {
+  public setEnhancedPromptsStatus(status: EnhancedPromptsWizardStatus): void {
     this.enhancedPromptsStatusSignal.set(status);
   }
 
   /**
    * Set Enhanced Prompts error message.
    */
-  setEnhancedPromptsError(error: string | null): void {
+  public setEnhancedPromptsError(error: string | null): void {
     this.enhancedPromptsErrorSignal.set(error);
   }
 
   /**
    * Set Enhanced Prompts detected stack for display.
    */
-  setEnhancedPromptsDetectedStack(stack: string[] | null): void {
+  public setEnhancedPromptsDetectedStack(stack: string[] | null): void {
     this.enhancedPromptsDetectedStackSignal.set(stack);
   }
 
@@ -912,7 +912,7 @@ export class SetupWizardStateService {
    * Set Enhanced Prompts generation summary.
    * Contains section metadata without actual prompt content (IP protection).
    */
-  setEnhancedPromptsSummary(summary: EnhancedPromptsSummary | null): void {
+  public setEnhancedPromptsSummary(summary: EnhancedPromptsSummary | null): void {
     this.enhancedPromptsSummarySignal.set(summary);
   }
 
@@ -922,7 +922,7 @@ export class SetupWizardStateService {
    * Set multi-phase analysis result.
    * Called when wizard:deep-analyze returns a MultiPhaseAnalysisResponse.
    */
-  setMultiPhaseResult(result: MultiPhaseAnalysisResponse): void {
+  public setMultiPhaseResult(result: MultiPhaseAnalysisResponse): void {
     this.multiPhaseResultSignal.set(result);
   }
 
@@ -932,7 +932,7 @@ export class SetupWizardStateService {
    * Set saved analyses list from backend.
    * Called when the welcome component fetches the list.
    */
-  setSavedAnalyses(analyses: SavedAnalysisMetadata[]): void {
+  public setSavedAnalyses(analyses: SavedAnalysisMetadata[]): void {
     this.savedAnalysesSignal.set(analyses);
   }
 
@@ -944,7 +944,7 @@ export class SetupWizardStateService {
    *
    * @param multiPhase - Multi-phase analysis response
    */
-  loadSavedAnalysis(multiPhase: MultiPhaseAnalysisResponse): void {
+  public loadSavedAnalysis(multiPhase: MultiPhaseAnalysisResponse): void {
     this.multiPhaseResultSignal.set(multiPhase);
     this.analysisLoadedFromHistorySignal.set(true);
 
@@ -965,7 +965,7 @@ export class SetupWizardStateService {
    *
    * @param items - Array of generation progress items
    */
-  setSkillGenerationProgress(items: SkillGenerationProgressItem[]): void {
+  public setSkillGenerationProgress(items: SkillGenerationProgressItem[]): void {
     this.skillGenerationProgressSignal.set(items);
   }
 
@@ -975,7 +975,7 @@ export class SetupWizardStateService {
    * @param itemId - Item identifier to update
    * @param update - Partial update to apply
    */
-  updateSkillGenerationItem(
+  public updateSkillGenerationItem(
     itemId: string,
     update: Partial<SkillGenerationProgressItem>
   ): void {
@@ -989,7 +989,7 @@ export class SetupWizardStateService {
    *
    * @param itemId - Item identifier to reset
    */
-  retryGenerationItem(itemId: string): void {
+  public retryGenerationItem(itemId: string): void {
     this.updateSkillGenerationItem(itemId, {
       status: 'pending',
       progress: 0,
@@ -1334,7 +1334,7 @@ export class SetupWizardStateService {
    * In production, this method is typically not called since root services
    * persist for the lifetime of the application.
    */
-  dispose(): void {
+  public dispose(): void {
     if (this.messageHandler) {
       window.removeEventListener('message', this.messageHandler);
       this.messageHandler = null;

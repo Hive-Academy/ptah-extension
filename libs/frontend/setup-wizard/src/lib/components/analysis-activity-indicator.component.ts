@@ -59,9 +59,9 @@ export class AnalysisActivityIndicatorComponent implements OnInit, OnDestroy {
    * Optional context prefix for phase-aware messages.
    * E.g. "Phase 2" will produce "Phase 2: Reading architecture patterns..."
    */
-  readonly context = input<string | undefined>(undefined);
+  public readonly context = input<string | undefined>(undefined);
 
-  readonly displayedText = signal('');
+  public readonly displayedText = signal('');
 
   private readonly baseMessages = [
     'Scanning project structure...',
@@ -78,11 +78,11 @@ export class AnalysisActivityIndicatorComponent implements OnInit, OnDestroy {
   private typingInterval: ReturnType<typeof setInterval> | null = null;
   private pauseTimeout: ReturnType<typeof setTimeout> | null = null;
 
-  ngOnInit(): void {
+  public ngOnInit(): void {
     this.startTyping();
   }
 
-  ngOnDestroy(): void {
+  public ngOnDestroy(): void {
     if (this.typingInterval) {
       clearInterval(this.typingInterval);
     }

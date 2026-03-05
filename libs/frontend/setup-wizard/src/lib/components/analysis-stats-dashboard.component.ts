@@ -172,7 +172,7 @@ export class AnalysisStatsDashboardComponent {
   /** Timer interval ID for cleanup */
   private timerInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor() {
+  public constructor() {
     // Track analysis start time from first message
     effect(() => {
       const stream = this.wizardState.analysisStream();

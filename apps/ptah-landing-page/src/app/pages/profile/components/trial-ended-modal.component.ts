@@ -149,16 +149,16 @@ import { TRIAL_DURATION_DAYS } from '@ptah-extension/shared';
 })
 export class TrialEndedModalComponent {
   // Input: License status reason
-  readonly reason = input<string | undefined>(undefined);
+  public readonly reason = input<string | undefined>(undefined);
 
   // Input: Days remaining in trial (0 if fully expired)
-  readonly daysRemaining = input<number>(0);
+  public readonly daysRemaining = input<number>(0);
 
   // Output: Event when user clicks "Continue with Community" and trial has ended (daysRemaining === 0)
-  readonly downgradeToCommunity = output<void>();
+  public readonly downgradeToCommunity = output<void>();
 
   // Internal state
-  readonly isOpen = signal(false);
+  public readonly isOpen = signal(false);
 
   // Icons
   protected readonly ClockIcon = Clock;
@@ -172,7 +172,7 @@ export class TrialEndedModalComponent {
 
   private readonly router = inject(Router);
 
-  constructor() {
+  public constructor() {
     // TASK_2025_143: Watch for reason changes to show/hide modal
     // No localStorage dismissal logic - modal shows every time when reason='trial_ended'
     effect(() => {
@@ -193,7 +193,7 @@ export class TrialEndedModalComponent {
    * Navigate to pricing page and dismiss modal
    * Landing page version: Uses Angular Router instead of RPC
    */
-  upgradeToPro(): void {
+  public upgradeToPro(): void {
     this.dismiss();
     this.router.navigate(['/pricing']);
   }
@@ -204,7 +204,7 @@ export class TrialEndedModalComponent {
    * TASK_2025_143: When trial has fully expired (daysRemaining === 0),
    * emit event to trigger downgrade API call before dismissing.
    */
-  continueWithCommunity(): void {
+  public continueWithCommunity(): void {
     // If trial fully expired, trigger downgrade before dismissing
     if (this.daysRemaining() === 0) {
       this.downgradeToCommunity.emit();

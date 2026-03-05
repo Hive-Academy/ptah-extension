@@ -53,7 +53,7 @@ export class WizardRpcService {
    * Launch the setup wizard webview
    * This uses the existing `setup-wizard:launch` RPC handler
    */
-  async launchWizard(): Promise<void> {
+  public async launchWizard(): Promise<void> {
     const result = await this.rpcService.call('setup-wizard:launch', {});
     if (!result.success) {
       throw new Error(result.error || 'Failed to launch wizard');
@@ -72,7 +72,7 @@ export class WizardRpcService {
    * @param selections - Agent selections from the wizard
    * @param analysisDir - Multi-phase analysis directory path
    */
-  async submitAgentSelection(
+  public async submitAgentSelection(
     selections: AgentSelection[],
     analysisDir?: string
   ): Promise<AgentSelectionResponse> {
@@ -99,7 +99,7 @@ export class WizardRpcService {
    *
    * Safe to call even if no active session exists (backend handles gracefully).
    */
-  async cancelWizard(saveProgress = true): Promise<void> {
+  public async cancelWizard(saveProgress = true): Promise<void> {
     const result = await this.rpcService.call('wizard:cancel', {
       saveProgress,
     });
@@ -114,7 +114,7 @@ export class WizardRpcService {
    *
    * @param itemId - Identifier of the generation item to retry
    */
-  async retryGenerationItem(itemId: string): Promise<void> {
+  public async retryGenerationItem(itemId: string): Promise<void> {
     const result = await this.rpcService.call('wizard:retry-item', { itemId });
     if (!result.isSuccess()) {
       throw new Error(result.error || 'Failed to retry generation item');
@@ -133,7 +133,7 @@ export class WizardRpcService {
    *
    * Safe to call even if no analysis is running (backend handles gracefully).
    */
-  async cancelAnalysis(): Promise<void> {
+  public async cancelAnalysis(): Promise<void> {
     try {
       await this.rpcService.call('wizard:cancel-analysis', {});
     } catch (error) {
@@ -154,7 +154,7 @@ export class WizardRpcService {
    *
    * Returns MultiPhaseAnalysisResponse (premium + MCP required).
    */
-  async deepAnalyze(): Promise<MultiPhaseAnalysisResponse> {
+  public async deepAnalyze(): Promise<MultiPhaseAnalysisResponse> {
     const result = await this.rpcService.call(
       'wizard:deep-analyze',
       { model: this.modelState.currentModel() || undefined },
@@ -172,7 +172,7 @@ export class WizardRpcService {
    *
    * Passes { isMultiPhase: true } to trigger all-agents-recommended path.
    */
-  async recommendAgents(
+  public async recommendAgents(
     analysis: MultiPhaseAnalysisResponse
   ): Promise<AgentRecommendation[]> {
     const payload = { isMultiPhase: true, analysisDir: analysis.analysisDir };
@@ -198,7 +198,7 @@ export class WizardRpcService {
    * @param analysisDir - Multi-phase analysis directory path (optional)
    * @returns Enhanced Prompts wizard response
    */
-  async runEnhancedPromptsWizard(
+  public async runEnhancedPromptsWizard(
     workspacePath: string,
     analysisDir?: string
   ): Promise<EnhancedPromptsRunWizardResponse> {
@@ -229,7 +229,7 @@ export class WizardRpcService {
    * @param workspacePath - Workspace path to check
    * @returns Enhanced Prompts status response
    */
-  async getEnhancedPromptsStatus(
+  public async getEnhancedPromptsStatus(
     workspacePath: string
   ): Promise<EnhancedPromptsGetStatusResponse> {
     const result = await this.rpcService.call('enhancedPrompts:getStatus', {
@@ -259,7 +259,7 @@ export class WizardRpcService {
    * @param workspacePath - Workspace path to toggle for
    * @param enabled - Whether to enable or disable enhanced prompts
    */
-  async toggleEnhancedPrompts(
+  public async toggleEnhancedPrompts(
     workspacePath: string,
     enabled: boolean
   ): Promise<void> {
@@ -281,7 +281,7 @@ export class WizardRpcService {
    * @param workspacePath - Workspace path to regenerate for
    * @returns Regeneration response with success status
    */
-  async regenerateEnhancedPrompts(
+  public async regenerateEnhancedPrompts(
     workspacePath: string
   ): Promise<EnhancedPromptsRunWizardResponse> {
     const result = await this.rpcService.call(
@@ -307,7 +307,7 @@ export class WizardRpcService {
    * @param workspacePath - Workspace path to get content for
    * @returns The prompt content string, or null if no prompt exists
    */
-  async getEnhancedPromptContent(
+  public async getEnhancedPromptContent(
     workspacePath: string
   ): Promise<string | null> {
     const result = await this.rpcService.call(
@@ -329,7 +329,7 @@ export class WizardRpcService {
    * @param workspacePath - Workspace path to download prompt for
    * @returns Download result with success status and optional file path
    */
-  async downloadEnhancedPrompt(
+  public async downloadEnhancedPrompt(
     workspacePath: string
   ): Promise<{ success: boolean; filePath?: string; error?: string }> {
     const result = await this.rpcService.call('enhancedPrompts:download', {
@@ -358,7 +358,7 @@ export class WizardRpcService {
    *
    * @returns Array of saved analysis metadata sorted by date (newest first)
    */
-  async listAnalyses(): Promise<SavedAnalysisMetadata[]> {
+  public async listAnalyses(): Promise<SavedAnalysisMetadata[]> {
     const result = await this.rpcService.call(
       'wizard:list-analyses',
       {},
@@ -379,7 +379,7 @@ export class WizardRpcService {
    * @param filename - Slug directory name from .claude/analysis/
    * @returns Multi-phase analysis response with manifest and phase contents
    */
-  async loadAnalysis(filename: string): Promise<MultiPhaseAnalysisResponse> {
+  public async loadAnalysis(filename: string): Promise<MultiPhaseAnalysisResponse> {
     const result = await this.rpcService.call(
       'wizard:load-analysis',
       { filename },

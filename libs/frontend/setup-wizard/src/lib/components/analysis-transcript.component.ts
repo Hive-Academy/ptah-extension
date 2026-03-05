@@ -390,7 +390,7 @@ export class AnalysisTranscriptComponent {
   private readonly formatter = inject(ToolOutputFormatterService);
 
   /** Stream messages to display. Falls back to analysis stream from state service if not provided. */
-  readonly messages = input<AnalysisStreamPayload[]>();
+  public readonly messages = input<AnalysisStreamPayload[]>();
 
   /** Effective messages source: external input or state service fallback */
   protected readonly effectiveMessages = computed(
@@ -528,7 +528,7 @@ export class AnalysisTranscriptComponent {
     return items;
   });
 
-  constructor() {
+  public constructor() {
     // Auto-scroll effect: scroll to bottom when new messages arrive
     // unless the user has manually scrolled up
     effect(() => {
