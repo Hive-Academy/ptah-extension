@@ -300,14 +300,22 @@ SSL: App Platform handles TLS for `ptah.live` automatically. For `api.ptah.live`
 
 ### Landing Page (App Platform)
 
-Deploys automatically on push to `main` (configured in `.do/app.yaml`).
-
-Manual deploy:
+Deploys via GitHub Actions on push to `release/landing`. The workflow runs quality gates (lint, test, typecheck, build) then triggers App Platform deployment via `doctl`.
 
 ```bash
-doctl apps create --spec .do/app.yaml          # First time
-doctl apps update <APP_ID> --spec .do/app.yaml # Updates
+# First-time setup
+doctl apps create --spec .do/app.yaml
+# Note the APP_ID and add it as DO_APP_ID in GitHub Actions secrets
+
+# Manual deploy (bypasses quality gates)
+doctl apps create-deployment <APP_ID>
 ```
+
+**Required GitHub Actions Secrets:**
+| Secret | Source |
+| --- | --- |
+| `DIGITALOCEAN_ACCESS_TOKEN` | DO Console > API > Tokens > Generate New Token |
+| `DO_APP_ID` | `doctl apps list` after initial app creation |
 
 ### License Server (Droplet)
 

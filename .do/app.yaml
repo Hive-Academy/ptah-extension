@@ -34,9 +34,9 @@ region: nyc
 static_sites:
   - name: landing
     github:
-      repo: anthropics/ptah-extension # UPDATE: Change to your repo
-      branch: main
-      deploy_on_push: true
+      repo: hive-academy/ptah-extension # TODO: Verify this matches your GitHub repo
+      branch: release/landing
+      deploy_on_push: false
     source_dir: /
     build_command: npm ci && npx nx build ptah-landing-page --configuration=production
     output_dir: dist/ptah-landing-page/browser

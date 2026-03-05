@@ -373,14 +373,15 @@ curl https://api.ptah.live/api/health
 
 ## Step 6: Deploy Landing Page (App Platform)
 
-The landing page is deployed as a free static site on App Platform.
+The landing page is deployed as a free static site on App Platform, triggered by pushing to `release/landing`.
 
-### Via Console
+### Via Console (First-Time Setup)
 
 1. Go to <https://cloud.digitalocean.com/apps>
 2. Click **Create App**
-3. **Source**: GitHub > Select `ptah-extension` repo > Branch `main`
+3. **Source**: GitHub > Select `ptah-extension` repo > Branch `release/landing`
 4. **Component**: Static Site
+5. **Auto-deploy**: Disabled (GitHub Actions controls deployment)
 
 | Setting              | Value                                                                 |
 | -------------------- | --------------------------------------------------------------------- |
@@ -388,13 +389,22 @@ The landing page is deployed as a free static site on App Platform.
 | **Build Command**    | `npm ci && npx nx build ptah-landing-page --configuration=production` |
 | **Output Directory** | `dist/ptah-landing-page/browser`                                      |
 
-5. Click **Create Resources**
+6. Click **Create Resources**
+7. Note the **App ID** from `doctl apps list` and add it as `DO_APP_ID` GitHub Actions secret
 
-### Via CLI
+### Via CLI (First-Time Setup)
 
 ```bash
 doctl apps create --spec .do/app.yaml
+# Note the app ID from the output, add as DO_APP_ID secret
 ```
+
+### Subsequent Deployments
+
+Push to `release/landing` triggers the GitHub Actions workflow which:
+
+1. Runs quality gates (lint, test, typecheck, build)
+2. Triggers App Platform deployment via `doctl`
 
 ---
 
@@ -462,13 +472,15 @@ doctl apps create --spec .do/app.yaml
 
 The CI/CD workflows require secrets configured in **GitHub Settings > Secrets and variables > Actions**:
 
-| Secret            | Purpose                                        | How to Obtain                                                 |
-| ----------------- | ---------------------------------------------- | ------------------------------------------------------------- |
-| `DROPLET_SSH_KEY` | SSH private key for deploying to the Droplet   | Generate with `ssh-keygen`; add public key to Droplet         |
-| `DROPLET_HOST`    | Droplet public IP address                      | From DigitalOcean Droplet dashboard                           |
-| `DROPLET_USER`    | SSH user on the Droplet (`root` or `deploy`)   | Configured during Droplet setup (Step 2)                      |
-| `GHCR_PAT`        | GitHub PAT with `packages:read` scope          | GitHub Settings > Developer settings > Personal access tokens |
-| `VSCE_PAT`        | Azure DevOps PAT with Marketplace Manage scope | Azure DevOps > User settings > Personal access tokens         |
+| Secret                      | Purpose                                        | How to Obtain                                                 |
+| --------------------------- | ---------------------------------------------- | ------------------------------------------------------------- |
+| `DROPLET_SSH_KEY`           | SSH private key for deploying to the Droplet   | Generate with `ssh-keygen`; add public key to Droplet         |
+| `DROPLET_HOST`              | Droplet public IP address                      | From DigitalOcean Droplet dashboard                           |
+| `DROPLET_USER`              | SSH user on the Droplet (`root` or `deploy`)   | Configured during Droplet setup (Step 2)                      |
+| `GHCR_PAT`                  | GitHub PAT with `packages:read` scope          | GitHub Settings > Developer settings > Personal access tokens |
+| `VSCE_PAT`                  | Azure DevOps PAT with Marketplace Manage scope | Azure DevOps > User settings > Personal access tokens         |
+| `DIGITALOCEAN_ACCESS_TOKEN` | DO API token for App Platform deployments      | DO Console > API > Tokens > Generate New Token (read+write)   |
+| `DO_APP_ID`                 | App Platform app ID for landing page           | Run `doctl apps list` after creating app with `.do/app.yaml`  |
 
 ---
 
