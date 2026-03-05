@@ -470,7 +470,7 @@ describe.skip('AgentSelectionComponent', () => {
 
       expect(component['isGenerating']()).toBe(true);
 
-      resolvePromise!();
+      resolvePromise();
       await generatePromise;
 
       expect(component['isGenerating']()).toBe(false);
@@ -523,7 +523,7 @@ describe.skip('AgentSelectionComponent', () => {
 
       expect(mockRpcService.submitAgentSelection).toHaveBeenCalledTimes(1);
 
-      resolvePromise!();
+      resolvePromise();
     });
 
     it('should prevent generation when canProceed is false', async () => {
@@ -645,7 +645,7 @@ describe.skip('AgentSelectionComponent', () => {
       const button = fixture.nativeElement.querySelector('.btn-primary');
       expect(button.disabled).toBe(true);
 
-      resolvePromise!();
+      resolvePromise();
     });
 
     it('should disable button when canProceed is false', () => {

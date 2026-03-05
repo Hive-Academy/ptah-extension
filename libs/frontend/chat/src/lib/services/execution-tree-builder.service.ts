@@ -651,7 +651,7 @@ export class ExecutionTreeBuilderService {
                 (e as AgentStartEvent).agentType === agentType &&
                 !usedAgentEventIds.has(e.id) &&
                 (!(e as AgentStartEvent).agentId ||
-                  !usedAgentEventIds.has((e as AgentStartEvent).agentId!))
+                  !usedAgentEventIds.has((e as AgentStartEvent).agentId ?? ''))
               ) {
                 const timeDiff = Math.abs(e.timestamp - toolStart.timestamp);
                 if (timeDiff < bestPlaceholderTimeDiff) {

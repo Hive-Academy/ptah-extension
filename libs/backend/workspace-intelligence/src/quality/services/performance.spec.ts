@@ -523,7 +523,7 @@ describe('AntiPatternDetectionService - Async Methods', () => {
         (p) => p.type === 'typescript-explicit-any'
       );
       expect(anyPattern).toBeDefined();
-      expect(anyPattern!.frequency).toBeGreaterThanOrEqual(2);
+      expect(anyPattern?.frequency).toBeGreaterThanOrEqual(2);
     });
 
     it('should process files in batches', async () => {

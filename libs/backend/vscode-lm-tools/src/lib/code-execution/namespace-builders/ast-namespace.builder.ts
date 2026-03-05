@@ -54,10 +54,10 @@ export function buildAstNamespace(
       const result = astAnalysis.analyzeSource(content, language, absolutePath);
 
       if (result.isErr()) {
-        throw new Error(result.error!.message);
+        throw new Error(result.error?.message ?? 'AST analysis failed');
       }
 
-      const insights = result.value!;
+      const insights = result.value ?? { functions: [], classes: [], imports: [], exports: [] };
       return {
         file: filePath,
         language,
@@ -77,10 +77,13 @@ export function buildAstNamespace(
       const result = treeSitterParser.parse(content, language);
 
       if (result.isErr()) {
-        throw new Error(result.error!.message);
+        throw new Error(result.error?.message ?? 'AST parsing failed');
       }
 
-      const ast = result.value!;
+      const ast = result.value;
+      if (!ast) {
+        throw new Error('AST parsing returned no result');
+      }
       const { node: simplifiedAst, count } = simplifyAstNode(ast, 0, maxDepth);
 
       return {
@@ -100,10 +103,10 @@ export function buildAstNamespace(
       const result = treeSitterParser.queryFunctions(content, language);
 
       if (result.isErr()) {
-        throw new Error(result.error!.message);
+        throw new Error(result.error?.message ?? 'Function query failed');
       }
 
-      return extractFunctionsFromMatches(result.value!);
+      return extractFunctionsFromMatches(result.value ?? []);
     },
 
     queryClasses: async (filePath: string): Promise<AstClassInfo[]> => {
@@ -115,10 +118,10 @@ export function buildAstNamespace(
       const result = treeSitterParser.queryClasses(content, language);
 
       if (result.isErr()) {
-        throw new Error(result.error!.message);
+        throw new Error(result.error?.message ?? 'Class query failed');
       }
 
-      return extractClassesFromMatches(result.value!);
+      return extractClassesFromMatches(result.value ?? []);
     },
 
     queryImports: async (filePath: string): Promise<AstImportInfo[]> => {
@@ -130,10 +133,10 @@ export function buildAstNamespace(
       const result = treeSitterParser.queryImports(content, language);
 
       if (result.isErr()) {
-        throw new Error(result.error!.message);
+        throw new Error(result.error?.message ?? 'Import query failed');
       }
 
-      return extractImportsFromMatches(result.value!);
+      return extractImportsFromMatches(result.value ?? []);
     },
 
     queryExports: async (filePath: string): Promise<AstExportInfo[]> => {
@@ -145,10 +148,10 @@ export function buildAstNamespace(
       const result = treeSitterParser.queryExports(content, language);
 
       if (result.isErr()) {
-        throw new Error(result.error!.message);
+        throw new Error(result.error?.message ?? 'Export query failed');
       }
 
-      return extractExportsFromMatches(result.value!);
+      return extractExportsFromMatches(result.value ?? []);
     },
 
     getSupportedLanguages: (): string[] => {

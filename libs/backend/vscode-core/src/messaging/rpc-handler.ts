@@ -231,8 +231,8 @@ export class RpcHandler {
       // Frontend can differentiate LICENSE_REQUIRED vs PRO_TIER_REQUIRED
       return {
         success: false,
-        error: validation.error!.message,
-        errorCode: validation.error!.code,
+        error: validation.error?.message ?? 'License validation failed',
+        errorCode: validation.error?.code ?? 'LICENSE_REQUIRED',
         correlationId,
       };
     }

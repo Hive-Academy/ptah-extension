@@ -145,10 +145,13 @@ export class StreamingHandlerService {
         this.tabManager.updateTab(targetTab.id, {
           streamingState: createEmptyStreamingState(),
         });
-        targetTab = this.tabManager.tabs().find((t) => t.id === targetTab!.id)!;
+        const refreshedTab = this.tabManager.tabs().find((t) => t.id === targetTab?.id);
+        if (refreshedTab) {
+          targetTab = refreshedTab;
+        }
       }
 
-      const state = targetTab.streamingState!;
+      const state = targetTab.streamingState as StreamingState;
 
       // Handle by event type
       switch (event.eventType) {
@@ -276,7 +279,7 @@ export class StreamingHandlerService {
           if (!state.toolCallMap.has(event.toolCallId)) {
             state.toolCallMap.set(event.toolCallId, []);
           }
-          state.toolCallMap.get(event.toolCallId)!.push(event.id);
+          state.toolCallMap.get(event.toolCallId)?.push(event.id);
           break;
         }
 

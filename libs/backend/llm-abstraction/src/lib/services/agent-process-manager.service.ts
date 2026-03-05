@@ -883,7 +883,8 @@ export class AgentProcessManager {
    */
   private acquireSpawnLock<T>(fn: () => Promise<T>): Promise<T> {
     const release = this.spawnMutex;
-    let resolve: () => void;
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    let resolve: () => void = () => {};
     this.spawnMutex = new Promise<void>((r) => {
       resolve = r;
     });
@@ -891,7 +892,7 @@ export class AgentProcessManager {
       try {
         return await fn();
       } finally {
-        resolve!();
+        resolve();
       }
     });
   }

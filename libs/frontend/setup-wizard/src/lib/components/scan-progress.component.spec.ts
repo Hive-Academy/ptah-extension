@@ -381,7 +381,7 @@ describe.skip('ScanProgressComponent', () => {
 
       const buttons = fixture.nativeElement.querySelectorAll('button');
       const buttonTexts = Array.from(buttons).map((b) =>
-        (b as HTMLButtonElement).textContent!.trim()
+        ((b as HTMLButtonElement).textContent ?? '').trim()
       );
       expect(buttonTexts).toContain('Back');
       expect(buttonTexts.some((t: string) => t.includes('Retry'))).toBe(true);

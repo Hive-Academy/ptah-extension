@@ -142,12 +142,16 @@ export class ProviderRegistry {
     // Get or dynamically load factory
     const factoryResult = await this.getOrLoadFactory(providerName);
     if (factoryResult.isErr()) {
-      return Result.err(factoryResult.error!);
+      const factoryErr = factoryResult.error ?? new LlmProviderError('Failed to load provider factory', 'UNKNOWN_ERROR', providerName);
+      return Result.err(factoryErr);
     }
 
     // vscode-lm doesn't need an API key
     const apiKey = await this.getApiKeyForProvider(providerName);
-    const factory = factoryResult.value!;
+    const factory = factoryResult.value;
+    if (!factory) {
+      return Result.err(new LlmProviderError('Provider factory is unexpectedly undefined', 'UNKNOWN_ERROR', providerName));
+    }
 
     try {
       const result = factory(apiKey, model);
@@ -231,7 +235,11 @@ export class ProviderRegistry {
           provider: providerName,
         }
       );
-      return Result.ok(this.loadedFactories.get(providerName)!);
+      const cachedFactory = this.loadedFactories.get(providerName);
+      if (!cachedFactory) {
+        return Result.err(new LlmProviderError('Cached factory unexpectedly missing', 'UNKNOWN_ERROR', providerName));
+      }
+      return Result.ok(cachedFactory);
     }
 
     // Dynamically load factory

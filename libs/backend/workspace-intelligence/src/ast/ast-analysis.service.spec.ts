@@ -60,9 +60,9 @@ describe('AstAnalysisService', () => {
 
       expect(result.isOk()).toBe(true);
       expect(result.value).toBeDefined();
-      expect(result.value!.functions).toEqual([]);
-      expect(result.value!.classes).toEqual([]);
-      expect(result.value!.imports).toEqual([]);
+      expect(result.value?.functions).toEqual([]);
+      expect(result.value?.classes).toEqual([]);
+      expect(result.value?.imports).toEqual([]);
     });
 
     it('should log debug message about analyzing file', async () => {
@@ -122,9 +122,9 @@ describe('AstAnalysisService', () => {
       expect(result.value).toHaveProperty('functions');
       expect(result.value).toHaveProperty('classes');
       expect(result.value).toHaveProperty('imports');
-      expect(Array.isArray(result.value!.functions)).toBe(true);
-      expect(Array.isArray(result.value!.classes)).toBe(true);
-      expect(Array.isArray(result.value!.imports)).toBe(true);
+      expect(Array.isArray(result.value?.functions)).toBe(true);
+      expect(Array.isArray(result.value?.classes)).toBe(true);
+      expect(Array.isArray(result.value?.imports)).toBe(true);
     });
   });
 
@@ -184,9 +184,9 @@ describe('AstAnalysisService', () => {
       const result = await service.analyzeAst(emptyAst, 'empty.ts');
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.functions).toHaveLength(0);
-      expect(result.value!.classes).toHaveLength(0);
-      expect(result.value!.imports).toHaveLength(0);
+      expect(result.value?.functions).toHaveLength(0);
+      expect(result.value?.classes).toHaveLength(0);
+      expect(result.value?.imports).toHaveLength(0);
     });
 
     it('should handle AST with nested children', async () => {
@@ -214,7 +214,7 @@ describe('AstAnalysisService', () => {
 
       expect(result.isOk()).toBe(true);
       // Traversal-based analysis returns empty since no identifier child node
-      expect(result.value!.functions).toHaveLength(0);
+      expect(result.value?.functions).toHaveLength(0);
     });
   });
 
@@ -401,8 +401,8 @@ describe('AstAnalysisService', () => {
 
       expect(result.isOk()).toBe(true);
       expect(result.value?.exports).toHaveLength(1);
-      expect(result.value?.exports![0].name).toBe('myFunction');
-      expect(result.value?.exports![0].kind).toBe('function');
+      expect(result.value?.exports?.[0].name).toBe('myFunction');
+      expect(result.value?.exports?.[0].kind).toBe('function');
     });
 
     it('should handle query errors gracefully', () => {
@@ -473,8 +473,8 @@ describe('AstAnalysisService', () => {
       const result = await service.analyzeAst(astWithFunction, 'func.ts');
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.functions).toHaveLength(1);
-      expect(result.value!.functions[0].name).toBe('test');
+      expect(result.value?.functions).toHaveLength(1);
+      expect(result.value?.functions[0].name).toBe('test');
     });
 
     it('should extract class with type_identifier child', async () => {
@@ -520,8 +520,8 @@ describe('AstAnalysisService', () => {
       const result = await service.analyzeAst(astWithClass, 'class.ts');
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.classes).toHaveLength(1);
-      expect(result.value!.classes[0].name).toBe('MyClass');
+      expect(result.value?.classes).toHaveLength(1);
+      expect(result.value?.classes[0].name).toBe('MyClass');
     });
 
     it('should extract import statement', async () => {
@@ -597,9 +597,9 @@ describe('AstAnalysisService', () => {
       const result = await service.analyzeAst(astWithImport, 'import.ts');
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.imports).toHaveLength(1);
-      expect(result.value!.imports[0].source).toBe('./bar');
-      expect(result.value!.imports[0].importedSymbols).toContain('foo');
+      expect(result.value?.imports).toHaveLength(1);
+      expect(result.value?.imports[0].source).toBe('./bar');
+      expect(result.value?.imports[0].importedSymbols).toContain('foo');
     });
   });
 });

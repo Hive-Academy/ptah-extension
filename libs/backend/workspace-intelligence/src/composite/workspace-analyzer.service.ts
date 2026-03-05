@@ -384,15 +384,21 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
       this.logger.debug(`AST parsed successfully for ${filePath}`);
 
       // Analyze AST (Phase 2: stub returns empty insights)
+      const astValue = astResult.value;
+      if (!astValue) {
+        this.logger.error(`AST parsing returned empty value for ${filePath}`);
+        return null;
+      }
+
       const insightsResult = await this.astAnalyzer.analyzeAst(
-        astResult.value!,
+        astValue,
         filePath
       );
 
       if (insightsResult.isErr()) {
         this.logger.error(
           `AST analysis failed for ${filePath}`,
-          insightsResult.error!
+          insightsResult.error ?? new Error('Unknown analysis error')
         );
         return null;
       }
@@ -400,7 +406,7 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
       this.logger.debug(
         `Code insights extracted for ${filePath} - Phase 2 stub (empty insights)`
       );
-      return insightsResult.value!;
+      return insightsResult.value ?? null;
     } catch (error) {
       this.logger.error(
         `Error extracting code insights from ${filePath}:`,

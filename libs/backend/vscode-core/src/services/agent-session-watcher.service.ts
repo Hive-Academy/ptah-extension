@@ -427,7 +427,7 @@ export class AgentSessionWatcherService extends EventEmitter {
   ): void {
     const watch = this.activeWatches.get(agentId);
     const duration = watch
-      ? Date.now() - (watch as { startedAt?: number }).startedAt!
+      ? Date.now() - ((watch as { startedAt?: number }).startedAt ?? Date.now())
       : undefined;
 
     this.logger.info(

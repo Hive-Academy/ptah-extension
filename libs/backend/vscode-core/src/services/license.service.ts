@@ -266,16 +266,16 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   async verifyLicense(): Promise<LicenseStatus> {
     try {
       // Step 1: Check cache (1-hour TTL)
-      if (this.isCacheValid()) {
+      if (this.isCacheValid() && this.cache.status && this.cache.timestamp) {
         this.logger.debug(
           '[LicenseService.verifyLicense] Returning cached status',
           {
-            tier: this.cache.status!.tier,
-            valid: this.cache.status!.valid,
-            cacheAge: Date.now() - this.cache.timestamp!,
+            tier: this.cache.status.tier,
+            valid: this.cache.status.valid,
+            cacheAge: Date.now() - this.cache.timestamp,
           }
         );
-        return this.cache.status!;
+        return this.cache.status;
       }
 
       // Step 2: Get license key from SecretStorage
@@ -479,7 +479,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
           '[LicenseService.verifyLicense] Returning stale in-memory cached status',
           {
             tier: this.cache.status.tier,
-            cacheAge: Date.now() - this.cache.timestamp!,
+            cacheAge: Date.now() - (this.cache.timestamp ?? 0),
           }
         );
         return this.cache.status;

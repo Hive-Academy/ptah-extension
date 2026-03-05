@@ -61,7 +61,7 @@ function buildProviderNamespace(
       if (setResult.isErr()) {
         throw new Error(
           `Failed to initialize ${providerName} provider: ${
-            setResult.error!.message
+            setResult.error?.message ?? 'Unknown error'
           }`
         );
       }
@@ -76,11 +76,11 @@ function buildProviderNamespace(
 
       if (completionResult.isErr()) {
         throw new Error(
-          `${providerName} chat failed: ${completionResult.error!.message}`
+          `${providerName} chat failed: ${completionResult.error?.message ?? 'Unknown error'}`
         );
       }
 
-      return completionResult.value!;
+      return completionResult.value ?? '';
     },
 
     /**
@@ -138,7 +138,7 @@ export function buildLLMNamespace(
       if (setResult.isErr()) {
         throw new Error(
           `Failed to initialize default provider (${providerName}): ${
-            setResult.error!.message
+            setResult.error?.message ?? 'Unknown error'
           }`
         );
       }
@@ -152,10 +152,10 @@ export function buildLLMNamespace(
       );
 
       if (completionResult.isErr()) {
-        throw new Error(`Chat failed: ${completionResult.error!.message}`);
+        throw new Error(`Chat failed: ${completionResult.error?.message ?? 'Unknown error'}`);
       }
 
-      return completionResult.value!;
+      return completionResult.value ?? '';
     },
 
     /**

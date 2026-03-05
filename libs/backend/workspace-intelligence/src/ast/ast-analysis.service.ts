@@ -99,25 +99,25 @@ export class AstAnalysisService {
         language
       );
       const functions: FunctionInfo[] = functionsResult.isOk()
-        ? this.extractFunctionsFromMatches(functionsResult.value!)
+        ? this.extractFunctionsFromMatches(functionsResult.value ?? [])
         : [];
 
       // Extract classes using query
       const classesResult = this.parserService.queryClasses(content, language);
       const classes: ClassInfo[] = classesResult.isOk()
-        ? this.extractClassesFromMatches(classesResult.value!)
+        ? this.extractClassesFromMatches(classesResult.value ?? [])
         : [];
 
       // Extract imports using query
       const importsResult = this.parserService.queryImports(content, language);
       const imports: ImportInfo[] = importsResult.isOk()
-        ? this.extractImportsFromMatches(importsResult.value!)
+        ? this.extractImportsFromMatches(importsResult.value ?? [])
         : [];
 
       // Extract exports using query
       const exportsResult = this.parserService.queryExports(content, language);
       const exports: ExportInfo[] = exportsResult.isOk()
-        ? this.extractExportsFromMatches(exportsResult.value!)
+        ? this.extractExportsFromMatches(exportsResult.value ?? [])
         : [];
 
       const insights: CodeInsights = {

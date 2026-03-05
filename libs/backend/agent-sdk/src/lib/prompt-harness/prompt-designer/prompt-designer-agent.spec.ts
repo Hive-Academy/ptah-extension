@@ -121,8 +121,8 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     const result = await agent.generateGuidance(baseInput);
 
     expect(result).not.toBeNull();
-    expect(result!.usedFallback).toBe(true);
-    expect(result!.fallbackReason).toBe('LLM service not available');
+    expect((result as Record<string, unknown>).usedFallback).toBe(true);
+    expect((result as Record<string, unknown>).fallbackReason).toBe('LLM service not available');
   });
 
   it('should set usedFallback=true with error reason when generation throws', async () => {
@@ -136,8 +136,8 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     const result = await agent.generateGuidance(baseInput);
 
     expect(result).not.toBeNull();
-    expect(result!.usedFallback).toBe(true);
-    expect(result!.fallbackReason).toBe('Rate limit exceeded');
+    expect((result as Record<string, unknown>).usedFallback).toBe(true);
+    expect((result as Record<string, unknown>).fallbackReason).toBe('Rate limit exceeded');
   });
 
   it('should emit fallback progress status when LLM provider is unavailable', async () => {
@@ -150,7 +150,7 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
       ([progress]: [PromptGenerationProgress]) => progress.status === 'fallback'
     );
     expect(fallbackCall).toBeDefined();
-    expect(fallbackCall![0].status).toBe('fallback');
+    expect((fallbackCall as unknown[])[0].status).toBe('fallback');
   });
 
   it('should emit fallback progress status when generation throws', async () => {
@@ -166,7 +166,7 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
       ([progress]: [PromptGenerationProgress]) => progress.status === 'fallback'
     );
     expect(fallbackCall).toBeDefined();
-    expect(fallbackCall![0].status).toBe('fallback');
+    expect((fallbackCall as unknown[])[0].status).toBe('fallback');
   });
 
   it('should NOT set usedFallback when LLM succeeds', async () => {
@@ -185,8 +185,8 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     const result = await agent.generateGuidance(baseInput);
 
     expect(result).not.toBeNull();
-    expect(result!.usedFallback).toBeUndefined();
-    expect(result!.fallbackReason).toBeUndefined();
+    expect((result as Record<string, unknown>).usedFallback).toBeUndefined();
+    expect((result as Record<string, unknown>).fallbackReason).toBeUndefined();
   });
 
   it('should include the error message in fallbackReason when generation errors', async () => {
@@ -198,8 +198,8 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     const result = await agent.generateGuidance(baseInput);
 
     expect(result).not.toBeNull();
-    expect(result!.usedFallback).toBe(true);
-    expect(result!.fallbackReason).toBe(specificError);
+    expect((result as Record<string, unknown>).usedFallback).toBe(true);
+    expect((result as Record<string, unknown>).fallbackReason).toBe(specificError);
   });
 
   it('should not emit error progress status when falling back due to generation failure', async () => {

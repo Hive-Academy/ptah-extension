@@ -141,7 +141,7 @@ describe.skip('LlmService', () => {
 
       expect(result.isErr()).toBe(true);
       expect(result.error).toBeInstanceOf(LlmProviderError);
-      expect(result.error!.code).toBe('PROVIDER_NOT_FOUND');
+      expect((result.error as LlmProviderError)?.code).toBe('PROVIDER_NOT_FOUND');
     });
 
     it('should return error when completion fails', async () => {

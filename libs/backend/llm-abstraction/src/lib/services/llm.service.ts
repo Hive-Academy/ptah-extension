@@ -208,10 +208,11 @@ export class LlmService implements ILlmService {
             preservedModel: previousModel,
           }
         );
-        return Result.err(result.error!);
+        const err = result.error ?? new LlmProviderError('Unknown provider creation error', 'UNKNOWN_ERROR', providerName);
+        return Result.err(err);
       }
 
-      this.currentProvider = result.value!;
+      this.currentProvider = result.value ?? null;
       this.currentProviderName = providerName;
       this.currentModel = model;
 
@@ -332,14 +333,18 @@ export class LlmService implements ILlmService {
       const providerResult = await this.ensureProvider();
       if (providerResult.isErr()) {
         this.logger.error('[LlmService.getCompletion] Failed to get provider', {
-          error: providerResult.error!.message,
+          error: providerResult.error?.message,
         });
+        const providerErr = providerResult.error ?? new LlmProviderError('Failed to get provider', 'PROVIDER_NOT_INITIALIZED', 'LlmService');
         return Result.err(
-          LlmProviderError.fromError(providerResult.error!, 'unknown')
+          LlmProviderError.fromError(providerErr, 'unknown')
         );
       }
 
-      const provider = providerResult.value!;
+      const provider = providerResult.value;
+      if (!provider) {
+        return Result.err(new LlmProviderError('Provider is unexpectedly undefined', 'UNKNOWN_ERROR', 'LlmService'));
+      }
       const completionResult = await provider.getCompletion(
         systemPrompt,
         userPrompt
@@ -347,13 +352,14 @@ export class LlmService implements ILlmService {
 
       if (completionResult.isErr()) {
         this.logger.error('[LlmService.getCompletion] Completion failed', {
-          error: completionResult.error!.message,
+          error: completionResult.error?.message,
         });
-        return Result.err(completionResult.error!);
+        const completionErr = completionResult.error ?? new LlmProviderError('Completion failed', 'UNKNOWN_ERROR', 'LlmService');
+        return Result.err(completionErr);
       }
 
       this.logger.debug('[LlmService.getCompletion] Successful', {
-        chars: completionResult.value!.length,
+        chars: completionResult.value?.length ?? 0,
       });
       return completionResult;
     } catch (error) {
@@ -405,15 +411,19 @@ export class LlmService implements ILlmService {
         this.logger.error(
           '[LlmService.getStructuredCompletion] Failed to get provider',
           {
-            error: providerResult.error!.message,
+            error: providerResult.error?.message,
           }
         );
+        const providerErr = providerResult.error ?? new LlmProviderError('Failed to get provider', 'PROVIDER_NOT_INITIALIZED', 'LlmService');
         return Result.err(
-          LlmProviderError.fromError(providerResult.error!, 'unknown')
+          LlmProviderError.fromError(providerErr, 'unknown')
         );
       }
 
-      const provider = providerResult.value!;
+      const provider = providerResult.value;
+      if (!provider) {
+        return Result.err(new LlmProviderError('Provider is unexpectedly undefined', 'UNKNOWN_ERROR', 'LlmService'));
+      }
       const result = await provider.getStructuredCompletion(
         prompt,
         schema,
@@ -424,7 +434,7 @@ export class LlmService implements ILlmService {
         this.logger.error(
           '[LlmService.getStructuredCompletion] Completion failed',
           {
-            error: result.error!.message,
+            error: result.error?.message,
           }
         );
       } else {
@@ -463,12 +473,16 @@ export class LlmService implements ILlmService {
       this.logger.error(
         '[LlmService.getModelContextWindow] Failed to get provider',
         {
-          error: providerResult.error!.message,
+          error: providerResult.error?.message,
         }
       );
       return 0;
     }
-    return providerResult.value!.getContextWindowSize();
+    const provider = providerResult.value;
+    if (!provider) {
+      return 0;
+    }
+    return provider.getContextWindowSize();
   }
 
   /**
@@ -496,11 +510,15 @@ export class LlmService implements ILlmService {
     const providerResult = await this.ensureProvider();
     if (providerResult.isErr()) {
       this.logger.error('[LlmService.countTokens] Failed to get provider', {
-        error: providerResult.error!.message,
+        error: providerResult.error?.message,
       });
       return 0;
     }
-    return providerResult.value!.countTokens(text);
+    const provider = providerResult.value;
+    if (!provider) {
+      return 0;
+    }
+    return provider.countTokens(text);
   }
 
   /**

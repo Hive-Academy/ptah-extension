@@ -182,7 +182,7 @@ export function assembleSystemPromptAppend(
   const useCorePrompt = preset === 'claude_code' || (!useEnhanced && isPremium);
 
   if (useEnhanced) {
-    appendParts.push(enhancedPromptsContent!);
+    appendParts.push(enhancedPromptsContent as string);
   } else if (useCorePrompt) {
     appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
   }

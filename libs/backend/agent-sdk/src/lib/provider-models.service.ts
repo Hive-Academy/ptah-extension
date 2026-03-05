@@ -218,7 +218,7 @@ export class ProviderModelsService {
         `[ProviderModelsService] Fetching models from ${provider.name} API`
       );
 
-      const response = await fetch(provider.modelsEndpoint!, {
+      const response = await fetch(provider.modelsEndpoint as string, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${apiKey}`,

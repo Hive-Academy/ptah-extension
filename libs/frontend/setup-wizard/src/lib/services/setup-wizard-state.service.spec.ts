@@ -633,8 +633,8 @@ describe.skip('SetupWizardStateService', () => {
 
       const completionData = service.completionData();
       expect(completionData).not.toBeNull();
-      expect(completionData!.warnings).toEqual(warnings);
-      expect(completionData!.enhancedPromptsUsed).toBe(true);
+      expect(completionData?.warnings).toEqual(warnings);
+      expect(completionData?.enhancedPromptsUsed).toBe(true);
     });
 
     it('should handle GenerationCompletePayload without warnings', () => {
@@ -653,8 +653,8 @@ describe.skip('SetupWizardStateService', () => {
 
       const completionData = service.completionData();
       expect(completionData).not.toBeNull();
-      expect(completionData!.warnings).toBeUndefined();
-      expect(completionData!.enhancedPromptsUsed).toBeUndefined();
+      expect(completionData?.warnings).toBeUndefined();
+      expect(completionData?.enhancedPromptsUsed).toBeUndefined();
     });
 
     it('should map enhancedPromptsUsed=false from payload', () => {
@@ -673,7 +673,7 @@ describe.skip('SetupWizardStateService', () => {
 
       const completionData = service.completionData();
       expect(completionData).not.toBeNull();
-      expect(completionData!.enhancedPromptsUsed).toBe(false);
+      expect(completionData?.enhancedPromptsUsed).toBe(false);
     });
   });
 });

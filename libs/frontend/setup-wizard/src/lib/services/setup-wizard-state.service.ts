@@ -533,7 +533,7 @@ export class SetupWizardStateService {
    * True when totalPhaseCount is set and greater than zero.
    */
   public readonly isMultiPhaseAnalysis = computed(
-    () => this._totalPhaseCount() !== null && this._totalPhaseCount()! > 0
+    () => this._totalPhaseCount() !== null && (this._totalPhaseCount() ?? 0) > 0
   );
 
   /**

@@ -335,9 +335,10 @@ export class SubagentHookHandler {
         );
 
         // Emit background agent completed event through watcher
+        // toolUseId is guaranteed non-null here because record was obtained via `this.subagentRegistry.get(toolUseId)` which requires toolUseId to be truthy
         this.agentWatcher.emitBackgroundAgentCompleted(
           input.agent_id,
-          toolUseId!,
+          toolUseId as string,
           record?.agentType
         );
 
@@ -345,7 +346,7 @@ export class SubagentHookHandler {
         this.agentWatcher.stopWatching(input.agent_id);
 
         // Mark as background_completed (deletes from registry)
-        this.subagentRegistry.update(toolUseId!, {
+        this.subagentRegistry.update(toolUseId as string, {
           status: 'background_completed',
           completedAt: Date.now(),
         });

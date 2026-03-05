@@ -148,7 +148,7 @@ export class TreeSitterParserService {
         return Result.err(
           new Error(
             `Initialization failed before getting preloaded grammar: ${
-              initResult.error!.message
+              initResult.error?.message ?? 'Unknown error'
             }`
           )
         );
@@ -194,7 +194,7 @@ export class TreeSitterParserService {
     }
 
     this.logger.debug(`Using cached parser for language: ${language}`);
-    const cachedParser = this.parserCache.get(language)!;
+    const cachedParser = this.parserCache.get(language) as TreeSitterParser;
 
     const grammarResult = this._getPreloadedGrammar(language); // Call synchronous method
     if (grammarResult.isErr()) {
@@ -202,7 +202,7 @@ export class TreeSitterParserService {
       return Result.err(
         new Error(
           `Failed to re-verify pre-loaded grammar for cached ${language}: ${
-            grammarResult.error!.message
+            grammarResult.error?.message ?? 'Unknown error'
           }`
         )
       );
@@ -234,7 +234,7 @@ export class TreeSitterParserService {
 
     const grammarResult = this._getPreloadedGrammar(language); // Call synchronous method
     if (grammarResult.isErr()) {
-      return Result.err(grammarResult.error!);
+      return Result.err(grammarResult.error ?? new Error('Unknown grammar error'));
     }
 
     try {
@@ -265,7 +265,7 @@ export class TreeSitterParserService {
     const cachedResult = this._getCachedParser(language); // Call synchronous method
 
     if (cachedResult.isErr()) {
-      return Result.err(cachedResult.error!);
+      return Result.err(cachedResult.error ?? new Error('Unknown cache error'));
     }
 
     const cachedParser = cachedResult.value;
@@ -348,12 +348,12 @@ export class TreeSitterParserService {
 
     const initResult = this.initialize();
     if (initResult.isErr()) {
-      return Result.err(initResult.error!);
+      return Result.err(initResult.error ?? new Error('Unknown init error'));
     }
 
     const parserResult = this.getOrCreateParser(language);
     if (parserResult.isErr()) {
-      return Result.err(parserResult.error!);
+      return Result.err(parserResult.error ?? new Error('Unknown parser error'));
     }
     const parser = parserResult.value;
 
@@ -410,18 +410,18 @@ export class TreeSitterParserService {
 
     const initResult = this.initialize();
     if (initResult.isErr()) {
-      return Result.err(initResult.error!);
+      return Result.err(initResult.error ?? new Error('Unknown init error'));
     }
 
     const parserResult = this.getOrCreateParser(language);
     if (parserResult.isErr()) {
-      return Result.err(parserResult.error!);
+      return Result.err(parserResult.error ?? new Error('Unknown parser error'));
     }
     const parser = parserResult.value;
 
     const grammarResult = this._getPreloadedGrammar(language);
     if (grammarResult.isErr()) {
-      return Result.err(grammarResult.error!);
+      return Result.err(grammarResult.error ?? new Error('Unknown grammar error'));
     }
     const grammar = grammarResult.value;
 

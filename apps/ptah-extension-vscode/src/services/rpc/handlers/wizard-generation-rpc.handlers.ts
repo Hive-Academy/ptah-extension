@@ -556,7 +556,7 @@ export class WizardGenerationRpcHandlers {
         const durationMs = Date.now() - startTime;
 
         if (result.isOk()) {
-          const summary = result.value!;
+          const summary = result.value as GenerationSummary;
           this.logger.info('RPC: wizard:submit-selection completed', {
             successful: summary.successful,
             failed: summary.failed,
@@ -850,7 +850,7 @@ export class WizardGenerationRpcHandlers {
         const result = await orchestrator.generateAgents(options);
 
         if (result.isOk()) {
-          const summary = result.value!;
+          const summary = result.value as GenerationSummary;
           this.logger.info('RPC: wizard:retry-item completed', {
             itemId: params.itemId,
             successful: summary.successful,

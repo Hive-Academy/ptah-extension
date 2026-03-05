@@ -479,7 +479,10 @@ export class CopilotSdkAdapter implements CliAdapter {
           };
         }
 
-        session = await this.client!.resumeSession(
+        if (!this.client) {
+          throw new Error('Copilot SDK client not initialized');
+        }
+        session = await this.client.resumeSession(
           options.resumeSessionId,
           resumeConfig
         );
@@ -517,7 +520,10 @@ export class CopilotSdkAdapter implements CliAdapter {
           };
         }
 
-        session = await this.client!.createSession(sessionConfig);
+        if (!this.client) {
+          throw new Error('Copilot SDK client not initialized');
+        }
+        session = await this.client.createSession(sessionConfig);
         actualSessionId = session.sessionId;
       }
     } catch (error) {
