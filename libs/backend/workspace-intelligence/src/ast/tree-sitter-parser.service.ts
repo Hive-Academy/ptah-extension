@@ -20,8 +20,7 @@ interface TreeSitterParser {
 }
 
 /** Opaque type representing a tree-sitter language grammar. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-interface TreeSitterLanguage {}
+type TreeSitterLanguage = Record<string, unknown>;
 
 /** Opaque type representing a tree-sitter parse tree. */
 interface TreeSitterTree {

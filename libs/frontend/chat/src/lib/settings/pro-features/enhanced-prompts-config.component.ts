@@ -44,7 +44,7 @@ import { MarkdownBlockComponent } from '../../components/atoms/markdown-block.co
             type="checkbox"
             class="toggle toggle-primary toggle-xs"
             [checked]="enhancedPromptsEnabled()"
-            (change)="toggleEnhancedPrompts($any($event.target).checked)"
+            (change)="onToggleEnhancedPrompts($event)"
             [disabled]="!hasGeneratedPrompt() && !enhancedPromptsEnabled()"
             aria-label="Toggle Enhanced System Prompt"
           />
@@ -267,6 +267,11 @@ export class EnhancedPromptsConfigComponent implements OnInit {
     } finally {
       this.enhancedPromptsLoading.set(false);
     }
+  }
+
+  public onToggleEnhancedPrompts(event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.toggleEnhancedPrompts(checked);
   }
 
   async toggleEnhancedPrompts(enabled: boolean): Promise<void> {

@@ -102,11 +102,12 @@ interface PastedImage {
         <ptah-file-tag [file]="file" (removeFile)="removeFile(file.path)" />
         } @for (img of pastedImages(); track img.id) {
         <div class="relative group">
-          <img
-            [src]="img.dataUrl"
-            [alt]="img.name"
-            class="w-16 h-16 object-cover rounded-lg border border-base-300"
-          />
+          <div
+            class="w-16 h-16 rounded-lg border border-base-300 bg-cover bg-center"
+            [style.background-image]="'url(' + img.dataUrl + ')'"
+            [attr.aria-label]="img.name"
+            role="img"
+          ></div>
           <button
             class="absolute -top-1.5 -right-1.5 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
             (click)="removePastedImage(img.id)"

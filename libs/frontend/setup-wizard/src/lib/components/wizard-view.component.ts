@@ -128,6 +128,8 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             class="step cursor-pointer hover:opacity-80 transition-opacity"
             [class.step-primary]="stepIndex() >= 0"
             (click)="navigateToStep(0)"
+            (keyup.enter)="navigateToStep(0)"
+            tabindex="0"
             title="Go to Welcome"
           >
             Welcome
@@ -138,6 +140,8 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             [class.pointer-events-none]="!canNavigateToStep(1)"
             [class.opacity-50]="!canNavigateToStep(1)"
             (click)="navigateToStep(1)"
+            (keyup.enter)="navigateToStep(1)"
+            tabindex="0"
             title="Go to Scan"
           >
             Scan
@@ -148,6 +152,8 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             [class.pointer-events-none]="!canNavigateToStep(2)"
             [class.opacity-50]="!canNavigateToStep(2)"
             (click)="navigateToStep(2)"
+            (keyup.enter)="navigateToStep(2)"
+            tabindex="0"
             title="Go to Analysis"
           >
             Analysis
@@ -158,6 +164,8 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             [class.pointer-events-none]="!canNavigateToStep(3)"
             [class.opacity-50]="!canNavigateToStep(3)"
             (click)="navigateToStep(3)"
+            (keyup.enter)="navigateToStep(3)"
+            tabindex="0"
             title="Go to Selection"
           >
             Select
@@ -168,6 +176,8 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             [class.pointer-events-none]="!canNavigateToStep(4)"
             [class.opacity-50]="!canNavigateToStep(4)"
             (click)="navigateToStep(4)"
+            (keyup.enter)="navigateToStep(4)"
+            tabindex="0"
             title="Go to Generation"
           >
             Generate
@@ -178,6 +188,8 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             [class.pointer-events-none]="!canNavigateToStep(5)"
             [class.opacity-50]="!canNavigateToStep(5)"
             (click)="navigateToStep(5)"
+            (keyup.enter)="navigateToStep(5)"
+            tabindex="0"
             title="Go to Enhance"
           >
             Enhance
@@ -188,6 +200,8 @@ type LicenseState = 'checking' | 'valid' | 'invalid';
             [class.pointer-events-none]="!canNavigateToStep(6)"
             [class.opacity-50]="!canNavigateToStep(6)"
             (click)="navigateToStep(6)"
+            (keyup.enter)="navigateToStep(6)"
+            tabindex="0"
             title="Go to Complete"
           >
             Complete

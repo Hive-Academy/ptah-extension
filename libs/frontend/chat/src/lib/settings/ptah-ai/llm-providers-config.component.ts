@@ -253,6 +253,11 @@ export class LlmProvidersConfigComponent implements OnInit {
    * @param provider - The provider whose model input is being updated
    * @param value - The current input value
    */
+  public updateModelInputEvent(provider: string, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    this.updateModelInput(provider, value);
+  }
+
   updateModelInput(provider: string, value: string): void {
     const updated = new Map(this.modelInputs());
     updated.set(provider, value);
@@ -295,6 +300,11 @@ export class LlmProvidersConfigComponent implements OnInit {
    * @param provider - The LLM provider
    * @param modelId - The selected model ID
    */
+  public onProviderModelSelectEvent(provider: LlmProviderName, event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.onProviderModelSelect(provider, value);
+  }
+
   async onProviderModelSelect(
     provider: LlmProviderName,
     modelId: string

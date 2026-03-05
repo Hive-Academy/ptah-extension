@@ -119,15 +119,15 @@ import type {
               <select
                 id="agent-gemini-model"
                 class="select select-bordered select-xs w-full"
-                (change)="setAgentModel('gemini', $any($event.target).value)"
+                (change)="onModelSelect('gemini', $event)"
               >
-                <option value="" [selected]="!agentConfig()!.geminiModel">
+                <option value="" [selected]="!agentConfig()?.geminiModel">
                   Default
                 </option>
                 @for (model of geminiModels(); track model.id) {
                 <option
                   [value]="model.id"
-                  [selected]="model.id === agentConfig()!.geminiModel"
+                  [selected]="model.id === agentConfig()?.geminiModel"
                 >
                   {{ model.name }}
                 </option>
@@ -148,15 +148,15 @@ import type {
               <select
                 id="agent-copilot-model"
                 class="select select-bordered select-xs w-full"
-                (change)="setAgentModel('copilot', $any($event.target).value)"
+                (change)="onModelSelect('copilot', $event)"
               >
-                <option value="" [selected]="!agentConfig()!.copilotModel">
+                <option value="" [selected]="!agentConfig()?.copilotModel">
                   Default
                 </option>
                 @for (model of copilotModels(); track model.id) {
                 <option
                   [value]="model.id"
-                  [selected]="model.id === agentConfig()!.copilotModel"
+                  [selected]="model.id === agentConfig()?.copilotModel"
                 >
                   {{ model.name }}
                 </option>
@@ -224,11 +224,11 @@ import type {
           <select
             id="agent-default-cli"
             class="select select-bordered select-xs w-full"
-            [value]="agentConfig()!.defaultCli ?? 'auto'"
-            (change)="setAgentDefaultCli($any($event.target).value)"
+            [value]="agentConfig()?.defaultCli ?? 'auto'"
+            (change)="onDefaultCliSelect($event)"
           >
             <option value="auto">Auto-detect</option>
-            @for (cli of agentConfig()!.detectedClis; track cli.ptahCliId ??
+            @for (cli of agentConfig()?.detectedClis; track cli.ptahCliId ??
             cli.cli) { @if (cli.installed) {
             <option [value]="cli.ptahCliId ?? cli.cli">
               {{ cli.ptahCliName ?? (cli.cli | titlecase) }}
@@ -248,7 +248,7 @@ import type {
               Max Concurrent Agents
             </label>
             <span class="text-xs text-base-content/50">
-              {{ agentConfig()!.maxConcurrentAgents }}
+              {{ agentConfig()?.maxConcurrentAgents }}
             </span>
           </div>
           <input
@@ -256,8 +256,8 @@ import type {
             type="range"
             min="1"
             max="10"
-            [value]="agentConfig()!.maxConcurrentAgents"
-            (change)="setAgentMaxConcurrent($any($event.target).valueAsNumber)"
+            [value]="agentConfig()?.maxConcurrentAgents"
+            (change)="onMaxConcurrentChange($event)"
             class="range range-xs range-primary"
           />
           <div
@@ -357,6 +357,21 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     } catch {
       // Non-fatal: dropdowns will just be empty
     }
+  }
+
+  public onModelSelect(cli: 'gemini' | 'copilot', event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.setAgentModel(cli, value);
+  }
+
+  public onDefaultCliSelect(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.setAgentDefaultCli(value);
+  }
+
+  public onMaxConcurrentChange(event: Event): void {
+    const value = (event.target as HTMLInputElement).valueAsNumber;
+    this.setAgentMaxConcurrent(value);
   }
 
   async setAgentDefaultCli(cli: string): Promise<void> {

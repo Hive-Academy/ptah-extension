@@ -66,7 +66,7 @@ import { LlmProviderStateService } from '@ptah-extension/core';
             id="vscode-lm-model"
             class="select select-bordered select-xs flex-1 min-w-0 max-w-[260px] text-xs truncate"
             [value]="provider.defaultModel"
-            (change)="onVsCodeModelSelect($any($event.target).value)"
+            (change)="onVsCodeModelSelectEvent($event)"
             [disabled]="savingModel()"
             aria-label="VS Code LM model"
           >
@@ -148,6 +148,11 @@ export class VscodeLmConfigComponent implements OnInit {
   async ngOnInit(): Promise<void> {
     await this.llmState.loadProviderStatus();
     await this.llmState.loadVsCodeModels();
+  }
+
+  public onVsCodeModelSelectEvent(event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    this.onVsCodeModelSelect(value);
   }
 
   async onVsCodeModelSelect(modelId: string): Promise<void> {
