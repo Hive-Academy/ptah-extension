@@ -3,6 +3,7 @@
  * TASK_2025_157: Branded AgentId, status enum, process tracking types
  */
 import { v4 as uuidv4 } from 'uuid';
+import type { FlatStreamEventUnion } from './execution-node.types';
 
 // ========================================
 // Branded AgentId Type
@@ -80,6 +81,8 @@ export interface AgentProcessInfo {
   parentSessionId?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
   readonly ptahCliName?: string;
+  /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
+  readonly ptahCliId?: string;
 }
 
 // ========================================
@@ -93,7 +96,7 @@ export interface SpawnAgentRequest {
   readonly cli?: CliType;
   /** Working directory (defaults to workspace root) */
   readonly workingDirectory?: string;
-  /** Timeout in milliseconds (default: 600000 = 10min, max: 1800000 = 30min) */
+  /** Timeout in milliseconds (default: 3600000 = 1hr, max: 3600000 = 1hr) */
   readonly timeout?: number;
   /** Files the agent should focus on */
   readonly files?: string[];
@@ -107,6 +110,13 @@ export interface SpawnAgentRequest {
   readonly parentSessionId?: string;
   /** Project-specific guidance (enhanced prompts). Injected by MCP server, NOT set by callers. */
   readonly projectGuidance?: string;
+  /** Full system prompt content (prompt harness). Replaces projectGuidance for premium users.
+   *  Includes core prompt, enhanced prompts, skill catalog. Injected by MCP server, NOT set by callers. */
+  readonly systemPrompt?: string;
+  /** Absolute paths to enabled plugin directories. Premium-gated.
+   *  Each directory contains skills/ subdirectory with SKILL.md files.
+   *  Injected by MCP server, NOT set by callers. */
+  readonly pluginPaths?: string[];
   /** Ptah CLI agent ID from PtahCliRegistry. When set, spawns via Ptah CLI agent instead of CLI. */
   readonly ptahCliId?: string;
 }
@@ -138,6 +148,8 @@ export interface SpawnAgentResult {
   readonly cliSessionId?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
   readonly ptahCliName?: string;
+  /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
+  readonly ptahCliId?: string;
 }
 
 // ========================================
@@ -195,6 +207,8 @@ export interface CliOutputSegment {
   readonly exitCode?: number;
   /** File change kind: 'added', 'modified', 'deleted' (for file-change) */
   readonly changeKind?: string;
+  /** Links a tool-call segment to its corresponding tool-result segment */
+  readonly toolCallId?: string;
 }
 
 // ========================================
@@ -208,6 +222,8 @@ export interface AgentOutputDelta {
   readonly timestamp: number;
   /** Structured output segments from SDK-based adapters (optional — absent for raw CLI adapters) */
   readonly segments?: readonly CliOutputSegment[];
+  /** Rich streaming events from Ptah CLI adapter (optional — only ptah-cli uses this) */
+  readonly streamEvents?: readonly FlatStreamEventUnion[];
 }
 
 // ========================================
@@ -235,4 +251,8 @@ export interface CliSessionReference {
   readonly stdout?: string;
   /** Persisted structured output segments. Absent in older sessions. */
   readonly segments?: readonly CliOutputSegment[];
+  /** Persisted rich streaming events (Ptah CLI only). Absent in older sessions. */
+  readonly streamEvents?: readonly FlatStreamEventUnion[];
+  /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
+  readonly ptahCliId?: string;
 }

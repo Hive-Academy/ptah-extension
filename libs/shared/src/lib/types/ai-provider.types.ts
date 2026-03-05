@@ -70,6 +70,7 @@ export interface AIMessageOptions {
   readonly temperature?: number;
   readonly maxTokens?: number;
   readonly files?: string[];
+  readonly images?: ReadonlyArray<{ data: string; mediaType: string }>;
   readonly correlationId?: CorrelationId;
   readonly timeout?: number;
   readonly streaming?: boolean;
@@ -176,6 +177,8 @@ export interface IAIProvider {
       prompt?: string;
       /** Files to attach (optional) */
       files?: readonly string[];
+      /** Inline images (pasted/dropped) to include with the initial message */
+      images?: ReadonlyArray<{ data: string; mediaType: string }>;
     }
   ): Promise<Readable>;
   endSession(sessionId: SessionId): void;

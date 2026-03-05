@@ -34,6 +34,14 @@ import type { AgentPermissionDecision } from './agent-permission.types';
 // Chat RPC Types
 // ============================================================
 
+/** Inline image attachment (pasted or dropped into chat) */
+export interface InlineImageAttachment {
+  /** Base64-encoded image data (no data URI prefix) */
+  data: string;
+  /** MIME type (e.g., 'image/png', 'image/jpeg') */
+  mediaType: string;
+}
+
 export interface ChatStartParams {
   /** Initial prompt to send (optional) */
   prompt?: string;
@@ -54,6 +62,8 @@ export interface ChatStartParams {
     model?: string;
     systemPrompt?: string;
     files?: string[];
+    /** Inline images (pasted/dropped) to include with the message */
+    images?: InlineImageAttachment[];
     /**
      * System prompt preset selection.
      * - 'claude_code': Default preset with minimal customization
@@ -91,6 +101,8 @@ export interface ChatContinueParams {
   model?: string;
   /** File paths to include with the message */
   files?: string[];
+  /** Inline images (pasted/dropped) to include with the message */
+  images?: InlineImageAttachment[];
 }
 
 /** Response from chat:continue RPC method */
@@ -249,6 +261,18 @@ export interface SessionValidateResult {
   exists: boolean;
   /** Full path to the session file (if it exists) */
   filePath?: string;
+}
+
+/** Parameters for session:cli-sessions RPC method */
+export interface SessionCliSessionsParams {
+  /** Parent session ID to get CLI sessions for */
+  sessionId: string;
+}
+
+/** Response from session:cli-sessions RPC method */
+export interface SessionCliSessionsResult {
+  /** CLI session references from session metadata */
+  cliSessions: import('./agent-process.types').CliSessionReference[];
 }
 
 // ============================================================
@@ -1250,6 +1274,8 @@ export interface AgentOrchestrationConfig {
   geminiModel: string;
   /** Per-CLI model: Copilot model (empty string = default) */
   copilotModel: string;
+  /** Auto-approve all Copilot tool calls without user prompt (default: true) */
+  copilotAutoApprove: boolean;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -1276,6 +1302,8 @@ export interface AgentSetConfigParams {
   geminiModel?: string;
   /** Copilot model override (empty string = default) */
   copilotModel?: string;
+  /** Auto-approve all Copilot tool calls (default: true) */
+  copilotAutoApprove?: boolean;
 }
 
 // ============================================================
@@ -1401,6 +1429,10 @@ export interface RpcMethodRegistry {
   'session:validate': {
     params: SessionValidateParams;
     result: SessionValidateResult;
+  };
+  'session:cli-sessions': {
+    params: SessionCliSessionsParams;
+    result: SessionCliSessionsResult;
   };
 
   // ---- Context Methods ----
@@ -1752,6 +1784,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'session:load',
   'session:delete',
   'session:validate',
+  'session:cli-sessions',
 
   // Context Methods
   'context:getAllFiles',

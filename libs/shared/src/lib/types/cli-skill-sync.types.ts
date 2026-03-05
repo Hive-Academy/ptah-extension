@@ -14,12 +14,12 @@
 
 import type { CliType } from './agent-process.types';
 
-/**
- * CLI targets that support Ptah skill/agent integration.
- * Derived from CliType — excludes 'codex' since Codex does not support
- * user-level skill/agent directories.
+/** CLI targets that support user-level skill directories.
+ *  - copilot: ~/.copilot/skills/
+ *  - gemini: ~/.gemini/skills/
+ *  - codex: ~/.agents/skills/
  */
-export type CliTarget = Extract<CliType, 'copilot' | 'gemini'>;
+export type CliTarget = Extract<CliType, 'copilot' | 'gemini' | 'codex'>;
 
 // ========================================
 // Agent Transform Result
