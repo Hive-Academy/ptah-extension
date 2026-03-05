@@ -596,6 +596,9 @@ Enhanced typography, visual hierarchy, and reading comfort
   max-width: none;
   line-height: 1.7;
   letter-spacing: 0.01em;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 
 /* --- Headings: Distinct hierarchy with decorative accents --- */
@@ -681,7 +684,9 @@ Enhanced typography, visual hierarchy, and reading comfort
     monospace;
   font-size: 0.85em;
   color: oklch(var(--wa)); /* warning (amber) */
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 /* --- Code blocks: Elevated card with subtle shadow --- */
@@ -714,6 +719,8 @@ Enhanced typography, visual hierarchy, and reading comfort
   text-decoration: none;
   border-bottom: 1px solid oklch(var(--in) / 0.3);
   transition: color 0.15s ease, border-color 0.15s ease;
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 .prose a:hover {
@@ -1204,6 +1211,15 @@ Scales down the main .prose typography while preserving visual hierarchy.
 .agent-prose {
   font-size: 11px;
   line-height: 1.55;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.agent-prose a,
+.agent-prose code {
+  overflow-wrap: break-word;
+  word-break: break-all;
 }
 
 .agent-prose h1,
