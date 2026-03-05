@@ -113,6 +113,16 @@ const SDK_ENHANCED_PROMPTS_SERVICE = Symbol.for('SdkEnhancedPromptsService');
  */
 const SDK_PTAH_CLI_REGISTRY = Symbol.for('SdkPtahCliRegistry');
 
+/**
+ * Duplicated from SDK_TOKENS.SDK_PLUGIN_LOADER to avoid circular dependency
+ * between vscode-lm-tools -> agent-sdk. Must match the string in:
+ * libs/backend/agent-sdk/src/lib/di/tokens.ts
+ *
+ * @see SDK_TOKENS.SDK_PLUGIN_LOADER in libs/backend/agent-sdk/src/lib/di/tokens.ts
+ * @warning Keep Symbol.for() string value in sync with the canonical definition
+ */
+const SDK_PLUGIN_LOADER = Symbol.for('SdkPluginLoader');
+
 @injectable()
 export class PtahAPIBuilder {
   constructor(
@@ -300,6 +310,53 @@ export class PtahAPIBuilder {
             return undefined;
           }
         },
+        getSystemPrompt: async () => {
+          // Resolve EnhancedPromptsService lazily for the full enhanced prompt content.
+          // Returns the full enhanced prompts (project guidance + framework guidelines +
+          // coding standards + architecture notes) for use as CLI agent system prompt.
+          if (!container.isRegistered(SDK_ENHANCED_PROMPTS_SERVICE)) {
+            return undefined;
+          }
+          try {
+            const service = container.resolve<{
+              getEnhancedPromptContent(
+                workspacePath: string
+              ): Promise<string | null>;
+            }>(SDK_ENHANCED_PROMPTS_SERVICE);
+            const workspacePath = this.getWorkspaceRoot().fsPath;
+            const content = await service.getEnhancedPromptContent(
+              workspacePath
+            );
+            return content ?? undefined;
+          } catch {
+            return undefined;
+          }
+        },
+        getPluginPaths: async () => {
+          // Resolve PluginLoaderService lazily to get enabled plugin paths (premium-gated).
+          // Skills are synced to CLI directories by CliPluginSyncService on activation.
+          if (!container.isRegistered(SDK_PLUGIN_LOADER)) {
+            return undefined;
+          }
+          try {
+            const pluginLoader = container.resolve<{
+              getWorkspacePluginConfig(): {
+                enabledPluginIds: string[];
+              };
+              resolvePluginPaths(pluginIds: string[]): string[];
+            }>(SDK_PLUGIN_LOADER);
+            const config = pluginLoader.getWorkspacePluginConfig();
+            if (
+              !config.enabledPluginIds ||
+              config.enabledPluginIds.length === 0
+            ) {
+              return undefined;
+            }
+            return pluginLoader.resolvePluginPaths(config.enabledPluginIds);
+          } catch {
+            return undefined;
+          }
+        },
         getPtahCliRegistry: () => {
           // Resolve PtahCliRegistry lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
           // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
@@ -320,7 +377,10 @@ export class PtahAPIBuilder {
               spawnAgent(
                 id: string,
                 task: string,
-                projectGuidance?: string
+                options?: {
+                  projectGuidance?: string;
+                  workingDirectory?: string;
+                }
               ): Promise<
                 | {
                     handle: {

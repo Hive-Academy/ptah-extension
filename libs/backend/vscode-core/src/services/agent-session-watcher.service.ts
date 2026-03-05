@@ -324,6 +324,51 @@ export class AgentSessionWatcherService extends EventEmitter {
   }
 
   /**
+   * Stop all watches associated with a given session ID.
+   *
+   * TASK_2025_175: Called when a session is aborted to ensure all agent
+   * watchers (including background agents) are cleaned up. Without this,
+   * background agent watchers continue tailing files and emitting events
+   * to a dead session indefinitely.
+   *
+   * @param sessionId - The session ID whose watches should be stopped
+   */
+  stopAllForSession(sessionId: string): void {
+    const agentIdsToStop: string[] = [];
+
+    for (const [agentId, watch] of this.activeWatches) {
+      if (watch.sessionId === sessionId) {
+        agentIdsToStop.push(agentId);
+      }
+    }
+
+    if (agentIdsToStop.length === 0) {
+      return;
+    }
+
+    this.logger.info('[AgentSessionWatcher] Stopping all watches for session', {
+      sessionId,
+      agentCount: agentIdsToStop.length,
+      agentIds: agentIdsToStop,
+    });
+
+    for (const agentId of agentIdsToStop) {
+      try {
+        this.stopWatching(agentId);
+      } catch (err) {
+        // TASK_2025_175: Don't let one failure prevent cleanup of remaining watches
+        this.logger.warn(
+          '[AgentSessionWatcher] Failed to stop watch for agent',
+          {
+            agentId,
+            error: err instanceof Error ? err.message : String(err),
+          }
+        );
+      }
+    }
+  }
+
+  /**
    * Mark an agent as running in the background.
    *
    * Background agents are NOT stopped when stopWatching is called with

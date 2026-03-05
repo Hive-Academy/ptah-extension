@@ -299,7 +299,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         timeout: {
           type: 'number',
           description:
-            'Timeout in milliseconds (default: 600000 = 10min, max: 1800000 = 30min)',
+            'Timeout in milliseconds (default: 3600000 = 1hr, max: 3600000 = 1hr)',
         },
         files: {
           type: 'array',

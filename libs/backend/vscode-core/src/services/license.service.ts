@@ -112,6 +112,26 @@ export interface LicenseStatus {
 }
 
 /**
+ * Determine if a license status represents a premium tier (Pro or Trial Pro).
+ *
+ * Single source of truth for premium gating logic. Use this function
+ * instead of duplicating tier checks across the codebase.
+ *
+ * Premium = valid license AND (plan.isPremium OR tier is 'pro'/'trial_pro')
+ *
+ * @param licenseStatus - The license status from verification
+ * @returns true if the user has premium features enabled
+ */
+export function isPremiumTier(licenseStatus: LicenseStatus): boolean {
+  return (
+    licenseStatus.valid &&
+    (licenseStatus.plan?.isPremium === true ||
+      licenseStatus.tier === 'pro' ||
+      licenseStatus.tier === 'trial_pro')
+  );
+}
+
+/**
  * Events emitted by LicenseService for license status changes
  */
 export interface LicenseEvents {

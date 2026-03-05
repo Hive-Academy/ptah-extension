@@ -114,7 +114,7 @@ export type {
 } from './services/auth-secrets.service';
 
 // License Service (TASK_2025_075, TASK_2025_121)
-export { LicenseService } from './services/license.service';
+export { LicenseService, isPremiumTier } from './services/license.service';
 export type {
   LicenseStatus,
   LicenseEvents,

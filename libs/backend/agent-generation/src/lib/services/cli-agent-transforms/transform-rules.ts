@@ -75,6 +75,12 @@ const CLI_TOOL_MAPPINGS: Record<
     slashPrefix: 'gemini',
     productName: 'Gemini CLI',
   },
+  codex: {
+    askUser: 'ask the user directly in your response',
+    taskDelegate: 'codex exec',
+    slashPrefix: 'codex',
+    productName: 'Codex CLI',
+  },
 };
 
 // ========================================
