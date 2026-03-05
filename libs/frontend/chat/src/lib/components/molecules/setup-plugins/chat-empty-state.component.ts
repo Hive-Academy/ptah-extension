@@ -4,6 +4,7 @@ import {
   inject,
   signal,
   computed,
+  output,
   ViewChild,
 } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
@@ -16,6 +17,7 @@ import {
 import { SetupStatusWidgetComponent } from './setup-status-widget.component';
 import { PluginStatusWidgetComponent } from './plugin-status-widget.component';
 import { PluginBrowserModalComponent } from './plugin-browser-modal.component';
+import { PromptSuggestionsComponent } from './prompt-suggestions.component';
 import {
   VSCodeService,
   ClaudeRpcService,
@@ -58,6 +60,7 @@ import { ChatStore } from '../../../services/chat.store';
     SetupStatusWidgetComponent,
     PluginStatusWidgetComponent,
     PluginBrowserModalComponent,
+    PromptSuggestionsComponent,
     NgOptimizedImage,
     LucideAngularModule,
   ],
@@ -189,84 +192,10 @@ import { ChatStore } from '../../../services/chat.store';
           </div>
         </div>
 
-        <!-- Capabilities Section -->
-        <div class="w-full">
-          <div class="flex items-center gap-2 mb-3">
-            <span class="text-secondary text-base">☥</span>
-            <h3
-              class="text-xs md:text-sm font-semibold text-secondary uppercase tracking-wider"
-            >
-              Capabilities
-            </h3>
-            <div
-              class="divider divider-horizontal flex-1 my-0 before:bg-secondary/20 after:bg-transparent"
-            ></div>
-          </div>
-
-          <div class="grid grid-cols-3 gap-1.5 md:gap-2">
-            <div
-              class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
-            >
-              <div class="card-body items-center text-center p-2 md:p-3">
-                <span class="text-base md:text-xl">𓂀</span>
-                <span class="text-[10px] md:text-xs font-medium"
-                  >Orchestrate</span
-                >
-                <span class="text-[8px] md:text-[10px] text-base-content/50"
-                  >Workflows</span
-                >
-              </div>
-            </div>
-            <div
-              class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
-            >
-              <div class="card-body items-center text-center p-2 md:p-3">
-                <span class="text-base md:text-xl">𓁹</span>
-                <span class="text-[10px] md:text-xs font-medium"
-                  >Architect</span
-                >
-                <span class="text-[8px] md:text-[10px] text-base-content/50"
-                  >Gen code</span
-                >
-              </div>
-            </div>
-            <div
-              class="card bg-base-200/50 border border-base-300 hover:border-secondary/30 hover:bg-base-200 transition-all duration-200 hover:-translate-y-0.5"
-            >
-              <div class="card-body items-center text-center p-2 md:p-3">
-                <span class="text-base md:text-xl">𓅓</span>
-                <span class="text-[10px] md:text-xs font-medium">Review</span>
-                <span class="text-[8px] md:text-[10px] text-base-content/50"
-                  >Modernize</span
-                >
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Get Started Command -->
-        <div class="w-full">
-          <div class="card bg-base-300/50 border border-base-content/10">
-            <div class="card-body p-4">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="text-base">📜</span>
-                <span class="text-xs md:text-sm font-semibold text-base-content"
-                  >Get Started</span
-                >
-              </div>
-              <div class="mockup-code bg-base-100 py-2 px-4 min-h-0">
-                <pre
-                  data-prefix=">"
-                  class="text-secondary"
-                ><code class="text-xs md:text-sm">/orchestrate <span class="text-base-content/40">[your vision]</span></code></pre>
-              </div>
-              <p class="text-[10px] md:text-xs text-base-content/50 mt-2">
-                Describe what you want to build and let Ptah orchestrate the
-                workflow
-              </p>
-            </div>
-          </div>
-        </div>
+        <!-- Prompt Suggestions with tab-card layout (TASK_2025_174) -->
+        <ptah-prompt-suggestions
+          (promptSelected)="promptSelected.emit($event)"
+        />
       </div>
       }
 
@@ -350,29 +279,10 @@ import { ChatStore } from '../../../services/chat.store';
           </div>
         </div>
 
-        <!-- Get Started Command -->
-        <div class="w-full">
-          <div class="card bg-base-300/50 border border-base-content/10">
-            <div class="card-body p-4">
-              <div class="flex items-center gap-2 mb-2">
-                <span class="text-base">📜</span>
-                <span class="text-xs md:text-sm font-semibold text-base-content"
-                  >Get Started</span
-                >
-              </div>
-              <div class="mockup-code bg-base-100 py-2 px-4 min-h-0">
-                <pre
-                  data-prefix=">"
-                  class="text-secondary"
-                ><code class="text-xs md:text-sm">/orchestrate <span class="text-base-content/40">[your vision]</span></code></pre>
-              </div>
-              <p class="text-[10px] md:text-xs text-base-content/50 mt-2">
-                Describe what you want to build and let Ptah orchestrate the
-                workflow
-              </p>
-            </div>
-          </div>
-        </div>
+        <!-- Prompt Suggestions (TASK_2025_174) -->
+        <ptah-prompt-suggestions
+          (promptSelected)="promptSelected.emit($event)"
+        />
       </div>
       }
 
@@ -399,23 +309,6 @@ import { ChatStore } from '../../../services/chat.store';
         height: 100%;
         /* Use CSS variable from design system for subtle gradient */
         background: var(--gradient-panel);
-      }
-
-      /* Minimal custom styles - only what's not in the design system */
-
-      /* Card body override for compact layout */
-      .card-body {
-        padding: var(--sidebar-spacing-md);
-      }
-
-      /* Mockup code minimal height */
-      .mockup-code {
-        min-height: auto;
-      }
-
-      .mockup-code pre {
-        padding-top: 0.25rem;
-        padding-bottom: 0.25rem;
       }
 
       /* Tab content animation */
@@ -458,6 +351,9 @@ export class ChatEmptyStateComponent {
 
   @ViewChild(PluginStatusWidgetComponent)
   private pluginWidget?: PluginStatusWidgetComponent;
+
+  /** Emitted when user selects a prompt suggestion (TASK_2025_174) */
+  readonly promptSelected = output<string>();
 
   /** Lucide icon references for template binding */
   protected readonly ScanSearchIcon = ScanSearch;

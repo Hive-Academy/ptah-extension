@@ -28,6 +28,7 @@ export interface RenderSegment {
   readonly toolArgs?: string;
   readonly exitCode?: number;
   readonly changeKind?: string;
+  readonly toolCallId?: string;
 }
 
 /** Parsed stderr segment — informational vs actual error */

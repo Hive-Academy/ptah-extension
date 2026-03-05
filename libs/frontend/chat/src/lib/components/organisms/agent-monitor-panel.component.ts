@@ -11,7 +11,11 @@
  */
 
 import { Component, inject, ChangeDetectionStrategy } from '@angular/core';
-import { LucideAngularModule, X, Trash2 } from 'lucide-angular';
+import { SlicePipe } from '@angular/common';
+import { LucideAngularModule, X, Trash2, ShieldAlert } from 'lucide-angular';
+import { VSCodeService } from '@ptah-extension/core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { AgentPermissionRequest } from '@ptah-extension/shared';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { PanelResizeService } from '../../services/panel-resize.service';
 import { AgentCardComponent } from '../molecules/agent-card/agent-card.component';
@@ -19,20 +23,20 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
 @Component({
   selector: 'ptah-agent-monitor-panel',
   standalone: true,
-  imports: [LucideAngularModule, AgentCardComponent],
+  imports: [LucideAngularModule, AgentCardComponent, SlicePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .agent-panel-open {
-      width: 460px;
+      width: 360px;
     }
     @media (min-width: 1280px) {
       .agent-panel-open {
-        width: 540px;
+        width: 440px;
       }
     }
     @media (min-width: 1536px) {
       .agent-panel-open {
-        width: 640px;
+        width: 540px;
       }
     }
   `,
@@ -78,6 +82,59 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
         </div>
       </div>
 
+      <!-- Sticky permission banner — always visible at top when any agent has a pending permission -->
+      @if (store.pendingPermissions().length > 0) {
+      <div
+        class="flex-shrink-0 border-b border-warning/30"
+        style="min-width: 300px"
+      >
+        @for (agent of store.pendingPermissions(); track agent.agentId) {
+        <div
+          class="bg-warning/10 px-3 py-2 flex flex-col gap-1.5 border-b border-warning/10 last:border-b-0"
+        >
+          <div class="flex items-center gap-2">
+            <lucide-angular
+              [img]="ShieldAlertIcon"
+              class="w-3.5 h-3.5 text-warning flex-shrink-0"
+            />
+            <span class="badge badge-xs badge-warning">Permission</span>
+            <span class="text-[10px] text-base-content/50 truncate">
+              {{ agent.cli }} &middot; {{ agent.task | slice : 0 : 30 }}
+            </span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <code
+              class="text-[10px] font-mono text-accent bg-base-200/60 px-1.5 py-0.5 rounded"
+            >
+              {{ agent.permissionQueue[0].toolName }}
+            </code>
+            @if (agent.permissionQueue[0].toolArgs) {
+            <span class="text-[10px] text-base-content/40 font-mono truncate">
+              {{ agent.permissionQueue[0].toolArgs }}
+            </span>
+            }
+          </div>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="btn btn-xs btn-success"
+              (click)="allowPermission(agent.agentId, agent.permissionQueue[0])"
+            >
+              Allow
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-error btn-outline"
+              (click)="denyPermission(agent.agentId, agent.permissionQueue[0])"
+            >
+              Deny
+            </button>
+          </div>
+        </div>
+        }
+      </div>
+      }
+
       <!-- Agent list: accordion layout — expanded cards get definite 55vh height, collapsed cards auto-size to header -->
       <div
         class="flex-1 overflow-y-auto p-2 flex flex-col gap-2 min-h-0"
@@ -109,7 +166,29 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
 export class AgentMonitorPanelComponent {
   readonly store = inject(AgentMonitorStore);
   readonly resizeService = inject(PanelResizeService);
+  private readonly vscode = inject(VSCodeService);
 
   readonly XIcon = X;
   readonly Trash2Icon = Trash2;
+  readonly ShieldAlertIcon = ShieldAlert;
+
+  allowPermission(agentId: string, perm: AgentPermissionRequest): void {
+    this.vscode.postMessage({
+      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
+      payload: { requestId: perm.requestId, decision: 'allow' },
+    });
+    this.store.clearPermission(agentId);
+  }
+
+  denyPermission(agentId: string, perm: AgentPermissionRequest): void {
+    this.vscode.postMessage({
+      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
+      payload: {
+        requestId: perm.requestId,
+        decision: 'deny',
+        reason: 'User denied',
+      },
+    });
+    this.store.clearPermission(agentId);
+  }
 }

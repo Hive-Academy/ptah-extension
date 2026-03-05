@@ -53,8 +53,8 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
   },
   {
     id: 'z-ai',
-    name: 'Z.AI (xAI)',
-    description: 'xAI Grok models via Z.AI',
+    name: 'Z.AI (Zhipu AI)',
+    description: 'Z.AI GLM models via Zhipu AI',
   },
 ] as const;
 

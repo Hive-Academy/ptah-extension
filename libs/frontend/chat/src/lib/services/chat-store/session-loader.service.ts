@@ -348,6 +348,40 @@ export class SessionLoaderService {
   }
 
   // ============================================================================
+  // CLI SESSION RESTORATION (on webview reopen)
+  // ============================================================================
+
+  /**
+   * Restore CLI agent sessions for the active tab after webview reopens.
+   *
+   * When the webview is first opened, tabs are restored from localStorage with
+   * messages intact, but AgentMonitorStore starts empty. This method fetches
+   * CLI sessions from the backend metadata for the active tab's session and
+   * loads them into the agent monitor panel.
+   */
+  async restoreCliSessionsForActiveTab(): Promise<void> {
+    try {
+      const activeTab = this.tabManager.activeTab();
+      const sessionId = activeTab?.claudeSessionId;
+      if (!sessionId) return;
+
+      const result = await this.claudeRpcService.call('session:cli-sessions', {
+        sessionId,
+      });
+
+      const cliSessions = result.data?.cliSessions;
+      if (result.success && cliSessions && cliSessions.length > 0) {
+        this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
+      }
+    } catch (error) {
+      console.warn(
+        '[SessionLoaderService] Failed to restore CLI sessions:',
+        error
+      );
+    }
+  }
+
+  // ============================================================================
   // SESSION CREATION
   // ============================================================================
 

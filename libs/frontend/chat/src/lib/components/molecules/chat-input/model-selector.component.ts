@@ -45,8 +45,8 @@ import { SessionId } from '@ptah-extension/shared';
     >
       <button
         trigger
-        class="btn btn-ghost btn-sm gap-1 font-normal max-w-[14rem]"
-        [class.ring-2]="isOpen()"
+        class="btn btn-ghost btn-xs gap-1 font-normal h-6 min-h-0 px-1.5 max-w-[12rem]"
+        [class.ring-1]="isOpen()"
         [class.ring-primary]="isOpen()"
         type="button"
         (click)="toggleDropdown()"
@@ -68,12 +68,15 @@ import { SessionId } from '@ptah-extension/shared';
         } @else {
         <!-- No provider override: show standard display name -->
         <span
-          class="text-xs font-medium truncate"
+          class="text-[10px] font-medium truncate"
           [title]="modelState.currentModelDisplay()"
           >{{ modelState.currentModelDisplay() }}</span
         >
         }
-        <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3 flex-shrink-0" />
+        <lucide-angular
+          [img]="ChevronDownIcon"
+          class="w-2.5 h-2.5 flex-shrink-0 opacity-60"
+        />
       </button>
 
       <div content class="w-72 max-h-80 flex flex-col">

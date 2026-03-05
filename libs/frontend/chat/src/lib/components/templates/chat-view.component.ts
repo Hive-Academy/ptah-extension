@@ -92,6 +92,9 @@ export class ChatViewComponent {
   private readonly messageContainerRef =
     viewChild<ElementRef<HTMLElement>>('messageContainer');
 
+  /** Signal-based viewChild for chat input (TASK_2025_174: prompt suggestion fill) */
+  private readonly chatInputRef = viewChild(ChatInputComponent);
+
   /**
    * Auto-scroll state as signal for reactive tracking.
    * Disabled when user scrolls up, re-enabled when user scrolls to bottom.
@@ -191,6 +194,17 @@ export class ChatViewComponent {
     // If user scrolled up, disable auto-scroll
     // If user scrolled back to bottom, re-enable auto-scroll
     this.userScrolledUp.set(!isNearBottom);
+  }
+
+  /**
+   * Handle prompt selection from empty state - fill chat input (TASK_2025_174)
+   * Uses ChatInputComponent.restoreContentToInput which handles focus and auto-resize.
+   */
+  handlePromptSelected(promptText: string): void {
+    const chatInput = this.chatInputRef();
+    if (chatInput) {
+      chatInput.restoreContentToInput(promptText);
+    }
   }
 
   /**

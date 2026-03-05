@@ -71,9 +71,18 @@ import {
       <ptah-tool-icon [toolName]="node().toolName || 'Unknown'" />
 
       <!-- Tool name badge -->
+      @if (isPtahMcpTool()) {
+      <span class="badge badge-xs font-mono px-1.5 ptah-superpower-badge">
+        Ptah Superpower
+      </span>
+      <span class="badge badge-xs font-mono px-1.5 ptah-tool-name-badge">
+        {{ getPtahToolName() }}
+      </span>
+      } @else {
       <span [class]="'badge badge-xs font-mono px-1.5 ' + getBadgeClass()">
         {{ node().toolName }}
       </span>
+      }
 
       <!-- Description (file path or generic) - HIDDEN during streaming to avoid redundancy (TASK_2025_102) -->
       @if (node().status !== 'streaming') { @if (hasClickableFilePath()) {
@@ -129,6 +138,43 @@ import {
       }
     </button>
   `,
+  styles: [
+    `
+      .ptah-superpower-badge {
+        background: linear-gradient(
+          135deg,
+          #b8860b,
+          #daa520,
+          #ffd700,
+          #daa520,
+          #b8860b
+        );
+        background-size: 200% 200%;
+        animation: ptah-gold-shimmer 3s ease infinite;
+        color: #1a1a2e;
+        font-weight: 600;
+        border: 1px solid rgba(218, 165, 32, 0.5);
+        text-shadow: 0 0 1px rgba(255, 215, 0, 0.3);
+      }
+      .ptah-tool-name-badge {
+        background: rgba(218, 165, 32, 0.15);
+        color: #daa520;
+        border: 1px solid rgba(218, 165, 32, 0.3);
+        font-weight: 500;
+      }
+      @keyframes ptah-gold-shimmer {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallHeaderComponent {
@@ -311,6 +357,35 @@ export class ToolCallHeaderComponent {
       return 'Invoking agent...';
     }
     return `Executing ${toolName}...`;
+  }
+
+  /**
+   * Check if this is any MCP tool call
+   */
+  isMcpTool(): boolean {
+    const toolName = this.node().toolName || '';
+    return toolName.startsWith('mcp__');
+  }
+
+  /**
+   * Check if this is a Ptah MCP server tool call
+   */
+  isPtahMcpTool(): boolean {
+    const toolName = this.node().toolName || '';
+    return toolName.startsWith('mcp__ptah');
+  }
+
+  /**
+   * Extract clean tool name from Ptah MCP tool (e.g. "mcp__ptah__workspace_analyze" -> "workspace_analyze")
+   */
+  protected getPtahToolName(): string {
+    const toolName = this.node().toolName || '';
+    // Pattern: mcp__ptah__<server>_<tool_name> — strip the mcp__ptah__ prefix
+    const match = toolName.match(/^mcp__ptah__(.+)$/);
+    if (match) {
+      return match[1].replace(/_/g, ' ');
+    }
+    return toolName;
   }
 
   /**

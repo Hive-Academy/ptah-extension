@@ -195,12 +195,15 @@
             "
             class="w-4 h-4"
           />
-          @if (agentMonitorStore.hasRunningAgents()) {
+          @if (agentMonitorStore.pendingPermissions().length > 0) {
+          <span
+            class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-warning rounded-full animate-pulse ring-2 ring-base-100"
+          ></span>
+          } @else if (agentMonitorStore.hasRunningAgents()) {
           <span
             class="absolute top-0 right-0 w-2 h-2 bg-info rounded-full animate-pulse"
           ></span>
-          } @if (agentMonitorStore.agentCount() > 0 &&
-          !agentMonitorStore.hasRunningAgents()) {
+          } @else if (agentMonitorStore.agentCount() > 0) {
           <span
             class="absolute top-0 right-0 w-1.5 h-1.5 bg-base-content/30 rounded-full"
           ></span>

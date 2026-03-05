@@ -64,7 +64,7 @@
     <!-- TASK_2025_096: Also check for streamingMessages to avoid showing empty state while content exists -->
     @if (chatStore.messages().length === 0 && !chatStore.isStreaming() &&
     streamingMessages().length === 0) {
-    <ptah-chat-empty-state />
+    <ptah-chat-empty-state (promptSelected)="handlePromptSelected($event)" />
     }
   </div>
 

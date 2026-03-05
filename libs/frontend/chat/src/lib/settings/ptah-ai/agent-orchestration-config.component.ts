@@ -162,6 +162,25 @@ import type {
                 </option>
                 }
               </select>
+
+              <!-- Auto-approve toggle -->
+              <div class="flex items-center justify-between mt-2">
+                <div>
+                  <span class="text-[10px] text-base-content/50"
+                    >Auto-approve tools</span
+                  >
+                  <p class="text-[9px] text-base-content/30">
+                    Skip permission prompts for all tool calls
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-xs toggle-success"
+                  [checked]="agentConfig()!.copilotAutoApprove"
+                  (change)="toggleCopilotAutoApprove()"
+                  aria-label="Auto-approve Copilot tool calls"
+                />
+              </div>
             </div>
             }
           </div>
@@ -378,6 +397,19 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         (c) => c.cli === cli && c.installed
       ) ?? false
     );
+  }
+
+  async toggleCopilotAutoApprove(): Promise<void> {
+    const current = this.agentConfig()?.copilotAutoApprove ?? true;
+    const newValue = !current;
+    const result = await this.rpcService.call('agent:setConfig', {
+      copilotAutoApprove: newValue,
+    });
+    if (result.isSuccess()) {
+      this.agentConfig.update((c) =>
+        c ? { ...c, copilotAutoApprove: newValue } : c
+      );
+    }
   }
 
   async setAgentModel(cli: 'gemini' | 'copilot', model: string): Promise<void> {

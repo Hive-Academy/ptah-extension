@@ -55,3 +55,6 @@ export { AgentMonitorMessageHandler } from './agent-monitor-message-handler.serv
 
 // PanelResizeService - Standalone panel width state for drag-to-resize
 export { PanelResizeService } from './panel-resize.service';
+
+// AgentMonitorTreeBuilderService - Builds ExecutionNode tree for agent monitor panel (TASK_2025_173)
+export { AgentMonitorTreeBuilderService } from './agent-monitor-tree-builder.service';

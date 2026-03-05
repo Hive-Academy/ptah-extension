@@ -30,7 +30,7 @@ import { type PermissionLevel } from '@ptah-extension/shared';
   template: `
     <!-- Trigger Button -->
     <button
-      class="btn btn-ghost btn-sm gap-1.5 font-normal"
+      class="btn btn-ghost btn-xs gap-1 font-normal h-6 min-h-0 px-1.5"
       type="button"
       (click)="toggleModal()"
       [disabled]="autopilotState.isPending()"
@@ -39,12 +39,12 @@ import { type PermissionLevel } from '@ptah-extension/shared';
       @if (autopilotState.isPending()) {
       <span class="loading loading-spinner loading-xs"></span>
       } @else if (autopilotState.enabled()) {
-      <lucide-angular [img]="ZapIcon" class="w-4 h-4" />
+      <lucide-angular [img]="ZapIcon" class="w-3 h-3" />
       } @else {
-      <lucide-angular [img]="ZapOffIcon" class="w-4 h-4 opacity-60" />
+      <lucide-angular [img]="ZapOffIcon" class="w-3 h-3 opacity-60" />
       }
-      <span class="text-xs">{{ autopilotState.statusText() }}</span>
-      <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
+      <span class="text-[10px]">{{ autopilotState.statusText() }}</span>
+      <lucide-angular [img]="ChevronDownIcon" class="w-2.5 h-2.5 opacity-60" />
     </button>
 
     <!-- Bottom Sheet Modal -->

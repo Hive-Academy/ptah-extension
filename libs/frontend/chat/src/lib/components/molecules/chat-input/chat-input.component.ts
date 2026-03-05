@@ -9,7 +9,16 @@ import {
   ElementRef,
   OnInit,
 } from '@angular/core';
-import { LucideAngularModule, Send, Zap, Square, Clock } from 'lucide-angular';
+import {
+  LucideAngularModule,
+  Send,
+  Zap,
+  Square,
+  Clock,
+  X,
+  ImageIcon,
+} from 'lucide-angular';
+import { InlineImageAttachment } from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
 import {
@@ -38,6 +47,15 @@ import {
   type SlashTriggerEvent,
 } from '../../../directives/slash-trigger.directive';
 import { AgentSelectorComponent } from './agent-selector.component';
+
+/** Pasted image data for UI display */
+interface PastedImage {
+  id: string;
+  data: string; // base64 (no prefix)
+  mediaType: string;
+  dataUrl: string; // for thumbnail display
+  name: string;
+}
 
 /**
  * ChatInputComponent - Enhanced message input with bottom bar controls
@@ -77,11 +95,33 @@ import { AgentSelectorComponent } from './agent-selector.component';
   ],
   template: `
     <div class="flex flex-col gap-2 p-4 bg-base-100">
-      <!-- File Tags Row (above textarea) -->
-      @if (selectedFiles().length > 0) {
+      <!-- File Tags + Image Thumbnails Row (above textarea) -->
+      @if (selectedFiles().length > 0 || pastedImages().length > 0) {
       <div class="flex flex-wrap gap-2">
         @for (file of selectedFiles(); track file.path) {
         <ptah-file-tag [file]="file" (removeFile)="removeFile(file.path)" />
+        } @for (img of pastedImages(); track img.id) {
+        <div class="relative group">
+          <img
+            [src]="img.dataUrl"
+            [alt]="img.name"
+            class="w-16 h-16 object-cover rounded-lg border border-base-300"
+          />
+          <button
+            class="absolute -top-1.5 -right-1.5 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
+            (click)="removePastedImage(img.id)"
+            type="button"
+          >
+            <lucide-angular [img]="XIcon" class="w-3 h-3" />
+          </button>
+          <div
+            class="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5"
+          >
+            <span class="text-[9px] text-white truncate block">{{
+              img.name
+            }}</span>
+          </div>
+        </div>
         }
       </div>
       }
@@ -109,6 +149,7 @@ import { AgentSelectorComponent } from './agent-selector.component';
             [value]="currentMessage()"
             (input)="handleInput($event)"
             (keydown)="handleKeyDown($event)"
+            (paste)="handlePaste($event)"
             rows="2"
             role="combobox"
             [attr.aria-expanded]="showSuggestions()"
@@ -177,30 +218,24 @@ import { AgentSelectorComponent } from './agent-selector.component';
       }
 
       <!-- Bottom Controls Row -->
-      <div class="flex items-center justify-between gap-2 text-sm min-w-0">
-        <!-- Left: Action Icons with Autopilot Badge -->
-        <div class="flex items-center gap-2 text-base-content/60 flex-shrink-0">
-          <!-- Autopilot Mode Badge - shown when enabled -->
-          @if (autopilotState.enabled()) {
-          <div class="badge badge-warning badge-sm gap-1">
-            <lucide-angular [img]="ZapIcon" class="w-3 h-3" />
-            <span>{{ autopilotState.statusText() }}</span>
-          </div>
-          }
-
+      <div class="flex items-center justify-between gap-1.5 min-w-0">
+        <!-- Left: Auth Method Badge -->
+        <div
+          class="flex items-center gap-1.5 text-base-content/60 flex-shrink-0"
+        >
           <!-- Auth Method Badge (TASK_2025_129 Batch 3) -->
           @if (authMethodLabel()) {
           <div
-            class="badge badge-ghost badge-sm gap-1 opacity-70"
+            class="badge badge-ghost badge-xs gap-1 opacity-70"
             [title]="'Authenticated via ' + authMethodLabel()"
           >
-            <span>{{ authMethodLabel() }}</span>
+            <span class="text-[10px]">{{ authMethodLabel() }}</span>
           </div>
           }
         </div>
 
         <!-- Right: Agent Selector, Model Selector and Autopilot Popover -->
-        <div class="flex items-center gap-1 min-w-0">
+        <div class="flex items-center gap-0.5 min-w-0">
           <!-- Agent Selector - dedicated button for built-in sub-agents -->
           <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
 
@@ -263,6 +298,8 @@ export class ChatInputComponent implements OnInit {
   readonly ZapIcon = Zap;
   readonly SquareIcon = Square;
   readonly ClockIcon = Clock;
+  readonly XIcon = X;
+  readonly ImageIconRef = ImageIcon;
 
   // Session tracking for proper change detection (avoid clearing cache on every stream event)
   private _lastSessionId: string | null = null;
@@ -280,16 +317,21 @@ export class ChatInputComponent implements OnInit {
   private readonly _triggerPosition = signal(0); // Position where trigger (@, /) starts
   private readonly _currentQuery = signal(''); // Current search query after trigger
   private readonly _selectedFiles = signal<ChatFile[]>([]);
+  private readonly _pastedImages = signal<PastedImage[]>([]);
   private readonly _isLoadingSuggestions = signal(false);
 
   // Public signals
   readonly currentMessage = this._currentMessage.asReadonly();
   readonly suggestionMode = this._suggestionMode.asReadonly();
   readonly selectedFiles = this._selectedFiles.asReadonly();
+  readonly pastedImages = this._pastedImages.asReadonly();
   readonly isLoadingSuggestions = this._isLoadingSuggestions.asReadonly();
 
   // Computed
-  readonly canSend = computed(() => this.currentMessage().trim().length > 0);
+  readonly canSend = computed(
+    () =>
+      this.currentMessage().trim().length > 0 || this._pastedImages().length > 0
+  );
 
   /**
    * Initialize auth method label fetch on component init (TASK_2025_129 Batch 3)
@@ -359,6 +401,48 @@ export class ChatInputComponent implements OnInit {
     // Auto-resize textarea
     target.style.height = 'auto';
     target.style.height = `${Math.min(target.scrollHeight, 160)}px`;
+  }
+
+  /**
+   * Handle clipboard paste - extract images from clipboard
+   */
+  handlePaste(event: ClipboardEvent): void {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        event.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          // Extract base64 data (remove "data:image/png;base64," prefix)
+          const base64 = dataUrl.split(',')[1];
+          const mediaType = item.type;
+
+          const pastedImage: PastedImage = {
+            id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            data: base64,
+            mediaType,
+            dataUrl,
+            name: `pasted-image.${mediaType.split('/')[1] || 'png'}`,
+          };
+
+          this._pastedImages.update((imgs) => [...imgs, pastedImage]);
+        };
+        reader.readAsDataURL(file);
+      }
+    }
+  }
+
+  /**
+   * Remove a pasted image by ID
+   */
+  removePastedImage(id: string): void {
+    this._pastedImages.update((imgs) => imgs.filter((img) => img.id !== id));
   }
 
   // ============ DIRECTIVE EVENT HANDLERS ============
@@ -669,16 +753,26 @@ export class ChatInputComponent implements OnInit {
    */
   async handleSend(): Promise<void> {
     const content = this.currentMessage().trim();
-    if (!content) return;
+    const images = this._pastedImages();
+    if (!content && images.length === 0) return;
 
     try {
       // FIX #8: Use ChatStore's sendOrQueueMessage method (routing logic moved to store)
       const filePaths = this._selectedFiles().map((f) => f.path);
-      await this.chatStore.sendOrQueueMessage(content, filePaths);
+      const inlineImages: InlineImageAttachment[] = images.map((img) => ({
+        data: img.data,
+        mediaType: img.mediaType,
+      }));
+      await this.chatStore.sendOrQueueMessage(
+        content || 'What is in this image?',
+        filePaths,
+        inlineImages.length > 0 ? inlineImages : undefined
+      );
 
-      // Clear input and files
+      // Clear input, files, and images
       this._currentMessage.set('');
       this._selectedFiles.set([]);
+      this._pastedImages.set([]);
 
       // Reset textarea height using signal-based viewChild
       const textarea = this.textareaRef()?.nativeElement;

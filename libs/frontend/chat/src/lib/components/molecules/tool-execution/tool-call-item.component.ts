@@ -4,7 +4,9 @@ import {
   output,
   signal,
   effect,
+  computed,
   ChangeDetectionStrategy,
+  viewChild,
 } from '@angular/core';
 import { ToolCallHeaderComponent } from './tool-call-header.component';
 import { ToolInputDisplayComponent } from './tool-input-display.component';
@@ -58,9 +60,10 @@ import type {
     PermissionRequestCardComponent,
   ],
   template: `
-    <div class="bg-base-200/60 rounded my-0.5 border border-base-300/60">
+    <div [class]="containerClass()">
       <!-- Header (clickable to toggle) -->
       <ptah-tool-call-header
+        #headerRef
         [node]="node()"
         [isCollapsed]="isCollapsed()"
         (toggleClicked)="toggleCollapse()"
@@ -101,11 +104,33 @@ import type {
       <div class="flex-1 border-t border-base-300/40"></div>
     </div>
   `,
+  styles: [
+    `
+      :host .ptah-gold-border {
+        border-color: rgba(218, 165, 32, 0.4);
+        box-shadow: 0 0 6px rgba(218, 165, 32, 0.1);
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ToolCallItemComponent {
   readonly node = input.required<ExecutionNode>();
   readonly isCollapsed = signal(true); // Collapsed by default
+
+  private readonly headerRef = viewChild<ToolCallHeaderComponent>('headerRef');
+
+  /**
+   * Dynamic container class: gold border for Ptah MCP tools, default otherwise
+   */
+  readonly containerClass = computed(() => {
+    const toolName = this.node().toolName || '';
+    const base = 'bg-base-200/60 rounded my-0.5 border';
+    if (toolName.startsWith('mcp__ptah')) {
+      return base + ' ptah-gold-border';
+    }
+    return base + ' border-base-300/60';
+  });
 
   /**
    * Permission request for this tool (if any)
@@ -113,10 +138,11 @@ export class ToolCallItemComponent {
   readonly permission = input<PermissionRequest | undefined>();
 
   constructor() {
-    // Auto-expand when a permission request is present
+    // Auto-expand when a permission request is present (but not for MCP tools — keep those collapsed)
     effect(() => {
       const hasPermission = this.permission();
-      if (hasPermission) {
+      const toolName = this.node().toolName || '';
+      if (hasPermission && !toolName.startsWith('mcp__')) {
         this.isCollapsed.set(false);
       }
     });

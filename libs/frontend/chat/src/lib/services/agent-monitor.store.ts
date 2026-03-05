@@ -12,6 +12,7 @@ import type {
   AgentStatus,
   CliType,
   CliOutputSegment,
+  FlatStreamEventUnion,
   AgentPermissionRequest,
   CliSessionReference,
 } from '@ptah-extension/shared';
@@ -21,6 +22,9 @@ const MAX_FRONTEND_BUFFER = 50 * 1024;
 
 /** Maximum number of simultaneously expanded agent cards */
 const MAX_EXPANDED_AGENTS = 2;
+
+/** Maximum streamEvents buffer per agent (prevents unbounded memory growth) */
+const MAX_STREAM_EVENTS = 2000;
 
 export interface MonitoredAgent {
   readonly agentId: string;
@@ -36,6 +40,8 @@ export interface MonitoredAgent {
   expandedAt?: number;
   /** Structured output segments from SDK-based adapters (Gemini, Codex, Copilot). */
   segments: CliOutputSegment[];
+  /** Rich streaming events from Ptah CLI adapter. Enables ExecutionNode rendering. */
+  streamEvents: FlatStreamEventUnion[];
   /** Parent Ptah Claude SDK session that spawned this agent */
   readonly parentSessionId?: string;
   /**
@@ -46,8 +52,10 @@ export interface MonitoredAgent {
    * immutable), this field may be updated during the agent's lifetime.
    */
   cliSessionId?: string;
-  /** Pending permission request from the agent (Copilot SDK) */
-  pendingPermission?: AgentPermissionRequest | null;
+  /** Queue of pending permission requests from the agent (Copilot SDK) */
+  permissionQueue: AgentPermissionRequest[];
+  /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
+  readonly ptahCliId?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -78,6 +86,11 @@ export class AgentMonitorStore implements OnDestroy {
   );
 
   readonly agentCount = computed(() => this._agents().size);
+
+  /** Agents that currently have a pending permission request */
+  readonly pendingPermissions = computed(() =>
+    this.agents().filter((a) => a.permissionQueue.length > 0)
+  );
 
   readonly panelOpen = computed(() => this._panelOpen());
 
@@ -144,8 +157,11 @@ export class AgentMonitorStore implements OnDestroy {
         expanded: true,
         expandedAt: order,
         segments: [],
+        streamEvents: [],
         parentSessionId: info.parentSessionId,
         cliSessionId: info.cliSessionId,
+        ptahCliId: info.ptahCliId,
+        permissionQueue: [],
       });
       this.enforceMaxExpanded(next);
       return next;
@@ -206,6 +222,16 @@ export class AgentMonitorStore implements OnDestroy {
         }
       }
 
+      // Accumulate FlatStreamEventUnion events (Ptah CLI only)
+      if (delta.streamEvents && delta.streamEvents.length > 0) {
+        const combined = [...agent.streamEvents, ...delta.streamEvents];
+        if (combined.length > MAX_STREAM_EVENTS) {
+          updated.streamEvents = capStreamEvents(combined, MAX_STREAM_EVENTS);
+        } else {
+          updated.streamEvents = combined;
+        }
+      }
+
       next.set(delta.agentId, updated);
       return next;
     });
@@ -222,7 +248,7 @@ export class AgentMonitorStore implements OnDestroy {
         status: info.status,
         exitCode: info.exitCode,
         cliSessionId: info.cliSessionId || agent.cliSessionId,
-        pendingPermission: null,
+        permissionQueue: [],
       });
       return next;
     });
@@ -236,21 +262,39 @@ export class AgentMonitorStore implements OnDestroy {
       const agent = map.get(request.agentId);
       if (!agent) return map;
       const next = new Map(map);
+
+      // Auto-expand the card so the user can see and respond to the permission
+      const needsExpand = !agent.expanded;
+      const order = needsExpand ? this._expandOrder++ : agent.expandedAt;
+
       next.set(request.agentId, {
         ...agent,
-        pendingPermission: request,
+        permissionQueue: [...agent.permissionQueue, request],
+        expanded: true,
+        expandedAt: order,
       });
+
+      if (needsExpand) {
+        this.enforceMaxExpanded(next);
+      }
+
       return next;
     });
+
+    // Also ensure the panel is open so the user sees the permission
+    this._panelOpen.set(true);
   }
 
-  /** Clear pending permission from agent (after user responds) */
+  /** Shift the first permission off the queue (after user responds). Next one auto-shows. */
   clearPermission(agentId: string): void {
     this._agents.update((map) => {
       const agent = map.get(agentId);
       if (!agent) return map;
       const next = new Map(map);
-      next.set(agentId, { ...agent, pendingPermission: null });
+      next.set(agentId, {
+        ...agent,
+        permissionQueue: agent.permissionQueue.slice(1),
+      });
       return next;
     });
   }
@@ -336,8 +380,11 @@ export class AgentMonitorStore implements OnDestroy {
             stderr: '',
             expanded: false,
             segments: ref.segments ? [...ref.segments] : [],
+            streamEvents: ref.streamEvents ? [...ref.streamEvents] : [],
             cliSessionId: ref.cliSessionId,
             parentSessionId,
+            ptahCliId: ref.ptahCliId,
+            permissionQueue: [],
           });
         }
       }
@@ -390,4 +437,53 @@ function capBuffer(str: string, max: number): string {
   const excess = str.length - max;
   const idx = str.indexOf('\n', excess);
   return idx > -1 ? str.substring(idx + 1) : str.substring(excess);
+}
+
+/** Landmark event types that establish tree structure and must be preserved */
+const LANDMARK_EVENT_TYPES = new Set([
+  'message_start',
+  'tool_start',
+  'agent_start',
+  'thinking_start',
+  'message_complete',
+]);
+
+/**
+ * Cap stream events buffer by dropping oldest delta events while preserving
+ * landmark events that establish the tree structure.
+ * When the buffer exceeds `max`, landmarks are always kept. The remaining
+ * budget is filled with the most recent non-landmark (delta) events.
+ * Events are returned in their original order.
+ */
+function capStreamEvents(
+  events: FlatStreamEventUnion[],
+  max: number
+): FlatStreamEventUnion[] {
+  if (events.length <= max) return events;
+
+  // Partition into landmarks and deltas, tracking original indices
+  const landmarks: Array<{ event: FlatStreamEventUnion; index: number }> = [];
+  const deltas: Array<{ event: FlatStreamEventUnion; index: number }> = [];
+  for (let i = 0; i < events.length; i++) {
+    if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
+      landmarks.push({ event: events[i], index: i });
+    } else {
+      deltas.push({ event: events[i], index: i });
+    }
+  }
+
+  // Keep all landmarks + most recent deltas to fill remaining budget
+  const deltasBudget = max - landmarks.length;
+  if (deltasBudget <= 0) {
+    // Extreme case: more landmarks than budget -- keep most recent landmarks
+    return landmarks.slice(-max).map((l) => l.event);
+  }
+
+  const keptDeltas = deltas.slice(-deltasBudget);
+
+  // Merge back in original order
+  const merged = [...landmarks, ...keptDeltas].sort(
+    (a, b) => a.index - b.index
+  );
+  return merged.map((m) => m.event);
 }

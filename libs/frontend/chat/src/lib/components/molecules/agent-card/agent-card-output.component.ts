@@ -23,6 +23,44 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
   standalone: true,
   imports: [MarkdownModule, NgClass],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  styles: [
+    `
+      .ptah-superpower-badge {
+        background: linear-gradient(
+          135deg,
+          #b8860b,
+          #daa520,
+          #ffd700,
+          #daa520,
+          #b8860b
+        );
+        background-size: 200% 200%;
+        animation: ptah-gold-shimmer 3s ease infinite;
+        color: #1a1a2e;
+        font-weight: 600;
+        border: 1px solid rgba(218, 165, 32, 0.5);
+        text-shadow: 0 0 1px rgba(255, 215, 0, 0.3);
+      }
+      .ptah-tool-name-text {
+        color: #daa520;
+      }
+      .ptah-gold-border {
+        border-color: rgba(218, 165, 32, 0.4);
+        box-shadow: 0 0 6px rgba(218, 165, 32, 0.1);
+      }
+      @keyframes ptah-gold-shimmer {
+        0% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+    `,
+  ],
   template: `
     <div
       #outputContainer
@@ -41,14 +79,26 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
         </div>
         } @case ('tool-call') {
         <div
-          class="bg-base-200/60 rounded border border-base-content/5 overflow-hidden"
+          [class]="
+            segment.toolName?.startsWith('mcp__ptah')
+              ? 'bg-base-200/60 rounded border ptah-gold-border overflow-hidden'
+              : 'bg-base-200/60 rounded border border-base-content/5 overflow-hidden'
+          "
         >
           <div class="flex items-center gap-1.5 px-2 py-1">
+            @if (segment.toolName?.startsWith('mcp__ptah')) {
+            <span class="badge badge-xs font-mono px-1.5 ptah-superpower-badge"
+              >Ptah Superpower</span
+            >
+            <code class="text-[10px] font-mono ptah-tool-name-text">{{
+              formatPtahToolName(segment.toolName)
+            }}</code>
+            } @else {
             <span class="text-[10px] font-medium text-info">Tool:</span>
             <code class="text-[10px] font-mono text-accent">{{
               segment.toolName
             }}</code>
-            @if (segment.toolArgs) {
+            } @if (segment.toolArgs) {
             <span
               class="text-[10px] text-base-content/40 truncate ml-auto font-mono"
               >{{ segment.toolArgs }}</span
@@ -68,14 +118,26 @@ import type { RenderSegment, StderrSegment } from './agent-card.types';
         </div>
         } @case ('tool') {
         <div
-          class="bg-base-200/60 rounded border border-base-content/5 overflow-hidden"
+          [class]="
+            segment.toolName?.startsWith('mcp__ptah')
+              ? 'bg-base-200/60 rounded border ptah-gold-border overflow-hidden'
+              : 'bg-base-200/60 rounded border border-base-content/5 overflow-hidden'
+          "
         >
           <div class="flex items-center gap-1.5 px-2 py-1">
+            @if (segment.toolName?.startsWith('mcp__ptah')) {
+            <span class="badge badge-xs font-mono px-1.5 ptah-superpower-badge"
+              >Ptah Superpower</span
+            >
+            <code class="text-[10px] font-mono ptah-tool-name-text">{{
+              formatPtahToolName(segment.toolName)
+            }}</code>
+            } @else {
             <span class="text-[10px] font-medium text-info">Tool:</span>
             <code class="text-[10px] font-mono text-accent">{{
               segment.toolName
             }}</code>
-            @if (segment.toolArgs) {
+            } @if (segment.toolArgs) {
             <span
               class="text-[10px] text-base-content/40 truncate ml-auto font-mono"
               >{{ segment.toolArgs }}</span
@@ -252,6 +314,12 @@ export class AgentCardOutputComponent {
 
   /** Tracking signal for change detection — incremented externally to trigger scroll */
   readonly scrollTrigger = input<number>(0);
+
+  protected formatPtahToolName(toolName: string | undefined): string {
+    if (!toolName) return '';
+    const match = toolName.match(/^mcp__ptah__(.+)$/);
+    return match ? match[1].replace(/_/g, ' ') : toolName;
+  }
 
   constructor() {
     effect(() => {

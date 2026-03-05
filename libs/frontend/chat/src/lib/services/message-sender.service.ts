@@ -25,7 +25,11 @@ import {
   ModelStateService,
   PtahCliStateService,
 } from '@ptah-extension/core';
-import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
+import {
+  createExecutionChatMessage,
+  SessionId,
+  InlineImageAttachment,
+} from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
 import { MessageValidationService } from './message-validation.service';
@@ -130,8 +134,13 @@ export class MessageSenderService {
    *
    * @param content - Message content
    * @param files - Optional file paths to include
+   * @param images - Optional inline images (pasted/dropped)
    */
-  async send(content: string, files?: string[]): Promise<void> {
+  async send(
+    content: string,
+    files?: string[],
+    images?: InlineImageAttachment[]
+  ): Promise<void> {
     // Validate content BEFORE any processing
     const validation = this.validator.validate(content);
     if (!validation.valid) {
@@ -145,21 +154,24 @@ export class MessageSenderService {
     const sanitized = this.validator.sanitize(content);
 
     const activeTab = this.tabManager.activeTab();
-    if (!activeTab) {
-      console.warn('[MessageSender] No active tab');
-      return;
-    }
 
-    const sessionId = activeTab.claudeSessionId;
+    const sessionId = activeTab?.claudeSessionId;
     const hasExistingSession =
+      activeTab &&
       sessionId &&
       sessionId !== ('' as SessionId) &&
       activeTab.status === 'loaded';
 
     if (hasExistingSession && sessionId) {
-      await this.continueConversation(sanitized, sessionId as SessionId, files);
+      await this.continueConversation(
+        sanitized,
+        sessionId as SessionId,
+        files,
+        images
+      );
     } else {
-      await this.startNewConversation(sanitized, files);
+      // No active tab or no existing session — startNewConversation handles tab creation
+      await this.startNewConversation(sanitized, files, images);
     }
   }
 
@@ -172,8 +184,13 @@ export class MessageSenderService {
    *
    * @param content - Message content
    * @param files - Optional file paths to include
+   * @param images - Optional inline images (pasted/dropped)
    */
-  async sendOrQueue(content: string, files?: string[]): Promise<void> {
+  async sendOrQueue(
+    content: string,
+    files?: string[],
+    images?: InlineImageAttachment[]
+  ): Promise<void> {
     // Check if streaming via active tab status
     const activeTab = this.tabManager.activeTab();
     const isStreaming =
@@ -188,7 +205,7 @@ export class MessageSenderService {
       return;
     } else {
       // Send immediately
-      await this.send(content, files);
+      await this.send(content, files, images);
     }
   }
 
@@ -204,10 +221,12 @@ export class MessageSenderService {
    *
    * @param content - Message content
    * @param files - Optional file paths to include
+   * @param images - Optional inline images (pasted/dropped)
    */
   private async startNewConversation(
     content: string,
-    files?: string[]
+    files?: string[],
+    images?: InlineImageAttachment[]
   ): Promise<void> {
     try {
       // Wait for services to be ready (with timeout)
@@ -304,6 +323,7 @@ export class MessageSenderService {
         options: {
           model: this.modelState.currentModel(),
           ...(files ? { files } : {}),
+          ...(images && images.length > 0 ? { images } : {}),
         },
       });
 
@@ -344,11 +364,13 @@ export class MessageSenderService {
    * @param content - Message content
    * @param sessionId - Existing session ID
    * @param files - Optional file paths to include
+   * @param images - Optional inline images (pasted/dropped)
    */
   private async continueConversation(
     content: string,
     sessionId: SessionId,
-    files?: string[]
+    files?: string[],
+    images?: InlineImageAttachment[]
   ): Promise<void> {
     try {
       // Wait for services to be ready (with timeout)
@@ -399,12 +421,13 @@ export class MessageSenderService {
         return;
       }
 
-      // Get active tab
+      // Get active tab — if none, fall back to new conversation (handles tab creation)
       const activeTabId = this.tabManager.activeTabId();
       if (!activeTabId) {
         console.warn(
-          '[MessageSender] No active tab for continuing conversation'
+          '[MessageSender] No active tab for continuing conversation — starting new'
         );
+        await this.startNewConversation(content, files);
         return;
       }
 
@@ -445,6 +468,7 @@ export class MessageSenderService {
         workspacePath,
         model: this.modelState.currentModel(),
         files: files ?? [],
+        ...(images && images.length > 0 ? { images } : {}),
       });
 
       if (!result.success) {

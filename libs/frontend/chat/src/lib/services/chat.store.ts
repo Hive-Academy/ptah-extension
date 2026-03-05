@@ -9,6 +9,7 @@ import {
   MESSAGE_TYPES,
   SubagentRecord,
   LicenseGetStatusResponse,
+  InlineImageAttachment,
 } from '@ptah-extension/shared';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
@@ -101,6 +102,12 @@ export class ChatStore {
       // Auto-load sessions after services are ready
       this.loadSessions().catch((err) => {
         console.error('[ChatStore] Failed to auto-load sessions:', err);
+      });
+
+      // Restore CLI agent sessions for the active tab (restored from localStorage)
+      // so the agent monitor panel shows agents from the previous session.
+      this.sessionLoader.restoreCliSessionsForActiveTab().catch((err) => {
+        console.warn('[ChatStore] Failed to restore CLI sessions:', err);
       });
 
       // TASK_2025_142: Fetch license status for trial banners
@@ -361,8 +368,12 @@ export class ChatStore {
    * Send a message - automatically determines whether to start new or continue
    * Delegates to MessageSenderService (TASK_2025_054 Batch 3 - eliminates callback indirection)
    */
-  async sendMessage(content: string, files?: string[]): Promise<void> {
-    return this.messageSender.send(content, files);
+  async sendMessage(
+    content: string,
+    files?: string[],
+    images?: InlineImageAttachment[]
+  ): Promise<void> {
+    return this.messageSender.send(content, files, images);
   }
 
   /**
@@ -372,7 +383,8 @@ export class ChatStore {
    */
   async sendOrQueueMessage(
     content: string,
-    filePaths?: string[]
+    filePaths?: string[],
+    images?: InlineImageAttachment[]
   ): Promise<void> {
     // Check if streaming via active tab status
     const activeTab = this.tabManager.activeTab();
@@ -402,7 +414,7 @@ export class ChatStore {
       this.conversation.queueOrAppendMessage(content);
     } else {
       // Send normally via MessageSender
-      await this.messageSender.send(content, filePaths);
+      await this.messageSender.send(content, filePaths, images);
     }
   }
 

@@ -49,7 +49,7 @@ import {
     >
       <button
         trigger
-        class="btn btn-ghost btn-xs gap-1 font-normal"
+        class="btn btn-ghost btn-xs gap-1 font-normal h-6 min-h-0 px-1.5"
         type="button"
         (click)="toggleDropdown()"
         [disabled]="isLoading()"
@@ -59,8 +59,11 @@ import {
         } @else {
         <lucide-angular [img]="UsersIcon" class="w-3 h-3" />
         }
-        <span class="text-xs">Agents</span>
-        <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
+        <span class="text-[10px]">Agents</span>
+        <lucide-angular
+          [img]="ChevronDownIcon"
+          class="w-2.5 h-2.5 opacity-60"
+        />
       </button>
 
       <div content class="w-80 max-h-80 flex flex-col">

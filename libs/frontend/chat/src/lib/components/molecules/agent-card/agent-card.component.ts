@@ -15,13 +15,15 @@ import {
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { SlicePipe } from '@angular/common';
-import { VSCodeService, ClaudeRpcService } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { ClaudeRpcService } from '@ptah-extension/core';
 import { AgentMonitorStore } from '../../../services/agent-monitor.store';
 import type { MonitoredAgent } from '../../../services/agent-monitor.store';
 import { AgentCardHeaderComponent } from './agent-card-header.component';
-import { AgentCardPermissionComponent } from './agent-card-permission.component';
 import { AgentCardOutputComponent } from './agent-card-output.component';
+import { PtahCliOutputComponent } from './ptah-cli-output.component';
+import { CopilotOutputComponent } from './copilot-output.component';
+import { GeminiOutputComponent } from './gemini-output.component';
+import { CodexOutputComponent } from './codex-output.component';
 import {
   formatElapsed,
   parseAgentOutput,
@@ -36,8 +38,11 @@ import type { RenderSegment } from './agent-card.types';
   imports: [
     SlicePipe,
     AgentCardHeaderComponent,
-    AgentCardPermissionComponent,
     AgentCardOutputComponent,
+    PtahCliOutputComponent,
+    CopilotOutputComponent,
+    GeminiOutputComponent,
+    CodexOutputComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -57,44 +62,80 @@ import type { RenderSegment } from './agent-card.types';
       />
 
       @if (agent().expanded) {
-      <!-- Task description -->
-      <div class="px-3 py-1.5 border-t border-base-content/10 flex-shrink-0">
-        @if (agent().parentSessionId) {
-        <div class="flex items-center gap-1 mb-1">
+      <!-- Task description (collapsible, default collapsed) -->
+      <details class="border-t border-base-content/10 flex-shrink-0">
+        <summary
+          class="px-3 py-1 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
+        >
+          <span class="text-[10px] font-medium text-base-content/40">Task</span>
+          @if (agent().parentSessionId) {
           <span
-            class="text-[9px] text-base-content/30"
+            class="text-[9px] text-base-content/30 ml-auto"
             [title]="'Parent session: ' + agent().parentSessionId!"
             >Parent:
             {{ agent().parentSessionId! | slice : 0 : 8 }}&hellip;</span
           >
+          }
+        </summary>
+        <div class="px-3 pb-1.5">
+          <p
+            class="text-[11px] leading-relaxed text-base-content/60 line-clamp-4"
+          >
+            {{ agent().task }}
+          </p>
         </div>
-        }
-        <p
-          class="text-[11px] leading-relaxed text-base-content/60 line-clamp-2"
-        >
-          {{ agent().task }}
-        </p>
-      </div>
+      </details>
 
-      <!-- Permission request (Copilot SDK) -->
-      @if (agent().pendingPermission) {
-      <ptah-agent-card-permission
-        class="block flex-shrink-0"
-        [permission]="agent().pendingPermission!"
-        (allow)="allowPermission()"
-        (deny)="denyPermission()"
+      <!-- Output: per-CLI rendering pipeline -->
+      @if (agent().stdout || agent().stderr || agent().segments.length > 0 ||
+      agent().streamEvents.length > 0) { @switch (agent().cli) { @case
+      ('ptah-cli') { @if (agent().streamEvents.length > 0) {
+      <ptah-ptah-cli-output
+        class="block flex-1 min-h-0 overflow-hidden"
+        [agentId]="agent().agentId"
+        [streamEvents]="agent().streamEvents"
+        [isStreaming]="agent().status === 'running'"
+        [scrollTrigger]="scrollTrigger()"
       />
-      }
-
-      <!-- Output -->
-      @if (agent().stdout || agent().stderr || agent().segments.length > 0) {
+      } @else {
       <ptah-agent-card-output
         class="block flex-1 min-h-0 overflow-hidden"
         [segments]="parsedOutput()"
         [stderrSegments]="parsedStderr()"
         [scrollTrigger]="scrollTrigger()"
       />
-      } }
+      } } @case ('copilot') {
+      <ptah-copilot-output
+        class="block flex-1 min-h-0 overflow-hidden"
+        [agentId]="agent().agentId"
+        [segments]="agent().segments"
+        [isStreaming]="agent().status === 'running'"
+        [scrollTrigger]="scrollTrigger()"
+      />
+      } @case ('gemini') {
+      <ptah-gemini-output
+        class="block flex-1 min-h-0 overflow-hidden"
+        [agentId]="agent().agentId"
+        [segments]="agent().segments"
+        [isStreaming]="agent().status === 'running'"
+        [scrollTrigger]="scrollTrigger()"
+      />
+      } @case ('codex') {
+      <ptah-codex-output
+        class="block flex-1 min-h-0 overflow-hidden"
+        [agentId]="agent().agentId"
+        [segments]="agent().segments"
+        [isStreaming]="agent().status === 'running'"
+        [scrollTrigger]="scrollTrigger()"
+      />
+      } @default {
+      <ptah-agent-card-output
+        class="block flex-1 min-h-0 overflow-hidden"
+        [segments]="parsedOutput()"
+        [stderrSegments]="parsedStderr()"
+        [scrollTrigger]="scrollTrigger()"
+      />
+      } } } }
     </div>
   `,
 })
@@ -103,7 +144,6 @@ export class AgentCardComponent {
   readonly toggleExpanded = output<void>();
 
   private readonly store = inject(AgentMonitorStore);
-  private readonly vscode = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
 
   readonly isStopping = signal(false);
@@ -122,8 +162,8 @@ export class AgentCardComponent {
 
   /**
    * Parse agent output into structured segments for formatted rendering.
-   * Prefers structured segments from SDK adapters (Gemini, Codex).
-   * Falls back to regex parsing for adapters without structured segments.
+   * Used by the default fallback path (all CLI-specific components use ExecutionNodeComponent directly).
+   * Prefers structured segments when available, falls back to regex parsing of raw stdout.
    */
   readonly parsedOutput = computed((): RenderSegment[] => {
     const agent = this.agent();
@@ -133,7 +173,7 @@ export class AgentCardComponent {
       return mergeConsecutiveTextSegments(agent.segments);
     }
 
-    // Fallback: regex-parse raw stdout (Copilot and other raw CLI adapters)
+    // Fallback: regex-parse raw stdout (legacy sessions or unexpected adapter failures)
     const stdout = agent.stdout;
     if (!stdout) return [];
     return parseAgentOutput(stdout);
@@ -152,34 +192,13 @@ export class AgentCardComponent {
   readonly scrollTrigger = computed(() => {
     const a = this.agent();
     // Use a hash of lengths so the output component scrolls on new content
-    return a.stdout.length + a.stderr.length + a.segments.length;
+    return (
+      a.stdout.length +
+      a.stderr.length +
+      a.segments.length +
+      a.streamEvents.length
+    );
   });
-
-  /** Send "allow" decision for the pending permission request */
-  allowPermission(): void {
-    const perm = this.agent().pendingPermission;
-    if (!perm) return;
-    this.vscode.postMessage({
-      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
-      payload: { requestId: perm.requestId, decision: 'allow' },
-    });
-    this.store.clearPermission(this.agent().agentId);
-  }
-
-  /** Send "deny" decision for the pending permission request */
-  denyPermission(): void {
-    const perm = this.agent().pendingPermission;
-    if (!perm) return;
-    this.vscode.postMessage({
-      type: MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_RESPONSE,
-      payload: {
-        requestId: perm.requestId,
-        decision: 'deny',
-        reason: 'User denied',
-      },
-    });
-    this.store.clearPermission(this.agent().agentId);
-  }
 
   /** Stop a running agent via RPC */
   async stopAgent(event: Event): Promise<void> {
@@ -206,6 +225,7 @@ export class AgentCardComponent {
         cli: agent.cli,
         task: agent.task,
         parentSessionId: agent.parentSessionId,
+        ptahCliId: agent.ptahCliId,
       });
 
       // Remove the old stopped card — the backend's agent:spawned event
