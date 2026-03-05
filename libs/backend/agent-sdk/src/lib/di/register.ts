@@ -49,7 +49,11 @@ import {
 } from '../prompt-harness';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
-import { PtahCliRegistry } from '../ptah-cli';
+import {
+  PtahCliRegistry,
+  PtahCliConfigPersistence,
+  PtahCliSpawnOptions,
+} from '../ptah-cli';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -312,9 +316,21 @@ export function registerSdkServices(
   );
 
   // ============================================================
-  // Ptah CLI Registry (TASK_2025_167)
-  // Manages lifecycle of user-configured Ptah CLI adapters
+  // Ptah CLI Services (TASK_2025_167, TASK_2025_176)
+  // Config persistence, spawn options, and registry
   // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE,
+    { useClass: PtahCliConfigPersistence },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS,
+    { useClass: PtahCliSpawnOptions },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
   container.register(
     SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
     { useClass: PtahCliRegistry },

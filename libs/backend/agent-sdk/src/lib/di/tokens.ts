@@ -89,6 +89,12 @@ export const SDK_TOKENS = {
   /** Shared mutable AuthEnv singleton (TASK_2025_164) */
   SDK_AUTH_ENV: Symbol.for('SdkAuthEnv'),
 
+  /** Ptah CLI Config Persistence (TASK_2025_176) */
+  SDK_PTAH_CLI_CONFIG_PERSISTENCE: Symbol.for('SdkPtahCliConfigPersistence'),
+
+  /** Ptah CLI Spawn Options (TASK_2025_176) */
+  SDK_PTAH_CLI_SPAWN_OPTIONS: Symbol.for('SdkPtahCliSpawnOptions'),
+
   /** Ptah CLI Registry (TASK_2025_167) */
   SDK_PTAH_CLI_REGISTRY: Symbol.for('SdkPtahCliRegistry'),
 } as const;

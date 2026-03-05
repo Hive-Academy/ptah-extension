@@ -116,6 +116,15 @@ export class SdkMessageTransformer {
   ) {}
 
   /**
+   * Create an isolated transformer instance with fresh state.
+   * Use this for concurrent streams that must not share mutable tracking maps
+   * (e.g., each Ptah CLI headless agent needs its own state scope).
+   */
+  createIsolated(): SdkMessageTransformer {
+    return new SdkMessageTransformer(this.logger, this.authEnv);
+  }
+
+  /**
    * Transform SDK message to flat stream events
    *
    * A single SDK message may produce multiple flat events:

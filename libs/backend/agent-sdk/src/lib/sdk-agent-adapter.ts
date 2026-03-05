@@ -170,7 +170,8 @@ export class SdkAgentAdapter implements IAIProvider {
         this.logger.info(
           '[SdkAgentAdapter] Config change detected, re-initializing...'
         );
-        this.sessionLifecycle.disposeAllSessions();
+        // TASK_2025_175: disposeAllSessions is now async, await it
+        await this.sessionLifecycle.disposeAllSessions();
         this.cliDetector.clearCache();
         this.cliInstallation = null;
         await this.initialize();
@@ -271,7 +272,13 @@ export class SdkAgentAdapter implements IAIProvider {
   dispose(): void {
     this.logger.info('[SdkAgentAdapter] Disposing adapter...');
     this.configWatcher.dispose();
-    this.sessionLifecycle.disposeAllSessions();
+    // TASK_2025_175: disposeAllSessions is now async, fire and log errors
+    this.sessionLifecycle.disposeAllSessions().catch((err) => {
+      this.logger.warn(
+        '[SdkAgentAdapter] Error during session disposal',
+        err instanceof Error ? err : new Error(String(err))
+      );
+    });
     this.authManager.clearAuthentication();
     this.initialized = false;
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
@@ -333,6 +340,8 @@ export class SdkAgentAdapter implements IAIProvider {
       name?: string;
       prompt?: string;
       files?: string[];
+      /** Inline images (pasted/dropped) to include with the initial message */
+      images?: { data: string; mediaType: string }[];
       /**
        * Premium user flag - enables MCP server and Ptah system prompt (TASK_2025_108)
        * When true, enables Ptah MCP server and appends PTAH_SYSTEM_PROMPT
@@ -387,7 +396,13 @@ export class SdkAgentAdapter implements IAIProvider {
         sessionId: trackingId,
         sessionConfig: config,
         initialPrompt: config.prompt
-          ? { content: config.prompt, files: config.files }
+          ? {
+              content: config.prompt,
+              files: config.files,
+              images: config.images as
+                | { data: string; mediaType: string }[]
+                | undefined,
+            }
           : undefined,
         onCompactionStart: this.compactionStartCallback || undefined,
         isPremium,
@@ -419,7 +434,14 @@ export class SdkAgentAdapter implements IAIProvider {
    * End a chat session
    */
   endSession(sessionId: SessionId): void {
-    this.sessionLifecycle.endSession(sessionId);
+    // TASK_2025_175: endSession() is now async but this interface method is void.
+    // Use .catch() to prevent unhandled Promise rejections.
+    this.sessionLifecycle.endSession(sessionId).catch((err) => {
+      this.logger.warn(
+        '[SdkAgentAdapter] Error ending session',
+        err instanceof Error ? err : new Error(String(err))
+      );
+    });
   }
 
   /**
@@ -638,7 +660,8 @@ export class SdkAgentAdapter implements IAIProvider {
     return this.sessionLifecycle.sendMessage(
       sessionId,
       content,
-      options?.files
+      options?.files,
+      options?.images as { data: string; mediaType: string }[] | undefined
     );
   }
 
@@ -648,7 +671,7 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   async interruptSession(sessionId: SessionId): Promise<void> {
     this.logger.info(`[SdkAgentAdapter] Interrupting session: ${sessionId}`);
-    this.sessionLifecycle.endSession(sessionId);
+    await this.sessionLifecycle.endSession(sessionId);
   }
 
   /**

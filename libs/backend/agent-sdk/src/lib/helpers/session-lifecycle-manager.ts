@@ -25,6 +25,7 @@ import {
   SessionId,
   AISessionConfig,
   ISdkPermissionHandler,
+  InlineImageAttachment,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import {
@@ -85,7 +86,11 @@ export interface ExecuteQueryConfig {
   /** If set, resume this session instead of creating new */
   resumeSessionId?: string;
   /** Initial prompt to queue before starting query */
-  initialPrompt?: { content: string; files?: string[] };
+  initialPrompt?: {
+    content: string;
+    files?: string[];
+    images?: InlineImageAttachment[];
+  };
   /**
    * Callback for compaction start events (TASK_2025_098)
    * Called when SDK begins compacting conversation history
@@ -280,7 +285,7 @@ export class SessionLifecycleManager {
    * This method is the ONLY reliable way to detect interrupted subagents. All running
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
-  endSession(sessionId: SessionId): void {
+  async endSession(sessionId: SessionId): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
       this.logger.warn(
@@ -304,19 +309,37 @@ export class SessionLifecycleManager {
       `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`
     );
 
-    // Interrupt the SDK query BEFORE aborting (if initialized)
-    // IMPORTANT: interrupt() must come before abort() because abort() kills
-    // the underlying process, causing interrupt() to fail with empty error {}.
+    // TASK_2025_175: Await interrupt() with timeout BEFORE abort()
+    // SDK best practice: interrupt() must complete before abort() is called.
+    // abort() kills the underlying process, so calling it before interrupt()
+    // means the graceful stop signal is never processed.
     if (session.query) {
-      session.query.interrupt().catch((err) => {
-        this.logger.debug(
-          `[SessionLifecycle] Interrupt cleanup for session ${sessionId}`,
-          err
+      try {
+        let timedOut = false;
+        await Promise.race([
+          session.query.interrupt(),
+          new Promise<void>((resolve) =>
+            setTimeout(() => {
+              timedOut = true;
+              resolve();
+            }, 5000)
+          ),
+        ]);
+        this.logger.info(
+          `[SessionLifecycle] Interrupt ${
+            timedOut ? 'timed out (5s)' : 'completed'
+          } for session: ${sessionId}`
         );
-      });
+      } catch (err) {
+        // TASK_2025_175: Log at WARN level so failures are visible
+        this.logger.warn(
+          `[SessionLifecycle] Interrupt failed for session ${sessionId}`,
+          err instanceof Error ? err : new Error(String(err))
+        );
+      }
     }
 
-    // Abort the session (kills the process after interrupt signal sent)
+    // Abort the session AFTER interrupt completes or times out
     session.abortController.abort();
 
     // Remove from active sessions and clean up tab-to-real mapping
@@ -331,11 +354,14 @@ export class SessionLifecycleManager {
    * TASK_2025_102: Now calls cleanupPendingPermissions to prevent unhandled promise rejections
    * TASK_2025_103: Now marks all running subagents as interrupted for each session
    */
-  disposeAllSessions(): void {
+  async disposeAllSessions(): Promise<void> {
     this.logger.info('[SessionLifecycle] Disposing all active sessions...');
 
     // TASK_2025_102: Cleanup all pending permissions FIRST
     this.permissionHandler.cleanupPendingPermissions();
+
+    // TASK_2025_175: Interrupt all sessions first, then abort
+    const interruptPromises: Promise<void>[] = [];
 
     for (const [sessionId, session] of this.activeSessions.entries()) {
       this.logger.debug(`[SessionLifecycle] Ending session: ${sessionId}`);
@@ -343,15 +369,28 @@ export class SessionLifecycleManager {
       // TASK_2025_103: Mark all running subagents as interrupted for this session
       this.subagentRegistry.markAllInterrupted(sessionId);
 
-      session.abortController.abort();
+      // TASK_2025_175: Interrupt BEFORE abort, with timeout
       if (session.query) {
-        session.query.interrupt().catch((err) => {
-          this.logger.warn(
-            `[SessionLifecycle] Failed to interrupt session ${sessionId}`,
-            err
-          );
-        });
+        interruptPromises.push(
+          Promise.race([
+            session.query.interrupt(),
+            new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+          ]).catch((err) => {
+            this.logger.warn(
+              `[SessionLifecycle] Failed to interrupt session ${sessionId}`,
+              err instanceof Error ? err : new Error(String(err))
+            );
+          })
+        );
       }
+    }
+
+    // Wait for all interrupts to complete or time out
+    await Promise.allSettled(interruptPromises);
+
+    // Now abort all sessions
+    for (const [, session] of this.activeSessions.entries()) {
+      session.abortController.abort();
     }
 
     this.activeSessions.clear();
@@ -511,6 +550,7 @@ export class SessionLifecycleManager {
           content: initialPrompt.content,
           sessionId,
           files: initialPrompt.files,
+          images: initialPrompt.images,
         });
         session.messageQueue.push(sdkUserMessage);
         this.logger.info(
@@ -591,11 +631,13 @@ export class SessionLifecycleManager {
    * @param sessionId - Session to send message to
    * @param content - Message content
    * @param files - Optional file attachments
+   * @param images - Optional inline images (pasted/dropped)
    */
   async sendMessage(
     sessionId: SessionId,
     content: string,
-    files?: string[]
+    files?: string[],
+    images?: InlineImageAttachment[]
   ): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
@@ -605,6 +647,7 @@ export class SessionLifecycleManager {
     this.logger.info(`[SessionLifecycle] Sending message to ${sessionId}`, {
       contentLength: content.length,
       fileCount: files?.length || 0,
+      imageCount: images?.length || 0,
     });
 
     // Create properly formatted SDK message
@@ -612,6 +655,7 @@ export class SessionLifecycleManager {
       content,
       sessionId,
       files,
+      images,
     });
 
     // Queue for SDK - SDK will persist message to ~/.claude/projects/

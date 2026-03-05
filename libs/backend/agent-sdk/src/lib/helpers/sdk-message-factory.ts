@@ -12,7 +12,11 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { MessageId, SessionId } from '@ptah-extension/shared';
+import {
+  MessageId,
+  SessionId,
+  InlineImageAttachment,
+} from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { AttachmentProcessorService } from './attachment-processor.service';
 import {
@@ -34,6 +38,8 @@ export interface CreateMessageParams {
   sessionId: SessionId;
   /** Optional file paths to attach */
   files?: string[];
+  /** Optional inline images (pasted/dropped) */
+  images?: InlineImageAttachment[];
 }
 
 /**
@@ -71,24 +77,49 @@ export class SdkMessageFactory {
   async createUserMessage(
     params: CreateMessageParams
   ): Promise<SDKUserMessage> {
-    const { content, sessionId, files = [] } = params;
+    const { content, sessionId, files = [], images = [] } = params;
 
-    // Build message content (text + optional attachments)
+    // Build message content (text + optional attachments + inline images)
     let messageContent: UserMessageContent = content;
 
-    if (files.length > 0) {
+    const hasAttachments = files.length > 0 || images.length > 0;
+
+    if (hasAttachments) {
       this.logger.debug(
-        `[SdkMessageFactory] Processing ${files.length} attachments`
+        `[SdkMessageFactory] Processing ${files.length} file attachments + ${images.length} inline images`
       );
 
-      const attachmentBlocks =
-        await this.attachmentProcessor.processAttachments(files);
+      const contentBlocks: (
+        | TextBlock
+        | {
+            type: 'image';
+            source: { type: 'base64'; media_type: string; data: string };
+          }
+      )[] = [];
 
-      if (attachmentBlocks.length > 0) {
-        // When attachments exist, content becomes array of blocks
-        const textBlock: TextBlock = { type: 'text', text: content };
-        messageContent = [textBlock, ...attachmentBlocks];
+      // Add text content first
+      contentBlocks.push({ type: 'text', text: content });
+
+      // Add inline images (pasted/dropped)
+      for (const img of images) {
+        contentBlocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: img.mediaType,
+            data: img.data,
+          },
+        });
       }
+
+      // Add file attachments
+      if (files.length > 0) {
+        const attachmentBlocks =
+          await this.attachmentProcessor.processAttachments(files);
+        contentBlocks.push(...(attachmentBlocks as typeof contentBlocks));
+      }
+
+      messageContent = contentBlocks;
     }
 
     // Generate unique message ID
