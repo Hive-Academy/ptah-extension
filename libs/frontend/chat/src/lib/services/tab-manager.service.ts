@@ -93,7 +93,7 @@ export class TabManagerService {
     // window.ptahConfig is injected by the extension host before Angular bootstraps.
     // Sidebar gets empty panelId (uses backward-compatible 'ptah.tabs' key).
     // Editor panels get unique panelId like 'ptah.panel.{uuid}' (namespaced key).
-    const panelId = (window as any).ptahConfig?.panelId;
+    const panelId = (window as unknown as { ptahConfig?: { panelId?: string } }).ptahConfig?.panelId;
     this.storageKey = panelId ? `ptah.tabs.${panelId}` : 'ptah.tabs';
 
     // Load saved tab state on service initialization

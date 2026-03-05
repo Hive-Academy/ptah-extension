@@ -5,7 +5,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
 describe.skip('WelcomeComponent', () => {
   let component: WelcomeComponent;
   let fixture: ComponentFixture<WelcomeComponent>;
-  let mockStateService: any;
+  let mockStateService: Partial<SetupWizardStateService>;
 
   beforeEach(async () => {
     mockStateService = {

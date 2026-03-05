@@ -501,23 +501,27 @@ export class AstAnalysisService {
    * Checks if a node represents a function declaration/expression.
    */
   private isFunctionNode(node: GenericAstNode): boolean {
-    return [
-      AST_NODE_TYPES.FUNCTION_DECLARATION,
-      AST_NODE_TYPES.FUNCTION_EXPRESSION,
-      AST_NODE_TYPES.ARROW_FUNCTION,
-      AST_NODE_TYPES.METHOD_DEFINITION,
-      AST_NODE_TYPES.GENERATOR_FUNCTION,
-    ].includes(node.type as any);
+    return (
+      [
+        AST_NODE_TYPES.FUNCTION_DECLARATION,
+        AST_NODE_TYPES.FUNCTION_EXPRESSION,
+        AST_NODE_TYPES.ARROW_FUNCTION,
+        AST_NODE_TYPES.METHOD_DEFINITION,
+        AST_NODE_TYPES.GENERATOR_FUNCTION,
+      ] as string[]
+    ).includes(node.type);
   }
 
   /**
    * Checks if a node represents a class declaration/expression.
    */
   private isClassNode(node: GenericAstNode): boolean {
-    return [
-      AST_NODE_TYPES.CLASS_DECLARATION,
-      AST_NODE_TYPES.CLASS_EXPRESSION,
-    ].includes(node.type as any);
+    return (
+      [
+        AST_NODE_TYPES.CLASS_DECLARATION,
+        AST_NODE_TYPES.CLASS_EXPRESSION,
+      ] as string[]
+    ).includes(node.type);
   }
 
   /**

@@ -12,6 +12,8 @@ import {
   EXTENSION_LANGUAGE_MAP,
   type SupportedLanguage,
   type GenericAstNode,
+  type QueryMatch,
+  type QueryCapture,
 } from '@ptah-extension/workspace-intelligence';
 import { FileSystemManager } from '@ptah-extension/vscode-core';
 import {
@@ -254,12 +256,12 @@ function simplifyAstNode(
 /**
  * Extract function info from tree-sitter query matches
  */
-function extractFunctionsFromMatches(matches: any[]): AstFunctionInfo[] {
+function extractFunctionsFromMatches(matches: QueryMatch[]): AstFunctionInfo[] {
   const functions: AstFunctionInfo[] = [];
   const seen = new Set<string>();
 
   for (const match of matches) {
-    const captures = new Map<string, any>();
+    const captures = new Map<string, QueryCapture>();
     for (const capture of match.captures) {
       captures.set(capture.name, capture);
     }
@@ -310,12 +312,12 @@ function extractFunctionsFromMatches(matches: any[]): AstFunctionInfo[] {
 /**
  * Extract class info from tree-sitter query matches
  */
-function extractClassesFromMatches(matches: any[]): AstClassInfo[] {
+function extractClassesFromMatches(matches: QueryMatch[]): AstClassInfo[] {
   const classes: AstClassInfo[] = [];
   const seen = new Set<string>();
 
   for (const match of matches) {
-    const captures = new Map<string, any>();
+    const captures = new Map<string, QueryCapture>();
     for (const capture of match.captures) {
       captures.set(capture.name, capture);
     }
@@ -348,12 +350,12 @@ function extractClassesFromMatches(matches: any[]): AstClassInfo[] {
 /**
  * Extract import info from tree-sitter query matches
  */
-function extractImportsFromMatches(matches: any[]): AstImportInfo[] {
+function extractImportsFromMatches(matches: QueryMatch[]): AstImportInfo[] {
   const imports: AstImportInfo[] = [];
   const seen = new Set<string>();
 
   for (const match of matches) {
-    const captures = new Map<string, any>();
+    const captures = new Map<string, QueryCapture>();
     for (const capture of match.captures) {
       captures.set(capture.name, capture);
     }
@@ -408,12 +410,12 @@ function extractImportsFromMatches(matches: any[]): AstImportInfo[] {
 /**
  * Extract export info from tree-sitter query matches
  */
-function extractExportsFromMatches(matches: any[]): AstExportInfo[] {
+function extractExportsFromMatches(matches: QueryMatch[]): AstExportInfo[] {
   const exports: AstExportInfo[] = [];
   const seen = new Set<string>();
 
   for (const match of matches) {
-    const captures = new Map<string, any>();
+    const captures = new Map<string, QueryCapture>();
     for (const capture of match.captures) {
       captures.set(capture.name, capture);
     }

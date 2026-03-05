@@ -67,7 +67,7 @@ describe('FilePickerService', () => {
         })
       );
       // Access private signal to set test data
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       // Act
       const results = service.searchFiles('');
@@ -83,7 +83,7 @@ describe('FilePickerService', () => {
           name: `file-${i}.ts`,
         })
       );
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       // Act - empty string (the actual type parameter is string)
       const results = service.searchFiles('');
@@ -99,7 +99,7 @@ describe('FilePickerService', () => {
           name: `file-${i}.ts`,
         })
       );
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('');
 
@@ -147,7 +147,7 @@ describe('FilePickerService', () => {
     ];
 
     beforeEach(() => {
-      (service as any)._workspaceFiles.set(testFiles);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(testFiles);
     });
 
     it('should filter by name match - only matching files returned', () => {
@@ -216,7 +216,7 @@ describe('FilePickerService', () => {
           directory: 'src',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('portal.ts');
 
@@ -237,7 +237,7 @@ describe('FilePickerService', () => {
           directory: 'src',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('portal');
 
@@ -259,7 +259,7 @@ describe('FilePickerService', () => {
           directory: 'src',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('portal');
 
@@ -285,7 +285,7 @@ describe('FilePickerService', () => {
           isImage: false,
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('portal');
 
@@ -312,7 +312,7 @@ describe('FilePickerService', () => {
           directory: 'src',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('portal');
 
@@ -345,7 +345,7 @@ describe('FilePickerService', () => {
           directory: 'src',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('portal');
 
@@ -377,7 +377,7 @@ describe('FilePickerService', () => {
           directory: 'src',
         })
       );
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('component');
 
@@ -408,7 +408,7 @@ describe('FilePickerService', () => {
           directory: 'apps/main',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('shared');
 
@@ -429,7 +429,7 @@ describe('FilePickerService', () => {
           directory: 'libs/backend/core/src',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('frontend');
 
@@ -472,7 +472,7 @@ describe('FilePickerService', () => {
           directory: '',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('portal');
 
@@ -505,7 +505,7 @@ describe('FilePickerService', () => {
           directory: 'src',
         }),
       ];
-      (service as any)._workspaceFiles.set(files);
+      (service as unknown as { _workspaceFiles: { set: (v: FileSuggestion[]) => void } })._workspaceFiles.set(files);
 
       const results = service.searchFiles('portal');
 

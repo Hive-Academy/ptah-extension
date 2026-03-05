@@ -10,6 +10,36 @@ import {
 import { GenericAstNode } from './ast.types';
 
 /**
+ * Opaque type representing a tree-sitter parser instance (loaded via require).
+ * tree-sitter does not ship TypeScript declarations, so we model these as
+ * structural interfaces covering only the members we actually use.
+ */
+interface TreeSitterParser {
+  setLanguage(language: TreeSitterLanguage): void;
+  parse(input: string): TreeSitterTree;
+}
+
+/** Opaque type representing a tree-sitter language grammar. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface TreeSitterLanguage {}
+
+/** Opaque type representing a tree-sitter parse tree. */
+interface TreeSitterTree {
+  rootNode: TreeSitterSyntaxNode;
+}
+
+/** Structural interface for tree-sitter SyntaxNode fields we access. */
+interface TreeSitterSyntaxNode {
+  type: string;
+  text: string;
+  startPosition: { row: number; column: number };
+  endPosition: { row: number; column: number };
+  isNamed: boolean;
+  fieldName: string | null;
+  children: TreeSitterSyntaxNode[];
+}
+
+/**
  * Represents a capture from a tree-sitter query match.
  */
 export interface QueryCapture {
@@ -44,10 +74,8 @@ const TypeScript = require('tree-sitter-typescript').typescript; // Use named im
 
 @injectable()
 export class TreeSitterParserService {
-  // Use 'any' for Parser instance type due to TS issues
-  private readonly parserCache: Map<SupportedLanguage, any> = new Map();
-  // Use 'any' for Language type
-  private readonly languageGrammars: Map<SupportedLanguage, any> = new Map();
+  private readonly parserCache: Map<SupportedLanguage, TreeSitterParser> = new Map();
+  private readonly languageGrammars: Map<SupportedLanguage, TreeSitterLanguage> = new Map();
   private isInitialized = false;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
@@ -110,8 +138,7 @@ export class TreeSitterParserService {
   private _getPreloadedGrammar(
     // Synchronous
     language: SupportedLanguage
-  ): Result<any, Error> {
-    // Use 'any' for Language type
+  ): Result<TreeSitterLanguage, Error> {
     if (!this.isInitialized) {
       this.logger.debug(
         `_getPreloadedGrammar: Service not initialized. Triggering initialize().`
@@ -161,8 +188,7 @@ export class TreeSitterParserService {
    * @param language - The language of the parser to retrieve.
    * @returns A Result containing the cached parser if valid, or an error/null if not found or invalid.
    */
-  private _getCachedParser(language: SupportedLanguage): Result<any, Error> {
-    // Use 'any' for Parser instance type
+  private _getCachedParser(language: SupportedLanguage): Result<TreeSitterParser | null, Error> {
     if (!this.parserCache.has(language)) {
       return Result.ok(null);
     }
@@ -203,8 +229,7 @@ export class TreeSitterParserService {
    */
   private _createAndCacheParser(
     language: SupportedLanguage
-  ): Result<any, Error> {
-    // Use 'any' for Parser instance type
+  ): Result<TreeSitterParser, Error> {
     this.logger.info(`Creating new parser for language: ${language}`);
 
     const grammarResult = this._getPreloadedGrammar(language); // Call synchronous method
@@ -236,8 +261,7 @@ export class TreeSitterParserService {
    * @param language - The language for the parser.
    * @returns A Result containing the parser instance or an error.
    */
-  private getOrCreateParser(language: SupportedLanguage): Result<any, Error> {
-    // Use 'any' for Parser instance type
+  private getOrCreateParser(language: SupportedLanguage): Result<TreeSitterParser | null, Error> {
     const cachedResult = this._getCachedParser(language); // Call synchronous method
 
     if (cachedResult.isErr()) {
@@ -264,7 +288,7 @@ export class TreeSitterParserService {
    * @private
    */
   private _convertNodeToGenericAst(
-    node: any, // Changed from SyntaxNode to 'any' due to TS errors with fieldName/parentFieldName
+    node: TreeSitterSyntaxNode,
     currentDepth = 0,
     maxDepth: number | null = null // Optional depth limit
   ): GenericAstNode {
@@ -305,7 +329,7 @@ export class TreeSitterParserService {
       fieldName: node.fieldName || null, // Corrected property name
       children: children.map(
         (
-          child: any // Explicitly type child as any
+          child: TreeSitterSyntaxNode
         ) => this._convertNodeToGenericAst(child, currentDepth + 1, maxDepth)
       ),
     };
@@ -333,7 +357,7 @@ export class TreeSitterParserService {
     }
     const parser = parserResult.value;
 
-    let tree: any; // Use 'any' for Tree type or import if possible
+    let tree: TreeSitterTree;
     try {
       if (!parser) {
         throw new Error('Parser instance is null or undefined before parsing.');
@@ -413,9 +437,9 @@ export class TreeSitterParserService {
       const matches = query.matches(tree.rootNode);
 
       // Convert matches to our QueryMatch format
-      const results: QueryMatch[] = matches.map((match: any) => ({
+      const results: QueryMatch[] = matches.map((match: { pattern: number; captures: { name: string; node: TreeSitterSyntaxNode }[] }) => ({
         pattern: match.pattern,
-        captures: match.captures.map((capture: any) => ({
+        captures: match.captures.map((capture: { name: string; node: TreeSitterSyntaxNode }) => ({
           name: capture.name,
           node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
           text: capture.node.text,

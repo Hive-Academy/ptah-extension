@@ -8,7 +8,7 @@
  * @returns A promise that resolves with the parsed object.
  * @throws An error if the string cannot be parsed even after repair.
  */
-export async function parseRobustJson<T = any>(jsonString: string): Promise<T> {
+export async function parseRobustJson<T = unknown>(jsonString: string): Promise<T> {
   try {
     // Attempt standard parsing
     const result = JSON.parse(jsonString);

@@ -862,10 +862,11 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
             providerId,
           });
           if (result.isSuccess() && result.data) {
+            const data = result.data as unknown as Record<string, string | null>;
             mappings[providerId] = {
-              sonnet: (result.data as any).sonnet ?? null,
-              opus: (result.data as any).opus ?? null,
-              haiku: (result.data as any).haiku ?? null,
+              sonnet: data.sonnet ?? null,
+              opus: data.opus ?? null,
+              haiku: data.haiku ?? null,
             };
           }
         } catch {

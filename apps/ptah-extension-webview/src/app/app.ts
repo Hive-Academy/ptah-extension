@@ -113,7 +113,7 @@ export class App implements OnInit, OnDestroy {
     console.log('Setting up initial view with pure signal navigation');
 
     // Check for initialView in ptahConfig (set by extension for specific views like wizard)
-    const ptahConfig = (window as any).ptahConfig;
+    const ptahConfig = (window as unknown as Record<string, Record<string, unknown>>).ptahConfig;
     const rawInitialView = ptahConfig?.initialView;
 
     // CRITICAL: Validate initialView at runtime with graceful degradation

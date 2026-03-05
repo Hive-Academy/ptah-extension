@@ -324,7 +324,7 @@ USER: ${userPrompt.trim()}`;
    *
    * @private
    */
-  private _zodToJsonSchema(schema: z.ZodTypeAny): any {
+  private _zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
     // For complex schemas, we provide basic structure
     // Real implementation could use zod-to-json-schema library
     return {
@@ -347,7 +347,7 @@ USER: ${userPrompt.trim()}`;
    *
    * @private
    */
-  private _parseJson(text: string): Result<any, LlmProviderError> {
+  private _parseJson(text: string): Result<unknown, LlmProviderError> {
     const jsonText = text.trim();
 
     // 1. Try direct parse first (model returned pure JSON)

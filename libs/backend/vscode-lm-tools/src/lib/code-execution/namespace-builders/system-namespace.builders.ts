@@ -657,7 +657,7 @@ ${message}
      * @param input - Tool input parameters (must match tool's schema)
      * @returns Tool execution result
      */
-    invokeTool: async (name: string, input: any) => {
+    invokeTool: async (name: string, input: Record<string, unknown>) => {
       if (!name || name.trim().length === 0) {
         throw new Error('Tool name cannot be empty');
       }
@@ -1013,7 +1013,7 @@ export function buildFilesNamespace(
  */
 export function buildCommandsNamespace(): CommandsNamespace {
   return {
-    execute: async (commandId: string, ...args: any[]) => {
+    execute: async (commandId: string, ...args: unknown[]) => {
       return await vscode.commands.executeCommand(commandId, ...args);
     },
     list: async () => {

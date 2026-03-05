@@ -104,6 +104,7 @@ export { WebviewMessageHandlerService } from './services/webview-message-handler
 export type {
   CustomMessageHandler,
   WebviewMessageHandlerConfig,
+  WebviewMessage,
 } from './services/webview-message-handler.service';
 
 // Auth Secrets Service (TASK_2025_076)

@@ -173,7 +173,7 @@ export class PtahExtension implements vscode.Disposable {
       this.angularWebviewProvider?.dispose?.();
 
       this.logger.info('Ptah extension disposed successfully');
-    } catch (error: any) {
+    } catch (error) {
       this.logger.error('Extension disposal failed', error);
     }
   }

@@ -333,7 +333,7 @@ describe.skip('CompletionComponent', () => {
         { id: '1', name: 'Agent 1', status: 'complete', duration: 60000 },
       ];
 
-      const progressSignal = mockStateService.generationProgress as any;
+      const progressSignal = mockStateService.generationProgress as unknown as { set: (v: GenerationProgress | null) => void };
       progressSignal.set({
         phase: 'complete',
         percentComplete: 100,
@@ -357,7 +357,7 @@ describe.skip('CompletionComponent', () => {
         { id: '1', name: 'Agent 1', status: 'complete', duration: 5000 },
       ];
 
-      const progressSignal = mockStateService.generationProgress as any;
+      const progressSignal = mockStateService.generationProgress as unknown as { set: (v: GenerationProgress | null) => void };
       progressSignal.set({
         phase: 'complete',
         percentComplete: 100,

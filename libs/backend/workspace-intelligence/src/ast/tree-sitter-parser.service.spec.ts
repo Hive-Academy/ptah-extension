@@ -39,7 +39,7 @@ describe('TreeSitterParserService', () => {
       debug: jest.fn(),
       lifecycle: jest.fn(),
       dispose: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<Logger>;
 
     // Create service with mock logger
     service = new TreeSitterParserService(mockLogger);

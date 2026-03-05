@@ -101,7 +101,9 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
       countTokens: jest.fn().mockResolvedValue(100),
     };
 
-    agent = new PromptDesignerAgent(mockLogger as any);
+    agent = new PromptDesignerAgent(
+      ...[mockLogger] as unknown as ConstructorParameters<typeof PromptDesignerAgent>
+    );
   });
 
   afterEach(() => {

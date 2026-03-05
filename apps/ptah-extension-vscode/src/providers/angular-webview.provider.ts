@@ -140,7 +140,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
     );
 
     // Per-panel event queue for readiness gating (manually instantiated, not from DI)
-    const panelEventQueue = new WebviewEventQueue(this.logger as any);
+    const panelEventQueue = new WebviewEventQueue(this.logger as Logger);
     this._panelEventQueues.set(panelId, panelEventQueue);
 
     // Per-panel disposables to avoid stale entries in shared _disposables
@@ -298,7 +298,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         `Webview file changed: ${uri.fsPath} - Reloading webview`
       );
       this.reloadWebview();
-    } catch (error: any) {
+    } catch (error) {
       this.logger.error('Error during hot reload:', error);
     }
   }

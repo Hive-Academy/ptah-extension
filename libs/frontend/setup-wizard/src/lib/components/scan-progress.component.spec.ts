@@ -137,7 +137,7 @@ describe.skip('ScanProgressComponent', () => {
 
     it('should update status text during analysis phases', async () => {
       // Use a deferred promise to check intermediate state
-      let resolveDeepAnalyze!: (value: any) => void;
+      let resolveDeepAnalyze!: (value: unknown) => void;
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
@@ -231,7 +231,7 @@ describe.skip('ScanProgressComponent', () => {
       );
 
       // Simulate cached multi-phase result in state
-      (mockStateService as any).multiPhaseResult =
+      (mockStateService as unknown as Record<string, unknown>).multiPhaseResult =
         signal(mockMultiPhaseResult).asReadonly();
 
       // Reset mock and retry — second call should succeed
@@ -251,7 +251,7 @@ describe.skip('ScanProgressComponent', () => {
 
   describe('Re-entry Guard', () => {
     it('should prevent concurrent analysis calls', async () => {
-      let resolveDeepAnalyze!: (value: any) => void;
+      let resolveDeepAnalyze!: (value: unknown) => void;
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
@@ -295,7 +295,7 @@ describe.skip('ScanProgressComponent', () => {
     it('should display progress information', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as any;
+      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,
@@ -309,7 +309,7 @@ describe.skip('ScanProgressComponent', () => {
     });
 
     it('should calculate progress percentage correctly', () => {
-      const progressSignal = mockStateService.scanProgress as any;
+      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
       progressSignal.set({
         filesScanned: 25,
         totalFiles: 100,
@@ -320,7 +320,7 @@ describe.skip('ScanProgressComponent', () => {
     });
 
     it('should handle zero total files', () => {
-      const progressSignal = mockStateService.scanProgress as any;
+      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
       progressSignal.set({
         filesScanned: 0,
         totalFiles: 0,
@@ -333,7 +333,7 @@ describe.skip('ScanProgressComponent', () => {
     it('should display detections list', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as any;
+      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,
@@ -380,8 +380,8 @@ describe.skip('ScanProgressComponent', () => {
       fixture.detectChanges();
 
       const buttons = fixture.nativeElement.querySelectorAll('button');
-      const buttonTexts = Array.from(buttons).map((b: any) =>
-        b.textContent.trim()
+      const buttonTexts = Array.from(buttons).map((b) =>
+        (b as HTMLButtonElement).textContent!.trim()
       );
       expect(buttonTexts).toContain('Back');
       expect(buttonTexts.some((t: string) => t.includes('Retry'))).toBe(true);
@@ -389,7 +389,7 @@ describe.skip('ScanProgressComponent', () => {
 
     it('should show Cancel Scan button when not in error state', async () => {
       // Prevent auto-analysis from completing during this test
-      let resolveDeepAnalyze!: (value: any) => void;
+      let resolveDeepAnalyze!: (value: unknown) => void;
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
@@ -406,7 +406,7 @@ describe.skip('ScanProgressComponent', () => {
 
     it('should enable Cancel Scan button during analysis', async () => {
       // Prevent auto-analysis from completing during this test
-      let resolveDeepAnalyze!: (value: any) => void;
+      let resolveDeepAnalyze!: (value: unknown) => void;
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
@@ -430,7 +430,7 @@ describe.skip('ScanProgressComponent', () => {
       const h2 = fixture.nativeElement.querySelector('h2');
       expect(h2).toBeTruthy();
 
-      const progressSignal = mockStateService.scanProgress as any;
+      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,
@@ -445,7 +445,7 @@ describe.skip('ScanProgressComponent', () => {
     it('should have accessible progress bar', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as any;
+      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,
@@ -462,7 +462,7 @@ describe.skip('ScanProgressComponent', () => {
     it('should handle null progress data', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as any;
+      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
       progressSignal.set(null);
       fixture.detectChanges();
 
@@ -473,7 +473,7 @@ describe.skip('ScanProgressComponent', () => {
     it('should handle missing detections array', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as any;
+      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,

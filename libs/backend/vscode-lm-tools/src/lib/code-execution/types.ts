@@ -15,6 +15,11 @@ import type {
   AgentOutput,
   CliDetectionResult,
 } from '@ptah-extension/shared';
+import type {
+  WorkspaceInfo,
+  ProjectInfo,
+  WorkspaceStructureAnalysis,
+} from '@ptah-extension/workspace-intelligence';
 
 // ========================================
 // Ptah API - Main Interface
@@ -78,13 +83,13 @@ export interface WorkspaceNamespace {
    * Analyze complete workspace structure and project configuration
    * @returns Combined workspace info and structure analysis
    */
-  analyze: () => Promise<{ info: any; structure: any }>;
+  analyze: () => Promise<{ info: WorkspaceInfo | undefined; structure: WorkspaceStructureAnalysis | null; projectInfo?: ProjectInfo }>;
 
   /**
    * Get current workspace information (project type, frameworks, etc.)
    * @returns Workspace metadata
    */
-  getInfo: () => Promise<any>;
+  getInfo: () => Promise<WorkspaceInfo | undefined>;
 
   /**
    * Get detected project type (React, Angular, NestJS, etc.)
@@ -341,7 +346,7 @@ export interface AINamespace {
    * @param input - Tool input parameters (must match tool's schema)
    * @returns Tool execution result
    */
-  invokeTool: (name: string, input: any) => Promise<any>;
+  invokeTool: (name: string, input: Record<string, unknown>) => Promise<vscode.LanguageModelToolResult>;
 
   /**
    * Chat with access to specific VS Code tools
@@ -446,7 +451,7 @@ export interface ToolInfo {
   description: string;
 
   /** JSON Schema for tool input parameters */
-  inputSchema: any;
+  inputSchema: Record<string, unknown> | undefined;
 }
 
 /**
@@ -466,7 +471,7 @@ export interface FilesNamespace {
    * @param path - Absolute file path
    * @returns Parsed JSON object
    */
-  readJson: (path: string) => Promise<any>;
+  readJson: (path: string) => Promise<unknown>;
 
   /**
    * List directory contents
@@ -488,7 +493,7 @@ export interface CommandsNamespace {
    * @param args - Command arguments
    * @returns Command result
    */
-  execute: (commandId: string, ...args: any[]) => Promise<any>;
+  execute: (commandId: string, ...args: unknown[]) => Promise<unknown>;
 
   /**
    * List all available Ptah commands
@@ -579,7 +584,7 @@ export interface MCPRequest {
   method: string;
 
   /** Method-specific parameters */
-  params?: any;
+  params?: Record<string, unknown>;
 }
 
 /**
@@ -593,7 +598,7 @@ export interface MCPResponse {
   id: string | number;
 
   /** Success result (mutually exclusive with error) */
-  result?: any;
+  result?: unknown;
 
   /** Error response (mutually exclusive with result) */
   error?: MCPError;
@@ -610,7 +615,7 @@ export interface MCPError {
   message: string;
 
   /** Additional error data (e.g., stack trace) */
-  data?: any;
+  data?: unknown;
 }
 
 /**
@@ -626,7 +631,7 @@ export interface MCPToolDefinition {
   /** JSON Schema for tool parameters */
   inputSchema: {
     type: 'object';
-    properties: Record<string, any>;
+    properties: Record<string, unknown>;
     required?: string[];
   };
 
@@ -666,7 +671,7 @@ export interface ExecuteCodeResult {
   success: boolean;
 
   /** Return value from code (if success) */
-  result?: any;
+  result?: unknown;
 
   /** Error message (if failure) */
   error?: string;

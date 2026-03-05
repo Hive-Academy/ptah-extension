@@ -14,15 +14,15 @@ import { ProjectConfig, ProjectContext } from '../interfaces';
 
 describe('TemplateGeneratorService - E2E Workflow', () => {
   let service: TemplateGeneratorService;
-  let mockOrchestrator: any; // Using any to avoid type errors for incomplete integration
-  let mockWorkspaceAnalyzer: any; // Using any to mock methods that don't exist yet
+  let mockOrchestrator: Record<string, jest.Mock>;
+  let mockWorkspaceAnalyzer: Record<string, jest.Mock>;
   let mockLogger: jest.Mocked<Logger>;
 
   beforeEach(() => {
     // Mock orchestrator
     mockOrchestrator = {
       orchestrateGeneration: jest.fn(),
-    } as any;
+    };
 
     // Mock workspace analyzer with methods that don't exist yet (TODO Phase 3)
     // These methods are called by TemplateGeneratorService but not yet implemented
@@ -30,7 +30,7 @@ describe('TemplateGeneratorService - E2E Workflow', () => {
       getWorkspaceRoot: jest.fn(),
       analyzeWorkspace: jest.fn(),
       dispose: jest.fn(),
-    } as any;
+    };
 
     // Mock logger
     mockLogger = {
@@ -40,13 +40,11 @@ describe('TemplateGeneratorService - E2E Workflow', () => {
       debug: jest.fn(),
       lifecycle: jest.fn(),
       dispose: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<Logger>;
 
     // Create service
     service = new TemplateGeneratorService(
-      mockOrchestrator,
-      mockWorkspaceAnalyzer,
-      mockLogger
+      ...[mockOrchestrator, mockWorkspaceAnalyzer, mockLogger] as unknown as ConstructorParameters<typeof TemplateGeneratorService>
     );
   });
 

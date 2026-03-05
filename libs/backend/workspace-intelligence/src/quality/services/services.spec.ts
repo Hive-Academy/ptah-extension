@@ -21,15 +21,21 @@ import { FileSystemService } from '../../services/file-system.service';
 import { FileRelevanceScorerService } from '../../context-analysis/file-relevance-scorer.service';
 import { ProjectDetectorService } from '../../project-analysis/project-detector.service';
 import { FrameworkDetectorService } from '../../project-analysis/framework-detector.service';
-import { MonorepoDetectorService } from '../../project-analysis/monorepo-detector.service';
-import { DependencyAnalyzerService } from '../../project-analysis/dependency-analyzer.service';
+import {
+  MonorepoDetectorService,
+  MonorepoDetectionResult,
+} from '../../project-analysis/monorepo-detector.service';
+import {
+  DependencyAnalyzerService,
+  DependencyAnalysisResult,
+} from '../../project-analysis/dependency-analyzer.service';
 import type { SampledFile } from '../interfaces';
 import type {
   QualityAssessment,
   WorkspaceContext,
   AntiPattern,
 } from '@ptah-extension/shared';
-import { FileType, Framework } from '../../types/workspace.types';
+import { FileType, Framework, ProjectType } from '../../types/workspace.types';
 import type { IndexedFile, FileIndex } from '../../types/workspace.types';
 import * as vscode from 'vscode';
 
@@ -1046,16 +1052,16 @@ describe('ProjectIntelligenceService', () => {
 
   describe('getIntelligence', () => {
     const setupDefaultMocks = () => {
-      mockProjectDetector.detectProjectType.mockResolvedValue('node' as any);
+      mockProjectDetector.detectProjectType.mockResolvedValue(ProjectType.Node);
       mockFrameworkDetector.detectFrameworks.mockResolvedValue(new Map());
       mockMonorepoDetector.detectMonorepo.mockResolvedValue({
         isMonorepo: false,
         type: undefined,
-      } as any);
+      } as unknown as MonorepoDetectionResult);
       mockDependencyAnalyzer.analyzeDependencies.mockResolvedValue({
         dependencies: [],
         devDependencies: [],
-      } as any);
+      } as unknown as DependencyAnalysisResult);
       mockQualityAssessment.assessQuality.mockResolvedValue({
         score: 80,
         antiPatterns: [],
@@ -1116,18 +1122,18 @@ describe('ProjectIntelligenceService', () => {
 
   describe('getWorkspaceContext', () => {
     it('should build context from detection services', async () => {
-      mockProjectDetector.detectProjectType.mockResolvedValue('angular' as any);
+      mockProjectDetector.detectProjectType.mockResolvedValue(ProjectType.Angular);
       mockFrameworkDetector.detectFrameworks.mockResolvedValue(
         new Map([[vscode.Uri.file('D:\\test'), Framework.Angular]])
       );
       mockMonorepoDetector.detectMonorepo.mockResolvedValue({
         isMonorepo: true,
         type: 'nx',
-      } as any);
+      } as unknown as MonorepoDetectionResult);
       mockDependencyAnalyzer.analyzeDependencies.mockResolvedValue({
         dependencies: [{ name: '@angular/core', version: '^17.0.0' }],
         devDependencies: [{ name: 'typescript', version: '^5.0.0' }],
-      } as any);
+      } as unknown as DependencyAnalysisResult);
 
       const workspaceUri = vscode.Uri.file('D:\\test\\project');
       const context = await service.getWorkspaceContext(workspaceUri);
@@ -1155,15 +1161,15 @@ describe('ProjectIntelligenceService', () => {
 
   describe('invalidateCache', () => {
     it('should clear cache for workspace', async () => {
-      mockProjectDetector.detectProjectType.mockResolvedValue('node' as any);
+      mockProjectDetector.detectProjectType.mockResolvedValue(ProjectType.Node);
       mockFrameworkDetector.detectFrameworks.mockResolvedValue(new Map());
       mockMonorepoDetector.detectMonorepo.mockResolvedValue({
         isMonorepo: false,
-      } as any);
+      } as unknown as MonorepoDetectionResult);
       mockDependencyAnalyzer.analyzeDependencies.mockResolvedValue({
         dependencies: [],
         devDependencies: [],
-      } as any);
+      } as unknown as DependencyAnalysisResult);
       mockQualityAssessment.assessQuality.mockResolvedValue({
         score: 80,
         antiPatterns: [],

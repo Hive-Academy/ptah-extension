@@ -17,6 +17,7 @@ import { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { ILlmProvider } from '../interfaces/llm-provider.interface';
 import { LlmProviderError } from '../errors/llm-provider.error';
+import { z } from 'zod';
 
 describe.skip('LlmService', () => {
   let service: LlmService;
@@ -31,7 +32,7 @@ describe.skip('LlmService', () => {
       warn: jest.fn(),
       error: jest.fn(),
       debug: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<Logger>;
 
     // Mock provider
     mockProvider = {
@@ -40,14 +41,14 @@ describe.skip('LlmService', () => {
       getStructuredCompletion: jest.fn(),
       getContextWindowSize: jest.fn(),
       countTokens: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<ILlmProvider>;
 
     // Mock provider registry
     mockProviderRegistry = {
       createProvider: jest.fn(),
       getProviderFactory: jest.fn(),
       getAvailableProviders: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<ProviderRegistry>;
 
     service = new LlmService(mockProviderRegistry, mockLogger);
   });
@@ -176,7 +177,7 @@ describe.skip('LlmService', () => {
         Result.ok(structuredData)
       );
 
-      const mockSchema = { parse: jest.fn() } as any;
+      const mockSchema = { parse: jest.fn() } as unknown as z.ZodTypeAny;
       const result = await service.getStructuredCompletion(
         'prompt',
         mockSchema
@@ -195,7 +196,7 @@ describe.skip('LlmService', () => {
         mockLogger
       );
 
-      const mockSchema = { parse: jest.fn() } as any;
+      const mockSchema = { parse: jest.fn() } as unknown as z.ZodTypeAny;
       const result = await serviceWithoutProvider.getStructuredCompletion(
         'prompt',
         mockSchema

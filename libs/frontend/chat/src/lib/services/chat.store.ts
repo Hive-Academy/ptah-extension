@@ -10,6 +10,8 @@ import {
   SubagentRecord,
   LicenseGetStatusResponse,
   InlineImageAttachment,
+  AskUserQuestionRequest,
+  AskUserQuestionResponse,
 } from '@ptah-extension/shared';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
@@ -846,7 +848,7 @@ export class ChatStore {
    * Handle AskUserQuestion request from backend (TASK_2025_136)
    * Delegates to PermissionHandlerService
    */
-  handleQuestionRequest(request: any): void {
+  handleQuestionRequest(request: AskUserQuestionRequest): void {
     this.permissionHandler.handleQuestionRequest(request);
   }
 
@@ -854,7 +856,7 @@ export class ChatStore {
    * Handle user response to AskUserQuestion request (TASK_2025_136)
    * Delegates to PermissionHandlerService
    */
-  handleQuestionResponse(response: any): void {
+  handleQuestionResponse(response: AskUserQuestionResponse): void {
     this.permissionHandler.handleQuestionResponse(response);
   }
 

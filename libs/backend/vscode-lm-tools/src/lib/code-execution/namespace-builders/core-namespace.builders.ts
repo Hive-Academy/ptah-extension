@@ -78,8 +78,8 @@ export function buildSearchNamespace(
           maxResults: limit,
         });
         return (result.results || [])
-          .filter((r: any) => r != null)
-          .map((r: any) => r.relativePath || r.path || String(r));
+          .filter((r) => r != null)
+          .map((r) => r.relativePath || String(r));
       } catch {
         return [];
       }
@@ -92,8 +92,8 @@ export function buildSearchNamespace(
           limit: maxFiles,
         });
         return (result.suggestions || [])
-          .filter((s: any) => s != null)
-          .map((s: any) => s.relativePath || s.path || String(s));
+          .filter((s) => s != null)
+          .map((s) => s.relativePath || String(s));
       } catch {
         return [];
       }
@@ -154,6 +154,12 @@ export function buildDiagnosticsNamespace(): DiagnosticsNamespace {
 /** Git extension status code for untracked files */
 const GIT_STATUS_UNTRACKED = 7;
 
+/** Shape of a git extension change object (VS Code git extension API is untyped) */
+interface GitChange {
+  uri?: { fsPath: string };
+  status?: number;
+}
+
 /**
  * Build git status namespace
  * Uses VS Code's git extension API
@@ -175,17 +181,17 @@ export function buildGitNamespace(): GitNamespace {
 
         const status: GitStatus = {
           branch: repo.state.HEAD?.name || 'unknown',
-          modified: (repo.state.workingTreeChanges || [])
-            .filter((c: any) => c?.uri?.fsPath)
-            .map((c: any) => c.uri.fsPath),
-          staged: (repo.state.indexChanges || [])
-            .filter((c: any) => c?.uri?.fsPath)
-            .map((c: any) => c.uri.fsPath),
-          untracked: (repo.state.workingTreeChanges || [])
+          modified: ((repo.state.workingTreeChanges || []) as GitChange[])
+            .filter((c) => c?.uri?.fsPath)
+            .map((c) => c.uri!.fsPath),
+          staged: ((repo.state.indexChanges || []) as GitChange[])
+            .filter((c) => c?.uri?.fsPath)
+            .map((c) => c.uri!.fsPath),
+          untracked: ((repo.state.workingTreeChanges || []) as GitChange[])
             .filter(
-              (c: any) => c?.status === GIT_STATUS_UNTRACKED && c?.uri?.fsPath
+              (c) => c?.status === GIT_STATUS_UNTRACKED && c?.uri?.fsPath
             )
-            .map((c: any) => c.uri.fsPath),
+            .map((c) => c.uri!.fsPath),
         };
         return status;
       } catch {

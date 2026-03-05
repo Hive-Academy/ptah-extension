@@ -13,16 +13,29 @@ import * as vscode from 'vscode';
 import {
   MESSAGE_TYPES,
   type ISdkPermissionHandler,
+  type PermissionResponse,
 } from '@ptah-extension/shared';
 import { TOKENS } from '../di/tokens';
 import type { Logger } from '../logging';
 import type { RpcHandler } from '../messaging';
 
 /**
+ * Shape of a webview message received from the frontend
+ */
+export interface WebviewMessage {
+  type: string;
+  correlationId?: string;
+  requestId?: string;
+  payload?: Record<string, unknown>;
+  response?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
  * Custom message handler function type
  */
 export type CustomMessageHandler = (
-  message: any,
+  message: WebviewMessage,
   webview: vscode.Webview
 ) => Promise<boolean>;
 
@@ -149,9 +162,11 @@ export class WebviewMessageHandlerService {
     config: WebviewMessageHandlerConfig,
     disposables?: vscode.Disposable[]
   ): vscode.Disposable {
-    const disposable = config.webview.onDidReceiveMessage(async (message) => {
-      await this.handleMessage(config, message);
-    });
+    const disposable = config.webview.onDidReceiveMessage(
+      async (message: WebviewMessage) => {
+        await this.handleMessage(config, message);
+      }
+    );
 
     if (disposables) {
       disposables.push(disposable);
@@ -165,7 +180,7 @@ export class WebviewMessageHandlerService {
    */
   async handleMessage(
     config: WebviewMessageHandlerConfig,
-    message: any
+    message: WebviewMessage
   ): Promise<void> {
     const { webviewId, webview, customHandlers, onReady } = config;
 
@@ -244,12 +259,17 @@ export class WebviewMessageHandlerService {
   private async handleRpcMessage(
     webviewId: string,
     webview: vscode.Webview,
-    message: any
+    message: WebviewMessage
   ): Promise<void> {
     // Frontend wraps RPC data in 'payload' object, so unwrap it
-    const rpcData = message.payload || message;
+    const rpcData = (message.payload || message) as {
+      requestId?: string;
+      method: string;
+      params: unknown;
+      correlationId?: string;
+    };
     const { requestId, method, params, correlationId } = rpcData;
-    const reqId = requestId || correlationId;
+    const reqId = requestId || correlationId || '';
 
     this.logger.debug(`[${webviewId}] RPC call`, {
       method,
@@ -296,13 +316,13 @@ export class WebviewMessageHandlerService {
    */
   private async handleMcpPermissionResponse(
     webviewId: string,
-    message: any
+    message: WebviewMessage
   ): Promise<void> {
     try {
       if (container.isRegistered(TOKENS.PERMISSION_PROMPT_SERVICE)) {
-        const permissionService = container.resolve<any>(
-          TOKENS.PERMISSION_PROMPT_SERVICE
-        );
+        const permissionService = container.resolve<{
+          resolveRequest: (payload: unknown) => void;
+        }>(TOKENS.PERMISSION_PROMPT_SERVICE);
         permissionService.resolveRequest(message.payload);
         this.logger.info(`[${webviewId}] MCP Permission response processed`, {
           requestId: message.payload?.id,
@@ -330,10 +350,12 @@ export class WebviewMessageHandlerService {
    */
   private async handleAskUserQuestionResponse(
     webviewId: string,
-    message: any
+    message: WebviewMessage
   ): Promise<void> {
     try {
-      const payload = message.payload;
+      const payload = message.payload as
+        | { id: string; answers: Record<string, string> }
+        | undefined;
 
       const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
       if (container.isRegistered(SDK_PERMISSION_HANDLER)) {
@@ -341,12 +363,12 @@ export class WebviewMessageHandlerService {
           SDK_PERMISSION_HANDLER
         );
         permissionHandler.handleQuestionResponse({
-          id: payload.id,
-          answers: payload.answers,
+          id: payload?.id ?? '',
+          answers: payload?.answers ?? {},
         });
         this.logger.info(`[${webviewId}] AskUserQuestion response processed`, {
-          requestId: payload.id,
-          answerCount: Object.keys(payload.answers || {}).length,
+          requestId: payload?.id,
+          answerCount: Object.keys(payload?.answers || {}).length,
         });
       } else {
         this.logger.warn(`[${webviewId}] SdkPermissionHandler not registered`);
@@ -373,10 +395,12 @@ export class WebviewMessageHandlerService {
    */
   private async handleAgentMonitorPermissionResponse(
     webviewId: string,
-    message: any
+    message: WebviewMessage
   ): Promise<void> {
     try {
-      const payload = message.payload;
+      const payload = message.payload as
+        | { requestId?: string; decision?: string; [key: string]: unknown }
+        | undefined;
       if (!payload?.requestId) {
         this.logger.warn(
           `[${webviewId}] Agent permission response missing requestId`
@@ -424,11 +448,18 @@ export class WebviewMessageHandlerService {
    */
   private async handleSdkPermissionResponse(
     webviewId: string,
-    message: any
+    message: WebviewMessage
   ): Promise<void> {
     try {
-      const payload = message.payload || message.response;
-      const requestId = payload?.id;
+      const payload = (message.payload || message.response) as
+        | {
+            id?: string;
+            decision?: PermissionResponse['decision'];
+            modifiedInput?: Readonly<Record<string, unknown>>;
+            reason?: string;
+          }
+        | undefined;
+      const requestId = String(payload?.id ?? '');
 
       const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
       if (container.isRegistered(SDK_PERMISSION_HANDLER)) {

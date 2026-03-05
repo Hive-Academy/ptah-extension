@@ -5,7 +5,7 @@ import { AgentSelection } from './setup-wizard-state.service';
 
 describe.skip('WizardRpcService', () => {
   let service: WizardRpcService;
-  let mockVSCodeService: any;
+  let mockVSCodeService: Partial<VSCodeService>;
 
   beforeEach(() => {
     mockVSCodeService = {

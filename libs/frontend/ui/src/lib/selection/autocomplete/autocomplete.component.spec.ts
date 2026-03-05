@@ -434,7 +434,7 @@ describe('AutocompleteComponent', () => {
 
       setTimeout(() => {
         const destroySpy = jest.spyOn(
-          component['keyManager'] as any,
+          component['keyManager'] as unknown as { destroy: () => void },
           'destroy'
         );
         fixture.destroy();

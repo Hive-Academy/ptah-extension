@@ -139,6 +139,21 @@ interface ActiveWatch {
   incompleteLineBuffer: string;
 }
 
+/**
+ * Shape of a Claude Agent JSONL message (parsed from agent output files)
+ */
+interface AgentJsonlMessage {
+  type: string;
+  message?: {
+    content?: Array<{
+      type: string;
+      text?: string;
+      id?: string;
+      name?: string;
+    }>;
+  };
+}
+
 @injectable()
 export class AgentSessionWatcherService extends EventEmitter {
   /** Active watches by agentId (primary key) */
@@ -970,7 +985,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         const isLastLine = i === rawLines.length - 1;
 
         try {
-          const msg = JSON.parse(line);
+          const msg = JSON.parse(line) as AgentJsonlMessage;
           messageTypes.push(msg.type || 'unknown');
           lines.push(line);
 
@@ -1075,7 +1090,7 @@ export class AgentSessionWatcherService extends EventEmitter {
    *
    * @returns Object with summaryText (legacy) and contentBlocks (structured)
    */
-  private extractContentBlocks(msg: any): {
+  private extractContentBlocks(msg: AgentJsonlMessage): {
     summaryText: string | null;
     contentBlocks: AgentContentBlock[];
   } {
@@ -1156,7 +1171,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       const firstLine = content.split('\n')[0];
       if (!firstLine) return null;
 
-      const msg = JSON.parse(firstLine);
+      const msg = JSON.parse(firstLine) as { sessionId?: string };
       return msg.sessionId || null;
     } catch {
       return null;

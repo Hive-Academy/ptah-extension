@@ -20,7 +20,7 @@ jest.mock('vscode', () => ({
 
 describe.skip('VsCodeLmProvider', () => {
   let provider: VsCodeLmProvider;
-  let mockModel: any;
+  let mockModel: Record<string, unknown>;
 
   beforeEach(() => {
     jest.clearAllMocks();

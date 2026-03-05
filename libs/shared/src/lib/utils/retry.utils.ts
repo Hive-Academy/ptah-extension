@@ -7,7 +7,7 @@ interface RetryOptions {
   /** Initial delay in milliseconds */
   initialDelay: number;
   /** Function to determine if an error is retriable */
-  shouldRetry: (error: any) => boolean;
+  shouldRetry: (error: unknown) => boolean;
 }
 
 /**
@@ -23,7 +23,7 @@ export async function retryWithBackoff<T>(
   asyncFn: () => Promise<T>,
   options: RetryOptions
 ): Promise<T> {
-  let lastError: any;
+  let lastError: unknown;
   for (let attempt = 0; attempt <= options.retries; attempt++) {
     try {
       // Attempt to execute the asynchronous function
