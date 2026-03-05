@@ -12,6 +12,7 @@ import { SubscriptionModule } from '../subscription/subscription.module';
 import { TrialReminderModule } from '../trial-reminder/trial-reminder.module';
 import { ContactModule } from '../contact/contact.module';
 import { SessionModule } from '../session/session.module';
+import { HealthModule } from '../health/health.module';
 
 /**
  * AppModule - Root application module
@@ -66,6 +67,7 @@ import { SessionModule } from '../session/session.module';
     TrialReminderModule, // TASK_2025_142: Trial reminder email notifications
     ContactModule, // Contact form message handling
     SessionModule, // Training session request handling
+    HealthModule, // Health check with DB validation (TASK_2025_180)
   ],
   providers: [
     // TASK_2025_125: Apply ThrottlerGuard globally to all routes
