@@ -22,6 +22,7 @@ import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { CliTarget, CliSkillSyncStatus } from '@ptah-extension/shared';
 import { CliDetectionService } from '../cli-detection.service';
 import type { ICliSkillInstaller } from './cli-skill-installer.interface';
+import { CodexSkillInstaller } from './codex-skill-installer';
 import { CopilotSkillInstaller } from './copilot-skill-installer';
 import { GeminiSkillInstaller } from './gemini-skill-installer';
 import { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
@@ -49,6 +50,7 @@ export class CliPluginSyncService {
     private readonly cliDetection: CliDetectionService
   ) {
     // Register installers (one per supported CLI target)
+    this.installers.set('codex', new CodexSkillInstaller());
     this.installers.set('copilot', new CopilotSkillInstaller());
     this.installers.set('gemini', new GeminiSkillInstaller());
 
@@ -219,11 +221,15 @@ export class CliPluginSyncService {
     }
 
     // Remove Ptah-generated agent files from CLI directories
-    await this.removeCliAgents(['copilot', 'gemini']);
+    await this.removeCliAgents(['codex', 'copilot', 'gemini']);
   }
 
   /**
    * Remove Ptah-generated agent files from CLI user-level directories.
+   *
+   * For CLIs with a registered installer (codex, copilot, gemini), delegates
+   * to the installer's uninstall() method to ensure the correct path is used.
+   * Falls back to the ~/.{cli}/agents/ convention for any CLI without an installer.
    *
    * Uses the `ptah-` filename prefix convention to identify Ptah-generated
    * agent files without needing a manifest. Only deletes files that start
@@ -236,6 +242,17 @@ export class CliPluginSyncService {
 
     for (const cli of clis) {
       try {
+        // Delegate to installer if registered (handles non-standard paths like codex)
+        const installer = this.installers.get(cli);
+        if (installer) {
+          await installer.uninstall();
+          this.logger.debug(
+            `[CliPluginSync] Agent cleanup for ${cli}: delegated to installer`
+          );
+          continue;
+        }
+
+        // Fallback: conventional ~/.{cli}/agents/ path for CLIs without an installer
         const agentsDir = join(homeDir, `.${cli}`, 'agents');
         let entries: string[];
         try {
@@ -323,7 +340,7 @@ export class CliPluginSyncService {
   }
 
   /**
-   * Get installed CLI targets (copilot/gemini only, not codex).
+   * Get installed CLI targets (copilot, gemini, and codex).
    */
   private async getInstalledCliTargets(): Promise<CliTarget[]> {
     try {
@@ -332,7 +349,9 @@ export class CliPluginSyncService {
         .filter(
           (result) =>
             result.installed &&
-            (result.cli === 'copilot' || result.cli === 'gemini')
+            (result.cli === 'copilot' ||
+              result.cli === 'gemini' ||
+              result.cli === 'codex')
         )
         .map((result) => result.cli as CliTarget);
     } catch (error) {

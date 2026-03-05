@@ -25,7 +25,10 @@ import {
   AgentOutput,
   CliType,
 } from '@ptah-extension/shared';
-import type { CliOutputSegment } from '@ptah-extension/shared';
+import type {
+  CliOutputSegment,
+  FlatStreamEventUnion,
+} from '@ptah-extension/shared';
 import { CliDetectionService } from './cli-detection.service';
 import type {
   CliCommandOptions,
@@ -38,11 +41,11 @@ const execFileAsync = promisify(execFile);
 /** Maximum output buffer size per agent (1MB) */
 const MAX_BUFFER_SIZE = 1024 * 1024;
 
-/** Default timeout: 10 minutes */
-const DEFAULT_TIMEOUT = 10 * 60 * 1000;
+/** Default timeout: 1 hour */
+const DEFAULT_TIMEOUT = 60 * 60 * 1000;
 
-/** Maximum timeout: 30 minutes */
-const MAX_TIMEOUT = 30 * 60 * 1000;
+/** Maximum timeout: 1 hour */
+const MAX_TIMEOUT = 60 * 60 * 1000;
 
 /** Grace period for SIGTERM before SIGKILL: 5 seconds */
 const KILL_GRACE_PERIOD = 5000;
@@ -65,8 +68,37 @@ const OUTPUT_FLUSH_INTERVAL = 200;
 /** Maximum number of accumulated segments kept per agent for persistence */
 const MAX_ACCUMULATED_SEGMENTS = 500;
 
+/**
+ * Maximum number of stream events kept per agent for persistence.
+ * Higher than segments because stream events are finer-grained —
+ * a single tool call may produce dozens of delta events.
+ * Matches the frontend MAX_STREAM_EVENTS cap in agent-monitor.store.ts.
+ */
+const MAX_ACCUMULATED_STREAM_EVENTS = 2000;
+
 /** Maximum stdout size (bytes) returned for persistence */
 const MAX_STDOUT_PERSISTENCE_SIZE = 100 * 1024; // 100 KB
+
+/** Landmark event types that establish tree structure and must be preserved during capping */
+const LANDMARK_EVENT_TYPES = new Set([
+  'message_start',
+  'tool_start',
+  'agent_start',
+  'thinking_start',
+  'message_complete',
+]);
+
+/** Buffered output deltas per agent, flushed every OUTPUT_FLUSH_INTERVAL */
+interface PendingDelta {
+  stdout: string;
+  stderr: string;
+  segments: CliOutputSegment[];
+  streamEvents: FlatStreamEventUnion[];
+}
+
+function createEmptyPendingDelta(): PendingDelta {
+  return { stdout: '', stderr: '', segments: [], streamEvents: [] };
+}
 
 interface TrackedAgent {
   info: AgentProcessInfo;
@@ -86,6 +118,8 @@ interface TrackedAgent {
   cleanupHandle?: NodeJS.Timeout;
   /** Accumulated structured segments for persistence (capped at MAX_ACCUMULATED_SEGMENTS) */
   accumulatedSegments: CliOutputSegment[];
+  /** Accumulated rich stream events for persistence (Ptah CLI only, capped at MAX_ACCUMULATED_STREAM_EVENTS) */
+  accumulatedStreamEvents: FlatStreamEventUnion[];
 }
 
 @injectable()
@@ -100,10 +134,7 @@ export class AgentProcessManager {
   readonly events = new EventEmitter();
 
   /** Pending output deltas per agent (throttled to OUTPUT_FLUSH_INTERVAL) */
-  private readonly pendingDeltas = new Map<
-    string,
-    { stdout: string; stderr: string; segments: CliOutputSegment[] }
-  >();
+  private readonly pendingDeltas = new Map<string, PendingDelta>();
   /** Flush timers per agent */
   private readonly flushTimers = new Map<string, NodeJS.Timeout>();
 
@@ -264,6 +295,7 @@ export class AgentProcessManager {
       mcpPort,
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
+      systemPrompt: request.systemPrompt,
     });
 
     // Create agent ID and info
@@ -320,6 +352,7 @@ export class AgentProcessManager {
       truncated: false,
       hasExited: false,
       accumulatedSegments: [],
+      accumulatedStreamEvents: [],
     };
 
     this.agents.set(agentId, tracked);
@@ -430,6 +463,7 @@ export class AgentProcessManager {
       mcpPort,
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
+      systemPrompt: request.systemPrompt,
     });
 
     // Capture CLI session ID immediately if available (e.g., from sync init)
@@ -463,6 +497,7 @@ export class AgentProcessManager {
       taskFolder?: string;
       parentSessionId?: string;
       ptahCliName?: string;
+      ptahCliId?: string;
       timeout?: number;
     }
   ): Promise<SpawnAgentResult> {
@@ -498,6 +533,7 @@ export class AgentProcessManager {
           startedAt,
           parentSessionId: meta.parentSessionId,
           ptahCliName: meta.ptahCliName,
+          ptahCliId: meta.ptahCliId,
         };
 
         const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
@@ -506,6 +542,7 @@ export class AgentProcessManager {
           agentId,
           cli: meta.cli,
           ptahCliName: meta.ptahCliName,
+          ptahCliId: meta.ptahCliId,
         });
 
         return this.trackSdkHandle(sdkHandle, info, timeout);
@@ -554,9 +591,13 @@ export class AgentProcessManager {
       truncated: false,
       hasExited: false,
       accumulatedSegments: [],
+      accumulatedStreamEvents: [],
     };
 
     this.agents.set(agentId, tracked);
+
+    // Update permission routing to use the real agentId (Copilot SDK)
+    sdkHandle.setAgentId?.(agentId);
 
     // Wire SDK output to the agent's stdout buffer
     sdkHandle.onOutput((data: string) => {
@@ -582,6 +623,13 @@ export class AgentProcessManager {
       });
     }
 
+    // Wire FlatStreamEventUnion events (Ptah CLI only -- enables rich ExecutionNode rendering)
+    if (sdkHandle.onStreamEvent) {
+      sdkHandle.onStreamEvent((event: FlatStreamEventUnion) => {
+        this.accumulateStreamEvent(agentId, event);
+      });
+    }
+
     // Wire SDK completion to handleExit (uses hasExited guard to prevent double-exit)
     sdkHandle.done.then(
       (exitCode) => {
@@ -604,6 +652,7 @@ export class AgentProcessManager {
       startedAt: info.startedAt,
       cliSessionId: info.cliSessionId,
       ptahCliName: info.ptahCliName,
+      ptahCliId: info.ptahCliId,
     };
 
     this.events.emit('agent:spawned', tracked.info);
@@ -681,12 +730,17 @@ export class AgentProcessManager {
 
   /**
    * Read accumulated output for session persistence.
-   * Returns stdout (capped at 100KB) and structured segments for storage
-   * in CliSessionReference. Returns undefined if the agent is not found.
+   * Returns stdout (capped at 100KB), structured segments, and rich stream
+   * events for storage in CliSessionReference. Returns undefined if the
+   * agent is not found (e.g., already cleaned up after TTL).
    */
-  readOutputForPersistence(
-    agentId: string
-  ): { stdout: string; segments: CliOutputSegment[] } | undefined {
+  readOutputForPersistence(agentId: string):
+    | {
+        stdout: string;
+        segments: CliOutputSegment[];
+        streamEvents: FlatStreamEventUnion[];
+      }
+    | undefined {
     const tracked = this.agents.get(agentId);
     if (!tracked) return undefined;
 
@@ -698,6 +752,7 @@ export class AgentProcessManager {
     return {
       stdout,
       segments: [...tracked.accumulatedSegments],
+      streamEvents: [...tracked.accumulatedStreamEvents],
     };
   }
 
@@ -882,7 +937,7 @@ export class AgentProcessManager {
   ): void {
     let pending = this.pendingDeltas.get(agentId);
     if (!pending) {
-      pending = { stdout: '', stderr: '', segments: [] };
+      pending = createEmptyPendingDelta();
       this.pendingDeltas.set(agentId, pending);
     }
     pending[stream] += data;
@@ -903,7 +958,7 @@ export class AgentProcessManager {
   private accumulateSegment(agentId: string, segment: CliOutputSegment): void {
     let pending = this.pendingDeltas.get(agentId);
     if (!pending) {
-      pending = { stdout: '', stderr: '', segments: [] };
+      pending = createEmptyPendingDelta();
       this.pendingDeltas.set(agentId, pending);
     }
     pending.segments.push(segment);
@@ -927,6 +982,53 @@ export class AgentProcessManager {
   }
 
   /**
+   * Accumulate a FlatStreamEventUnion event for throttled emission.
+   * Shares the same flush timer as text deltas and segments.
+   * Only Ptah CLI adapter produces these events.
+   */
+  private accumulateStreamEvent(
+    agentId: string,
+    event: FlatStreamEventUnion
+  ): void {
+    let pending = this.pendingDeltas.get(agentId);
+    if (!pending) {
+      pending = createEmptyPendingDelta();
+      this.pendingDeltas.set(agentId, pending);
+    }
+    pending.streamEvents.push(event);
+
+    // Also accumulate for persistence with smart capping that preserves tree-structural landmarks
+    const tracked = this.agents.get(agentId);
+    if (tracked) {
+      tracked.accumulatedStreamEvents.push(event);
+
+      if (
+        tracked.accumulatedStreamEvents.length > MAX_ACCUMULATED_STREAM_EVENTS
+      ) {
+        tracked.accumulatedStreamEvents = capStreamEvents(
+          tracked.accumulatedStreamEvents,
+          MAX_ACCUMULATED_STREAM_EVENTS
+        );
+        this.logger.debug(
+          '[AgentProcessManager] Stream events cap reached, dropped oldest deltas',
+          {
+            agentId,
+            cap: MAX_ACCUMULATED_STREAM_EVENTS,
+          }
+        );
+      }
+    }
+
+    // Start flush timer if not already running
+    if (!this.flushTimers.has(agentId)) {
+      const timer = setTimeout(() => {
+        this.flushDelta(agentId);
+      }, OUTPUT_FLUSH_INTERVAL);
+      this.flushTimers.set(agentId, timer);
+    }
+  }
+
+  /**
    * Flush accumulated deltas for an agent and emit 'agent:output' event.
    * Merges consecutive text segments before emitting to reduce webview overhead.
    */
@@ -935,7 +1037,10 @@ export class AgentProcessManager {
     const pending = this.pendingDeltas.get(agentId);
     if (
       !pending ||
-      (!pending.stdout && !pending.stderr && pending.segments.length === 0)
+      (!pending.stdout &&
+        !pending.stderr &&
+        pending.segments.length === 0 &&
+        pending.streamEvents.length === 0)
     )
       return;
 
@@ -950,12 +1055,16 @@ export class AgentProcessManager {
       stderrDelta: pending.stderr,
       timestamp: Date.now(),
       ...(mergedSegments.length > 0 ? { segments: mergedSegments } : {}),
+      ...(pending.streamEvents.length > 0
+        ? { streamEvents: pending.streamEvents }
+        : {}),
     };
 
     // Reset pending
     pending.stdout = '';
     pending.stderr = '';
     pending.segments = [];
+    pending.streamEvents = [];
 
     this.events.emit('agent:output', delta);
   }
@@ -1050,6 +1159,10 @@ export class AgentProcessManager {
     if (!child) {
       if (tracked.sdkAbortController) {
         tracked.sdkAbortController.abort();
+        // TASK_2025_175: Wait briefly for SDK process to respond to abort.
+        // AbortController.abort() is synchronous but the SDK needs a tick
+        // to process the signal and tear down resources.
+        await new Promise<void>((resolve) => setTimeout(resolve, 500));
       }
       return;
     }
@@ -1289,6 +1402,43 @@ export class AgentProcessManager {
  *
  * Mergeable types: 'text', 'thinking' (both are content-only streaming types).
  */
+/**
+ * Cap stream events buffer by dropping oldest delta events while preserving
+ * landmark events that establish the execution tree structure.
+ * Landmarks (message_start, tool_start, etc.) are always kept.
+ * The remaining budget is filled with the most recent non-landmark (delta) events.
+ * Events are returned in their original order.
+ *
+ * Mirrors the frontend capStreamEvents() in agent-monitor.store.ts.
+ */
+function capStreamEvents(
+  events: FlatStreamEventUnion[],
+  max: number
+): FlatStreamEventUnion[] {
+  if (events.length <= max) return events;
+
+  const landmarks: Array<{ event: FlatStreamEventUnion; index: number }> = [];
+  const deltas: Array<{ event: FlatStreamEventUnion; index: number }> = [];
+  for (let i = 0; i < events.length; i++) {
+    if (LANDMARK_EVENT_TYPES.has(events[i].eventType)) {
+      landmarks.push({ event: events[i], index: i });
+    } else {
+      deltas.push({ event: events[i], index: i });
+    }
+  }
+
+  const deltasBudget = max - landmarks.length;
+  if (deltasBudget <= 0) {
+    return landmarks.slice(-max).map((l) => l.event);
+  }
+
+  const keptDeltas = deltas.slice(-deltasBudget);
+  const merged = [...landmarks, ...keptDeltas].sort(
+    (a, b) => a.index - b.index
+  );
+  return merged.map((m) => m.event);
+}
+
 function mergeConsecutiveTextSegments(
   segments: CliOutputSegment[]
 ): CliOutputSegment[] {

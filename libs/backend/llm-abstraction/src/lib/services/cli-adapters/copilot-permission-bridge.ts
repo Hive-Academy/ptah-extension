@@ -21,11 +21,29 @@ import type {
   AgentPermissionDecision,
 } from '@ptah-extension/shared';
 
-/** Default timeout for permission requests: 60 seconds */
-const PERMISSION_TIMEOUT = 60_000;
+/** Default timeout for permission requests: 5 minutes (matches SDK and MCP timeouts) */
+const PERMISSION_TIMEOUT = 5 * 60 * 1000;
 
-/** Tool names that are always auto-approved (read-only operations) */
-const AUTO_APPROVE_TOOLS = new Set([
+// ========================================
+// Permission Policy
+// ========================================
+
+/**
+ * Fine-grained permission policy for Copilot SDK tool/permission approval.
+ * TASK_2025_177: Replaces boolean autoApprove with structured presets.
+ */
+export interface PermissionPolicy {
+  readonly name: string;
+  /** Tool names to auto-approve (case-sensitive). Ignored when autoApproveAll is true. */
+  readonly autoApproveTools: ReadonlySet<string>;
+  /** Permission kinds to auto-approve (e.g., 'read', 'write'). Ignored when autoApproveAll is true. */
+  readonly autoApproveKinds: ReadonlySet<string>;
+  /** When true, all requests are auto-approved regardless of tool/kind. */
+  readonly autoApproveAll: boolean;
+}
+
+/** Read-only tools set shared by presets */
+const READ_ONLY_TOOLS = new Set([
   'View',
   'Read',
   'Glob',
@@ -41,8 +59,45 @@ const AUTO_APPROVE_TOOLS = new Set([
   'search_file_content',
 ]);
 
-/** Permission kinds that are always auto-approved */
-const AUTO_APPROVE_KINDS = new Set(['read']);
+/** Safe write tools: read-only + file mutation tools */
+const SAFE_WRITE_TOOLS = new Set([
+  ...READ_ONLY_TOOLS,
+  'Write',
+  'Edit',
+  'write',
+  'edit',
+  'write_file',
+  'edit_file',
+]);
+
+/**
+ * Built-in permission policy presets.
+ */
+export const PERMISSION_PRESETS = {
+  /** Only auto-approve read-only tools and 'read' permission kind */
+  readOnly: {
+    name: 'readOnly',
+    autoApproveTools: READ_ONLY_TOOLS,
+    autoApproveKinds: new Set(['read']),
+    autoApproveAll: false,
+  } satisfies PermissionPolicy,
+
+  /** Auto-approve read + file write tools, read + write permission kinds */
+  safeWrite: {
+    name: 'safeWrite',
+    autoApproveTools: SAFE_WRITE_TOOLS,
+    autoApproveKinds: new Set(['read', 'write']),
+    autoApproveAll: false,
+  } satisfies PermissionPolicy,
+
+  /** Auto-approve everything (current default behavior) */
+  fullAuto: {
+    name: 'fullAuto',
+    autoApproveTools: new Set<string>(),
+    autoApproveKinds: new Set<string>(),
+    autoApproveAll: true,
+  } satisfies PermissionPolicy,
+};
 
 interface PendingRequest {
   readonly resolve: (decision: AgentPermissionDecision) => void;
@@ -55,6 +110,34 @@ export class CopilotPermissionBridge {
 
   /** Map of requestId -> { resolve, timeout } for pending permission requests */
   private readonly pending = new Map<string, PendingRequest>();
+
+  /** Active permission policy (defaults to fullAuto for backward compatibility) */
+  private _policy: PermissionPolicy = PERMISSION_PRESETS.fullAuto;
+
+  /** Backward-compatible getter: true when policy is fullAuto */
+  get autoApprove(): boolean {
+    return this._policy.autoApproveAll;
+  }
+
+  /**
+   * Backward-compatible setter.
+   * true → fullAuto preset, false → readOnly preset.
+   */
+  setAutoApprove(value: boolean): void {
+    this._policy = value
+      ? PERMISSION_PRESETS.fullAuto
+      : PERMISSION_PRESETS.readOnly;
+  }
+
+  /** Set a fine-grained permission policy. */
+  setPolicy(policy: PermissionPolicy): void {
+    this._policy = policy;
+  }
+
+  /** Get the current permission policy. */
+  get policy(): PermissionPolicy {
+    return this._policy;
+  }
 
   /**
    * Request permission for a tool use (from hooks.onPreToolUse).
@@ -73,7 +156,10 @@ export class CopilotPermissionBridge {
     permissionDecision: 'allow' | 'deny';
     permissionDecisionReason?: string;
   }> {
-    if (AUTO_APPROVE_TOOLS.has(params.toolName)) {
+    if (
+      this._policy.autoApproveAll ||
+      this._policy.autoApproveTools.has(params.toolName)
+    ) {
       return { permissionDecision: 'allow' };
     }
 
@@ -112,7 +198,10 @@ export class CopilotPermissionBridge {
   }): Promise<{
     kind: 'approved' | 'denied-interactively-by-user';
   }> {
-    if (AUTO_APPROVE_KINDS.has(params.kind)) {
+    if (
+      this._policy.autoApproveAll ||
+      this._policy.autoApproveKinds.has(params.kind)
+    ) {
       return { kind: 'approved' };
     }
 

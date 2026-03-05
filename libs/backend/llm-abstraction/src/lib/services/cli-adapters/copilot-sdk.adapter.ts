@@ -407,9 +407,10 @@ export class CopilotSdkAdapter implements CliAdapter {
     // Track the actual session ID (may differ from our requested one)
     let actualSessionId: string = sessionId;
 
-    // The agentId for permission routing is the sessionId we generate
-    // (AgentProcessManager will replace this with the real agentId)
-    const agentIdForPermissions = sessionId;
+    // The agentId for permission routing — starts as the SDK session ID
+    // but is updated to the real AgentProcessManager agentId via setAgentId()
+    // so permission requests match the frontend's MonitoredAgent key.
+    let agentIdForPermissions = sessionId;
 
     // Build hooks and permission handler for the session config
     const sessionHooks: SdkSessionHooks = {
@@ -455,11 +456,14 @@ export class CopilotSdkAdapter implements CliAdapter {
         }
 
         // Re-provide system message on resume so the SDK has project context
-        // even after a session reconnect (ResumeSessionConfig supports this)
-        if (options.projectGuidance) {
+        // even after a session reconnect (ResumeSessionConfig supports this).
+        // Prefer full systemPrompt (premium) over projectGuidance.
+        const resumeSystemContent =
+          options.systemPrompt || options.projectGuidance;
+        if (resumeSystemContent) {
           resumeConfig.systemMessage = {
             mode: 'append',
-            content: options.projectGuidance,
+            content: resumeSystemContent,
           };
         }
 
@@ -493,11 +497,12 @@ export class CopilotSdkAdapter implements CliAdapter {
           sessionConfig.model = options.model;
         }
 
-        // Add system message if project guidance is available
-        if (options.projectGuidance) {
+        // Add system message: prefer full systemPrompt (premium) over projectGuidance
+        const systemContent = options.systemPrompt || options.projectGuidance;
+        if (systemContent) {
           sessionConfig.systemMessage = {
             mode: 'append',
-            content: options.projectGuidance,
+            content: systemContent,
           };
         }
 
@@ -586,6 +591,7 @@ export class CopilotSdkAdapter implements CliAdapter {
         content: '',
         toolName,
         toolArgs: argsStr,
+        toolCallId,
       });
     });
 
@@ -621,6 +627,7 @@ export class CopilotSdkAdapter implements CliAdapter {
             content: truncated,
             toolName,
             exitCode: exitCode ?? 0,
+            toolCallId,
           });
         } else if (toolName && isFileWriteTool(toolName)) {
           // Detect change kind from content heuristics
@@ -634,22 +641,28 @@ export class CopilotSdkAdapter implements CliAdapter {
             type: 'file-change',
             content: truncated,
             changeKind,
+            toolCallId,
           });
         } else {
           emitOutput(
             `\n<details><summary>Tool result</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n</details>\n\n`
           );
-          emitSegment({ type: 'tool-result', content: truncated });
+          emitSegment({ type: 'tool-result', content: truncated, toolCallId });
         }
       } else if (error) {
         const errorMsg = error.message ?? 'Unknown error';
         emitOutput(`\n**Tool Error:** ${errorMsg}\n`);
-        emitSegment({ type: 'tool-result-error', content: errorMsg });
+        emitSegment({
+          type: 'tool-result-error',
+          content: errorMsg,
+          toolCallId,
+        });
       } else if (!success) {
         emitOutput('\n**Tool Error:** Execution failed\n');
         emitSegment({
           type: 'tool-result-error',
           content: 'Execution failed',
+          toolCallId,
         });
       }
     });
@@ -752,13 +765,11 @@ export class CopilotSdkAdapter implements CliAdapter {
       });
     });
 
-    // Send the task prompt
+    // Send the task prompt — system content is already in systemMessage, don't duplicate
     const taskPrompt = buildTaskPrompt({
       ...options,
-      // Project guidance is already in the system message, don't duplicate
-      projectGuidance: options.resumeSessionId
-        ? options.projectGuidance
-        : undefined,
+      systemPrompt: undefined,
+      projectGuidance: undefined,
     });
 
     // Fire and forget -- errors are caught by the session error handler
@@ -797,6 +808,9 @@ export class CopilotSdkAdapter implements CliAdapter {
       onOutput,
       onSegment,
       getSessionId: () => actualSessionId,
+      setAgentId: (id: string) => {
+        agentIdForPermissions = id;
+      },
     };
   }
 

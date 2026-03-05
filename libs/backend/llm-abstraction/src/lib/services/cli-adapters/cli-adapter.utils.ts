@@ -62,18 +62,21 @@ export const CLI_CLEAN_ENV: Record<string, string> = {
 
 /**
  * Build a task prompt string from CLI command options.
- * Optionally prepends project-specific guidance from enhanced prompts.
+ * Optionally prepends system prompt or project-specific guidance from enhanced prompts.
+ * Prefers systemPrompt (full prompt harness) over projectGuidance when available.
  * Appends file context and task folder instructions to the base task.
  *
- * Adapters with native system prompt support (Gemini via GEMINI_SYSTEM_MD)
- * should strip projectGuidance before calling this function to avoid duplication.
+ * Adapters with native system prompt support (Gemini via GEMINI_SYSTEM_MD,
+ * Copilot via systemMessage) should strip both systemPrompt and projectGuidance
+ * before calling this function to avoid duplication.
  */
 export function buildTaskPrompt(options: CliCommandOptions): string {
   let taskPrompt = '';
 
-  // Prepend project-specific guidance (from enhanced prompts)
-  if (options.projectGuidance) {
-    taskPrompt += options.projectGuidance + '\n\n---\n\n';
+  // Prepend system prompt (full harness, premium) or project guidance (fallback)
+  const systemContext = options.systemPrompt || options.projectGuidance;
+  if (systemContext) {
+    taskPrompt += systemContext + '\n\n---\n\n';
   }
 
   taskPrompt += options.task;

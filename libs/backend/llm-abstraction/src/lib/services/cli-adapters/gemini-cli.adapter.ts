@@ -13,7 +13,7 @@
  * See: https://geminicli.com/docs/
  */
 import { execFile } from 'child_process';
-import { writeFileSync } from 'fs';
+import { unlinkSync, writeFileSync } from 'fs';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { homedir, tmpdir } from 'os';
 import { join } from 'path';
@@ -249,17 +249,21 @@ export class GeminiCliAdapter implements CliAdapter {
     // Clean up any stale ptah entry from ~/.gemini/settings.json left by prior versions.
     await this.cleanupStaleMcpEntry();
 
-    // Handle project guidance via Gemini's native system prompt mechanism (GEMINI_SYSTEM_MD)
+    // Handle system prompt via Gemini's native mechanism (GEMINI_SYSTEM_MD env var).
+    // Prefers full systemPrompt (premium prompt harness) over projectGuidance.
     // This avoids polluting the task prompt and uses the model's system instruction slot.
     const spawnEnv: Record<string, string> = {};
-    if (options.projectGuidance) {
-      const tmpPath = this.writeSystemPromptFile(options.projectGuidance);
-      spawnEnv['GEMINI_SYSTEM_MD'] = tmpPath;
+    let systemPromptTmpPath: string | undefined;
+    const systemContent = options.systemPrompt || options.projectGuidance;
+    if (systemContent) {
+      systemPromptTmpPath = this.writeSystemPromptFile(systemContent);
+      spawnEnv['GEMINI_SYSTEM_MD'] = systemPromptTmpPath;
     }
 
-    // Build task prompt WITHOUT project guidance (handled via env var above)
+    // Build task prompt WITHOUT system content (handled via env var above)
     const taskPrompt = buildTaskPrompt({
       ...options,
+      systemPrompt: undefined,
       projectGuidance: undefined,
     });
     const abortController = new AbortController();
@@ -434,6 +438,18 @@ export class GeminiCliAdapter implements CliAdapter {
       });
     });
 
+    // Clean up the temporary system prompt file after the process exits
+    if (systemPromptTmpPath) {
+      const tmpFile = systemPromptTmpPath;
+      done.then(() => {
+        try {
+          unlinkSync(tmpFile);
+        } catch {
+          // Ignore — file may already be deleted
+        }
+      });
+    }
+
     return {
       abort: abortController,
       done,
@@ -508,6 +524,7 @@ export class GeminiCliAdapter implements CliAdapter {
             toolArgs: event.tool_input
               ? this.summarizeToolInput(event.tool_name, event.tool_input)
               : undefined,
+            toolCallId: event.tool_call_id,
           });
         }
         break;
@@ -532,6 +549,7 @@ export class GeminiCliAdapter implements CliAdapter {
           emitSegment({
             type: isError ? 'tool-result-error' : 'tool-result',
             content: output,
+            toolCallId: event.tool_call_id,
           });
         }
         break;

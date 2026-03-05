@@ -10,6 +10,7 @@ import type {
   CliType,
   CliDetectionResult,
   CliOutputSegment,
+  FlatStreamEventUnion,
 } from '@ptah-extension/shared';
 
 /** Model info returned by CLI adapter's listModels() */
@@ -33,6 +34,9 @@ export interface CliCommandOptions {
   readonly resumeSessionId?: string;
   /** Project-specific guidance to provide as system context. Adapters with native system prompt support (Gemini) handle this natively; others prepend to task prompt via buildTaskPrompt(). */
   readonly projectGuidance?: string;
+  /** Full system prompt content (prompt harness). Replaces projectGuidance for premium users.
+   *  Includes core prompt, enhanced prompts, skill catalog, and MCP docs. */
+  readonly systemPrompt?: string;
 }
 
 export interface CliCommand {
@@ -56,6 +60,16 @@ export interface SdkHandle {
   readonly onSegment?: (callback: (segment: CliOutputSegment) => void) => void;
   /** Get CLI-native session ID (e.g., Gemini session UUID from init event). Returns undefined if not yet available or not supported by this adapter. */
   readonly getSessionId?: () => string | undefined;
+  /** Register a callback to receive rich FlatStreamEventUnion events.
+   *  Only Ptah CLI adapter implements this. Enables full ExecutionNode rendering. */
+  readonly onStreamEvent?: (
+    callback: (event: FlatStreamEventUnion) => void
+  ) => void;
+  /** Update the agentId used for permission routing.
+   *  Called by AgentProcessManager after assigning the real agentId, so
+   *  permission requests (Copilot SDK) use the correct ID that matches
+   *  the frontend's MonitoredAgent key. */
+  readonly setAgentId?: (agentId: string) => void;
 }
 
 export interface CliAdapter {

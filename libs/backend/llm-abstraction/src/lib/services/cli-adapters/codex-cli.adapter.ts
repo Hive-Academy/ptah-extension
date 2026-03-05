@@ -2,6 +2,8 @@
  * Codex CLI Adapter
  * TASK_2025_157: Headless Codex CLI agent integration
  * TASK_2025_158: SDK-based execution via @openai/codex-sdk
+ * TASK_2025_177: Session resume, progressive streaming, MCP/web_search/todo_list,
+ *               toolCallId, reasoning→thinking, listModels
  *
  * CLI fallback: codex --quiet "task description"
  * SDK path: Codex SDK thread.runStreamed() for in-process execution
@@ -16,6 +18,7 @@ import type {
   CliAdapter,
   CliCommand,
   CliCommandOptions,
+  CliModelInfo,
   SdkHandle,
 } from './cli-adapter.interface';
 import {
@@ -35,14 +38,21 @@ interface CodexSdkModule {
     apiKey?: string;
     env?: Record<string, string>;
     config?: Record<string, unknown>;
+    codexPathOverride?: string;
   }) => CodexClient;
 }
 
+interface CodexThreadOptions {
+  workingDirectory?: string;
+  skipGitRepoCheck?: boolean;
+  model?: string;
+  approvalPolicy?: 'never' | 'on-request' | 'on-failure';
+  sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
+}
+
 interface CodexClient {
-  startThread(options?: {
-    workingDirectory?: string;
-    skipGitRepoCheck?: boolean;
-  }): CodexThread;
+  startThread(options?: CodexThreadOptions): CodexThread;
+  resumeThread(threadId: string, options?: CodexThreadOptions): CodexThread;
 }
 
 interface CodexThread {
@@ -90,7 +100,16 @@ type CodexThreadItem =
       changes: Array<{ path: string; kind: string }>;
       status: string;
     }
-  | { type: 'mcp_tool_call'; id: string; server: string; tool: string }
+  | {
+      type: 'mcp_tool_call';
+      id: string;
+      server: string;
+      tool: string;
+      arguments?: string;
+      result?: string;
+      error?: string;
+      status: string;
+    }
   | { type: 'web_search'; id: string; query: string }
   | {
       type: 'todo_list';
@@ -205,17 +224,37 @@ export class CodexCliAdapter implements CliAdapter {
   }
 
   /**
+   * List available models for Codex.
+   * Static list of known Codex-compatible models.
+   */
+  async listModels(): Promise<CliModelInfo[]> {
+    return [
+      { id: 'o4-mini', name: 'O4 Mini' },
+      { id: 'codex-mini', name: 'Codex Mini' },
+      { id: 'o3', name: 'O3' },
+      { id: 'gpt-4.1', name: 'GPT-4.1' },
+    ];
+  }
+
+  /**
    * Run task via Codex SDK instead of CLI subprocess.
    *
    * Uses the @openai/codex-sdk to create a thread and stream events.
    * The SDK is ESM-only so we use a cached dynamic import().
    * Abort is achieved via AbortSignal passed to thread.runStreamed().
+   *
+   * TASK_2025_177: Supports session resume via resumeThread(), progressive
+   * streaming via item.started/updated, toolCallId emission, and
+   * reasoning→thinking mapping.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
     const sdk = await getCodexSdk();
 
-    // Pass MCP server config through Codex SDK when available
-    const codexOptions: { config?: Record<string, unknown> } = {};
+    // Pass MCP server config and codexPathOverride through Codex SDK
+    const codexOptions: {
+      config?: Record<string, unknown>;
+      codexPathOverride?: string;
+    } = {};
     if (options.mcpPort) {
       codexOptions.config = {
         mcp_servers: {
@@ -225,15 +264,39 @@ export class CodexCliAdapter implements CliAdapter {
         },
       };
     }
+    if (options.binaryPath) {
+      codexOptions.codexPathOverride = options.binaryPath;
+    }
 
     const codex = new sdk.Codex(codexOptions);
 
-    const thread = codex.startThread({
+    // Thread options with model and approval policy
+    const threadOptions: CodexThreadOptions = {
       workingDirectory: options.workingDirectory,
-    });
+      approvalPolicy: 'never', // Auto-approve in Ptah trusted context
+    };
+    if (options.model) {
+      threadOptions.model = options.model;
+    }
 
+    // Session resume or new thread
+    const thread = options.resumeSessionId
+      ? codex.resumeThread(options.resumeSessionId, threadOptions)
+      : codex.startThread(threadOptions);
+
+    // Codex SDK has no native system message channel (unlike Gemini's GEMINI_SYSTEM_MD
+    // or Copilot's sessionConfig.systemMessage). The systemPrompt is intentionally
+    // included in buildTaskPrompt() as the only way to inject system context.
     const taskPrompt = buildTaskPrompt(options);
     const abortController = new AbortController();
+
+    // Captured thread ID for session resume
+    let capturedThreadId: string | undefined;
+
+    // Delta tracking: track last-seen text per item.id for progressive streaming
+    const itemTextTracker = new Map<string, string>();
+    // Track which item IDs have emitted deltas (skip full text on completion)
+    const itemsWithDeltas = new Set<string>();
 
     // Output buffering: buffer output until callbacks are registered,
     // then flush buffered data and switch to direct delivery.
@@ -297,7 +360,18 @@ export class CodexCliAdapter implements CliAdapter {
             return 1;
           }
 
-          this.handleStreamEvent(event, emitOutput, emitSegment);
+          // Capture thread ID from thread.started event
+          if (event.type === 'thread.started') {
+            capturedThreadId = event.thread_id;
+          }
+
+          this.handleStreamEvent(
+            event,
+            emitOutput,
+            emitSegment,
+            itemTextTracker,
+            itemsWithDeltas
+          );
         }
 
         return 0;
@@ -321,32 +395,135 @@ export class CodexCliAdapter implements CliAdapter {
       }
     })();
 
-    return { abort: abortController, done, onOutput, onSegment };
+    return {
+      abort: abortController,
+      done,
+      onOutput,
+      onSegment,
+      getSessionId: () => capturedThreadId,
+      setAgentId: () => {
+        // No-op: Codex SDK has no permission hooks that need agentId routing
+      },
+    };
   }
 
   /**
    * Process a single SDK stream event and emit relevant output + structured segments.
+   *
+   * TASK_2025_177: Handles item.started (early tool-call segments), item.updated
+   * (progressive text/thinking deltas), and enhanced item.completed with toolCallId,
+   * MCP tool calls, web_search, and todo_list.
    */
   private handleStreamEvent(
     event: CodexThreadEvent,
     emitOutput: (data: string) => void,
-    emitSegment: (segment: CliOutputSegment) => void
+    emitSegment: (segment: CliOutputSegment) => void,
+    itemTextTracker: Map<string, string>,
+    itemsWithDeltas: Set<string>
   ): void {
     switch (event.type) {
+      case 'item.started': {
+        const item = event.item;
+        switch (item.type) {
+          case 'command_execution':
+            // Emit early tool-call for progressive rendering.
+            // Use generic 'Shell' as toolName; full command goes in toolArgs.
+            emitSegment({
+              type: 'tool-call',
+              toolName: 'Shell',
+              toolArgs: item.command,
+              content: '',
+              toolCallId: item.id,
+            });
+            break;
+          case 'mcp_tool_call':
+            emitSegment({
+              type: 'tool-call',
+              toolName: `${item.server}:${item.tool}`,
+              content: item.arguments ?? '',
+              toolCallId: item.id,
+            });
+            break;
+          default:
+            break;
+        }
+        break;
+      }
+
+      case 'item.updated': {
+        const item = event.item;
+        switch (item.type) {
+          case 'agent_message': {
+            const previousText = itemTextTracker.get(item.id) ?? '';
+            if (item.text.startsWith(previousText)) {
+              // Normal append — emit only the new delta
+              const delta = item.text.slice(previousText.length);
+              if (delta) {
+                emitOutput(delta);
+                emitSegment({ type: 'text', content: delta });
+                itemTextTracker.set(item.id, item.text);
+                itemsWithDeltas.add(item.id);
+              }
+            } else {
+              // Text was replaced (not appended) — emit full text as replacement
+              emitOutput(item.text);
+              emitSegment({ type: 'text', content: item.text });
+              itemTextTracker.set(item.id, item.text);
+              itemsWithDeltas.add(item.id);
+            }
+            break;
+          }
+          case 'reasoning': {
+            const previousText = itemTextTracker.get(item.id) ?? '';
+            if (item.text.startsWith(previousText)) {
+              const delta = item.text.slice(previousText.length);
+              if (delta) {
+                emitOutput(delta);
+                emitSegment({ type: 'thinking', content: delta });
+                itemTextTracker.set(item.id, item.text);
+                itemsWithDeltas.add(item.id);
+              }
+            } else {
+              // Text was replaced — emit full text as replacement
+              emitOutput(item.text);
+              emitSegment({ type: 'thinking', content: item.text });
+              itemTextTracker.set(item.id, item.text);
+              itemsWithDeltas.add(item.id);
+            }
+            break;
+          }
+          default:
+            break;
+        }
+        break;
+      }
+
       case 'item.completed': {
         const item = event.item;
         switch (item.type) {
           case 'agent_message':
-            if (item.text) {
-              emitOutput(item.text + '\n');
-              emitSegment({ type: 'text', content: item.text });
+            // Skip full text emission if deltas were sent via item.updated
+            if (!itemsWithDeltas.has(item.id)) {
+              if (item.text) {
+                emitOutput(item.text + '\n');
+                emitSegment({ type: 'text', content: item.text });
+              }
             }
+            // Clean up trackers
+            itemTextTracker.delete(item.id);
+            itemsWithDeltas.delete(item.id);
             break;
           case 'reasoning':
-            if (item.text) {
-              emitOutput(`[Reasoning] ${item.text}\n`);
-              emitSegment({ type: 'info', content: item.text });
+            // Skip full text emission if deltas were sent via item.updated
+            if (!itemsWithDeltas.has(item.id)) {
+              if (item.text) {
+                emitOutput(`[Thinking] ${item.text}\n`);
+                emitSegment({ type: 'thinking', content: item.text });
+              }
             }
+            // Clean up trackers
+            itemTextTracker.delete(item.id);
+            itemsWithDeltas.delete(item.id);
             break;
           case 'command_execution': {
             emitOutput(`$ ${item.command}\n`);
@@ -364,6 +541,7 @@ export class CodexCliAdapter implements CliAdapter {
               content: item.aggregated_output ?? '',
               toolName: item.command,
               exitCode: item.exit_code,
+              toolCallId: item.id,
             });
             break;
           }
@@ -374,15 +552,64 @@ export class CodexCliAdapter implements CliAdapter {
                 type: 'file-change',
                 content: change.path,
                 changeKind: change.kind,
+                toolCallId: item.id,
               });
             }
             break;
+          case 'mcp_tool_call':
+            if (item.error) {
+              emitOutput(
+                `[MCP Error] ${item.server}:${item.tool}: ${item.error}\n`
+              );
+              emitSegment({
+                type: 'tool-result-error',
+                content: item.error,
+                toolCallId: item.id,
+              });
+            } else if (item.result) {
+              emitOutput(`[MCP Result] ${item.server}:${item.tool}\n`);
+              emitSegment({
+                type: 'tool-result',
+                content: item.result,
+                toolCallId: item.id,
+              });
+            } else {
+              // Completed with neither result nor error (e.g., cancelled/timed out)
+              emitOutput(
+                `[MCP] ${item.server}:${item.tool} (${
+                  item.status || 'completed'
+                })\n`
+              );
+              emitSegment({
+                type: 'tool-result',
+                content: `(${item.status || 'completed'})`,
+                toolCallId: item.id,
+              });
+            }
+            break;
+          case 'web_search':
+            emitOutput(`[Web Search] ${item.query}\n`);
+            emitSegment({
+              type: 'info',
+              content: `Web search: ${item.query}`,
+            });
+            break;
+          case 'todo_list': {
+            const formatted = item.items
+              .map((i) => `${i.completed ? '[x]' : '[ ]'} ${i.text}`)
+              .join('\n');
+            emitOutput(`[Todo List]\n${formatted}\n`);
+            emitSegment({
+              type: 'info',
+              content: `Todo list:\n${formatted}`,
+            });
+            break;
+          }
           case 'error':
             emitOutput(`[Error] ${item.message}\n`);
             emitSegment({ type: 'error', content: item.message });
             break;
           default:
-            // Other item types (mcp_tool_call, web_search, todo_list) - no output needed
             break;
         }
         break;
@@ -406,7 +633,7 @@ export class CodexCliAdapter implements CliAdapter {
         emitSegment({ type: 'error', content: event.message });
         break;
       default:
-        // thread.started, turn.started, item.started, item.updated - no output
+        // thread.started handled in runSdk() for thread ID capture
         break;
     }
   }
