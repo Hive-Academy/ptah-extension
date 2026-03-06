@@ -200,7 +200,13 @@ Respond with valid JSON only:`;
       // Parse and validate with Zod
       const parsed = this._parseJson(result);
       if (parsed.isErr()) {
-        const parseErr = parsed.error ?? new LlmProviderError('Failed to parse JSON response', 'PARSING_ERROR', this.name);
+        const parseErr =
+          parsed.error ??
+          new LlmProviderError(
+            'Failed to parse JSON response',
+            'PARSING_ERROR',
+            this.name
+          );
         return Result.err(parseErr);
       }
 

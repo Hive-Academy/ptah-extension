@@ -73,8 +73,12 @@ const TypeScript = require('tree-sitter-typescript').typescript; // Use named im
 
 @injectable()
 export class TreeSitterParserService {
-  private readonly parserCache: Map<SupportedLanguage, TreeSitterParser> = new Map();
-  private readonly languageGrammars: Map<SupportedLanguage, TreeSitterLanguage> = new Map();
+  private readonly parserCache: Map<SupportedLanguage, TreeSitterParser> =
+    new Map();
+  private readonly languageGrammars: Map<
+    SupportedLanguage,
+    TreeSitterLanguage
+  > = new Map();
   private isInitialized = false;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
@@ -187,7 +191,9 @@ export class TreeSitterParserService {
    * @param language - The language of the parser to retrieve.
    * @returns A Result containing the cached parser if valid, or an error/null if not found or invalid.
    */
-  private _getCachedParser(language: SupportedLanguage): Result<TreeSitterParser | null, Error> {
+  private _getCachedParser(
+    language: SupportedLanguage
+  ): Result<TreeSitterParser | null, Error> {
     if (!this.parserCache.has(language)) {
       return Result.ok(null);
     }
@@ -233,7 +239,9 @@ export class TreeSitterParserService {
 
     const grammarResult = this._getPreloadedGrammar(language); // Call synchronous method
     if (grammarResult.isErr()) {
-      return Result.err(grammarResult.error ?? new Error('Unknown grammar error'));
+      return Result.err(
+        grammarResult.error ?? new Error('Unknown grammar error')
+      );
     }
 
     try {
@@ -260,7 +268,9 @@ export class TreeSitterParserService {
    * @param language - The language for the parser.
    * @returns A Result containing the parser instance or an error.
    */
-  private getOrCreateParser(language: SupportedLanguage): Result<TreeSitterParser | null, Error> {
+  private getOrCreateParser(
+    language: SupportedLanguage
+  ): Result<TreeSitterParser | null, Error> {
     const cachedResult = this._getCachedParser(language); // Call synchronous method
 
     if (cachedResult.isErr()) {
@@ -326,10 +336,8 @@ export class TreeSitterParserService {
       },
       isNamed: node.isNamed,
       fieldName: node.fieldName || null, // Corrected property name
-      children: children.map(
-        (
-          child: TreeSitterSyntaxNode
-        ) => this._convertNodeToGenericAst(child, currentDepth + 1, maxDepth)
+      children: children.map((child: TreeSitterSyntaxNode) =>
+        this._convertNodeToGenericAst(child, currentDepth + 1, maxDepth)
       ),
     };
   }
@@ -352,7 +360,9 @@ export class TreeSitterParserService {
 
     const parserResult = this.getOrCreateParser(language);
     if (parserResult.isErr()) {
-      return Result.err(parserResult.error ?? new Error('Unknown parser error'));
+      return Result.err(
+        parserResult.error ?? new Error('Unknown parser error')
+      );
     }
     const parser = parserResult.value;
 
@@ -414,13 +424,17 @@ export class TreeSitterParserService {
 
     const parserResult = this.getOrCreateParser(language);
     if (parserResult.isErr()) {
-      return Result.err(parserResult.error ?? new Error('Unknown parser error'));
+      return Result.err(
+        parserResult.error ?? new Error('Unknown parser error')
+      );
     }
     const parser = parserResult.value;
 
     const grammarResult = this._getPreloadedGrammar(language);
     if (grammarResult.isErr()) {
-      return Result.err(grammarResult.error ?? new Error('Unknown grammar error'));
+      return Result.err(
+        grammarResult.error ?? new Error('Unknown grammar error')
+      );
     }
     const grammar = grammarResult.value;
 
@@ -436,22 +450,29 @@ export class TreeSitterParserService {
       const matches = query.matches(tree.rootNode);
 
       // Convert matches to our QueryMatch format
-      const results: QueryMatch[] = matches.map((match: { pattern: number; captures: { name: string; node: TreeSitterSyntaxNode }[] }) => ({
-        pattern: match.pattern,
-        captures: match.captures.map((capture: { name: string; node: TreeSitterSyntaxNode }) => ({
-          name: capture.name,
-          node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
-          text: capture.node.text,
-          startPosition: {
-            row: capture.node.startPosition.row,
-            column: capture.node.startPosition.column,
-          },
-          endPosition: {
-            row: capture.node.endPosition.row,
-            column: capture.node.endPosition.column,
-          },
-        })),
-      }));
+      const results: QueryMatch[] = matches.map(
+        (match: {
+          pattern: number;
+          captures: { name: string; node: TreeSitterSyntaxNode }[];
+        }) => ({
+          pattern: match.pattern,
+          captures: match.captures.map(
+            (capture: { name: string; node: TreeSitterSyntaxNode }) => ({
+              name: capture.name,
+              node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
+              text: capture.node.text,
+              startPosition: {
+                row: capture.node.startPosition.row,
+                column: capture.node.startPosition.column,
+              },
+              endPosition: {
+                row: capture.node.endPosition.row,
+                column: capture.node.endPosition.column,
+              },
+            })
+          ),
+        })
+      );
 
       this.logger.debug(
         `Query returned ${results.length} matches for language: ${language}`

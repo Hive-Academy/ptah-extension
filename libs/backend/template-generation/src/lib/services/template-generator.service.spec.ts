@@ -44,7 +44,11 @@ describe('TemplateGeneratorService - E2E Workflow', () => {
 
     // Create service
     service = new TemplateGeneratorService(
-      ...[mockOrchestrator, mockWorkspaceAnalyzer, mockLogger] as unknown as ConstructorParameters<typeof TemplateGeneratorService>
+      ...([
+        mockOrchestrator,
+        mockWorkspaceAnalyzer,
+        mockLogger,
+      ] as unknown as ConstructorParameters<typeof TemplateGeneratorService>)
     );
   });
 

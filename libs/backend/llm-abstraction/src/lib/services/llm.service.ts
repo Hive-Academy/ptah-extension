@@ -208,7 +208,13 @@ export class LlmService implements ILlmService {
             preservedModel: previousModel,
           }
         );
-        const err = result.error ?? new LlmProviderError('Unknown provider creation error', 'UNKNOWN_ERROR', providerName);
+        const err =
+          result.error ??
+          new LlmProviderError(
+            'Unknown provider creation error',
+            'UNKNOWN_ERROR',
+            providerName
+          );
         return Result.err(err);
       }
 
@@ -335,15 +341,25 @@ export class LlmService implements ILlmService {
         this.logger.error('[LlmService.getCompletion] Failed to get provider', {
           error: providerResult.error?.message,
         });
-        const providerErr = providerResult.error ?? new LlmProviderError('Failed to get provider', 'PROVIDER_NOT_INITIALIZED', 'LlmService');
-        return Result.err(
-          LlmProviderError.fromError(providerErr, 'unknown')
-        );
+        const providerErr =
+          providerResult.error ??
+          new LlmProviderError(
+            'Failed to get provider',
+            'PROVIDER_NOT_INITIALIZED',
+            'LlmService'
+          );
+        return Result.err(LlmProviderError.fromError(providerErr, 'unknown'));
       }
 
       const provider = providerResult.value;
       if (!provider) {
-        return Result.err(new LlmProviderError('Provider is unexpectedly undefined', 'UNKNOWN_ERROR', 'LlmService'));
+        return Result.err(
+          new LlmProviderError(
+            'Provider is unexpectedly undefined',
+            'UNKNOWN_ERROR',
+            'LlmService'
+          )
+        );
       }
       const completionResult = await provider.getCompletion(
         systemPrompt,
@@ -354,7 +370,13 @@ export class LlmService implements ILlmService {
         this.logger.error('[LlmService.getCompletion] Completion failed', {
           error: completionResult.error?.message,
         });
-        const completionErr = completionResult.error ?? new LlmProviderError('Completion failed', 'UNKNOWN_ERROR', 'LlmService');
+        const completionErr =
+          completionResult.error ??
+          new LlmProviderError(
+            'Completion failed',
+            'UNKNOWN_ERROR',
+            'LlmService'
+          );
         return Result.err(completionErr);
       }
 
@@ -414,15 +436,25 @@ export class LlmService implements ILlmService {
             error: providerResult.error?.message,
           }
         );
-        const providerErr = providerResult.error ?? new LlmProviderError('Failed to get provider', 'PROVIDER_NOT_INITIALIZED', 'LlmService');
-        return Result.err(
-          LlmProviderError.fromError(providerErr, 'unknown')
-        );
+        const providerErr =
+          providerResult.error ??
+          new LlmProviderError(
+            'Failed to get provider',
+            'PROVIDER_NOT_INITIALIZED',
+            'LlmService'
+          );
+        return Result.err(LlmProviderError.fromError(providerErr, 'unknown'));
       }
 
       const provider = providerResult.value;
       if (!provider) {
-        return Result.err(new LlmProviderError('Provider is unexpectedly undefined', 'UNKNOWN_ERROR', 'LlmService'));
+        return Result.err(
+          new LlmProviderError(
+            'Provider is unexpectedly undefined',
+            'UNKNOWN_ERROR',
+            'LlmService'
+          )
+        );
       }
       const result = await provider.getStructuredCompletion(
         prompt,

@@ -72,7 +72,9 @@ export class Result<T, E extends Error = Error> {
    * @param defaultValue The default value to return if this is an error
    */
   public unwrapOr(defaultValue: T): T {
-    return this.isOk() && this._value !== undefined ? this._value : defaultValue;
+    return this.isOk() && this._value !== undefined
+      ? this._value
+      : defaultValue;
   }
 
   /**

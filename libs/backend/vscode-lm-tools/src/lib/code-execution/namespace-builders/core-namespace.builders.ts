@@ -182,14 +182,19 @@ export function buildGitNamespace(): GitNamespace {
         const status: GitStatus = {
           branch: repo.state.HEAD?.name || 'unknown',
           modified: ((repo.state.workingTreeChanges || []) as GitChange[])
-            .filter((c): c is GitChange & { uri: { fsPath: string } } => Boolean(c?.uri?.fsPath))
+            .filter((c): c is GitChange & { uri: { fsPath: string } } =>
+              Boolean(c?.uri?.fsPath)
+            )
             .map((c) => c.uri.fsPath),
           staged: ((repo.state.indexChanges || []) as GitChange[])
-            .filter((c): c is GitChange & { uri: { fsPath: string } } => Boolean(c?.uri?.fsPath))
+            .filter((c): c is GitChange & { uri: { fsPath: string } } =>
+              Boolean(c?.uri?.fsPath)
+            )
             .map((c) => c.uri.fsPath),
           untracked: ((repo.state.workingTreeChanges || []) as GitChange[])
             .filter(
-              (c): c is GitChange & { uri: { fsPath: string } } => c?.status === GIT_STATUS_UNTRACKED && Boolean(c?.uri?.fsPath)
+              (c): c is GitChange & { uri: { fsPath: string } } =>
+                c?.status === GIT_STATUS_UNTRACKED && Boolean(c?.uri?.fsPath)
             )
             .map((c) => c.uri.fsPath),
         };

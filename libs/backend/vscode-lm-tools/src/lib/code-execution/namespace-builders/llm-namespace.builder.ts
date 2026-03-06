@@ -76,7 +76,9 @@ function buildProviderNamespace(
 
       if (completionResult.isErr()) {
         throw new Error(
-          `${providerName} chat failed: ${completionResult.error?.message ?? 'Unknown error'}`
+          `${providerName} chat failed: ${
+            completionResult.error?.message ?? 'Unknown error'
+          }`
         );
       }
 
@@ -152,7 +154,9 @@ export function buildLLMNamespace(
       );
 
       if (completionResult.isErr()) {
-        throw new Error(`Chat failed: ${completionResult.error?.message ?? 'Unknown error'}`);
+        throw new Error(
+          `Chat failed: ${completionResult.error?.message ?? 'Unknown error'}`
+        );
       }
 
       return completionResult.value ?? '';

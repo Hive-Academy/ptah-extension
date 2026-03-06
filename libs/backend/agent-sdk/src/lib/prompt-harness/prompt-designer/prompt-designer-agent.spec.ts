@@ -102,7 +102,9 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
     };
 
     agent = new PromptDesignerAgent(
-      ...[mockLogger] as unknown as ConstructorParameters<typeof PromptDesignerAgent>
+      ...([mockLogger] as unknown as ConstructorParameters<
+        typeof PromptDesignerAgent
+      >)
     );
   });
 
@@ -122,7 +124,9 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
 
     expect(result).not.toBeNull();
     expect((result as Record<string, unknown>).usedFallback).toBe(true);
-    expect((result as Record<string, unknown>).fallbackReason).toBe('LLM service not available');
+    expect((result as Record<string, unknown>).fallbackReason).toBe(
+      'LLM service not available'
+    );
   });
 
   it('should set usedFallback=true with error reason when generation throws', async () => {
@@ -137,7 +141,9 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
 
     expect(result).not.toBeNull();
     expect((result as Record<string, unknown>).usedFallback).toBe(true);
-    expect((result as Record<string, unknown>).fallbackReason).toBe('Rate limit exceeded');
+    expect((result as Record<string, unknown>).fallbackReason).toBe(
+      'Rate limit exceeded'
+    );
   });
 
   it('should emit fallback progress status when LLM provider is unavailable', async () => {
@@ -199,7 +205,9 @@ describe.skip('PromptDesignerAgent - Fallback Tracking', () => {
 
     expect(result).not.toBeNull();
     expect((result as Record<string, unknown>).usedFallback).toBe(true);
-    expect((result as Record<string, unknown>).fallbackReason).toBe(specificError);
+    expect((result as Record<string, unknown>).fallbackReason).toBe(
+      specificError
+    );
   });
 
   it('should not emit error progress status when falling back due to generation failure', async () => {

@@ -235,7 +235,10 @@ export class ToolOutputFormatterService {
    * @param toolInputContent - Optional raw tool input content to parse for API calls
    * @returns Display label (e.g., 'ptah.workspace.analyze()' or 'execute_code')
    */
-  public getToolGroupLabel(toolName: string, toolInputContent?: string): string {
+  public getToolGroupLabel(
+    toolName: string,
+    toolInputContent?: string
+  ): string {
     if (toolInputContent) {
       const match = toolInputContent.match(this.ptahApiCallPattern);
       if (match) {

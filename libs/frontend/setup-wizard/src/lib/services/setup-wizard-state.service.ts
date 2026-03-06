@@ -390,7 +390,8 @@ export class SetupWizardStateService {
   /**
    * Public readonly signal for generation progress
    */
-  public readonly generationProgress = this.generationProgressSignal.asReadonly();
+  public readonly generationProgress =
+    this.generationProgressSignal.asReadonly();
 
   /**
    * Public readonly signal for scan progress
@@ -476,7 +477,8 @@ export class SetupWizardStateService {
   /**
    * Public readonly signal for Enhanced Prompts error message.
    */
-  public readonly enhancedPromptsError = this.enhancedPromptsErrorSignal.asReadonly();
+  public readonly enhancedPromptsError =
+    this.enhancedPromptsErrorSignal.asReadonly();
 
   /**
    * Public readonly signal for Enhanced Prompts detected stack labels.
@@ -912,7 +914,9 @@ export class SetupWizardStateService {
    * Set Enhanced Prompts generation summary.
    * Contains section metadata without actual prompt content (IP protection).
    */
-  public setEnhancedPromptsSummary(summary: EnhancedPromptsSummary | null): void {
+  public setEnhancedPromptsSummary(
+    summary: EnhancedPromptsSummary | null
+  ): void {
     this.enhancedPromptsSummarySignal.set(summary);
   }
 
@@ -965,7 +969,9 @@ export class SetupWizardStateService {
    *
    * @param items - Array of generation progress items
    */
-  public setSkillGenerationProgress(items: SkillGenerationProgressItem[]): void {
+  public setSkillGenerationProgress(
+    items: SkillGenerationProgressItem[]
+  ): void {
     this.skillGenerationProgressSignal.set(items);
   }
 

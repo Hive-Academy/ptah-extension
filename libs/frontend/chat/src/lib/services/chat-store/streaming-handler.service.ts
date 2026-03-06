@@ -145,7 +145,9 @@ export class StreamingHandlerService {
         this.tabManager.updateTab(targetTab.id, {
           streamingState: createEmptyStreamingState(),
         });
-        const refreshedTab = this.tabManager.tabs().find((t) => t.id === targetTab?.id);
+        const refreshedTab = this.tabManager
+          .tabs()
+          .find((t) => t.id === targetTab?.id);
         if (refreshedTab) {
           targetTab = refreshedTab;
         }

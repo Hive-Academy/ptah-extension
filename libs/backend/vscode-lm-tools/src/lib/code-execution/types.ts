@@ -83,7 +83,11 @@ export interface WorkspaceNamespace {
    * Analyze complete workspace structure and project configuration
    * @returns Combined workspace info and structure analysis
    */
-  analyze: () => Promise<{ info: WorkspaceInfo | undefined; structure: WorkspaceStructureAnalysis | null; projectInfo?: ProjectInfo }>;
+  analyze: () => Promise<{
+    info: WorkspaceInfo | undefined;
+    structure: WorkspaceStructureAnalysis | null;
+    projectInfo?: ProjectInfo;
+  }>;
 
   /**
    * Get current workspace information (project type, frameworks, etc.)
@@ -346,7 +350,10 @@ export interface AINamespace {
    * @param input - Tool input parameters (must match tool's schema)
    * @returns Tool execution result
    */
-  invokeTool: (name: string, input: Record<string, unknown>) => Promise<vscode.LanguageModelToolResult>;
+  invokeTool: (
+    name: string,
+    input: Record<string, unknown>
+  ) => Promise<vscode.LanguageModelToolResult>;
 
   /**
    * Chat with access to specific VS Code tools

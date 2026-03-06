@@ -379,7 +379,9 @@ export class WizardRpcService {
    * @param filename - Slug directory name from .claude/analysis/
    * @returns Multi-phase analysis response with manifest and phase contents
    */
-  public async loadAnalysis(filename: string): Promise<MultiPhaseAnalysisResponse> {
+  public async loadAnalysis(
+    filename: string
+  ): Promise<MultiPhaseAnalysisResponse> {
     const result = await this.rpcService.call(
       'wizard:load-analysis',
       { filename },

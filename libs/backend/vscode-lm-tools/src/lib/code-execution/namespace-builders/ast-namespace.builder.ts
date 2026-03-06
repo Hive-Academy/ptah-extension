@@ -57,7 +57,12 @@ export function buildAstNamespace(
         throw new Error(result.error?.message ?? 'AST analysis failed');
       }
 
-      const insights = result.value ?? { functions: [], classes: [], imports: [], exports: [] };
+      const insights = result.value ?? {
+        functions: [],
+        classes: [],
+        imports: [],
+        exports: [],
+      };
       return {
         file: filePath,
         language,

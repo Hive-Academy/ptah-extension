@@ -300,7 +300,10 @@ export class LlmProvidersConfigComponent implements OnInit {
    * @param provider - The LLM provider
    * @param modelId - The selected model ID
    */
-  public onProviderModelSelectEvent(provider: LlmProviderName, event: Event): void {
+  public onProviderModelSelectEvent(
+    provider: LlmProviderName,
+    event: Event
+  ): void {
     const value = (event.target as HTMLSelectElement).value;
     this.onProviderModelSelect(provider, value);
   }

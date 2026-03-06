@@ -1075,7 +1075,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     this.pendingRequestContext.clear();
 
     // Clear all question request timeouts
-    for (const [_requestId, pending] of this.pendingQuestionRequests.entries()) {
+    for (const [
+      _requestId,
+      pending,
+    ] of this.pendingQuestionRequests.entries()) {
       clearTimeout(pending.timer);
       pending.resolve(null); // Resolve with null on dispose
     }

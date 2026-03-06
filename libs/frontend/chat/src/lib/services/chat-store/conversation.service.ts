@@ -16,10 +16,7 @@ import {
   VSCodeService,
   PtahCliStateService,
 } from '@ptah-extension/core';
-import {
-  createExecutionChatMessage,
-  SessionId,
-} from '@ptah-extension/shared';
+import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';

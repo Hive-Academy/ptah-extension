@@ -231,8 +231,9 @@ describe.skip('ScanProgressComponent', () => {
       );
 
       // Simulate cached multi-phase result in state
-      (mockStateService as unknown as Record<string, unknown>).multiPhaseResult =
-        signal(mockMultiPhaseResult).asReadonly();
+      (
+        mockStateService as unknown as Record<string, unknown>
+      ).multiPhaseResult = signal(mockMultiPhaseResult).asReadonly();
 
       // Reset mock and retry — second call should succeed
       (mockRpcService.deepAnalyze as jest.Mock).mockClear();
@@ -295,7 +296,9 @@ describe.skip('ScanProgressComponent', () => {
     it('should display progress information', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
+      const progressSignal = mockStateService.scanProgress as unknown as {
+        set: (v: ScanProgress | null) => void;
+      };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,
@@ -309,7 +312,9 @@ describe.skip('ScanProgressComponent', () => {
     });
 
     it('should calculate progress percentage correctly', () => {
-      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
+      const progressSignal = mockStateService.scanProgress as unknown as {
+        set: (v: ScanProgress | null) => void;
+      };
       progressSignal.set({
         filesScanned: 25,
         totalFiles: 100,
@@ -320,7 +325,9 @@ describe.skip('ScanProgressComponent', () => {
     });
 
     it('should handle zero total files', () => {
-      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
+      const progressSignal = mockStateService.scanProgress as unknown as {
+        set: (v: ScanProgress | null) => void;
+      };
       progressSignal.set({
         filesScanned: 0,
         totalFiles: 0,
@@ -333,7 +340,9 @@ describe.skip('ScanProgressComponent', () => {
     it('should display detections list', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
+      const progressSignal = mockStateService.scanProgress as unknown as {
+        set: (v: ScanProgress | null) => void;
+      };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,
@@ -430,7 +439,9 @@ describe.skip('ScanProgressComponent', () => {
       const h2 = fixture.nativeElement.querySelector('h2');
       expect(h2).toBeTruthy();
 
-      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
+      const progressSignal = mockStateService.scanProgress as unknown as {
+        set: (v: ScanProgress | null) => void;
+      };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,
@@ -445,7 +456,9 @@ describe.skip('ScanProgressComponent', () => {
     it('should have accessible progress bar', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
+      const progressSignal = mockStateService.scanProgress as unknown as {
+        set: (v: ScanProgress | null) => void;
+      };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,
@@ -462,7 +475,9 @@ describe.skip('ScanProgressComponent', () => {
     it('should handle null progress data', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
+      const progressSignal = mockStateService.scanProgress as unknown as {
+        set: (v: ScanProgress | null) => void;
+      };
       progressSignal.set(null);
       fixture.detectChanges();
 
@@ -473,7 +488,9 @@ describe.skip('ScanProgressComponent', () => {
     it('should handle missing detections array', () => {
       fixture.detectChanges();
 
-      const progressSignal = mockStateService.scanProgress as unknown as { set: (v: ScanProgress | null) => void };
+      const progressSignal = mockStateService.scanProgress as unknown as {
+        set: (v: ScanProgress | null) => void;
+      };
       progressSignal.set({
         filesScanned: 50,
         totalFiles: 100,

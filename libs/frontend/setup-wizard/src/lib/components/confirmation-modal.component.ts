@@ -117,7 +117,8 @@ import { NgClass } from '@angular/common';
   `,
 })
 export class ConfirmationModalComponent {
-  public readonly modal = viewChild.required<ElementRef<HTMLDialogElement>>('modal');
+  public readonly modal =
+    viewChild.required<ElementRef<HTMLDialogElement>>('modal');
 
   // Inputs
   public readonly title = input.required<string>();

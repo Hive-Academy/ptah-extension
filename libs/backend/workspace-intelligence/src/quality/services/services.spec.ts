@@ -1122,7 +1122,9 @@ describe('ProjectIntelligenceService', () => {
 
   describe('getWorkspaceContext', () => {
     it('should build context from detection services', async () => {
-      mockProjectDetector.detectProjectType.mockResolvedValue(ProjectType.Angular);
+      mockProjectDetector.detectProjectType.mockResolvedValue(
+        ProjectType.Angular
+      );
       mockFrameworkDetector.detectFrameworks.mockResolvedValue(
         new Map([[vscode.Uri.file('D:\\test'), Framework.Angular]])
       );

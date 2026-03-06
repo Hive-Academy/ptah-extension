@@ -79,7 +79,7 @@ describe('EnhancedPromptsService - getEnhancedPromptContent', () => {
     };
 
     service = new EnhancedPromptsService(
-      ...[
+      ...([
         mockLogger,
         mockPromptDesignerAgent,
         mockCacheService,
@@ -87,7 +87,7 @@ describe('EnhancedPromptsService - getEnhancedPromptContent', () => {
         mockWorkspaceIntelligence,
         mockInternalQueryService,
         mockConfig,
-      ] as unknown as ConstructorParameters<typeof EnhancedPromptsService>
+      ] as unknown as ConstructorParameters<typeof EnhancedPromptsService>)
     );
   });
 

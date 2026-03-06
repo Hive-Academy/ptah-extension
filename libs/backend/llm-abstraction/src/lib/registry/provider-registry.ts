@@ -142,7 +142,13 @@ export class ProviderRegistry {
     // Get or dynamically load factory
     const factoryResult = await this.getOrLoadFactory(providerName);
     if (factoryResult.isErr()) {
-      const factoryErr = factoryResult.error ?? new LlmProviderError('Failed to load provider factory', 'UNKNOWN_ERROR', providerName);
+      const factoryErr =
+        factoryResult.error ??
+        new LlmProviderError(
+          'Failed to load provider factory',
+          'UNKNOWN_ERROR',
+          providerName
+        );
       return Result.err(factoryErr);
     }
 
@@ -150,7 +156,13 @@ export class ProviderRegistry {
     const apiKey = await this.getApiKeyForProvider(providerName);
     const factory = factoryResult.value;
     if (!factory) {
-      return Result.err(new LlmProviderError('Provider factory is unexpectedly undefined', 'UNKNOWN_ERROR', providerName));
+      return Result.err(
+        new LlmProviderError(
+          'Provider factory is unexpectedly undefined',
+          'UNKNOWN_ERROR',
+          providerName
+        )
+      );
     }
 
     try {
@@ -237,7 +249,13 @@ export class ProviderRegistry {
       );
       const cachedFactory = this.loadedFactories.get(providerName);
       if (!cachedFactory) {
-        return Result.err(new LlmProviderError('Cached factory unexpectedly missing', 'UNKNOWN_ERROR', providerName));
+        return Result.err(
+          new LlmProviderError(
+            'Cached factory unexpectedly missing',
+            'UNKNOWN_ERROR',
+            providerName
+          )
+        );
       }
       return Result.ok(cachedFactory);
     }

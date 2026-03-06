@@ -66,7 +66,13 @@ export const createVsCodeLmProvider: LlmProviderFactory = async (
     // Initialize provider (select model)
     const initResult = await provider.initialize();
     if (initResult.isErr()) {
-      const initErr = initResult.error ?? new LlmProviderError('Provider initialization failed', 'UNKNOWN_ERROR', 'vscode-lm');
+      const initErr =
+        initResult.error ??
+        new LlmProviderError(
+          'Provider initialization failed',
+          'UNKNOWN_ERROR',
+          'vscode-lm'
+        );
       return Result.err(initErr);
     }
 

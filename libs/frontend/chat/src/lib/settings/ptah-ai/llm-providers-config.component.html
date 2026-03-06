@@ -66,9 +66,7 @@
           [id]="'model-' + provider.provider"
           class="select select-bordered select-xs flex-1 min-w-0 max-w-[260px] text-xs truncate"
           [value]="provider.defaultModel"
-          (change)="
-            onProviderModelSelectEvent(provider.provider, $event)
-          "
+          (change)="onProviderModelSelectEvent(provider.provider, $event)"
           [disabled]="savingModel() === provider.provider"
           [attr.aria-label]="'Default model for ' + provider.displayName"
         >
@@ -99,9 +97,7 @@
           [value]="
             modelInputs().get(provider.provider) ?? provider.defaultModel
           "
-          (input)="
-            updateModelInputEvent(provider.provider, $event)
-          "
+          (input)="updateModelInputEvent(provider.provider, $event)"
           [attr.aria-label]="'Default model for ' + provider.displayName"
         />
         <button
