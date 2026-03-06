@@ -11,21 +11,25 @@
 ### Patterns Identified
 
 **DI Token Pattern** (Evidence: `libs/backend/vscode-core/src/di/tokens.ts`):
+
 - All tokens use `Symbol.for('DescriptiveName')` pattern
 - Tokens collected in `TOKENS` const object
 - Injected via `@inject(TOKENS.X)` decorators
 
 **Library Registration Pattern** (Evidence: `apps/ptah-extension-vscode/src/di/container.ts`):
+
 - Each library exports `registerXxxServices(container)` function
 - Container orchestrator calls all registration functions in order
 - App-level services registered directly in container.ts
 
 **RPC Method Pattern** (Evidence: `libs/backend/vscode-core/src/messaging/rpc-handler.ts:44-67`):
+
 - Methods validated against `ALLOWED_METHOD_PREFIXES` whitelist
 - Currently: `session:`, `chat:`, `file:`, `workspace:`, `config:`, `auth:`, `license:`, `llm:`, `agent:`, `ptahCli:`, etc.
 - Need to add `ipc:` prefix for IPC-specific methods (e.g., `ipc:ping`)
 
 **Broadcast Pattern** (Evidence: `libs/backend/vscode-core/src/api-wrappers/webview-manager.ts:317-345`):
+
 - `WebviewManager.broadcastMessage(type, payload)` sends to all active webview panels and views
 - All broadcast callers use `this.webviewManager.broadcastMessage(MESSAGE_TYPES.X, payload)`
 - Callers inject `WebviewManager` via `@inject(TOKENS.WEBVIEW_MANAGER)`
@@ -38,6 +42,7 @@
   ```
 
 **Broadcast Message Types** (Evidence: `libs/shared/src/lib/types/message.types.ts:309-350`):
+
 - `CHAT_CHUNK` ('chat:chunk') - Streaming text/tool/agent events
 - `SESSION_STATS` ('session:stats') - Token counts, cost, duration
 - `SESSION_ID_RESOLVED` ('session:id-resolved') - Real session ID after SDK resolves
@@ -46,6 +51,7 @@
 - `AGENT_MONITOR_PERMISSION_REQUEST/RESPONSE` - Permission flows
 
 **Extension Activation Sequence** (Evidence: `apps/ptah-extension-vscode/src/main.ts:302-738`):
+
 - Step 1: Minimal DI for license check
 - Step 2: License verification (blocking)
 - Step 3: Full DI setup
@@ -60,6 +66,7 @@
 - **IPC server should start between Step 5 (RPC registered) and Step 8**
 
 **Nx Library project.json Pattern** (Evidence: `libs/backend/agent-sdk/project.json`):
+
 - esbuild executor for CJS backend libraries
 - Targets: build, test, typecheck, lint
 - External dependencies listed explicitly
@@ -68,12 +75,14 @@
 ### Integration Points
 
 **RpcHandler.handleMessage()** (Evidence: `libs/backend/vscode-core/src/messaging/rpc-handler.ts:219-266`):
+
 - Accepts `RpcMessage { method, params, correlationId }`
 - Returns `RpcResponse { success, data?, error?, errorCode?, correlationId }`
 - Includes license validation middleware
 - This is exactly what the IPC server needs to call for incoming messages
 
 **WebviewManager Broadcast Interception** (Evidence: `libs/backend/vscode-core/src/api-wrappers/webview-manager.ts:317-345`):
+
 - `broadcastMessage()` iterates `activeWebviews` Map and `activeWebviewViews` Map
 - To forward broadcasts to IPC clients, we need a **decorator/wrapper** around WebviewManager
 - Strategy: Create `BroadcastForwardingWebviewManager` that wraps the real WebviewManager, calls original + forwards to IPC server
@@ -87,11 +96,13 @@
 **Chosen Approach**: Decorator pattern for broadcast forwarding + shared IPC transport library
 
 **Rationale**:
+
 1. The existing `WebviewManager` is injected via `TOKENS.WEBVIEW_MANAGER` throughout the codebase. By replacing the DI registration with a decorator that wraps the real WebviewManager, all 28+ `broadcastMessage()` call sites automatically forward to IPC clients with zero code changes.
 2. The IPC transport library (`cli-ipc`) is a pure Node.js library with no VS Code dependencies, making it usable by both the extension (server) and CLI app (client).
 3. The CLI app uses Ink (React) which is completely separate from Angular -- no build conflicts.
 
 **Evidence**:
+
 - WebviewManager injected via `TOKENS.WEBVIEW_MANAGER` (rpc-method-registration.service.ts:80, chat-rpc.handlers.ts:64)
 - All broadcast calls go through `this.webviewManager.broadcastMessage()` (28 occurrences across 4 handler files)
 - DI container allows re-registration to override (tsyringe pattern)
@@ -111,14 +122,17 @@
 #### Files
 
 ##### 1. `libs/backend/cli-ipc/src/index.ts` (CREATE)
+
 **Purpose**: Barrel exports for the library.
 **Key Exports**: `IpcServer`, `IpcClient`, `getPipePath`, protocol types
 **Dependencies**: Re-exports from internal modules
 **Estimated Lines**: ~15
 
 ##### 2. `libs/backend/cli-ipc/src/lib/protocol.ts` (CREATE)
+
 **Purpose**: Defines the IPC wire protocol types and length-prefix framing utilities.
 **Key Exports**:
+
 ```typescript
 /** IPC message wrapper for RPC calls */
 export interface IpcRpcMessage {
@@ -167,17 +181,21 @@ export function encodeMessage(msg: unknown): Buffer;
 /** Decode length-prefixed messages from a buffer, returns [decoded[], remainingBuffer] */
 export function decodeMessages(buffer: Buffer): [unknown[], Buffer];
 ```
+
 **Dependencies**: None (pure Node.js Buffer operations)
 **Estimated Lines**: ~80
 
 **Framing Protocol Detail**:
+
 - Each message: `[4-byte big-endian uint32 length][UTF-8 JSON payload]`
 - `encodeMessage`: JSON.stringify -> Buffer.from(utf8) -> prepend 4-byte length header
 - `decodeMessages`: Read 4-byte length, extract that many bytes as JSON, repeat until buffer exhausted. Return partial buffer remainder for next chunk.
 
 ##### 3. `libs/backend/cli-ipc/src/lib/pipe-path.ts` (CREATE)
+
 **Purpose**: Deterministic pipe path generation from workspace folder path. Used by both server and client.
 **Key Exports**:
+
 ```typescript
 /**
  * Generate deterministic pipe path from workspace folder.
@@ -189,12 +207,15 @@ export function decodeMessages(buffer: Buffer): [unknown[], Buffer];
  */
 export function getPipePath(workspacePath: string): string;
 ```
+
 **Dependencies**: `node:crypto` (SHA-256), `node:os` (platform detection)
 **Estimated Lines**: ~25
 
 ##### 4. `libs/backend/cli-ipc/src/lib/ipc-server.ts` (CREATE)
+
 **Purpose**: Named pipe server that accepts CLI client connections, routes RPC messages to a handler callback, and pushes broadcast events to all connected clients.
 **Key Exports**:
+
 ```typescript
 export interface IpcServerOptions {
   pipePath: string;
@@ -220,10 +241,12 @@ export class IpcServer {
   dispose(): void;
 }
 ```
+
 **Dependencies**: `node:net`, `node:fs` (stale socket cleanup), `./protocol`, `./pipe-path`
 **Estimated Lines**: ~120
 
 **Implementation Notes**:
+
 - `start()`: If socket file exists on Unix, attempt connect to detect stale file. If ECONNREFUSED, delete and recreate. On Windows, named pipes auto-cleanup.
 - Each client connection gets its own `Buffer` accumulator for partial message handling via `decodeMessages()`.
 - `broadcast()`: Iterates all connected sockets, calls `encodeMessage()` + `socket.write()` for each. Fire-and-forget (errors logged, socket removed from set).
@@ -231,8 +254,10 @@ export class IpcServer {
 - Unix socket created with mode `0o600` (owner-only) for security.
 
 ##### 5. `libs/backend/cli-ipc/src/lib/ipc-client.ts` (CREATE)
+
 **Purpose**: Named pipe client that connects to the extension's IPC server, sends RPC requests, and receives broadcast push notifications.
 **Key Exports**:
+
 ```typescript
 export interface IpcClientOptions {
   pipePath: string;
@@ -261,10 +286,12 @@ export class IpcClient {
   dispose(): void;
 }
 ```
+
 **Dependencies**: `node:net`, `./protocol`
 **Estimated Lines**: ~130
 
 **Implementation Notes**:
+
 - `connect()`: Uses `net.createConnection()`. On failure, retries with exponential backoff (3 retries: 1s, 2s, 4s).
 - `request()`: Generates a `correlationId` (UUID v4 or counter), wraps in `IpcRpcMessage`, sends via `encodeMessage()`. Returns a `Promise` that resolves when a matching `IpcRpcResponse` with same `correlationId` arrives. Timeout after 30s.
 - Incoming data: Accumulated in buffer, decoded via `decodeMessages()`. `IpcRpcResponse` messages resolve pending promises. `IpcBroadcastMessage` messages dispatched to registered handlers.
@@ -272,8 +299,10 @@ export class IpcClient {
 - `onBroadcast()`: Adds handler to Set, returns unsubscribe function.
 
 ##### 6. `libs/backend/cli-ipc/project.json` (CREATE)
+
 **Purpose**: Nx project configuration for the cli-ipc library.
 **Pattern Source**: `libs/backend/agent-sdk/project.json`
+
 ```json
 {
   "name": "@ptah-extension/cli-ipc",
@@ -305,13 +334,16 @@ export class IpcClient {
   }
 }
 ```
+
 **Estimated Lines**: ~25
 
 ##### 7. `libs/backend/cli-ipc/tsconfig.json` (CREATE)
+
 **Purpose**: Root tsconfig for the library.
 **Estimated Lines**: ~7
 
 ##### 8. `libs/backend/cli-ipc/tsconfig.lib.json` (CREATE)
+
 **Purpose**: Library build tsconfig extending base.
 **Pattern Source**: Other library tsconfig patterns.
 **Estimated Lines**: ~15
@@ -325,6 +357,7 @@ export class IpcClient {
 **Pattern**: Decorator pattern for WebviewManager + DI token registration.
 
 **Evidence**:
+
 - WebviewManager injected via `TOKENS.WEBVIEW_MANAGER` (tokens.ts:53)
 - Container registration in `apps/ptah-extension-vscode/src/di/container.ts`
 - Activation sequence in `apps/ptah-extension-vscode/src/main.ts`
@@ -332,8 +365,10 @@ export class IpcClient {
 #### Files
 
 ##### 9. `apps/ptah-extension-vscode/src/services/ipc/ipc-broadcast-adapter.ts` (CREATE)
+
 **Purpose**: Wraps the real WebviewManager to intercept `broadcastMessage()` calls and forward them to IPC clients. Implements the same `WebviewManager` interface so it's a transparent drop-in.
 **Key Exports**:
+
 ```typescript
 /**
  * Decorates WebviewManager to forward broadcasts to IPC clients.
@@ -344,11 +379,7 @@ export class IpcClient {
  * All other methods: delegated to original WebviewManager
  */
 export class IpcBroadcastAdapter {
-  constructor(
-    private readonly realWebviewManager: WebviewManager,
-    private readonly ipcServer: IpcServer | null,
-    private readonly logger: Logger
-  );
+  constructor(private readonly realWebviewManager: WebviewManager, private readonly ipcServer: IpcServer | null, private readonly logger: Logger);
 
   // Delegates all WebviewManager methods to realWebviewManager
   // Overrides broadcastMessage to also call ipcServer.broadcast()
@@ -357,21 +388,26 @@ export class IpcBroadcastAdapter {
   // ... other WebviewManager methods delegated
 }
 ```
+
 **Dependencies**: `@ptah-extension/vscode-core` (WebviewManager type, Logger), `@ptah-extension/cli-ipc` (IpcServer)
 **Estimated Lines**: ~80
 
 **Implementation Notes**:
+
 - `broadcastMessage()`: Calls `this.realWebviewManager.broadcastMessage(type, payload)` first (preserves existing webview behavior), then calls `this.ipcServer?.broadcast(type, payload)` asynchronously (fire-and-forget, errors logged).
 - All other methods (`sendMessage`, `createWebviewPanel`, `registerWebviewView`, `getWebview`, etc.) delegate directly to `realWebviewManager`.
 - If `ipcServer` is null (IPC startup failed), behaves identically to real WebviewManager.
 
 ##### 10. `apps/ptah-extension-vscode/src/services/ipc/index.ts` (CREATE)
+
 **Purpose**: Barrel exports for IPC integration module.
 **Estimated Lines**: ~3
 
 ##### 11. `apps/ptah-extension-vscode/src/main.ts` (MODIFY)
+
 **Purpose**: Add IPC server startup step in activation sequence (between Step 5 and Step 8).
 **Changes**:
+
 ```typescript
 // After Step 5 (RPC methods registered), before Step 8 (session import):
 
@@ -420,11 +456,14 @@ try {
 }
 console.log('[Activate] Step 7.4: IPC server initialization complete');
 ```
+
 **Estimated Lines**: ~40 added
 
 ##### 12. `libs/backend/vscode-core/src/di/tokens.ts` (MODIFY)
+
 **Purpose**: Add `IPC_SERVER` token to the TOKENS namespace.
 **Changes**:
+
 ```typescript
 // Add after CLI_PLUGIN_SYNC_SERVICE section:
 
@@ -436,23 +475,30 @@ export const IPC_SERVER = Symbol.for('IpcServer');
 // Add to TOKENS object:
 IPC_SERVER,
 ```
+
 **Estimated Lines**: ~5 added
 
 ##### 13. `libs/backend/vscode-core/src/messaging/rpc-handler.ts` (MODIFY)
+
 **Purpose**: Add `'ipc:'` to `ALLOWED_METHOD_PREFIXES` whitelist for IPC-specific methods (e.g., `ipc:ping`).
 **Changes**:
+
 ```typescript
 // Add to ALLOWED_METHOD_PREFIXES array (line ~66):
 'ipc:', // TASK_2025_179: IPC health check methods
 ```
+
 **Estimated Lines**: ~1 added
 
 ##### 14. `tsconfig.base.json` (MODIFY)
+
 **Purpose**: Add path alias for the new cli-ipc library.
 **Changes**:
+
 ```json
 "@ptah-extension/cli-ipc": ["libs/backend/cli-ipc/src/index.ts"]
 ```
+
 **Estimated Lines**: ~1 added
 
 ---
@@ -466,12 +512,14 @@ IPC_SERVER,
 #### Files
 
 ##### 15. `apps/ptah-cli/src/index.tsx` (CREATE)
+
 **Purpose**: Entry point with CLI argument parsing and Ink renderer initialization. Shebang for direct execution.
 **Key Exports**: None (entry point)
 **Dependencies**: `ink`, `meow` or `commander`, `react`, `./app`
 **Estimated Lines**: ~40
 
 **Implementation Notes**:
+
 - `#!/usr/bin/env node` shebang
 - Parse args: `--workspace <path>` (optional, defaults to `process.cwd()`)
 - Compute pipe path via `getPipePath(workspacePath)`
@@ -479,12 +527,14 @@ IPC_SERVER,
 - Handle uncaught errors gracefully
 
 ##### 16. `apps/ptah-cli/src/app.tsx` (CREATE)
+
 **Purpose**: Root `<App>` component that sets up IPC connection and routes to chat view. Manages top-level state and keyboard shortcuts.
 **Key Exports**: `App` component
 **Dependencies**: `react`, `ink`, `./hooks/use-ipc`, `./hooks/use-chat`, `./hooks/use-session`, `./hooks/use-status`, `./components/*`
 **Estimated Lines**: ~100
 
 **Implementation Notes**:
+
 - Uses `useIpc(pipePath)` hook for connection lifecycle
 - Renders `<ConnectionStatus>` when disconnected
 - Renders `<ChatView>` + `<StatusBar>` when connected
@@ -492,8 +542,10 @@ IPC_SERVER,
 - `Ctrl+C`: Exit gracefully
 
 ##### 17. `apps/ptah-cli/src/hooks/use-ipc.ts` (CREATE)
+
 **Purpose**: React hook managing IpcClient lifecycle, exposing `request()` and broadcast subscriptions.
 **Key Exports**:
+
 ```typescript
 interface UseIpcResult {
   connected: boolean;
@@ -505,10 +557,12 @@ interface UseIpcResult {
 
 export function useIpc(pipePath: string): UseIpcResult;
 ```
+
 **Dependencies**: `react`, `@ptah-extension/cli-ipc` (IpcClient, BroadcastHandler, RpcResponse)
 **Estimated Lines**: ~80
 
 **Implementation Notes**:
+
 - Creates `IpcClient` in `useEffect`, connects on mount, disposes on unmount
 - Tracks `connected`, `connecting`, `error` state
 - `request()` delegates to `client.request()`
@@ -516,8 +570,10 @@ export function useIpc(pipePath: string): UseIpcResult;
 - Handles reconnection events (update `connected` state)
 
 ##### 18. `apps/ptah-cli/src/hooks/use-chat.ts` (CREATE)
+
 **Purpose**: Chat state management -- message array, streaming state, send/continue/abort operations.
 **Key Exports**:
+
 ```typescript
 interface ChatMessage {
   id: string;
@@ -553,10 +609,12 @@ interface UseChatResult {
 
 export function useChat(ipc: UseIpcResult): UseChatResult;
 ```
+
 **Dependencies**: `react`, `./use-ipc` types, `@ptah-extension/cli-ipc` (RpcResponse)
 **Estimated Lines**: ~150
 
 **Implementation Notes**:
+
 - Subscribes to `CHAT_CHUNK` broadcasts via `ipc.onBroadcast()`
 - `sendMessage()`: Adds user message to array, calls `ipc.request('chat:start', { prompt, tabId })` for new conversations or `ipc.request('chat:continue', { prompt, sessionId })` for existing
 - Processes `FlatStreamEventUnion` events from `CHAT_CHUNK` broadcasts:
@@ -568,8 +626,10 @@ export function useChat(ipc: UseIpcResult): UseChatResult;
 - `abortStream()`: calls `ipc.request('chat:abort', { sessionId })`
 
 ##### 19. `apps/ptah-cli/src/hooks/use-session.ts` (CREATE)
+
 **Purpose**: Session listing, selection, and history loading.
 **Key Exports**:
+
 ```typescript
 interface SessionSummary {
   id: string;
@@ -588,12 +648,15 @@ interface UseSessionResult {
 
 export function useSession(ipc: UseIpcResult): UseSessionResult;
 ```
+
 **Dependencies**: `react`, `./use-ipc` types
 **Estimated Lines**: ~60
 
 ##### 20. `apps/ptah-cli/src/hooks/use-status.ts` (CREATE)
+
 **Purpose**: Listens for `SESSION_STATS` broadcasts and computes display values for the status bar.
 **Key Exports**:
+
 ```typescript
 interface StatusInfo {
   tokens: { input: number; output: number };
@@ -605,67 +668,81 @@ interface StatusInfo {
 
 export function useStatus(ipc: UseIpcResult): StatusInfo;
 ```
+
 **Dependencies**: `react`, `./use-ipc` types
 **Estimated Lines**: ~50
 
 ##### 21. `apps/ptah-cli/src/components/chat-view.tsx` (CREATE)
+
 **Purpose**: Main chat interface combining message list and input bar. Scrollable message area with auto-scroll on new content.
 **Dependencies**: `react`, `ink`, `./message-bubble`, `./input-bar`, `./tool-call-item`, `./agent-card`
 **Estimated Lines**: ~80
 
 ##### 22. `apps/ptah-cli/src/components/message-bubble.tsx` (CREATE)
+
 **Purpose**: Single message display (user or assistant) with terminal markdown rendering. Handles streaming indicator.
 **Dependencies**: `react`, `ink`, `../utils/markdown`
 **Estimated Lines**: ~60
 
 ##### 23. `apps/ptah-cli/src/components/tool-call-item.tsx` (CREATE)
+
 **Purpose**: Tool execution display with spinner (running), checkmark (success), or X (error). Shows tool name and truncated input/result.
 **Dependencies**: `react`, `ink`, `ink-spinner`
 **Estimated Lines**: ~50
 
 ##### 24. `apps/ptah-cli/src/components/agent-card.tsx` (CREATE)
+
 **Purpose**: Agent status card showing agent type, description, and progress. Box-drawn border with colored header.
 **Dependencies**: `react`, `ink`, `ink-spinner`
 **Estimated Lines**: ~50
 
 ##### 25. `apps/ptah-cli/src/components/status-bar.tsx` (CREATE)
+
 **Purpose**: Persistent bottom status bar showing token count, cost, model, duration. Adapts to terminal width.
 **Dependencies**: `react`, `ink`
 **Estimated Lines**: ~50
 
 ##### 26. `apps/ptah-cli/src/components/session-list.tsx` (CREATE)
+
 **Purpose**: Session picker overlay triggered by Ctrl+L. Uses ink-select-input for session selection.
 **Dependencies**: `react`, `ink`, `ink-select-input`
 **Estimated Lines**: ~60
 
 ##### 27. `apps/ptah-cli/src/components/input-bar.tsx` (CREATE)
+
 **Purpose**: Chat input with basic `/` command autocomplete support. Uses ink-text-input.
 **Dependencies**: `react`, `ink`, `ink-text-input`
 **Estimated Lines**: ~80
 
 **Implementation Notes**:
+
 - On `/` prefix, fetch completions via `ipc.request('autocomplete:getCompletions', { prefix })`
 - On `@` prefix, fetch agent completions
 - Display completions as a small overlay above input
 - Enter submits, Escape cancels autocomplete
 
 ##### 28. `apps/ptah-cli/src/components/connection-status.tsx` (CREATE)
+
 **Purpose**: Connection indicator showing "Connecting...", "Connected", or error state with retry info.
 **Dependencies**: `react`, `ink`, `ink-spinner`
 **Estimated Lines**: ~40
 
 ##### 29. `apps/ptah-cli/src/utils/markdown.ts` (CREATE)
+
 **Purpose**: Terminal markdown rendering -- converts markdown to Ink-compatible styled text. Handles bold, code blocks, lists, inline code.
 **Dependencies**: `ink` (for `<Text>` styling)
 **Estimated Lines**: ~80
 
 **Implementation Notes**:
-- Parse markdown blocks: headers (#), bold (**), inline code (`), code fences (```), lists (- or *)
+
+- Parse markdown blocks: headers (#), bold (\*_), inline code (`), code fences (```), lists (- or _)
 - Convert to Ink `<Text bold>`, `<Text color="green">` (code), `<Box>` (code blocks)
 - Keep it simple -- no full CommonMark parser, just the common patterns
 
 ##### 30. `apps/ptah-cli/project.json` (CREATE)
+
 **Purpose**: Nx project configuration for the CLI application.
+
 ```json
 {
   "name": "ptah-cli",
@@ -709,15 +786,19 @@ export function useStatus(ipc: UseIpcResult): StatusInfo;
   }
 }
 ```
+
 **Estimated Lines**: ~35
 
 ##### 31. `apps/ptah-cli/tsconfig.json` (CREATE)
+
 **Purpose**: Root tsconfig for the CLI app.
 **Estimated Lines**: ~7
 
 ##### 32. `apps/ptah-cli/tsconfig.app.json` (CREATE)
+
 **Purpose**: App build tsconfig with JSX support for Ink/React.
 **Key Config**:
+
 ```json
 {
   "extends": "../../tsconfig.base.json",
@@ -733,6 +814,7 @@ export function useStatus(ipc: UseIpcResult): StatusInfo;
   "exclude": ["node_modules", "dist"]
 }
 ```
+
 **Estimated Lines**: ~15
 
 ---
@@ -839,24 +921,24 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 
 ### New NPM Dependencies
 
-| Package | Version | Purpose | Used By |
-|---------|---------|---------|---------|
-| `ink` | ^5.0.0 | React renderer for terminal | apps/ptah-cli |
-| `ink-text-input` | ^6.0.0 | Text input component | apps/ptah-cli |
-| `ink-spinner` | ^5.0.0 | Loading spinners | apps/ptah-cli |
-| `ink-select-input` | ^6.0.0 | List selection | apps/ptah-cli |
-| `react` | ^18.3.0 | Required by Ink | apps/ptah-cli |
-| `react-dom` | ^18.3.0 | Required by Ink (peer dep) | apps/ptah-cli |
-| `meow` | ^13.0.0 | CLI argument parsing | apps/ptah-cli |
-| `@types/react` | ^18.3.0 | TypeScript types | apps/ptah-cli (dev) |
+| Package            | Version | Purpose                     | Used By             |
+| ------------------ | ------- | --------------------------- | ------------------- |
+| `ink`              | ^5.0.0  | React renderer for terminal | apps/ptah-cli       |
+| `ink-text-input`   | ^6.0.0  | Text input component        | apps/ptah-cli       |
+| `ink-spinner`      | ^5.0.0  | Loading spinners            | apps/ptah-cli       |
+| `ink-select-input` | ^6.0.0  | List selection              | apps/ptah-cli       |
+| `react`            | ^18.3.0 | Required by Ink             | apps/ptah-cli       |
+| `react-dom`        | ^18.3.0 | Required by Ink (peer dep)  | apps/ptah-cli       |
+| `meow`             | ^13.0.0 | CLI argument parsing        | apps/ptah-cli       |
+| `@types/react`     | ^18.3.0 | TypeScript types            | apps/ptah-cli (dev) |
 
 ### Internal Dependencies
 
-| Consumer | Depends On | Import Path |
-|----------|-----------|-------------|
-| `cli-ipc` | None (pure Node.js) | N/A |
-| `ptah-extension-vscode` | `cli-ipc` | `@ptah-extension/cli-ipc` |
-| `ptah-cli` | `cli-ipc` | `@ptah-extension/cli-ipc` |
+| Consumer                | Depends On          | Import Path               |
+| ----------------------- | ------------------- | ------------------------- |
+| `cli-ipc`               | None (pure Node.js) | N/A                       |
+| `ptah-extension-vscode` | `cli-ipc`           | `@ptah-extension/cli-ipc` |
+| `ptah-cli`              | `cli-ipc`           | `@ptah-extension/cli-ipc` |
 
 ---
 
@@ -892,6 +974,7 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 ### Phase 1: IPC Bridge Library (`libs/backend/cli-ipc`) -- Can Be Tested Independently
 
 **Deliverables**:
+
 - Files 1-8 (protocol, pipe-path, ipc-server, ipc-client, project config)
 - Path alias in tsconfig.base.json (File 14)
 
@@ -902,9 +985,11 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 ### Phase 2: Extension Integration -- Can Be Tested With Raw Pipe Client
 
 **Deliverables**:
+
 - Files 9-13 (broadcast adapter, main.ts changes, token addition, RPC prefix)
 
 **Verification**:
+
 1. Extension activates without error (IPC server starts)
 2. Connect with `socat` or raw Node.js client to the named pipe
 3. Send `{"type":"rpc","payload":{"method":"session:list","params":{},"correlationId":"test-1"}}` (length-prefixed)
@@ -916,10 +1001,12 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 ### Phase 3: Ink TUI Application (`apps/ptah-cli`) -- Full Feature Set
 
 **Deliverables**:
+
 - Files 15-32 (entry point, app, hooks, components, utils, project config)
 - NPM dependency installation
 
 **Sub-phases**:
+
 1. **P3a**: Entry point + App shell + useIpc hook + ConnectionStatus (basic connection)
 2. **P3b**: useChat hook + ChatView + MessageBubble + InputBar (basic chat flow)
 3. **P3c**: ToolCallItem + AgentCard (tool/agent display during streaming)
@@ -937,6 +1024,7 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 ### CREATE (26 files)
 
 **cli-ipc library (8 files)**:
+
 - `libs/backend/cli-ipc/src/index.ts`
 - `libs/backend/cli-ipc/src/lib/protocol.ts`
 - `libs/backend/cli-ipc/src/lib/pipe-path.ts`
@@ -947,10 +1035,12 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 - `libs/backend/cli-ipc/tsconfig.lib.json`
 
 **Extension integration (2 files)**:
+
 - `apps/ptah-extension-vscode/src/services/ipc/ipc-broadcast-adapter.ts`
 - `apps/ptah-extension-vscode/src/services/ipc/index.ts`
 
 **CLI app (16 files)**:
+
 - `apps/ptah-cli/src/index.tsx`
 - `apps/ptah-cli/src/app.tsx`
 - `apps/ptah-cli/src/hooks/use-ipc.ts`
@@ -986,6 +1076,7 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 **Recommended Developer**: **backend-developer** for Phases 1-2, **frontend-developer** for Phase 3
 
 **Rationale**:
+
 - Phase 1 (cli-ipc): Pure Node.js networking with `node:net`, buffer manipulation, protocol framing -- backend work
 - Phase 2 (extension integration): DI container manipulation, decorator pattern, extension lifecycle -- backend work
 - Phase 3 (ptah-cli): React/Ink components, hooks, state management, terminal rendering -- frontend work (React experience required)
@@ -998,6 +1089,7 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 **Estimated Effort**: 19-26 hours total
 
 **Breakdown**:
+
 - Phase 1 (cli-ipc library): 4-6 hours
 - Phase 2 (extension integration): 3-4 hours
 - Phase 3 (Ink TUI app): 12-16 hours
@@ -1007,6 +1099,7 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
 **Before Implementation, Developer Must Verify**:
 
 1. **All imports exist in codebase**:
+
    - `RpcHandler` from `@ptah-extension/vscode-core` (verified: `src/index.ts:66`)
    - `TOKENS` from `@ptah-extension/vscode-core` (verified: `src/index.ts:6`)
    - `WebviewManager` from `@ptah-extension/vscode-core` (verified: `src/index.ts:43`)
@@ -1014,13 +1107,16 @@ Failure: "Ptah extension not running. Open VS Code with a workspace first."
    - `RpcMessage`, `RpcResponse` types from `vscode-core/src/messaging/rpc-types.ts` (verified: lines 13, 26)
 
 2. **RpcHandler.handleMessage() signature**:
+
    - Input: `RpcMessage { method, params, correlationId }` (verified: `rpc-handler.ts:219`)
    - Output: `Promise<RpcResponse>` (verified: `rpc-handler.ts:219`)
 
 3. **WebviewManager.broadcastMessage() signature**:
+
    - Input: `(type: StrictMessageType, payload: any): Promise<void>` (verified: `webview-manager.ts:317`)
 
 4. **DI container re-registration**:
+
    - tsyringe `registerInstance()` overwrites previous registration for same token
    - This is how the broadcast adapter replaces the real WebviewManager
 

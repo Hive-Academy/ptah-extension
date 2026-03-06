@@ -1,7 +1,9 @@
 # TASK_2025_179: Ptah CLI TUI Application
 
 ## Task Type: FEATURE
+
 ## Complexity: Complex
+
 ## Workflow: Full (PM -> Architect -> Team-Leader -> Developers -> QA)
 
 ## User Request
@@ -11,11 +13,13 @@ Build a Ptah CLI TUI (Terminal User Interface) application using Ink (React) tha
 ## Three Deliverables
 
 1. **`libs/backend/cli-ipc`** — IPC Bridge Library
+
    - IPC server (extension side): named pipe server using `node:net`
    - IPC client (CLI side): connects to extension's pipe
    - Shared protocol: message framing, JSON-RPC format matching existing RPC
 
 2. **Extension Integration** (~200 lines added to `ptah-extension-vscode`)
+
    - IPC server startup during extension activation
    - Routes IPC messages to existing RPC handlers (zero changes to handlers)
 

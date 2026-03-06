@@ -9,22 +9,22 @@
 
 ## Velocity Tracking
 
-| Metric | Target | Current | Trend |
-|--------|--------|---------|-------|
-| Completion | 100% | 10% | - |
-| Quality Score | 10/10 | - | - |
-| Test Coverage | 80% | - | - |
-| Performance | <10ms IPC | - | - |
+| Metric        | Target    | Current | Trend |
+| ------------- | --------- | ------- | ----- |
+| Completion    | 100%      | 10%     | -     |
+| Quality Score | 10/10     | -       | -     |
+| Test Coverage | 80%       | -       | -     |
+| Performance   | <10ms IPC | -       | -     |
 
 ## Workflow Progress
 
-| Phase | Agent | Status | Notes |
-|-------|-------|--------|-------|
-| Requirements | PM | COMPLETE | task-description.md created |
-| Architecture | SA | PENDING | 3 deliverables: cli-ipc lib, extension integration, Ink app |
-| Implementation | SD | PENDING | Phase 1: IPC bridge, Phase 2: Extension, Phase 3: TUI |
-| Testing | QA | PENDING | Deferred to follow-up task |
-| Review | CR | PENDING | - |
+| Phase          | Agent | Status   | Notes                                                       |
+| -------------- | ----- | -------- | ----------------------------------------------------------- |
+| Requirements   | PM    | COMPLETE | task-description.md created                                 |
+| Architecture   | SA    | PENDING  | 3 deliverables: cli-ipc lib, extension integration, Ink app |
+| Implementation | SD    | PENDING  | Phase 1: IPC bridge, Phase 2: Extension, Phase 3: TUI       |
+| Testing        | QA    | PENDING  | Deferred to follow-up task                                  |
+| Review         | CR    | PENDING  | -                                                           |
 
 ## Decisions Log
 
