@@ -14,7 +14,7 @@ import {
  * - Brand name and tagline
  * - Navigation links (Documentation, Marketplace, Community)
  * - Social links (X, Discord)
- * - Legal links (MIT License, Privacy, Terms)
+ * - Legal links (Privacy, Terms, Refund Policy)
  */
 @Component({
   selector: 'ptah-footer',
@@ -104,15 +104,23 @@ import {
         <div class="text-center text-sm text-base-content/50">
           <p>
             2025 Ptah Extension |
-            <a href="#" class="hover:text-secondary transition-colors"
-              >MIT License</a
-            >
-            |
-            <a href="#" class="hover:text-secondary transition-colors"
+            <a
+              routerLink="/privacy"
+              class="hover:text-secondary transition-colors"
               >Privacy</a
             >
             |
-            <a href="#" class="hover:text-secondary transition-colors">Terms</a>
+            <a
+              routerLink="/terms-and-conditions"
+              class="hover:text-secondary transition-colors"
+              >Terms</a
+            >
+            |
+            <a
+              routerLink="/refund"
+              class="hover:text-secondary transition-colors"
+              >Refund Policy</a
+            >
           </p>
         </div>
       </div>

@@ -7,6 +7,9 @@ import { TrialEndedPageComponent } from './pages/trial-ended/trial-ended-page.co
 import { AuthGuard } from './guards/auth.guard';
 import { GuestGuard } from './guards/guest.guard';
 import { DocsPageComponent } from './pages/docs/docs-page.component';
+import { TermsPageComponent } from './pages/legal/terms-page.component';
+import { PrivacyPageComponent } from './pages/legal/privacy-page.component';
+import { RefundPageComponent } from './pages/legal/refund-page.component';
 import { TrialStatusGuard } from './guards/trial-status.guard';
 
 /**
@@ -79,6 +82,18 @@ export const routes: Routes = [
   {
     path: 'sessions',
     redirectTo: 'profile',
+  },
+  {
+    path: 'terms-and-conditions',
+    component: TermsPageComponent,
+  },
+  {
+    path: 'privacy',
+    component: PrivacyPageComponent,
+  },
+  {
+    path: 'refund',
+    component: RefundPageComponent,
   },
   {
     path: 'trial-ended',
