@@ -44,6 +44,9 @@ import { ContextOrchestrationService } from '../context/context-orchestration.se
 import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
 import { AstAnalysisService } from '../ast/ast-analysis.service';
 
+// Context enrichment services
+import { ContextEnrichmentService } from '../context-analysis/context-enrichment.service';
+
 // Autocomplete discovery services
 import { AgentDiscoveryService } from '../autocomplete/agent-discovery.service';
 import { CommandDiscoveryService } from '../autocomplete/command-discovery.service';
@@ -163,6 +166,14 @@ export function registerWorkspaceIntelligenceServices(
   );
 
   // ============================================================
+  // Tier 5b: Context Enrichment (depends on AST + Token services)
+  // ============================================================
+  container.registerSingleton(
+    TOKENS.CONTEXT_ENRICHMENT_SERVICE,
+    ContextEnrichmentService
+  );
+
+  // ============================================================
   // Tier 6: AST Analysis Services
   // ============================================================
   container.registerSingleton(
@@ -207,6 +218,7 @@ export function registerWorkspaceIntelligenceServices(
       'FILE_RELEVANCE_SCORER',
       'CONTEXT_SIZE_OPTIMIZER',
       'CONTEXT_ORCHESTRATION_SERVICE',
+      'CONTEXT_ENRICHMENT_SERVICE',
       'TREE_SITTER_PARSER_SERVICE',
       'AST_ANALYSIS_SERVICE',
       'AGENT_DISCOVERY_SERVICE',

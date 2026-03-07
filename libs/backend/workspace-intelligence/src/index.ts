@@ -90,6 +90,12 @@ export {
   type ContextOptimizationStats,
 } from './context-analysis/context-size-optimizer.service';
 
+// Context enrichment
+export {
+  ContextEnrichmentService,
+  type StructuralSummaryResult,
+} from './context-analysis/context-enrichment.service';
+
 // Composite services - Unified facades
 export {
   WorkspaceAnalyzerService,

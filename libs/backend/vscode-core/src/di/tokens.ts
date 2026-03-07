@@ -109,6 +109,10 @@ export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
 export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
 export const AGENT_DISCOVERY_SERVICE = Symbol.for('AgentDiscoveryService');
 export const COMMAND_DISCOVERY_SERVICE = Symbol.for('CommandDiscoveryService');
+export const CONTEXT_ENRICHMENT_SERVICE = Symbol.for(
+  'ContextEnrichmentService'
+);
+export const DEPENDENCY_GRAPH_SERVICE = Symbol.for('DependencyGraphService');
 
 // ========================================
 // LLM Abstraction Service Tokens
@@ -352,6 +356,8 @@ export const TOKENS = {
   AST_ANALYSIS_SERVICE,
   AGENT_DISCOVERY_SERVICE,
   COMMAND_DISCOVERY_SERVICE,
+  CONTEXT_ENRICHMENT_SERVICE,
+  DEPENDENCY_GRAPH_SERVICE,
 
   // Project Intelligence (TASK_2025_141)
   CODE_QUALITY_ASSESSMENT_SERVICE,
