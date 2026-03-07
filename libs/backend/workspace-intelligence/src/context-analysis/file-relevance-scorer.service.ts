@@ -490,6 +490,7 @@ export class FileRelevanceScorerService {
       }
     }
 
-    return score;
+    // Cap total symbol score so symbols remain one signal among many
+    return Math.min(score, 30);
   }
 }

@@ -8,14 +8,6 @@
 // Type exports
 export * from './types/workspace.types';
 
-/**
- * Workspace Intelligence Library
- * Public API exports
- */
-
-// Type exports
-export * from './types/workspace.types';
-
 // Service exports (gradual implementation - uncomment as services are implemented)
 export { TokenCounterService } from './services/token-counter.service';
 export {

@@ -17,6 +17,7 @@ import { TokenCounterService } from '../services/token-counter.service';
 import { ContextEnrichmentService } from './context-enrichment.service';
 import { EXTENSION_LANGUAGE_MAP } from '../ast/tree-sitter.config';
 import { SupportedLanguage } from '../ast/ast.types';
+import type { SymbolIndex } from '../ast/dependency-graph.service';
 
 /**
  * Mode assigned to each file in the optimized context.
@@ -33,6 +34,7 @@ export type FileContextMode = 'full' | 'structural' | 'dependency';
 interface DependencyGraphInterface {
   getDependencies(filePath: string, depth?: number): string[];
   isBuilt(): boolean;
+  getSymbolIndex(): SymbolIndex;
 }
 
 /**
@@ -103,6 +105,13 @@ export interface OptimizedContext {
    * structural summary, or dependency.
    */
   readonly fileContextModes?: Map<string, FileContextMode>;
+
+  /**
+   * Map of file path to overridden content (e.g., structural summaries).
+   * Downstream consumers should check `contentOverrides.get(filePath)` before
+   * reading from disk to use the summary content instead of the original file.
+   */
+  readonly contentOverrides?: Map<string, string>;
 }
 
 /**
@@ -185,10 +194,14 @@ export class ContextSizeOptimizerService {
     const responseReserve = request.responseReserve ?? 50_000;
     const availableTokens = maxTokens - responseReserve;
 
-    // Rank files by relevance
+    // Rank files by relevance, passing symbol index when dependency graph is available
+    const symbolIndex = this.dependencyGraph?.isBuilt()
+      ? this.dependencyGraph.getSymbolIndex()
+      : undefined;
     const rankedFiles = this.relevanceScorer.rankFiles(
       request.files,
-      request.query
+      request.query,
+      symbolIndex
     );
 
     // Select files within budget using greedy algorithm
@@ -270,10 +283,14 @@ export class ContextSizeOptimizerService {
     const responseReserve = request.responseReserve ?? 50_000;
     const availableTokens = maxTokens - responseReserve;
 
-    // Rank files by relevance
+    // Rank files by relevance, passing symbol index when dependency graph is available
+    const symbolIndex = this.dependencyGraph?.isBuilt()
+      ? this.dependencyGraph.getSymbolIndex()
+      : undefined;
     const rankedFiles = this.relevanceScorer.rankFiles(
       request.files,
-      request.query
+      request.query,
+      symbolIndex
     );
 
     const rankedEntries = Array.from(rankedFiles.entries());
@@ -285,6 +302,7 @@ export class ContextSizeOptimizerService {
     const selectedFiles: IndexedFile[] = [];
     const excludedFiles: IndexedFile[] = [];
     const fileContextModes = new Map<string, FileContextMode>();
+    const contentOverrides = new Map<string, string>();
     let currentTokens = 0;
 
     // Phase 1: Add top 20% files with full content
@@ -323,10 +341,15 @@ export class ContextSizeOptimizerService {
           };
           selectedFiles.push(summaryFile);
           currentTokens += summaryTokens;
-          fileContextModes.set(
-            file.path,
-            summary.mode === 'structural' ? 'structural' : 'full'
-          );
+
+          const mode = summary.mode === 'structural' ? 'structural' : 'full';
+          fileContextModes.set(file.path, mode);
+
+          // Store structural summary content so downstream consumers
+          // can use it instead of reading the original file from disk
+          if (mode === 'structural') {
+            contentOverrides.set(file.path, summary.content);
+          }
         } else {
           excludedFiles.push(file);
         }
@@ -356,11 +379,18 @@ export class ContextSizeOptimizerService {
       0
     );
 
-    const relevanceScores = Array.from(rankedFiles.values());
-    const selectedRelevanceScores = relevanceScores.slice(
-      0,
-      selectedFiles.length
-    );
+    // Look up the actual relevance score for each selected file from the
+    // ranked map, rather than slicing the scores array by index (which can
+    // mismatch when files are excluded in Phase 1 or fallback in Phase 2).
+    const selectedRelevanceScores = selectedFiles.map((f) => {
+      // Find the original file entry in rankedFiles (keyed by IndexedFile ref)
+      for (const [rankedFile, score] of rankedFiles) {
+        if (rankedFile.path === f.path) {
+          return score;
+        }
+      }
+      return 0;
+    });
     const averageRelevance =
       selectedRelevanceScores.length > 0
         ? selectedRelevanceScores.reduce((sum, score) => sum + score, 0) /
@@ -404,6 +434,7 @@ export class ContextSizeOptimizerService {
       tokensRemaining: availableTokens - currentTokens,
       stats,
       fileContextModes,
+      contentOverrides,
     };
   }
 

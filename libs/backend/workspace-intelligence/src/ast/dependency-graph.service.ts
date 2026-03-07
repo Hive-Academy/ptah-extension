@@ -1,6 +1,5 @@
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
-import { existsSync } from 'fs';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
@@ -118,8 +117,10 @@ export class DependencyGraphService {
     // Normalize workspace root to use forward slashes for consistent path handling
     const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
 
-    // Phase 1: Parse all files and build nodes
-    for (const filePath of filePaths) {
+    // Phase 1: Parse all files and build nodes (bounded parallelism, chunks of 20)
+    const CHUNK_SIZE = 20;
+
+    const processFile = async (filePath: string): Promise<void> => {
       const normalizedPath = filePath.replace(/\\/g, '/');
       const ext = path.extname(normalizedPath).toLowerCase();
       const language = EXTENSION_LANGUAGE_MAP[ext];
@@ -128,7 +129,7 @@ export class DependencyGraphService {
         this.logger.debug(
           `DependencyGraphService.buildGraph() - Skipping unsupported file: ${normalizedPath}`
         );
-        continue;
+        return;
       }
 
       try {
@@ -146,7 +147,7 @@ export class DependencyGraphService {
           this.logger.debug(
             `DependencyGraphService.buildGraph() - Failed to analyze ${normalizedPath}: ${analysisResult.error?.message}`
           );
-          continue;
+          return;
         }
 
         const insights: CodeInsights = analysisResult.value!;
@@ -170,6 +171,11 @@ export class DependencyGraphService {
           `DependencyGraphService.buildGraph() - Error reading ${normalizedPath}: ${errorMessage}`
         );
       }
+    };
+
+    for (let i = 0; i < filePaths.length; i += CHUNK_SIZE) {
+      const chunk = filePaths.slice(i, i + CHUNK_SIZE);
+      await Promise.allSettled(chunk.map(processFile));
     }
 
     // Build a set of known file paths for fast lookup during resolution
@@ -469,9 +475,9 @@ export class DependencyGraphService {
       }
     }
 
-    // Fallback: check filesystem for files not in the known set
-    // This handles cases where the file exists but wasn't included in filePaths
-    return this.resolveWithFileSystem(basePath);
+    // If not found in knownFiles, mark as unresolved rather than hitting the filesystem.
+    // Files not in knownFiles were not included in the build scope.
+    return null;
   }
 
   /**
@@ -560,30 +566,6 @@ export class DependencyGraphService {
     );
 
     return captured;
-  }
-
-  /**
-   * Fallback resolution using the filesystem for files outside the known set.
-   * Uses synchronous fs.existsSync for performance during graph building.
-   */
-  private resolveWithFileSystem(basePath: string): string | null {
-    // Try with extensions
-    for (const ext of RESOLVE_EXTENSIONS) {
-      const withExt = basePath + ext;
-      if (existsSync(withExt)) {
-        return withExt;
-      }
-    }
-
-    // Try as directory with index file
-    for (const indexFile of INDEX_FILES) {
-      const indexPath = basePath + '/' + indexFile;
-      if (existsSync(indexPath)) {
-        return indexPath;
-      }
-    }
-
-    return null;
   }
 
   /**

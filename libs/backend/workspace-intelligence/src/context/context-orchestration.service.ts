@@ -12,10 +12,13 @@
  * - ContextService already implements required functionality ✓
  */
 
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { ContextService } from './context.service';
 import type { FileSearchResult, FileSearchOptions } from './context.service';
 import type { CorrelationId } from '@ptah-extension/shared';
+import { DependencyGraphService } from '../ast/dependency-graph.service';
+import { ContextSizeOptimizerService } from '../context-analysis/context-size-optimizer.service';
 
 /**
  * VS Code Uri interface (minimal, for type safety without vscode dependency)
@@ -213,7 +216,18 @@ function formatFileResult(result: FileSearchResult) {
  */
 @injectable()
 export class ContextOrchestrationService {
-  constructor(private readonly contextService: ContextService) {}
+  constructor(
+    private readonly contextService: ContextService,
+    @inject(TOKENS.DEPENDENCY_GRAPH_SERVICE)
+    private readonly dependencyGraph: DependencyGraphService,
+    @inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)
+    private readonly contextSizeOptimizer: ContextSizeOptimizerService
+  ) {
+    // Wire DependencyGraphService into the optimizer so it can use dependency
+    // data for relevance scoring. The optimizer holds an optional reference
+    // (not constructor-injected) because it was created before the graph service.
+    this.contextSizeOptimizer.setDependencyGraph(this.dependencyGraph);
+  }
 
   /**
    * Get current context files and workspace structure

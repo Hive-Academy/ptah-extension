@@ -341,7 +341,7 @@ export class ContextEnrichmentService {
       for (const method of cls.methods) {
         const asyncPrefix = method.isAsync ? 'async ' : '';
         const params = method.parameters.join(', ');
-        lines.push(`  ${asyncPrefix}${method.name}(${params}): void;`);
+        lines.push(`  ${asyncPrefix}${method.name}(${params});`);
       }
     }
 
@@ -356,7 +356,7 @@ export class ContextEnrichmentService {
     const exportPrefix = isExported ? 'export ' : '';
     const asyncPrefix = fn.isAsync ? 'async ' : '';
     const params = fn.parameters.join(', ');
-    return `${exportPrefix}${asyncPrefix}function ${fn.name}(${params}): void;`;
+    return `${exportPrefix}${asyncPrefix}function ${fn.name}(${params});`;
   }
 
   /**

@@ -167,14 +167,6 @@ export function registerWorkspaceIntelligenceServices(
   );
 
   // ============================================================
-  // Tier 5b: Context Enrichment (depends on AST + Token services)
-  // ============================================================
-  container.registerSingleton(
-    TOKENS.CONTEXT_ENRICHMENT_SERVICE,
-    ContextEnrichmentService
-  );
-
-  // ============================================================
   // Tier 6: AST Analysis Services
   // ============================================================
   container.registerSingleton(
@@ -185,6 +177,15 @@ export function registerWorkspaceIntelligenceServices(
   container.registerSingleton(
     TOKENS.DEPENDENCY_GRAPH_SERVICE,
     DependencyGraphService
+  );
+
+  // ============================================================
+  // Tier 6b: Context Enrichment (depends on AST + Token services)
+  // Registered after Tier 6 because it depends on AstAnalysisService
+  // ============================================================
+  container.registerSingleton(
+    TOKENS.CONTEXT_ENRICHMENT_SERVICE,
+    ContextEnrichmentService
   );
 
   // ============================================================

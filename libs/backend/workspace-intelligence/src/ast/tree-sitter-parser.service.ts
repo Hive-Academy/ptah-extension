@@ -698,6 +698,15 @@ export class TreeSitterParserService {
       return this.parseAndCache(filePath, content, language);
     }
 
+    // If the cached tree was parsed with a different language, the old tree is
+    // not compatible for incremental re-parsing. Fall back to a full parse.
+    if (cachedEntry.language !== language) {
+      this.logger.debug(
+        `parseIncremental: Language mismatch for ${filePath} (cached: ${cachedEntry.language}, requested: ${language}), falling back to full parse`
+      );
+      return this.parseAndCache(filePath, content, language);
+    }
+
     this.logger.debug(
       `parseIncremental: Cache hit for ${filePath}, performing incremental re-parse`
     );
