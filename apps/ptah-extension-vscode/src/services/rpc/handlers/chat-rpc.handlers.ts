@@ -536,6 +536,9 @@ export class ChatRpcHandlers {
             });
           }
 
+          // TASK_2025_181: SDK handles slash commands natively when receiving string prompts.
+          // No need to expand plugin commands manually — SDK resolves them via pluginPaths.
+
           // Start SDK session with streaming ExecutionNode output
           // TASK_2025_093: Single config argument with tabId as primary tracking key
           // Prompt and files are now passed in config, not via separate sendMessageToSession
@@ -548,13 +551,40 @@ export class ChatRpcHandlers {
             systemPrompt: options?.systemPrompt,
             projectPath: workspacePath,
             name,
-            prompt, // Initial prompt passed in config
+            prompt, // TASK_2025_181: Pass raw prompt — SDK handles slash commands natively
             files,
             images, // TASK_2025_176: Inline pasted/dropped images
             isPremium, // TASK_2025_108: Enable premium features for licensed users
             mcpServerRunning, // TASK_2025_108: MCP server availability check
             enhancedPromptsContent, // TASK_2025_151: AI-generated system prompt for premium users
             pluginPaths, // TASK_2025_153: Plugin directory paths for SDK
+            // TASK_2025_181: Notify frontend when /clear command resets the session
+            onSessionCleared: (data) => {
+              this.logger.info('[RPC] Session cleared via /clear command', {
+                sessionId: data.sessionId,
+                newSessionId: data.newSessionId,
+                tabId,
+              });
+              this.webviewManager
+                .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
+                  tabId,
+                  sessionId: data.sessionId,
+                  event: {
+                    id: `evt_clear_${Date.now()}`,
+                    eventType: 'session_cleared',
+                    timestamp: data.timestamp,
+                    sessionId: data.sessionId,
+                    messageId: '',
+                    newSessionId: data.newSessionId,
+                  },
+                })
+                .catch((err) => {
+                  this.logger.error(
+                    '[RPC] Failed to broadcast session_cleared',
+                    err instanceof Error ? err : new Error(String(err))
+                  );
+                });
+            },
           });
 
           // Stream ExecutionNodes to webview (background - don't await)
@@ -668,6 +698,33 @@ export class ChatRpcHandlers {
               enhancedPromptsContent,
               pluginPaths,
               tabId,
+              // TASK_2025_181: Notify frontend when /clear command resets the session
+              onSessionCleared: (data) => {
+                this.logger.info('[RPC] Session cleared via /clear command', {
+                  sessionId: data.sessionId,
+                  newSessionId: data.newSessionId,
+                  tabId,
+                });
+                this.webviewManager
+                  .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
+                    tabId,
+                    sessionId: data.sessionId,
+                    event: {
+                      id: `evt_clear_${Date.now()}`,
+                      eventType: 'session_cleared',
+                      timestamp: data.timestamp,
+                      sessionId: data.sessionId,
+                      messageId: '',
+                      newSessionId: data.newSessionId,
+                    },
+                  })
+                  .catch((err) => {
+                    this.logger.error(
+                      '[RPC] Failed to broadcast session_cleared',
+                      err instanceof Error ? err : new Error(String(err))
+                    );
+                  });
+              },
             });
 
             // Start streaming responses to webview (background - don't await)
@@ -688,10 +745,13 @@ export class ChatRpcHandlers {
             });
           }
 
+          // TASK_2025_181: SDK handles slash commands natively when receiving string prompts.
+          // No need to expand plugin commands manually — SDK resolves them via pluginPaths.
+
           // TASK_2025_109: Inject interrupted subagent context into prompt
           // This enables Claude to automatically resume interrupted agents
           // instead of requiring user to know agent IDs or click Resume buttons.
-          // Skip injection for slash commands (e.g., /compact, /clear) — the CLI
+          // Skip injection for slash commands (e.g., /compact, /clear) — the SDK
           // detects commands via startsWith("/"), so any prefix breaks detection.
           let enhancedPrompt = prompt;
           const isSlashCommand = prompt.trim().startsWith('/');

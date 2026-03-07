@@ -744,7 +744,8 @@ export type StreamEventType =
   | 'background_agent_started'
   | 'background_agent_progress'
   | 'background_agent_completed'
-  | 'background_agent_stopped';
+  | 'background_agent_stopped'
+  | 'session_cleared';
 
 /**
  * Base flat event with common fields
@@ -936,6 +937,23 @@ export interface CompactionCompleteEvent extends FlatStreamEvent {
   readonly preTokens?: number;
 }
 
+/**
+ * Session cleared event - notifies UI that /clear command was processed
+ * TASK_2025_181: Fix slash command handling
+ *
+ * Emitted when the SDK processes /clear and fires SessionStart hook with source='clear'.
+ * Frontend should:
+ * - Clear all messages from the tab
+ * - Reset streaming state
+ * - Clear deduplication state
+ * - Update session ID if a new one was assigned
+ */
+export interface SessionClearedEvent extends FlatStreamEvent {
+  readonly eventType: 'session_cleared';
+  /** New session ID assigned after clear (if available) */
+  readonly newSessionId?: string;
+}
+
 // ============================================================================
 // BACKGROUND AGENT EVENT TYPES (Background Subagent Support)
 // ============================================================================
@@ -1046,4 +1064,5 @@ export type FlatStreamEventUnion =
   | BackgroundAgentStartedEvent
   | BackgroundAgentProgressEvent
   | BackgroundAgentCompletedEvent
-  | BackgroundAgentStoppedEvent;
+  | BackgroundAgentStoppedEvent
+  | SessionClearedEvent;

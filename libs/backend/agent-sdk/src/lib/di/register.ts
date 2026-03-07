@@ -41,6 +41,8 @@ import {
   // Compaction configuration and hooks (TASK_2025_098)
   CompactionConfigProvider,
   CompactionHookHandler,
+  // SessionStart hook handler (TASK_2025_181)
+  SessionStartHookHandler,
 } from '../helpers';
 import {
   PromptDesignerAgent,
@@ -226,6 +228,13 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER,
     { useClass: CompactionHookHandler },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // SessionStart hook handler - detects /clear and notifies frontend (TASK_2025_181)
+  container.register(
+    SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER,
+    { useClass: SessionStartHookHandler },
     { lifecycle: Lifecycle.Singleton }
   );
 
