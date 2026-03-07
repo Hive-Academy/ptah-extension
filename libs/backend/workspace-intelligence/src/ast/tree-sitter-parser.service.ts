@@ -16,7 +16,7 @@ import { GenericAstNode } from './ast.types';
  */
 interface TreeSitterParser {
   setLanguage(language: TreeSitterLanguage): void;
-  parse(input: string): TreeSitterTree;
+  parse(input: string, oldTree?: TreeSitterTree): TreeSitterTree;
 }
 
 /** Opaque type representing a tree-sitter language grammar. */
@@ -25,6 +25,17 @@ type TreeSitterLanguage = Record<string, unknown>;
 /** Opaque type representing a tree-sitter parse tree. */
 interface TreeSitterTree {
   rootNode: TreeSitterSyntaxNode;
+  edit(delta: TreeSitterEditDelta): void;
+}
+
+/** Internal interface matching tree-sitter's InputEdit for incremental parsing. */
+interface TreeSitterEditDelta {
+  startIndex: number;
+  oldEndIndex: number;
+  newEndIndex: number;
+  startPosition: { row: number; column: number };
+  oldEndPosition: { row: number; column: number };
+  newEndPosition: { row: number; column: number };
 }
 
 /** Structural interface for tree-sitter SyntaxNode fields we access. */
@@ -36,6 +47,28 @@ interface TreeSitterSyntaxNode {
   isNamed: boolean;
   fieldName: string | null;
   children: TreeSitterSyntaxNode[];
+}
+
+/**
+ * Public interface representing an edit delta for incremental parsing.
+ * Consumers (e.g., VS Code extension layer) use this to describe text changes
+ * so the parser can incrementally re-parse only the affected region.
+ */
+export interface EditDelta {
+  startIndex: number;
+  oldEndIndex: number;
+  newEndIndex: number;
+  startPosition: { row: number; column: number };
+  oldEndPosition: { row: number; column: number };
+  newEndPosition: { row: number; column: number };
+}
+
+/** Cache entry for storing parsed tree-sitter trees keyed by file path. */
+interface TreeCacheEntry {
+  tree: TreeSitterTree;
+  language: SupportedLanguage;
+  lastAccessed: number;
+  filePath: string;
 }
 
 /**
@@ -79,6 +112,8 @@ export class TreeSitterParserService {
     SupportedLanguage,
     TreeSitterLanguage
   > = new Map();
+  private readonly treeCache: Map<string, TreeCacheEntry> = new Map();
+  private readonly treeCacheMaxSize = 100;
   private isInitialized = false;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
@@ -559,6 +594,203 @@ export class TreeSitterParserService {
       return Result.ok([]);
     }
     return this.query(content, language, queries.exportQuery);
+  }
+
+  // --- Incremental Parsing ---
+
+  /**
+   * Parses source code and caches the raw tree-sitter tree for future incremental re-parses.
+   * Use this instead of `parse()` when you intend to later call `parseIncremental()` on the same file.
+   *
+   * @param filePath - Absolute path used as the cache key for the tree.
+   * @param content - The full source code content to parse.
+   * @param language - The language of the source code.
+   * @returns A Result containing the GenericAstNode root or an Error.
+   */
+  parseAndCache(
+    filePath: string,
+    content: string,
+    language: SupportedLanguage
+  ): Result<GenericAstNode, Error> {
+    this.logger.debug(
+      `parseAndCache: Parsing and caching tree for ${filePath} (${language})`
+    );
+
+    const initResult = this.initialize();
+    if (initResult.isErr()) {
+      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    }
+
+    const parserResult = this.getOrCreateParser(language);
+    if (parserResult.isErr()) {
+      return Result.err(
+        parserResult.error ?? new Error('Unknown parser error')
+      );
+    }
+    const parser = parserResult.value;
+
+    try {
+      if (!parser) {
+        throw new Error('Parser instance is null or undefined before parsing.');
+      }
+
+      const tree = parser.parse(content);
+      if (!tree?.rootNode) {
+        throw new Error('Parsing resulted in an undefined tree or rootNode.');
+      }
+
+      // Evict oldest entry if cache is full before adding
+      this.evictLRUTreeCache();
+
+      // Store the raw tree in the tree cache for incremental re-parsing
+      this.treeCache.set(filePath, {
+        tree,
+        language,
+        lastAccessed: Date.now(),
+        filePath,
+      });
+
+      const genericAstRoot = this._convertNodeToGenericAst(
+        tree.rootNode,
+        0,
+        null
+      );
+
+      this.logger.debug(
+        `parseAndCache: Successfully parsed and cached tree for ${filePath}`
+      );
+      return Result.ok(genericAstRoot);
+    } catch (error: unknown) {
+      return Result.err(
+        this._handleAndLogError(
+          `Error during parseAndCache for ${filePath} (${language})`,
+          error
+        )
+      );
+    }
+  }
+
+  /**
+   * Incrementally re-parses a file using a previously cached tree and an edit delta.
+   * If no cached tree exists for the file, falls back to a full `parseAndCache()`.
+   *
+   * Incremental parsing is significantly faster for small edits (e.g., single-line changes)
+   * because tree-sitter only re-parses the affected region of the syntax tree.
+   *
+   * @param filePath - Absolute path used as the cache key.
+   * @param content - The full source code content AFTER the edit has been applied.
+   * @param language - The language of the source code.
+   * @param editDelta - Describes where and how the text changed (byte offsets and positions).
+   * @returns A Result containing the GenericAstNode root or an Error.
+   */
+  parseIncremental(
+    filePath: string,
+    content: string,
+    language: SupportedLanguage,
+    editDelta: EditDelta
+  ): Result<GenericAstNode, Error> {
+    const cachedEntry = this.treeCache.get(filePath);
+
+    if (!cachedEntry) {
+      this.logger.debug(
+        `parseIncremental: Cache miss for ${filePath}, falling back to full parse`
+      );
+      return this.parseAndCache(filePath, content, language);
+    }
+
+    this.logger.debug(
+      `parseIncremental: Cache hit for ${filePath}, performing incremental re-parse`
+    );
+
+    const initResult = this.initialize();
+    if (initResult.isErr()) {
+      return Result.err(initResult.error ?? new Error('Unknown init error'));
+    }
+
+    const parserResult = this.getOrCreateParser(language);
+    if (parserResult.isErr()) {
+      return Result.err(
+        parserResult.error ?? new Error('Unknown parser error')
+      );
+    }
+    const parser = parserResult.value;
+
+    try {
+      if (!parser) {
+        throw new Error('Parser instance is null or undefined before parsing.');
+      }
+
+      // Apply the edit delta to the cached tree so tree-sitter knows what changed
+      cachedEntry.tree.edit({
+        startIndex: editDelta.startIndex,
+        oldEndIndex: editDelta.oldEndIndex,
+        newEndIndex: editDelta.newEndIndex,
+        startPosition: editDelta.startPosition,
+        oldEndPosition: editDelta.oldEndPosition,
+        newEndPosition: editDelta.newEndPosition,
+      });
+
+      // Incremental parse: tree-sitter reuses unchanged subtrees from the old tree
+      const newTree = parser.parse(content, cachedEntry.tree);
+      if (!newTree?.rootNode) {
+        throw new Error(
+          'Incremental parsing resulted in an undefined tree or rootNode.'
+        );
+      }
+
+      // Update the cache with the new tree
+      this.treeCache.set(filePath, {
+        tree: newTree,
+        language,
+        lastAccessed: Date.now(),
+        filePath,
+      });
+
+      const genericAstRoot = this._convertNodeToGenericAst(
+        newTree.rootNode,
+        0,
+        null
+      );
+
+      this.logger.debug(
+        `parseIncremental: Successfully performed incremental re-parse for ${filePath}`
+      );
+      return Result.ok(genericAstRoot);
+    } catch (error: unknown) {
+      // On failure, remove the potentially corrupted cache entry and fall back
+      this.treeCache.delete(filePath);
+      this.logger.warn(
+        `parseIncremental: Incremental parse failed for ${filePath}, falling back to full parse`
+      );
+      return this.parseAndCache(filePath, content, language);
+    }
+  }
+
+  /**
+   * Evicts the least-recently-used entry from the tree cache when it exceeds the max size.
+   * Uses the `lastAccessed` timestamp to determine the oldest entry.
+   */
+  private evictLRUTreeCache(): void {
+    if (this.treeCache.size < this.treeCacheMaxSize) {
+      return;
+    }
+
+    let oldestKey: string | undefined;
+    let oldestTime = Infinity;
+
+    for (const [key, entry] of this.treeCache) {
+      if (entry.lastAccessed < oldestTime) {
+        oldestTime = entry.lastAccessed;
+        oldestKey = key;
+      }
+    }
+
+    if (oldestKey) {
+      this.logger.debug(
+        `evictLRUTreeCache: Evicting cached tree for ${oldestKey}`
+      );
+      this.treeCache.delete(oldestKey);
+    }
   }
 
   /**

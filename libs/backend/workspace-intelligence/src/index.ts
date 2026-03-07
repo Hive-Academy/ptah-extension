@@ -109,6 +109,7 @@ export {
   TreeSitterParserService,
   type QueryCapture,
   type QueryMatch,
+  type EditDelta,
 } from './ast/tree-sitter-parser.service';
 export { AstAnalysisService } from './ast/ast-analysis.service';
 export {
