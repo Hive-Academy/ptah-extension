@@ -87,13 +87,9 @@ export class SessionStartHookHandler {
     sessionId: string,
     onSessionCleared?: SessionClearedCallback
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
-    // Capture callback in closure for use in hook
-    const capturedCallback = onSessionCleared;
-
-    // DIAGNOSTIC: Log hook creation
-    this.logger.info('[SessionStartHookHandler] Creating hooks for session', {
+    this.logger.debug('[SessionStartHookHandler] Creating hooks for session', {
       sessionId,
-      hasCallback: !!capturedCallback,
+      hasCallback: !!onSessionCleared,
     });
 
     return {
@@ -105,15 +101,6 @@ export class SessionStartHookHandler {
               _toolUseId: string | undefined,
               _options: { signal: AbortSignal }
             ): Promise<HookJSONOutput> => {
-              // Log that the hook was invoked by SDK
-              this.logger.info(
-                '[SessionStartHookHandler] SessionStart hook invoked',
-                {
-                  hookEventName: input.hook_event_name,
-                  sessionId,
-                }
-              );
-
               try {
                 // Use type guard for type safety
                 if (!isSessionStartHook(input)) {
@@ -127,18 +114,41 @@ export class SessionStartHookHandler {
                   return { continue: true };
                 }
 
-                // Log session start details
-                this.logger.info(
-                  '[SessionStartHookHandler] SessionStart hook triggered',
-                  {
-                    sessionId,
-                    source: input.source,
-                    newSessionId: input.session_id,
-                  }
-                );
+                // Validate source field before use (defense in depth)
+                const validSources = [
+                  'startup',
+                  'resume',
+                  'clear',
+                  'compact',
+                ] as const;
+                const source = input.source;
+                if (
+                  !validSources.includes(
+                    source as (typeof validSources)[number]
+                  )
+                ) {
+                  this.logger.warn(
+                    '[SessionStartHookHandler] Invalid source value, skipping callback',
+                    { source, sessionId }
+                  );
+                  return { continue: true };
+                }
+
+                // Log actionable events at info, routine events at debug
+                if (source === 'clear' || source === 'compact') {
+                  this.logger.info(
+                    '[SessionStartHookHandler] SessionStart hook triggered',
+                    { sessionId, source, newSessionId: input.session_id }
+                  );
+                } else {
+                  this.logger.debug(
+                    '[SessionStartHookHandler] SessionStart hook triggered',
+                    { sessionId, source }
+                  );
+                }
 
                 // Only invoke callback when source is 'clear' (i.e., /clear command was processed)
-                if (input.source === 'clear' && capturedCallback) {
+                if (source === 'clear' && onSessionCleared) {
                   const clearedData = {
                     sessionId,
                     newSessionId: input.session_id,
@@ -153,7 +163,7 @@ export class SessionStartHookHandler {
                   // Invoke callback but don't await (fire-and-forget)
                   // This ensures we don't block the SDK even if callback takes time
                   try {
-                    capturedCallback(clearedData);
+                    onSessionCleared(clearedData);
                   } catch (callbackError) {
                     // Log but don't throw - callback errors shouldn't block SDK
                     this.logger.error(

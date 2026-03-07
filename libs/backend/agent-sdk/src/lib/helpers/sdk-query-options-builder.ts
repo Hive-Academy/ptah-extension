@@ -679,13 +679,14 @@ export class SdkQueryOptionsBuilder {
       onSessionCleared
     );
 
-    // Merge hooks - each handler registers different events so no conflict:
-    // SubagentStart/SubagentStop vs PreCompact vs SessionStart
-    const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {
-      ...subagentHooks,
-      ...compactionHooks,
-      ...sessionStartHooks,
-    };
+    // Merge hooks safely — concatenate arrays for same event key to prevent overwrites
+    const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
+    for (const hooks of [subagentHooks, compactionHooks, sessionStartHooks]) {
+      for (const [event, matchers] of Object.entries(hooks)) {
+        const key = event as HookEvent;
+        mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];
+      }
+    }
 
     // Log hook registration for debugging
     this.logger.info('[SdkQueryOptionsBuilder] SDK hooks created for session', {
