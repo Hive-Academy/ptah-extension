@@ -21,7 +21,7 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 16 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 17 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
@@ -463,7 +463,7 @@ function buildExecuteCodeDescription(): string {
 
 ${PTAH_SYSTEM_PROMPT}
 
-## Top Namespaces (16 total — use ptah.help(topic) for full details)
+## Top Namespaces (17 total — use ptah.help(topic) for full details)
 
 ### ptah.workspace - Workspace Analysis
 - analyze(): Promise<{info, structure}> - Full workspace analysis
@@ -513,8 +513,9 @@ Relative paths are resolved from workspace root. Absolute paths work as-is.
 - ptah.llm.* - VS Code Language Model API provider
 - ptah.symbols.* - Code symbol search
 - ptah.commands.* - VS Code command execution
-- ptah.context.* - Token budget optimization
+- ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
+- ptah.dependencies.* - Import-based dependency graph: buildGraph(), getDependencies(), getDependents(), getSymbolIndex()
 - ptah.ast.* - Code structure analysis (tree-sitter)
 - ptah.orchestration.* - Workflow state management
 - ptah.agent.* - Agent orchestration (spawn, monitor Gemini CLI / Codex SDK / VS Code LM)

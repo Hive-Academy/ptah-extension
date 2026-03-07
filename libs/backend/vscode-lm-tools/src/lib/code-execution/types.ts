@@ -19,6 +19,7 @@ import type {
   WorkspaceInfo,
   ProjectInfo,
   WorkspaceStructureAnalysis,
+  StructuralSummaryResult,
 } from '@ptah-extension/workspace-intelligence';
 
 // ========================================
@@ -61,6 +62,9 @@ export interface PtahAPI {
 
   // Agent orchestration namespace (TASK_2025_157)
   agent: AgentNamespace;
+
+  // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
+  dependencies: DependenciesNamespace;
 
   /**
    * Get help documentation for Ptah API namespaces
@@ -739,6 +743,67 @@ export interface ContextNamespace {
   getRecommendedBudget: (
     projectType: 'monorepo' | 'library' | 'application' | 'unknown'
   ) => number;
+
+  /**
+   * Generate a structural summary (.d.ts-style) of a file for reduced token usage.
+   * Includes imports, class outlines, and function signatures without bodies.
+   * @param filePath - Absolute or workspace-relative file path
+   * @param language - Optional language hint ('typescript' | 'javascript')
+   * @returns Structural summary with token reduction metrics
+   */
+  enrichFile: (
+    filePath: string,
+    language?: string
+  ) => Promise<StructuralSummaryResult>;
+}
+
+/**
+ * Dependencies namespace for import-based dependency graph analysis
+ * TASK_2025_182: Exposes DependencyGraphService to agents
+ */
+export interface DependenciesNamespace {
+  /**
+   * Build an import-based dependency graph for the given files
+   * @param filePaths - Absolute paths of files to include
+   * @param workspaceRoot - Workspace root for relative path resolution
+   * @returns The built dependency graph summary
+   */
+  buildGraph: (
+    filePaths: string[],
+    workspaceRoot: string
+  ) => Promise<{
+    nodeCount: number;
+    edgeCount: number;
+    unresolvedCount: number;
+    builtAt: number;
+  }>;
+
+  /**
+   * Get dependencies of a file (what it imports)
+   * @param filePath - Absolute file path
+   * @param depth - Max traversal depth (1-3, default: 1)
+   * @returns Array of dependent file paths
+   */
+  getDependencies: (filePath: string, depth?: number) => Promise<string[]>;
+
+  /**
+   * Get reverse dependencies (what files import this file)
+   * @param filePath - Absolute file path
+   * @returns Array of file paths that import this file
+   */
+  getDependents: (filePath: string) => Promise<string[]>;
+
+  /**
+   * Get exported symbols per file from the dependency graph
+   * @returns Map entries of [filePath, exportedSymbolNames[]]
+   */
+  getSymbolIndex: () => Promise<Array<{ file: string; symbols: string[] }>>;
+
+  /**
+   * Check if the dependency graph has been built
+   * @returns true if buildGraph() has been called
+   */
+  isBuilt: () => Promise<boolean>;
 }
 
 /**

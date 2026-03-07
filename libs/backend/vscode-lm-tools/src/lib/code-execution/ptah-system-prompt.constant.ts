@@ -53,6 +53,22 @@ List files with unsaved changes in VS Code editor.
 ### ptah_count_tokens { file }
 Count tokens in a file. Use before reading large files to check size.
 
+## Code Understanding — Structural Summaries & Dependencies
+
+### Structural Summaries (40-60% token reduction)
+For large context windows, use structural summaries instead of reading full files:
+- \`await ptah.context.enrichFile('/src/services/auth.service.ts')\`
+- Returns: import statements + function signatures + class outlines (no bodies)
+- Use for peripheral context files; use full content for the main file being edited
+
+### Dependency Analysis
+Understand file relationships via import-based dependency graph:
+- \`await ptah.dependencies.buildGraph(filePaths, workspaceRoot)\` — Build graph from file list
+- \`await ptah.dependencies.getDependencies('/src/auth.ts')\` — What this file imports
+- \`await ptah.dependencies.getDependents('/src/auth.ts')\` — What imports this file
+- \`await ptah.dependencies.getSymbolIndex()\` — Get exported symbols per file
+- \`await ptah.dependencies.isBuilt()\` — Check if graph exists
+
 ## Advanced: execute_code Tool
 
 For complex multi-step operations that combine multiple API calls, use the \`execute_code\` tool with the \`ptah\` global object. This is the power-user fallback when individual tools aren't sufficient:

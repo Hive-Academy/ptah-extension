@@ -15,6 +15,7 @@ export {
   buildContextNamespace,
   buildProjectNamespace,
   buildRelevanceNamespace,
+  buildDependencyNamespace,
   type AnalysisNamespaceDependencies,
 } from './analysis-namespace.builders';
 

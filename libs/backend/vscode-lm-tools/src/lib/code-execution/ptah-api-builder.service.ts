@@ -47,6 +47,8 @@ import {
   ProjectDetectorService,
   TreeSitterParserService,
   AstAnalysisService,
+  ContextEnrichmentService,
+  DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
 import { PtahAPI } from './types';
 import {
@@ -65,6 +67,7 @@ import {
   buildContextNamespace,
   buildProjectNamespace,
   buildRelevanceNamespace,
+  buildDependencyNamespace,
   // AST namespace builder
   buildAstNamespace,
   // IDE namespace builder (TASK_2025_039)
@@ -163,6 +166,13 @@ export class PtahAPIBuilder {
     @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
 
+    // Context enrichment & dependency graph (TASK_2025_182)
+    @inject(TOKENS.CONTEXT_ENRICHMENT_SERVICE)
+    private readonly contextEnrichment: ContextEnrichmentService,
+
+    @inject(TOKENS.DEPENDENCY_GRAPH_SERVICE)
+    private readonly dependencyGraph: DependencyGraphService,
+
     // AST services
     @inject(TOKENS.TREE_SITTER_PARSER_SERVICE)
     private readonly treeSitterParser: TreeSitterParserService,
@@ -187,11 +197,11 @@ export class PtahAPIBuilder {
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetectionService: CliDetectionService
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 16 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 17 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 16 namespaces
+   * Build the complete Ptah API object with all 17 namespaces
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -216,6 +226,8 @@ export class PtahAPIBuilder {
       workspaceIndexer: this.workspaceIndexer,
       projectDetector: this.projectDetector,
       workspaceAnalyzer: this.workspaceAnalyzer,
+      contextEnrichment: this.contextEnrichment,
+      dependencyGraph: this.dependencyGraph,
     };
 
     const astDeps = {
@@ -253,6 +265,9 @@ export class PtahAPIBuilder {
       context: buildContextNamespace(analysisDeps),
       project: buildProjectNamespace(analysisDeps),
       relevance: buildRelevanceNamespace(analysisDeps),
+
+      // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
+      dependencies: buildDependencyNamespace(analysisDeps),
 
       // AST namespace (code structure)
       ast: buildAstNamespace(astDeps),
