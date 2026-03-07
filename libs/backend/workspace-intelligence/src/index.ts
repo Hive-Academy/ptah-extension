@@ -97,7 +97,7 @@ export {
   type ContextRecommendations,
 } from './composite/workspace-analyzer.service';
 
-// AST services (Phase 2: RooCode migration)
+// AST Analysis Services
 export {
   TreeSitterParserService,
   type QueryCapture,

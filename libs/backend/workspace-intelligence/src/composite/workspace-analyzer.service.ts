@@ -337,13 +337,14 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
   }
 
   /**
-   * Extracts code insights from a TypeScript/JavaScript file using AST analysis.
+   * Extracts code insights from a TypeScript/JavaScript file using query-based AST analysis.
    *
-   * **Phase 2 Implementation**: Returns empty insights (stub).
-   * **Phase 3 Integration**: Will use LLM to extract structured code insights.
+   * Uses AstAnalysisService.analyzeSource() which leverages tree-sitter's native query
+   * pattern matching to extract functions, classes, imports, and exports directly from
+   * source code. This is the preferred path as it avoids intermediate AST node conversion.
    *
    * @param filePath - Absolute path to TypeScript/JavaScript file
-   * @returns Code insights (functions, classes, imports) or null on failure
+   * @returns Code insights (functions, classes, imports, exports) or null on failure
    *
    * @example
    * ```typescript
@@ -371,27 +372,10 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
         `Extracting code insights from ${filePath} (language: ${language})`
       );
 
-      // Parse to AST
-      const astResult = this.treeSitterParser.parse(content, language);
-      if (astResult.isErr()) {
-        this.logger.error(
-          `AST parsing failed for ${filePath}`,
-          astResult.error
-        );
-        return null;
-      }
-
-      this.logger.debug(`AST parsed successfully for ${filePath}`);
-
-      // Analyze AST (Phase 2: stub returns empty insights)
-      const astValue = astResult.value;
-      if (!astValue) {
-        this.logger.error(`AST parsing returned empty value for ${filePath}`);
-        return null;
-      }
-
-      const insightsResult = await this.astAnalyzer.analyzeAst(
-        astValue,
+      // Analyze source directly using query-based extraction
+      const insightsResult = this.astAnalyzer.analyzeSource(
+        content,
+        language,
         filePath
       );
 
@@ -403,9 +387,7 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
         return null;
       }
 
-      this.logger.debug(
-        `Code insights extracted for ${filePath} - Phase 2 stub (empty insights)`
-      );
+      this.logger.debug(`Code insights extracted successfully for ${filePath}`);
       return insightsResult.value ?? null;
     } catch (error) {
       this.logger.error(

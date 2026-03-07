@@ -60,7 +60,7 @@ import { registerQualityServices } from '../quality/di';
  * Tier 3: Indexing services (depend on base) - 1 service
  * Tier 4: Analysis services (depend on indexing) - 2 services
  * Tier 5: Context services - 4 services
- * Tier 6: AST services (Phase 2: RooCode migration) - 2 services
+ * Tier 6: AST Analysis Services - 2 services
  * Tier 7: Autocomplete discovery services - 2 services
  * Tier 8: Quality assessment services (TASK_2025_141) - 4 services
  *
@@ -163,7 +163,7 @@ export function registerWorkspaceIntelligenceServices(
   );
 
   // ============================================================
-  // Tier 6: AST services (Phase 2: RooCode migration)
+  // Tier 6: AST Analysis Services
   // ============================================================
   container.registerSingleton(
     TOKENS.TREE_SITTER_PARSER_SERVICE,
