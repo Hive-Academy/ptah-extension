@@ -88,6 +88,7 @@ export {
   type ContextOptimizationRequest,
   type OptimizedContext,
   type ContextOptimizationStats,
+  type FileContextMode,
 } from './context-analysis/context-size-optimizer.service';
 
 // Context enrichment
