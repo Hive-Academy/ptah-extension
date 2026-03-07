@@ -611,6 +611,10 @@ export class PtahCliRegistry {
       } as Options,
     });
 
+    // Session-resolved callback relay (buffer-and-replay pattern)
+    let resolvedSessionId: string | null = null;
+    const sessionResolvedCallbacks: Array<(sessionId: string) => void> = [];
+
     // Consume the async iterable in background via PtahCliStreamLoop
     const streamLoop = new PtahCliStreamLoop({
       logger: this.logger,
@@ -619,6 +623,12 @@ export class PtahCliRegistry {
       emitSegment,
       emitStreamEvent,
       agentName: agentConfig.name,
+      onSessionResolved: (sessionId: string) => {
+        resolvedSessionId = sessionId;
+        for (const cb of sessionResolvedCallbacks) {
+          cb(sessionId);
+        }
+      },
     });
     const done = streamLoop.run(sdkQuery);
 
@@ -630,6 +640,13 @@ export class PtahCliRegistry {
       },
       onSegment,
       onStreamEvent,
+      onSessionResolved: (callback) => {
+        sessionResolvedCallbacks.push(callback);
+        // Replay if session ID was already resolved before listener registered
+        if (resolvedSessionId) {
+          callback(resolvedSessionId);
+        }
+      },
     };
 
     const effectiveTiers = this.resolveEffectiveTiers(agentConfig, provider);

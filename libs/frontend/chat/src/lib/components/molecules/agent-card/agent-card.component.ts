@@ -65,7 +65,7 @@ import type { RenderSegment } from './agent-card.types';
       <!-- Task description (collapsible, default collapsed) -->
       <details class="border-t border-base-content/10 flex-shrink-0">
         <summary
-          class="px-3 py-1 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
+          class="px-2 py-0.5 cursor-pointer select-none hover:bg-base-200/30 transition-colors flex items-center gap-1.5"
         >
           <span class="text-[10px] font-medium text-base-content/40">Task</span>
           @if (agent().parentSessionId) {
@@ -77,10 +77,8 @@ import type { RenderSegment } from './agent-card.types';
           >
           }
         </summary>
-        <div class="px-3 pb-1.5">
-          <p
-            class="text-[11px] leading-relaxed text-base-content/60 line-clamp-4"
-          >
+        <div class="px-2 pb-1">
+          <p class="text-[11px] leading-snug text-base-content/60 line-clamp-3">
             {{ agent().task }}
           </p>
         </div>
@@ -220,19 +218,18 @@ export class AgentCardComponent {
 
     this.isResuming.set(true);
     try {
-      const result = await this.rpcService.call('agent:resumeCliSession', {
+      await this.rpcService.call('agent:resumeCliSession', {
         cliSessionId: agent.cliSessionId,
         cli: agent.cli,
         task: agent.task,
         parentSessionId: agent.parentSessionId,
         ptahCliId: agent.ptahCliId,
+        previousAgentId: agent.agentId,
       });
 
-      // Remove the old stopped card — the backend's agent:spawned event
-      // will create a fresh running card with the new agentId.
-      if (result.success) {
-        this.store.removeAgent(agent.agentId);
-      }
+      // Don't remove the old card here — the backend's agent:spawned event
+      // will carry resumedFromAgentId, and onAgentSpawned() will replace
+      // the old card in-place (preserving position and avoiding flicker).
     } finally {
       this.isResuming.set(false);
     }

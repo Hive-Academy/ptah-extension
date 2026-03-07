@@ -1,10 +1,10 @@
 ---
 
 1. DROPLET_SSH_KEY (SSH Private Key)  
-   Where: Your local machine where you generated the SSH key.
+   Where Your local machine where you generated the SSH key.
 
 # On your local machine (Git Bash / terminal)
-
+```bash
 cat ~/.ssh/id_ed25519
 
 Copy the entire output including -----BEGIN OPENSSH PRIVATE KEY----- and -----END OPENSSH PRIVATE KEY-----.
@@ -13,7 +13,7 @@ This is the private key (not .pub).
 If you haven't generated one yet:
 ssh-keygen -t ed25519 -C "your-email@example.com"
 Then add the public key (.pub) to your droplet during creation or via ssh-copy-id root@YOUR_DROPLET_IP.
-
+```
 ---
 
 1. DROPLET_HOST

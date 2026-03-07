@@ -11,6 +11,7 @@ import { injectable, inject } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import * as vscode from 'vscode';
 import {
   Logger,
   RpcHandler,
@@ -88,6 +89,11 @@ export class ChatRpcHandlers {
       get(sessionId: string): Promise<{
         cliSessions?: readonly CliSessionReference[] | undefined;
       } | null>;
+      createChild(
+        sessionId: string,
+        workspaceId: string,
+        name: string
+      ): Promise<unknown>;
     }
   ) {}
 
@@ -1106,6 +1112,12 @@ IMPORTANT INSTRUCTIONS:
     // (e.g., OpenRouter sends duplicate assistant messages with same messageId)
     let turnCompleteSent = false;
 
+    // Track whether we've saved child session metadata for Ptah CLI sessions.
+    // When the real SDK session ID appears (different from tabId), we save
+    // metadata with isChildSession=true so it doesn't appear in the sidebar.
+    let childMetadataSaved = false;
+    const isPtahCliSession = this.ptahCliSessions.has(tabId);
+
     try {
       for await (const event of stream) {
         eventCount++;
@@ -1118,6 +1130,31 @@ IMPORTANT INSTRUCTIONS:
             messageId: event.messageId,
           }
         );
+
+        // Save child session metadata for Ptah CLI sessions once the real
+        // SDK session ID is resolved. This prevents SessionImporterService
+        // from importing the session as a top-level sidebar entry.
+        if (
+          isPtahCliSession &&
+          !childMetadataSaved &&
+          event.sessionId &&
+          event.sessionId !== tabId
+        ) {
+          childMetadataSaved = true;
+          const workspacePath =
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+          const ptahCliAgentId = this.ptahCliSessions.get(tabId);
+          const sessionName = ptahCliAgentId
+            ? `CLI Agent: ${ptahCliAgentId}`
+            : 'CLI Agent Session';
+          this.sessionMetadataStore
+            .createChild(event.sessionId, workspacePath, sessionName)
+            .catch((err: unknown) => {
+              this.logger.debug('[RPC] Failed to save child session metadata', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+        }
 
         // Include tabId for frontend routing
         // sessionId in event is the real SDK UUID

@@ -214,7 +214,7 @@ export class TreeSitterParserService {
     }
 
     try {
-      cachedParser.setLanguage(grammarResult.value);
+      cachedParser.setLanguage(grammarResult.value as TreeSitterLanguage);
       return Result.ok(cachedParser);
     } catch (error: unknown) {
       this.parserCache.delete(language);
@@ -439,45 +439,50 @@ export class TreeSitterParserService {
     const grammar = grammarResult.value;
 
     try {
-      const tree = parser.parse(content);
-      if (!tree?.rootNode) {
-        throw new Error('Parsing resulted in an undefined tree or rootNode.');
+      if (parser === undefined || parser === null) {
+        throw new Error('Parser instance is null or undefined before parsing.');
+      } else {
+        const tree = parser.parse(content);
+
+        if (!tree?.rootNode) {
+          throw new Error('Parsing resulted in an undefined tree or rootNode.');
+        }
+
+        // Create and run the query using Parser.Query constructor
+        // tree-sitter requires new Parser.Query(language, queryString)
+        const query = new Parser.Query(grammar, queryString);
+        const matches = query.matches(tree.rootNode);
+
+        // Convert matches to our QueryMatch format
+        const results: QueryMatch[] = matches.map(
+          (match: {
+            pattern: number;
+            captures: { name: string; node: TreeSitterSyntaxNode }[];
+          }) => ({
+            pattern: match.pattern,
+            captures: match.captures.map(
+              (capture: { name: string; node: TreeSitterSyntaxNode }) => ({
+                name: capture.name,
+                node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
+                text: capture.node.text,
+                startPosition: {
+                  row: capture.node.startPosition.row,
+                  column: capture.node.startPosition.column,
+                },
+                endPosition: {
+                  row: capture.node.endPosition.row,
+                  column: capture.node.endPosition.column,
+                },
+              })
+            ),
+          })
+        );
+
+        this.logger.debug(
+          `Query returned ${results.length} matches for language: ${language}`
+        );
+        return Result.ok(results);
       }
-
-      // Create and run the query using Parser.Query constructor
-      // tree-sitter requires new Parser.Query(language, queryString)
-      const query = new Parser.Query(grammar, queryString);
-      const matches = query.matches(tree.rootNode);
-
-      // Convert matches to our QueryMatch format
-      const results: QueryMatch[] = matches.map(
-        (match: {
-          pattern: number;
-          captures: { name: string; node: TreeSitterSyntaxNode }[];
-        }) => ({
-          pattern: match.pattern,
-          captures: match.captures.map(
-            (capture: { name: string; node: TreeSitterSyntaxNode }) => ({
-              name: capture.name,
-              node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
-              text: capture.node.text,
-              startPosition: {
-                row: capture.node.startPosition.row,
-                column: capture.node.startPosition.column,
-              },
-              endPosition: {
-                row: capture.node.endPosition.row,
-                column: capture.node.endPosition.column,
-              },
-            })
-          ),
-        })
-      );
-
-      this.logger.debug(
-        `Query returned ${results.length} matches for language: ${language}`
-      );
-      return Result.ok(results);
     } catch (error: unknown) {
       return Result.err(
         this._handleAndLogError(

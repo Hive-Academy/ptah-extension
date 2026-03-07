@@ -62,9 +62,19 @@ export class PtahCliOutputComponent {
 
   private readonly treeBuilder = inject(AgentMonitorTreeBuilderService);
 
-  /** Computed ExecutionNode tree from flat events (memoized by treeBuilder) */
+  /** Computed ExecutionNode tree from flat events (memoized by treeBuilder).
+   *  When the agent is no longer streaming, finalize any orphaned tools
+   *  (tools that never received a result before the session ended). */
   readonly executionNodes = computed(() => {
-    return this.treeBuilder.buildTree(this.agentId(), this.streamEvents());
+    const tree = this.treeBuilder.buildTree(
+      this.agentId(),
+      this.streamEvents()
+    );
+    // When agent is done, mark orphaned streaming tools as interrupted
+    if (!this.isStreaming()) {
+      return this.treeBuilder.finalizeOrphanedTools(tree);
+    }
+    return tree;
   });
 
   /** Auto-scroll container reference */

@@ -107,12 +107,17 @@ export class CopilotOutputComponent {
     this.segments().filter((s) => !isUsageSegment(s))
   );
 
-  /** Computed ExecutionNode tree from non-usage segments */
+  /** Computed ExecutionNode tree from non-usage segments.
+   *  When agent is done, finalize orphaned tools (interrupted before completion). */
   readonly executionNodes = computed(() => {
-    return this.treeBuilder.buildTreeFromSegments(
+    const tree = this.treeBuilder.buildTreeFromSegments(
       this.agentId(),
       this.treeSegments()
     );
+    if (!this.isStreaming()) {
+      return this.treeBuilder.finalizeOrphanedTools(tree);
+    }
+    return tree;
   });
 
   /**

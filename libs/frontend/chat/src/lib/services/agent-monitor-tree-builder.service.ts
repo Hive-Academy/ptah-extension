@@ -106,6 +106,49 @@ export class AgentMonitorTreeBuilderService {
     return tree;
   }
 
+  /**
+   * Finalize orphaned tools in a tree: any tool still in 'streaming' status
+   * is marked as 'error' with a descriptive message. This handles the case
+   * where the SDK terminates (e.g. ExitPlanMode) before a tool finishes.
+   *
+   * Returns a new tree if changes were made, or the same reference if not.
+   */
+  finalizeOrphanedTools(
+    nodes: readonly ExecutionNode[]
+  ): readonly ExecutionNode[] {
+    let changed = false;
+    const finalized = nodes.map((node) => {
+      let updated = node;
+
+      // Finalize orphaned tool nodes
+      if (node.type === 'tool' && node.status === 'streaming') {
+        updated = createExecutionNode({
+          ...node,
+          status: 'error',
+          error: 'Tool execution interrupted — session ended before completion',
+        });
+        changed = true;
+      }
+
+      // Recurse into children
+      if (node.children.length > 0) {
+        const currentChildren = node.children;
+        const newChildren = this.finalizeOrphanedTools(currentChildren);
+        if (newChildren !== currentChildren) {
+          updated =
+            updated === node
+              ? createExecutionNode({ ...node, children: newChildren })
+              : createExecutionNode({ ...updated, children: newChildren });
+          changed = true;
+        }
+      }
+
+      return updated;
+    });
+
+    return changed ? finalized : nodes;
+  }
+
   /** Clear caches for a specific agent (e.g., when agent is removed) */
   clearAgentCache(agentId: string): void {
     this.eventCacheMap.delete(agentId);
@@ -195,15 +238,22 @@ export class AgentMonitorTreeBuilderService {
           if (textBuffer) flushText();
           if (thinkingBuffer) flushThinking();
 
+          // Prefer raw toolInput (structured object) over summary string.
+          // Normalize field names so existing type guards work across CLIs
+          // (e.g. Copilot uses 'path' while Claude SDK uses 'file_path').
+          const toolInput = segment.toolInput
+            ? this.normalizeToolInput(segment.toolName ?? '', segment.toolInput)
+            : segment.toolArgs
+            ? { __summary: segment.toolArgs }
+            : undefined;
+
           const toolNode = createExecutionNode({
             id: `seg-tool-${i}`,
             type: 'tool',
             status: 'streaming',
             content: null,
             toolName: segment.toolName,
-            toolInput: segment.toolArgs
-              ? { __summary: segment.toolArgs }
-              : undefined,
+            toolInput,
           });
 
           const nodeIndex = nodes.length;
@@ -301,6 +351,29 @@ export class AgentMonitorTreeBuilderService {
     if (thinkingBuffer) flushThinking();
 
     return nodes;
+  }
+
+  /**
+   * Normalize tool input fields across different CLI naming conventions.
+   * Copilot uses 'path' where Claude SDK uses 'file_path', etc.
+   */
+  private normalizeToolInput(
+    toolName: string,
+    input: Record<string, unknown>
+  ): Record<string, unknown> {
+    const normalized = { ...input };
+    const name = toolName.toLowerCase();
+
+    // Normalize 'path' → 'file_path' for read/write/edit tools
+    if (
+      'path' in normalized &&
+      !('file_path' in normalized) &&
+      /read|write|edit|replace|create_file|patch_file/.test(name)
+    ) {
+      normalized['file_path'] = normalized['path'];
+    }
+
+    return normalized;
   }
 
   // ─────────────────────────────────────────────────────────

@@ -69,6 +69,10 @@ export interface SessionMetadata {
 
   /** CLI agent sessions linked to this parent session. Enables resume. */
   readonly cliSessions?: readonly CliSessionReference[];
+
+  /** When true, this session is a child/subagent session (e.g., Ptah CLI agent spawned
+   *  by a parent orchestrator). Child sessions are hidden from the sidebar session list. */
+  readonly isChildSession?: boolean;
 }
 
 /**
@@ -124,12 +128,21 @@ export class SessionMetadataStore {
   }
 
   /**
-   * Get all session metadata for a workspace
+   * Get all session metadata for a workspace.
+   * Excludes child sessions (Ptah CLI agents) by default — these only
+   * appear within their parent session's context, not in the sidebar.
    */
-  async getForWorkspace(workspaceId: string): Promise<SessionMetadata[]> {
+  async getForWorkspace(
+    workspaceId: string,
+    includeChildren = false
+  ): Promise<SessionMetadata[]> {
     const all = await this.getAll();
     return all
-      .filter((m) => m.workspaceId === workspaceId)
+      .filter(
+        (m) =>
+          m.workspaceId === workspaceId &&
+          (includeChildren || !m.isChildSession)
+      )
       .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
   }
 
@@ -256,6 +269,37 @@ export class SessionMetadataStore {
     await this.save(metadata);
     this.logger.info(
       `[SessionMetadataStore] Created metadata for session ${sessionId}: "${name}"`
+    );
+
+    return metadata;
+  }
+
+  /**
+   * Create metadata for a child session (hidden from sidebar).
+   * Called when a Ptah CLI agent's real SDK session ID is resolved.
+   * Creating this entry early prevents SessionImporterService from
+   * re-importing the session as a top-level sidebar item.
+   */
+  async createChild(
+    sessionId: string,
+    workspaceId: string,
+    name: string
+  ): Promise<SessionMetadata> {
+    const now = Date.now();
+    const metadata: SessionMetadata = {
+      sessionId,
+      name,
+      workspaceId,
+      createdAt: now,
+      lastActiveAt: now,
+      totalCost: 0,
+      totalTokens: { input: 0, output: 0 },
+      isChildSession: true,
+    };
+
+    await this.save(metadata);
+    this.logger.info(
+      `[SessionMetadataStore] Created child session metadata: ${sessionId} "${name}"`
     );
 
     return metadata;

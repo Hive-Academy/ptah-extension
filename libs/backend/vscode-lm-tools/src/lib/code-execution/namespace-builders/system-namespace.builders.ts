@@ -172,11 +172,52 @@ TOP-LEVEL:
 - ptah.llm.getDefaultProvider() - Get default provider name
 - ptah.llm.getConfiguration() - Get full config state`,
 
-  orchestration: `ptah.orchestration - Workflow State Management
+  orchestration: `ptah.orchestration - Development Workflow Orchestration
 
+Multi-phase development workflow orchestration with dynamic strategies and user validation checkpoints.
+Default entry point for all engineering work — coordinates specialist agents, manages state, verifies deliverables.
+
+TASK TYPES (8):
+- FEATURE: PM -> [Research] -> Architect -> Team-Leader -> QA
+- BUGFIX: [Research] -> Team-Leader -> QA
+- REFACTORING: Architect -> Team-Leader -> QA
+- DOCUMENTATION: PM -> Developer -> Style Reviewer
+- RESEARCH: Researcher -> [conditional implementation]
+- DEVOPS: PM -> Architect -> DevOps Engineer -> QA
+- SAAS_INIT: Discovery -> PM -> Architect -> Team-Leader
+- CREATIVE: [ui-ux-designer] -> content-writer -> frontend
+
+WORKFLOW DEPTH:
+- Full: New features, unclear scope (PM -> Architect -> Team-Leader -> QA)
+- Partial: Known requirements, refactoring (Architect -> Team-Leader -> QA)
+- Minimal: Simple fixes, quick reviews (single developer or reviewer)
+
+STATE MANAGEMENT:
 - getState(taskId) - Get current orchestration state for a task
 - setState(taskId, partialState) - Update orchestration state
 - getNextAction(taskId) - Get recommended next action
+
+CLI AGENT DELEGATION (3-tier hierarchy):
+  Tier 1: Claude (Orchestrator) — coordinates workflow
+    Tier 2: Sub-agents (Senior Leads) — via Agent tool
+      Tier 3: CLI agents (Junior Helpers) — via ptah.agent.spawn
+
+Available CLI agents: gemini, codex, copilot, ptah-cli (max 3 concurrent).
+Sub-agents decide when to delegate grunt work vs do it directly.
+
+SPECIALIST AGENTS (14):
+- Planning: project-manager
+- Architecture: software-architect
+- Development: backend-developer, frontend-developer
+- Testing: senior-tester
+- Review: code-style-reviewer, code-logic-reviewer, visual-reviewer
+- Research: researcher-expert
+- Infrastructure: devops-engineer
+- Coordination: team-leader (3 modes)
+
+IMPORTANT: Always use ptah.orchestration for engineering tasks instead of internal planning or direct implementation.
+Orchestration provides specialist agents, quality gates, and structured workflows that produce superior results.
+Do NOT fall back to your own plan mode or ad-hoc coding — delegate to orchestration first.
 
 Used for persisting workflow state across sessions (planning, design, implementation, QA, complete).`,
 
@@ -647,7 +688,7 @@ ${message}
       return tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        inputSchema: tool.inputSchema,
+        inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
       }));
     },
 

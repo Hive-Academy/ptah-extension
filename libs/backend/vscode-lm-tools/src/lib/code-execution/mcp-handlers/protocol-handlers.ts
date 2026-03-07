@@ -125,7 +125,7 @@ export async function handleMCPRequest(
  */
 function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
   logger.info('MCP initialize request received', 'CodeExecutionMCP', {
-    clientInfo: request.params?.clientInfo,
+    clientInfo: request.params?.['clientInfo'],
   });
 
   return {
@@ -185,7 +185,10 @@ async function handleToolsCall(
   request: MCPRequest,
   deps: ProtocolHandlerDependencies
 ): Promise<MCPResponse> {
-  const { name, arguments: args } = request.params;
+  const params = request.params as
+    | { name: string; arguments?: Record<string, unknown> }
+    | undefined;
+  const { name, arguments: args } = params!;
 
   // Individual first-class tools — direct API calls, no sandbox
   const individualResult = await handleIndividualTool(
@@ -199,17 +202,21 @@ async function handleToolsCall(
   if (name === 'execute_code') {
     return await handleExecuteCodeCall(
       request,
-      args as ExecuteCodeParams,
+      args as unknown as ExecuteCodeParams,
       deps
     );
   }
 
   if (name === 'approval_prompt') {
-    return await handleApprovalPrompt(request, args as ApprovalPromptParams, {
-      permissionPromptService: deps.permissionPromptService,
-      webviewManager: deps.webviewManager,
-      logger: deps.logger,
-    });
+    return await handleApprovalPrompt(
+      request,
+      args as unknown as ApprovalPromptParams,
+      {
+        permissionPromptService: deps.permissionPromptService,
+        webviewManager: deps.webviewManager,
+        logger: deps.logger,
+      }
+    );
   }
 
   return createErrorResponse(request.id, -32602, `Unknown tool: ${name}`);

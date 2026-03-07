@@ -92,7 +92,7 @@ import {
       />
       } @else {
       <span
-        class="text-base-content/60 truncate flex-1 font-mono text-[10px]"
+        class="text-base-content/60 truncate flex-1 min-w-0 font-mono text-[10px]"
         [title]="getFullDescription()"
       >
         {{ getToolDescription() }}
@@ -227,11 +227,16 @@ export class ToolCallHeaderComponent {
    */
   protected hasClickableFilePath(): boolean {
     const toolInput = this.node().toolInput;
-    return (
+    if (
       isReadToolInput(toolInput) ||
       isWriteToolInput(toolInput) ||
       isEditToolInput(toolInput)
-    );
+    ) {
+      return true;
+    }
+    // Fallback: check for file_path field when tool name suggests a file operation
+    // (handles cross-CLI naming differences where strict type guards may not match)
+    return this.hasFilePathField();
   }
 
   /**
@@ -249,7 +254,34 @@ export class ToolCallHeaderComponent {
     if (isEditToolInput(toolInput)) {
       return toolInput.file_path;
     }
+    // Fallback: direct field access for cross-CLI tool inputs
+    if (
+      toolInput &&
+      typeof toolInput === 'object' &&
+      'file_path' in toolInput &&
+      typeof toolInput['file_path'] === 'string'
+    ) {
+      return toolInput['file_path'];
+    }
     return '';
+  }
+
+  /**
+   * Check if tool input has a file_path field and tool name suggests a file operation.
+   */
+  private hasFilePathField(): boolean {
+    const toolInput = this.node().toolInput;
+    const toolName = (this.node().toolName || '').toLowerCase();
+    if (
+      toolInput &&
+      typeof toolInput === 'object' &&
+      'file_path' in toolInput &&
+      typeof toolInput['file_path'] === 'string' &&
+      /read|write|edit|replace|create_file|patch_file/.test(toolName)
+    ) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -283,6 +315,15 @@ export class ToolCallHeaderComponent {
     if (isGlobToolInput(toolInput)) {
       return this.truncate(toolInput.pattern, 30) || '...';
     }
+    // Fallback: use __summary from segment-based tools (avoids duplicating tool name)
+    if (
+      toolInput &&
+      typeof toolInput === 'object' &&
+      '__summary' in toolInput &&
+      typeof toolInput['__summary'] === 'string'
+    ) {
+      return this.truncate(toolInput['__summary'], 40) || toolName;
+    }
     return toolName;
   }
 
@@ -311,6 +352,15 @@ export class ToolCallHeaderComponent {
     }
     if (isGlobToolInput(toolInput)) {
       return toolInput.pattern;
+    }
+    // Fallback: __summary from segment-based tools
+    if (
+      toolInput &&
+      typeof toolInput === 'object' &&
+      '__summary' in toolInput &&
+      typeof toolInput['__summary'] === 'string'
+    ) {
+      return toolInput['__summary'];
     }
     return '';
   }
@@ -369,21 +419,32 @@ export class ToolCallHeaderComponent {
 
   /**
    * Check if this is a Ptah MCP server tool call
+   * Matches both ptah-cli format (mcp__ptah__*) and Copilot/Gemini format (ptah-ptah_*)
    */
   isPtahMcpTool(): boolean {
     const toolName = this.node().toolName || '';
-    return toolName.startsWith('mcp__ptah');
+    return (
+      toolName.startsWith('mcp__ptah') || toolName.startsWith('ptah-ptah_')
+    );
   }
 
   /**
-   * Extract clean tool name from Ptah MCP tool (e.g. "mcp__ptah__workspace_analyze" -> "workspace_analyze")
+   * Extract clean tool name from Ptah MCP tool
+   * Handles both naming conventions:
+   * - mcp__ptah__workspace_analyze -> "workspace analyze" (ptah-cli)
+   * - ptah-ptah_search_files -> "search files" (Copilot/Gemini)
    */
   protected getPtahToolName(): string {
     const toolName = this.node().toolName || '';
-    // Pattern: mcp__ptah__<server>_<tool_name> — strip the mcp__ptah__ prefix
-    const match = toolName.match(/^mcp__ptah__(.+)$/);
-    if (match) {
-      return match[1].replace(/_/g, ' ');
+    // ptah-cli format: mcp__ptah__<tool_name>
+    const mcpMatch = toolName.match(/^mcp__ptah__(.+)$/);
+    if (mcpMatch) {
+      return mcpMatch[1].replace(/_/g, ' ');
+    }
+    // Copilot/Gemini format: ptah-ptah_<tool_name> or ptah-<server>_<tool_name>
+    const cliMatch = toolName.match(/^ptah-\w+?_(.+)$/);
+    if (cliMatch) {
+      return cliMatch[1].replace(/_/g, ' ');
     }
     return toolName;
   }

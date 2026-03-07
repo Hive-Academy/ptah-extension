@@ -83,6 +83,9 @@ export interface AgentProcessInfo {
   readonly ptahCliName?: string;
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
   readonly ptahCliId?: string;
+  /** When set, this agent is a resumed version of the given previous agent.
+   *  Frontend uses this to replace the old card instead of creating a new one. */
+  readonly resumedFromAgentId?: string;
 }
 
 // ========================================
@@ -203,6 +206,8 @@ export interface CliOutputSegment {
   readonly toolName?: string;
   /** Summarized tool arguments (for tool-call) */
   readonly toolArgs?: string;
+  /** Raw tool input object (for tool-call) — enables structured rendering in UI */
+  readonly toolInput?: Record<string, unknown>;
   /** Exit code (for command segments) */
   readonly exitCode?: number;
   /** File change kind: 'added', 'modified', 'deleted' (for file-change) */

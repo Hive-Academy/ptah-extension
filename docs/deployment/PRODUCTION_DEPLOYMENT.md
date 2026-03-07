@@ -49,7 +49,7 @@ openssl rand -hex 32
 
 ### 2.1 WorkOS (Authentication)
 
-Dashboard: https://dashboard.workos.com/
+Dashboard: <https://dashboard.workos.com/>
 
 | Step | Action                                                      |
 | ---- | ----------------------------------------------------------- |
@@ -62,7 +62,7 @@ Dashboard: https://dashboard.workos.com/
 
 ### 2.2 Paddle (Payments)
 
-Dashboard: https://vendors.paddle.com/
+Dashboard: <https://vendors.paddle.com/>
 
 **Create Product & Prices:**
 
@@ -87,7 +87,7 @@ After creating, copy the **Webhook Secret** (`pdl_ntfset_...`).
 
 ### 2.3 Resend (Email)
 
-Dashboard: https://resend.com/
+Dashboard: <https://resend.com/>
 
 | Step | Action                                      |
 | ---- | ------------------------------------------- |
@@ -312,10 +312,11 @@ doctl apps create-deployment <APP_ID>
 ```
 
 **Required GitHub Actions Secrets:**
-| Secret | Source |
-| --- | --- |
+
+| Secret                      | Source                                         |
+| --------------------------- | ---------------------------------------------- |
 | `DIGITALOCEAN_ACCESS_TOKEN` | DO Console > API > Tokens > Generate New Token |
-| `DO_APP_ID` | `doctl apps list` after initial app creation |
+| `DO_APP_ID`                 | `doctl apps list` after initial app creation   |
 
 ### License Server (Droplet)
 

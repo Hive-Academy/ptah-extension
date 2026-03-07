@@ -273,11 +273,19 @@ export class AgentProcessManager {
 
     // Resolve model for CLI subprocess path (same logic as SDK path)
     let cliModel = request.model;
-    if (!cliModel && (cli === 'gemini' || cli === 'copilot')) {
+    if (
+      !cliModel &&
+      (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
+    ) {
       const agentConfig = vscode.workspace.getConfiguration(
         'ptah.agentOrchestration'
       );
-      const configKey = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
+      const configKey =
+        cli === 'gemini'
+          ? 'geminiModel'
+          : cli === 'codex'
+          ? 'codexModel'
+          : 'copilotModel';
       const configuredModel = agentConfig.get<string>(configKey, '');
       if (configuredModel) {
         cliModel = configuredModel;
@@ -425,11 +433,19 @@ export class AgentProcessManager {
 
     // Resolve model: use explicit request.model, else per-CLI config, else CLI default
     let resolvedModel = request.model;
-    if (!resolvedModel && (cli === 'gemini' || cli === 'copilot')) {
+    if (
+      !resolvedModel &&
+      (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
+    ) {
       const agentConfig = vscode.workspace.getConfiguration(
         'ptah.agentOrchestration'
       );
-      const configKey = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
+      const configKey =
+        cli === 'gemini'
+          ? 'geminiModel'
+          : cli === 'codex'
+          ? 'codexModel'
+          : 'copilotModel';
       const configuredModel = agentConfig.get<string>(configKey, '');
       if (configuredModel) {
         resolvedModel = configuredModel;
@@ -499,6 +515,7 @@ export class AgentProcessManager {
       ptahCliName?: string;
       ptahCliId?: string;
       timeout?: number;
+      resumedFromAgentId?: string;
     }
   ): Promise<SpawnAgentResult> {
     return this.acquireSpawnLock(async () => {
@@ -534,6 +551,7 @@ export class AgentProcessManager {
           parentSessionId: meta.parentSessionId,
           ptahCliName: meta.ptahCliName,
           ptahCliId: meta.ptahCliId,
+          resumedFromAgentId: meta.resumedFromAgentId,
         };
 
         const timeout = Math.min(meta.timeout ?? DEFAULT_TIMEOUT, MAX_TIMEOUT);
@@ -627,6 +645,15 @@ export class AgentProcessManager {
     if (sdkHandle.onStreamEvent) {
       sdkHandle.onStreamEvent((event: FlatStreamEventUnion) => {
         this.accumulateStreamEvent(agentId, event);
+      });
+    }
+
+    // Wire session ID resolution (Ptah CLI only — session ID arrives via system init)
+    if (sdkHandle.onSessionResolved) {
+      sdkHandle.onSessionResolved((sessionId: string) => {
+        if (sessionId && sessionId !== tracked.info.cliSessionId) {
+          tracked.info = { ...tracked.info, cliSessionId: sessionId };
+        }
       });
     }
 

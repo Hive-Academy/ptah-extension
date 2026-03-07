@@ -16,7 +16,11 @@ import {
   CopilotPermissionBridge,
   AgentProcessManager,
 } from '@ptah-extension/llm-abstraction';
-import { SDK_TOKENS, PtahCliRegistry } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  PtahCliRegistry,
+  SessionMetadataStore,
+} from '@ptah-extension/agent-sdk';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -26,6 +30,9 @@ import type {
 } from '@ptah-extension/shared';
 import type { CliDetectionResult, CliType } from '@ptah-extension/shared';
 import * as vscode from 'vscode';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import * as os from 'os';
 
 /**
  * RPC handlers for agent orchestration operations.
@@ -47,7 +54,9 @@ export class AgentRpcHandlers {
     @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
-    private readonly agentProcessManager: AgentProcessManager
+    private readonly agentProcessManager: AgentProcessManager,
+    @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
+    private readonly sessionMetadataStore: SessionMetadataStore
   ) {}
 
   /**
@@ -114,6 +123,7 @@ export class AgentRpcHandlers {
             maxConcurrentAgents: config.get<number>('maxConcurrentAgents', 5),
             defaultTimeout: config.get<number>('defaultTimeout', 10),
             geminiModel: config.get<string>('geminiModel', ''),
+            codexModel: config.get<string>('codexModel', ''),
             copilotModel: config.get<string>('copilotModel', ''),
             copilotAutoApprove: config.get<boolean>('copilotAutoApprove', true),
           };
@@ -271,6 +281,14 @@ export class AgentRpcHandlers {
       );
     }
 
+    if (params.codexModel !== undefined) {
+      await config.update(
+        'codexModel',
+        params.codexModel || undefined,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+
     if (params.copilotModel !== undefined) {
       await config.update(
         'copilotModel',
@@ -355,6 +373,9 @@ export class AgentRpcHandlers {
           // Gemini: use adapter's curated list
           const gemini = (modelMap['gemini'] ?? []) as CliModelOption[];
 
+          // Codex: use adapter's curated list
+          const codex = (modelMap['codex'] ?? []) as CliModelOption[];
+
           // Copilot: try VS Code LM API first for dynamic models
           let copilot = await this.getCopilotModelsFromVsCodeLm();
           if (copilot.length === 0) {
@@ -362,10 +383,11 @@ export class AgentRpcHandlers {
             copilot = (modelMap['copilot'] ?? []) as CliModelOption[];
           }
 
-          const result: AgentListCliModelsResult = { gemini, copilot };
+          const result: AgentListCliModelsResult = { gemini, codex, copilot };
 
           this.logger.debug('RPC: agent:listCliModels success', {
             geminiCount: result.gemini.length,
+            codexCount: result.codex.length,
             copilotCount: result.copilot.length,
           });
 
@@ -551,6 +573,7 @@ export class AgentRpcHandlers {
         task: string;
         parentSessionId?: string;
         ptahCliId?: string;
+        previousAgentId?: string;
       },
       { success: boolean; agentId?: string; error?: string }
     >('agent:resumeCliSession', async (params) => {
@@ -580,10 +603,22 @@ export class AgentRpcHandlers {
           );
         } else {
           // Real CLIs: route through AgentProcessManager.spawn()
+          // Validate session file exists before resume to avoid "No conversation found" errors
+          const workspaceRoot =
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+          const cliSessionExists = await this.sessionFileExists(
+            params.cliSessionId,
+            workspaceRoot
+          );
+          if (!cliSessionExists) {
+            this.logger.warn(
+              `[AgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`
+            );
+          }
           result = await this.agentProcessManager.spawn({
             cli: params.cli,
             task: params.task,
-            resumeSessionId: params.cliSessionId,
+            resumeSessionId: cliSessionExists ? params.cliSessionId : undefined,
             parentSessionId: params.parentSessionId,
             ptahCliId: params.ptahCliId,
           });
@@ -620,21 +655,52 @@ export class AgentRpcHandlers {
     task: string;
     parentSessionId?: string;
     ptahCliId: string;
+    previousAgentId?: string;
   }): Promise<import('@ptah-extension/shared').SpawnAgentResult> {
     const workspaceRoot =
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
+
+    // Validate session file exists before attempting resume.
+    // Ptah CLI sessions (third-party providers) may not persist a .jsonl file,
+    // causing the SDK to fail with "No conversation found with session ID".
+    const sessionFileExists = await this.sessionFileExists(
+      params.cliSessionId,
+      workspaceRoot
+    );
 
     const spawnResult = await this.ptahCliRegistry.spawnAgent(
       params.ptahCliId,
       params.task,
       {
         workingDirectory: workspaceRoot,
-        resumeSessionId: params.cliSessionId,
+        // Only pass resumeSessionId if the session file actually exists on disk
+        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
       }
     );
 
+    if (!sessionFileExists) {
+      this.logger.warn(
+        `[AgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`
+      );
+    }
+
     if ('status' in spawnResult) {
       throw new Error(`Ptah CLI agent resume failed: ${spawnResult.message}`);
+    }
+
+    // Mark the SDK session as a child session when its ID is resolved,
+    // preventing it from appearing in the sidebar session list.
+    if (spawnResult.handle.onSessionResolved) {
+      spawnResult.handle.onSessionResolved((sessionId: string) => {
+        const sessionName = `CLI Agent: ${spawnResult.agentName}`;
+        this.sessionMetadataStore
+          .createChild(sessionId, workspaceRoot, sessionName)
+          .catch((err) =>
+            this.logger.warn(
+              `[AgentRpc] Failed to save child session metadata: ${err}`
+            )
+          );
+      });
     }
 
     return this.agentProcessManager.spawnFromSdkHandle(spawnResult.handle, {
@@ -644,6 +710,7 @@ export class AgentRpcHandlers {
       parentSessionId: params.parentSessionId,
       ptahCliName: spawnResult.agentName,
       ptahCliId: params.ptahCliId,
+      resumedFromAgentId: params.previousAgentId,
     });
   }
 
@@ -665,6 +732,43 @@ export class AgentRpcHandlers {
       return enabled?.id;
     } catch {
       return undefined;
+    }
+  }
+
+  /**
+   * Check if a session JSONL file exists on disk.
+   * Claude stores sessions in ~/.claude/projects/{escaped-workspace-path}/{sessionId}.jsonl
+   */
+  private async sessionFileExists(
+    sessionId: string,
+    workspacePath: string
+  ): Promise<boolean> {
+    try {
+      const projectsDir = path.join(os.homedir(), '.claude', 'projects');
+      const escapedPath = workspacePath.replace(/[:\\/]/g, '-');
+      const dirs = await fs.readdir(projectsDir);
+
+      // Find the matching project directory (case-insensitive, normalized)
+      const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
+      const normalizedEscaped = normalize(escapedPath);
+      const matchedDir = dirs.find(
+        (d) =>
+          d === escapedPath ||
+          d.toLowerCase() === escapedPath.toLowerCase() ||
+          normalize(d) === normalizedEscaped
+      );
+
+      if (!matchedDir) return false;
+
+      const sessionFile = path.join(
+        projectsDir,
+        matchedDir,
+        `${sessionId}.jsonl`
+      );
+      await fs.access(sessionFile);
+      return true;
+    } catch {
+      return false;
     }
   }
 }

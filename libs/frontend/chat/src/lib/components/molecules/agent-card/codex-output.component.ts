@@ -93,10 +93,14 @@ export class CodexOutputComponent {
 
   /** Computed ExecutionNode tree from non-usage segments */
   readonly executionNodes = computed(() => {
-    return this.treeBuilder.buildTreeFromSegments(
+    const tree = this.treeBuilder.buildTreeFromSegments(
       this.agentId(),
       this.treeSegments()
     );
+    if (!this.isStreaming()) {
+      return this.treeBuilder.finalizeOrphanedTools(tree);
+    }
+    return tree;
   });
 
   /**

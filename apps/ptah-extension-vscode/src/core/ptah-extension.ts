@@ -174,7 +174,10 @@ export class PtahExtension implements vscode.Disposable {
 
       this.logger.info('Ptah extension disposed successfully');
     } catch (error) {
-      this.logger.error('Extension disposal failed', error);
+      this.logger.error(
+        'Extension disposal failed',
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 }

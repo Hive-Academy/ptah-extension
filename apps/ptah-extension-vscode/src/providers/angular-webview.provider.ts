@@ -299,7 +299,10 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       );
       this.reloadWebview();
     } catch (error) {
-      this.logger.error('Error during hot reload:', error);
+      this.logger.error(
+        'Error during hot reload:',
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 

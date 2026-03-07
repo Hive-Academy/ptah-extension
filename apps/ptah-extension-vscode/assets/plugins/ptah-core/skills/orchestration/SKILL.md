@@ -1,6 +1,6 @@
 ---
 name: orchestration
-description: "Development workflow orchestration for software engineering tasks. TRIGGER when: user asks to implement/add/create/build a feature, fix/debug a bug, refactor/optimize code, create documentation, research/investigate/analyze a technical topic, set up CI/CD/Docker/deploy infrastructure, or create landing pages/marketing/brand content. Also TRIGGER when task involves 3+ files, requires architectural decisions, or is ambiguous and needs scoping. TRIGGER for ANY implementation task — this is the DEFAULT entry point for all engineering work, not a last resort. DO NOT TRIGGER when: user asks a question about the codebase (Q&A like 'what does X do?'), requests a single-line or trivial edit (typo, console.log, rename), asks to run a command or check status, asks to review/explain code without changes, or explicitly opts out of orchestration. Supports 8 task types: FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE. Each type has an optimized workflow (full/partial/minimal) with specialist agents and user validation checkpoints."
+description: 'Development workflow orchestration for software engineering tasks. Supports 8 task types: FEATURE, BUGFIX, REFACTORING, DOCUMENTATION, RESEARCH, DEVOPS, SAAS_INIT, CREATIVE. Each type has an optimized workflow (full/partial/minimal) with specialist agents and user validation checkpoints. TRIGGER for ANY implementation task — this is the DEFAULT entry point for all engineering work.'
 ---
 
 # Orchestration Skill

@@ -26,6 +26,7 @@ import {
   isReadToolInput,
   isWriteToolInput,
   isAskUserQuestionToolInput,
+  isExitPlanModeToolInput,
   MESSAGE_TYPES,
   type QuestionItem,
   type PermissionResponse,
@@ -123,7 +124,6 @@ const SAFE_TOOLS = [
   'Grep',
   'Glob',
   'TodoWrite',
-  'ExitPlanMode',
   'EnterPlanMode',
   'KillShell',
   'TaskStop',
@@ -346,17 +346,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
       // Auto-approve safe tools (no user prompt needed)
       if (SAFE_TOOLS.includes(toolName)) {
-        // Detect agent-initiated plan mode changes
-        if (toolName === 'EnterPlanMode' || toolName === 'ExitPlanMode') {
-          const active = toolName === 'EnterPlanMode';
-          this.logger.info(
-            `[SdkPermissionHandler] Agent ${
-              active ? 'entered' : 'exited'
-            } plan mode`
-          );
+        // Detect agent entering plan mode
+        if (toolName === 'EnterPlanMode') {
+          this.logger.info(`[SdkPermissionHandler] Agent entered plan mode`);
           this.webviewManager
             .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
-              active,
+              active: true,
             })
             .catch((error) => {
               this.logger.error(
@@ -384,6 +379,18 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           `[SdkPermissionHandler] Handling AskUserQuestion tool request (bypasses all auto-approval)`
         );
         return await this.handleAskUserQuestion(input, options.toolUseID);
+      }
+
+      // Handle ExitPlanMode — NEVER auto-approved (like AskUserQuestion).
+      // ExitPlanMode clears the conversation context and starts a fresh session
+      // with the plan. The user MUST review and approve the plan before the SDK
+      // performs the context clear. This prevents data loss from in-flight tool
+      // executions (e.g. Write tool interrupted before completion).
+      if (toolName === 'ExitPlanMode') {
+        this.logger.info(
+          `[SdkPermissionHandler] Handling ExitPlanMode tool request (bypasses all auto-approval)`
+        );
+        return await this.handleExitPlanMode(input, options.toolUseID);
       }
 
       // Permission-level-aware auto-approval
@@ -490,7 +497,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    * Request user permission via RPC event
    *
    * Emits permission request event to webview and awaits response.
-   * Implements 30-second timeout with auto-deny.
+   * Implements 5-minute timeout with auto-deny.
    *
    * @param toolName - Name of the tool requiring permission
    * @param input - Tool input parameters
@@ -649,7 +656,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const requestContext = this.pendingRequestContext.get(requestId);
 
     // Handle "Always Allow" - store permission rule for future auto-approval
-    if (response.decision === 'always_allow' && requestContext) {
+    // ExitPlanMode and AskUserQuestion must NEVER be auto-approved — skip rule
+    // creation and sibling auto-resolution for these tools.
+    const neverAutoApproveTools = ['ExitPlanMode', 'AskUserQuestion'];
+    if (
+      response.decision === 'always_allow' &&
+      requestContext &&
+      !neverAutoApproveTools.includes(requestContext.toolName)
+    ) {
       const rule: PermissionRule = {
         id: `rule_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
         pattern: requestContext.toolName, // Match by tool name
@@ -820,6 +834,78 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         answers: response.answers,
       },
     };
+  }
+
+  /**
+   * Handle ExitPlanMode tool — present plan to user for review
+   *
+   * ExitPlanMode clears the conversation context and starts a fresh session
+   * with the approved plan. Like AskUserQuestion, it must NEVER be auto-approved
+   * regardless of permission level — the user must always review the plan.
+   *
+   * On approval: returns allow → SDK performs context clear internally,
+   * fires SessionStart with source "clear", and begins execution phase.
+   *
+   * On denial: returns deny → agent stays in plan mode and can revise.
+   *
+   * @param input - ExitPlanModeToolInput containing the plan string
+   * @param toolUseId - SDK's tool_use ID for correlation
+   * @returns PermissionResult
+   */
+  private async handleExitPlanMode(
+    input: Record<string, unknown>,
+    toolUseId: string
+  ): Promise<PermissionResult> {
+    // Validate input — ExitPlanMode must contain a plan string
+    if (!isExitPlanModeToolInput(input)) {
+      this.logger.warn(
+        '[SdkPermissionHandler] Invalid ExitPlanMode input — missing plan field',
+        { input }
+      );
+      return {
+        behavior: 'deny' as const,
+        message: 'Invalid ExitPlanMode input format — plan field is required',
+      };
+    }
+
+    // Use requestUserPermission which shows the plan via the existing
+    // permission request UI. The plan text will appear in the tool input.
+    this.logger.info(
+      '[SdkPermissionHandler] Requesting user approval for ExitPlanMode (plan review)',
+      {
+        toolUseId,
+        planLength: input.plan.length,
+      }
+    );
+
+    const result = await this.requestUserPermission(
+      'ExitPlanMode',
+      input,
+      toolUseId
+    );
+
+    // On approval: notify frontend that plan mode is ending
+    if (result.behavior === 'allow') {
+      this.logger.info(
+        '[SdkPermissionHandler] ExitPlanMode approved — SDK will clear context and begin execution'
+      );
+      this.webviewManager
+        .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+          active: false,
+        })
+        .catch((error) => {
+          this.logger.error(
+            `[SdkPermissionHandler] Failed to send plan mode exited event`,
+            { error }
+          );
+        });
+    } else {
+      this.logger.info(
+        '[SdkPermissionHandler] ExitPlanMode denied — agent stays in plan mode'
+      );
+    }
+
+    return result;
   }
 
   /**
@@ -1044,6 +1130,17 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           return `Web search: ${truncated}`;
         }
         return 'Perform a web search';
+      }
+
+      case 'ExitPlanMode': {
+        if (isExitPlanModeToolInput(input)) {
+          const planPreview =
+            input.plan.length > 200
+              ? `${input.plan.substring(0, 200)}...`
+              : input.plan;
+          return `Exit plan mode and execute plan: ${planPreview}`;
+        }
+        return 'Exit plan mode and clear context to begin execution';
       }
 
       default:

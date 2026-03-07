@@ -1272,6 +1272,8 @@ export interface AgentOrchestrationConfig {
   defaultTimeout: number;
   /** Per-CLI model: Gemini CLI model (empty string = CLI default) */
   geminiModel: string;
+  /** Per-CLI model: Codex model (empty string = CLI default) */
+  codexModel: string;
   /** Per-CLI model: Copilot model (empty string = default) */
   copilotModel: string;
   /** Auto-approve all Copilot tool calls without user prompt (default: true) */
@@ -1287,6 +1289,7 @@ export interface CliModelOption {
 /** Response from agent:listCliModels RPC method */
 export interface AgentListCliModelsResult {
   gemini: CliModelOption[];
+  codex: CliModelOption[];
   copilot: CliModelOption[];
 }
 
@@ -1300,6 +1303,8 @@ export interface AgentSetConfigParams {
   defaultTimeout?: number;
   /** Gemini CLI model override (empty string = CLI default) */
   geminiModel?: string;
+  /** Codex model override (empty string = CLI default) */
+  codexModel?: string;
   /** Copilot model override (empty string = default) */
   copilotModel?: string;
   /** Auto-approve all Copilot tool calls (default: true) */
@@ -1713,6 +1718,8 @@ export interface RpcMethodRegistry {
       parentSessionId?: string;
       /** Ptah CLI agent ID (for ptah-cli type agents) */
       ptahCliId?: string;
+      /** Previous agent ID (for in-place card replacement on resume) */
+      previousAgentId?: string;
     };
     result: { success: boolean; agentId?: string; error?: string };
   };

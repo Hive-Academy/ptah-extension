@@ -597,6 +597,10 @@ export class CopilotSdkAdapter implements CliAdapter {
         content: '',
         toolName,
         toolArgs: argsStr,
+        toolInput:
+          toolArgs && typeof toolArgs === 'object'
+            ? (toolArgs as Record<string, unknown>)
+            : undefined,
         toolCallId,
       });
     });

@@ -70,6 +70,9 @@ export interface SdkHandle {
    *  permission requests (Copilot SDK) use the correct ID that matches
    *  the frontend's MonitoredAgent key. */
   readonly setAgentId?: (agentId: string) => void;
+  /** Register a callback invoked when the real SDK session ID is resolved.
+   *  Only Ptah CLI adapter implements this (session ID arrives via system init). */
+  readonly onSessionResolved?: (callback: (sessionId: string) => void) => void;
 }
 
 export interface CliAdapter {

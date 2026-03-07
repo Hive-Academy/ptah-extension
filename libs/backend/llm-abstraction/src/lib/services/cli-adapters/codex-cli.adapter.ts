@@ -9,6 +9,9 @@
  * SDK path: Codex SDK thread.runStreamed() for in-process execution
  */
 import { execFile } from 'child_process';
+import { readFile } from 'fs/promises';
+import { homedir } from 'os';
+import { join } from 'path';
 import { promisify } from 'util';
 import type {
   CliDetectionResult,
@@ -169,24 +172,11 @@ export class CodexCliAdapter implements CliAdapter {
         // Version check failed
       }
 
-      // Also verify the SDK npm package is importable (needed for runSdk path)
-      let sdkAvailable = false;
-      try {
-        await getCodexSdk();
-        sdkAvailable = true;
-      } catch {
-        // SDK not available - CLI binary exists but npm package is missing
-      }
-
       return {
         cli: 'codex',
         installed: true,
         path: binaryPath,
-        version: sdkAvailable
-          ? version
-          : version
-          ? `${version} (SDK unavailable - install @openai/codex-sdk)`
-          : 'SDK unavailable - install @openai/codex-sdk',
+        version,
         supportsSteer: false,
       };
     } catch {
@@ -223,17 +213,115 @@ export class CodexCliAdapter implements CliAdapter {
     return stripAnsiCodes(raw);
   }
 
+  /** Fallback curated list when the Codex models API is unreachable */
+  private static readonly FALLBACK_MODELS: CliModelInfo[] = [
+    { id: 'gpt-5.3-codex', name: 'GPT 5.3 Codex' },
+    { id: 'gpt-5.2-codex', name: 'GPT 5.2 Codex' },
+    { id: 'gpt-5.1-codex-max', name: 'GPT 5.1 Codex Max' },
+    { id: 'gpt-5.2', name: 'GPT 5.2' },
+    { id: 'gpt-5.1-codex-mini', name: 'GPT 5.1 Codex Mini' },
+  ];
+
   /**
    * List available models for Codex.
-   * Static list of known Codex-compatible models.
+   * Queries the same Codex models API that the Codex CLI uses:
+   * GET https://chatgpt.com/backend-api/codex/models?client_version=<version>
+   * Uses the OAuth access_token from ~/.codex/auth.json.
+   * Falls back to a curated list if the API call fails.
    */
   async listModels(): Promise<CliModelInfo[]> {
-    return [
-      { id: 'o4-mini', name: 'O4 Mini' },
-      { id: 'codex-mini', name: 'Codex Mini' },
-      { id: 'o3', name: 'O3' },
-      { id: 'gpt-4.1', name: 'GPT-4.1' },
-    ];
+    try {
+      const token = await this.resolveAccessToken();
+      if (!token) return CodexCliAdapter.FALLBACK_MODELS;
+
+      const version = await this.resolveCliVersion();
+      const url = `https://chatgpt.com/backend-api/codex/models?client_version=${version}`;
+
+      const response = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) return CodexCliAdapter.FALLBACK_MODELS;
+
+      const body = (await response.json()) as {
+        models?: Array<{
+          slug: string;
+          name?: string;
+          description?: string;
+          is_default?: boolean;
+        }>;
+      };
+      if (!body.models?.length) return CodexCliAdapter.FALLBACK_MODELS;
+
+      // Map API models, preserving order from the API (default model first)
+      const models: CliModelInfo[] = body.models.map((m) => ({
+        id: m.slug,
+        name: m.name || this.formatModelName(m.slug),
+      }));
+
+      return models.length > 0 ? models : CodexCliAdapter.FALLBACK_MODELS;
+    } catch {
+      return CodexCliAdapter.FALLBACK_MODELS;
+    }
+  }
+
+  /**
+   * Resolve the OAuth access_token for Codex API calls.
+   * Reads from ~/.codex/auth.json (same auth the Codex CLI uses).
+   */
+  private async resolveAccessToken(): Promise<string | null> {
+    try {
+      const authPath = join(homedir(), '.codex', 'auth.json');
+      const raw = await readFile(authPath, 'utf-8');
+      const auth = JSON.parse(raw) as {
+        OPENAI_API_KEY?: string | null;
+        tokens?: { access_token?: string };
+      };
+      // API key takes priority if explicitly set
+      if (auth.OPENAI_API_KEY) return auth.OPENAI_API_KEY;
+      if (auth.tokens?.access_token) return auth.tokens.access_token;
+    } catch {
+      // Auth file not found or unreadable
+    }
+    return null;
+  }
+
+  /**
+   * Resolve the installed Codex CLI version for the models API query param.
+   * Falls back to a reasonable default if version detection fails.
+   */
+  private async resolveCliVersion(): Promise<string> {
+    try {
+      const binaryPath = await resolveCliPath('codex');
+      if (binaryPath) {
+        const { stdout } = await execFileAsync(binaryPath, ['--version'], {
+          timeout: 3000,
+        });
+        // Output: "codex-cli 0.107.0" → extract "0.107.0"
+        const match = stdout.trim().match(/[\d.]+/);
+        if (match) return match[0];
+      }
+    } catch {
+      // Version detection failed
+    }
+    return '0.107.0';
+  }
+
+  /**
+   * Format a model slug into a human-readable name.
+   * e.g. "gpt-5.3-codex" → "GPT 5.3 Codex"
+   */
+  private formatModelName(slug: string): string {
+    return slug
+      .split('-')
+      .map((part) => {
+        if (/^\d/.test(part)) return part;
+        const upper = part.toUpperCase();
+        if (['GPT', 'AI'].includes(upper)) return upper;
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join(' ');
   }
 
   /**

@@ -136,6 +136,35 @@ import type {
             </div>
             }
 
+            <!-- Inline model selector for Codex -->
+            @if (cli.cli === 'codex' && cli.installed) {
+            <div class="mt-2 pt-2 border-t border-base-300/50">
+              <label
+                for="agent-codex-model"
+                class="text-[10px] text-base-content/50 mb-0.5 block"
+              >
+                Model
+              </label>
+              <select
+                id="agent-codex-model"
+                class="select select-bordered select-xs w-full"
+                (change)="onModelSelect('codex', $event)"
+              >
+                <option value="" [selected]="!agentConfig()?.codexModel">
+                  Default
+                </option>
+                @for (model of codexModels(); track model.id) {
+                <option
+                  [value]="model.id"
+                  [selected]="model.id === agentConfig()?.codexModel"
+                >
+                  {{ model.name }}
+                </option>
+                }
+              </select>
+            </div>
+            }
+
             <!-- Inline model selector for Copilot -->
             @if (cli.cli === 'copilot' && cli.installed) {
             <div class="mt-2 pt-2 border-t border-base-300/50">
@@ -310,6 +339,7 @@ export class AgentOrchestrationConfigComponent implements OnInit {
 
   // CLI model lists
   readonly geminiModels = signal<CliModelOption[]>([]);
+  readonly codexModels = signal<CliModelOption[]>([]);
   readonly copilotModels = signal<CliModelOption[]>([]);
 
   /** System CLIs only (excludes ptah-cli entries shown via projected content) */
@@ -352,6 +382,7 @@ export class AgentOrchestrationConfigComponent implements OnInit {
       );
       if (result.isSuccess()) {
         this.geminiModels.set(result.data.gemini);
+        this.codexModels.set(result.data.codex);
         this.copilotModels.set(result.data.copilot);
       }
     } catch {
@@ -359,7 +390,10 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     }
   }
 
-  public onModelSelect(cli: 'gemini' | 'copilot', event: Event): void {
+  public onModelSelect(
+    cli: 'gemini' | 'codex' | 'copilot',
+    event: Event
+  ): void {
     const value = (event.target as HTMLSelectElement).value;
     this.setAgentModel(cli, value);
   }
@@ -427,8 +461,16 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     }
   }
 
-  async setAgentModel(cli: 'gemini' | 'copilot', model: string): Promise<void> {
-    const key = cli === 'gemini' ? 'geminiModel' : 'copilotModel';
+  async setAgentModel(
+    cli: 'gemini' | 'codex' | 'copilot',
+    model: string
+  ): Promise<void> {
+    const key =
+      cli === 'gemini'
+        ? 'geminiModel'
+        : cli === 'codex'
+        ? 'codexModel'
+        : 'copilotModel';
     const result = await this.rpcService.call('agent:setConfig', {
       [key]: model,
     });

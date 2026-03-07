@@ -29,7 +29,7 @@ import type { MonitoredAgent } from '../../../services/agent-monitor.store';
   template: `
     <button
       type="button"
-      class="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-base-200/50 transition-colors flex-shrink-0"
+      class="flex items-center gap-1.5 w-full px-2 py-1.5 text-left hover:bg-base-200/50 transition-colors flex-shrink-0"
       (click)="toggleExpanded.emit()"
     >
       <!-- Expand/collapse icon -->

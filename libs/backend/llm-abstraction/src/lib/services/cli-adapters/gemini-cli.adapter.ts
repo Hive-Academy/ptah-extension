@@ -524,6 +524,10 @@ export class GeminiCliAdapter implements CliAdapter {
             toolArgs: event.tool_input
               ? this.summarizeToolInput(event.tool_name, event.tool_input)
               : undefined,
+            toolInput:
+              event.tool_input && typeof event.tool_input === 'object'
+                ? (event.tool_input as Record<string, unknown>)
+                : undefined,
             toolCallId: event.tool_call_id,
           });
         }

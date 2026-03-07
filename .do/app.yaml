@@ -34,7 +34,7 @@ region: nyc
 static_sites:
   - name: landing
     github:
-      repo: hive-academy/ptah-extension # TODO: Verify this matches your GitHub repo
+      repo: Hive-Academy/ptah-extension # TODO: Verify this matches your GitHub repo
       branch: release/landing
       deploy_on_push: false
     source_dir: /

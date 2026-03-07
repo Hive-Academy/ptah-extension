@@ -24,14 +24,18 @@ import { ClaudeRpcService } from '@ptah-extension/core';
   selector: 'ptah-file-path-link',
   standalone: true,
   imports: [LucideAngularModule],
+  host: { class: 'min-w-0 flex-1 overflow-hidden' },
   template: `
     <span
-      class="text-info/80 truncate flex-1 font-mono text-[10px] hover:text-info hover:underline cursor-pointer flex items-center gap-1"
+      class="text-info/80 truncate font-mono text-[10px] hover:text-info hover:underline cursor-pointer flex items-center gap-1"
       [title]="fullPath()"
       (click)="openFile($event)"
     >
-      {{ getShortPath() }}
-      <lucide-angular [img]="ExternalLinkIcon" class="w-2.5 h-2.5 opacity-60" />
+      <span class="truncate">{{ getShortPath() }}</span>
+      <lucide-angular
+        [img]="ExternalLinkIcon"
+        class="w-2.5 h-2.5 opacity-60 flex-shrink-0"
+      />
     </span>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
