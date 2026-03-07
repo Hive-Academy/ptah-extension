@@ -35,9 +35,21 @@ interface InputParam {
   template: `
     @if (hasNonTrivialInput()) {
     <div class="mb-1.5 mt-1.5">
-      <div class="text-[10px] font-semibold text-base-content/50 mb-0.5">
+      <!-- Collapsible Input header -->
+      <button
+        type="button"
+        class="flex items-center gap-1 text-[10px] font-semibold text-base-content/50 mb-0.5 hover:text-base-content/70 transition-colors"
+        (click)="toggleInputCollapsed()"
+      >
+        <span
+          class="inline-block transition-transform duration-200"
+          [class.rotate-90]="!isInputCollapsed()"
+          >&#9654;</span
+        >
         Input
-      </div>
+      </button>
+
+      @if (!isInputCollapsed()) {
       <div class="bg-base-300/50 rounded text-[10px] font-mono overflow-x-auto">
         @for (param of getInputParams(); track param.key) {
         <div>
@@ -79,6 +91,7 @@ interface InputParam {
         </div>
         }
       </div>
+      }
     </div>
     }
   `,
@@ -105,7 +118,15 @@ interface InputParam {
 })
 export class ToolInputDisplayComponent {
   readonly node = input.required<ExecutionNode>();
+  readonly isInputCollapsed = signal(true);
   readonly isContentExpanded = signal(false);
+
+  /**
+   * Toggle Input section collapsed state
+   */
+  protected toggleInputCollapsed(): void {
+    this.isInputCollapsed.update((val) => !val);
+  }
 
   /**
    * Get parameter value as string for expandable content

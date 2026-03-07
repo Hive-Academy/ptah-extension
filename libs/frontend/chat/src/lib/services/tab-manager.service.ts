@@ -2,6 +2,7 @@ import { Injectable, signal, computed, inject, Injector } from '@angular/core';
 import { TabState } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';
+import { AgentMonitorStore } from './agent-monitor.store';
 
 /**
  * TabManagerService - Manages multi-session tab state
@@ -215,6 +216,10 @@ export class TabManagerService {
     if (tab.claudeSessionId) {
       const streamingHandler = this.injector.get(StreamingHandlerService);
       streamingHandler.cleanupSessionDeduplication(tab.claudeSessionId);
+
+      // Clean up agent monitor cards for this session
+      const agentMonitorStore = this.injector.get(AgentMonitorStore);
+      agentMonitorStore.clearSessionAgents(tab.claudeSessionId);
     }
 
     const tabIndex = tabs.findIndex((t) => t.id === tabId);

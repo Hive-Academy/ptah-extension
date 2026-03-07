@@ -5,7 +5,7 @@
  * Tracks spawned agents, streams output, and manages the sidebar panel state.
  */
 
-import { Injectable, signal, computed, OnDestroy } from '@angular/core';
+import { Injectable, signal, computed, inject, OnDestroy } from '@angular/core';
 import type {
   AgentProcessInfo,
   AgentOutputDelta,
@@ -16,6 +16,7 @@ import type {
   AgentPermissionRequest,
   CliSessionReference,
 } from '@ptah-extension/shared';
+import { TabManagerService } from './tab-manager.service';
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
 const MAX_FRONTEND_BUFFER = 50 * 1024;
@@ -60,6 +61,8 @@ export interface MonitoredAgent {
 
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorStore implements OnDestroy {
+  private readonly tabManager = inject(TabManagerService);
+
   // Private mutable state
   private readonly _agents = signal<Map<string, MonitoredAgent>>(new Map());
   private readonly _panelOpen = signal(false);
@@ -75,10 +78,25 @@ export class AgentMonitorStore implements OnDestroy {
   readonly tick = signal(0);
   private _tickInterval: ReturnType<typeof setInterval> | null = null;
 
-  // Public computed signals
+  // Public computed signals — ALL agents (used for global indicators like header badges)
   readonly agents = computed(() => {
     const map = this._agents();
     return Array.from(map.values()).sort((a, b) => b.startedAt - a.startedAt);
+  });
+
+  /**
+   * Agents filtered to the active tab's session.
+   * Shows only agents whose parentSessionId matches the active tab's claudeSessionId.
+   * Agents with no parentSessionId are shown in all tabs (backward compatibility).
+   * When no tab is active or the active tab has no session, all agents are shown.
+   */
+  readonly activeTabAgents = computed(() => {
+    const all = this.agents();
+    const activeSessionId = this.tabManager.activeTab()?.claudeSessionId;
+    if (!activeSessionId) return all;
+    return all.filter(
+      (a) => !a.parentSessionId || a.parentSessionId === activeSessionId
+    );
   });
 
   readonly hasRunningAgents = computed(() =>
@@ -87,7 +105,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   readonly agentCount = computed(() => this._agents().size);
 
-  /** Agents that currently have a pending permission request */
+  /** Agents that currently have a pending permission request (global — all tabs) */
   readonly pendingPermissions = computed(() =>
     this.agents().filter((a) => a.permissionQueue.length > 0)
   );
@@ -145,25 +163,51 @@ export class AgentMonitorStore implements OnDestroy {
 
     this._agents.update((map) => {
       const next = new Map(map);
-      const order = this._expandOrder++;
-      next.set(info.agentId, {
-        agentId: info.agentId,
-        cli: info.cli,
-        task: info.task,
-        status: info.status,
-        startedAt: new Date(info.startedAt).getTime(),
-        stdout: '',
-        stderr: '',
-        expanded: true,
-        expandedAt: order,
-        segments: [],
-        streamEvents: [],
-        parentSessionId: info.parentSessionId,
-        cliSessionId: info.cliSessionId,
-        ptahCliId: info.ptahCliId,
-        permissionQueue: [],
-      });
-      this.enforceMaxExpanded(next);
+
+      // If this is a resumed agent, replace the old card in-place
+      // instead of creating a new one (avoids flicker and duplicate cards)
+      if (info.resumedFromAgentId && next.has(info.resumedFromAgentId)) {
+        const oldCard = next.get(info.resumedFromAgentId)!;
+        next.delete(info.resumedFromAgentId);
+        next.set(info.agentId, {
+          agentId: info.agentId,
+          cli: info.cli,
+          task: info.task,
+          status: info.status,
+          startedAt: new Date(info.startedAt).getTime(),
+          stdout: '',
+          stderr: '',
+          expanded: oldCard.expanded,
+          expandedAt: oldCard.expandedAt,
+          segments: [],
+          streamEvents: [],
+          parentSessionId: info.parentSessionId,
+          cliSessionId: info.cliSessionId,
+          ptahCliId: info.ptahCliId,
+          permissionQueue: [],
+        });
+      } else {
+        const order = this._expandOrder++;
+        next.set(info.agentId, {
+          agentId: info.agentId,
+          cli: info.cli,
+          task: info.task,
+          status: info.status,
+          startedAt: new Date(info.startedAt).getTime(),
+          stdout: '',
+          stderr: '',
+          expanded: true,
+          expandedAt: order,
+          segments: [],
+          streamEvents: [],
+          parentSessionId: info.parentSessionId,
+          cliSessionId: info.cliSessionId,
+          ptahCliId: info.ptahCliId,
+          permissionQueue: [],
+        });
+        this.enforceMaxExpanded(next);
+      }
+
       return next;
     });
 
@@ -348,7 +392,7 @@ export class AgentMonitorStore implements OnDestroy {
    * Load CLI sessions from a saved session's metadata (TASK_2025_168).
    * Converts CliSessionReference[] to MonitoredAgent[] and adds them to the store.
    * Called when loading/resuming a session that had CLI agents spawned.
-   * Clears non-running agents first to prevent stale accumulation across session switches.
+   * Agents from other sessions are preserved — activeTabAgents handles display filtering.
    * Auto-opens the panel if sessions are loaded.
    */
   loadCliSessions(
@@ -358,11 +402,17 @@ export class AgentMonitorStore implements OnDestroy {
     if (cliSessions.length === 0) return;
 
     this._agents.update((map) => {
-      // Clear non-running agents to prevent accumulation across session switches
-      const next = new Map<string, MonitoredAgent>();
-      for (const [id, agent] of map) {
-        if (agent.status === 'running') {
-          next.set(id, agent);
+      // Preserve all existing agents — tab-scoped filtering handles display.
+      // Only clear stale non-running agents for THIS session to allow fresh reload.
+      const next = new Map(map);
+      if (parentSessionId) {
+        for (const [id, agent] of next) {
+          if (
+            agent.parentSessionId === parentSessionId &&
+            agent.status !== 'running'
+          ) {
+            next.delete(id);
+          }
         }
       }
 
@@ -402,6 +452,25 @@ export class AgentMonitorStore implements OnDestroy {
    * Used when resuming a stopped agent — the old card is removed and a new
    * one is created by the incoming agent:spawned event.
    */
+  /**
+   * Remove all non-running agents belonging to a specific session.
+   * Called when a tab is closed to clean up its associated agent cards.
+   * Running agents are preserved (they'll complete in the background).
+   */
+  clearSessionAgents(sessionId: string): void {
+    this._agents.update((map) => {
+      let changed = false;
+      const next = new Map(map);
+      for (const [id, agent] of next) {
+        if (agent.parentSessionId === sessionId && agent.status !== 'running') {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : map;
+    });
+  }
+
   removeAgent(agentId: string): void {
     this._agents.update((map) => {
       if (!map.has(agentId)) return map;

@@ -51,19 +51,20 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
     >
       <!-- Header -->
       <div
-        class="flex items-center justify-between px-3 py-2 border-b border-base-content/10 flex-shrink-0"
+        class="flex items-center justify-between px-2.5 py-1.5 border-b border-base-content/10 flex-shrink-0"
         style="min-width: 300px"
       >
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold">Agents</span>
-          @if (store.agentCount() > 0) {
+          @if (store.activeTabAgents().length > 0) {
           <span class="badge badge-sm badge-neutral">{{
-            store.agentCount()
+            store.activeTabAgents().length
           }}</span>
           }
         </div>
         <div class="flex items-center gap-1">
-          @if (store.agents().length > 0 && !store.hasRunningAgents()) {
+          @if (store.activeTabAgents().length > 0 && !store.hasRunningAgents())
+          {
           <button
             class="btn btn-ghost btn-xs btn-square"
             title="Clear completed"
@@ -90,7 +91,7 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
       >
         @for (agent of store.pendingPermissions(); track agent.agentId) {
         <div
-          class="bg-warning/10 px-3 py-2 flex flex-col gap-1.5 border-b border-warning/10 last:border-b-0"
+          class="bg-warning/10 px-2.5 py-1.5 flex flex-col gap-1 border-b border-warning/10 last:border-b-0"
         >
           <div class="flex items-center gap-2">
             <lucide-angular
@@ -135,15 +136,16 @@ import { AgentCardComponent } from '../molecules/agent-card/agent-card.component
       </div>
       }
 
-      <!-- Agent list: accordion layout — expanded cards get definite 55vh height, collapsed cards auto-size to header -->
+      <!-- Agent list: accordion layout — expanded cards fill remaining space, collapsed cards auto-size to header -->
       <div
-        class="flex-1 overflow-y-auto p-2 flex flex-col gap-2 min-h-0"
+        class="flex-1 overflow-y-auto p-1.5 flex flex-col gap-1 min-h-0"
         style="min-width: 300px"
       >
-        @for (agent of store.agents(); track agent.agentId) {
+        @for (agent of store.activeTabAgents(); track agent.agentId) {
         <div
-          class="flex-shrink-0"
-          [style.height]="agent.expanded ? '55vh' : null"
+          [class.flex-1]="agent.expanded"
+          [class.flex-shrink-0]="!agent.expanded"
+          [style.min-height]="agent.expanded ? '50vh' : null"
         >
           <ptah-agent-card
             class="block h-full"
