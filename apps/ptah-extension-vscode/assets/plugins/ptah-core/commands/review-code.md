@@ -1,3 +1,7 @@
+---
+description: Code quality review — Phase 1 of triple review protocol. Adapts to detected tech stack with best practices (40% weight).
+---
+
 # Code Quality Review Command
 
 **Agent Integration**: This command is executed by the code-reviewer agent as Phase 1 of the systematic triple review protocol.

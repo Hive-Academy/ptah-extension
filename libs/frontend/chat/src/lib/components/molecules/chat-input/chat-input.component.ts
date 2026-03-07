@@ -755,6 +755,36 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
+   * Normalize pasted/typed slash command format for SDK compatibility.
+   *
+   * Users may paste commands with extra separators like `:` or inconsistent spacing.
+   * The SDK expects: `/commandName args` (no colon, single space separator).
+   *
+   * Examples:
+   *   "/orchestrate : Create TASK" → "/orchestrate Create TASK"
+   *   "/orchestrate:Create TASK"   → "/orchestrate Create TASK"
+   *   "/compact"                   → "/compact" (no change)
+   *   "regular message"            → "regular message" (no change)
+   */
+  private normalizeSlashCommand(content: string): string {
+    // Only process messages starting with /
+    if (!content.startsWith('/')) return content;
+
+    // Match: /commandName followed by optional colon+spaces separator, then args
+    // Command names are alphanumeric + hyphens (e.g., /orchestrate, /review-code)
+    const match = content.match(
+      /^\/([a-zA-Z0-9][-a-zA-Z0-9]*)\s*:\s*([\s\S]*)$/
+    );
+    if (match) {
+      const commandName = match[1];
+      const args = match[2].trim();
+      return args ? `/${commandName} ${args}` : `/${commandName}`;
+    }
+
+    return content;
+  }
+
+  /**
    * Send message
    * FIX #8: Delegate smart routing to ChatStore (SRP violation fixed)
    */
@@ -762,6 +792,9 @@ export class ChatInputComponent implements OnInit {
     const content = this.currentMessage().trim();
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
+
+    // Normalize slash commands (handles pasted commands with `:` separator)
+    const normalizedContent = this.normalizeSlashCommand(content);
 
     try {
       // FIX #8: Use ChatStore's sendOrQueueMessage method (routing logic moved to store)
@@ -771,7 +804,7 @@ export class ChatInputComponent implements OnInit {
         mediaType: img.mediaType,
       }));
       await this.chatStore.sendOrQueueMessage(
-        content || 'What is in this image?',
+        normalizedContent || 'What is in this image?',
         filePaths,
         inlineImages.length > 0 ? inlineImages : undefined
       );

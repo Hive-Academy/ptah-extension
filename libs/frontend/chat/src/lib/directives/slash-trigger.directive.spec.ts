@@ -8,7 +8,7 @@
  * - slashTriggered fires after 150ms debounce
  * - / detection: only at position 0 (start of input)
  * - Space in query deactivates (command completed)
- * - @ in input deactivates (switch to @ autocomplete)
+ * - @ in input no longer disables slash trigger (they operate independently)
  */
 
 import { Component, signal } from '@angular/core';
@@ -257,12 +257,15 @@ describe('SlashTriggerDirective', () => {
       flush();
     }));
 
-    it('should NOT detect / when @ is present in input', fakeAsync(() => {
+    it('should still detect / even when @ is present in input', fakeAsync(() => {
+      // The @ guard was removed — / and @ triggers now operate independently.
+      // The slash trigger only cares about position 0 and no space in command name.
+      // Value "/@test" starts with /, no space in command portion → activates.
       simulateInput(textarea, '/@test');
       tick(0);
 
-      // Contains @ → slash trigger should not activate
-      expect(host.activatedEvents.length).toBe(0);
+      expect(host.activatedEvents.length).toBe(1);
+      expect(host.activatedEvents[0].query).toBe('@test');
 
       flush();
     }));

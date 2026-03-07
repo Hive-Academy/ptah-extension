@@ -1,3 +1,7 @@
+---
+description: Quick reference guide for the /orchestrate command — shows task types, workflow modes, and agent catalog.
+---
+
 # Orchestrator Quick Reference
 
 Quick help guide for the `/orchestrate` command workflow system.

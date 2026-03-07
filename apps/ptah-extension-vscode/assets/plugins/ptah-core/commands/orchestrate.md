@@ -1,3 +1,8 @@
+---
+description: Orchestrate development workflows with specialist agents. Supports FEATURE, BUGFIX, REFACTORING, DOCS, RESEARCH, DEVOPS, and CREATIVE task types.
+argument-hint: '[task description] or TASK_2025_XXX'
+---
+
 # Orchestrate Development Workflow
 
 Invoke the orchestration skill for development workflows.

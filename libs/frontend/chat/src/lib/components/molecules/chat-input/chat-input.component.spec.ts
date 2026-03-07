@@ -303,10 +303,7 @@ describe('ChatInputComponent', () => {
       component.handleQueryChanged('orchestrate');
 
       // Debounced trigger fires - should not change anything
-      component.handleSlashTriggered({
-        query: 'test', // stale
-        cursorPosition: 5,
-      });
+      component.handleSlashTriggered();
 
       // Should still show suggestions (no change)
       expect(component.showSuggestions()).toBe(true);
@@ -415,6 +412,89 @@ describe('ChatInputComponent', () => {
 
       expect(component.showSuggestions()).toBe(false);
       expect(component.suggestionMode()).toBeNull();
+    });
+  });
+
+  // ============================================================================
+  // SLASH COMMAND NORMALIZATION (paste guardrails)
+  // ============================================================================
+
+  describe('normalizeSlashCommand (paste guardrails)', () => {
+    it('should normalize "/orchestrate : args" to "/orchestrate args"', async () => {
+      // Simulate pasting a command with colon separator
+      (component as any)._currentMessage.set(
+        '/orchestrate : Create TASK_2025_004'
+      );
+
+      await component.handleSend();
+
+      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
+        '/orchestrate Create TASK_2025_004',
+        [],
+        undefined
+      );
+    });
+
+    it('should normalize "/orchestrate:args" (no space around colon)', async () => {
+      (component as any)._currentMessage.set(
+        '/orchestrate:Create TASK_2025_004'
+      );
+
+      await component.handleSend();
+
+      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
+        '/orchestrate Create TASK_2025_004',
+        [],
+        undefined
+      );
+    });
+
+    it('should NOT modify regular messages', async () => {
+      (component as any)._currentMessage.set('Hello, world!');
+
+      await component.handleSend();
+
+      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
+        'Hello, world!',
+        [],
+        undefined
+      );
+    });
+
+    it('should NOT modify properly formatted slash commands', async () => {
+      (component as any)._currentMessage.set('/orchestrate Create TASK');
+
+      await component.handleSend();
+
+      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
+        '/orchestrate Create TASK',
+        [],
+        undefined
+      );
+    });
+
+    it('should handle "/compact" with no args', async () => {
+      (component as any)._currentMessage.set('/compact');
+
+      await component.handleSend();
+
+      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
+        '/compact',
+        [],
+        undefined
+      );
+    });
+
+    it('should normalize "/review-code : file.ts" with hyphenated command', async () => {
+      (component as any)._currentMessage.set('/review-code : file.ts');
+
+      await component.handleSend();
+
+      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
+        '/review-code file.ts',
+        [],
+        undefined
+      );
     });
   });
 

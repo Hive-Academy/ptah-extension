@@ -1,3 +1,7 @@
+---
+description: Analyze codebase architecture and generate comprehensive CLAUDE.md documentation files for the project.
+---
+
 Analyze this codebase and generate comprehensive Claude documentation:
 
 ## Your Task

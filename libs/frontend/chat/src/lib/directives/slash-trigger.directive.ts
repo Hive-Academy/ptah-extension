@@ -116,26 +116,30 @@ export class SlashTriggerDirective implements OnInit {
         const cursorPosition = textarea.selectionStart;
 
         // Slash trigger detection rules:
-        // 1. Value must start with /
-        // 2. Value must NOT contain @ (which means user wants @ autocomplete instead)
-        // 3. Query must NOT contain a space (space indicates command was completed/selected)
+        // 1. Value must start with / (slash commands are always at position 0)
+        // 2. The command portion (text between / and first space) must have no space
+        //    (space indicates command was completed/selected)
         //    This prevents re-triggering after user selects a command like "/orchestrate "
-        if (!value.startsWith('/') || value.includes('@')) {
+        //
+        // NOTE: Removed the `value.includes('@')` guard — it was overly aggressive
+        // and disabled slash commands if ANY @ existed in the text (e.g., email addresses,
+        // leftover @ from file selection). The @ and / triggers now operate independently.
+        if (!value.startsWith('/')) {
           return { isActive: false, query: '', cursorPosition };
         }
 
-        // Extract potential command (text after / until first space or end)
-        const query = value.substring(1);
-        const spaceIndex = query.indexOf(' ');
+        // Extract potential command (text after / up to cursor position)
+        // Only consider text up to cursor — user may have moved cursor back
+        const textAfterSlash = value.substring(1, cursorPosition);
+        const spaceIndex = textAfterSlash.indexOf(' ');
 
-        // If there's a space, command is complete - don't trigger autocomplete
-        // User has either selected a command or typed a complete command
+        // If there's a space before the cursor, command is complete
         if (spaceIndex !== -1) {
           return { isActive: false, query: '', cursorPosition };
         }
 
         // Active: no space yet, still typing command name
-        return { isActive: true, query, cursorPosition };
+        return { isActive: true, query: textAfterSlash, cursorPosition };
       }),
       startWith({
         isActive: false,

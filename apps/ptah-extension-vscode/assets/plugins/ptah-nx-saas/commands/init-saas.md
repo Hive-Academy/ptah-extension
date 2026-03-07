@@ -1,3 +1,8 @@
+---
+description: Initialize a complete SaaS workspace with NestJS, Nx, and Angular/React — multi-turn PRD-to-implementation workflow.
+argument-hint: '[project name] or TASK_YYYY_NNN'
+---
+
 # Initialize SaaS Workspace
 
 Standalone command for SaaS workspace initialization with multi-turn discovery.

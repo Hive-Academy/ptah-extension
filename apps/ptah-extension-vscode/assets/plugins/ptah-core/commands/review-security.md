@@ -1,3 +1,7 @@
+---
+description: Security vulnerability review — Phase 3 of triple review protocol. OWASP-based assessment across any tech stack (25% weight).
+---
+
 # Security Review Command
 
 **Agent Integration**: This command is executed by the code-reviewer agent as Phase 3 of the systematic triple review protocol.

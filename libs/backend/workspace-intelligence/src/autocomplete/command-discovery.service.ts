@@ -298,9 +298,15 @@ export class CommandDiscoveryService {
       const content = await fs.readFile(filePath, 'utf-8');
       const { data: frontmatter, content: template } = matter(content);
 
+      // Extract description: prefer frontmatter, fallback to first paragraph in markdown
+      let description = frontmatter['description'];
+      if (!description) {
+        description = this.extractDescriptionFromMarkdown(template);
+      }
+
       return {
         name: path.basename(filePath, '.md'),
-        description: frontmatter['description'] || 'No description',
+        description: description || 'No description',
         argumentHint: frontmatter['argument-hint'],
         scope: 'project', // Will be overridden by caller
         filePath,
@@ -319,6 +325,32 @@ export class CommandDiscoveryService {
       );
       return null;
     }
+  }
+
+  /**
+   * Extract a description from markdown content when no frontmatter description exists.
+   * Looks for the first non-heading, non-empty paragraph line after the heading.
+   */
+  private extractDescriptionFromMarkdown(
+    markdownContent: string
+  ): string | null {
+    const lines = markdownContent.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Skip empty lines, headings, code fences, and list items
+      if (
+        !trimmed ||
+        trimmed.startsWith('#') ||
+        trimmed.startsWith('```') ||
+        trimmed.startsWith('- ') ||
+        trimmed.startsWith('* ')
+      ) {
+        continue;
+      }
+      // Found first paragraph — use it as description (truncate at 120 chars)
+      return trimmed.length > 120 ? trimmed.substring(0, 117) + '...' : trimmed;
+    }
+    return null;
   }
 
   /**

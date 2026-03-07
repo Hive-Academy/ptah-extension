@@ -59,6 +59,33 @@ export class MessageSenderService {
   // ============================================================================
 
   /**
+   * Normalize pasted/typed slash command format for SDK compatibility.
+   *
+   * Users may paste commands with extra separators like `:` or inconsistent spacing.
+   * The SDK expects: `/commandName args` (no colon, single space separator).
+   *
+   * Examples:
+   *   "/orchestrate : Create TASK" → "/orchestrate Create TASK"
+   *   "/orchestrate:Create TASK"   → "/orchestrate Create TASK"
+   *   "/compact"                   → "/compact" (no change)
+   *   "regular message"            → "regular message" (no change)
+   */
+  private normalizeSlashCommand(content: string): string {
+    if (!content.startsWith('/')) return content;
+
+    const match = content.match(
+      /^\/([a-zA-Z0-9][-a-zA-Z0-9]*)\s*:\s*([\s\S]*)$/
+    );
+    if (match) {
+      const commandName = match[1];
+      const args = match[2].trim();
+      return args ? `/${commandName} ${args}` : `/${commandName}`;
+    }
+
+    return content;
+  }
+
+  /**
    * Generate unique ID for messages/sessions
    */
   private generateId(): string {
@@ -150,8 +177,10 @@ export class MessageSenderService {
       return;
     }
 
-    // Sanitize content (trim whitespace)
-    const sanitized = this.validator.sanitize(content);
+    // Sanitize content (trim whitespace) and normalize slash commands
+    const sanitized = this.normalizeSlashCommand(
+      this.validator.sanitize(content)
+    );
 
     const activeTab = this.tabManager.activeTab();
 

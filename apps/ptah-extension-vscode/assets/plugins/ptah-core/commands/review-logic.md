@@ -1,3 +1,7 @@
+---
+description: Business logic review — Phase 2 of triple review protocol. Identifies dummy data, placeholders, and tech debt (35% weight).
+---
+
 # Business Logic Review Command
 
 **Agent Integration**: This command is executed by the code-reviewer agent as Phase 2 of the systematic triple review protocol.
