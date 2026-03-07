@@ -43,6 +43,7 @@ import { ContextOrchestrationService } from '../context/context-orchestration.se
 // AST services
 import { TreeSitterParserService } from '../ast/tree-sitter-parser.service';
 import { AstAnalysisService } from '../ast/ast-analysis.service';
+import { DependencyGraphService } from '../ast/dependency-graph.service';
 
 // Context enrichment services
 import { ContextEnrichmentService } from '../context-analysis/context-enrichment.service';
@@ -181,6 +182,10 @@ export function registerWorkspaceIntelligenceServices(
     TreeSitterParserService
   );
   container.registerSingleton(TOKENS.AST_ANALYSIS_SERVICE, AstAnalysisService);
+  container.registerSingleton(
+    TOKENS.DEPENDENCY_GRAPH_SERVICE,
+    DependencyGraphService
+  );
 
   // ============================================================
   // Tier 7: Autocomplete discovery services
@@ -221,6 +226,7 @@ export function registerWorkspaceIntelligenceServices(
       'CONTEXT_ENRICHMENT_SERVICE',
       'TREE_SITTER_PARSER_SERVICE',
       'AST_ANALYSIS_SERVICE',
+      'DEPENDENCY_GRAPH_SERVICE',
       'AGENT_DISCOVERY_SERVICE',
       'COMMAND_DISCOVERY_SERVICE',
       'ANTI_PATTERN_DETECTION_SERVICE',

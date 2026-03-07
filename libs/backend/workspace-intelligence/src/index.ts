@@ -111,6 +111,12 @@ export {
   type QueryMatch,
 } from './ast/tree-sitter-parser.service';
 export { AstAnalysisService } from './ast/ast-analysis.service';
+export {
+  DependencyGraphService,
+  type DependencyGraph,
+  type FileNode,
+  type SymbolIndex,
+} from './ast/dependency-graph.service';
 
 // AST types and interfaces
 export * from './ast/ast.types';
