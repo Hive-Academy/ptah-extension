@@ -1255,22 +1255,30 @@ IMPORTANT INSTRUCTIONS:
       // If the stream errored with 0 events, the session resume failed entirely
       // (e.g., corrupted JSONL from a previous crash). Clean up the dead session
       // so the user isn't stuck trying to resume a broken session.
-      if (eventCount === 0 && !isUserAbort) {
+      const isCorruptedResume = eventCount === 0 && !isUserAbort;
+      if (isCorruptedResume) {
         this.logger.warn(
-          `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session`
+          `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session. Original error: ${errorMessage}`
         );
-        this.sdkAdapter.endSession(sessionId);
+        try {
+          await this.sdkAdapter.endSession(sessionId);
+        } catch (cleanupErr) {
+          this.logger.warn(
+            `[RPC] Failed to clean up corrupted session ${sessionId}`,
+            cleanupErr instanceof Error
+              ? cleanupErr
+              : new Error(String(cleanupErr))
+          );
+        }
       }
 
       // Send error to webview (frontend handles abort vs error display)
-      // Include isResumeFailed flag so frontend can show appropriate recovery UI
       await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_ERROR, {
         tabId,
         sessionId,
-        error:
-          eventCount === 0 && !isUserAbort
-            ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
-            : errorMessage,
+        error: isCorruptedResume
+          ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
+          : errorMessage,
       });
     } finally {
       // Clean up Ptah CLI session tracking on stream completion (natural or error)

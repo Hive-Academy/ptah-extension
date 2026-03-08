@@ -61,8 +61,6 @@ export const SDK_TOKENS = {
   SDK_QUERY_OPTIONS_BUILDER: Symbol.for('SdkQueryOptionsBuilder'),
   SDK_MODULE_LOADER: Symbol.for('SdkModuleLoader'),
   SDK_MODEL_SERVICE: Symbol.for('SdkModelService'),
-  SDK_USER_MESSAGE_STREAM_FACTORY: Symbol.for('SdkUserMessageStreamFactory'),
-
   // History reader child services (TASK_2025_106)
   SDK_HISTORY_EVENT_FACTORY: Symbol.for('SdkHistoryEventFactory'),
   SDK_JSONL_READER: Symbol.for('SdkJsonlReader'),

@@ -55,8 +55,6 @@ export {
 } from './sdk-query-options-builder';
 export { SdkModuleLoader } from './sdk-module-loader';
 export { SdkModelService } from './sdk-model-service';
-export { UserMessageStreamFactory } from './user-message-stream-factory';
-
 // History module (TASK_2025_106)
 export * from './history';
 

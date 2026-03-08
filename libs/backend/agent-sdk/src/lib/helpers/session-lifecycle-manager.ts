@@ -173,7 +173,7 @@ export class SessionLifecycleManager {
 
   /**
    * Pre-register active session (before SDK query is created)
-   * This allows UserMessageStreamFactory to find the session and queue messages
+   * This allows createUserMessageStream to find the session and queue messages
    * before the SDK query object exists.
    */
   preRegisterActiveSession(
@@ -412,7 +412,7 @@ export class SessionLifecycleManager {
 
   /**
    * Create a user message stream for SDK consumption
-   * Merged from UserMessageStreamFactory to avoid circular dependencies
+   * Creates an async iterable that yields user messages from the session queue
    *
    * @param sessionId - The session to create stream for
    * @param abortController - Controller to signal stream termination
@@ -694,8 +694,8 @@ export class SessionLifecycleManager {
    *
    * This iterable waits indefinitely without yielding any messages.
    * Used as the SDK prompt during resume so that actual user messages
-   * are delivered via streamInput() instead (which properly handles
-   * raw strings for slash command parsing).
+   * are delivered via streamInput() instead. This avoids the SDK resume
+   * code path validating message.type on iterable items.
    *
    * Completes when the abort controller signals session end.
    */

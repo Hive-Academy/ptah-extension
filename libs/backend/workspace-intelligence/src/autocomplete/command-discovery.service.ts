@@ -378,8 +378,11 @@ export class CommandDiscoveryService {
       if (manifest.name && typeof manifest.name === 'string') {
         return manifest.name;
       }
-    } catch {
-      // Manifest not readable — fall back to directory name
+    } catch (error) {
+      console.debug(
+        `[CommandDiscovery] Cannot read plugin manifest at ${pluginPath}:`,
+        error instanceof Error ? error.message : String(error)
+      );
     }
     return path.basename(pluginPath);
   }
@@ -416,12 +419,18 @@ export class CommandDiscoveryService {
             scope: 'plugin',
             filePath: skillMdPath,
           });
-        } catch {
-          // SKILL.md not readable — skip
+        } catch (error) {
+          console.debug(
+            `[CommandDiscovery] Cannot read SKILL.md at ${skillMdPath}:`,
+            error instanceof Error ? error.message : String(error)
+          );
         }
       }
-    } catch {
-      // skills/ directory not accessible — skip
+    } catch (error) {
+      console.debug(
+        `[CommandDiscovery] Skills directory not accessible at ${skillsDir}:`,
+        error instanceof Error ? error.message : String(error)
+      );
     }
 
     return skills;

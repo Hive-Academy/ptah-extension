@@ -32,7 +32,6 @@ import {
   SdkQueryOptionsBuilder,
   SdkModuleLoader,
   SdkModelService,
-  UserMessageStreamFactory,
   // History reader child services (TASK_2025_106)
   HistoryEventFactory,
   JsonlReaderService,
@@ -240,13 +239,6 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_MODEL_SERVICE,
     { useClass: SdkModelService },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // User message stream factory - creates async iterables for SDK (TASK_2025_102)
-  container.register(
-    SDK_TOKENS.SDK_USER_MESSAGE_STREAM_FACTORY,
-    { useClass: UserMessageStreamFactory },
     { lifecycle: Lifecycle.Singleton }
   );
 
