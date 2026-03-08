@@ -542,15 +542,21 @@ export class SessionLifecycleManager {
       abortController
     );
 
-    // Step 3: Queue initial prompt if provided
-    if (initialPrompt && initialPrompt.content.trim()) {
+    // Step 3: Determine if initial prompt is a slash command
+    // SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects
+    // in the async iterable. So slash commands must be passed as string to query().
+    const initialContent = initialPrompt?.content.trim() || '';
+    const isSlashCommand = initialContent.startsWith('/');
+
+    // For non-slash-command messages, queue them in the iterable as SDKUserMessage
+    if (initialContent && !isSlashCommand) {
       const session = this.getActiveSession(sessionId);
       if (session) {
         const sdkUserMessage = await this.messageFactory.createUserMessage({
-          content: initialPrompt.content,
+          content: initialPrompt!.content,
           sessionId,
-          files: initialPrompt.files,
-          images: initialPrompt.images,
+          files: initialPrompt!.files,
+          images: initialPrompt!.images,
         });
         session.messageQueue.push(sdkUserMessage);
         this.logger.info(
@@ -596,20 +602,32 @@ export class SessionLifecycleManager {
       permissionMode: initialPermissionMode,
     });
 
-    // For resume sessions, use an idle iterable as prompt and deliver messages
-    // via streamInput(). This avoids the SDK resume code path validating message.type
-    // on raw iterable items.
+    // Determine the effective prompt for the SDK query:
+    // - Resume sessions: idle prompt (messages via streamInput)
+    // - Slash commands: raw string (SDK parses commands from string prompts only)
+    // - Regular messages: iterable (messages queued as SDKUserMessage)
     const isResume = !!resumeSessionId;
-    const effectivePrompt = isResume
-      ? this.createIdlePromptStream(abortController)
-      : queryOptions.prompt;
+    let effectivePrompt: string | AsyncIterable<SDKUserMessage>;
+    let promptMode: string;
+
+    if (isResume) {
+      effectivePrompt = this.createIdlePromptStream(abortController);
+      promptMode = 'idle+streamInput';
+    } else if (isSlashCommand) {
+      effectivePrompt = initialContent;
+      promptMode = 'string (slash command)';
+    } else {
+      effectivePrompt = queryOptions.prompt;
+      promptMode = 'iterable';
+    }
 
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {
       model: queryOptions.options.model,
       cwd: queryOptions.options.cwd,
       permissionMode: queryOptions.options.permissionMode,
       isResume,
-      promptMode: isResume ? 'idle+streamInput' : 'iterable',
+      isSlashCommand,
+      promptMode,
     });
 
     // Step 7: Start SDK query
@@ -619,16 +637,18 @@ export class SessionLifecycleManager {
     });
     const initialModel = queryOptions.options.model;
 
-    // Step 7b: Connect streamInput for follow-up message delivery (resume sessions)
-    // Resume sessions use idle prompt, so ALL messages come via streamInput
-    if (isResume) {
+    // Step 7b: Connect streamInput for follow-up message delivery
+    // Resume sessions: ALL messages come via streamInput (idle prompt)
+    // Slash command sessions: follow-up messages come via streamInput
+    // Regular sessions: follow-up messages come from the iterable
+    if (isResume || isSlashCommand) {
       sdkQuery.streamInput(userMessageStream).catch((err) => {
         this.logger.warn('[SessionLifecycle] streamInput error', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
       this.logger.info(
-        `[SessionLifecycle] Connected streamInput for session: ${sessionId}`
+        `[SessionLifecycle] Connected streamInput for session: ${sessionId} (${promptMode})`
       );
     }
 
