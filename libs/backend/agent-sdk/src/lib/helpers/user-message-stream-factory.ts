@@ -51,7 +51,7 @@ export class UserMessageStreamFactory {
   create(
     sessionId: SessionId,
     abortController: AbortController
-  ): AsyncIterable<string | SDKUserMessage> {
+  ): AsyncIterable<SDKUserMessage> {
     const sessionLifecycle = this.sessionLifecycle;
     const logger = this.logger;
 

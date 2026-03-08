@@ -38,7 +38,6 @@ import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
 import type { SdkMessageFactory } from './sdk-message-factory';
 import type { CompactionStartCallback } from './compaction-hook-handler';
-import type { SessionClearedCallback } from './session-start-hook-handler';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -55,8 +54,8 @@ export interface Query {
   interrupt(): Promise<void>;
   setPermissionMode(mode: string): Promise<void>;
   setModel(model?: string): Promise<void>;
-  /** Stream input messages to the query (TASK_2025_181: accepts string for slash command parsing) */
-  streamInput(stream: AsyncIterable<string | SDKUserMessage>): Promise<void>;
+  /** Stream input messages to the query */
+  streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
 }
 
 /**
@@ -68,8 +67,8 @@ export interface ActiveSession {
   query: Query | null;
   readonly config: AISessionConfig;
   readonly abortController: AbortController;
-  // Mutable: Message queue for streaming input mode (TASK_2025_181: supports string for slash commands)
-  messageQueue: (string | SDKUserMessage)[];
+  // Mutable: Message queue for streaming input mode
+  messageQueue: SDKUserMessage[];
   // Mutable: Callback to wake iterator when message arrives
   resolveNext: (() => void) | null;
   // Mutable: Current model
@@ -122,11 +121,6 @@ export interface ExecuteQueryConfig {
    * Passed through to SdkQueryOptionsBuilder.
    */
   pluginPaths?: string[];
-  /**
-   * Callback when /clear resets the session (TASK_2025_181)
-   * Passed through to SdkQueryOptionsBuilder for SessionStart hook creation.
-   */
-  onSessionCleared?: SessionClearedCallback;
 }
 
 /**
@@ -427,7 +421,7 @@ export class SessionLifecycleManager {
   createUserMessageStream(
     sessionId: SessionId,
     abortController: AbortController
-  ): AsyncIterable<string | SDKUserMessage> {
+  ): AsyncIterable<SDKUserMessage> {
     const activeSessions = this.activeSessions;
     const logger = this.logger;
 
@@ -528,7 +522,6 @@ export class SessionLifecycleManager {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
-      onSessionCleared,
     } = config;
 
     this.logger.info(
@@ -549,17 +542,8 @@ export class SessionLifecycleManager {
       abortController
     );
 
-    // Step 3: Queue initial prompt if provided (for new sessions)
-    // TASK_2025_181: Determine if initial prompt has attachments
-    // If plain text only, we pass as string prompt to SDK (enables slash command parsing)
-    // If has attachments, queue as SDKUserMessage (attachments need structured format)
-    const hasAttachments =
-      initialPrompt &&
-      ((initialPrompt.files && initialPrompt.files.length > 0) ||
-        (initialPrompt.images && initialPrompt.images.length > 0));
-
-    if (initialPrompt && initialPrompt.content.trim() && hasAttachments) {
-      // Has attachments - queue as SDKUserMessage (existing flow)
+    // Step 3: Queue initial prompt if provided
+    if (initialPrompt && initialPrompt.content.trim()) {
       const session = this.getActiveSession(sessionId);
       if (session) {
         const sdkUserMessage = await this.messageFactory.createUserMessage({
@@ -570,7 +554,7 @@ export class SessionLifecycleManager {
         });
         session.messageQueue.push(sdkUserMessage);
         this.logger.info(
-          `[SessionLifecycle] Queued initial prompt with attachments for session ${sessionId}`
+          `[SessionLifecycle] Queued initial prompt for session ${sessionId}`
         );
       }
     }
@@ -598,13 +582,6 @@ export class SessionLifecycleManager {
             | 'bypassPermissions'
             | 'plan');
 
-    // TASK_2025_181: Pass initial prompt string separately when no attachments
-    // This enables SDK slash command parsing for /clear, /compact, /help, plugin commands
-    const initialPromptString =
-      !hasAttachments && initialPrompt?.content.trim()
-        ? initialPrompt.content
-        : undefined;
-
     const queryOptions = await this.queryOptionsBuilder.build({
       userMessageStream,
       abortController,
@@ -617,35 +594,41 @@ export class SessionLifecycleManager {
       enhancedPromptsContent,
       pluginPaths,
       permissionMode: initialPermissionMode,
-      initialPromptString,
-      onSessionCleared,
     });
+
+    // For resume sessions, use an idle iterable as prompt and deliver messages
+    // via streamInput(). This avoids the SDK resume code path validating message.type
+    // on raw iterable items.
+    const isResume = !!resumeSessionId;
+    const effectivePrompt = isResume
+      ? this.createIdlePromptStream(abortController)
+      : queryOptions.prompt;
 
     this.logger.info('[SessionLifecycle] Starting SDK query with options', {
       model: queryOptions.options.model,
       cwd: queryOptions.options.cwd,
       permissionMode: queryOptions.options.permissionMode,
-      isResume: !!resumeSessionId,
+      isResume,
+      promptMode: isResume ? 'idle+streamInput' : 'iterable',
     });
 
     // Step 7: Start SDK query
     const sdkQuery: Query = queryFn({
-      prompt: queryOptions.prompt,
+      prompt: effectivePrompt,
       options: queryOptions.options as Options,
     });
     const initialModel = queryOptions.options.model;
 
-    // Step 7b: For string prompt, connect follow-up stream via streamInput (TASK_2025_181)
-    // When the initial prompt is a plain string, the userMessageStream is NOT the prompt.
-    // We need to connect it via streamInput() so follow-up messages can be delivered.
-    if (queryOptions.promptIsString) {
+    // Step 7b: Connect streamInput for follow-up message delivery (resume sessions)
+    // Resume sessions use idle prompt, so ALL messages come via streamInput
+    if (isResume) {
       sdkQuery.streamInput(userMessageStream).catch((err) => {
         this.logger.warn('[SessionLifecycle] streamInput error', {
           error: err instanceof Error ? err.message : String(err),
         });
       });
       this.logger.info(
-        `[SessionLifecycle] Connected streamInput for string-prompt session: ${sessionId}`
+        `[SessionLifecycle] Connected streamInput for session: ${sessionId}`
       );
     }
 
@@ -689,24 +672,13 @@ export class SessionLifecycleManager {
       imageCount: images?.length || 0,
     });
 
-    // TASK_2025_181: Determine if message has attachments
-    const hasAttachments =
-      (files && files.length > 0) || (images && images.length > 0);
-
-    if (hasAttachments) {
-      // Messages with attachments need SDKUserMessage format
-      const sdkUserMessage = await this.messageFactory.createUserMessage({
-        content,
-        sessionId,
-        files,
-        images,
-      });
-      session.messageQueue.push(sdkUserMessage);
-    } else {
-      // Plain text messages (including slash commands) sent as strings
-      // This enables SDK slash command parsing for /clear, /compact, /help, plugin commands
-      session.messageQueue.push(content);
-    }
+    const sdkUserMessage = await this.messageFactory.createUserMessage({
+      content,
+      sessionId,
+      files,
+      images,
+    });
+    session.messageQueue.push(sdkUserMessage);
 
     // Wake iterator
     if (session.resolveNext) {
@@ -715,6 +687,43 @@ export class SessionLifecycleManager {
     }
 
     this.logger.info(`[SessionLifecycle] Message queued for ${sessionId}`);
+  }
+
+  /**
+   * Create an idle prompt stream for resume sessions.
+   *
+   * This iterable waits indefinitely without yielding any messages.
+   * Used as the SDK prompt during resume so that actual user messages
+   * are delivered via streamInput() instead (which properly handles
+   * raw strings for slash command parsing).
+   *
+   * Completes when the abort controller signals session end.
+   */
+  private createIdlePromptStream(
+    abortController: AbortController
+  ): AsyncIterable<SDKUserMessage> {
+    return {
+      [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+        let done = false;
+        return {
+          next(): Promise<IteratorResult<SDKUserMessage>> {
+            if (done || abortController.signal.aborted) {
+              return Promise.resolve({ done: true, value: undefined });
+            }
+            return new Promise<IteratorResult<SDKUserMessage>>((resolve) => {
+              abortController.signal.addEventListener(
+                'abort',
+                () => {
+                  done = true;
+                  resolve({ done: true, value: undefined });
+                },
+                { once: true }
+              );
+            });
+          },
+        };
+      },
+    };
   }
 
   /**

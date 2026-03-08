@@ -42,7 +42,6 @@ import {
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
-  type SessionClearedCallback,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -367,11 +366,6 @@ export class SdkAgentAdapter implements IAIProvider {
        * Resolved by PluginLoaderService for premium users.
        */
       pluginPaths?: string[];
-      /**
-       * Callback when /clear command resets the session (TASK_2025_181)
-       * Passed through to SessionLifecycleManager for hook-based clear detection.
-       */
-      onSessionCleared?: SessionClearedCallback;
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -386,7 +380,6 @@ export class SdkAgentAdapter implements IAIProvider {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
-      onSessionCleared,
     } = config;
     const trackingId = tabId as SessionId;
 
@@ -416,7 +409,6 @@ export class SdkAgentAdapter implements IAIProvider {
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
-        onSessionCleared,
       }
     );
 
@@ -499,11 +491,6 @@ export class SdkAgentAdapter implements IAIProvider {
        * SESSION_STATS can be routed to the correct frontend tab.
        */
       tabId?: string;
-      /**
-       * Callback when /clear command resets the session (TASK_2025_181)
-       * Passed through to SessionLifecycleManager for hook-based clear detection.
-       */
-      onSessionCleared?: SessionClearedCallback;
     }
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
@@ -554,7 +541,6 @@ export class SdkAgentAdapter implements IAIProvider {
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
-        onSessionCleared: config?.onSessionCleared,
       }
     );
 

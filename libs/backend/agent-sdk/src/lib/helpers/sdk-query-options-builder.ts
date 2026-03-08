@@ -27,10 +27,6 @@ import {
   type CompactionStartCallback,
 } from './compaction-hook-handler';
 import {
-  SessionStartHookHandler,
-  type SessionClearedCallback,
-} from './session-start-hook-handler';
-import {
   CanUseTool,
   HookEvent,
   HookCallbackMatcher,
@@ -204,8 +200,8 @@ export function assembleSystemPromptAppend(
  * Input parameters for building query options
  */
 export interface QueryOptionsInput {
-  /** Async iterable stream of user messages (TASK_2025_181: supports string for slash commands) */
-  userMessageStream: AsyncIterable<string | SDKUserMessage>;
+  /** Async iterable stream of user messages */
+  userMessageStream: AsyncIterable<SDKUserMessage>;
   /** Controller to abort the query */
   abortController: AbortController;
   /** Session configuration (model, workspace, system prompt) */
@@ -254,17 +250,6 @@ export interface QueryOptionsInput {
    * Defaults to 'default' (canUseTool callback handles everything).
    */
   permissionMode?: SdkQueryOptions['permissionMode'];
-  /**
-   * Initial prompt as plain string (no attachments) - enables SDK slash command parsing (TASK_2025_181)
-   * When provided, this is used as the prompt instead of the userMessageStream.
-   * The SDK parses slash commands only from plain string prompts.
-   */
-  initialPromptString?: string;
-  /**
-   * Callback when /clear command resets the session (TASK_2025_181)
-   * Passed through to SessionStartHookHandler for hook-based clear detection.
-   */
-  onSessionCleared?: SessionClearedCallback;
 }
 
 /**
@@ -307,10 +292,8 @@ export interface SdkQueryOptions {
  * Complete query configuration returned by builder
  */
 export interface QueryConfig {
-  /** Prompt for SDK: plain string (enables slash commands) OR async iterable (has attachments) */
-  prompt: string | AsyncIterable<string | SDKUserMessage>;
-  /** Whether prompt is a string (caller needs to call streamInput for follow-ups) (TASK_2025_181) */
-  promptIsString: boolean;
+  /** Prompt for SDK: async iterable of user messages */
+  prompt: AsyncIterable<SDKUserMessage>;
   /** SDK query options */
   options: SdkQueryOptions;
 }
@@ -338,9 +321,7 @@ export class SdkQueryOptionsBuilder {
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
     private readonly compactionHookHandler: CompactionHookHandler,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
-    @inject(SDK_TOKENS.SDK_SESSION_START_HOOK_HANDLER)
-    private readonly sessionStartHookHandler: SessionStartHookHandler
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
   ) {}
 
   /**
@@ -374,8 +355,6 @@ export class SdkQueryOptionsBuilder {
       enhancedPromptsContent,
       pluginPaths,
       permissionMode = 'default',
-      initialPromptString,
-      onSessionCleared,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -407,15 +386,9 @@ export class SdkQueryOptionsBuilder {
     const canUseToolCallback: CanUseTool =
       this.permissionHandler.createCallback();
 
-    // Create merged hooks (subagent + compaction + session start)
+    // Create merged hooks (subagent + compaction)
     // TASK_2025_098: Pass sessionId and callback for compaction hooks
-    // TASK_2025_181: Pass onSessionCleared for /clear detection
-    const hooks = this.createHooks(
-      cwd,
-      sessionId,
-      onCompactionStart,
-      onSessionCleared
-    );
+    const hooks = this.createHooks(cwd, sessionId, onCompactionStart);
 
     // Get compaction configuration (TASK_2025_098)
     const compactionConfig = this.compactionConfigProvider.getConfig();
@@ -440,10 +413,7 @@ export class SdkQueryOptionsBuilder {
     });
 
     return {
-      // TASK_2025_181: If initialPromptString provided, use it directly (enables slash command parsing)
-      // Otherwise use the AsyncIterable (for messages with attachments)
-      prompt: initialPromptString ?? userMessageStream,
-      promptIsString: !!initialPromptString,
+      prompt: userMessageStream,
       options: {
         abortController,
         cwd,
@@ -660,8 +630,7 @@ export class SdkQueryOptionsBuilder {
   private createHooks(
     cwd: string,
     sessionId?: string,
-    onCompactionStart?: CompactionStartCallback,
-    onSessionCleared?: SessionClearedCallback
+    onCompactionStart?: CompactionStartCallback
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     // Create subagent hooks (existing functionality)
     const subagentHooks = this.subagentHookHandler.createHooks(cwd);
@@ -673,15 +642,9 @@ export class SdkQueryOptionsBuilder {
       onCompactionStart
     );
 
-    // TASK_2025_181: Create SessionStart hooks for /clear detection
-    const sessionStartHooks = this.sessionStartHookHandler.createHooks(
-      sessionId ?? '',
-      onSessionCleared
-    );
-
     // Merge hooks safely — concatenate arrays for same event key to prevent overwrites
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-    for (const hooks of [subagentHooks, compactionHooks, sessionStartHooks]) {
+    for (const hooks of [subagentHooks, compactionHooks]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
         mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];
@@ -696,13 +659,10 @@ export class SdkQueryOptionsBuilder {
       hasSubagentStart: !!mergedHooks.SubagentStart,
       hasSubagentStop: !!mergedHooks.SubagentStop,
       hasPreCompact: !!mergedHooks.PreCompact,
-      hasSessionStart: !!mergedHooks.SessionStart,
       subagentStartHooksCount: mergedHooks.SubagentStart?.length ?? 0,
       subagentStopHooksCount: mergedHooks.SubagentStop?.length ?? 0,
       preCompactHooksCount: mergedHooks.PreCompact?.length ?? 0,
-      sessionStartHooksCount: mergedHooks.SessionStart?.length ?? 0,
       hasCompactionCallback: !!onCompactionStart,
-      hasSessionClearedCallback: !!onSessionCleared,
     });
 
     return mergedHooks;

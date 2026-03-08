@@ -763,15 +763,6 @@ export class ChatStore {
       sessionId
     );
 
-    // TASK_2025_181: Handle session cleared — clear tree cache and return
-    if (result && result.sessionCleared) {
-      console.log(
-        '[ChatStore] Session cleared via /clear, resetting tree cache'
-      );
-      this.treeBuilder.clearCache();
-      return;
-    }
-
     // Handle compaction complete: dismiss banner, reset tree, clear finalized messages
     if (result && result.compactionComplete && result.compactionSessionId) {
       console.log('[ChatStore] Compaction complete, resetting frontend state', {

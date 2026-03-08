@@ -40,10 +40,6 @@ export {
   isPreCompactHook,
 } from './compaction-hook-handler';
 export {
-  SessionStartHookHandler,
-  type SessionClearedCallback,
-} from './session-start-hook-handler';
-export {
   SdkMessageFactory,
   type CreateMessageParams,
 } from './sdk-message-factory';

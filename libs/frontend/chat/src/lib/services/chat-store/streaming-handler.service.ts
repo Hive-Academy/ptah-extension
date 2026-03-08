@@ -16,7 +16,6 @@ import { Injectable, inject } from '@angular/core';
 import {
   ExecutionNode,
   FlatStreamEventUnion,
-  SessionClearedEvent,
   assertNever,
   ExecutionChatMessage,
 } from '@ptah-extension/shared';
@@ -84,7 +83,6 @@ export class StreamingHandlerService {
     queuedContent?: string;
     compactionSessionId?: string;
     compactionComplete?: boolean;
-    sessionCleared?: boolean;
   } | null {
     try {
       // Find target tab
@@ -486,41 +484,6 @@ export class StreamingHandlerService {
             tabId: targetTab.id,
             compactionComplete: true,
             compactionSessionId: event.sessionId,
-          };
-        }
-
-        case 'session_cleared': {
-          // TASK_2025_181: /clear command processed by SDK
-          // Reset streaming state, clear messages, and clear deduplication
-          console.log(
-            '[StreamingHandlerService] Session cleared via /clear command',
-            {
-              sessionId: event.sessionId,
-              newSessionId: (event as SessionClearedEvent).newSessionId,
-            }
-          );
-
-          // Reset streaming state to fresh and clear all messages
-          this.tabManager.updateTab(targetTab.id, {
-            streamingState: createEmptyStreamingState(),
-            messages: [],
-          });
-
-          // Clear deduplication state
-          this.deduplication.cleanupSession(event.sessionId);
-
-          // Update session ID if a new one was assigned
-          const clearedEvent = event as SessionClearedEvent;
-          if (clearedEvent.newSessionId) {
-            this.tabManager.updateTab(targetTab.id, {
-              claudeSessionId: clearedEvent.newSessionId,
-            });
-            this.sessionManager.setSessionId(clearedEvent.newSessionId);
-          }
-
-          return {
-            tabId: targetTab.id,
-            sessionCleared: true,
           };
         }
 

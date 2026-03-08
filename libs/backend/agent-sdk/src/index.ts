@@ -55,9 +55,6 @@ export { registerSdkServices } from './lib/di/register';
 export { SDK_TOKENS } from './lib/di/tokens';
 export type { SdkDIToken } from './lib/di/tokens';
 
-// Session cleared callback type (TASK_2025_181)
-export type { SessionClearedCallback } from './lib/helpers';
-
 // Anthropic-compatible provider registry (TASK_2025_129 Batch 3)
 // Re-exported via helpers barrel (canonical source: helpers/anthropic-provider-registry.ts)
 export {

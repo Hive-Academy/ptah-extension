@@ -1670,8 +1670,8 @@ export interface Query extends AsyncGenerator<SDKMessage, void> {
   setMcpServers(
     servers: Record<string, McpServerConfig>
   ): Promise<McpSetServersResult>;
-  /** Stream input messages to the query (TASK_2025_181: accepts string for slash command parsing) */
-  streamInput(stream: AsyncIterable<string | SDKUserMessage>): Promise<void>;
+  /** Stream input messages to the query */
+  streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
   /** Close the query and terminate the underlying process */
   close(): void;
 }
@@ -1681,6 +1681,6 @@ export interface Query extends AsyncGenerator<SDKMessage, void> {
  * This is the main entry point for the Claude Agent SDK
  */
 export type QueryFunction = (params: {
-  prompt: string | AsyncIterable<string | SDKUserMessage>;
+  prompt: string | AsyncIterable<SDKUserMessage>;
   options?: Options;
 }) => Query;

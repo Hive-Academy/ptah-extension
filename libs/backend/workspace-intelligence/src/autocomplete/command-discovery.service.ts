@@ -182,52 +182,23 @@ export class CommandDiscoveryService {
    * Get hardcoded built-in commands (from CLI docs)
    */
   private getBuiltinCommands(): CommandInfo[] {
+    // Only commands that work in SDK non-interactive mode (supportsNonInteractive=true)
     return [
       {
-        name: 'help',
-        description: 'List all available commands',
-        scope: 'builtin',
-      },
-      {
-        name: 'clear',
-        description: 'Clear conversation history',
-        scope: 'builtin',
-      },
-      {
         name: 'compact',
-        description: 'Compact conversation',
+        description: 'Compact conversation to reduce token usage',
         scope: 'builtin',
       },
-      { name: 'context', description: 'Monitor token usage', scope: 'builtin' },
       {
-        name: 'cost',
-        description: 'Show API cost estimates',
-        scope: 'builtin',
-      },
-      { name: 'model', description: 'Switch model', scope: 'builtin' },
-      {
-        name: 'permissions',
-        description: 'Manage tool permissions',
+        name: 'review',
+        description: 'Code review workflow',
         scope: 'builtin',
       },
       {
         name: 'memory',
-        description: 'Manage long-term memory',
+        description: 'Manage long-term memory (CLAUDE.md)',
         scope: 'builtin',
       },
-      { name: 'sandbox', description: 'Toggle sandbox mode', scope: 'builtin' },
-      { name: 'vim', description: 'Enable vim mode', scope: 'builtin' },
-      { name: 'export', description: 'Export conversation', scope: 'builtin' },
-      { name: 'doctor', description: 'Check CLI health', scope: 'builtin' },
-      { name: 'status', description: 'Show session status', scope: 'builtin' },
-      { name: 'mcp', description: 'Manage MCP servers', scope: 'builtin' },
-      { name: 'review', description: 'Code review workflow', scope: 'builtin' },
-      {
-        name: 'init',
-        description: 'Initialize project config',
-        scope: 'builtin',
-      },
-      // TODO: Add remaining 17 built-in commands
     ];
   }
 
@@ -354,7 +325,9 @@ export class CommandDiscoveryService {
   }
 
   /**
-   * Scan plugin directories for commands and skills
+   * Scan plugin directories for commands and skills.
+   * SDK automatically namespaces plugin commands as `plugin-name:command-name`,
+   * so we mirror that format in autocomplete suggestions.
    */
   private async scanPluginDirectories(): Promise<CommandInfo[]> {
     if (this.pluginPaths.length === 0) return [];
@@ -362,20 +335,53 @@ export class CommandDiscoveryService {
     const commands: CommandInfo[] = [];
 
     for (const pluginPath of this.pluginPaths) {
+      const pluginName = await this.readPluginName(pluginPath);
+
       // Scan plugin commands/ directory (same format as .claude/commands/)
       const pluginCommands = await this.scanCommandDirectory(
         path.join(pluginPath, 'commands')
       );
       commands.push(
-        ...pluginCommands.map((c) => ({ ...c, scope: 'plugin' as const }))
+        ...pluginCommands.map((c) => ({
+          ...c,
+          name: `${pluginName}:${c.name}`,
+          scope: 'plugin' as const,
+        }))
       );
 
       // Scan plugin skills/ directory (SKILL.md with frontmatter)
       const pluginSkills = await this.scanSkillsDirectory(pluginPath);
-      commands.push(...pluginSkills);
+      commands.push(
+        ...pluginSkills.map((s) => ({
+          ...s,
+          name: `${pluginName}:${s.name}`,
+        }))
+      );
     }
 
     return commands;
+  }
+
+  /**
+   * Read plugin name from .claude-plugin/plugin.json manifest.
+   * Falls back to directory name if manifest is missing.
+   */
+  private async readPluginName(pluginPath: string): Promise<string> {
+    try {
+      const manifestPath = path.join(
+        pluginPath,
+        '.claude-plugin',
+        'plugin.json'
+      );
+      const content = await fs.readFile(manifestPath, 'utf-8');
+      const manifest = JSON.parse(content);
+      if (manifest.name && typeof manifest.name === 'string') {
+        return manifest.name;
+      }
+    } catch {
+      // Manifest not readable — fall back to directory name
+    }
+    return path.basename(pluginPath);
   }
 
   /**

@@ -53,9 +53,6 @@ export const SDK_TOKENS = {
   // Compaction hook handler (TASK_2025_098)
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
-  // SessionStart hook handler for /clear detection (TASK_2025_181)
-  SDK_SESSION_START_HOOK_HANDLER: Symbol.for('SdkSessionStartHookHandler'),
-
   // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
 

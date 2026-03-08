@@ -29,7 +29,6 @@ import {
   PluginLoaderService,
   PtahCliRegistry,
   type EnhancedPromptsService,
-  type SessionClearedCallback,
 } from '@ptah-extension/agent-sdk';
 
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
@@ -223,39 +222,6 @@ export class ChatRpcHandlers {
       });
       return undefined;
     }
-  }
-
-  /**
-   * Create onSessionCleared callback for broadcasting session_cleared events.
-   * Shared between chat:start and chat:continue resume paths (TASK_2025_181).
-   */
-  private createSessionClearedCallback(tabId: string): SessionClearedCallback {
-    return (data) => {
-      this.logger.info('[RPC] Session cleared via /clear command', {
-        sessionId: data.sessionId,
-        newSessionId: data.newSessionId,
-        tabId,
-      });
-      this.webviewManager
-        .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
-          tabId,
-          sessionId: data.sessionId,
-          event: {
-            id: `evt_clear_${Date.now()}`,
-            eventType: 'session_cleared',
-            timestamp: data.timestamp,
-            sessionId: data.sessionId,
-            messageId: '',
-            newSessionId: data.newSessionId,
-          },
-        })
-        .catch((err) => {
-          this.logger.error(
-            '[RPC] Failed to broadcast session_cleared',
-            err instanceof Error ? err : new Error(String(err))
-          );
-        });
-    };
   }
 
   /**
@@ -592,7 +558,6 @@ export class ChatRpcHandlers {
             mcpServerRunning, // TASK_2025_108: MCP server availability check
             enhancedPromptsContent, // TASK_2025_151: AI-generated system prompt for premium users
             pluginPaths, // TASK_2025_153: Plugin directory paths for SDK
-            onSessionCleared: this.createSessionClearedCallback(tabId),
           });
 
           // Stream ExecutionNodes to webview (background - don't await)
@@ -706,7 +671,6 @@ export class ChatRpcHandlers {
               enhancedPromptsContent,
               pluginPaths,
               tabId,
-              onSessionCleared: this.createSessionClearedCallback(tabId),
             });
 
             // Start streaming responses to webview (background - don't await)
@@ -1288,11 +1252,25 @@ IMPORTANT INSTRUCTIONS:
         );
       }
 
+      // If the stream errored with 0 events, the session resume failed entirely
+      // (e.g., corrupted JSONL from a previous crash). Clean up the dead session
+      // so the user isn't stuck trying to resume a broken session.
+      if (eventCount === 0 && !isUserAbort) {
+        this.logger.warn(
+          `[RPC] Session ${sessionId} failed during resume (0 events), cleaning up dead session`
+        );
+        this.sdkAdapter.endSession(sessionId);
+      }
+
       // Send error to webview (frontend handles abort vs error display)
+      // Include isResumeFailed flag so frontend can show appropriate recovery UI
       await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_ERROR, {
         tabId,
         sessionId,
-        error: errorMessage,
+        error:
+          eventCount === 0 && !isUserAbort
+            ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
+            : errorMessage,
       });
     } finally {
       // Clean up Ptah CLI session tracking on stream completion (natural or error)
