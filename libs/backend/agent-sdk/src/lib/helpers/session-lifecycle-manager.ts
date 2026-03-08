@@ -546,7 +546,7 @@ export class SessionLifecycleManager {
     // SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects
     // in the async iterable. So slash commands must be passed as string to query().
     const initialContent = initialPrompt?.content.trim() || '';
-    const isSlashCommand = initialContent.startsWith('/');
+    const isSlashCommand = /^\/[a-zA-Z]/.test(initialContent);
 
     // For non-slash-command messages, queue them in the iterable as SDKUserMessage
     if (initialContent && !isSlashCommand) {

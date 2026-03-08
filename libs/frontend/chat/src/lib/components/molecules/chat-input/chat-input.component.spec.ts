@@ -419,23 +419,22 @@ describe('ChatInputComponent', () => {
   // SLASH COMMAND NORMALIZATION (paste guardrails)
   // ============================================================================
 
-  describe('normalizeSlashCommand (paste guardrails)', () => {
-    it('should normalize "/orchestrate : args" to "/orchestrate args"', async () => {
-      // Simulate pasting a command with colon separator
+  describe('normalizeSlashCommand (passthrough for SDK namespace preservation)', () => {
+    it('should preserve namespaced plugin commands with colon', async () => {
       (component as any)._currentMessage.set(
-        '/orchestrate : Create TASK_2025_004'
+        '/ptah-core:orchestrate Create TASK_2025_004'
       );
 
       await component.handleSend();
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
-        '/orchestrate Create TASK_2025_004',
+        '/ptah-core:orchestrate Create TASK_2025_004',
         [],
         undefined
       );
     });
 
-    it('should normalize "/orchestrate:args" (no space around colon)', async () => {
+    it('should pass through commands as-is without modification', async () => {
       (component as any)._currentMessage.set(
         '/orchestrate:Create TASK_2025_004'
       );
@@ -443,7 +442,7 @@ describe('ChatInputComponent', () => {
       await component.handleSend();
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
-        '/orchestrate Create TASK_2025_004',
+        '/orchestrate:Create TASK_2025_004',
         [],
         undefined
       );
@@ -461,19 +460,7 @@ describe('ChatInputComponent', () => {
       );
     });
 
-    it('should NOT modify properly formatted slash commands', async () => {
-      (component as any)._currentMessage.set('/orchestrate Create TASK');
-
-      await component.handleSend();
-
-      expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
-        '/orchestrate Create TASK',
-        [],
-        undefined
-      );
-    });
-
-    it('should handle "/compact" with no args', async () => {
+    it('should pass through simple slash commands unchanged', async () => {
       (component as any)._currentMessage.set('/compact');
 
       await component.handleSend();
@@ -485,13 +472,13 @@ describe('ChatInputComponent', () => {
       );
     });
 
-    it('should normalize "/review-code : file.ts" with hyphenated command', async () => {
-      (component as any)._currentMessage.set('/review-code : file.ts');
+    it('should preserve colon in namespaced commands with args', async () => {
+      (component as any)._currentMessage.set('/ptah-core:review-code file.ts');
 
       await component.handleSend();
 
       expect(mockChatStore.sendOrQueueMessage).toHaveBeenCalledWith(
-        '/review-code file.ts',
+        '/ptah-core:review-code file.ts',
         [],
         undefined
       );

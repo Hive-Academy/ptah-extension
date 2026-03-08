@@ -62,26 +62,16 @@ export class MessageSenderService {
    * Normalize pasted/typed slash command format for SDK compatibility.
    *
    * Users may paste commands with extra separators like `:` or inconsistent spacing.
-   * The SDK expects: `/commandName args` (no colon, single space separator).
+   * Passes commands through as-is to preserve SDK namespace format:
+   * `/plugin-name:command-name args` (colon is the namespace separator).
    *
    * Examples:
-   *   "/orchestrate : Create TASK" → "/orchestrate Create TASK"
-   *   "/orchestrate:Create TASK"   → "/orchestrate Create TASK"
-   *   "/compact"                   → "/compact" (no change)
-   *   "regular message"            → "regular message" (no change)
+   *   "/ptah-core:orchestrate Create TASK" → preserved as-is
+   *   "/compact"                           → preserved as-is
+   *   "regular message"                    → preserved as-is
    */
   private normalizeSlashCommand(content: string): string {
-    if (!content.startsWith('/')) return content;
-
-    const match = content.match(
-      /^\/([a-zA-Z0-9][-a-zA-Z0-9]*)\s*:\s*([\s\S]*)$/
-    );
-    if (match) {
-      const commandName = match[1];
-      const args = match[2].trim();
-      return args ? `/${commandName} ${args}` : `/${commandName}`;
-    }
-
+    // Pass through — the SDK handles namespace resolution natively
     return content;
   }
 
