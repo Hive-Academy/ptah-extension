@@ -755,22 +755,6 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
-   * Normalize slash command format for SDK compatibility.
-   *
-   * Passes commands through as-is to preserve SDK namespace format:
-   * `/plugin-name:command-name args` (colon is the namespace separator).
-   *
-   * Examples:
-   *   "/ptah-core:orchestrate Create TASK" → preserved as-is
-   *   "/compact"                           → preserved as-is
-   *   "regular message"                    → preserved as-is
-   */
-  private normalizeSlashCommand(content: string): string {
-    // Pass through — the SDK handles namespace resolution natively
-    return content;
-  }
-
-  /**
    * Send message
    * FIX #8: Delegate smart routing to ChatStore (SRP violation fixed)
    */
@@ -779,8 +763,8 @@ export class ChatInputComponent implements OnInit {
     const images = this._pastedImages();
     if (!content && images.length === 0) return;
 
-    // Normalize slash commands (handles pasted commands with `:` separator)
-    const normalizedContent = this.normalizeSlashCommand(content);
+    // Slash commands passed through as-is — SDK handles namespace resolution natively
+    const normalizedContent = content;
 
     try {
       // FIX #8: Use ChatStore's sendOrQueueMessage method (routing logic moved to store)

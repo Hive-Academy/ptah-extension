@@ -416,10 +416,10 @@ describe('ChatInputComponent', () => {
   });
 
   // ============================================================================
-  // SLASH COMMAND NORMALIZATION (paste guardrails)
+  // SLASH COMMAND HANDLING (namespace preservation)
   // ============================================================================
 
-  describe('normalizeSlashCommand (passthrough for SDK namespace preservation)', () => {
+  describe('slash command handling (namespace preservation)', () => {
     it('should preserve namespaced plugin commands with colon', async () => {
       (component as any)._currentMessage.set(
         '/ptah-core:orchestrate Create TASK_2025_004'

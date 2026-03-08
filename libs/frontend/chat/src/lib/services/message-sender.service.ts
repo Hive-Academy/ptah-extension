@@ -59,23 +59,6 @@ export class MessageSenderService {
   // ============================================================================
 
   /**
-   * Normalize pasted/typed slash command format for SDK compatibility.
-   *
-   * Users may paste commands with extra separators like `:` or inconsistent spacing.
-   * Passes commands through as-is to preserve SDK namespace format:
-   * `/plugin-name:command-name args` (colon is the namespace separator).
-   *
-   * Examples:
-   *   "/ptah-core:orchestrate Create TASK" → preserved as-is
-   *   "/compact"                           → preserved as-is
-   *   "regular message"                    → preserved as-is
-   */
-  private normalizeSlashCommand(content: string): string {
-    // Pass through — the SDK handles namespace resolution natively
-    return content;
-  }
-
-  /**
    * Generate unique ID for messages/sessions
    */
   private generateId(): string {
@@ -167,10 +150,8 @@ export class MessageSenderService {
       return;
     }
 
-    // Sanitize content (trim whitespace) and normalize slash commands
-    const sanitized = this.normalizeSlashCommand(
-      this.validator.sanitize(content)
-    );
+    // Sanitize content (trim whitespace) — slash commands passed through as-is
+    const sanitized = this.validator.sanitize(content);
 
     const activeTab = this.tabManager.activeTab();
 

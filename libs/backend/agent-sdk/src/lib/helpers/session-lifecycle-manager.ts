@@ -545,8 +545,14 @@ export class SessionLifecycleManager {
     // Step 3: Determine if initial prompt is a slash command
     // SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects
     // in the async iterable. So slash commands must be passed as string to query().
+    // NOTE: If the message has file/image attachments, treat it as a regular message
+    // even if it starts with `/` — files can't be passed alongside a string prompt.
     const initialContent = initialPrompt?.content.trim() || '';
-    const isSlashCommand = /^\/[a-zA-Z]/.test(initialContent);
+    const hasAttachments =
+      (initialPrompt?.files && initialPrompt.files.length > 0) ||
+      (initialPrompt?.images && initialPrompt.images.length > 0);
+    const isSlashCommand =
+      /^\/[a-zA-Z]/.test(initialContent) && !hasAttachments;
 
     // For non-slash-command messages, queue them in the iterable as SDKUserMessage
     if (initialContent && !isSlashCommand) {
