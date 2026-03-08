@@ -342,6 +342,46 @@ export class SubagentRegistryService {
   }
 
   /**
+   * Get all running (non-background) subagents for a session.
+   *
+   * TASK_2025_185: Used by frontend to show confirmation before interrupting.
+   * Returns agents that are actively running and would be killed by an abort.
+   *
+   * @param parentSessionId - The parent session ID to query
+   * @returns Array of running SubagentRecords (excludes background agents)
+   *
+   * @example
+   * ```typescript
+   * const running = registry.getRunningBySession('session-uuid');
+   * console.log(`${running.length} agents would be interrupted`);
+   * ```
+   */
+  getRunningBySession(parentSessionId: string): SubagentRecord[] {
+    const running: SubagentRecord[] = [];
+
+    for (const record of this.registry.values()) {
+      if (
+        record.parentSessionId === parentSessionId &&
+        record.status === 'running' &&
+        !record.isBackground
+      ) {
+        running.push(record);
+      }
+    }
+
+    this.logger.debug(
+      '[SubagentRegistryService] getRunningBySession query result',
+      {
+        parentSessionId,
+        totalRecords: this.registry.size,
+        runningCount: running.length,
+      }
+    );
+
+    return running;
+  }
+
+  /**
    * Mark all running subagents as interrupted for a session.
    *
    * CRITICAL: Called by SessionLifecycleManager.endSession() when session aborts.

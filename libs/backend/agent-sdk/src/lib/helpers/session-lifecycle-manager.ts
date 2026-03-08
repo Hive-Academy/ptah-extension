@@ -38,6 +38,7 @@ import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
 import type { SdkMessageFactory } from './sdk-message-factory';
 import type { CompactionStartCallback } from './compaction-hook-handler';
+import { SlashCommandInterceptor } from './slash-command-interceptor';
 
 // Re-export for backward compatibility with other files
 export type { SDKUserMessage, ContentBlock };
@@ -121,6 +122,20 @@ export interface ExecuteQueryConfig {
    * Passed through to SdkQueryOptionsBuilder.
    */
   pluginPaths?: string[];
+}
+
+/**
+ * Configuration for slash command execution.
+ * Shared between SessionLifecycleManager and SdkAgentAdapter.
+ * @see TASK_2025_184
+ */
+export interface SlashCommandConfig {
+  sessionConfig?: AISessionConfig;
+  isPremium?: boolean;
+  mcpServerRunning?: boolean;
+  enhancedPromptsContent?: string;
+  pluginPaths?: string[];
+  onCompactionStart?: CompactionStartCallback;
 }
 
 /**
@@ -552,7 +567,7 @@ export class SessionLifecycleManager {
       (initialPrompt?.files && initialPrompt.files.length > 0) ||
       (initialPrompt?.images && initialPrompt.images.length > 0);
     const isSlashCommand =
-      /^\/[a-zA-Z]/.test(initialContent) && !hasAttachments;
+      SlashCommandInterceptor.isSlashCommand(initialContent) && !hasAttachments;
 
     // For non-slash-command messages, queue them in the iterable as SDKUserMessage
     if (initialContent && !isSlashCommand) {
@@ -616,12 +631,16 @@ export class SessionLifecycleManager {
     let effectivePrompt: string | AsyncIterable<SDKUserMessage>;
     let promptMode: string;
 
-    if (isResume) {
+    if (isSlashCommand) {
+      // TASK_2025_184: Slash commands MUST be passed as raw string prompt
+      // even when resuming. The SDK only parses commands from string prompts.
+      effectivePrompt = initialContent;
+      promptMode = isResume
+        ? 'string (slash command + resume)'
+        : 'string (slash command)';
+    } else if (isResume) {
       effectivePrompt = this.createIdlePromptStream(abortController);
       promptMode = 'idle+streamInput';
-    } else if (isSlashCommand) {
-      effectivePrompt = initialContent;
-      promptMode = 'string (slash command)';
     } else {
       effectivePrompt = queryOptions.prompt;
       promptMode = 'iterable';
@@ -713,6 +732,46 @@ export class SessionLifecycleManager {
     }
 
     this.logger.info(`[SessionLifecycle] Message queued for ${sessionId}`);
+  }
+
+  /**
+   * Execute a slash command as a new query within an existing session.
+   * Used when follow-up messages contain slash commands (e.g., /compact, /ptah-core:orchestrate).
+   * The SDK only parses slash commands from raw string prompts, not from SDKUserMessage objects,
+   * so we must start a new query with resume to maintain conversation context.
+   *
+   * @see TASK_2025_184 - Follow-up slash command support
+   */
+  async executeSlashCommandQuery(
+    sessionId: SessionId,
+    command: string,
+    config: SlashCommandConfig
+  ): Promise<ExecuteQueryResult> {
+    this.logger.info(
+      `[SessionLifecycle] Executing slash command query for session: ${sessionId}`,
+      { command: command.substring(0, 50) }
+    );
+
+    // Resolve real SDK UUID before endSession deletes the tabIdToRealId mapping
+    const realSessionId =
+      this.tabIdToRealId.get(sessionId as string) || (sessionId as string);
+
+    // Step 1: End the current session (abort existing query)
+    await this.endSession(sessionId);
+
+    // Step 2: Start a new query with resume using the REAL session ID
+    // executeQuery will detect isSlashCommand and pass it as a raw string to query()
+    return this.executeQuery({
+      sessionId,
+      sessionConfig: config.sessionConfig,
+      resumeSessionId: realSessionId,
+      initialPrompt: { content: command, files: [], images: [] },
+      onCompactionStart: config.onCompactionStart,
+      isPremium: config.isPremium,
+      mcpServerRunning: config.mcpServerRunning,
+      enhancedPromptsContent: config.enhancedPromptsContent,
+      pluginPaths: config.pluginPaths,
+    });
   }
 
   /**

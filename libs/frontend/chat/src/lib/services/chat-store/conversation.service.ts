@@ -21,6 +21,7 @@ import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';
 import { MessageValidationService } from '../message-validation.service';
+import { ConfirmationDialogService } from '../confirmation-dialog.service';
 
 @Injectable({ providedIn: 'root' })
 export class ConversationService {
@@ -555,6 +556,104 @@ export class ConversationService {
     } finally {
       // Always reset stopping flag
       this._isStopping.set(false);
+    }
+  }
+
+  /**
+   * Abort with confirmation dialog when sub-agents are running
+   *
+   * TASK_2025_185: Shows a warning dialog if sub-agents are actively running,
+   * giving the user a chance to cancel the abort. If no agents are running
+   * or no session exists, aborts immediately without confirmation.
+   *
+   * @returns true if aborted, false if user cancelled
+   */
+  async abortWithConfirmation(): Promise<boolean> {
+    // TASK_2025_185: Prevent concurrent invocations (same guard as abortCurrentMessage)
+    if (this._isStopping()) {
+      return false;
+    }
+
+    try {
+      // Get session ID from active tab (same pattern as continueConversation)
+      const activeTab = this.tabManager.activeTab();
+      const sessionId = activeTab?.claudeSessionId;
+
+      if (!sessionId) {
+        // No session — abort immediately without confirmation
+        console.log(
+          '[ConversationService] abortWithConfirmation: no session, aborting immediately'
+        );
+        await this.abortCurrentMessage();
+        return true;
+      }
+
+      // Check for running agents via RPC
+      let agentCount = 0;
+      let agentTypes = '';
+
+      try {
+        const result = await this.claudeRpcService.call('chat:running-agents', {
+          sessionId: sessionId as SessionId,
+        });
+        const agents = result.data?.agents ?? [];
+        agentCount = agents.length;
+        agentTypes = agents.map((a) => a.agentType).join(', ');
+      } catch (rpcError) {
+        // RPC failed — fail-safe: abort immediately without confirmation
+        console.warn(
+          '[ConversationService] abortWithConfirmation: RPC failed, falling back to immediate abort',
+          rpcError
+        );
+        await this.abortCurrentMessage();
+        return true;
+      }
+
+      if (agentCount === 0) {
+        // No running agents — abort immediately
+        console.log(
+          '[ConversationService] abortWithConfirmation: no running agents, aborting immediately'
+        );
+        await this.abortCurrentMessage();
+        return true;
+      }
+
+      // Agents are running — show confirmation dialog
+      console.log(
+        '[ConversationService] abortWithConfirmation: showing confirmation for',
+        agentCount,
+        'running agents'
+      );
+
+      const confirmationDialog = this.injector.get(ConfirmationDialogService);
+      const confirmed = await confirmationDialog.confirm({
+        title: 'Stop Running Agents?',
+        message: `${agentCount} agent(s) are still running (${agentTypes}). Stopping will interrupt their current work and any in-progress tool calls will be lost.`,
+        confirmLabel: 'Stop All',
+        cancelLabel: 'Keep Running',
+        confirmStyle: 'warning',
+      });
+
+      if (confirmed) {
+        console.log(
+          '[ConversationService] abortWithConfirmation: user confirmed, aborting'
+        );
+        await this.abortCurrentMessage();
+        return true;
+      }
+
+      console.log(
+        '[ConversationService] abortWithConfirmation: user cancelled, keeping agents running'
+      );
+      return false;
+    } catch (error) {
+      // Unexpected error — fail-safe: abort immediately
+      console.error(
+        '[ConversationService] abortWithConfirmation failed, falling back to immediate abort:',
+        error
+      );
+      await this.abortCurrentMessage();
+      return true;
     }
   }
 }

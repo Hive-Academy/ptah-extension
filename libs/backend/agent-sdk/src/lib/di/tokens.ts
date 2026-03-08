@@ -95,6 +95,9 @@ export const SDK_TOKENS = {
 
   /** Ptah CLI Registry (TASK_2025_167) */
   SDK_PTAH_CLI_REGISTRY: Symbol.for('SdkPtahCliRegistry'),
+
+  /** Slash Command Interceptor (TASK_2025_184) */
+  SDK_SLASH_COMMAND_INTERCEPTOR: Symbol.for('SdkSlashCommandInterceptor'),
 } as const;
 
 /**

@@ -176,6 +176,13 @@ export { PtahCliAdapter, PtahCliRegistry } from './lib/ptah-cli';
 export type { PtahCliPremiumConfig } from './lib/ptah-cli';
 
 // ============================================================
+// Slash Command Interceptor (TASK_2025_184)
+// Detects and classifies follow-up slash commands
+// ============================================================
+export { SlashCommandInterceptor } from './lib/helpers';
+export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
+
+// ============================================================
 // Stream Processing (shared SDK stream processor)
 // ============================================================
 export { SdkStreamProcessor } from './lib/stream-processing';

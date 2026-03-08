@@ -37,6 +37,7 @@ describe('ChatInputComponent', () => {
     clearQueueRestoreSignal: jest.fn(),
     sendOrQueueMessage: jest.fn().mockResolvedValue(undefined),
     abortCurrentMessage: jest.fn().mockResolvedValue(undefined),
+    abortWithConfirmation: jest.fn().mockResolvedValue(true),
   };
 
   const mockTabManager = {

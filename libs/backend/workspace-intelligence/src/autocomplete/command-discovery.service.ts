@@ -182,7 +182,7 @@ export class CommandDiscoveryService {
    * Get hardcoded built-in commands (from CLI docs)
    */
   private getBuiltinCommands(): CommandInfo[] {
-    // Only commands that work in SDK non-interactive mode (supportsNonInteractive=true)
+    // SDK commands (supportsNonInteractive=true) + natively handled commands
     return [
       {
         name: 'compact',
@@ -197,6 +197,21 @@ export class CommandDiscoveryService {
       {
         name: 'memory',
         description: 'Manage long-term memory (CLAUDE.md)',
+        scope: 'builtin',
+      },
+      {
+        name: 'clear',
+        description: 'Clear conversation and start fresh',
+        scope: 'builtin',
+      },
+      {
+        name: 'context',
+        description: 'Show current context and token usage',
+        scope: 'builtin',
+      },
+      {
+        name: 'cost',
+        description: 'Show API cost for current session',
         scope: 'builtin',
       },
     ];

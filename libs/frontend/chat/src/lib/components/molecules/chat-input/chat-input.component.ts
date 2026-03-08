@@ -796,12 +796,12 @@ export class ChatInputComponent implements OnInit {
 
   /**
    * Stop streaming (abort current response)
-   * Calls ChatStore.abortCurrentMessage() which invokes SDK's interrupt()
+   * TASK_2025_185: Uses abortWithConfirmation() to warn user about running sub-agents
    */
   async handleStop(): Promise<void> {
     try {
-      await this.chatStore.abortCurrentMessage();
-      console.log('[ChatInputComponent] Stopped streaming');
+      const aborted = await this.chatStore.abortWithConfirmation();
+      console.log('[ChatInputComponent] Stop requested, aborted:', aborted);
     } catch (error) {
       console.error('[ChatInputComponent] Failed to stop streaming:', error);
     }

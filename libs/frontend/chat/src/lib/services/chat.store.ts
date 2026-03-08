@@ -676,6 +676,15 @@ export class ChatStore {
   }
 
   /**
+   * Abort with confirmation when sub-agents are running
+   * TASK_2025_185: Shows warning dialog if agents are active, allows user to cancel
+   * @returns true if aborted, false if user cancelled
+   */
+  async abortWithConfirmation(): Promise<boolean> {
+    return this.conversation.abortWithConfirmation();
+  }
+
+  /**
    * Clear queued content for active tab
    * Delegates to TabManagerService (simple facade)
    */
@@ -696,45 +705,36 @@ export class ChatStore {
   }
 
   /**
-   * Interrupt current execution and send a new message (re-steering)
+   * Send queued message without interrupting current execution (graceful re-steering)
    *
-   * TASK_2025_100: This enables mid-execution re-steering. When user sends
-   * a message during streaming, we queue it. On message_complete, we:
-   * 1. Abort/interrupt the current execution (stops Claude's current plan)
-   * 2. Send the queued message (re-steers Claude to new direction)
+   * TASK_2025_185: Replaces interruptAndSend. Instead of aborting the current
+   * execution (which kills running sub-agents), we simply send the queued message.
+   * The SDK handles message queueing natively - agents continue running while
+   * the new user message is processed in order.
    *
-   * Without the interrupt, Claude would continue its previous plan and
-   * potentially ignore or delay processing the new user input.
-   *
-   * @param tabId - Tab to interrupt and send to
-   * @param content - Message content to send after interrupt
+   * @param tabId - Tab to send the queued message for
+   * @param content - Message content to send
    */
-  private async interruptAndSend(
+  private async sendQueuedMessage(
     tabId: string,
     content: string
   ): Promise<void> {
     try {
-      console.log('[ChatStore] interruptAndSend: aborting current execution');
+      console.log('[ChatStore] sendQueuedMessage: clearing queue and sending');
 
-      // Clear the queue first to prevent abort from trying to restore it to input
+      // Clear the queue before sending
       this.tabManager.updateTab(tabId, { queuedContent: null });
 
-      // Abort current execution - this signals SDK to stop
-      await this.abortCurrentMessage();
+      // TASK_2025_185: Call continueConversation directly instead of messageSender.send().
+      // messageSender.send() checks tab.status === 'loaded' which is false during streaming,
+      // causing it to incorrectly start a NEW conversation instead of continuing the existing one.
+      await this.conversation.continueConversation(content);
 
       console.log(
-        '[ChatStore] interruptAndSend: abort complete, sending new message'
+        '[ChatStore] sendQueuedMessage: queued message sent successfully'
       );
-
-      // Small delay to ensure abort is processed before new message
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
-      // Now send the queued message to re-steer Claude
-      await this.messageSender.send(content);
-
-      console.log('[ChatStore] interruptAndSend: re-steering message sent');
     } catch (error) {
-      console.error('[ChatStore] interruptAndSend failed:', error);
+      console.error('[ChatStore] sendQueuedMessage failed:', error);
       // On error, restore content to queue so user doesn't lose it
       this.tabManager.updateTab(tabId, { queuedContent: content });
     }
@@ -789,21 +789,17 @@ export class ChatStore {
       return; // Compaction events don't need further processing
     }
 
-    // TASK_2025_100: Handle re-steering via queued content on message_complete
+    // TASK_2025_100 / TASK_2025_185: Handle re-steering via queued content on message_complete
     // When user sends a message during streaming, it's queued. On message_complete,
-    // we INTERRUPT the current execution and send the queued message to re-steer Claude.
-    // Without interrupt, Claude continues its previous plan ignoring the new input.
+    // we send the queued message to re-steer Claude without aborting running agents.
+    // The SDK handles message queueing natively - agents continue running.
     if (result && result.queuedContent) {
-      console.log(
-        '[ChatStore] Re-steering: interrupting and sending queued content'
-      );
-      // Store queued content before abort (abort may clear queue state)
+      console.log('[ChatStore] Sending queued message (no interrupt)');
       const queuedContent = result.queuedContent;
       const resultTabId = result.tabId;
 
-      // First: Interrupt current execution so Claude stops its current plan
-      // Then: Send the queued message to re-steer Claude
-      this.interruptAndSend(resultTabId, queuedContent);
+      // Send the queued message without interrupting running agents
+      this.sendQueuedMessage(resultTabId, queuedContent);
     }
   }
 
@@ -994,22 +990,10 @@ export class ChatStore {
 
     // TASK_2025_101: Handle auto-send of queued content here to avoid circular dependency
     // (StreamingHandler → MessageSender → SessionLoader → StreamingHandler)
+    // TASK_2025_185: Use sendQueuedMessage for consistent error handling with queue restoration
     if (result && result.queuedContent && result.queuedContent.trim()) {
       console.log('[ChatStore] Auto-sending queued content after finalization');
-      this.messageSender
-        .send(result.queuedContent)
-        .then(() => {
-          // Clear queue only after successful send start
-          this.tabManager.updateTab(result.tabId, { queuedContent: null });
-          console.log('[ChatStore] Auto-send started, queue cleared');
-        })
-        .catch((error) => {
-          console.error(
-            '[ChatStore] Failed to auto-send queued content:',
-            error
-          );
-          // Keep content in queue on error (no data loss)
-        });
+      this.sendQueuedMessage(result.tabId, result.queuedContent);
     }
   }
 

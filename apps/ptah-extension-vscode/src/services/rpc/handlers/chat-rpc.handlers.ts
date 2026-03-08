@@ -28,6 +28,7 @@ import {
   SDK_TOKENS,
   PluginLoaderService,
   PtahCliRegistry,
+  SlashCommandInterceptor,
   type EnhancedPromptsService,
 } from '@ptah-extension/agent-sdk';
 
@@ -37,12 +38,15 @@ import {
   FlatStreamEventUnion,
   BackgroundAgentCompletedEvent,
   BackgroundAgentStartedEvent,
+  AISessionConfig,
   ChatStartParams,
   ChatStartResult,
   ChatContinueParams,
   ChatContinueResult,
   ChatAbortParams,
   ChatAbortResult,
+  ChatRunningAgentsParams,
+  ChatRunningAgentsResult,
   ChatResumeParams,
   ChatResumeResult,
   MESSAGE_TYPES,
@@ -84,6 +88,8 @@ export class ChatRpcHandlers {
     private readonly agentSessionWatcher: AgentSessionWatcherService,
     @inject(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)
     private readonly ptahCliRegistry: PtahCliRegistry,
+    @inject(SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR)
+    private readonly slashCommandInterceptor: SlashCommandInterceptor,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly sessionMetadataStore: {
       get(sessionId: string): Promise<{
@@ -447,6 +453,7 @@ export class ChatRpcHandlers {
     this.registerChatContinue();
     this.registerChatResume();
     this.registerChatAbort();
+    this.registerChatRunningAgents();
     this.registerBackgroundAgentHandlers();
     this.subscribeToBackgroundAgentEvents();
 
@@ -456,6 +463,7 @@ export class ChatRpcHandlers {
         'chat:continue',
         'chat:resume',
         'chat:abort',
+        'chat:running-agents',
         'agent:backgroundList',
         'agent:backgroundStop',
       ],
@@ -483,6 +491,43 @@ export class ChatRpcHandlers {
           // If ptahCliId is set, delegate to the Ptah CLI adapter
           if (params.ptahCliId) {
             return await this.handlePtahCliStart(params);
+          }
+
+          // TASK_2025_184: Intercept native slash commands on initial message
+          // For 'new-query' and 'passthrough', the existing flow handles them
+          // (SDK parses slash commands natively from string prompts in query())
+          const interceptResult = prompt
+            ? this.slashCommandInterceptor.intercept(prompt)
+            : { action: 'passthrough' as const };
+
+          if (interceptResult.action === 'native') {
+            this.logger.info('[RPC] chat:start - native command intercepted', {
+              command: interceptResult.commandName,
+            });
+
+            if (interceptResult.commandName === 'clear') {
+              // /clear as first message = no-op (fresh session anyway)
+              await this.webviewManager.broadcastMessage(
+                MESSAGE_TYPES.CHAT_COMPLETE,
+                {
+                  tabId,
+                  command: 'clear',
+                  message: 'Starting fresh conversation.',
+                }
+              );
+              return { success: true };
+            }
+
+            // For /context and /cost on a new session, there's nothing to show
+            await this.webviewManager.broadcastMessage(
+              MESSAGE_TYPES.CHAT_COMPLETE,
+              {
+                tabId,
+                command: interceptResult.commandName,
+                message: `No session data available yet for /${interceptResult.commandName}.`,
+              }
+            );
+            return { success: true };
           }
 
           // TASK_2025_108: Get license status for premium feature gating
@@ -694,16 +739,29 @@ export class ChatRpcHandlers {
           // TASK_2025_181: SDK handles slash commands natively when receiving string prompts.
           // No need to expand plugin commands manually — SDK resolves them via pluginPaths.
 
+          // TASK_2025_184: Intercept slash commands BEFORE subagent context injection.
+          // Slash commands (native + new-query) don't need subagent context, and running
+          // subagent logic first causes data loss — agents get removed from the registry
+          // even though the enhanced prompt is discarded by the command handler.
+          const slashResult = await this.handleFollowUpSlashCommand(
+            prompt,
+            sessionId,
+            tabId,
+            workspacePath,
+            params
+          );
+          if (slashResult) {
+            return slashResult;
+          }
+
           // TASK_2025_109: Inject interrupted subagent context into prompt
           // This enables Claude to automatically resume interrupted agents
           // instead of requiring user to know agent IDs or click Resume buttons.
-          // Skip injection for slash commands (e.g., /compact, /clear) — the SDK
-          // detects commands via startsWith("/"), so any prefix breaks detection.
+          // NOTE: Slash commands are already handled above (early return via handleFollowUpSlashCommand),
+          // so this block only runs for regular messages — no need for isSlashCommand guard.
           let enhancedPrompt = prompt;
-          const isSlashCommand = prompt.trim().startsWith('/');
-          const allResumable = isSlashCommand
-            ? []
-            : this.subagentRegistry.getResumableBySession(sessionId);
+          const allResumable =
+            this.subagentRegistry.getResumableBySession(sessionId);
 
           // Filter to only agents whose transcript files exist on disk.
           // Without a transcript, the SDK can't resume — it reports "transcript was lost".
@@ -804,7 +862,7 @@ IMPORTANT INSTRUCTIONS:
             }
           }
 
-          // Now send the message to the (now active) session
+          // Default: passthrough — send as regular message (existing flow)
           const images = params.images ?? [];
           await this.sdkAdapter.sendMessageToSession(
             sessionId,
@@ -828,6 +886,116 @@ IMPORTANT INSTRUCTIONS:
         }
       }
     );
+  }
+
+  /**
+   * Handle follow-up slash commands by intercepting and routing them.
+   * Returns a result if the command was handled, or null for passthrough.
+   *
+   * Extracted from registerChatContinue to reduce method complexity and
+   * ensure slash commands are intercepted BEFORE subagent context injection.
+   * @see TASK_2025_184
+   */
+  private async handleFollowUpSlashCommand(
+    prompt: string,
+    sessionId: SessionId,
+    tabId: string,
+    workspacePath: string | undefined,
+    params: ChatContinueParams
+  ): Promise<ChatContinueResult | null> {
+    const interceptResult = this.slashCommandInterceptor.intercept(prompt);
+
+    if (interceptResult.action === 'passthrough') {
+      return null; // Not a slash command, caller continues with normal flow
+    }
+
+    if (interceptResult.action === 'native') {
+      this.logger.info('[RPC] chat:continue - native command intercepted', {
+        command: interceptResult.commandName,
+        sessionId,
+      });
+
+      if (interceptResult.commandName === 'clear') {
+        // End the current session, frontend handles reset
+        await this.sdkAdapter.interruptSession(sessionId);
+        // Stop all agent session watchers (same as chat:abort)
+        this.agentSessionWatcher.stopAllForSession(sessionId as string);
+
+        await this.webviewManager.broadcastMessage(
+          MESSAGE_TYPES.CHAT_COMPLETE,
+          {
+            tabId,
+            sessionId,
+            command: 'clear',
+            message:
+              'Conversation cleared. Start a new message to begin fresh.',
+          }
+        );
+        return { success: true, sessionId };
+      }
+
+      // /context and /cost — feature not yet available
+      await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_COMPLETE, {
+        tabId,
+        sessionId,
+        command: interceptResult.commandName,
+        message: `/${interceptResult.commandName} is not yet available in Ptah. This feature is coming in a future update.`,
+      });
+      return { success: true, sessionId };
+    }
+
+    if (interceptResult.action === 'new-query') {
+      this.logger.info(
+        '[RPC] chat:continue - SDK slash command intercepted, starting new query',
+        {
+          command: interceptResult.rawCommand,
+          sessionId,
+        }
+      );
+
+      // Resolve premium config for the new query
+      const licenseStatus = await this.licenseService.verifyLicense();
+      const isPremium = isPremiumTier(licenseStatus);
+      const mcpServerRunning = this.isMcpServerRunning();
+      const enhancedPromptsContent = await this.resolveEnhancedPromptsContent(
+        workspacePath,
+        isPremium
+      );
+      const pluginPaths = this.resolvePluginPaths(isPremium);
+
+      // TASK_2025_184: Use rawCommand with fallback — safe regardless of whether
+      // SlashCommandResult uses discriminated union or optional rawCommand
+      const command = interceptResult.rawCommand ?? prompt;
+
+      // Execute the slash command as a new query with resume
+      const stream = await this.sdkAdapter.executeSlashCommand(
+        sessionId,
+        command,
+        {
+          sessionConfig: {
+            model:
+              params.model ||
+              this.configManager.getWithDefault<string>(
+                'model.selected',
+                'claude-sonnet-4-5-20250929'
+              ),
+            projectPath: workspacePath,
+          } as AISessionConfig,
+          isPremium,
+          mcpServerRunning,
+          enhancedPromptsContent,
+          pluginPaths,
+          tabId,
+        }
+      );
+
+      // Reconnect streaming to the frontend
+      this.streamExecutionNodesToWebview(sessionId, stream, tabId);
+
+      return { success: true, sessionId };
+    }
+
+    return null;
   }
 
   /**
@@ -990,6 +1158,41 @@ IMPORTANT INSTRUCTIONS:
         }
       }
     );
+  }
+
+  /**
+   * chat:running-agents - Query running (non-background) subagents for a session.
+   *
+   * TASK_2025_185: Used by frontend to show confirmation before aborting
+   * when agents are still running.
+   */
+  private registerChatRunningAgents(): void {
+    this.rpcHandler.registerMethod<
+      ChatRunningAgentsParams,
+      ChatRunningAgentsResult
+    >('chat:running-agents', async (params) => {
+      try {
+        const { sessionId } = params;
+        this.logger.debug('RPC: chat:running-agents called', { sessionId });
+
+        const running = this.subagentRegistry.getRunningBySession(
+          sessionId as string
+        );
+
+        return {
+          agents: running.map((r) => ({
+            agentId: r.agentId,
+            agentType: r.agentType,
+          })),
+        };
+      } catch (error) {
+        this.logger.error(
+          'RPC: chat:running-agents failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return { agents: [] };
+      }
+    });
   }
 
   // ============================================================================
@@ -1272,14 +1475,18 @@ IMPORTANT INSTRUCTIONS:
         }
       }
 
-      // Send error to webview (frontend handles abort vs error display)
-      await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_ERROR, {
-        tabId,
-        sessionId,
-        error: isCorruptedResume
-          ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
-          : errorMessage,
-      });
+      // Only send error to webview for real errors, not user-initiated aborts.
+      // User aborts include: stop button, /clear command, slash command re-query.
+      // These are handled by their own completion signals (CHAT_COMPLETE).
+      if (!isUserAbort) {
+        await this.webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_ERROR, {
+          tabId,
+          sessionId,
+          error: isCorruptedResume
+            ? 'Session could not be resumed. The conversation data may be corrupted. Please start a new session.'
+            : errorMessage,
+        });
+      }
     } finally {
       // Clean up Ptah CLI session tracking on stream completion (natural or error)
       this.ptahCliSessions.delete(sessionId as string);

@@ -40,6 +40,8 @@ import {
   // Compaction configuration and hooks (TASK_2025_098)
   CompactionConfigProvider,
   CompactionHookHandler,
+  // Slash command interceptor (TASK_2025_184)
+  SlashCommandInterceptor,
 } from '../helpers';
 import {
   PromptDesignerAgent,
@@ -326,6 +328,16 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
     { useClass: PtahCliRegistry },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Slash Command Interceptor (TASK_2025_184)
+  // Detects and classifies slash commands in follow-up messages
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
+    { useClass: SlashCommandInterceptor },
     { lifecycle: Lifecycle.Singleton }
   );
 

@@ -24,7 +24,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
  * - Celebrate successful agent generation
  * - Display generated agent files
  * - Show quick start guide with example commands
- * - Include /orchestrate example usage
+ * - Include /ptah-core:orchestrate example usage
  * - Add "Open Files" button to reveal .claude folder
  * - Add "Test Orchestration" button to launch chat with sample command
  *
@@ -135,14 +135,14 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                     <p class="text-xs opacity-70 mb-3 leading-relaxed">
                       Use the
                       <code class="bg-base-300 px-1.5 py-0.5 rounded text-xs"
-                        >/orchestrate</code
+                        >/ptah-core:orchestrate</code
                       >
                       command to start an intelligent workflow:
                     </p>
                     <div class="mockup-code text-xs mb-3">
                       <pre
                         data-prefix="$"
-                      ><code>/orchestrate Add user authentication</code></pre>
+                      ><code>/ptah-core:orchestrate Add user authentication</code></pre>
                     </div>
                     <p class="text-xs opacity-60 leading-relaxed">
                       The orchestrator will analyze your task and coordinate
@@ -224,7 +224,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                     <div class="mockup-code text-xs">
                       <pre
                         data-prefix="$"
-                      ><code>/orchestrate Fix login form validation</code></pre>
+                      ><code>/ptah-core:orchestrate Fix login form validation</code></pre>
                       <pre
                         data-prefix=" "
                         class="opacity-60"
@@ -234,7 +234,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                     <div class="mockup-code text-xs">
                       <pre
                         data-prefix="$"
-                      ><code>/orchestrate Refactor UserService</code></pre>
+                      ><code>/ptah-core:orchestrate Refactor UserService</code></pre>
                       <pre
                         data-prefix=" "
                         class="opacity-60"
@@ -244,7 +244,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                     <div class="mockup-code text-xs">
                       <pre
                         data-prefix="$"
-                      ><code>/orchestrate Create API docs</code></pre>
+                      ><code>/ptah-core:orchestrate Create API docs</code></pre>
                       <pre
                         data-prefix=" "
                         class="opacity-60"
@@ -260,7 +260,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                       <div class="mockup-code text-xs">
                         <pre
                           data-prefix="$"
-                        ><code>/orchestrate TASK_2025_XXX</code></pre>
+                        ><code>/ptah-core:orchestrate TASK_2025_XXX</code></pre>
                         <pre
                           data-prefix=" "
                           class="opacity-60"

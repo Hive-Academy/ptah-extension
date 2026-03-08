@@ -42,6 +42,7 @@ import {
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
+  type SlashCommandConfig,
 } from './helpers';
 import {
   ClaudeCliDetector,
@@ -663,6 +664,50 @@ export class SdkAgentAdapter implements IAIProvider {
       options?.files,
       options?.images as { data: string; mediaType: string }[] | undefined
     );
+  }
+
+  /**
+   * Execute a slash command within an existing session.
+   * Starts a new SDK query with the command as a string prompt,
+   * resuming the existing session to maintain conversation context.
+   *
+   * @see TASK_2025_184 - Follow-up slash command support
+   */
+  async executeSlashCommand(
+    sessionId: SessionId,
+    command: string,
+    config: SlashCommandConfig & { tabId?: string }
+  ): Promise<AsyncIterable<FlatStreamEventUnion>> {
+    if (!this.initialized) {
+      throw new Error(
+        'SdkAgentAdapter not initialized. Call initialize() first.'
+      );
+    }
+
+    this.logger.info(
+      `[SdkAgentAdapter] Executing slash command for session: ${sessionId}`,
+      { command: command.substring(0, 50) }
+    );
+
+    const { sdkQuery, initialModel } =
+      await this.sessionLifecycle.executeSlashCommandQuery(sessionId, command, {
+        sessionConfig: config.sessionConfig,
+        isPremium: config.isPremium,
+        mcpServerRunning: config.mcpServerRunning,
+        enhancedPromptsContent: config.enhancedPromptsContent,
+        pluginPaths: config.pluginPaths,
+        onCompactionStart: this.compactionStartCallback || undefined,
+      });
+
+    // Reuse existing stream transformation logic
+    return this.streamTransformer.transform({
+      sdkQuery,
+      sessionId,
+      initialModel,
+      onSessionIdResolved: this.sessionIdResolvedCallback || undefined,
+      onResultStats: this.resultStatsCallback || undefined,
+      tabId: config.tabId,
+    });
   }
 
   /**

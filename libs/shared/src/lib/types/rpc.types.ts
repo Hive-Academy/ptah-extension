@@ -124,6 +124,18 @@ export interface ChatAbortResult {
   error?: string;
 }
 
+/** Parameters for chat:running-agents RPC method (TASK_2025_185) */
+export interface ChatRunningAgentsParams {
+  /** Session ID to query running agents for */
+  sessionId: SessionId;
+}
+
+/** Response from chat:running-agents RPC method (TASK_2025_185) */
+export interface ChatRunningAgentsResult {
+  /** List of currently running (non-background) agents */
+  agents: { agentId: string; agentType: string }[];
+}
+
 /** Parameters for chat:resume RPC method */
 export interface ChatResumeParams {
   /** Session ID to resume */
@@ -1423,6 +1435,10 @@ export interface RpcMethodRegistry {
   'chat:continue': { params: ChatContinueParams; result: ChatContinueResult };
   'chat:resume': { params: ChatResumeParams; result: ChatResumeResult };
   'chat:abort': { params: ChatAbortParams; result: ChatAbortResult };
+  'chat:running-agents': {
+    params: ChatRunningAgentsParams;
+    result: ChatRunningAgentsResult;
+  };
 
   // ---- Session Methods ----
   'session:list': { params: SessionListParams; result: SessionListResult };
@@ -1784,6 +1800,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'chat:start',
   'chat:continue',
   'chat:abort',
+  'chat:running-agents',
   'chat:resume',
 
   // Session Methods

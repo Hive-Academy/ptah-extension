@@ -171,8 +171,8 @@ export class SessionRpcHandlers {
   }
 
   /**
-   * session:delete - Delete session metadata
-   * Note: This only deletes Ptah's metadata. SDK's JSONL files remain.
+   * session:delete - Delete session metadata AND JSONL files from disk
+   * Removes both Ptah's metadata and the SDK's session files from ~/.claude/projects/
    */
   private registerSessionDelete(): void {
     this.rpcHandler.registerMethod<
@@ -184,8 +184,22 @@ export class SessionRpcHandlers {
 
         this.logger.info('RPC: session:delete called', { sessionId });
 
-        // Delete metadata (SDK files remain in ~/.claude/projects/)
+        // Get workspace path from metadata BEFORE deleting it
+        const metadata = await this.metadataStore.get(sessionId as string);
+        const workspacePath = metadata?.workspaceId;
+
+        // Delete metadata first
         await this.metadataStore.delete(sessionId as string);
+
+        // Delete JSONL session file from disk
+        if (workspacePath) {
+          await this.deleteSessionFiles(sessionId as string, workspacePath);
+        } else {
+          this.logger.warn(
+            'RPC: session:delete - no workspace path in metadata, skipping file deletion',
+            { sessionId }
+          );
+        }
 
         this.logger.info('RPC: session:delete succeeded', { sessionId });
 
@@ -201,6 +215,120 @@ export class SessionRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * Delete session JSONL files from disk.
+   * Removes the main session file and any agent sub-session files.
+   * Fails gracefully if files don't exist (session may have been short-lived).
+   *
+   * Agent sub-sessions are stored in two possible layouts (SDK version dependent):
+   * - Current (nested): {sessionsDir}/{sessionId}/subagents/agent-{id}.jsonl
+   * - Legacy (flat): {sessionsDir}/agent-{id}.jsonl (filtered by sessionId match)
+   */
+  private async deleteSessionFiles(
+    sessionId: string,
+    workspacePath: string
+  ): Promise<void> {
+    const sessionFilePath = await this.findSessionFile(
+      sessionId,
+      workspacePath
+    );
+
+    if (!sessionFilePath) {
+      this.logger.debug(
+        'RPC: session:delete - JSONL file not found on disk (already deleted or never created)',
+        { sessionId }
+      );
+      return;
+    }
+
+    const sessionsDir = path.dirname(sessionFilePath);
+
+    // Delete the main session file
+    try {
+      await fs.unlink(sessionFilePath);
+      this.logger.info('RPC: session:delete - deleted JSONL file', {
+        sessionId,
+        filePath: sessionFilePath,
+      });
+    } catch (err) {
+      this.logger.warn('RPC: session:delete - failed to delete JSONL file', {
+        sessionId,
+        filePath: sessionFilePath,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // Delete agent sub-session files
+    let deletedSubagents = 0;
+
+    // 1. Current nested layout: {sessionsDir}/{sessionId}/subagents/
+    const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
+    try {
+      const subagentFiles = await fs.readdir(subagentsDir);
+      for (const file of subagentFiles) {
+        if (file.startsWith('agent-') && file.endsWith('.jsonl')) {
+          try {
+            await fs.unlink(path.join(subagentsDir, file));
+            deletedSubagents++;
+          } catch {
+            // Skip individual file failures
+          }
+        }
+      }
+      // Remove the subagents directory itself (if empty)
+      try {
+        await fs.rmdir(subagentsDir);
+      } catch {
+        // Not empty or doesn't exist — fine
+      }
+      // Remove the parent session directory (if empty)
+      try {
+        await fs.rmdir(path.join(sessionsDir, sessionId));
+      } catch {
+        // Not empty or doesn't exist — fine
+      }
+    } catch {
+      // Nested subagents directory doesn't exist — try legacy layout
+    }
+
+    // 2. Legacy flat layout: {sessionsDir}/agent-*.jsonl
+    // Only scan if no nested subagents were found
+    if (deletedSubagents === 0) {
+      try {
+        const allFiles = await fs.readdir(sessionsDir);
+        const agentFiles = allFiles.filter(
+          (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
+        );
+        for (const file of agentFiles) {
+          const filePath = path.join(sessionsDir, file);
+          try {
+            // Read first line to check if this agent belongs to our session
+            const content = await fs.readFile(filePath, 'utf-8');
+            const firstLine = content.split('\n')[0];
+            if (firstLine) {
+              const firstMsg = JSON.parse(firstLine);
+              if (firstMsg.sessionId === sessionId) {
+                await fs.unlink(filePath);
+                deletedSubagents++;
+              }
+            }
+          } catch {
+            // Skip unreadable/unparseable files
+          }
+        }
+      } catch {
+        // Directory not readable
+      }
+    }
+
+    if (deletedSubagents > 0) {
+      this.logger.info('RPC: session:delete - deleted subagent files', {
+        sessionId,
+        deletedSubagents,
+      });
+    }
   }
 
   /**

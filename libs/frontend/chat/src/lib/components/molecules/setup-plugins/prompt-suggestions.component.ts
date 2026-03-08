@@ -44,7 +44,7 @@ interface PromptItem {
  *
  * Features:
  * - 6 category tabs in a 3×2 mini-card grid (Build, Fix, Review, Creative, DevOps, Explore)
- * - Covers all Ptah skills: orchestration, /simplify, /review-*, 3D scenes, GSAP, content, DevOps
+ * - Covers all Ptah skills: orchestration, /ptah-core:simplify, /review-*, 3D scenes, GSAP, content, DevOps
  * - Selected tab shows prompt cards below with fade animation
  * - Clicking a prompt card emits full text to parent for chat input fill
  * - Egyptian/Anubis theme with hieroglyphic symbols
@@ -187,17 +187,17 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Orchestrate a feature',
-          text: '/orchestrate Build [describe your feature] with full workflow orchestration',
+          text: '/ptah-core:orchestrate Build [describe your feature] with full workflow orchestration',
           description: 'PM → Architect → Dev → QA pipeline',
         },
         {
           label: 'Create API endpoint',
-          text: '/orchestrate Create a REST API endpoint for [resource] with CRUD operations',
+          text: '/ptah-core:orchestrate Create a REST API endpoint for [resource] with CRUD operations',
           description: 'REST CRUD scaffold',
         },
         {
           label: 'Build a component',
-          text: '/orchestrate Add a new [component name] component with tests and documentation',
+          text: '/ptah-core:orchestrate Add a new [component name] component with tests and documentation',
           description: 'Component + tests + docs',
         },
       ],
@@ -210,17 +210,17 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Fix a bug',
-          text: "/orchestrate BUGFIX: Fix [describe the bug you're seeing]",
+          text: "/ptah-core:orchestrate BUGFIX: Fix [describe the bug you're seeing]",
           description: 'Diagnose → fix → verify',
         },
         {
           label: 'Simplify changed code',
-          text: '/simplify',
+          text: '/ptah-core:simplify',
           description: 'Review recent changes for reuse & quality',
         },
         {
           label: 'Refactor module',
-          text: '/orchestrate REFACTORING: Modernize [component/module] to use current patterns',
+          text: '/ptah-core:orchestrate REFACTORING: Modernize [component/module] to use current patterns',
           description: 'Modernize + optimize',
         },
       ],
@@ -233,17 +233,17 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Code quality review',
-          text: '/review-code',
+          text: '/ptah-core:review-code',
           description: 'Style, patterns, best practices',
         },
         {
           label: 'Logic correctness review',
-          text: '/review-logic',
+          text: '/ptah-core:review-logic',
           description: 'Business logic & edge cases',
         },
         {
           label: 'Security vulnerability scan',
-          text: '/review-security',
+          text: '/ptah-core:review-security',
           description: 'OWASP top 10, auth, injection',
         },
       ],
@@ -256,7 +256,7 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Design a landing page',
-          text: '/orchestrate CREATIVE: Design and build a landing page with hero section, features, and pricing',
+          text: '/ptah-core:orchestrate CREATIVE: Design and build a landing page with hero section, features, and pricing',
           description: 'UI/UX → Content → Frontend',
         },
         {
@@ -271,7 +271,7 @@ export class PromptSuggestionsComponent {
         },
         {
           label: 'Write technical content',
-          text: '/orchestrate CREATIVE: Write a technical blog post about [topic] based on our codebase implementation',
+          text: '/ptah-core:orchestrate CREATIVE: Write a technical blog post about [topic] based on our codebase implementation',
           description: 'Blog, docs, or video scripts',
         },
       ],
@@ -284,17 +284,17 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Setup CI/CD pipeline',
-          text: '/orchestrate DEVOPS: Set up CI/CD pipeline with automated testing and deployment',
+          text: '/ptah-core:orchestrate DEVOPS: Set up CI/CD pipeline with automated testing and deployment',
           description: 'GitHub Actions / Docker',
         },
         {
           label: 'Dockerize the project',
-          text: '/orchestrate DEVOPS: Create Docker configuration with multi-stage build and compose setup',
+          text: '/ptah-core:orchestrate DEVOPS: Create Docker configuration with multi-stage build and compose setup',
           description: 'Dockerfile + docker-compose',
         },
         {
           label: 'Setup infrastructure',
-          text: '/orchestrate DEVOPS: Configure deployment infrastructure with database, caching, and monitoring',
+          text: '/ptah-core:orchestrate DEVOPS: Configure deployment infrastructure with database, caching, and monitoring',
           description: 'DB + Redis + observability',
         },
       ],
@@ -307,12 +307,12 @@ export class PromptSuggestionsComponent {
       prompts: [
         {
           label: 'Analyze architecture',
-          text: '/orchestrate RESEARCH: Analyze the codebase architecture and document key patterns',
+          text: '/ptah-core:orchestrate RESEARCH: Analyze the codebase architecture and document key patterns',
           description: 'Architecture deep-dive',
         },
         {
           label: 'Generate documentation',
-          text: '/orchestrate DOCUMENTATION: Generate comprehensive API documentation for [module]',
+          text: '/ptah-core:orchestrate DOCUMENTATION: Generate comprehensive API documentation for [module]',
           description: 'API docs + usage examples',
         },
         {
