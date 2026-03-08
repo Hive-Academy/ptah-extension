@@ -265,7 +265,7 @@ Extract components from architect's plan, group into 3-5 task batches respecting
 
 **STEP 4: Create tasks.md**
 
-Use Write tool to create `task-tracking/TASK_[ID]/tasks.md`:
+Use Write tool to create `.claude/specs/TASK_[ID]/tasks.md`:
 
 ```markdown
 # Development Tasks - TASK\_[ID]

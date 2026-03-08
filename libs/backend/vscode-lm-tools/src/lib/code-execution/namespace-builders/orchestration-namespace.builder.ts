@@ -72,7 +72,7 @@ const PHASE_CHECKPOINTS: Record<OrchestrationPhase, string | null> = {
 
 /**
  * Build orchestration namespace for state management
- * Persists workflow state to task-tracking/TASK_XXX/.orchestration-state.json
+ * Persists workflow state to .claude/specs/TASK_XXX/.orchestration-state.json
  *
  * @param deps - Dependencies including workspace root
  * @returns OrchestrationNamespace with getState, setState, and getNextAction methods

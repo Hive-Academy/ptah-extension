@@ -177,7 +177,7 @@ class OrderService {
 
 ```bash
 # Discover ALL documents in task folder (NEVER assume what exists)
-Glob(task-tracking/TASK_[ID]/**.md)
+Glob(.claude/specs/TASK_[ID]/**.md)
 ```
 
 ### STEP 2: Read Task Assignment (PRIMARY PRIORITY)
@@ -185,7 +185,7 @@ Glob(task-tracking/TASK_[ID]/**.md)
 ```bash
 # Check if team-leader created tasks.md
 if tasks.md exists:
-  Read(task-tracking/TASK_[ID]/tasks.md)
+  Read(.claude/specs/TASK_[ID]/tasks.md)
 
   # CRITICAL: Check for BATCH assignment
   # Look for batch marked "🔄 IN PROGRESS - Assigned to backend-developer"
@@ -219,10 +219,10 @@ if tasks.md exists:
 
 ```bash
 # Read implementation plan for context
-Read(task-tracking/TASK_[ID]/implementation-plan.md)
+Read(.claude/specs/TASK_[ID]/implementation-plan.md)
 
 # Read requirements for business context
-Read(task-tracking/TASK_[ID]/task-description.md)
+Read(.claude/specs/TASK_[ID]/task-description.md)
 ```
 
 ### STEP 4: Read Library Documentation
@@ -543,7 +543,7 @@ npx nx build backend-api
 4. **Update tasks.md status** (implementation status only, NOT commit):
 
 ```bash
-Edit(task-tracking/TASK_[ID]/tasks.md)
+Edit(.claude/specs/TASK_[ID]/tasks.md)
 # For EACH task in batch: Change "⏸️ PENDING" → "🔄 IMPLEMENTED"
 # NOTE: Team-leader will change to "✅ COMPLETE" after commit
 ```
@@ -1060,7 +1060,7 @@ export class OrderService {
 
 - ✅ [file-path-1] (COMPLETE - real implementation)
 - ✅ [file-path-2] (COMPLETE - real implementation)
-- ✅ task-tracking/TASK\_[ID]/tasks.md (status updated to 🔄 IMPLEMENTED)
+- ✅ .claude/specs/TASK\_[ID]/tasks.md (status updated to 🔄 IMPLEMENTED)
 
 **Ready For**: Team-leader verification → Business-analyst review → Git commit
 

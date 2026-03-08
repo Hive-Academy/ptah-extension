@@ -49,6 +49,6 @@ import { ... } from '@ptah-extension/agent-generation';
 
 ## Related Documentation
 
-- Task Tracking: `task-tracking/TASK_2025_058/`
-- Implementation Plan: `task-tracking/TASK_2025_058/implementation-plan.md`
-- Extraction Plan: `task-tracking/TASK_2025_058/extraction-plan.md`
+- Task Tracking: `.claude/specs/TASK_2025_058/`
+- Implementation Plan: `.claude/specs/TASK_2025_058/implementation-plan.md`
+- Extraction Plan: `.claude/specs/TASK_2025_058/extraction-plan.md`

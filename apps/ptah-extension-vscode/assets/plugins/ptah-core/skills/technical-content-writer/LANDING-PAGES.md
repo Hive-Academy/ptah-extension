@@ -60,15 +60,15 @@ Read(CLAUDE.md)
 Read(libs/*/CLAUDE.md)
 
 # 2. Find the story
-Grep("<feature>", task-tracking/registry.md)
-Read(task-tracking/TASK_XXXX/context.md)
+Grep("<feature>", .claude/specs/registry.md)
+Read(.claude/specs/TASK_XXXX/context.md)
 
 # 3. Check design specs
-Read(task-tracking/TASK_2025_072/visual-design-specification.md)
-Read(task-tracking/TASK_2025_072/context.md)
+Read(.claude/specs/TASK_2025_072/visual-design-specification.md)
+Read(.claude/specs/TASK_2025_072/context.md)
 
 # 4. Review design assets
-Glob(task-tracking/TASK_2025_072/design-assets/*)
+Glob(.claude/specs/TASK_2025_072/design-assets/*)
 ```
 
 ---

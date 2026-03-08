@@ -74,7 +74,7 @@ Task({
   description: 'Create design system for TASK_2025_047',
   prompt: `You are ui-ux-designer for TASK_2025_047.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_047
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_047
 **Goal**: Create a complete design system for Ptah VS Code extension landing page
 
 Guide through niche discovery, then create design system.
@@ -314,9 +314,9 @@ Task({
   description: 'Create landing page content for TASK_2025_047',
   prompt: `You are technical-content-writer for TASK_2025_047.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_047
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_047
 **Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
-**Visual Spec**: Read task-tracking/TASK_2025_047/visual-design-specification.md
+**Visual Spec**: Read .claude/specs/TASK_2025_047/visual-design-specification.md
 
 Create landing page content that integrates with the design system.
 See technical-content-writer.md for detailed instructions.`,
@@ -593,9 +593,9 @@ Task({
   description: 'Implement landing page for TASK_2025_047',
   prompt: `You are frontend-developer for TASK_2025_047.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_047
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_047
 **Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
-**Content Spec**: Read task-tracking/TASK_2025_047/content-specification.md
+**Content Spec**: Read .claude/specs/TASK_2025_047/content-specification.md
 
 Implement the landing page with design system integration.
 See frontend-developer.md for detailed instructions.`,
@@ -663,7 +663,7 @@ Task({
   description: 'Review landing page for TASK_2025_047',
   prompt: `You are code-style-reviewer for TASK_2025_047.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_047
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_047
 **Changes**: New landing page components
 
 Review for Angular patterns and design system consistency.
@@ -728,10 +728,10 @@ Summary:
 Deliverables:
 
 1. Brand Design System (.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
-2. Visual Specification (task-tracking/TASK_2025_047/visual-design-specification.md)
-3. Content Specification (task-tracking/TASK_2025_047/content-specification.md)
+2. Visual Specification (.claude/specs/TASK_2025_047/visual-design-specification.md)
+3. Content Specification (.claude/specs/TASK_2025_047/content-specification.md)
 4. Landing Page Components (apps/landing/src/app/\*)
-5. Style Review (task-tracking/TASK_2025_047/code-review.md)
+5. Style Review (.claude/specs/TASK_2025_047/code-review.md)
 
 Design Aesthetic: "Cosmic Developer"
 

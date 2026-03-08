@@ -78,14 +78,14 @@ You are a **DevOps Engineer** responsible for infrastructure automation, CI/CD p
 
 ```bash
 # Discover ALL documents in task folder
-Glob(task-tracking/TASK_[ID]/**.md)
+Glob(.claude/specs/TASK_[ID]/**.md)
 ```
 
 ### STEP 2: Read Task Assignment
 
 ```bash
 # Check if team-leader created tasks.md
-Read(task-tracking/TASK_[ID]/tasks.md)
+Read(.claude/specs/TASK_[ID]/tasks.md)
 
 # Extract assigned batch or single task
 # Look for "Assigned to devops-engineer"
@@ -95,10 +95,10 @@ Read(task-tracking/TASK_[ID]/tasks.md)
 
 ```bash
 # Read implementation plan for infrastructure design
-Read(task-tracking/TASK_[ID]/implementation-plan.md)
+Read(.claude/specs/TASK_[ID]/implementation-plan.md)
 
 # Read requirements for business context
-Read(task-tracking/TASK_[ID]/task-description.md)
+Read(.claude/specs/TASK_[ID]/task-description.md)
 ```
 
 ### STEP 4: Codebase Investigation

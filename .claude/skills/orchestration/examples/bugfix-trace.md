@@ -58,7 +58,7 @@ Task({
   description: 'Investigate memory leak for TASK_2025_046',
   prompt: `You are researcher-expert for TASK_2025_046.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_046
 **Bug Report**: "Memory leak in chat history - messages not being cleaned up when session closes"
 
 Investigate the memory leak:
@@ -134,7 +134,7 @@ Task({
   prompt: `You are team-leader for TASK_2025_046.
 
 **MODE**: 1 - DECOMPOSITION
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_046
 **Research Report**: Read research-report.md for root cause analysis
 
 Create tasks for the bugfix.
@@ -174,7 +174,7 @@ Task({
   description: 'Fix memory leak for TASK_2025_046',
   prompt: `You are frontend-developer for TASK_2025_046.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_046
 **Tasks**: Read tasks.md, find Batch 1 (IN PROGRESS)
 **Research**: Read research-report.md for root cause details
 
@@ -215,7 +215,7 @@ Task({
   prompt: `You are team-leader for TASK_2025_046.
 
 **MODE**: 2 - VERIFY + ASSIGN
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_046
 **Developer Report**: Frontend developer completed Batch 1
 
 Verify implementation, create commit.
@@ -256,7 +256,7 @@ Task({
   prompt: `You are team-leader for TASK_2025_046.
 
 **MODE**: 3 - COMPLETION
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_046
 
 All batches complete. Perform final verification.
 See team-leader.md for MODE 3 instructions.`,
@@ -320,7 +320,7 @@ Task({
   description: 'Test bugfix for TASK_2025_046',
   prompt: `You are senior-tester for TASK_2025_046.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_046
 **Bug**: Memory leak in chat message cleanup
 **Fix**: See tasks.md for implemented changes
 
@@ -418,7 +418,7 @@ Task({
   description: 'Analyze improvements for TASK_2025_046',
   prompt: `You are modernization-detector for TASK_2025_046.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_046
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_046
 **Changes**: Memory leak fix in chat module
 
 Identify related improvement opportunities.

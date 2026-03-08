@@ -123,8 +123,8 @@ Before any design work, also check for existing project context:
 Read(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
 
 # Check for project requirements
-Glob(task-tracking/TASK_*/visual-design-specification.md)
-Read(task-tracking/TASK_*/context.md)
+Glob(.claude/specs/TASK_*/visual-design-specification.md)
+Read(.claude/specs/TASK_*/context.md)
 ```
 
 ---
@@ -137,11 +137,11 @@ Save to: `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
 
 ### Visual Specification Output
 
-Save to: `task-tracking/TASK_[ID]/visual-design-specification.md`
+Save to: `.claude/specs/TASK_[ID]/visual-design-specification.md`
 
 ### Asset Documentation Output
 
-Save to: `task-tracking/TASK_[ID]/design-assets-inventory.md`
+Save to: `.claude/specs/TASK_[ID]/design-assets-inventory.md`
 
 ---
 

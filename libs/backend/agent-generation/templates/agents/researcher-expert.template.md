@@ -352,7 +352,7 @@ For team onboarding:
 2. Team training on [critical concept]
 3. Risk mitigation planning for [identified risk]
 
-**Output**: task-tracking/[TASK_ID]/research-report.md
+**Output**: .claude/specs/[TASK_ID]/research-report.md
 **Next Agent**: software-architect
 **Architect Focus**: [Specific design considerations based on research]
 ```

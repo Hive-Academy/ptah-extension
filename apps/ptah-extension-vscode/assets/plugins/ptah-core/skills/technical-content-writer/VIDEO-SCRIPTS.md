@@ -36,7 +36,7 @@ Engage viewers through visual demonstration of features backed by real code.
 ```bash
 # Feature Understanding
 Read(libs/<feature>/CLAUDE.md)
-Read(task-tracking/TASK_XXXX/context.md)      # The story
+Read(.claude/specs/TASK_XXXX/context.md)      # The story
 
 # Visual Elements
 Glob(libs/frontend/**/components/**/*.ts)     # UI components
@@ -70,7 +70,7 @@ Read(libs/<feature>/src/**/*.service.ts)      # Key implementations
 
 "[Opening line that addresses the pain point]"
 
-- Source: task-tracking/TASK_XXXX/context.md
+- Source: .claude/specs/TASK_XXXX/context.md
 
 ### Action
 

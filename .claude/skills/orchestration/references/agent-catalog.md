@@ -62,12 +62,12 @@ Comprehensive catalog of all 13 specialist agents with capabilities, triggers, a
 **Inputs**:
 
 - User request description
-- Context from `task-tracking/TASK_[ID]/context.md`
+- Context from `.claude/specs/TASK_[ID]/context.md`
 - Codebase investigation results
 
 **Outputs**:
 
-- `task-tracking/TASK_[ID]/task-description.md`
+- `.claude/specs/TASK_[ID]/task-description.md`
 
 **Dependencies**: None (first agent in most workflows)
 
@@ -81,7 +81,7 @@ Task({
   description: 'Create requirements for TASK_2025_042',
   prompt: `You are project-manager for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **User Request**: "Add WebSocket support for real-time updates"
 
 Analyze the request and create comprehensive requirements.
@@ -104,13 +104,13 @@ See project-manager.md for detailed instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/task-description.md`
+- `.claude/specs/TASK_[ID]/task-description.md`
 - Research reports (if available)
 - Codebase analysis results
 
 **Outputs**:
 
-- `task-tracking/TASK_[ID]/implementation-plan.md`
+- `.claude/specs/TASK_[ID]/implementation-plan.md`
 
 **Dependencies**: project-manager (for FEATURE), researcher-expert (optional)
 
@@ -124,7 +124,7 @@ Task({
   description: 'Design implementation for TASK_2025_042',
   prompt: `You are software-architect for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Requirements**: Read task-description.md in task folder
 
 Design the technical implementation plan.
@@ -146,13 +146,13 @@ See software-architect.md for detailed instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/implementation-plan.md`
-- `task-tracking/TASK_[ID]/tasks.md` (for MODE 2/3)
+- `.claude/specs/TASK_[ID]/implementation-plan.md`
+- `.claude/specs/TASK_[ID]/tasks.md` (for MODE 2/3)
 - Developer implementation reports
 
 **Outputs**:
 
-- `task-tracking/TASK_[ID]/tasks.md` (creates and updates)
+- `.claude/specs/TASK_[ID]/tasks.md` (creates and updates)
 - Git commits (after verification)
 - Developer assignment prompts
 
@@ -170,7 +170,7 @@ Task({
   prompt: `You are team-leader for TASK_2025_042.
 
 **MODE**: 1 - DECOMPOSITION
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Implementation Plan**: Read implementation-plan.md in task folder
 
 Break down the implementation into atomic, batchable tasks.
@@ -195,14 +195,14 @@ See team-leader.md for MODE 1 instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/tasks.md` (assigned batch)
-- `task-tracking/TASK_[ID]/implementation-plan.md`
+- `.claude/specs/TASK_[ID]/tasks.md` (assigned batch)
+- `.claude/specs/TASK_[ID]/implementation-plan.md`
 - Library CLAUDE.md files
 
 **Outputs**:
 
 - Source files in `libs/backend/`, `apps/ptah-extension-vscode/`
-- Updates to `task-tracking/TASK_[ID]/tasks.md` (status: IMPLEMENTED)
+- Updates to `.claude/specs/TASK_[ID]/tasks.md` (status: IMPLEMENTED)
 
 **Dependencies**: team-leader (batch assignment)
 
@@ -216,7 +216,7 @@ Task({
   description: 'Implement Batch 1 for TASK_2025_042',
   prompt: `You are backend-developer for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Tasks**: Read tasks.md, find Batch 1 (IN PROGRESS)
 **Plan**: Read implementation-plan.md for context
 
@@ -240,14 +240,14 @@ See backend-developer.md for detailed instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/tasks.md` (assigned batch)
-- `task-tracking/TASK_[ID]/implementation-plan.md`
+- `.claude/specs/TASK_[ID]/tasks.md` (assigned batch)
+- `.claude/specs/TASK_[ID]/implementation-plan.md`
 - Library CLAUDE.md files
 
 **Outputs**:
 
 - Source files in `libs/frontend/`, `apps/ptah-extension-webview/`
-- Updates to `task-tracking/TASK_[ID]/tasks.md` (status: IMPLEMENTED)
+- Updates to `.claude/specs/TASK_[ID]/tasks.md` (status: IMPLEMENTED)
 
 **Dependencies**: team-leader (batch assignment)
 
@@ -261,7 +261,7 @@ Task({
   description: 'Implement Batch 2 for TASK_2025_042',
   prompt: `You are frontend-developer for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Tasks**: Read tasks.md, find Batch 2 (IN PROGRESS)
 **Plan**: Read implementation-plan.md for context
 
@@ -286,7 +286,7 @@ See frontend-developer.md for detailed instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/implementation-plan.md`
+- `.claude/specs/TASK_[ID]/implementation-plan.md`
 - Existing workflow files (`.github/workflows/`)
 - Infrastructure configs (`Dockerfile`, `terraform/`)
 
@@ -294,7 +294,7 @@ See frontend-developer.md for detailed instructions.`,
 
 - Configuration files (`.github/workflows/`, `Dockerfile`, etc.)
 - Infrastructure scripts
-- Updates to `task-tracking/TASK_[ID]/tasks.md` (status: IMPLEMENTED)
+- Updates to `.claude/specs/TASK_[ID]/tasks.md` (status: IMPLEMENTED)
 
 **Dependencies**: software-architect (for DEVOPS strategy)
 
@@ -308,7 +308,7 @@ Task({
   description: 'Implement infrastructure for TASK_2025_042',
   prompt: `You are devops-engineer for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Plan**: Read implementation-plan.md for infrastructure design
 
 Implement the infrastructure changes.
@@ -333,14 +333,14 @@ See devops-engineer.md for detailed instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/tasks.md` (completed tasks)
-- `task-tracking/TASK_[ID]/implementation-plan.md`
+- `.claude/specs/TASK_[ID]/tasks.md` (completed tasks)
+- `.claude/specs/TASK_[ID]/implementation-plan.md`
 - Modified source files
 
 **Outputs**:
 
 - Test files (`*.spec.ts`)
-- `task-tracking/TASK_[ID]/test-report.md`
+- `.claude/specs/TASK_[ID]/test-report.md`
 
 **Dependencies**: Implementation complete (all batches)
 
@@ -354,7 +354,7 @@ Task({
   description: 'Test implementation for TASK_2025_042',
   prompt: `You are senior-tester for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Changes**: Review tasks.md for implemented changes
 **Plan**: Read implementation-plan.md for expected behavior
 
@@ -377,13 +377,13 @@ See senior-tester.md for detailed instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/tasks.md` (file list)
+- `.claude/specs/TASK_[ID]/tasks.md` (file list)
 - Modified source files
 - Project style guidelines
 
 **Outputs**:
 
-- `task-tracking/TASK_[ID]/code-review.md` (style section)
+- `.claude/specs/TASK_[ID]/code-review.md` (style section)
 
 **Dependencies**: Implementation complete (all batches)
 
@@ -397,7 +397,7 @@ Task({
   description: 'Review code style for TASK_2025_042',
   prompt: `You are code-style-reviewer for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Changes**: Review tasks.md for modified files
 
 Review code for style, patterns, and consistency.
@@ -420,13 +420,13 @@ See code-style-reviewer.md for detailed instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/tasks.md` (file list)
-- `task-tracking/TASK_[ID]/implementation-plan.md`
+- `.claude/specs/TASK_[ID]/tasks.md` (file list)
+- `.claude/specs/TASK_[ID]/implementation-plan.md`
 - Modified source files
 
 **Outputs**:
 
-- `task-tracking/TASK_[ID]/code-review.md` (logic section)
+- `.claude/specs/TASK_[ID]/code-review.md` (logic section)
 
 **Dependencies**: Implementation complete (all batches)
 
@@ -440,7 +440,7 @@ Task({
   description: 'Review code logic for TASK_2025_042',
   prompt: `You are code-logic-reviewer for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Changes**: Review tasks.md for modified files
 **Plan**: Read implementation-plan.md for expected behavior
 
@@ -468,12 +468,12 @@ See code-logic-reviewer.md for detailed instructions.`,
 **Inputs**:
 
 - Research question/hypothesis
-- `task-tracking/TASK_[ID]/context.md`
+- `.claude/specs/TASK_[ID]/context.md`
 - External documentation links
 
 **Outputs**:
 
-- `task-tracking/TASK_[ID]/research-report.md`
+- `.claude/specs/TASK_[ID]/research-report.md`
 
 **Dependencies**: project-manager (optional context)
 
@@ -487,7 +487,7 @@ Task({
   description: 'Research WebSocket options for TASK_2025_042',
   prompt: `You are researcher-expert for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Research Question**: "Best WebSocket library for VS Code extension"
 
 Investigate options, create comparison matrix, recommend approach.
@@ -510,13 +510,13 @@ See researcher-expert.md for detailed instructions.`,
 
 **Inputs**:
 
-- `task-tracking/TASK_[ID]/tasks.md` (what was implemented)
+- `.claude/specs/TASK_[ID]/tasks.md` (what was implemented)
 - Modified source files
 - Codebase structure
 
 **Outputs**:
 
-- `task-tracking/TASK_[ID]/future-enhancements.md`
+- `.claude/specs/TASK_[ID]/future-enhancements.md`
 
 **Dependencies**: Implementation and QA complete
 
@@ -530,7 +530,7 @@ Task({
   description: 'Analyze future improvements for TASK_2025_042',
   prompt: `You are modernization-detector for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Changes**: Review tasks.md for what was implemented
 
 Identify opportunities for future improvements and tech debt.
@@ -558,12 +558,12 @@ See modernization-detector.md for detailed instructions.`,
 
 - Brand requirements/preferences
 - Reference designs/competitors
-- `task-tracking/TASK_[ID]/context.md`
+- `.claude/specs/TASK_[ID]/context.md`
 
 **Outputs**:
 
 - `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
-- `task-tracking/TASK_[ID]/visual-design-specification.md`
+- `.claude/specs/TASK_[ID]/visual-design-specification.md`
 
 **Dependencies**: project-manager (optional context)
 
@@ -577,7 +577,7 @@ Task({
   description: 'Create design system for TASK_2025_042',
   prompt: `You are ui-ux-designer for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Goal**: Create brand design system for the project
 
 Guide through niche discovery, create design system.
@@ -607,7 +607,7 @@ See ui-ux-designer.md for detailed instructions.`,
 
 **Outputs**:
 
-- `task-tracking/TASK_[ID]/content-specification.md`
+- `.claude/specs/TASK_[ID]/content-specification.md`
 - `docs/content/*.md` (final content)
 
 **Dependencies**: ui-ux-designer (for CREATIVE workflow)
@@ -622,7 +622,7 @@ Task({
   description: 'Create landing page content for TASK_2025_042',
   prompt: `You are technical-content-writer for TASK_2025_042.
 
-**Task Folder**: D:/projects/ptah-extension/task-tracking/TASK_2025_042
+**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_042
 **Design System**: Read .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
 **Goal**: Create landing page content for the VS Code extension
 

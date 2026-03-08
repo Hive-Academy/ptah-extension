@@ -147,7 +147,7 @@ describe('FilePickerService', () => {
         directory: '',
       }),
       createFileSuggestion({
-        path: '/workspace/task-tracking/README.md',
+        path: '/workspace/.claude/specs/README.md',
         name: 'README.md',
         directory: 'task-tracking',
       }),
@@ -504,7 +504,7 @@ describe('FilePickerService', () => {
           directory: '',
         }),
         createFileSuggestion({
-          path: '/workspace/task-tracking/README.md',
+          path: '/workspace/.claude/specs/README.md',
           name: 'README.md',
           directory: 'task-tracking',
         }),

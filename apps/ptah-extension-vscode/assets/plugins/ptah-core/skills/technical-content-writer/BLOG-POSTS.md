@@ -35,9 +35,9 @@ Educate developers, demonstrate expertise, drive organic traffic through technic
 
 ```bash
 # Find the story
-Read(task-tracking/TASK_XXXX/context.md)      # The problem
-Read(task-tracking/TASK_XXXX/task-description.md)  # Requirements
-Read(task-tracking/TASK_XXXX/implementation-plan.md)  # Solution approach
+Read(.claude/specs/TASK_XXXX/context.md)      # The problem
+Read(.claude/specs/TASK_XXXX/task-description.md)  # Requirements
+Read(.claude/specs/TASK_XXXX/implementation-plan.md)  # Solution approach
 
 # Find the code
 Read(libs/<library>/CLAUDE.md)                # Library overview
@@ -45,7 +45,7 @@ Glob(libs/<library>/src/**/*.service.ts)      # Implementation
 Grep("<pattern>", libs/<library>)             # Specific patterns
 
 # Find related work
-Grep("<feature>", task-tracking/registry.md)  # Related tasks
+Grep("<feature>", .claude/specs/registry.md)  # Related tasks
 ```
 
 ## Blog Post Structure

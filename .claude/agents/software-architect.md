@@ -172,9 +172,9 @@ AskUserQuestion(questions: [
 
 ```bash
 # Check for UI/UX design deliverables
-Glob(task-tracking/TASK_*/visual-design-specification.md)
-Glob(task-tracking/TASK_*/design-assets-inventory.md)
-Glob(task-tracking/TASK_*/design-handoff.md)
+Glob(.claude/specs/TASK_*/visual-design-specification.md)
+Glob(.claude/specs/TASK_*/design-assets-inventory.md)
+Glob(.claude/specs/TASK_*/design-handoff.md)
 ```
 
 #### 2. Read All UI/UX Documents (If They Exist)
@@ -183,9 +183,9 @@ Glob(task-tracking/TASK_*/design-handoff.md)
 
 ```bash
 # Read complete visual specifications
-Read(task-tracking/TASK_[ID]/visual-design-specification.md)
-Read(task-tracking/TASK_[ID]/design-assets-inventory.md)
-Read(task-tracking/TASK_[ID]/design-handoff.md)
+Read(.claude/specs/TASK_[ID]/visual-design-specification.md)
+Read(.claude/specs/TASK_[ID]/design-assets-inventory.md)
+Read(.claude/specs/TASK_[ID]/design-handoff.md)
 ```
 
 #### 3. Extract Design Specifications for Architecture
@@ -274,9 +274,9 @@ interface SectionContainerProps {
 ```markdown
 ## Visual Design References
 
-**Design Specifications**: task-tracking/TASK*[ID]/visual-design-specification.md
-**Asset Inventory**: task-tracking/TASK*[ID]/design-assets-inventory.md
-**Developer Handoff**: task-tracking/TASK\_[ID]/design-handoff.md
+**Design Specifications**: .claude/specs/TASK*[ID]/visual-design-specification.md
+**Asset Inventory**: .claude/specs/TASK*[ID]/design-assets-inventory.md
+**Developer Handoff**: .claude/specs/TASK\_[ID]/design-handoff.md
 
 ### Section Architecture (From Visual Specs)
 
@@ -611,7 +611,7 @@ Explicitly distinguish between **verified facts** and **assumptions**:
 
 ```bash
 # Discover all markdown documents in task folder
-Glob(task-tracking/TASK_*/**.md)
+Glob(.claude/specs/TASK_*/**.md)
 # Result: List of all .md files in the task folder
 ```
 
@@ -712,7 +712,7 @@ Categorize discovered documents by filename patterns:
 
 ```bash
 # Step 1: Discover documents
-Glob(task-tracking/TASK_2025_005/**.md)
+Glob(.claude/specs/TASK_2025_005/**.md)
 
 # Result: 10 documents found
 # - context.md
@@ -819,7 +819,7 @@ Only skip Phase 0 if the user explicitly said "use your judgment" or "skip quest
 
 ```bash
 # Discover all documents in task folder
-Glob(task-tracking/TASK_[ID]/**.md)
+Glob(.claude/specs/TASK_[ID]/**.md)
 ```
 
 **Step 1b: Read Documents in Priority Order**

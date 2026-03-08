@@ -1715,7 +1715,7 @@ export interface OrchestrationCheckpoint {
 /**
  * Orchestration workflow state
  * Persists the complete state of an orchestration workflow for a task.
- * Stored in task-tracking/TASK_XXX/.orchestration-state.json
+ * Stored in .claude/specs/TASK_XXX/.orchestration-state.json
  */
 export interface OrchestrationState {
   /** Task identifier (e.g., "TASK_2025_111") */

@@ -137,9 +137,9 @@ else
 
 ### NEW_TASK: Initialization
 
-1. **Read Registry**: `Read(task-tracking/registry.md)` - find highest TASK_ID, increment
-2. **Create Task Folder**: `mkdir task-tracking/TASK_[ID]`
-3. **Create Context**: `Write(task-tracking/TASK_[ID]/context.md)` with user intent, strategy
+1. **Read Registry**: `Read(.claude/specs/registry.md)` - find highest TASK_ID, increment
+2. **Create Task Folder**: `mkdir .claude/specs/TASK_[ID]`
+3. **Create Context**: `Write(.claude/specs/TASK_[ID]/context.md)` with user intent, strategy
 4. **Announce**: Present task ID, type, complexity, planned agent sequence
 
 ### CONTINUATION: Phase Detection

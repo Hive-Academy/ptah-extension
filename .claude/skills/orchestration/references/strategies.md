@@ -366,8 +366,8 @@ ui-ux-designer --> technical-content-writer --> frontend-developer
 | Agent                    | Output File                                                | Purpose                           |
 | ------------------------ | ---------------------------------------------------------- | --------------------------------- |
 | ui-ux-designer           | `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md` | Design tokens, colors, typography |
-| ui-ux-designer           | `task-tracking/TASK_[ID]/visual-design-specification.md`   | Page-specific visual specs        |
-| technical-content-writer | `task-tracking/TASK_[ID]/content-specification.md`         | Content with design integration   |
+| ui-ux-designer           | `.claude/specs/TASK_[ID]/visual-design-specification.md`   | Page-specific visual specs        |
+| technical-content-writer | `.claude/specs/TASK_[ID]/content-specification.md`         | Content with design integration   |
 | technical-content-writer | `docs/content/*.md`                                        | Final content files               |
 
 ### Creative Handoff Protocols
@@ -395,7 +395,7 @@ Content writer should:
 ```markdown
 ## Content Handoff for Implementation
 
-**Content Spec**: task-tracking/TASK\_[ID]/content-specification.md
+**Content Spec**: .claude/specs/TASK\_[ID]/content-specification.md
 **Design System**: .claude/skills/technical-content-writer/DESIGN-SYSTEM.md
 **Assets Needed**: [List from asset briefs]
 

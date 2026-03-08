@@ -147,8 +147,8 @@ Follow the skill's investigation protocol:
 2. **Task History Mining**
 
    ```bash
-   Read(task-tracking/registry.md)
-   Glob(task-tracking/TASK_*/context.md)
+   Read(.claude/specs/registry.md)
+   Glob(.claude/specs/TASK_*/context.md)
    ```
 
 3. **Implementation Deep Dive**
@@ -171,8 +171,8 @@ Apply the loaded skill patterns to create:
 1. **Output to Task Tracking**
 
    ```bash
-   Write(task-tracking/TASK_[ID]/content-specification.md)
-   Write(task-tracking/TASK_[ID]/[content-type]-draft.md)
+   Write(.claude/specs/TASK_[ID]/content-specification.md)
+   Write(.claude/specs/TASK_[ID]/[content-type]-draft.md)
    ```
 
 2. **Provide Handoff Notes** for other agents (UI/UX, frontend)
@@ -276,7 +276,7 @@ Before delivering ANY content, verify against skill standards:
 
 | Deliverable | Location                           | Status |
 | ----------- | ---------------------------------- | ------ |
-| [Type]      | task-tracking/TASK\_[ID]/[file].md | Draft  |
+| [Type]      | .claude/specs/TASK\_[ID]/[file].md | Draft  |
 
 ### Technical Validation
 
@@ -366,7 +366,7 @@ Task("Create design system for project", subagent_type="ui-ux-designer")
 ```markdown
 **Design Request for Content**:
 
-- Content Spec: task-tracking/TASK\_[ID]/content-specification.md
+- Content Spec: .claude/specs/TASK\_[ID]/content-specification.md
 - Visual Needs: [Specific design requirements]
 - Priority: [Which sections first]
 ```
@@ -376,7 +376,7 @@ Task("Create design system for project", subagent_type="ui-ux-designer")
 ```markdown
 **Implementation Request**:
 
-- Content: task-tracking/TASK\_[ID]/[content].md
+- Content: .claude/specs/TASK\_[ID]/[content].md
 - Components Needed: [UI components]
 - SEO Requirements: [Meta, structured data]
 ```

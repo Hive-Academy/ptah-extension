@@ -99,7 +99,7 @@ Before creating ANY test, you must systematically investigate the codebase to un
 
 ```bash
 # Discover all markdown documents in task folder
-Glob(task-tracking/TASK_*/**.md)
+Glob(.claude/specs/TASK_*/**.md)
 # Result: List of all .md files in the task folder
 ```
 
@@ -350,7 +350,7 @@ Glob(**/integration/**)
 If task-tracking directory exists and TASK_ID is set:
 
 - **Orchestration Mode Detected**
-- Read user's actual request from task-tracking/$TASK_ID/context.md
+- Read user's actual request from .claude/specs/$TASK_ID/context.md
 - Extract "User Request:" line
 - Mode: Orchestrated testing with formal validation
 
@@ -421,7 +421,7 @@ If task-tracking directory exists and TASK_ID is set:
 
    ```bash
    # NEVER assume which documents exist - DISCOVER them
-   Glob(task-tracking/$TASK_ID/**.md)
+   Glob(.claude/specs/$TASK_ID/**.md)
    ```
 
 2. **Read Documents in Priority Order for Testing:**
@@ -502,7 +502,7 @@ For standalone usage - extract testing context from conversation:
 
 **Escalation Process:**
 
-Create infrastructure escalation report in task-tracking/$TASK_ID/testing-infrastructure-escalation.md with:
+Create infrastructure escalation report in .claude/specs/$TASK_ID/testing-infrastructure-escalation.md with:
 
 # Testing Infrastructure Escalation - TASK\_[ID]
 
@@ -822,7 +822,7 @@ describe('UserService', () => {
 
 **Files Generated**:
 
-- ✅ task-tracking/TASK\_[ID]/test-report.md (comprehensive professional analysis)
+- ✅ .claude/specs/TASK\_[ID]/test-report.md (comprehensive professional analysis)
 - ✅ Industry-standard test files in appropriate project structure
 - ✅ Test configuration and setup documentation
 - ✅ Coverage reports and quality metrics
@@ -896,7 +896,7 @@ Otherwise:
 
 **Escalation Actions Taken**:
 
-- 📋 Created: task-tracking/TASK\_[ID]/testing-infrastructure-escalation.md
+- 📋 Created: .claude/specs/TASK\_[ID]/testing-infrastructure-escalation.md
 - 🔄 Escalated to: researcher-expert (testing infrastructure research required)
 - 👤 User validation needed: Testing strategy and budget confirmation
 - ⏸️ Task paused: Awaiting infrastructure resolution

@@ -367,9 +367,9 @@ Before implementation:
 2. **Read Requirements**:
 
    ```bash
-   Read(task-tracking/TASK_[ID]/task-description.md)
-   Read(task-tracking/TASK_[ID]/library-analysis.md)
-   Read(task-tracking/TASK_[ID]/implementation-plan.md)
+   Read(.claude/specs/TASK_[ID]/task-description.md)
+   Read(.claude/specs/TASK_[ID]/library-analysis.md)
+   Read(.claude/specs/TASK_[ID]/implementation-plan.md)
    ```
 
 3. **Extract Key Information**:
@@ -410,8 +410,8 @@ Before implementation:
 10. **Document in Task Folder**:
 
     ```bash
-    Write(task-tracking/TASK_[ID]/visual-design-specification.md)
-    Write(task-tracking/TASK_[ID]/design-assets-inventory.md)
+    Write(.claude/specs/TASK_[ID]/visual-design-specification.md)
+    Write(.claude/specs/TASK_[ID]/design-assets-inventory.md)
     ```
 
 ---
@@ -460,9 +460,9 @@ Before implementation:
 
 **Design Specification Documents**:
 
-- task-tracking/TASK\_[ID]/visual-design-specification.md (Complete visual blueprint)
-- task-tracking/TASK\_[ID]/design-assets-inventory.md (All design assets with URLs)
-- task-tracking/TASK\_[ID]/design-handoff.md (Developer implementation guide)
+- .claude/specs/TASK\_[ID]/visual-design-specification.md (Complete visual blueprint)
+- .claude/specs/TASK\_[ID]/design-assets-inventory.md (All design assets with URLs)
+- .claude/specs/TASK\_[ID]/design-handoff.md (Developer implementation guide)
 
 **Design Assets Created**:
 

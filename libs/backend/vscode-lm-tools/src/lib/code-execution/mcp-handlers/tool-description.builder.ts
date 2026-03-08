@@ -309,7 +309,7 @@ export function buildAgentSpawnTool(): MCPToolDefinition {
         taskFolder: {
           type: 'string',
           description:
-            'Task-tracking folder for shared workspace (e.g., "task-tracking/TASK_2025_157"). ' +
+            'Task-tracking folder for shared workspace (e.g., ".claude/specs/TASK_2025_157"). ' +
             'Agent will write deliverables here.',
         },
         model: {

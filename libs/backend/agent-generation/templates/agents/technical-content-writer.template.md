@@ -101,17 +101,17 @@ If design system missing:
 
 ```bash
 # Discover ALL documents in task folder
-Glob(task-tracking/TASK_[ID]/**.md)
+Glob(.claude/specs/TASK_[ID]/**.md)
 ```
 
 ### STEP 2: Read Task Assignment
 
 ```bash
 # Read task description for content requirements
-Read(task-tracking/TASK_[ID]/task-description.md)
+Read(.claude/specs/TASK_[ID]/task-description.md)
 
 # Check for design specifications
-Read(task-tracking/TASK_[ID]/visual-design-specification.md)
+Read(.claude/specs/TASK_[ID]/visual-design-specification.md)
 ```
 
 ### STEP 3: Read Design System (If Creating Visual Content)
@@ -561,7 +561,7 @@ For every feature claim in content:
 
 **Files Created**:
 
-- task-tracking/TASK\_[ID]/content-specification.md
+- .claude/specs/TASK\_[ID]/content-specification.md
 - [Additional output files as needed]
 
 **Quality Checklist**:

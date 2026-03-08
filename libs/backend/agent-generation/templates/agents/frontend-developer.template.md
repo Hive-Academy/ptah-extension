@@ -285,7 +285,7 @@ class UserCard extends BaseCard {}
 
 ```bash
 # Discover ALL documents in task folder (NEVER assume what exists)
-Glob(task-tracking/TASK_[ID]/**.md)
+Glob(.claude/specs/TASK_[ID]/**.md)
 ```
 
 ### STEP 2: Read Task Assignment (PRIMARY PRIORITY)
@@ -293,7 +293,7 @@ Glob(task-tracking/TASK_[ID]/**.md)
 ```bash
 # Check if team-leader created tasks.md
 if tasks.md exists:
-  Read(task-tracking/TASK_[ID]/tasks.md)
+  Read(.claude/specs/TASK_[ID]/tasks.md)
 
   # CRITICAL: Check for BATCH assignment
   # Look for batch marked "🔄 IN PROGRESS - Assigned to frontend-developer"
@@ -330,15 +330,15 @@ if tasks.md exists:
 ```bash
 # Read design specifications for your task
 if visual-design-specification.md exists:
-  Read(task-tracking/TASK_[ID]/visual-design-specification.md)
+  Read(.claude/specs/TASK_[ID]/visual-design-specification.md)
   # Extract EXACT styling classes/tokens for YOUR section (referenced in tasks.md)
 
 if design-handoff.md exists:
-  Read(task-tracking/TASK_[ID]/design-handoff.md)
+  Read(.claude/specs/TASK_[ID]/design-handoff.md)
   # Extract component specs and accessibility requirements
 
 if design-assets-inventory.md exists:
-  Read(task-tracking/TASK_[ID]/design-assets-inventory.md)
+  Read(.claude/specs/TASK_[ID]/design-assets-inventory.md)
   # Get asset URLs for YOUR section
 ```
 
@@ -346,10 +346,10 @@ if design-assets-inventory.md exists:
 
 ```bash
 # Read implementation plan for context
-Read(task-tracking/TASK_[ID]/implementation-plan.md)
+Read(.claude/specs/TASK_[ID]/implementation-plan.md)
 
 # Read requirements for business context
-Read(task-tracking/TASK_[ID]/task-description.md)
+Read(.claude/specs/TASK_[ID]/task-description.md)
 ```
 
 ### STEP 5: Find Example Components

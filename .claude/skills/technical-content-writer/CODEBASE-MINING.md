@@ -13,7 +13,7 @@ Extract compelling content material from the codebase and task history.
 │   └── [app-name]/           # Application(s)
 ├── libs/
 │   └── [library-name]/       # Shared libraries
-├── task-tracking/            # Task history
+├── .claude/specs/            # Task history
 │   ├── registry.md           # All tasks
 │   └── TASK_XXXX/           # Individual tasks
 └── .claude/                  # Orchestration agents
@@ -38,28 +38,28 @@ Read(libs/*/CLAUDE.md)
 ### Problem-Solution Stories
 
 ```bash
-Read(task-tracking/TASK_XXXX/context.md)
+Read(.claude/specs/TASK_XXXX/context.md)
 # Extracts: User intent, problem statement, why feature was needed
 ```
 
 ### Technical Decisions
 
 ```bash
-Read(task-tracking/TASK_XXXX/implementation-plan.md)
+Read(.claude/specs/TASK_XXXX/implementation-plan.md)
 # Extracts: Architecture decisions, trade-offs, approach chosen
 ```
 
 ### Progress & Metrics
 
 ```bash
-Read(task-tracking/TASK_XXXX/tasks.md)
+Read(.claude/specs/TASK_XXXX/tasks.md)
 # Extracts: Task breakdown, completion status, batch progress
 ```
 
 ### Review Insights
 
 ```bash
-Read(task-tracking/TASK_XXXX/code-*-review.md)
+Read(.claude/specs/TASK_XXXX/code-*-review.md)
 # Extracts: Quality issues, improvements made, lessons learned
 ```
 
@@ -78,21 +78,21 @@ Glob(libs/[library]/src/lib/components/**/*.ts)  # Count components
 Read(CLAUDE.md)  # Library map section
 
 # Recent achievements
-Read(task-tracking/registry.md)  # Completed tasks with metrics
+Read(.claude/specs/registry.md)  # Completed tasks with metrics
 ```
 
 ### For Blog Posts
 
 ```bash
 # Story material
-Read(task-tracking/TASK_XXXX/context.md)  # The problem
-Read(task-tracking/TASK_XXXX/implementation-plan.md)  # The solution
+Read(.claude/specs/TASK_XXXX/context.md)  # The problem
+Read(.claude/specs/TASK_XXXX/implementation-plan.md)  # The solution
 
 # Code examples
 Read(libs/[library]/src/lib/services/*.service.ts)
 
 # Results/metrics
-Grep("Complete|DONE", task-tracking/TASK_XXXX/tasks.md)
+Grep("Complete|DONE", .claude/specs/TASK_XXXX/tasks.md)
 ```
 
 ### For Documentation
@@ -118,7 +118,7 @@ Read(libs/[library]/CLAUDE.md)  # UI components
 Glob(libs/*/src/lib/components/**/*.ts)
 
 # Demo flows
-Read(task-tracking/TASK_XXXX/context.md)  # User journey
+Read(.claude/specs/TASK_XXXX/context.md)  # User journey
 
 # Code highlights
 Read(libs/[library]/src/lib/services/*.service.ts)  # Key logic
@@ -126,13 +126,13 @@ Read(libs/[library]/src/lib/services/*.service.ts)  # Key logic
 
 ## Key Content Goldmines
 
-### 1. Task Registry (task-tracking/registry.md)
+### 1. Task Registry (.claude/specs/registry.md)
 
 - Complete history of all features
 - Status of each feature
 - Task IDs for deep dives
 
-### 2. Context Files (task-tracking/TASK_XXXX/context.md)
+### 2. Context Files (.claude/specs/TASK_XXXX/context.md)
 
 - Original user problem
 - Why feature was requested
@@ -180,13 +180,13 @@ Glob(libs/**/*.directive.ts)
 
 ```bash
 # Completed tasks
-Grep("Complete", task-tracking/registry.md)
+Grep("Complete", .claude/specs/registry.md)
 
 # Features by type
-Grep("FEATURE|BUGFIX|REFACTOR", task-tracking/registry.md)
+Grep("FEATURE|BUGFIX|REFACTOR", .claude/specs/registry.md)
 
 # Timeline
-Grep("Created.*2025", task-tracking/registry.md)
+Grep("Created.*2025", .claude/specs/registry.md)
 ```
 
 ## Terminology Extraction
@@ -204,7 +204,7 @@ Grep("@Component", libs/**/*.component.ts)
 Grep("export interface", libs/[shared-lib]/src)
 
 # Feature names (from task titles)
-Grep("Description", task-tracking/registry.md)
+Grep("Description", .claude/specs/registry.md)
 ```
 
 ## Content Ideas by Library Type
@@ -236,11 +236,11 @@ Grep("Description", task-tracking/registry.md)
 
 ```bash
 # Find all features
-Read(task-tracking/registry.md)
+Read(.claude/specs/registry.md)
 
 # Deep dive on feature
-Read(task-tracking/TASK_XXXX/context.md)
-Read(task-tracking/TASK_XXXX/implementation-plan.md)
+Read(.claude/specs/TASK_XXXX/context.md)
+Read(.claude/specs/TASK_XXXX/implementation-plan.md)
 
 # Find code for feature
 Grep("[feature-keyword]", libs/**/*)

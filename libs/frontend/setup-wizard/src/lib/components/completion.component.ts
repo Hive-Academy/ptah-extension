@@ -202,7 +202,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                           <li>
                             Progress saved in
                             <code class="bg-base-300 px-1 py-0.5 rounded"
-                              >task-tracking/</code
+                              >.claude/specs/</code
                             >
                           </li>
                         </ul>

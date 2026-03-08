@@ -149,10 +149,10 @@ Before creating requirements for ANY task, investigate the codebase to understan
 
 ```bash
 # Check if task folder exists
-ls task-tracking/TASK_*/
+ls .claude/specs/TASK_*/
 
 # If task exists, discover all documents
-Glob(task-tracking/TASK_*/**.md)
+Glob(.claude/specs/TASK_*/**.md)
 ```
 
 #### 2. Existing Work Assessment

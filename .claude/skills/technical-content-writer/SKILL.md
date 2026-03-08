@@ -42,8 +42,8 @@ Read(libs/*/CLAUDE.md)
 ### 2. Task History Mining
 
 ```
-Read(task-tracking/registry.md)
-Glob(task-tracking/TASK_*/context.md)
+Read(.claude/specs/registry.md)
+Glob(.claude/specs/TASK_*/context.md)
 ```
 
 Task history reveals:
@@ -103,7 +103,7 @@ Ask the user:
 Glob(libs/**/CLAUDE.md)
 
 # Find related tasks
-Grep("<feature>", task-tracking/registry.md)
+Grep("<feature>", .claude/specs/registry.md)
 
 # Read implementation
 Read(libs/<library>/src/lib/services/*.service.ts)
@@ -238,8 +238,8 @@ When creating landing page content, follow this design-integrated workflow:
 Read(.claude/skills/technical-content-writer/DESIGN-SYSTEM.md)
 
 # Check for project-specific design specs
-Glob(task-tracking/TASK_*/visual-design-specification.md)
-Read(task-tracking/TASK_2025_072/context.md)
+Glob(.claude/specs/TASK_*/visual-design-specification.md)
+Read(.claude/specs/TASK_2025_072/context.md)
 ```
 
 ### Step 2: Investigate Product Features
@@ -250,7 +250,7 @@ Read(CLAUDE.md)
 Read(libs/*/CLAUDE.md)
 
 # Find the story
-Grep("<feature>", task-tracking/registry.md)
+Grep("<feature>", .claude/specs/registry.md)
 ```
 
 ### Step 3: Generate Design-Integrated Content
