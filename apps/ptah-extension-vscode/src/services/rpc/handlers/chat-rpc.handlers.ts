@@ -418,6 +418,8 @@ export class ChatRpcHandlers {
       mcpServerRunning,
       enhancedPromptsContent,
       pluginPaths,
+      thinking: options?.thinking, // TASK_2025_184: Reasoning configuration
+      effort: options?.effort, // TASK_2025_184: Effort level
     });
 
     // Track this session as belonging to the Ptah CLI agent
@@ -710,6 +712,8 @@ export class ChatRpcHandlers {
             mcpServerRunning, // TASK_2025_108: MCP server availability check
             enhancedPromptsContent, // TASK_2025_151: AI-generated system prompt for premium users
             pluginPaths, // TASK_2025_153: Plugin directory paths for SDK
+            thinking: options?.thinking, // TASK_2025_184: Reasoning configuration
+            effort: options?.effort, // TASK_2025_184: Effort level
           });
 
           // Stream ExecutionNodes to webview (background - don't await)
@@ -823,6 +827,8 @@ export class ChatRpcHandlers {
               enhancedPromptsContent,
               pluginPaths,
               tabId,
+              thinking: params.thinking, // TASK_2025_184: Reasoning configuration
+              effort: params.effort, // TASK_2025_184: Effort level
             });
 
             // Start streaming responses to webview (background - don't await)

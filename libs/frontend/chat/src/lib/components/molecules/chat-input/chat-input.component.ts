@@ -18,7 +18,10 @@ import {
   X,
   ImageIcon,
 } from 'lucide-angular';
-import { InlineImageAttachment } from '@ptah-extension/shared';
+import {
+  InlineImageAttachment,
+  type EffortLevel,
+} from '@ptah-extension/shared';
 import { ChatStore } from '../../../services/chat.store';
 import { TabManagerService } from '../../../services/tab-manager.service';
 import {
@@ -47,6 +50,7 @@ import {
   type SlashTriggerEvent,
 } from '../../../directives/slash-trigger.directive';
 import { AgentSelectorComponent } from './agent-selector.component';
+import { EffortSelectorComponent } from './effort-selector.component';
 
 /** Pasted image data for UI display */
 interface PastedImage {
@@ -92,6 +96,7 @@ interface PastedImage {
     AtTriggerDirective,
     SlashTriggerDirective,
     AgentSelectorComponent,
+    EffortSelectorComponent,
   ],
   template: `
     <div class="flex flex-col gap-2 p-4 bg-base-100">
@@ -240,6 +245,9 @@ interface PastedImage {
           <!-- Agent Selector - dedicated button for built-in sub-agents -->
           <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
 
+          <!-- Effort Selector Component (TASK_2025_184) -->
+          <ptah-effort-selector (effortChanged)="onEffortChange($event)" />
+
           <!-- Model Selector Component -->
           <ptah-model-selector />
 
@@ -301,6 +309,9 @@ export class ChatInputComponent implements OnInit {
   readonly ClockIcon = Clock;
   readonly XIcon = X;
   readonly ImageIconRef = ImageIcon;
+
+  // TASK_2025_184: Track selected reasoning effort level
+  private readonly _selectedEffort = signal<EffortLevel | undefined>(undefined);
 
   // Session tracking for proper change detection (avoid clearing cache on every stream event)
   private _lastSessionId: string | null = null;
@@ -575,6 +586,14 @@ export class ChatInputComponent implements OnInit {
   }
 
   /**
+   * TASK_2025_184: Handle effort level change from EffortSelectorComponent.
+   * Stores the selected effort level for inclusion in message sends.
+   */
+  onEffortChange(effort: EffortLevel | undefined): void {
+    this._selectedEffort.set(effort);
+  }
+
+  /**
    * Handle agent selection from AgentSelectorComponent
    * Appends agent-{name} to input (agent convention)
    */
@@ -776,7 +795,8 @@ export class ChatInputComponent implements OnInit {
       await this.chatStore.sendOrQueueMessage(
         normalizedContent || 'What is in this image?',
         filePaths,
-        inlineImages.length > 0 ? inlineImages : undefined
+        inlineImages.length > 0 ? inlineImages : undefined,
+        this._selectedEffort()
       );
 
       // Clear input, files, and images

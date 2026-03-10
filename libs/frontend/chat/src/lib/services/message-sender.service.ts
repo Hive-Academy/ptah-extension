@@ -29,6 +29,7 @@ import {
   createExecutionChatMessage,
   SessionId,
   InlineImageAttachment,
+  EffortLevel,
 } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
@@ -135,11 +136,13 @@ export class MessageSenderService {
    * @param content - Message content
    * @param files - Optional file paths to include
    * @param images - Optional inline images (pasted/dropped)
+   * @param effort - Optional effort level for reasoning depth (TASK_2025_184)
    */
   async send(
     content: string,
     files?: string[],
-    images?: InlineImageAttachment[]
+    images?: InlineImageAttachment[],
+    effort?: EffortLevel
   ): Promise<void> {
     // Validate content BEFORE any processing
     const validation = this.validator.validate(content);
@@ -167,11 +170,12 @@ export class MessageSenderService {
         sanitized,
         sessionId as SessionId,
         files,
-        images
+        images,
+        effort
       );
     } else {
       // No active tab or no existing session — startNewConversation handles tab creation
-      await this.startNewConversation(sanitized, files, images);
+      await this.startNewConversation(sanitized, files, images, effort);
     }
   }
 
@@ -185,11 +189,13 @@ export class MessageSenderService {
    * @param content - Message content
    * @param files - Optional file paths to include
    * @param images - Optional inline images (pasted/dropped)
+   * @param effort - Optional effort level for reasoning depth (TASK_2025_184)
    */
   async sendOrQueue(
     content: string,
     files?: string[],
-    images?: InlineImageAttachment[]
+    images?: InlineImageAttachment[],
+    effort?: EffortLevel
   ): Promise<void> {
     // Check if streaming via active tab status
     const activeTab = this.tabManager.activeTab();
@@ -205,7 +211,7 @@ export class MessageSenderService {
       return;
     } else {
       // Send immediately
-      await this.send(content, files, images);
+      await this.send(content, files, images, effort);
     }
   }
 
@@ -222,11 +228,13 @@ export class MessageSenderService {
    * @param content - Message content
    * @param files - Optional file paths to include
    * @param images - Optional inline images (pasted/dropped)
+   * @param effort - Optional effort level for reasoning depth (TASK_2025_184)
    */
   private async startNewConversation(
     content: string,
     files?: string[],
-    images?: InlineImageAttachment[]
+    images?: InlineImageAttachment[],
+    effort?: EffortLevel
   ): Promise<void> {
     try {
       // Wait for services to be ready (with timeout)
@@ -324,6 +332,7 @@ export class MessageSenderService {
           model: this.modelState.currentModel(),
           ...(files ? { files } : {}),
           ...(images && images.length > 0 ? { images } : {}),
+          ...(effort ? { effort } : {}), // TASK_2025_184: Effort level
         },
       });
 
@@ -365,12 +374,14 @@ export class MessageSenderService {
    * @param sessionId - Existing session ID
    * @param files - Optional file paths to include
    * @param images - Optional inline images (pasted/dropped)
+   * @param effort - Optional effort level for reasoning depth (TASK_2025_184)
    */
   private async continueConversation(
     content: string,
     sessionId: SessionId,
     files?: string[],
-    images?: InlineImageAttachment[]
+    images?: InlineImageAttachment[],
+    effort?: EffortLevel
   ): Promise<void> {
     try {
       // Wait for services to be ready (with timeout)
@@ -464,11 +475,12 @@ export class MessageSenderService {
         prompt: content,
         sessionId,
         tabId: activeTabId, // For event routing
-        name: activeTab?.name, // ✅ Send session name (support late naming)
+        name: activeTab?.name, // Send session name (support late naming)
         workspacePath,
         model: this.modelState.currentModel(),
         files: files ?? [],
         ...(images && images.length > 0 ? { images } : {}),
+        ...(effort ? { effort } : {}), // TASK_2025_184: Effort level
       });
 
       if (!result.success) {

@@ -27,6 +27,8 @@ import {
   AuthEnv,
   createEmptyAuthEnv,
   calculateMessageCost,
+  ThinkingConfig,
+  EffortLevel,
 } from '@ptah-extension/shared';
 import type { Logger } from '@ptah-extension/vscode-core';
 import type { SdkModuleLoader } from '../helpers/sdk-module-loader';
@@ -381,6 +383,8 @@ export class PtahCliAdapter implements IAIProvider {
       pluginPaths: config.pluginPaths,
       systemPrompt: config.systemPrompt,
       preset: config.preset,
+      thinking: config.thinking,
+      effort: config.effort,
     });
 
     // Start SDK query
@@ -470,6 +474,8 @@ export class PtahCliAdapter implements IAIProvider {
       pluginPaths: config?.pluginPaths,
       systemPrompt: config?.systemPrompt,
       preset: config?.preset,
+      thinking: config?.thinking,
+      effort: config?.effort,
     });
 
     // Start SDK query with resume
@@ -747,6 +753,10 @@ export class PtahCliAdapter implements IAIProvider {
     systemPrompt?: string;
     preset?: string;
     onCompactionStart?: CompactionStartCallback;
+    /** TASK_2025_184: Thinking/reasoning configuration */
+    thinking?: ThinkingConfig;
+    /** TASK_2025_184: Effort level for reasoning depth */
+    effort?: EffortLevel;
   }): {
     prompt: AsyncIterable<SDKUserMessage>;
     options: SdkQueryOptions;
@@ -765,6 +775,8 @@ export class PtahCliAdapter implements IAIProvider {
       systemPrompt: userSystemPrompt,
       preset,
       onCompactionStart,
+      thinking,
+      effort,
     } = input;
 
     const cwd = projectPath || process.cwd();
@@ -889,6 +901,9 @@ export class PtahCliAdapter implements IAIProvider {
         hooks,
         plugins,
         compactionControl,
+        // TASK_2025_184: Reasoning configuration passthrough
+        thinking,
+        effort,
       },
     };
   }

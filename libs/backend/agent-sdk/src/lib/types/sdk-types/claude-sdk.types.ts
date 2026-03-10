@@ -1584,7 +1584,14 @@ export interface Options {
   persistSession?: boolean;
   /** Include partial/streaming message events in the output */
   includePartialMessages?: boolean;
-  /** Maximum number of tokens for thinking/reasoning */
+  /** Thinking/reasoning mode configuration (TASK_2025_184) */
+  thinking?:
+    | { type: 'adaptive' }
+    | { type: 'enabled'; budgetTokens: number }
+    | { type: 'disabled' };
+  /** Effort level for reasoning depth (TASK_2025_184) */
+  effort?: 'low' | 'medium' | 'high' | 'max';
+  /** Maximum number of tokens for thinking/reasoning (deprecated: use thinking instead) */
   maxThinkingTokens?: number;
   /** Maximum number of conversation turns */
   maxTurns?: number;

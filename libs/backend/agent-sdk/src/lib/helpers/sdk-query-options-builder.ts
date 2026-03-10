@@ -17,7 +17,12 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { AISessionConfig, AuthEnv } from '@ptah-extension/shared';
+import {
+  AISessionConfig,
+  AuthEnv,
+  ThinkingConfig,
+  EffortLevel,
+} from '@ptah-extension/shared';
 import { SDK_TOKENS } from '../di/tokens';
 import { SdkPermissionHandler } from '../sdk-permission-handler';
 import { SubagentHookHandler } from './subagent-hook-handler';
@@ -250,6 +255,16 @@ export interface QueryOptionsInput {
    * Defaults to 'default' (canUseTool callback handles everything).
    */
   permissionMode?: SdkQueryOptions['permissionMode'];
+  /**
+   * TASK_2025_184: Thinking/reasoning configuration for Claude SDK.
+   * When undefined, SDK applies its own default (adaptive for supported models).
+   */
+  thinking?: ThinkingConfig;
+  /**
+   * TASK_2025_184: Effort level for Claude's reasoning depth.
+   * When undefined, SDK defaults to 'high'.
+   */
+  effort?: EffortLevel;
 }
 
 /**
@@ -286,6 +301,10 @@ export interface SdkQueryOptions {
     enabled: boolean;
     contextTokenThreshold: number;
   };
+  /** TASK_2025_184: Thinking/reasoning configuration for Claude SDK */
+  thinking?: ThinkingConfig;
+  /** TASK_2025_184: Effort level for Claude's reasoning depth */
+  effort?: EffortLevel;
 }
 
 /**
@@ -456,6 +475,10 @@ export class SdkQueryOptionsBuilder {
               contextTokenThreshold: compactionConfig.contextTokenThreshold,
             }
           : undefined,
+        // TASK_2025_184: Reasoning configuration passthrough
+        // undefined values are omitted by SDK, preserving default behavior
+        thinking: sessionConfig?.thinking,
+        effort: sessionConfig?.effort,
       },
     };
   }

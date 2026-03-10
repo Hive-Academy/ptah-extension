@@ -29,6 +29,7 @@ import type {
 } from './quality-assessment.types';
 import type { PtahCliSummary } from './ptah-cli.types';
 import type { AgentPermissionDecision } from './agent-permission.types';
+import type { ThinkingConfig, EffortLevel } from './ai-provider.types';
 
 // ============================================================
 // Chat RPC Types
@@ -73,6 +74,10 @@ export interface ChatStartParams {
      * otherwise falls back to 'claude_code'.
      */
     preset?: 'claude_code' | 'enhanced';
+    /** TASK_2025_184: Thinking/reasoning configuration */
+    thinking?: ThinkingConfig;
+    /** TASK_2025_184: Effort level for reasoning depth */
+    effort?: EffortLevel;
   };
 }
 
@@ -103,6 +108,10 @@ export interface ChatContinueParams {
   files?: string[];
   /** Inline images (pasted/dropped) to include with the message */
   images?: InlineImageAttachment[];
+  /** TASK_2025_184: Thinking/reasoning configuration */
+  thinking?: ThinkingConfig;
+  /** TASK_2025_184: Effort level for reasoning depth */
+  effort?: EffortLevel;
 }
 
 /** Response from chat:continue RPC method */
@@ -1288,6 +1297,10 @@ export interface AgentOrchestrationConfig {
   codexModel: string;
   /** Per-CLI model: Copilot model (empty string = default) */
   copilotModel: string;
+  /** Codex reasoning effort (empty string = SDK default) */
+  codexReasoningEffort: string;
+  /** Copilot reasoning effort (empty string = SDK default) */
+  copilotReasoningEffort: string;
   /** Auto-approve all Copilot tool calls without user prompt (default: true) */
   copilotAutoApprove: boolean;
 }
@@ -1296,6 +1309,8 @@ export interface AgentOrchestrationConfig {
 export interface CliModelOption {
   readonly id: string;
   readonly name: string;
+  /** When true, this model came from a hardcoded fallback list (API was unreachable). */
+  readonly isFallback?: boolean;
 }
 
 /** Response from agent:listCliModels RPC method */
@@ -1321,6 +1336,10 @@ export interface AgentSetConfigParams {
   copilotModel?: string;
   /** Auto-approve all Copilot tool calls (default: true) */
   copilotAutoApprove?: boolean;
+  /** Codex reasoning effort override */
+  codexReasoningEffort?: string;
+  /** Copilot reasoning effort override */
+  copilotReasoningEffort?: string;
 }
 
 // ============================================================

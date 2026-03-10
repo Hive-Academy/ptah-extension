@@ -10,6 +10,7 @@ import {
   SubagentRecord,
   LicenseGetStatusResponse,
   InlineImageAttachment,
+  EffortLevel,
 } from '@ptah-extension/shared';
 import type {
   AskUserQuestionRequest,
@@ -375,9 +376,10 @@ export class ChatStore {
   async sendMessage(
     content: string,
     files?: string[],
-    images?: InlineImageAttachment[]
+    images?: InlineImageAttachment[],
+    effort?: EffortLevel
   ): Promise<void> {
-    return this.messageSender.send(content, files, images);
+    return this.messageSender.send(content, files, images, effort);
   }
 
   /**
@@ -388,7 +390,8 @@ export class ChatStore {
   async sendOrQueueMessage(
     content: string,
     filePaths?: string[],
-    images?: InlineImageAttachment[]
+    images?: InlineImageAttachment[],
+    effort?: EffortLevel
   ): Promise<void> {
     // Check if streaming via active tab status
     const activeTab = this.tabManager.activeTab();
@@ -418,7 +421,7 @@ export class ChatStore {
       this.conversation.queueOrAppendMessage(content);
     } else {
       // Send normally via MessageSender
-      await this.messageSender.send(content, filePaths, images);
+      await this.messageSender.send(content, filePaths, images, effort);
     }
   }
 

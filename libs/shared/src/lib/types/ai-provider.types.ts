@@ -78,6 +78,32 @@ export interface AIMessageOptions {
 }
 
 /**
+ * TASK_2025_184: Thinking/reasoning mode configuration for Claude SDK.
+ * Controls how Claude uses extended thinking.
+ * - adaptive: Claude decides when/how much to think (default for Opus 4.6+)
+ * - enabled: Fixed thinking token budget
+ * - disabled: No extended thinking
+ *
+ * Must be serializable (no functions) since it crosses the RPC boundary.
+ */
+export type ThinkingConfig =
+  | { type: 'adaptive' }
+  | { type: 'enabled'; budgetTokens: number }
+  | { type: 'disabled' };
+
+/**
+ * TASK_2025_184: Effort level for Claude's reasoning depth.
+ * Works with adaptive thinking to guide thinking depth.
+ * - low: Minimal thinking, fastest responses
+ * - medium: Moderate thinking
+ * - high: Deep reasoning (SDK default)
+ * - max: Maximum effort (Opus 4.6 only)
+ *
+ * When undefined, SDK defaults to 'high'.
+ */
+export type EffortLevel = 'low' | 'medium' | 'high' | 'max';
+
+/**
  * AI Session Configuration
  */
 export interface AISessionConfig {
@@ -105,6 +131,27 @@ export interface AISessionConfig {
    * regardless of preset selection when MCP server is running.
    */
   readonly preset?: 'claude_code' | 'enhanced';
+  /**
+   * TASK_2025_184: Thinking/reasoning configuration for Claude SDK.
+   * Controls how Claude uses extended thinking.
+   * - adaptive: Claude decides when/how much to think (default for Opus 4.6+)
+   * - enabled: Fixed thinking token budget
+   * - disabled: No extended thinking
+   *
+   * When undefined, SDK applies its own default (adaptive for supported models).
+   */
+  readonly thinking?: ThinkingConfig;
+  /**
+   * TASK_2025_184: Effort level for Claude's reasoning depth.
+   * Works with adaptive thinking to guide thinking depth.
+   * - low: Minimal thinking, fastest responses
+   * - medium: Moderate thinking
+   * - high: Deep reasoning (SDK default)
+   * - max: Maximum effort (Opus 4.6 only)
+   *
+   * When undefined, SDK defaults to 'high'.
+   */
+  readonly effort?: EffortLevel;
 }
 
 /**
