@@ -218,8 +218,8 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
         <!-- GitHub Copilot Login (shown only for github-copilot) -->
         @if (newAgentProvider() === 'github-copilot') {
         <div class="form-control">
-          <div class="label py-0.5" aria-hidden="true">
-            <span class="label-text text-xs">Authentication</span>
+          <div class="py-0.5">
+            <span class="text-xs opacity-70">Authentication</span>
           </div>
           @if (copilotLoginStatus() === 'connected') {
           <div class="flex items-center gap-2 text-xs text-success py-1">
