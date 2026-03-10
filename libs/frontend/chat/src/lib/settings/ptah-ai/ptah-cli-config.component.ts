@@ -41,6 +41,12 @@ interface ProviderOption {
   readonly description: string;
 }
 
+/**
+ * Sentinel value identifying a Copilot OAuth-based provider configuration.
+ * Mirrors COPILOT_OAUTH_SENTINEL from @ptah-extension/agent-sdk (backend, not importable here).
+ */
+const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
+
 const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
   {
     id: 'openrouter',
@@ -721,7 +727,9 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
       const result = await this.rpcService.call('ptahCli:create', {
         name: this.newAgentName().trim(),
         providerId: this.newAgentProvider(),
-        apiKey: isCopilot ? 'copilot-oauth' : this.newAgentApiKey().trim(),
+        apiKey: isCopilot
+          ? COPILOT_OAUTH_SENTINEL
+          : this.newAgentApiKey().trim(),
       });
 
       if (result.isSuccess() && result.data.success) {

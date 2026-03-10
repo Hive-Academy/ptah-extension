@@ -29,8 +29,11 @@ import {
 } from './anthropic-provider-registry';
 import { ProviderModelsService } from '../provider-models.service';
 import { SDK_TOKENS } from '../di/tokens';
-import type { CopilotAuthService } from '../copilot-provider/copilot-auth.service';
-import type { CopilotTranslationProxy } from '../copilot-provider/copilot-translation-proxy';
+import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
+import type {
+  ICopilotAuthService,
+  ICopilotTranslationProxy,
+} from '../copilot-provider/copilot-provider.types';
 
 export interface AuthResult {
   configured: boolean;
@@ -72,9 +75,9 @@ export class AuthManager {
     private providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv,
     @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
-    private copilotAuth: CopilotAuthService,
+    private copilotAuth: ICopilotAuthService,
     @inject(SDK_TOKENS.SDK_COPILOT_PROXY)
-    private copilotProxy: CopilotTranslationProxy
+    private copilotProxy: ICopilotTranslationProxy
   ) {}
 
   /**
@@ -409,8 +412,7 @@ export class AuthManager {
 
     // Step 3: Point SDK at the proxy
     this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
-    // Placeholder token — the proxy handles real Copilot auth internally
-    this.authEnv.ANTHROPIC_AUTH_TOKEN = 'copilot-proxy-managed';
+    this.authEnv.ANTHROPIC_AUTH_TOKEN = COPILOT_PROXY_TOKEN_PLACEHOLDER;
 
     // Step 4: Apply tier mappings and seed pricing
     this.providerModels.switchActiveProvider(provider.id);

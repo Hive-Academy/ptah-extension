@@ -27,67 +27,20 @@ import type {
 import type { CopilotAuthService } from './copilot-auth.service';
 import { translateAnthropicToOpenAI } from './copilot-request-translator';
 import { CopilotResponseTranslator } from './copilot-response-translator';
+import { COPILOT_PROVIDER_ENTRY } from './copilot-provider-entry';
 import { SDK_TOKENS } from '../di/tokens';
 
 /** Copilot Chat Completions endpoint path */
 const COPILOT_COMPLETIONS_PATH = '/chat/completions';
 
-/** Static model list for GET /v1/models (Claude models available through Copilot) */
-const COPILOT_MODELS_RESPONSE = {
-  object: 'list',
-  data: [
-    {
-      id: 'claude-sonnet-4.6',
-      object: 'model',
-      created: 0,
-      owned_by: 'anthropic',
-    },
-    {
-      id: 'claude-opus-4.6',
-      object: 'model',
-      created: 0,
-      owned_by: 'anthropic',
-    },
-    {
-      id: 'claude-opus-4.5',
-      object: 'model',
-      created: 0,
-      owned_by: 'anthropic',
-    },
-    {
-      id: 'claude-sonnet-4.5',
-      object: 'model',
-      created: 0,
-      owned_by: 'anthropic',
-    },
-    {
-      id: 'claude-sonnet-4',
-      object: 'model',
-      created: 0,
-      owned_by: 'anthropic',
-    },
-    {
-      id: 'claude-haiku-4.5',
-      object: 'model',
-      created: 0,
-      owned_by: 'anthropic',
-    },
-  ],
-};
-
-/**
- * Generates a unique request ID for correlating proxy requests.
- * Uses a simple counter + timestamp to avoid collisions.
- */
-let requestCounter = 0;
-function generateRequestId(): string {
-  return `cpl_${Date.now().toString(36)}_${(requestCounter++).toString(36)}`;
-}
+/** Maximum request body size (50 MB) */
+const MAX_BODY_SIZE = 50 * 1024 * 1024;
 
 @injectable()
 export class CopilotTranslationProxy implements ICopilotTranslationProxy {
   private server: http.Server | null = null;
   private port: number | null = null;
+  private requestCounter = 0;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
@@ -155,8 +108,24 @@ export class CopilotTranslationProxy implements ICopilotTranslationProxy {
       return;
     }
 
+    const server = this.server;
     return new Promise<void>((resolve) => {
-      this.server!.close(() => {
+      const forceTimeout = setTimeout(() => {
+        this.logger.warn(
+          '[CopilotProxy] Graceful shutdown timed out, forcing close'
+        );
+        try {
+          if (typeof (server as any).closeAllConnections === 'function') {
+            (server as any).closeAllConnections();
+          }
+        } catch {
+          // closeAllConnections not available in this Node version
+        }
+        resolve();
+      }, 5_000);
+
+      server.close(() => {
+        clearTimeout(forceTimeout);
         this.logger.info('[CopilotProxy] Translation proxy stopped');
         this.server = null;
         this.port = null;
@@ -198,27 +167,21 @@ export class CopilotTranslationProxy implements ICopilotTranslationProxy {
 
     this.logger.debug(`[CopilotProxy] ${method} ${url}`);
 
-    // CORS preflight
-    if (method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers':
-          'Content-Type, Authorization, X-Api-Key, Anthropic-Version',
-      });
-      res.end();
-      return;
-    }
-
     // Health check
     if (url === '/health' && method === 'GET') {
       this.sendJson(res, 200, { status: 'ok' });
       return;
     }
 
-    // Models list (Anthropic format for SDK compatibility)
+    // Models list (derived from provider entry — single source of truth)
     if (url === '/v1/models' && method === 'GET') {
-      this.sendJson(res, 200, COPILOT_MODELS_RESPONSE);
+      const models = (COPILOT_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
+        id: m.id,
+        object: 'model' as const,
+        created: 0,
+        owned_by: 'anthropic',
+      }));
+      this.sendJson(res, 200, { object: 'list', data: models });
       return;
     }
 
@@ -252,20 +215,21 @@ export class CopilotTranslationProxy implements ICopilotTranslationProxy {
     req: http.IncomingMessage,
     res: http.ServerResponse
   ): Promise<void> {
-    const requestId = generateRequestId();
+    const requestId = this.generateRequestId();
 
     // Parse incoming body
     let anthropicRequest: AnthropicMessagesRequest;
     try {
       const body = await this.readBody(req);
       anthropicRequest = JSON.parse(body);
-    } catch {
-      this.sendErrorResponse(
-        res,
-        400,
-        'invalid_request_error',
-        'Invalid JSON in request body'
-      );
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.includes('exceeds')
+          ? err.message
+          : 'Invalid JSON in request body';
+      const status =
+        err instanceof Error && err.message.includes('exceeds') ? 413 : 400;
+      this.sendErrorResponse(res, status, 'invalid_request_error', message);
       return;
     }
 
@@ -350,6 +314,7 @@ export class CopilotTranslationProxy implements ICopilotTranslationProxy {
         targetUrl,
         {
           method: 'POST',
+          timeout: 120_000,
           headers: {
             ...headers,
             'Content-Length': Buffer.byteLength(requestBody).toString(),
@@ -404,15 +369,19 @@ export class CopilotTranslationProxy implements ICopilotTranslationProxy {
 
           // Handle 429 — rate limit
           if (statusCode === 429) {
+            const retryAfter = proxyRes.headers['retry-after'];
+            const retryMsg = retryAfter
+              ? ` Retry after ${retryAfter} seconds.`
+              : '';
             this.logger.warn(
-              `[CopilotProxy] [${requestId}] Rate limited by Copilot API`
+              `[CopilotProxy] [${requestId}] Rate limited by Copilot API${retryMsg}`
             );
             proxyRes.resume();
             this.sendErrorResponse(
               res,
               529,
               'overloaded_error',
-              'GitHub Copilot API rate limit exceeded. Please wait and try again.'
+              `GitHub Copilot API rate limit exceeded.${retryMsg} Please wait and try again.`
             );
             resolve();
             return;
@@ -466,6 +435,22 @@ export class CopilotTranslationProxy implements ICopilotTranslationProxy {
           }
         }
       );
+
+      proxyReq.on('timeout', () => {
+        this.logger.error(
+          `[CopilotProxy] [${requestId}] Request timed out after 120s`
+        );
+        proxyReq.destroy();
+        if (!res.headersSent) {
+          this.sendErrorResponse(
+            res,
+            504,
+            'api_error',
+            'Copilot API request timed out'
+          );
+        }
+        resolve();
+      });
 
       proxyReq.on('error', (err) => {
         this.logger.error(
@@ -688,7 +673,16 @@ export class CopilotTranslationProxy implements ICopilotTranslationProxy {
   private readBody(req: http.IncomingMessage): Promise<string> {
     return new Promise<string>((resolve, reject) => {
       const chunks: Buffer[] = [];
-      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      let size = 0;
+      req.on('data', (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > MAX_BODY_SIZE) {
+          req.destroy();
+          reject(new Error(`Request body exceeds ${MAX_BODY_SIZE} bytes`));
+          return;
+        }
+        chunks.push(chunk);
+      });
       req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
       req.on('error', reject);
     });
@@ -726,6 +720,12 @@ export class CopilotTranslationProxy implements ICopilotTranslationProxy {
         message,
       },
     });
+  }
+
+  private generateRequestId(): string {
+    return `cpl_${Date.now().toString(36)}_${(this.requestCounter++).toString(
+      36
+    )}`;
   }
 
   /**

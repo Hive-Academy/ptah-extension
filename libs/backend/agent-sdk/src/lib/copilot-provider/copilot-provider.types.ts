@@ -7,6 +7,16 @@
  */
 
 // ---------------------------------------------------------------------------
+// Copilot Constants
+// ---------------------------------------------------------------------------
+
+/** Placeholder API key used when the translation proxy manages auth internally */
+export const COPILOT_PROXY_TOKEN_PLACEHOLDER = 'copilot-proxy-managed';
+
+/** Sentinel value identifying a Copilot OAuth-based provider configuration */
+export const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
+
+// ---------------------------------------------------------------------------
 // Copilot Authentication Types
 // ---------------------------------------------------------------------------
 

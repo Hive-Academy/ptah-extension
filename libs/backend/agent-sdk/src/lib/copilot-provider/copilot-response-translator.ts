@@ -78,8 +78,11 @@ export class CopilotResponseTranslator {
   /** Whether we are currently in a text content block */
   private inTextBlock = false;
 
+  /** Whether termination events have already been emitted */
+  private finalized = false;
+
   /** Accumulated tool call deltas by OpenAI tool index */
-  private toolCallBuffers: Map<number, ToolCallBuffer> = new Map();
+  private readonly toolCallBuffers: Map<number, ToolCallBuffer> = new Map();
 
   /** Accumulated input token count */
   private inputTokens = 0;
@@ -131,6 +134,10 @@ export class CopilotResponseTranslator {
    * @returns Array of final SSE event strings
    */
   finalize(): string[] {
+    if (this.finalized) {
+      return [];
+    }
+
     const events: string[] = [];
 
     // Ensure message_start was sent (edge case: empty stream)
@@ -437,6 +444,7 @@ export class CopilotResponseTranslator {
     // message_stop
     events.push(sseEvent('message_stop', { type: 'message_stop' }));
 
+    this.finalized = true;
     return events;
   }
 }

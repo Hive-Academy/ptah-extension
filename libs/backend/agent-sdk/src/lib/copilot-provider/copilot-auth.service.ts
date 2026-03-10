@@ -5,7 +5,7 @@
  * exchanges the GitHub token for a Copilot bearer token, and manages
  * token lifecycle with auto-refresh.
  *
- * Security: NEVER logs full tokens — only length and first 8 characters.
+ * Security: NEVER logs full tokens — only length and first 4 characters.
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -23,6 +23,14 @@ const TOKEN_REFRESH_BUFFER_SECONDS = 5 * 60;
 /** Default Copilot API endpoint */
 const DEFAULT_COPILOT_API_ENDPOINT = 'https://api.githubcopilot.com';
 
+/** Lazily resolved extension version for User-Agent headers */
+function getExtensionVersion(): string {
+  const ext = vscode.extensions.getExtension(
+    'ptah-extensions.ptah-extension-vscode'
+  );
+  return ext?.packageJSON?.version ?? '0.0.0';
+}
+
 /** Copilot token exchange endpoint */
 const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
 
@@ -31,13 +39,16 @@ const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
  * Returns format: "length=42, prefix=ghp_abc1..."
  */
 function describeToken(token: string): string {
-  return `length=${token.length}, prefix=${token.substring(0, 8)}...`;
+  return `length=${token.length}, prefix=${token.substring(0, 4)}...`;
 }
 
 @injectable()
 export class CopilotAuthService implements ICopilotAuthService {
   /** Cached authentication state (in-memory only) */
   private authState: CopilotAuthState | null = null;
+
+  /** In-flight refresh promise for deduplication */
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
@@ -144,9 +155,9 @@ export class CopilotAuthService implements ICopilotAuthService {
       Authorization: `Bearer ${state.bearerToken}`,
       'Content-Type': 'application/json',
       'Openai-Intent': 'conversation-edits',
-      'User-Agent': 'ptah-extension/1.0.0',
+      'User-Agent': `ptah-extension/${getExtensionVersion()}`,
       'Editor-Version': `vscode/${vscode.version}`,
-      'Editor-Plugin-Version': 'ptah/1.0.0',
+      'Editor-Plugin-Version': `ptah/${getExtensionVersion()}`,
       'Copilot-Integration-Id': 'vscode-chat',
       'x-initiator': 'user',
     };
@@ -230,7 +241,7 @@ export class CopilotAuthService implements ICopilotAuthService {
         headers: {
           Authorization: `token ${githubToken}`,
           Accept: 'application/json',
-          'User-Agent': 'ptah-extension/1.0.0',
+          'User-Agent': `ptah-extension/${getExtensionVersion()}`,
         },
       });
 
@@ -308,15 +319,27 @@ export class CopilotAuthService implements ICopilotAuthService {
   private async refreshToken(): Promise<boolean> {
     if (!this.authState) return false;
 
+    if (this.refreshPromise) {
+      return this.refreshPromise;
+    }
+
+    this.refreshPromise = this.doRefreshToken().finally(() => {
+      this.refreshPromise = null;
+    });
+
+    return this.refreshPromise;
+  }
+
+  private async doRefreshToken(): Promise<boolean> {
+    if (!this.authState) return false;
+
     this.logger.info('[CopilotAuth] Refreshing Copilot bearer token...');
 
-    // First try with the cached GitHub token
     const success = await this.exchangeToken(this.authState.githubToken);
     if (success) {
       return true;
     }
 
-    // GitHub token may have expired — try getting a fresh one silently
     this.logger.info(
       '[CopilotAuth] Cached GitHub token may be stale, requesting fresh session...'
     );

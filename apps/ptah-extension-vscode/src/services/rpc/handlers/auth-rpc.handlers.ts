@@ -8,7 +8,7 @@
  * TASK_2025_076: SecretStorage integration for secure credential storage
  */
 
-import { injectable, inject, optional } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { z } from 'zod';
 import {
   Logger,
@@ -48,8 +48,7 @@ export class AuthRpcHandlers {
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
-    @optional()
-    private readonly copilotAuth?: CopilotAuthService
+    private readonly copilotAuth: CopilotAuthService
   ) {}
 
   /**
@@ -379,13 +378,6 @@ export class AuthRpcHandlers {
       try {
         this.logger.debug('RPC: auth:copilotLogin called');
 
-        if (!this.copilotAuth) {
-          return {
-            success: false,
-            error: 'Copilot authentication service is not available',
-          };
-        }
-
         const loginSuccess = await this.copilotAuth.login();
 
         if (!loginSuccess) {
@@ -427,10 +419,6 @@ export class AuthRpcHandlers {
     >('auth:copilotStatus', async () => {
       try {
         this.logger.debug('RPC: auth:copilotStatus called');
-
-        if (!this.copilotAuth) {
-          return { authenticated: false };
-        }
 
         const authenticated = await this.copilotAuth.isAuthenticated();
 

@@ -25,6 +25,12 @@ export {
 // Provider registry entry (static data)
 export { COPILOT_PROVIDER_ENTRY } from './copilot-provider-entry';
 
+// Constants
+export {
+  COPILOT_PROXY_TOKEN_PLACEHOLDER,
+  COPILOT_OAUTH_SENTINEL,
+} from './copilot-provider.types';
+
 // Type exports
 export type {
   ICopilotAuthService,
