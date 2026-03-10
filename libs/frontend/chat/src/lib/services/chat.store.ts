@@ -9,8 +9,6 @@ import {
   MESSAGE_TYPES,
   SubagentRecord,
   LicenseGetStatusResponse,
-  InlineImageAttachment,
-  EffortLevel,
 } from '@ptah-extension/shared';
 import type {
   AskUserQuestionRequest,
@@ -23,7 +21,10 @@ import { CompletionHandlerService } from './chat-store/completion-handler.servic
 import { SessionLoaderService } from './chat-store/session-loader.service';
 import { ConversationService } from './chat-store/conversation.service';
 import { PermissionHandlerService } from './chat-store/permission-handler.service';
-import { MessageSenderService } from './message-sender.service';
+import {
+  MessageSenderService,
+  SendMessageOptions,
+} from './message-sender.service';
 import { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 import { TabState } from './chat.types';
 
@@ -375,11 +376,9 @@ export class ChatStore {
    */
   async sendMessage(
     content: string,
-    files?: string[],
-    images?: InlineImageAttachment[],
-    effort?: EffortLevel
+    options?: SendMessageOptions
   ): Promise<void> {
-    return this.messageSender.send(content, files, images, effort);
+    return this.messageSender.send(content, options);
   }
 
   /**
@@ -389,9 +388,7 @@ export class ChatStore {
    */
   async sendOrQueueMessage(
     content: string,
-    filePaths?: string[],
-    images?: InlineImageAttachment[],
-    effort?: EffortLevel
+    options?: SendMessageOptions
   ): Promise<void> {
     // Check if streaming via active tab status
     const activeTab = this.tabManager.activeTab();
@@ -417,11 +414,11 @@ export class ChatStore {
         );
       }
 
-      // Queue the message via ConversationService
-      this.conversation.queueOrAppendMessage(content);
+      // Queue the message with full options via ConversationService
+      this.conversation.queueOrAppendMessage(content, options);
     } else {
       // Send normally via MessageSender
-      await this.messageSender.send(content, filePaths, images, effort);
+      await this.messageSender.send(content, options);
     }
   }
 
@@ -725,13 +722,24 @@ export class ChatStore {
     try {
       console.log('[ChatStore] sendQueuedMessage: clearing queue and sending');
 
-      // Clear the queue before sending
-      this.tabManager.updateTab(tabId, { queuedContent: null });
+      // Retrieve stored options before clearing
+      const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+      const queuedOptions = tab?.queuedOptions ?? undefined;
+
+      // Clear the queue and options before sending
+      this.tabManager.updateTab(tabId, {
+        queuedContent: null,
+        queuedOptions: null,
+      });
 
       // TASK_2025_185: Call continueConversation directly instead of messageSender.send().
       // messageSender.send() checks tab.status === 'loaded' which is false during streaming,
       // causing it to incorrectly start a NEW conversation instead of continuing the existing one.
-      await this.conversation.continueConversation(content);
+      // Pass files from stored options (effort is set at session config level, not per-message for continue).
+      await this.conversation.continueConversation(
+        content,
+        queuedOptions?.files
+      );
 
       console.log(
         '[ChatStore] sendQueuedMessage: queued message sent successfully'
@@ -874,8 +882,11 @@ export class ChatStore {
    * Queue or append message based on streaming state
    * Facade delegation to ConversationService
    */
-  public queueOrAppendMessage(content: string): void {
-    this.conversation.queueOrAppendMessage(content);
+  public queueOrAppendMessage(
+    content: string,
+    options?: SendMessageOptions
+  ): void {
+    this.conversation.queueOrAppendMessage(content, options);
   }
 
   /**

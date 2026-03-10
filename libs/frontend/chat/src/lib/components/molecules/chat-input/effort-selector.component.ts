@@ -17,6 +17,17 @@ import {
 } from '@angular/core';
 import { type EffortLevel } from '@ptah-extension/shared';
 
+const VALID_EFFORTS: readonly EffortLevel[] = [
+  'low',
+  'medium',
+  'high',
+  'max',
+] as const;
+
+function isValidEffort(v: string): v is EffortLevel {
+  return (VALID_EFFORTS as readonly string[]).includes(v);
+}
+
 @Component({
   selector: 'ptah-effort-selector',
   standalone: true,
@@ -49,8 +60,15 @@ export class EffortSelectorComponent {
    * Emits undefined when "Default" is selected, otherwise emits the EffortLevel value.
    */
   onEffortChange(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value as EffortLevel | '';
-    this.selectedEffort.set(value);
-    this.effortChanged.emit(value || undefined);
+    const target = event.target as HTMLSelectElement;
+    const value = target.value;
+    if (value === '') {
+      this.selectedEffort.set('');
+      this.effortChanged.emit(undefined);
+    } else if (isValidEffort(value)) {
+      this.selectedEffort.set(value);
+      this.effortChanged.emit(value);
+    }
+    // Invalid values are silently ignored (should never happen with our <option> elements)
   }
 }

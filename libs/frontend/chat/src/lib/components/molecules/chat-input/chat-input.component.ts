@@ -794,9 +794,11 @@ export class ChatInputComponent implements OnInit {
       }));
       await this.chatStore.sendOrQueueMessage(
         normalizedContent || 'What is in this image?',
-        filePaths,
-        inlineImages.length > 0 ? inlineImages : undefined,
-        this._selectedEffort()
+        {
+          files: filePaths.length > 0 ? filePaths : undefined,
+          images: inlineImages.length > 0 ? inlineImages : undefined,
+          effort: this._selectedEffort(),
+        }
       );
 
       // Clear input, files, and images

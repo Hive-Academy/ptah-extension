@@ -25,15 +25,14 @@ import {
   ModelStateService,
   PtahCliStateService,
 } from '@ptah-extension/core';
-import {
-  createExecutionChatMessage,
-  SessionId,
-  InlineImageAttachment,
-  EffortLevel,
-} from '@ptah-extension/shared';
+import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
 import { SessionManager } from './session-manager.service';
 import { MessageValidationService } from './message-validation.service';
+import type { SendMessageOptions } from './chat.types';
+
+// Re-export for consumers that import from message-sender.service
+export type { SendMessageOptions } from './chat.types';
 
 /**
  * Centralized service for sending messages
@@ -134,16 +133,9 @@ export class MessageSenderService {
    * Validates content before sending, then checks if there's an existing session and routes accordingly.
    *
    * @param content - Message content
-   * @param files - Optional file paths to include
-   * @param images - Optional inline images (pasted/dropped)
-   * @param effort - Optional effort level for reasoning depth (TASK_2025_184)
+   * @param options - Optional send options (files, images, effort)
    */
-  async send(
-    content: string,
-    files?: string[],
-    images?: InlineImageAttachment[],
-    effort?: EffortLevel
-  ): Promise<void> {
+  async send(content: string, options?: SendMessageOptions): Promise<void> {
     // Validate content BEFORE any processing
     const validation = this.validator.validate(content);
     if (!validation.valid) {
@@ -169,13 +161,11 @@ export class MessageSenderService {
       await this.continueConversation(
         sanitized,
         sessionId as SessionId,
-        files,
-        images,
-        effort
+        options
       );
     } else {
       // No active tab or no existing session — startNewConversation handles tab creation
-      await this.startNewConversation(sanitized, files, images, effort);
+      await this.startNewConversation(sanitized, options);
     }
   }
 
@@ -187,15 +177,11 @@ export class MessageSenderService {
    * - If not streaming: Send immediately
    *
    * @param content - Message content
-   * @param files - Optional file paths to include
-   * @param images - Optional inline images (pasted/dropped)
-   * @param effort - Optional effort level for reasoning depth (TASK_2025_184)
+   * @param options - Optional send options (files, images, effort)
    */
   async sendOrQueue(
     content: string,
-    files?: string[],
-    images?: InlineImageAttachment[],
-    effort?: EffortLevel
+    options?: SendMessageOptions
   ): Promise<void> {
     // Check if streaming via active tab status
     const activeTab = this.tabManager.activeTab();
@@ -211,7 +197,7 @@ export class MessageSenderService {
       return;
     } else {
       // Send immediately
-      await this.send(content, files, images, effort);
+      await this.send(content, options);
     }
   }
 
@@ -226,16 +212,15 @@ export class MessageSenderService {
    * Creates a new session ID and calls chat:start RPC
    *
    * @param content - Message content
-   * @param files - Optional file paths to include
-   * @param images - Optional inline images (pasted/dropped)
-   * @param effort - Optional effort level for reasoning depth (TASK_2025_184)
+   * @param options - Optional send options (files, images, effort)
    */
   private async startNewConversation(
     content: string,
-    files?: string[],
-    images?: InlineImageAttachment[],
-    effort?: EffortLevel
+    options?: SendMessageOptions
   ): Promise<void> {
+    const files = options?.files;
+    const images = options?.images;
+    const effort = options?.effort;
     try {
       // Wait for services to be ready (with timeout)
       const ready = await this.waitForServices(5000);
@@ -372,17 +357,16 @@ export class MessageSenderService {
    *
    * @param content - Message content
    * @param sessionId - Existing session ID
-   * @param files - Optional file paths to include
-   * @param images - Optional inline images (pasted/dropped)
-   * @param effort - Optional effort level for reasoning depth (TASK_2025_184)
+   * @param options - Optional send options (files, images, effort)
    */
   private async continueConversation(
     content: string,
     sessionId: SessionId,
-    files?: string[],
-    images?: InlineImageAttachment[],
-    effort?: EffortLevel
+    options?: SendMessageOptions
   ): Promise<void> {
+    const files = options?.files;
+    const images = options?.images;
+    const effort = options?.effort;
     try {
       // Wait for services to be ready (with timeout)
       const ready = await this.waitForServices(5000);
@@ -428,7 +412,7 @@ export class MessageSenderService {
         }
 
         // Start new conversation instead
-        await this.startNewConversation(content, files);
+        await this.startNewConversation(content, options);
         return;
       }
 
@@ -438,7 +422,7 @@ export class MessageSenderService {
         console.warn(
           '[MessageSender] No active tab for continuing conversation — starting new'
         );
-        await this.startNewConversation(content, files);
+        await this.startNewConversation(content, options);
         return;
       }
 

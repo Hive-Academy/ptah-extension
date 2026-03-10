@@ -2,7 +2,23 @@ import {
   ExecutionChatMessage,
   ExecutionNode,
   FlatStreamEventUnion,
+  InlineImageAttachment,
+  EffortLevel,
 } from '@ptah-extension/shared';
+
+/**
+ * Options for sending a message (options bag pattern).
+ * Replaces positional optional parameters for clarity and extensibility.
+ * Defined here (not in service file) to avoid circular dependencies with TabState.
+ */
+export interface SendMessageOptions {
+  /** Optional file paths to include */
+  files?: string[];
+  /** Optional inline images (pasted/dropped) */
+  images?: InlineImageAttachment[];
+  /** Optional effort level for reasoning depth (TASK_2025_184) */
+  effort?: EffortLevel;
+}
 
 /**
  * TASK_2025_102: Content block from agent JSONL file - preserves interleaved structure.
@@ -197,6 +213,14 @@ export interface TabState {
    * Auto-sent via continueConversation() when streaming completes.
    */
   queuedContent?: string | null;
+
+  /**
+   * Options associated with the queued message (files, images, effort).
+   * Stored alongside queuedContent to preserve full message context.
+   * When multiple messages are queued, only the first message's options are kept
+   * (subsequent queued messages are text-only appends).
+   */
+  queuedOptions?: SendMessageOptions | null;
 
   /**
    * Preloaded stats from backend (for old sessions loaded from JSONL).

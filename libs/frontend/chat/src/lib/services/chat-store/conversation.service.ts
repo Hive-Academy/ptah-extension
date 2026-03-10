@@ -17,6 +17,7 @@ import {
   PtahCliStateService,
 } from '@ptah-extension/core';
 import { createExecutionChatMessage, SessionId } from '@ptah-extension/shared';
+import type { SendMessageOptions } from '../chat.types';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
 import { StreamingHandlerService } from './streaming-handler.service';
@@ -125,9 +126,14 @@ export class ConversationService {
 
   /**
    * Queue or append message content to active tab
-   * If content already queued, append with newline separator
+   * If content already queued, append with newline separator.
+   * Options (files, images, effort) are stored only for the first queued message;
+   * subsequent appends are text-only.
    */
-  public queueOrAppendMessage(content: string): void {
+  public queueOrAppendMessage(
+    content: string,
+    options?: SendMessageOptions
+  ): void {
     const activeTabId = this.tabManager.activeTabId();
     if (!activeTabId) return;
 
@@ -147,26 +153,34 @@ export class ConversationService {
     const existingQueue = activeTab?.queuedContent?.trim() ?? '';
 
     let newQueuedContent: string;
+    const tabUpdate: Record<string, unknown> = {};
 
     if (existingQueue) {
-      // Append with newline separator
+      // Append with newline separator (options from first message preserved)
       newQueuedContent = `${existingQueue}\n${sanitized}`;
     } else {
-      // First content in queue
+      // First content in queue - also store options
       newQueuedContent = sanitized;
+      if (options) {
+        tabUpdate['queuedOptions'] = options;
+      }
     }
 
-    this.tabManager.updateTab(activeTabId, { queuedContent: newQueuedContent });
+    tabUpdate['queuedContent'] = newQueuedContent;
+    this.tabManager.updateTab(activeTabId, tabUpdate);
   }
 
   /**
-   * Clear queued content for active tab
+   * Clear queued content and options for active tab
    */
   public clearQueuedContent(): void {
     const activeTabId = this.tabManager.activeTabId();
     if (!activeTabId) return;
 
-    this.tabManager.updateTab(activeTabId, { queuedContent: '' });
+    this.tabManager.updateTab(activeTabId, {
+      queuedContent: '',
+      queuedOptions: null,
+    });
   }
 
   /**

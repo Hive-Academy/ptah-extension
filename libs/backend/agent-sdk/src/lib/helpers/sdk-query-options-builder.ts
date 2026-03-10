@@ -255,16 +255,6 @@ export interface QueryOptionsInput {
    * Defaults to 'default' (canUseTool callback handles everything).
    */
   permissionMode?: SdkQueryOptions['permissionMode'];
-  /**
-   * TASK_2025_184: Thinking/reasoning configuration for Claude SDK.
-   * When undefined, SDK applies its own default (adaptive for supported models).
-   */
-  thinking?: ThinkingConfig;
-  /**
-   * TASK_2025_184: Effort level for Claude's reasoning depth.
-   * When undefined, SDK defaults to 'high'.
-   */
-  effort?: EffortLevel;
 }
 
 /**
