@@ -24,6 +24,7 @@ import {
   Eye,
   EyeOff,
   Layers,
+  Github,
 } from 'lucide-angular';
 import { ClaudeRpcService, PtahCliStateService } from '@ptah-extension/core';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
@@ -55,6 +56,11 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
     id: 'z-ai',
     name: 'Z.AI (Zhipu AI)',
     description: 'Z.AI GLM models via Zhipu AI',
+  },
+  {
+    id: 'github-copilot',
+    name: 'GitHub Copilot',
+    description: 'Claude models via GitHub Copilot subscription',
   },
 ] as const;
 
@@ -165,7 +171,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
             id="new-agent-provider"
             class="select select-bordered select-xs w-full"
             [ngModel]="newAgentProvider()"
-            (ngModelChange)="newAgentProvider.set($event)"
+            (ngModelChange)="onProviderChange($event)"
           >
             <option value="">Select provider...</option>
             @for (provider of providers; track provider.id) {
@@ -176,7 +182,8 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
           </select>
         </div>
 
-        <!-- API Key -->
+        <!-- API Key (hidden for github-copilot) -->
+        @if (newAgentProvider() !== 'github-copilot') {
         <div class="form-control">
           <label for="new-agent-apikey" class="label py-0.5">
             <span class="label-text text-xs">API Key</span>
@@ -206,6 +213,56 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
             </button>
           </div>
         </div>
+        }
+
+        <!-- GitHub Copilot Login (shown only for github-copilot) -->
+        @if (newAgentProvider() === 'github-copilot') {
+        <div class="form-control">
+          <div class="label py-0.5" aria-hidden="true">
+            <span class="label-text text-xs">Authentication</span>
+          </div>
+          @if (copilotLoginStatus() === 'connected') {
+          <div class="flex items-center gap-2 text-xs text-success py-1">
+            <lucide-angular [img]="CheckIcon" class="w-3.5 h-3.5" />
+            <span>Connected as {{ copilotUsername() }}</span>
+          </div>
+          } @else if (copilotLoginStatus() === 'logging-in') {
+          <div
+            class="flex items-center gap-2 text-xs text-base-content/60 py-1"
+          >
+            <span class="loading loading-spinner loading-xs"></span>
+            <span>Signing in with GitHub...</span>
+          </div>
+          } @else if (copilotLoginStatus() === 'error') {
+          <div class="flex items-center gap-2 text-xs text-error py-1 mb-1">
+            <lucide-angular [img]="XIcon" class="w-3.5 h-3.5" />
+            <span>Login failed. Please try again.</span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-outline btn-xs gap-1.5"
+            (click)="loginWithGitHub()"
+            aria-label="Retry login with GitHub"
+          >
+            <lucide-angular [img]="GithubIcon" class="w-3.5 h-3.5" />
+            <span>Retry Login with GitHub</span>
+          </button>
+          } @else {
+          <button
+            type="button"
+            class="btn btn-outline btn-xs gap-1.5"
+            (click)="loginWithGitHub()"
+            aria-label="Login with GitHub"
+          >
+            <lucide-angular [img]="GithubIcon" class="w-3.5 h-3.5" />
+            <span>Login with GitHub</span>
+          </button>
+          <p class="text-[10px] text-base-content/50 mt-1">
+            Requires an active GitHub Copilot subscription.
+          </p>
+          }
+        </div>
+        }
 
         <!-- Create Button -->
         <div class="flex justify-end pt-1">
@@ -500,6 +557,7 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   readonly EyeIcon = Eye;
   readonly EyeOffIcon = EyeOff;
   readonly LayersIcon = Layers;
+  readonly GithubIcon = Github;
 
   // Provider options
   readonly providers = AVAILABLE_PROVIDERS;
@@ -538,6 +596,12 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   // Toggle concurrency guard
   readonly isUpdating = signal(false);
 
+  // Copilot OAuth state (TASK_2025_186)
+  readonly copilotLoginStatus = signal<
+    'idle' | 'logging-in' | 'connected' | 'error'
+  >('idle');
+  readonly copilotUsername = signal<string | null>(null);
+
   // Model mapping state
   readonly providerTierMappings = signal<
     Record<
@@ -557,11 +621,17 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
   // ============================================================================
 
   readonly canCreate = computed(() => {
-    return (
-      this.newAgentName().trim().length > 0 &&
-      this.newAgentProvider().length > 0 &&
-      this.newAgentApiKey().trim().length > 0
-    );
+    const hasName = this.newAgentName().trim().length > 0;
+    const hasProvider = this.newAgentProvider().length > 0;
+
+    // GitHub Copilot uses OAuth — no API key needed, but must be connected
+    if (this.newAgentProvider() === 'github-copilot') {
+      return (
+        hasName && hasProvider && this.copilotLoginStatus() === 'connected'
+      );
+    }
+
+    return hasName && hasProvider && this.newAgentApiKey().trim().length > 0;
   });
 
   // ============================================================================
@@ -625,16 +695,33 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Handle provider dropdown change. Resets copilot state and checks
+   * copilot auth status when github-copilot is selected.
+   */
+  onProviderChange(providerId: string): void {
+    this.newAgentProvider.set(providerId);
+
+    if (providerId === 'github-copilot') {
+      this.checkCopilotStatus();
+    } else {
+      // Reset copilot state when switching away
+      this.copilotLoginStatus.set('idle');
+      this.copilotUsername.set(null);
+    }
+  }
+
   async createAgent(): Promise<void> {
     if (!this.canCreate()) return;
 
     this.isCreating.set(true);
     this.error.set(null);
     try {
+      const isCopilot = this.newAgentProvider() === 'github-copilot';
       const result = await this.rpcService.call('ptahCli:create', {
         name: this.newAgentName().trim(),
         providerId: this.newAgentProvider(),
-        apiKey: this.newAgentApiKey().trim(),
+        apiKey: isCopilot ? 'copilot-oauth' : this.newAgentApiKey().trim(),
       });
 
       if (result.isSuccess() && result.data.success) {
@@ -666,6 +753,71 @@ export class PtahCliConfigComponent implements OnInit, OnDestroy {
     this.newAgentProvider.set('');
     this.newAgentApiKey.set('');
     this.showNewApiKey.set(false);
+    this.copilotLoginStatus.set('idle');
+    this.copilotUsername.set(null);
+  }
+
+  // ============================================================================
+  // COPILOT AUTH (TASK_2025_186)
+  // ============================================================================
+
+  /**
+   * Initiate GitHub OAuth login for Copilot provider.
+   * Calls the backend RPC which triggers VS Code's GitHub auth flow.
+   */
+  async loginWithGitHub(): Promise<void> {
+    this.copilotLoginStatus.set('logging-in');
+    this.error.set(null);
+
+    try {
+      const result = await this.rpcService.call(
+        'auth:copilotLogin',
+        {} as Record<string, never>
+      );
+
+      if (result.isSuccess() && result.data.success) {
+        this.copilotLoginStatus.set('connected');
+        this.copilotUsername.set(result.data.username ?? 'GitHub User');
+      } else {
+        this.copilotLoginStatus.set('error');
+        const errorMsg =
+          result.data?.error ?? result.error ?? 'GitHub login failed';
+        this.error.set(errorMsg);
+      }
+    } catch (err) {
+      console.error('[PtahCliConfig] Copilot login failed', err);
+      this.copilotLoginStatus.set('error');
+      this.error.set(
+        `GitHub login failed: ${
+          err instanceof Error ? err.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  /**
+   * Check Copilot auth status when the provider is selected.
+   * Called from the provider dropdown change handler.
+   */
+  async checkCopilotStatus(): Promise<void> {
+    try {
+      const result = await this.rpcService.call(
+        'auth:copilotStatus',
+        {} as Record<string, never>
+      );
+
+      if (result.isSuccess() && result.data.authenticated) {
+        this.copilotLoginStatus.set('connected');
+        this.copilotUsername.set(result.data.username ?? 'GitHub User');
+      } else {
+        this.copilotLoginStatus.set('idle');
+        this.copilotUsername.set(null);
+      }
+    } catch {
+      // Non-fatal: user can still click login button
+      this.copilotLoginStatus.set('idle');
+      this.copilotUsername.set(null);
+    }
   }
 
   // ============================================================================

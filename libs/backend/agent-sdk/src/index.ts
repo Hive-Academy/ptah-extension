@@ -176,6 +176,21 @@ export { PtahCliAdapter, PtahCliRegistry } from './lib/ptah-cli';
 export type { PtahCliPremiumConfig } from './lib/ptah-cli';
 
 // ============================================================
+// Copilot Provider (TASK_2025_186)
+// GitHub Copilot integration via OAuth + translation proxy
+// ============================================================
+export {
+  CopilotAuthService,
+  CopilotTranslationProxy,
+  COPILOT_PROVIDER_ENTRY,
+} from './lib/copilot-provider';
+export type {
+  ICopilotAuthService,
+  ICopilotTranslationProxy,
+  CopilotAuthState,
+} from './lib/copilot-provider';
+
+// ============================================================
 // Slash Command Interceptor (TASK_2025_184)
 // Detects and classifies follow-up slash commands
 // ============================================================

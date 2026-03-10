@@ -8,7 +8,7 @@
  * TASK_2025_076: SecretStorage integration for secure credential storage
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, optional } from 'tsyringe';
 import { z } from 'zod';
 import {
   Logger,
@@ -17,6 +17,7 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import * as vscode from 'vscode';
 import {
   SdkAgentAdapter,
   SDK_TOKENS,
@@ -24,6 +25,7 @@ import {
   DEFAULT_PROVIDER_ID,
   ProviderModelsService,
 } from '@ptah-extension/agent-sdk';
+import type { CopilotAuthService } from '@ptah-extension/agent-sdk';
 import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
@@ -44,7 +46,10 @@ export class AuthRpcHandlers {
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
-    private readonly providerModels: ProviderModelsService
+    private readonly providerModels: ProviderModelsService,
+    @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
+    @optional()
+    private readonly copilotAuth?: CopilotAuthService
   ) {}
 
   /**
@@ -55,6 +60,8 @@ export class AuthRpcHandlers {
     this.registerGetAuthStatus();
     this.registerSaveSettings();
     this.registerTestConnection();
+    this.registerCopilotLogin();
+    this.registerCopilotStatus();
 
     this.logger.debug('Auth RPC handlers registered', {
       methods: [
@@ -62,6 +69,8 @@ export class AuthRpcHandlers {
         'auth:getAuthStatus',
         'auth:saveSettings',
         'auth:testConnection',
+        'auth:copilotLogin',
+        'auth:copilotStatus',
       ],
     });
   }
@@ -353,5 +362,123 @@ export class AuthRpcHandlers {
         throw error;
       }
     });
+  }
+
+  /**
+   * auth:copilotLogin - Trigger GitHub OAuth login for Copilot provider
+   *
+   * TASK_2025_186: Initiates the VS Code GitHub authentication flow,
+   * exchanges the token for a Copilot bearer token, and returns the
+   * connected username.
+   */
+  private registerCopilotLogin(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      { success: boolean; username?: string; error?: string }
+    >('auth:copilotLogin', async () => {
+      try {
+        this.logger.debug('RPC: auth:copilotLogin called');
+
+        if (!this.copilotAuth) {
+          return {
+            success: false,
+            error: 'Copilot authentication service is not available',
+          };
+        }
+
+        const loginSuccess = await this.copilotAuth.login();
+
+        if (!loginSuccess) {
+          return {
+            success: false,
+            error:
+              'GitHub login failed. Ensure you have an active GitHub Copilot subscription.',
+          };
+        }
+
+        // Extract username from the GitHub auth session
+        const username = await this.getGitHubUsername();
+
+        this.logger.info('RPC: auth:copilotLogin succeeded', { username });
+        return { success: true, username };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:copilotLogin failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Login failed',
+        };
+      }
+    });
+  }
+
+  /**
+   * auth:copilotStatus - Check if Copilot is already authenticated
+   *
+   * TASK_2025_186: Returns current authentication state without
+   * triggering a login flow.
+   */
+  private registerCopilotStatus(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      { authenticated: boolean; username?: string }
+    >('auth:copilotStatus', async () => {
+      try {
+        this.logger.debug('RPC: auth:copilotStatus called');
+
+        if (!this.copilotAuth) {
+          return { authenticated: false };
+        }
+
+        const authenticated = await this.copilotAuth.isAuthenticated();
+
+        if (!authenticated) {
+          return { authenticated: false };
+        }
+
+        const username = await this.getGitHubUsername();
+
+        this.logger.debug('RPC: auth:copilotStatus result', {
+          authenticated,
+          username,
+        });
+        return { authenticated: true, username };
+      } catch (error) {
+        this.logger.error(
+          'RPC: auth:copilotStatus failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return { authenticated: false };
+      }
+    });
+  }
+
+  /**
+   * Retrieve the GitHub username from VS Code's authentication session.
+   * Returns undefined if no active session is found.
+   */
+  private async getGitHubUsername(): Promise<string | undefined> {
+    try {
+      const session = await vscode.authentication.getSession(
+        'github',
+        ['copilot'],
+        { createIfNone: false }
+      );
+      return session?.account.label;
+    } catch {
+      // Fallback: try read:user scope
+      try {
+        const session = await vscode.authentication.getSession(
+          'github',
+          ['read:user'],
+          { createIfNone: false }
+        );
+        return session?.account.label;
+      } catch {
+        return undefined;
+      }
+    }
   }
 }
