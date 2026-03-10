@@ -29,6 +29,8 @@ import {
 } from './anthropic-provider-registry';
 import { ProviderModelsService } from '../provider-models.service';
 import { SDK_TOKENS } from '../di/tokens';
+import type { CopilotAuthService } from '../copilot-provider/copilot-auth.service';
+import type { CopilotTranslationProxy } from '../copilot-provider/copilot-translation-proxy';
 
 export interface AuthResult {
   configured: boolean;
@@ -68,7 +70,11 @@ export class AuthManager {
     private authSecrets: IAuthSecretsService,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private providerModels: ProviderModelsService,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv,
+    @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
+    private copilotAuth: CopilotAuthService,
+    @inject(SDK_TOKENS.SDK_COPILOT_PROXY)
+    private copilotProxy: CopilotTranslationProxy
   ) {}
 
   /**
@@ -272,12 +278,19 @@ export class AuthManager {
       DEFAULT_PROVIDER_ID
     );
 
-    // Per-provider key lookup: each provider has its own isolated storage slot
-    const providerKey = await this.authSecrets.getProviderKey(providerId);
+    const provider = getAnthropicProvider(providerId);
     const details: string[] = [];
 
+    // TASK_2025_186: OAuth provider flow (e.g., GitHub Copilot)
+    // Uses translation proxy instead of API key
+    if (provider?.requiresProxy && provider?.authType === 'oauth') {
+      return this.configureOAuthProvider(provider);
+    }
+
+    // Per-provider key lookup: each provider has its own isolated storage slot
+    const providerKey = await this.authSecrets.getProviderKey(providerId);
+
     if (providerKey?.trim()) {
-      const provider = getAnthropicProvider(providerId);
       const providerName = provider?.name ?? providerId;
       const baseUrl = getProviderBaseUrl(providerId);
       const authEnvVar = getProviderAuthEnvVar(providerId);
@@ -333,6 +346,87 @@ export class AuthManager {
       this.logger.debug('[AuthManager] No provider key found in SecretStorage');
       return { configured: false, details: [] };
     }
+  }
+
+  /**
+   * Configure an OAuth-based provider that requires a translation proxy (TASK_2025_186).
+   *
+   * Flow:
+   * 1. Check/initiate OAuth authentication (e.g., GitHub Copilot via VS Code auth)
+   * 2. Start local translation proxy
+   * 3. Point ANTHROPIC_BASE_URL to the proxy
+   * 4. Set a placeholder auth token (proxy handles real auth internally)
+   */
+  private async configureOAuthProvider(provider: {
+    id: string;
+    name: string;
+    staticModels?: Array<{ id: string }>;
+  }): Promise<AuthResult> {
+    const providerName = provider.name;
+
+    this.logger.info(
+      `[AuthManager] Configuring OAuth provider: ${providerName}`
+    );
+
+    // Step 1: Check if already authenticated, if not try login
+    const isAuthed = await this.copilotAuth.isAuthenticated();
+    if (!isAuthed) {
+      this.logger.info(
+        `[AuthManager] ${providerName} not authenticated, initiating login...`
+      );
+      const loginSuccess = await this.copilotAuth.login();
+      if (!loginSuccess) {
+        this.logger.warn(
+          `[AuthManager] ${providerName} login failed or was cancelled`
+        );
+        return { configured: false, details: [] };
+      }
+    }
+
+    // Step 2: Start the translation proxy
+    let proxyUrl: string;
+    try {
+      if (this.copilotProxy.isRunning()) {
+        proxyUrl = this.copilotProxy.getUrl()!;
+        this.logger.info(
+          `[AuthManager] Translation proxy already running at ${proxyUrl}`
+        );
+      } else {
+        const result = await this.copilotProxy.start();
+        proxyUrl = result.url;
+        this.logger.info(
+          `[AuthManager] Translation proxy started at ${proxyUrl}`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[AuthManager] Failed to start translation proxy: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return { configured: false, details: [] };
+    }
+
+    // Step 3: Point SDK at the proxy
+    this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
+    // Placeholder token — the proxy handles real Copilot auth internally
+    this.authEnv.ANTHROPIC_AUTH_TOKEN = 'copilot-proxy-managed';
+
+    // Step 4: Apply tier mappings and seed pricing
+    this.providerModels.switchActiveProvider(provider.id);
+    seedStaticModelPricing(provider.id);
+
+    this.logger.info(
+      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`
+    );
+    this.logger.info(
+      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`
+    );
+
+    return {
+      configured: true,
+      details: [`${providerName} (OAuth via translation proxy at ${proxyUrl})`],
+    };
   }
 
   /**
@@ -407,6 +501,18 @@ export class AuthManager {
   clearAuthentication(): void {
     this.clearAllAuthEnvVars();
     this.providerModels.clearAllTierEnvVars();
+
+    // Stop Copilot translation proxy if running (TASK_2025_186)
+    if (this.copilotProxy?.isRunning()) {
+      this.copilotProxy.stop().catch((err) => {
+        this.logger.warn(
+          `[AuthManager] Failed to stop Copilot proxy during cleanup: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      });
+    }
+
     this.logger.debug(
       '[AuthManager] Cleared authentication environment variables'
     );

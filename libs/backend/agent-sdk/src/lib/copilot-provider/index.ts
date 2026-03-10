@@ -1,11 +1,14 @@
 /**
  * Copilot Provider Module - Barrel exports
  *
- * @see TASK_2025_186 Batch 1 - Copilot Provider Core
+ * @see TASK_2025_186 - Copilot Provider Integration
  */
 
 // Auth service (injectable, stateful)
 export { CopilotAuthService } from './copilot-auth.service';
+
+// Translation proxy (injectable, manages local HTTP server)
+export { CopilotTranslationProxy } from './copilot-translation-proxy';
 
 // Response translator (stateful, create per-request)
 export { CopilotResponseTranslator } from './copilot-response-translator';

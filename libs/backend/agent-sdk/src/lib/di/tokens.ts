@@ -98,6 +98,10 @@ export const SDK_TOKENS = {
 
   /** Slash Command Interceptor (TASK_2025_184) */
   SDK_SLASH_COMMAND_INTERCEPTOR: Symbol.for('SdkSlashCommandInterceptor'),
+
+  /** Copilot Provider Services (TASK_2025_186) */
+  SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
+  SDK_COPILOT_PROXY: Symbol.for('SdkCopilotProxy'),
 } as const;
 
 /**

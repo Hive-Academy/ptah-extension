@@ -1,12 +1,8 @@
 /**
- * Copilot Provider Entry - TASK_2025_186 Batch 1
+ * Copilot Provider Entry - TASK_2025_186
  *
  * Static provider definition for GitHub Copilot.
- * Registered into the Anthropic-compatible provider registry in Batch 2.
- *
- * Note: `authType` and `requiresProxy` are new fields that will be added
- * to the AnthropicProvider interface in Batch 2 (Task 2.2). For now they
- * are included via a type assertion.
+ * Registered into the Anthropic-compatible provider registry.
  */
 
 import type {
@@ -85,12 +81,8 @@ const COPILOT_CLAUDE_MODELS: ProviderStaticModel[] = [
  * - `baseUrl` is empty — set dynamically to the translation proxy URL at runtime
  * - `authType: 'oauth'` — uses GitHub OAuth instead of API key input
  * - `requiresProxy: true` — needs the translation proxy to convert protocols
- *
- * The `authType` and `requiresProxy` fields are added to the AnthropicProvider
- * interface in Batch 2. The type assertion here ensures this compiles before
- * the interface is extended.
  */
-export const COPILOT_PROVIDER_ENTRY = {
+export const COPILOT_PROVIDER_ENTRY: AnthropicProvider = {
   id: 'github-copilot',
   name: 'GitHub Copilot',
   baseUrl: '',
@@ -103,4 +95,4 @@ export const COPILOT_PROVIDER_ENTRY = {
   keyPlaceholder: 'Authenticated via GitHub',
   maskedKeyDisplay: 'GitHub Copilot (connected)',
   staticModels: COPILOT_CLAUDE_MODELS,
-} as AnthropicProvider & { authType: 'oauth'; requiresProxy: true };
+};

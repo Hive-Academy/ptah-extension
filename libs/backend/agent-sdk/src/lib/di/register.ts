@@ -55,6 +55,10 @@ import {
   PtahCliConfigPersistence,
   PtahCliSpawnOptions,
 } from '../ptah-cli';
+import {
+  CopilotAuthService,
+  CopilotTranslationProxy,
+} from '../copilot-provider';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -338,6 +342,24 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Copilot Provider Services (TASK_2025_186)
+  // Auth service and translation proxy for GitHub Copilot integration
+  // Must be registered before AuthManager resolves (which depends on these)
+  // ============================================================
+
+  container.register(
+    SDK_TOKENS.SDK_COPILOT_AUTH,
+    { useClass: CopilotAuthService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_COPILOT_PROXY,
+    { useClass: CopilotTranslationProxy },
     { lifecycle: Lifecycle.Singleton }
   );
 

@@ -22,6 +22,7 @@ import {
   type ModelPricing,
   type AuthEnv,
 } from '@ptah-extension/shared';
+import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
 
 /**
  * Static model definition for providers without a dynamic models API
@@ -80,6 +81,18 @@ export interface AnthropicProvider {
   modelsEndpoint?: string;
   /** Hardcoded models for providers without a dynamic API */
   staticModels?: ProviderStaticModel[];
+  /**
+   * Authentication type (TASK_2025_186)
+   * - 'apiKey': Traditional API key input (default if not set)
+   * - 'oauth': OAuth-based authentication (e.g., GitHub Copilot)
+   */
+  authType?: 'apiKey' | 'oauth';
+  /**
+   * Whether this provider requires a local translation proxy (TASK_2025_186)
+   * When true, a local HTTP proxy translates between Anthropic and provider protocols.
+   * Defaults to false if not set.
+   */
+  requiresProxy?: boolean;
 }
 
 /**
@@ -266,10 +279,18 @@ export const ANTHROPIC_PROVIDERS = [
       },
     ],
   },
+  COPILOT_PROVIDER_ENTRY,
 ] as const satisfies readonly AnthropicProvider[];
 
-/** Provider IDs as a union type */
-export type AnthropicProviderId = (typeof ANTHROPIC_PROVIDERS)[number]['id'];
+/**
+ * Provider IDs as a union type.
+ * Manually defined to include both static and dynamic providers.
+ */
+export type AnthropicProviderId =
+  | 'openrouter'
+  | 'moonshot'
+  | 'z-ai'
+  | 'github-copilot';
 
 /** Default provider when none is configured */
 export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';
