@@ -29,6 +29,7 @@ import {
   isExitPlanModeToolInput,
   MESSAGE_TYPES,
   type QuestionItem,
+  type PermissionRequest,
   type PermissionResponse,
   type PermissionRule,
   type ISdkPermissionHandler,
@@ -40,30 +41,8 @@ import {
   PermissionUpdate,
 } from './types/sdk-types/claude-sdk.types';
 
-/**
- * Permission request payload for RPC event
- * Matches shared/permission.types.ts PermissionRequest interface
- */
-interface PermissionRequest {
-  /** Unique request ID - matches shared type's 'id' field */
-  id: string;
-  toolName: string;
-  toolInput: Record<string, unknown>;
-  /** Claude's tool_use_id for correlation with ExecutionNode.toolCallId */
-  toolUseId?: string;
-  timestamp: number;
-  /** Human-readable description of the permission request */
-  description: string;
-  /** Timeout deadline (Unix epoch milliseconds) - auto-deny after this time */
-  timeoutAt: number;
-}
-
-/**
- * Permission response from webview RPC
- * Using shared type from @ptah-extension/shared
- * See: libs/shared/src/lib/types/permission.types.ts
- */
-// PermissionResponse is now imported from @ptah-extension/shared
+// PermissionRequest and PermissionResponse are imported from @ptah-extension/shared
+// See: libs/shared/src/lib/types/permission.types.ts
 
 /**
  * Pending request tracking
@@ -71,6 +50,8 @@ interface PermissionRequest {
 interface PendingRequest {
   resolve: (response: PermissionResponse) => void;
   timer: NodeJS.Timeout;
+  /** Session ID this request belongs to (for session-scoped cleanup) */
+  sessionId?: string;
 }
 
 /**
@@ -84,6 +65,8 @@ interface AskUserQuestionRequest {
   toolUseId?: string;
   timestamp: number;
   timeoutAt: number;
+  /** Session ID this question belongs to (for UI routing to correct tab) */
+  sessionId?: string;
 }
 
 /**
@@ -101,6 +84,8 @@ interface AskUserQuestionResponse {
 interface PendingQuestionRequest {
   resolve: (response: AskUserQuestionResponse | null) => void;
   timer: NodeJS.Timeout;
+  /** Session ID this request belongs to (for session-scoped cleanup) */
+  sessionId?: string;
 }
 
 /**
@@ -316,7 +301,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    * 3. Requests user approval for MCP tools (can execute arbitrary code)
    * 4. Denies unknown tools (fail-safe)
    */
-  createCallback(): CanUseTool {
+  createCallback(sessionId?: string): CanUseTool {
     return async (
       toolName: string,
       input: Record<string, unknown>,
@@ -378,7 +363,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Handling AskUserQuestion tool request (bypasses all auto-approval)`
         );
-        return await this.handleAskUserQuestion(input, options.toolUseID);
+        return await this.handleAskUserQuestion(
+          input,
+          options.toolUseID,
+          sessionId
+        );
       }
 
       // Handle ExitPlanMode — NEVER auto-approved (like AskUserQuestion).
@@ -390,7 +379,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         this.logger.info(
           `[SdkPermissionHandler] Handling ExitPlanMode tool request (bypasses all auto-approval)`
         );
-        return await this.handleExitPlanMode(input, options.toolUseID);
+        return await this.handleExitPlanMode(
+          input,
+          options.toolUseID,
+          sessionId
+        );
       }
 
       // Permission-level-aware auto-approval
@@ -441,7 +434,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return await this.requestUserPermission(
           toolName,
           input,
-          options.toolUseID
+          options.toolUseID,
+          sessionId
         );
       }
 
@@ -453,7 +447,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return await this.requestUserPermission(
           toolName,
           input,
-          options.toolUseID
+          options.toolUseID,
+          sessionId
         );
       }
 
@@ -476,7 +471,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return await this.requestUserPermission(
           toolName,
           input,
-          options.toolUseID
+          options.toolUseID,
+          sessionId
         );
       }
 
@@ -488,7 +484,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       return await this.requestUserPermission(
         toolName,
         input,
-        options.toolUseID
+        options.toolUseID,
+        sessionId
       );
     };
   }
@@ -506,7 +503,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async requestUserPermission(
     toolName: string,
     input: Record<string, unknown>,
-    toolUseId?: string
+    toolUseId?: string,
+    sessionId?: string
   ): Promise<PermissionResult> {
     // TASK_2025_097: Timing diagnostics - capture start time for latency measurement
     const startTime = Date.now();
@@ -517,7 +515,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     // Sanitize tool input before sending to UI
     const sanitizedInput = this.sanitizeToolInput(input);
 
-    // Calculate timeout deadline (30 seconds from now)
+    // Calculate timeout deadline (5 minutes from now)
     const now = Date.now();
     const timeoutAt = now + PERMISSION_TIMEOUT_MS;
 
@@ -535,6 +533,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       timestamp: now,
       description,
       timeoutAt,
+      sessionId, // TASK_2025_187: Route permission UI to correct session tab
     };
 
     // Store request context for later rule creation (on always_allow response)
@@ -563,8 +562,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       emitLatency: Date.now() - startTime,
     });
 
-    // Await user response with timeout
-    const response = await this.awaitResponse(requestId, PERMISSION_TIMEOUT_MS);
+    // Await user response with timeout (pass sessionId for session-scoped cleanup)
+    const response = await this.awaitResponse(
+      requestId,
+      PERMISSION_TIMEOUT_MS,
+      sessionId
+    );
 
     // TASK_2025_097: Log total latency for timing diagnostics (includes user decision time)
     this.logger.info(`[SdkPermissionHandler] Permission response received`, {
@@ -752,7 +755,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    */
   private async handleAskUserQuestion(
     input: Record<string, unknown>,
-    toolUseId: string
+    toolUseId: string,
+    sessionId?: string
   ): Promise<PermissionResult> {
     // Validate input using type guard
     if (!isAskUserQuestionToolInput(input)) {
@@ -777,6 +781,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       toolUseId,
       timestamp: now,
       timeoutAt,
+      sessionId, // TASK_2025_187: Route question UI to correct session tab
     };
 
     this.logger.info('[SdkPermissionHandler] Sending AskUserQuestion request', {
@@ -805,10 +810,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         );
       });
 
-    // Await user response with timeout
+    // Await user response with timeout (pass sessionId for session-scoped cleanup)
     const response = await this.awaitQuestionResponse(
       requestId,
-      PERMISSION_TIMEOUT_MS
+      PERMISSION_TIMEOUT_MS,
+      sessionId
     );
 
     if (!response) {
@@ -854,7 +860,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    */
   private async handleExitPlanMode(
     input: Record<string, unknown>,
-    toolUseId: string
+    toolUseId: string,
+    sessionId?: string
   ): Promise<PermissionResult> {
     // Validate input — ExitPlanMode must contain a plan string
     if (!isExitPlanModeToolInput(input)) {
@@ -881,7 +888,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const result = await this.requestUserPermission(
       'ExitPlanMode',
       input,
-      toolUseId
+      toolUseId,
+      sessionId
     );
 
     // On approval: notify frontend that plan mode is ending
@@ -915,7 +923,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    */
   private async awaitQuestionResponse(
     requestId: string,
-    timeoutMs: number
+    timeoutMs: number,
+    sessionId?: string
   ): Promise<AskUserQuestionResponse | null> {
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
       // Set timeout
@@ -924,10 +933,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         resolve(null); // Timeout - return null
       }, timeoutMs);
 
-      // Store pending request
+      // Store pending request with sessionId for session-scoped cleanup
       this.pendingQuestionRequests.set(requestId, {
         resolve,
         timer,
+        sessionId,
       });
     });
   }
@@ -963,7 +973,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    */
   private async awaitResponse(
     requestId: string,
-    timeoutMs: number
+    timeoutMs: number,
+    sessionId?: string
   ): Promise<PermissionResponse | null> {
     return new Promise<PermissionResponse | null>((resolve) => {
       // Set timeout
@@ -972,10 +983,11 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         resolve(null); // Timeout - return null
       }, timeoutMs);
 
-      // Store pending request
+      // Store pending request with sessionId for session-scoped cleanup
       this.pendingRequests.set(requestId, {
         resolve,
         timer,
+        sessionId,
       });
     });
   }
@@ -1202,27 +1214,62 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       pendingQuestionCount: this.pendingQuestionRequests.size,
     });
 
-    // Resolve all pending permission requests with deny response
-    for (const [requestId, pending] of this.pendingRequests.entries()) {
-      clearTimeout(pending.timer);
-      // Resolve with deny to unblock the waiting promise
-      pending.resolve({
-        id: requestId,
-        decision: 'deny',
-        reason: 'Session aborted',
-      });
-    }
-    this.pendingRequests.clear();
+    if (sessionId) {
+      // Session-scoped cleanup: only remove requests belonging to this session
+      for (const [requestId, pending] of this.pendingRequests.entries()) {
+        if (pending.sessionId === sessionId) {
+          clearTimeout(pending.timer);
+          pending.resolve({
+            id: requestId,
+            decision: 'deny',
+            reason: 'Session aborted',
+          });
+          this.pendingRequests.delete(requestId);
+          this.pendingRequestContext.delete(requestId);
+        }
+      }
 
-    // Also clear pending question requests
-    for (const [, pending] of this.pendingQuestionRequests.entries()) {
-      clearTimeout(pending.timer);
-      pending.resolve(null); // Questions resolve to null on abort
-    }
-    this.pendingQuestionRequests.clear();
+      for (const [
+        requestId,
+        pending,
+      ] of this.pendingQuestionRequests.entries()) {
+        if (pending.sessionId === sessionId) {
+          clearTimeout(pending.timer);
+          pending.resolve(null);
+          this.pendingQuestionRequests.delete(requestId);
+        }
+      }
 
-    // Clear request context map
-    this.pendingRequestContext.clear();
+      // Notify frontend to remove stale permission/question cards for this session
+      this.webviewManager
+        .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP, {
+          sessionId,
+        })
+        .catch((error) => {
+          this.logger.error(
+            '[SdkPermissionHandler] Failed to send session cleanup notification',
+            { error }
+          );
+        });
+    } else {
+      // Global cleanup: clear ALL (backward compat, extension deactivation)
+      for (const [requestId, pending] of this.pendingRequests.entries()) {
+        clearTimeout(pending.timer);
+        pending.resolve({
+          id: requestId,
+          decision: 'deny',
+          reason: 'Session aborted',
+        });
+      }
+      this.pendingRequests.clear();
+      this.pendingRequestContext.clear();
+
+      for (const [, pending] of this.pendingQuestionRequests.entries()) {
+        clearTimeout(pending.timer);
+        pending.resolve(null);
+      }
+      this.pendingQuestionRequests.clear();
+    }
 
     // Reset agent plan mode indicator on session end
     this.webviewManager

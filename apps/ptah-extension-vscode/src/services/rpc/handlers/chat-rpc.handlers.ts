@@ -50,7 +50,9 @@ import {
   ChatResumeParams,
   ChatResumeResult,
   MESSAGE_TYPES,
+  AgentId,
   type CliSessionReference,
+  type AgentStartEvent,
 } from '@ptah-extension/shared';
 
 interface WebviewManager {
@@ -236,6 +238,111 @@ export class ChatRpcHandlers {
    * Used by chat:continue and chat:abort to delegate to the correct adapter.
    */
   private ptahCliSessions = new Map<string, string>();
+
+  // ============================================================================
+  // CLI SESSION RECOVERY (TASK_2025_186)
+  // ============================================================================
+
+  /**
+   * Recover missing CLI session references from history events.
+   *
+   * When the metadata store lost entries (e.g., concurrent write race before
+   * the write-queue fix), agent_start events in the history still contain
+   * agent info for all subagents. This method scans events for agent_start
+   * entries not present in the existing cliSessions array and synthesizes
+   * minimal CliSessionReference entries so they appear in the agent monitor.
+   *
+   * Handles two categories:
+   * 1. SDK subagents WITH JSONL files (ptah-cli) — have agentId in event
+   * 2. CLI subprocess agents WITHOUT JSONL files (gemini/codex/copilot) —
+   *    have toolCallId only, agentId is null. Uses toolCallId as unique key.
+   */
+  private recoverMissingCliSessions(
+    events: FlatStreamEventUnion[],
+    existing: CliSessionReference[] | undefined,
+    sessionId: string
+  ): CliSessionReference[] | undefined {
+    // Extract all agent_start events
+    const agentStarts = events.filter(
+      (e): e is AgentStartEvent => e.eventType === 'agent_start'
+    );
+
+    if (agentStarts.length === 0) return existing;
+
+    // Build matching sets from existing metadata
+    const knownIds = new Set<string>();
+    const knownTimestamps: number[] = [];
+    for (const ref of existing ?? []) {
+      knownIds.add(ref.agentId as string);
+      knownIds.add(ref.cliSessionId);
+      knownTimestamps.push(new Date(ref.startedAt).getTime());
+    }
+
+    // Find agent_start events not covered by existing metadata.
+    // Match by ID (agentId or cliSessionId) OR by timestamp proximity (±60s).
+    // Timestamp matching handles CLI subprocess agents where the metadata agentId
+    // (from AgentProcessManager) differs from the event's toolCallId.
+    const TIMESTAMP_MATCH_WINDOW = 60_000;
+    const missing = agentStarts.filter((e) => {
+      const key = e.agentId || e.toolCallId;
+      if (key && knownIds.has(key)) return false;
+
+      // Check timestamp proximity against existing agents
+      for (const ts of knownTimestamps) {
+        if (Math.abs(e.timestamp - ts) < TIMESTAMP_MATCH_WINDOW) return false;
+      }
+      return true;
+    });
+
+    if (missing.length === 0) return existing;
+
+    // Check which agents have tool_result events (completed vs interrupted)
+    const completedToolCallIds = new Set(
+      events
+        .filter((e) => e.eventType === 'tool_result')
+        .map((e) => (e as { toolCallId?: string }).toolCallId)
+        .filter(Boolean)
+    );
+
+    // Synthesize CliSessionReferences from history events
+    const recovered: CliSessionReference[] = missing.map((evt) => {
+      const uniqueId = evt.agentId || evt.toolCallId;
+      const hasResult = completedToolCallIds.has(evt.toolCallId);
+      // Agents with JSONL files (agentId present) are ptah-cli SDK subagents.
+      // Agents without (agentId null) are CLI subprocess agents — cli type unknown.
+      const cli = evt.agentId ? 'ptah-cli' : 'ptah-cli';
+
+      return {
+        cliSessionId: uniqueId,
+        cli: cli as CliSessionReference['cli'],
+        agentId: uniqueId as unknown as AgentId,
+        task:
+          evt.agentDescription ||
+          evt.agentPrompt?.slice(0, 200) ||
+          `${evt.agentType} agent`,
+        startedAt: new Date(evt.timestamp).toISOString(),
+        status: (hasResult
+          ? 'completed'
+          : 'failed') as CliSessionReference['status'],
+      };
+    });
+
+    this.logger.info(
+      '[RPC] Recovered missing CLI sessions from history events',
+      {
+        sessionId,
+        recoveredCount: recovered.length,
+        existingCount: existing?.length ?? 0,
+        agents: recovered.map((r) => ({
+          id: r.cliSessionId,
+          task: r.task.slice(0, 60),
+          status: r.status,
+        })),
+      }
+    );
+
+    return [...(existing ?? []), ...recovered];
+  }
 
   // ============================================================================
   // PTAH CLI DISPATCH METHODS (TASK_2025_167)
@@ -1088,6 +1195,17 @@ IMPORTANT INSTRUCTIONS:
               error: error instanceof Error ? error.message : String(error),
             });
           }
+
+          // TASK_2025_186: Recover missing CLI sessions from history events.
+          // When multiple CLI agents exit simultaneously, the metadata store
+          // race condition (now fixed with write queue) may have caused some
+          // references to be lost. Scan agent_start events as a fallback to
+          // reconstruct CliSessionReferences for agents with JSONL files.
+          cliSessions = this.recoverMissingCliSessions(
+            events,
+            cliSessions,
+            sessionId
+          );
 
           this.logger.info('[RPC] Session history loaded from JSONL', {
             sessionId,

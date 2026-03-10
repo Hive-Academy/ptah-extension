@@ -60,6 +60,12 @@ module.exports = {
         return callback(); // Bundle it
       }
 
+      // Bundle @openai/codex-sdk - ESM-only ("type": "module", exports
+      // only "import"). Same treatment as claude-agent-sdk and copilot-sdk.
+      if (request.startsWith('@openai/codex-sdk')) {
+        return callback(); // Bundle it
+      }
+
       // @google/genai - REMOVED (SDK-only migration: Google GenAI provider removed)
       // @google/gemini-cli-core - REMOVED (SDK-only migration: CLI auth removed)
 

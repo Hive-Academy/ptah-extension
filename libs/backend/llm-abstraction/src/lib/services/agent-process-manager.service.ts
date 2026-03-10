@@ -14,7 +14,12 @@ import { execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'eventemitter3';
-import { TOKENS, Logger, LicenseService } from '@ptah-extension/vscode-core';
+import {
+  TOKENS,
+  Logger,
+  LicenseService,
+  SubagentRegistryService,
+} from '@ptah-extension/vscode-core';
 import {
   AgentId,
   AgentStatus,
@@ -150,7 +155,9 @@ export class AgentProcessManager {
     @inject(TOKENS.CLI_DETECTION_SERVICE)
     private readonly cliDetection: CliDetectionService,
     @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService
+    private readonly licenseService: LicenseService,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry: SubagentRegistryService
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -266,6 +273,7 @@ export class AgentProcessManager {
         request.task,
         workingDirectory,
         cli,
+        adapter.displayName,
         detection.path,
         mcpPort
       );
@@ -319,6 +327,8 @@ export class AgentProcessManager {
       status: 'running',
       startedAt,
       parentSessionId: request.parentSessionId,
+      displayName: adapter.displayName,
+      model: cliModel,
     };
 
     // Use resolved binary path from detection.
@@ -393,6 +403,10 @@ export class AgentProcessManager {
 
     this.events.emit('agent:spawned', tracked.info);
 
+    // TASK_2025_186: Mark parent session's running subagents as CLI-orchestrating
+    // so they are not interrupted when the parent SDK session ends.
+    this.markParentSubagentsAsCliAgent(request.parentSessionId);
+
     return spawnResult;
   }
 
@@ -406,30 +420,12 @@ export class AgentProcessManager {
     task: string,
     workingDirectory: string,
     cli: CliType,
+    displayName: string,
     binaryPath?: string,
     mcpPort?: number
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
-
-    const info: AgentProcessInfo = {
-      agentId,
-      cli,
-      task: request.task,
-      workingDirectory,
-      taskFolder: request.taskFolder,
-      status: 'running',
-      startedAt,
-      parentSessionId: request.parentSessionId,
-      // Pre-set cliSessionId for resume: we already know the CLI session being
-      // resumed, so make it available on the agent:spawned event immediately.
-      // This enables spawn-time persistence (linking to parent session before
-      // the agent exits). The late-capture callback will update it if the init
-      // event returns a different session ID.
-      ...(request.resumeSessionId
-        ? { cliSessionId: request.resumeSessionId }
-        : {}),
-    };
 
     // Resolve model: use explicit request.model, else per-CLI config, else CLI default
     let resolvedModel = request.model;
@@ -451,6 +447,27 @@ export class AgentProcessManager {
         resolvedModel = configuredModel;
       }
     }
+
+    const info: AgentProcessInfo = {
+      agentId,
+      cli,
+      task: request.task,
+      workingDirectory,
+      taskFolder: request.taskFolder,
+      status: 'running',
+      startedAt,
+      parentSessionId: request.parentSessionId,
+      displayName,
+      model: resolvedModel,
+      // Pre-set cliSessionId for resume: we already know the CLI session being
+      // resumed, so make it available on the agent:spawned event immediately.
+      // This enables spawn-time persistence (linking to parent session before
+      // the agent exits). The late-capture callback will update it if the init
+      // event returns a different session ID.
+      ...(request.resumeSessionId
+        ? { cliSessionId: request.resumeSessionId }
+        : {}),
+    };
 
     this.logger.info('[AgentProcessManager] Spawning SDK agent', {
       agentId,
@@ -549,6 +566,7 @@ export class AgentProcessManager {
           status: 'running',
           startedAt,
           parentSessionId: meta.parentSessionId,
+          displayName: meta.ptahCliName,
           ptahCliName: meta.ptahCliName,
           ptahCliId: meta.ptahCliId,
           resumedFromAgentId: meta.resumedFromAgentId,
@@ -683,6 +701,10 @@ export class AgentProcessManager {
     };
 
     this.events.emit('agent:spawned', tracked.info);
+
+    // TASK_2025_186: Mark parent session's running subagents as CLI-orchestrating
+    // so they are not interrupted when the parent SDK session ends.
+    this.markParentSubagentsAsCliAgent(info.parentSessionId);
 
     return spawnResult;
   }
@@ -835,7 +857,11 @@ export class AgentProcessManager {
     }
 
     await this.killProcess(tracked);
-    tracked.info = { ...tracked.info, status: 'stopped' };
+    tracked.info = {
+      ...tracked.info,
+      status: 'stopped',
+      completedAt: new Date().toISOString(),
+    };
     clearTimeout(tracked.timeoutHandle);
 
     // Flush any pending output deltas before emitting exit
@@ -1102,7 +1128,11 @@ export class AgentProcessManager {
     if (!tracked || tracked.info.status !== 'running') return;
 
     this.logger.warn('[AgentProcessManager] Agent timed out', { agentId });
-    tracked.info = { ...tracked.info, status: 'timeout' };
+    tracked.info = {
+      ...tracked.info,
+      status: 'timeout',
+      completedAt: new Date().toISOString(),
+    };
     await this.killProcess(tracked);
     this.scheduleCleanup(agentId);
   }
@@ -1128,6 +1158,13 @@ export class AgentProcessManager {
         ...tracked.info,
         status,
         exitCode: code ?? undefined,
+        completedAt: new Date().toISOString(),
+      };
+    } else if (!tracked.info.completedAt) {
+      // Ensure completedAt is set even for timeout/stopped agents
+      tracked.info = {
+        ...tracked.info,
+        completedAt: new Date().toISOString(),
       };
     }
 
@@ -1315,6 +1352,40 @@ export class AgentProcessManager {
       return folders[0].uri.fsPath;
     }
     return process.cwd();
+  }
+
+  /**
+   * TASK_2025_186: Mark all running subagents for a parent session as CLI-orchestrating.
+   * This prevents markAllInterrupted() from killing them when the parent session ends.
+   * CLI agents run independently and should only stop on their own completion, timeout,
+   * or explicit user action.
+   */
+  private markParentSubagentsAsCliAgent(
+    parentSessionId: string | undefined
+  ): void {
+    if (!parentSessionId) return;
+
+    const running = this.subagentRegistry.getRunningBySession(parentSessionId);
+
+    if (running.length === 0) {
+      this.logger.debug(
+        '[AgentProcessManager] No running subagents found to mark as CLI-orchestrating',
+        { parentSessionId }
+      );
+      return;
+    }
+
+    for (const record of running) {
+      this.subagentRegistry.update(record.toolCallId, { isCliAgent: true });
+      this.logger.debug(
+        '[AgentProcessManager] Marked subagent as CLI-orchestrating',
+        {
+          toolCallId: record.toolCallId,
+          agentType: record.agentType,
+          parentSessionId,
+        }
+      );
+    }
   }
 
   private validateWorkingDirectory(dir: string): void {

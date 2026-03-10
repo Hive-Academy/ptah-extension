@@ -14,7 +14,7 @@ import {
 import type {
   AskUserQuestionRequest,
   AskUserQuestionResponse,
-} from '../components/molecules/question-card.component';
+} from '@ptah-extension/shared';
 import { SessionManager } from './session-manager.service';
 import { TabManagerService } from './tab-manager.service';
 import { StreamingHandlerService } from './chat-store/streaming-handler.service';
@@ -832,6 +832,15 @@ export class ChatStore {
     toolName: string;
   }): void {
     this.permissionHandler.handlePermissionAutoResolved(payload);
+  }
+
+  /**
+   * Cleanup all permission and question requests for a specific session.
+   * Called when backend sends PERMISSION_SESSION_CLEANUP (session aborted).
+   * Delegates to PermissionHandlerService
+   */
+  cleanupPermissionSession(sessionId: string): void {
+    this.permissionHandler.cleanupSession(sessionId);
   }
 
   /**

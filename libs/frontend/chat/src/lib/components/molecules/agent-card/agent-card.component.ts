@@ -150,9 +150,14 @@ export class AgentCardComponent {
   /**
    * Elapsed time display derived from the store's shared tick signal.
    * No per-card setInterval — the store drives a single 1s timer.
+   * Freezes at completedAt when the agent finishes (no more ticking).
    */
   readonly elapsedDisplay = computed(() => {
     const a = this.agent();
+    if (a.completedAt) {
+      // Agent finished — show frozen elapsed time
+      return formatElapsed(a.completedAt - a.startedAt);
+    }
     // Read tick to re-evaluate every second while agents are running
     this.store.tick();
     return formatElapsed(Date.now() - a.startedAt);

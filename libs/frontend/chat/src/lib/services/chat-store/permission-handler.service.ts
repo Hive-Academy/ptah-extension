@@ -24,12 +24,12 @@ import {
   ExecutionNode,
   MESSAGE_TYPES,
 } from '@ptah-extension/shared';
+import {
+  type AskUserQuestionRequest,
+  type AskUserQuestionResponse,
+} from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { VSCodeService } from '@ptah-extension/core';
-import type {
-  AskUserQuestionRequest,
-  AskUserQuestionResponse,
-} from '../../components';
 
 @Injectable({ providedIn: 'root' })
 export class PermissionHandlerService {
@@ -108,6 +108,21 @@ export class PermissionHandlerService {
     node.children?.forEach((child) => this.extractToolIds(child, set));
   }
 
+  /**
+   * Check if a request belongs to the currently active session.
+   * Returns true if the request should be visible in the current tab.
+   * - No sessionId on request -> show everywhere (backward compat)
+   * - No active session -> show all
+   * - sessionId matches active session -> show
+   * - sessionId doesn't match -> hide
+   */
+  private isRequestForActiveSession(req: { sessionId?: string }): boolean {
+    const activeSessionId = this.tabManager.activeTab()?.claudeSessionId;
+    if (!req.sessionId) return true;
+    if (!activeSessionId) return true;
+    return req.sessionId === activeSessionId;
+  }
+
   // ============================================================================
   // COMPUTED SIGNALS
   // ============================================================================
@@ -124,7 +139,9 @@ export class PermissionHandlerService {
    * Extracted from chat.store.ts:178-188
    */
   public getPermissionByToolId(toolId: string): PermissionRequest | undefined {
-    return this._permissionRequests().find((req) => req.toolUseId === toolId);
+    return this._permissionRequests().find(
+      (req) => req.toolUseId === toolId && this.isRequestForActiveSession(req)
+    );
   }
 
   /**
@@ -182,9 +199,14 @@ export class PermissionHandlerService {
     const allPermissions = this._permissionRequests();
     if (allPermissions.length === 0) return [];
 
+    const sessionPermissions = allPermissions.filter((req) =>
+      this.isRequestForActiveSession(req)
+    );
+    if (sessionPermissions.length === 0) return [];
+
     const toolIdsInTree = this.toolIdsInExecutionTree();
 
-    return allPermissions.filter((req) => {
+    return sessionPermissions.filter((req) => {
       // No toolUseId = can never match
       if (!req.toolUseId) return true;
 
@@ -410,10 +432,28 @@ export class PermissionHandlerService {
     toolUseId: string | undefined
   ): AskUserQuestionRequest | null {
     if (!toolUseId) return null;
-
     return (
-      this._questionRequests().find((req) => req.toolUseId === toolUseId) ??
-      null
+      this._questionRequests().find(
+        (req) =>
+          req.toolUseId === toolUseId && this.isRequestForActiveSession(req)
+      ) ?? null
+    );
+  }
+
+  /**
+   * Remove all permission and question requests for a specific session.
+   * Called when the backend notifies that a session has been aborted.
+   * Prevents stale permission/question cards from lingering in the UI.
+   */
+  cleanupSession(sessionId: string): void {
+    console.log('[PermissionHandlerService] Session cleanup:', sessionId);
+
+    this._permissionRequests.update((requests) =>
+      requests.filter((r) => r.sessionId !== sessionId)
+    );
+
+    this._questionRequests.update((requests) =>
+      requests.filter((r) => r.sessionId !== sessionId)
     );
   }
 }

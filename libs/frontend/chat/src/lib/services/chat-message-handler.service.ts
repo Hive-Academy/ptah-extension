@@ -14,6 +14,7 @@
  * - SESSION_ID_RESOLVED: Real SDK UUID resolution
  * - ASK_USER_QUESTION_REQUEST: AskUserQuestion tool from SDK
  * - PERMISSION_AUTO_RESOLVED: Always Allow sibling resolution
+ * - PERMISSION_SESSION_CLEANUP: Session abort cleanup
  */
 
 import { Injectable, inject } from '@angular/core';
@@ -35,6 +36,7 @@ export class ChatMessageHandler implements MessageHandler {
     MESSAGE_TYPES.SESSION_ID_RESOLVED,
     MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
     MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED,
+    MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP,
   ] as const;
 
   handleMessage(message: { type: string; payload?: unknown }): void {
@@ -65,6 +67,9 @@ export class ChatMessageHandler implements MessageHandler {
         break;
       case MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED:
         this.handlePermissionAutoResolved(message.payload);
+        break;
+      case MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP:
+        this.handlePermissionSessionCleanup(message.payload);
         break;
     }
   }
@@ -208,7 +213,7 @@ export class ChatMessageHandler implements MessageHandler {
       return;
     }
     this.chatStore.handleQuestionRequest(
-      payload as import('../components/molecules/question-card.component').AskUserQuestionRequest
+      payload as import('@ptah-extension/shared').AskUserQuestionRequest
     );
   }
 
@@ -217,6 +222,18 @@ export class ChatMessageHandler implements MessageHandler {
     if (payload) {
       this.chatStore.handlePermissionAutoResolved(
         payload as { id: string; toolName: string }
+      );
+    }
+  }
+
+  // PERMISSION_SESSION_CLEANUP: Remove all permission/question cards for aborted session
+  private handlePermissionSessionCleanup(payload: unknown): void {
+    const { sessionId } = (payload as { sessionId?: string }) ?? {};
+    if (sessionId) {
+      this.chatStore.cleanupPermissionSession(sessionId);
+    } else {
+      console.warn(
+        '[ChatMessageHandler] permission:session-cleanup received but sessionId is undefined!'
       );
     }
   }

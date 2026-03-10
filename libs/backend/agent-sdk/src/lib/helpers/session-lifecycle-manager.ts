@@ -318,7 +318,11 @@ export class SessionLifecycleManager {
     // TASK_2025_103: Mark all running subagents as interrupted BEFORE aborting
     // This is the key mechanism for detecting interrupted subagents since
     // SubagentStop hook doesn't fire on abort. Running subagents become resumable.
-    this.subagentRegistry.markAllInterrupted(sessionId as string);
+    // TASK_2025_186: Use real UUID if resolved, since SubagentRegistryService records
+    // may have been updated from tab ID to real UUID by resolveParentSessionId().
+    const registrySessionId =
+      this.tabIdToRealId.get(sessionId as string) || (sessionId as string);
+    this.subagentRegistry.markAllInterrupted(registrySessionId);
 
     this.logger.info(
       `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`
@@ -382,7 +386,9 @@ export class SessionLifecycleManager {
       this.logger.debug(`[SessionLifecycle] Ending session: ${sessionId}`);
 
       // TASK_2025_103: Mark all running subagents as interrupted for this session
-      this.subagentRegistry.markAllInterrupted(sessionId);
+      // TASK_2025_186: Use real UUID if resolved
+      const registryId = this.tabIdToRealId.get(sessionId) || sessionId;
+      this.subagentRegistry.markAllInterrupted(registryId);
 
       // TASK_2025_175: Interrupt BEFORE abort, with timeout
       if (session.query) {

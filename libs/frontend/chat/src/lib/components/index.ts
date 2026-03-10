@@ -32,11 +32,7 @@ export * from './atoms/resize-handle.component';
 // ============================================================================
 export * from './molecules/thinking-block.component';
 export * from './molecules/agent-summary.component';
-export {
-  QuestionCardComponent,
-  type AskUserQuestionRequest,
-  type AskUserQuestionResponse,
-} from './molecules/question-card.component';
+export { QuestionCardComponent } from './molecules/question-card.component';
 
 // ============================================================================
 // MOLECULES - Tool Execution

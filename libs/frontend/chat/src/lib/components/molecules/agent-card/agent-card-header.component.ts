@@ -38,11 +38,11 @@ import type { MonitoredAgent } from '../../../services/agent-monitor.store';
         class="w-3 h-3 text-base-content/50 flex-shrink-0"
       />
 
-      <!-- CLI badge -->
+      <!-- CLI badge (display name or CLI type) -->
       <span
         class="badge badge-sm badge-outline font-mono text-[10px] flex-shrink-0"
       >
-        {{ agent().cli }}
+        {{ agent().displayName || agent().cli }}
       </span>
 
       <!-- Status badge -->
@@ -57,6 +57,16 @@ import type { MonitoredAgent } from '../../../services/agent-monitor.store';
       >
         {{ agent().status }}
       </span>
+
+      <!-- Model badge -->
+      @if (agent().model) {
+      <span
+        class="badge badge-sm badge-ghost font-mono text-[9px] text-base-content/50 flex-shrink-0"
+        [title]="'Model: ' + agent().model"
+      >
+        {{ agent().model }}
+      </span>
+      }
 
       <!-- Stop button (running agents only) -->
       @if (agent().status === 'running') {

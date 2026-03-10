@@ -164,6 +164,7 @@ export class SubagentRegistryService {
         | 'status'
         | 'interruptedAt'
         | 'isBackground'
+        | 'isCliAgent'
         | 'outputFilePath'
         | 'backgroundStartedAt'
         | 'completedAt'
@@ -207,6 +208,9 @@ export class SubagentRegistryService {
     if (updates.isBackground !== undefined) {
       (record as { isBackground?: boolean }).isBackground =
         updates.isBackground;
+    }
+    if (updates.isCliAgent !== undefined) {
+      (record as { isCliAgent?: boolean }).isCliAgent = updates.isCliAgent;
     }
     if (updates.outputFilePath !== undefined) {
       (record as { outputFilePath?: string }).outputFilePath =
@@ -406,7 +410,8 @@ export class SubagentRegistryService {
       if (
         record.parentSessionId === parentSessionId &&
         record.status === 'running' &&
-        !record.isBackground // Background agents outlive the session turn
+        !record.isBackground && // Background agents outlive the session turn
+        !record.isCliAgent // TASK_2025_186: CLI agents run independently of parent session
       ) {
         record.status = 'interrupted';
         record.interruptedAt = interruptedAt;
@@ -430,6 +435,33 @@ export class SubagentRegistryService {
           parentSessionId,
           interruptedCount,
         }
+      );
+    }
+  }
+
+  /**
+   * TASK_2025_186: Update parentSessionId for all records matching the old tab ID.
+   * Called when the real SDK session UUID is resolved, so that
+   * markParentSubagentsAsCliAgent() and markAllInterrupted() can find
+   * records by either the tab ID or the real UUID.
+   *
+   * @param tabId - The temporary tab ID used during session creation
+   * @param realSessionId - The real SDK session UUID
+   */
+  resolveParentSessionId(tabId: string, realSessionId: string): void {
+    let updatedCount = 0;
+
+    for (const record of this.registry.values()) {
+      if (record.parentSessionId === tabId) {
+        (record as { parentSessionId: string }).parentSessionId = realSessionId;
+        updatedCount++;
+      }
+    }
+
+    if (updatedCount > 0) {
+      this.logger.debug(
+        '[SubagentRegistryService.resolveParentSessionId] Updated records',
+        { tabId, realSessionId, updatedCount }
       );
     }
   }

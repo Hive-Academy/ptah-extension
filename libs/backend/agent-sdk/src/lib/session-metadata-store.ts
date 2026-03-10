@@ -95,6 +95,14 @@ export class SessionMetadataStore {
    * and a Logger instance. The decorators are retained for documentation
    * purposes only (they show the logical dependencies).
    */
+
+  /**
+   * Write serialization queue. Prevents concurrent read-modify-write races
+   * when multiple CLI agents exit simultaneously and call addCliSession().
+   * Each write waits for the previous one to complete before reading fresh data.
+   */
+  private writeQueue: Promise<void> = Promise.resolve();
+
   constructor(
     @inject(TOKENS.GLOBAL_STATE) private storage: vscode.Memento,
     @inject(TOKENS.LOGGER) private logger: Logger
@@ -167,67 +175,77 @@ export class SessionMetadataStore {
   }
 
   /**
-   * Update session stats (cost, tokens) from result message
+   * Update session stats (cost, tokens) from result message.
+   * Serialized through writeQueue to prevent lost updates from concurrent writes.
    */
   async addStats(
     sessionId: string,
     stats: { cost: number; tokens: { input: number; output: number } }
   ): Promise<void> {
-    const metadata = await this.get(sessionId);
-    if (metadata) {
-      await this.save({
-        ...metadata,
-        lastActiveAt: Date.now(),
-        totalCost: metadata.totalCost + stats.cost,
-        totalTokens: {
-          input: metadata.totalTokens.input + stats.tokens.input,
-          output: metadata.totalTokens.output + stats.tokens.output,
-        },
-      });
-    }
+    return this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (metadata) {
+        await this.save({
+          ...metadata,
+          lastActiveAt: Date.now(),
+          totalCost: metadata.totalCost + stats.cost,
+          totalTokens: {
+            input: metadata.totalTokens.input + stats.tokens.input,
+            output: metadata.totalTokens.output + stats.tokens.output,
+          },
+        });
+      }
+    });
   }
 
   /**
    * Add a CLI session reference to a parent session's metadata.
    * Called when a CLI agent exits with a captured cliSessionId.
+   *
+   * Serialized through writeQueue to prevent race conditions when
+   * multiple CLI agents exit simultaneously and try to add their
+   * references concurrently (each would read stale cliSessions=[],
+   * and only the last save would survive).
    */
   async addCliSession(
     sessionId: string,
     cliSession: CliSessionReference
   ): Promise<void> {
-    const metadata = await this.get(sessionId);
-    if (!metadata) {
-      throw new Error(`Parent session not found: ${sessionId}`);
-    }
+    return this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (!metadata) {
+        throw new Error(`Parent session not found: ${sessionId}`);
+      }
 
-    const existing = metadata.cliSessions ?? [];
-    // Upsert by cliSessionId: if a reference with the same cliSessionId already
-    // exists, replace it with the new one (preserves updated status, stdout, and
-    // segments from resumed sessions). Otherwise append.
-    const existingIndex = existing.findIndex(
-      (s) => s.cliSessionId === cliSession.cliSessionId
-    );
-
-    let updated: readonly CliSessionReference[];
-    if (existingIndex >= 0) {
-      // Replace existing reference with updated data (resume scenario)
-      const mutable = [...existing];
-      mutable[existingIndex] = cliSession;
-      updated = mutable;
-      this.logger.info(
-        `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`
+      const existing = metadata.cliSessions ?? [];
+      // Upsert by cliSessionId: if a reference with the same cliSessionId already
+      // exists, replace it with the new one (preserves updated status, stdout, and
+      // segments from resumed sessions). Otherwise append.
+      const existingIndex = existing.findIndex(
+        (s) => s.cliSessionId === cliSession.cliSessionId
       );
-    } else {
-      updated = [...existing, cliSession];
-      this.logger.info(
-        `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`
-      );
-    }
 
-    await this.save({
-      ...metadata,
-      lastActiveAt: Date.now(),
-      cliSessions: updated,
+      let updated: readonly CliSessionReference[];
+      if (existingIndex >= 0) {
+        // Replace existing reference with updated data (resume scenario)
+        const mutable = [...existing];
+        mutable[existingIndex] = cliSession;
+        updated = mutable;
+        this.logger.info(
+          `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`
+        );
+      } else {
+        updated = [...existing, cliSession];
+        this.logger.info(
+          `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`
+        );
+      }
+
+      await this.save({
+        ...metadata,
+        lastActiveAt: Date.now(),
+        cliSessions: updated,
+      });
     });
   }
 
@@ -319,5 +337,19 @@ export class SessionMetadataStore {
         `[SessionMetadataStore] Renamed session ${sessionId} to "${newName}"`
       );
     }
+  }
+
+  /**
+   * Enqueue a write operation. Each write waits for the previous one to finish
+   * before executing, ensuring read-modify-write cycles see fresh data.
+   * Errors are propagated to the caller but don't break the queue chain.
+   */
+  private enqueueWrite(fn: () => Promise<void>): Promise<void> {
+    const next = this.writeQueue.then(fn, () => fn());
+    // Update queue head — always resolves so next write can proceed even if this one fails
+    this.writeQueue = next.catch(() => {
+      /* swallow to keep chain alive */
+    });
+    return next;
   }
 }

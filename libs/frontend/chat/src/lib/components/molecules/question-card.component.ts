@@ -17,37 +17,10 @@ import {
   Send,
   Clock,
 } from 'lucide-angular';
-import type { QuestionItem } from '@ptah-extension/shared';
-
-/**
- * Request type matching backend AskUserQuestionRequest
- * Sent from backend to frontend when SDK's AskUserQuestion tool is invoked
- */
-export interface AskUserQuestionRequest {
-  /** Unique identifier for this question request */
-  id: string;
-  /** Tool name - always 'AskUserQuestion' */
-  toolName: 'AskUserQuestion';
-  /** Array of questions to present to the user */
-  questions: QuestionItem[];
-  /** Tool use ID for correlation with execution tree */
-  toolUseId?: string;
-  /** Backend timestamp when request was emitted */
-  timestamp: number;
-  /** Timestamp when this request will timeout (30s from emission) */
-  timeoutAt: number;
-}
-
-/**
- * Response type matching backend AskUserQuestionResponse
- * Sent from frontend to backend with user's selected answers
- */
-export interface AskUserQuestionResponse {
-  /** Request ID this response corresponds to */
-  id: string;
-  /** Map of question text to selected answer(s) - multi-select uses comma-separated strings */
-  answers: Record<string, string>;
-}
+import type {
+  AskUserQuestionRequest,
+  AskUserQuestionResponse,
+} from '@ptah-extension/shared';
 
 /**
  * QuestionCardComponent - Display AskUserQuestion prompts with step-by-step navigation

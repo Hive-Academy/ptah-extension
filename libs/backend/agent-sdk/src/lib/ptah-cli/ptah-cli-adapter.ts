@@ -769,8 +769,19 @@ export class PtahCliAdapter implements IAIProvider {
 
     const cwd = projectPath || process.cwd();
 
-    // Create permission callback
-    const canUseTool = this.permissionHandler.createCallback();
+    // Resolve permission mode based on user's autopilot setting.
+    // Propagate the same permission policy to interactive sessions.
+    const permLevel = this.permissionHandler.getPermissionLevel();
+    const sdkPermMode =
+      permLevel === 'yolo'
+        ? 'bypassPermissions'
+        : permLevel === 'auto-edit'
+        ? 'acceptEdits'
+        : 'default';
+    const useBypass = sdkPermMode === 'bypassPermissions';
+    const canUseTool = useBypass
+      ? undefined
+      : this.permissionHandler.createCallback(sessionId);
 
     // Build system prompt with full premium capabilities
     const activeProviderId = getActiveProviderId(this.authEnv);
@@ -862,8 +873,10 @@ export class PtahCliAdapter implements IAIProvider {
           preset: 'claude_code' as const,
         },
         mcpServers,
-        permissionMode: 'default',
-        canUseTool,
+        permissionMode: sdkPermMode,
+        ...(useBypass
+          ? { allowDangerouslySkipPermissions: true }
+          : { canUseTool }),
         includePartialMessages: true,
         settingSources: ['user', 'project', 'local'] as const,
         // Safe env: platform essentials + provider auth only (no host secret leaks)

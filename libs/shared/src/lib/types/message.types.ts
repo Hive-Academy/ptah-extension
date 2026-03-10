@@ -331,6 +331,10 @@ export const MESSAGE_TYPES = {
   // Sent when "Always Allow" auto-resolves sibling pending requests for the same tool
   PERMISSION_AUTO_RESOLVED: 'permission:auto-resolved',
 
+  // ---- Permission Session Cleanup Messages ----
+  // Sent when a session is aborted to notify frontend to remove stale permission/question cards
+  PERMISSION_SESSION_CLEANUP: 'permission:session-cleanup',
+
   // ---- Plan Mode Messages ----
   // Sent when agent enters/exits plan mode via EnterPlanMode/ExitPlanMode tools
   PLAN_MODE_CHANGED: 'session:plan-mode-changed',

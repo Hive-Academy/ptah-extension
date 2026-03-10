@@ -391,9 +391,12 @@ export interface SDKUserMessage {
   type: 'user';
   message: APIUserMessage;
   parent_tool_use_id: string | null;
+  /** Synthetic/meta message - should NOT be displayed in the UI.
+   * The SDK maps internal isMeta → isSynthetic when emitting.
+   * True for: skill .md content, reminders, system injections, etc. */
   isSynthetic?: boolean;
-  /** Metadata-only message (e.g., skill .md content injected into conversation context).
-   * These should NOT be displayed in the UI. */
+  /** @deprecated SDK 0.2.25+ maps isMeta → isSynthetic on emission.
+   * Kept for backwards compatibility with older SDK versions. */
   isMeta?: boolean;
   tool_use_result?: unknown;
   uuid?: UUID;

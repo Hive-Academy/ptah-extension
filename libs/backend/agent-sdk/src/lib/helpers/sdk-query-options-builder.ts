@@ -382,9 +382,9 @@ export class SdkQueryOptionsBuilder {
       mcpServerRunning
     );
 
-    // Create permission callback
+    // Create permission callback with sessionId for UI routing (TASK_2025_187)
     const canUseToolCallback: CanUseTool =
-      this.permissionHandler.createCallback();
+      this.permissionHandler.createCallback(sessionId);
 
     // Create merged hooks (subagent + compaction)
     // TASK_2025_098: Pass sessionId and callback for compaction hooks
@@ -633,7 +633,10 @@ export class SdkQueryOptionsBuilder {
     onCompactionStart?: CompactionStartCallback
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     // Create subagent hooks (existing functionality)
-    const subagentHooks = this.subagentHookHandler.createHooks(cwd);
+    // TASK_2025_186: Pass sessionId as parentSessionId so SubagentStart hook
+    // registers subagents in the registry. Without this, markAllInterrupted()
+    // and markParentSubagentsAsCliAgent() cannot find subagent records.
+    const subagentHooks = this.subagentHookHandler.createHooks(cwd, sessionId);
 
     // Create compaction hooks if sessionId is provided (TASK_2025_098)
     // Even without sessionId, we create hooks with empty string - SDK will provide session_id in hook input

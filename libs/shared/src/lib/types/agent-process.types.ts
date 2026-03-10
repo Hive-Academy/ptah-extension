@@ -72,6 +72,8 @@ export interface AgentProcessInfo {
   readonly taskFolder?: string;
   status: AgentStatus;
   readonly startedAt: string; // ISO timestamp
+  /** ISO timestamp when agent finished (completed/failed/stopped/timeout). Used to freeze timer display. */
+  completedAt?: string;
   exitCode?: number;
   readonly pid?: number;
   /** CLI-native session ID (e.g., Gemini's UUID from init event). Enables session resume. */
@@ -79,6 +81,10 @@ export interface AgentProcessInfo {
   /** Parent Ptah Claude SDK session that spawned this CLI agent via ptah_agent_spawn.
    *  Mutable: initially set to tab ID, then resolved to real SDK UUID. */
   parentSessionId?: string;
+  /** Human-readable display name for the CLI agent (e.g., 'Gemini CLI', 'Codex', 'Copilot SDK'). */
+  readonly displayName?: string;
+  /** Model identifier used by the CLI agent (e.g., 'gemini-2.5-pro', 'gpt-4o'). */
+  readonly model?: string;
   /** Display name of the Ptah CLI agent (only set when cli === 'ptah-cli') */
   readonly ptahCliName?: string;
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */

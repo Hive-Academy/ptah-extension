@@ -89,6 +89,16 @@ export interface SubagentRecord {
   readonly isBackground?: boolean;
 
   /**
+   * Whether this subagent orchestrates a CLI agent process (Gemini, Codex, Copilot, Ptah CLI).
+   * CLI agents run as independent processes in AgentProcessManager and should NOT be
+   * interrupted when the parent SDK session ends. They stop only on their own completion,
+   * timeout, or explicit user action (ptah_agent_stop).
+   *
+   * TASK_2025_186: Set by AgentProcessManager after spawning a CLI agent.
+   */
+  readonly isCliAgent?: boolean;
+
+  /**
    * Path to the background agent's output file.
    * Returned by the SDK in the placeholder tool_result when
    * run_in_background: true. Used by TaskOutput tool to retrieve results.

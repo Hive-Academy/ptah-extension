@@ -33,6 +33,8 @@ export interface MonitoredAgent {
   readonly task: string;
   status: AgentStatus;
   readonly startedAt: number;
+  /** Timestamp when agent finished. Used to freeze elapsed time display. */
+  completedAt?: number;
   stdout: string;
   stderr: string;
   exitCode?: number;
@@ -57,6 +59,10 @@ export interface MonitoredAgent {
   permissionQueue: AgentPermissionRequest[];
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
   readonly ptahCliId?: string;
+  /** Human-readable display name for the CLI agent (e.g., 'Gemini CLI', 'Codex'). */
+  readonly displayName?: string;
+  /** Model identifier used by the CLI agent (e.g., 'gemini-2.5-pro', 'gpt-4o'). */
+  readonly model?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -185,6 +191,8 @@ export class AgentMonitorStore implements OnDestroy {
           cliSessionId: info.cliSessionId,
           ptahCliId: info.ptahCliId,
           permissionQueue: [],
+          displayName: info.displayName || info.ptahCliName,
+          model: info.model,
         });
       } else {
         const order = this._expandOrder++;
@@ -204,6 +212,8 @@ export class AgentMonitorStore implements OnDestroy {
           cliSessionId: info.cliSessionId,
           ptahCliId: info.ptahCliId,
           permissionQueue: [],
+          displayName: info.displayName || info.ptahCliName,
+          model: info.model,
         });
         this.enforceMaxExpanded(next);
       }
@@ -286,12 +296,17 @@ export class AgentMonitorStore implements OnDestroy {
       const agent = map.get(info.agentId);
       if (!agent) return map;
 
+      const completedAt = info.completedAt
+        ? new Date(info.completedAt).getTime()
+        : Date.now();
+
       const next = new Map(map);
       next.set(info.agentId, {
         ...agent,
         status: info.status,
         exitCode: info.exitCode,
         cliSessionId: info.cliSessionId || agent.cliSessionId,
+        completedAt,
         permissionQueue: [],
       });
       return next;

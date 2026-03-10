@@ -482,6 +482,9 @@ export class PtahCliRegistry {
       projectGuidance?: string;
       workingDirectory?: string;
       resumeSessionId?: string;
+      /** Parent session ID for permission routing. Permissions from this agent
+       *  will be scoped to this session for cleanup purposes. */
+      parentSessionId?: string;
     }
   ): Promise<{ handle: SdkHandle; agentName: string } | SpawnAgentFailure> {
     // Find config
@@ -593,8 +596,11 @@ export class PtahCliRegistry {
           preset: 'claude_code' as const,
         },
         mcpServers: assembly.mcpServers,
-        permissionMode: 'default',
-        canUseTool: this.permissionHandler.createCallback(),
+        ...this.resolvePermissionOptions(
+          options?.resumeSessionId ??
+            options?.parentSessionId ??
+            `ptah-cli:${id}`
+        ),
         settingSources: ['user', 'project', 'local'] as const,
         includePartialMessages: true,
         persistSession: true,
@@ -679,6 +685,54 @@ export class PtahCliRegistry {
   // ============================================================================
   // Private Helper Methods
   // ============================================================================
+
+  /**
+   * Resolve SDK permission options based on user's current autopilot level.
+   *
+   * When the user is in YOLO mode, we use `bypassPermissions` so the SDK
+   * auto-approves ALL tools without calling canUseTool. This eliminates
+   * permission-handling overhead and prevents potential deadlocks where a
+   * subagent's Bash permission request blocks while the parent session waits.
+   *
+   * For other modes ('ask', 'auto-edit'), we keep `default` and provide
+   * the canUseTool callback so the user sees permission prompts.
+   */
+  private resolvePermissionOptions(sessionId?: string): {
+    permissionMode: string;
+    canUseTool?: ReturnType<SdkPermissionHandler['createCallback']>;
+    allowDangerouslySkipPermissions?: boolean;
+  } {
+    const level = this.permissionHandler.getPermissionLevel();
+
+    // Map user's autopilot level to SDK permission mode.
+    // This ensures subagents honor the same permission policy as the parent session.
+    const LEVEL_TO_SDK_MODE: Record<string, string> = {
+      yolo: 'bypassPermissions',
+      'auto-edit': 'acceptEdits',
+      ask: 'default',
+      plan: 'plan',
+    };
+
+    const sdkMode = LEVEL_TO_SDK_MODE[level] ?? 'default';
+
+    if (sdkMode === 'bypassPermissions') {
+      this.logger.info(
+        '[PtahCliRegistry] YOLO mode: using bypassPermissions for subagent'
+      );
+      return {
+        permissionMode: sdkMode,
+        allowDangerouslySkipPermissions: true,
+      };
+    }
+
+    this.logger.info(
+      `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`
+    );
+    return {
+      permissionMode: sdkMode,
+      canUseTool: this.permissionHandler.createCallback(sessionId),
+    };
+  }
 
   /**
    * Build isolated AuthEnv for a Ptah CLI agent with tier mappings applied.

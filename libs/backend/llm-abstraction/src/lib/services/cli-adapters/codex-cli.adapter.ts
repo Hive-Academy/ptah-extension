@@ -131,6 +131,10 @@ let codexSdkModule: CodexSdkModule | null = null;
 /**
  * Lazily import the ESM-only @openai/codex-sdk package.
  * Only caches successful imports so a failed import can be retried.
+ *
+ * The package is ESM-only ("type": "module", exports only "import" condition).
+ * Webpack bundles it into the extension output (configured in webpack.config.js)
+ * so the dynamic import resolves to the bundled module at runtime.
  */
 async function getCodexSdk(): Promise<CodexSdkModule> {
   if (codexSdkModule) {
@@ -352,7 +356,14 @@ export class CodexCliAdapter implements CliAdapter {
         },
       };
     }
-    if (options.binaryPath) {
+    // Only set codexPathOverride for non-.cmd paths. On Windows, npm-installed
+    // CLIs are .cmd wrappers that the SDK's internal spawn() cannot execute
+    // (causes EINVAL). The SDK can resolve 'codex' from PATH on its own,
+    // so we skip the override when the path is a .cmd file.
+    if (
+      options.binaryPath &&
+      !options.binaryPath.toLowerCase().endsWith('.cmd')
+    ) {
       codexOptions.codexPathOverride = options.binaryPath;
     }
 

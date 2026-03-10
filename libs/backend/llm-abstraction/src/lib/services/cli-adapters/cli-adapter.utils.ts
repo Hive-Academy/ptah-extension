@@ -37,16 +37,27 @@ export async function resolveCliPath(binary: string): Promise<string | null> {
 /**
  * Cross-platform spawn. Uses `cross-spawn` — transparent .cmd handling on Windows.
  * No shell: true needed, no argument mangling.
+ *
+ * @param options.needsConsole - When true, ensures the child process gets its own
+ *   console window (hidden). Required for CLIs that use node-pty/ConPTY internally
+ *   (e.g., Gemini CLI's run_shell_command). Without a console, ConPTY's
+ *   AttachConsole() fails on Windows, breaking shell command execution.
  */
 export function spawnCli(
   binary: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv }
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; needsConsole?: boolean }
 ): ChildProcess {
   return crossSpawn(binary, args, {
     cwd: options.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, ...CLI_CLEAN_ENV, ...options.env },
+    // On Windows, CLIs that use node-pty/ConPTY for shell execution (Gemini)
+    // need a console. Piped stdio with CREATE_NO_WINDOW prevents this.
+    // windowsHide: false ensures a console is allocated (hidden from user).
+    ...(options.needsConsole && process.platform === 'win32'
+      ? { windowsHide: false }
+      : {}),
   });
 }
 

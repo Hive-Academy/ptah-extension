@@ -107,6 +107,23 @@ export class SdkMessageTransformer {
    */
   private backgroundTaskToolUseIds: Set<string> = new Set();
 
+  /**
+   * Tracks Skill tool_use IDs that are currently executing.
+   * When a Skill tool is active, subsequent non-tool-result user messages
+   * are skill .md content injections that must be filtered from the UI.
+   *
+   * The SDK wraps newMessages as {message: o} during tool execution, which
+   * causes the isMeta flag to be lost during emission (SDK bug). This tracking
+   * provides a reliable alternative to flag-based detection.
+   *
+   * Flow:
+   * 1. Assistant message has tool_use(name='Skill') → add toolCallId
+   * 2. User message with tool_result matching toolCallId → mark as seen
+   * 3. User messages without tool_result while set is non-empty → FILTER (skill content)
+   * 4. Next assistant message_start → clear the set (skill loading complete)
+   */
+  private activeSkillToolUseIds: Set<string> = new Set();
+
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
@@ -144,14 +161,27 @@ export class SdkMessageTransformer {
       }
 
       if (isUserMessage(sdkMessage)) {
-        // Skip isMeta messages (skill .md content injected into context).
+        // Skip synthetic/meta messages (skill .md content, reminders, etc.).
         // These are conversation context for Claude but should not be displayed in the UI.
         //
-        // MULTI-LAYER FILTER: The SDK sets isMeta=true on skill content, but some SDK
-        // versions or code paths may strip this flag during the newMessages pipeline.
-        // We use multiple detection strategies as defense-in-depth:
-        //   1. Explicit isMeta flag (primary)
-        //   2. Content-based detection for known SDK meta patterns (fallback)
+        // MULTI-LAYER FILTER with defense-in-depth:
+        //   1. isSynthetic flag - SDK maps internal isMeta → isSynthetic on emission
+        //   2. isMeta flag (LEGACY) - may be set directly on some code paths
+        //   3. Skill tool tracking - filters user messages during active Skill execution
+        //   4. Content-based detection for known SDK meta patterns (LAST RESORT)
+        //
+        // WHY LAYER 3 EXISTS: The SDK has a bug where newMessages from tool execution
+        // are wrapped as {message: o} before emission, causing isMeta to be read from
+        // the wrapper (undefined) instead of the inner message. This means isSynthetic
+        // is NOT reliably set for skill content. Tracking active Skill tool_use IDs
+        // provides a deterministic alternative.
+        if (sdkMessage.isSynthetic === true) {
+          this.logger.debug(
+            '[SdkMessageTransformer] Skipping isSynthetic user message (skill/meta content)'
+          );
+          return [];
+        }
+
         if (sdkMessage.isMeta === true) {
           this.logger.debug(
             '[SdkMessageTransformer] Skipping isMeta user message (skill/meta content)'
@@ -159,12 +189,26 @@ export class SdkMessageTransformer {
           return [];
         }
 
-        // Fallback: detect SDK meta messages by content patterns even when isMeta is missing.
-        // The SDK wraps skill content, reminders, memory, etc. with isMeta but this flag
-        // can be lost during tool newMessages pipeline (spread copy, serialization).
+        // LAYER 3: Skill tool tracking.
+        // When a Skill tool is active, non-tool-result user messages are skill
+        // .md content injections. The tool_result itself is handled separately
+        // (transformUserToFlatEvents returns tool_result events before reaching here).
+        if (this.activeSkillToolUseIds.size > 0) {
+          // Check if this user message contains tool_result blocks — those are legitimate
+          const hasToolResult = this.userMessageHasToolResult(sdkMessage);
+          if (!hasToolResult) {
+            this.logger.info(
+              '[SdkMessageTransformer] Skipping user message during active Skill tool execution (skill content injection)',
+              { activeSkillTools: [...this.activeSkillToolUseIds] }
+            );
+            return [];
+          }
+        }
+
+        // LAYER 4: Content-based detection as last resort.
         if (this.isSkillOrMetaContent(sdkMessage)) {
           this.logger.info(
-            '[SdkMessageTransformer] Skipping user message detected as skill/meta content by pattern (isMeta was missing)'
+            '[SdkMessageTransformer] Skipping user message detected as skill/meta content by pattern'
           );
           return [];
         }
@@ -292,6 +336,17 @@ export class SdkMessageTransformer {
           if (key.startsWith(`${context}:`)) {
             this.toolCallIdByContextAndBlock.delete(key);
           }
+        }
+
+        // Clear Skill tool tracking on new assistant message_start.
+        // When Claude starts a new response after skill loading, the injected
+        // skill content messages are done. Safe to stop filtering.
+        if (this.activeSkillToolUseIds.size > 0) {
+          this.logger.info(
+            '[SdkMessageTransformer] Clearing activeSkillToolUseIds on assistant message_start',
+            { clearedIds: [...this.activeSkillToolUseIds] }
+          );
+          this.activeSkillToolUseIds.clear();
         }
 
         // Emit message_start event
@@ -428,6 +483,15 @@ export class SdkMessageTransformer {
           contentBlock?.name
         ) {
           const isTaskTool = contentBlock.name === 'Task';
+
+          // Track Skill tool_use IDs for filtering injected skill content messages
+          if (contentBlock.name === 'Skill') {
+            this.activeSkillToolUseIds.add(contentBlock.id);
+            this.logger.info(
+              '[SdkMessageTransformer] Tracking Skill tool_use (streaming) for content filtering',
+              { toolCallId: contentBlock.id }
+            );
+          }
 
           // TASK_2025_096 FIX: Track real toolCallId per context
           const blockKey = `${context}:${blockIndex}`;
@@ -628,6 +692,16 @@ export class SdkMessageTransformer {
     // Priority: Anthropic message.id > SDK uuid
     const messageId = message?.id || uuid;
 
+    // Clear Skill tool tracking on new assistant message (complete path).
+    // Same logic as message_start in streaming path — skill loading is done.
+    if (this.activeSkillToolUseIds.size > 0) {
+      this.logger.info(
+        '[SdkMessageTransformer] Clearing activeSkillToolUseIds on complete assistant message',
+        { clearedIds: [...this.activeSkillToolUseIds] }
+      );
+      this.activeSkillToolUseIds.clear();
+    }
+
     // 1. Emit message_start
     const messageStartEvent: MessageStartEvent = {
       id: generateEventId(),
@@ -702,6 +776,15 @@ export class SdkMessageTransformer {
               }
             );
           }
+        }
+
+        // Track Skill tool_use IDs for filtering injected skill content messages
+        if (block.name === 'Skill') {
+          this.activeSkillToolUseIds.add(block.id);
+          this.logger.info(
+            '[SdkMessageTransformer] Tracking Skill tool_use for content filtering',
+            { toolCallId: block.id }
+          );
         }
 
         const toolStartEvent: ToolStartEvent = {
@@ -1000,19 +1083,19 @@ export class SdkMessageTransformer {
   }
 
   /**
-   * Detect skill/meta content by message patterns when isMeta flag is missing.
+   * Detect skill/meta content by message patterns when isSynthetic/isMeta flags are missing.
    *
    * The Claude Agent SDK injects various meta messages (skill content, reminders,
-   * plan files, memory, etc.) with isMeta=true. However, when these arrive via
-   * the Skill tool's newMessages pipeline, the flag can be lost during spread
-   * copy operations. This method detects such messages by content patterns.
+   * plan files, memory, etc.) with isMeta=true internally, which gets mapped to
+   * isSynthetic=true on emitted SDKUserMessage. This method is a FALLBACK for
+   * when both flags are missing (e.g., serialization edge cases).
    *
    * Known SDK meta content markers:
    * - <skill-format>true</skill-format>  (skill loading metadata tag)
    * - <command-message>  (command/skill invocation tag)
    * - "Base directory for this skill:"  (legacy skill injection prefix)
-   * - sourceToolUseID starting with "Skill_"  (Skill tool injected messages)
-   * - Messages with both skill tags and large content (skill .md body)
+   * - sourceToolUseID property  (Skill tool injected messages - legacy)
+   * - YAML frontmatter with name:/description: (skill .md file content)
    */
   private isSkillOrMetaContent(sdkMessage: SDKUserMessage): boolean {
     // Check sourceToolUseID — Skill tool injects messages with sourceToolUseID like "Skill_0"
@@ -1051,6 +1134,7 @@ export class SdkMessageTransformer {
     // These tags are injected by the SDK and should never appear in user input
     if (textContent.includes('<skill-format>true</skill-format>')) return true;
     if (textContent.includes('<command-message>')) return true;
+    if (textContent.includes('<command-name>')) return true;
     if (textContent.startsWith('Base directory for this skill:')) return true;
 
     // Check for invoked_skills pattern (SDK injects these with isMeta during resume)
@@ -1065,7 +1149,34 @@ export class SdkMessageTransformer {
     if (textContent.startsWith('A plan file exists from plan mode at:'))
       return true;
 
+    // Check for YAML frontmatter with skill metadata (skill .md file content)
+    // Skill files start with ---\nname: ...\ndescription: ...
+    if (
+      textContent.startsWith('---\n') &&
+      textContent.includes('\nname:') &&
+      textContent.includes('\ndescription:')
+    )
+      return true;
+
     return false;
+  }
+
+  /**
+   * Check if a user message contains tool_result content blocks.
+   * Tool results are legitimate responses to tool_use and should NOT be filtered,
+   * even during active Skill execution.
+   */
+  private userMessageHasToolResult(sdkMessage: SDKUserMessage): boolean {
+    const content = sdkMessage.message?.content;
+    if (!Array.isArray(content)) return false;
+
+    return content.some(
+      (block) =>
+        typeof block === 'object' &&
+        block !== null &&
+        'type' in block &&
+        block.type === 'tool_result'
+    );
   }
 
   /**
@@ -1076,5 +1187,6 @@ export class SdkMessageTransformer {
     this.currentMessageIdByContext.clear();
     this.toolCallIdByContextAndBlock.clear();
     this.backgroundTaskToolUseIds.clear();
+    this.activeSkillToolUseIds.clear();
   }
 }

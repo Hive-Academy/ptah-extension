@@ -9,6 +9,7 @@
 
 import { z } from 'zod';
 import type { PermissionLevel } from './model-autopilot.types';
+import type { QuestionItem } from '../type-guards/tool-input-guards';
 
 /**
  * Permission request sent from MCP server to webview
@@ -37,6 +38,9 @@ export interface PermissionRequest {
 
   /** Timeout deadline (Unix epoch milliseconds) - auto-deny after this time */
   readonly timeoutAt: number;
+
+  /** Session ID this permission belongs to (for UI routing to correct tab) */
+  readonly sessionId?: string;
 }
 
 /**
@@ -123,6 +127,39 @@ export interface PermissionRule {
 }
 
 /**
+ * AskUserQuestion request sent from backend to webview
+ *
+ * Represents a pending question request from the SDK's AskUserQuestion tool.
+ * The backend creates this when Claude invokes AskUserQuestion.
+ */
+export interface AskUserQuestionRequest {
+  /** Unique request ID (for correlation with response) */
+  readonly id: string;
+  /** Tool name (always 'AskUserQuestion') */
+  readonly toolName: 'AskUserQuestion';
+  /** Array of questions to present to the user */
+  readonly questions: QuestionItem[];
+  /** Claude's tool_use_id for correlation */
+  readonly toolUseId?: string;
+  /** Request timestamp (Unix epoch milliseconds) */
+  readonly timestamp: number;
+  /** Timeout deadline (Unix epoch milliseconds) */
+  readonly timeoutAt: number;
+  /** Session ID this question belongs to (for UI routing to correct tab) */
+  readonly sessionId?: string;
+}
+
+/**
+ * AskUserQuestion response sent from webview to backend
+ */
+export interface AskUserQuestionResponse {
+  /** Must match request ID from AskUserQuestionRequest */
+  readonly id: string;
+  /** User's answers keyed by question ID */
+  readonly answers: Record<string, string>;
+}
+
+/**
  * Zod schema for PermissionRequest runtime validation
  *
  * Validates incoming permission requests from MCP server.
@@ -135,6 +172,7 @@ export const PermissionRequestSchema = z.object({
   timestamp: z.number(),
   description: z.string(),
   timeoutAt: z.number(),
+  sessionId: z.string().optional(),
 });
 
 /**

@@ -340,11 +340,15 @@ export class GeminiCliAdapter implements CliAdapter {
       }
     };
 
-    // Spawn using cross-spawn — transparent .cmd handling on Windows
+    // Spawn using cross-spawn — transparent .cmd handling on Windows.
+    // needsConsole: Gemini CLI uses node-pty/ConPTY for run_shell_command.
+    // ConPTY's AttachConsole() fails on Windows when the process has no console
+    // (caused by CREATE_NO_WINDOW flag). This ensures a console is allocated.
     const binary = options.binaryPath ?? 'gemini';
     const child = spawnCli(binary, args, {
       cwd: options.workingDirectory,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
+      needsConsole: true,
     });
 
     // Explicit UTF-8 encoding prevents Buffer concatenation issues

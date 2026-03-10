@@ -22,6 +22,7 @@ import {
   AgentStartEvent,
   TOKENS,
   CommandManager,
+  SubagentRegistryService,
   verifyRpcRegistration,
 } from '@ptah-extension/vscode-core';
 import {
@@ -409,6 +410,19 @@ export class RpcMethodRegistrationService {
                 TOKENS.AGENT_PROCESS_MANAGER
               );
             agentProcessManager.resolveParentSessionId(tabId, realSessionId);
+
+            // TASK_2025_186: Also resolve parent session ID in SubagentRegistryService
+            // so that markParentSubagentsAsCliAgent() can find subagent records
+            // (which were registered with the tab ID as parentSessionId).
+            try {
+              const subagentRegistry =
+                this.container.resolve<SubagentRegistryService>(
+                  TOKENS.SUBAGENT_REGISTRY_SERVICE
+                );
+              subagentRegistry.resolveParentSessionId(tabId, realSessionId);
+            } catch {
+              // SubagentRegistryService may not be registered yet
+            }
 
             // Re-persist any already-exited agents whose CLI sessions couldn't be
             // persisted earlier (because parentSessionId was still a tab ID).
