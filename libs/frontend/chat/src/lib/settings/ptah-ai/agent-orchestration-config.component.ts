@@ -162,6 +162,28 @@ import type {
                 </option>
                 }
               </select>
+
+              <!-- Reasoning effort -->
+              <label
+                for="agent-codex-reasoning"
+                class="text-[10px] text-base-content/50 mt-2 mb-0.5 block"
+              >
+                Reasoning Effort
+              </label>
+              <select
+                id="agent-codex-reasoning"
+                class="select select-bordered select-xs w-full"
+                (change)="onReasoningEffortSelect('codex', $event)"
+              >
+                @for (opt of reasoningEffortOptions; track opt.value) {
+                <option
+                  [value]="opt.value"
+                  [selected]="opt.value === agentConfig()?.codexReasoningEffort"
+                >
+                  {{ opt.label }}
+                </option>
+                }
+              </select>
             </div>
             }
 
@@ -188,6 +210,30 @@ import type {
                   [selected]="model.id === agentConfig()?.copilotModel"
                 >
                   {{ model.name }}
+                </option>
+                }
+              </select>
+
+              <!-- Reasoning effort -->
+              <label
+                for="agent-copilot-reasoning"
+                class="text-[10px] text-base-content/50 mt-2 mb-0.5 block"
+              >
+                Reasoning Effort
+              </label>
+              <select
+                id="agent-copilot-reasoning"
+                class="select select-bordered select-xs w-full"
+                (change)="onReasoningEffortSelect('copilot', $event)"
+              >
+                @for (opt of reasoningEffortOptions; track opt.value) {
+                <option
+                  [value]="opt.value"
+                  [selected]="
+                    opt.value === agentConfig()?.copilotReasoningEffort
+                  "
+                >
+                  {{ opt.label }}
                 </option>
                 }
               </select>
@@ -331,6 +377,16 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   readonly TerminalIcon = Terminal;
   readonly RefreshCwIcon = RefreshCw;
 
+  // Reasoning effort options for Codex/Copilot
+  readonly reasoningEffortOptions = [
+    { value: '', label: 'Default' },
+    { value: 'minimal', label: 'Minimal' },
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'xhigh', label: 'Extra High' },
+  ];
+
   // State signals
   readonly agentConfig = signal<AgentOrchestrationConfig | null>(null);
   readonly agentConfigLoading = signal(false);
@@ -396,6 +452,17 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   ): void {
     const value = (event.target as HTMLSelectElement).value;
     this.setAgentModel(cli, value);
+  }
+
+  public onReasoningEffortSelect(cli: 'codex' | 'copilot', event: Event): void {
+    const value = (event.target as HTMLSelectElement).value;
+    const key =
+      cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
+    this.rpcService.call('agent:setConfig', { [key]: value }).then((result) => {
+      if (result.isSuccess()) {
+        this.agentConfig.update((c) => (c ? { ...c, [key]: value } : c));
+      }
+    });
   }
 
   public onDefaultCliSelect(event: Event): void {
