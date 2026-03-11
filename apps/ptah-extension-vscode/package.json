@@ -328,6 +328,47 @@
           "default": "",
           "description": "Default model for Copilot agents. Leave empty for Copilot's default."
         },
+        "ptah.agentOrchestration.codexModel": {
+          "type": "string",
+          "default": "",
+          "description": "Default model for Codex agents (e.g. gpt-5.3-codex). Leave empty for Codex's default."
+        },
+        "ptah.agentOrchestration.codexReasoningEffort": {
+          "type": "string",
+          "enum": [
+            "",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "default": "",
+          "description": "Reasoning effort level for Codex agents. Leave empty for SDK default."
+        },
+        "ptah.agentOrchestration.copilotReasoningEffort": {
+          "type": "string",
+          "enum": [
+            "",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
+          "default": "",
+          "description": "Reasoning effort level for Copilot agents. Leave empty for SDK default."
+        },
+        "ptah.agentOrchestration.codexAutoApprove": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-approve all Codex tool calls without user prompt."
+        },
+        "ptah.agentOrchestration.copilotAutoApprove": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-approve all Copilot tool calls without user prompt."
+        },
         "ptah.ptahCliAgents": {
           "type": "array",
           "default": [],

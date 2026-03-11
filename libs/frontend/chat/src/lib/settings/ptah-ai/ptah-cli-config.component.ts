@@ -340,7 +340,7 @@ const AVAILABLE_PROVIDERS: readonly ProviderOption[] = [
               <!-- Enable/Disable toggle -->
               <input
                 type="checkbox"
-                class="toggle toggle-xs toggle-primary"
+                class="toggle toggle-xs toggle-success"
                 [checked]="agent.enabled"
                 (change)="toggleEnabled(agent)"
                 [disabled]="isUpdating()"

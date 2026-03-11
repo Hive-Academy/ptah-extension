@@ -430,6 +430,7 @@ export class CodexCliAdapter implements CliAdapter {
         body: new URLSearchParams({
           grant_type: 'refresh_token',
           refresh_token: auth.tokens!.refresh_token!,
+          client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
         }).toString(),
         signal: AbortSignal.timeout(10_000),
       });
