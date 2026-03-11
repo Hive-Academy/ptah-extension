@@ -522,6 +522,25 @@ export interface AuthTestConnectionResponse {
 // Auth Status RPC Types (TASK_2025_076)
 // ============================================================
 
+/** Parameters for auth:copilotLogin RPC method */
+export type AuthCopilotLoginParams = Record<string, never>;
+
+/** Response from auth:copilotLogin RPC method */
+export interface AuthCopilotLoginResponse {
+  success: boolean;
+  username?: string;
+  error?: string;
+}
+
+/** Parameters for auth:copilotStatus RPC method */
+export type AuthCopilotStatusParams = Record<string, never>;
+
+/** Response from auth:copilotStatus RPC method */
+export interface AuthCopilotStatusResponse {
+  authenticated: boolean;
+  username?: string;
+}
+
 /** Parameters for auth:getAuthStatus RPC method */
 export interface AuthGetAuthStatusParams {
   /** Optional provider ID to check key status for (defaults to persisted config value) */
@@ -1537,6 +1556,14 @@ export interface RpcMethodRegistry {
     params: AuthGetAuthStatusParams;
     result: AuthGetAuthStatusResponse;
   };
+  'auth:copilotLogin': {
+    params: AuthCopilotLoginParams;
+    result: AuthCopilotLoginResponse;
+  };
+  'auth:copilotStatus': {
+    params: AuthCopilotStatusParams;
+    result: AuthCopilotStatusResponse;
+  };
 
   // ---- Setup Methods ----
   'setup-status:get-status': {
@@ -1852,6 +1879,8 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'auth:saveSettings',
   'auth:testConnection',
   'auth:getAuthStatus',
+  'auth:copilotLogin',
+  'auth:copilotStatus',
 
   // Setup Methods
   'setup-status:get-status',
