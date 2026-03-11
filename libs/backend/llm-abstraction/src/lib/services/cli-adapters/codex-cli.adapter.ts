@@ -257,12 +257,14 @@ export class CodexCliAdapter implements CliAdapter {
     return stripAnsiCodes(raw);
   }
 
-  /** Fallback curated list when the Codex models API is unreachable */
+  /** Fallback curated list when the Codex models API is unreachable.
+   *  Keep in sync with `codex -m` interactive model list. */
   private static readonly FALLBACK_MODELS: CliModelInfo[] = [
     { id: 'gpt-5.3-codex', name: 'GPT 5.3 Codex' },
+    { id: 'gpt-5.4', name: 'GPT 5.4' },
     { id: 'gpt-5.2-codex', name: 'GPT 5.2 Codex' },
-    { id: 'gpt-5.1-codex-max', name: 'GPT 5.1 Codex Max' },
     { id: 'gpt-5.2', name: 'GPT 5.2' },
+    { id: 'gpt-5.1-codex-max', name: 'GPT 5.1 Codex Max' },
     { id: 'gpt-5.1-codex-mini', name: 'GPT 5.1 Codex Mini' },
   ];
 
@@ -605,6 +607,7 @@ export class CodexCliAdapter implements CliAdapter {
     const threadOptions: CodexThreadOptions = {
       workingDirectory: options.workingDirectory,
       approvalPolicy: options.autoApprove === false ? 'on-failure' : 'never',
+      skipGitRepoCheck: true,
     };
     if (options.model) {
       threadOptions.model = options.model;
