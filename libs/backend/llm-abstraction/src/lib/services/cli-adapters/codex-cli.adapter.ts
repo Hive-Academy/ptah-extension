@@ -603,7 +603,7 @@ export class CodexCliAdapter implements CliAdapter {
     // Thread options with model and approval policy
     const threadOptions: CodexThreadOptions = {
       workingDirectory: options.workingDirectory,
-      approvalPolicy: 'never', // Auto-approve in Ptah trusted context
+      approvalPolicy: options.autoApprove === false ? 'on-failure' : 'never',
     };
     if (options.model) {
       threadOptions.model = options.model;

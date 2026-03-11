@@ -39,6 +39,8 @@ export interface CliCommandOptions {
   readonly systemPrompt?: string;
   /** Reasoning effort level for the CLI agent (adapter-specific values) */
   readonly reasoningEffort?: string;
+  /** Auto-approve all tool calls without user prompt (default: true). Maps to adapter-specific approval policies. */
+  readonly autoApprove?: boolean;
 }
 
 export interface CliCommand {

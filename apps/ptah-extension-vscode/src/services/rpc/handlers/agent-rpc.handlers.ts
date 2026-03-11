@@ -125,6 +125,7 @@ export class AgentRpcHandlers {
             geminiModel: config.get<string>('geminiModel', ''),
             codexModel: config.get<string>('codexModel', ''),
             copilotModel: config.get<string>('copilotModel', ''),
+            codexAutoApprove: config.get<boolean>('codexAutoApprove', true),
             copilotAutoApprove: config.get<boolean>('copilotAutoApprove', true),
             codexReasoningEffort: config.get<string>(
               'codexReasoningEffort',
@@ -301,6 +302,14 @@ export class AgentRpcHandlers {
       await config.update(
         'copilotModel',
         params.copilotModel || undefined,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+
+    if (params.codexAutoApprove !== undefined) {
+      await config.update(
+        'codexAutoApprove',
+        params.codexAutoApprove,
         vscode.ConfigurationTarget.Global
       );
     }

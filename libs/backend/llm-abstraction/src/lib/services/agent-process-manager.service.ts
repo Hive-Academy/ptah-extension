@@ -157,6 +157,14 @@ export class AgentProcessManager {
     return effort || undefined;
   }
 
+  private resolveAutoApprove(cli: CliType): boolean | undefined {
+    if (cli !== 'codex' && cli !== 'copilot') return undefined;
+    const key = cli === 'codex' ? 'codexAutoApprove' : 'copilotAutoApprove';
+    return vscode.workspace
+      .getConfiguration('ptah.agentOrchestration')
+      .get<boolean>(key, true);
+  }
+
   /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
   private mcpHealthCache: {
     port: number | undefined;
@@ -327,6 +335,7 @@ export class AgentProcessManager {
       projectGuidance: request.projectGuidance,
       systemPrompt: request.systemPrompt,
       reasoningEffort: this.resolveReasoningEffort(cli),
+      autoApprove: this.resolveAutoApprove(cli),
     });
 
     // Create agent ID and info
@@ -513,6 +522,7 @@ export class AgentProcessManager {
       projectGuidance: request.projectGuidance,
       systemPrompt: request.systemPrompt,
       reasoningEffort: this.resolveReasoningEffort(cli),
+      autoApprove: this.resolveAutoApprove(cli),
     });
 
     // Capture CLI session ID immediately if available (e.g., from sync init)

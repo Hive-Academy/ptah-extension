@@ -184,6 +184,25 @@ import type {
                 </option>
                 }
               </select>
+
+              <!-- Auto-approve toggle -->
+              <div class="flex items-center justify-between mt-2">
+                <div>
+                  <span class="text-[10px] text-base-content/50"
+                    >Auto-approve tools</span
+                  >
+                  <p class="text-[9px] text-base-content/30">
+                    Skip permission prompts for all tool calls
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-xs toggle-success"
+                  [checked]="agentConfig()!.codexAutoApprove"
+                  (change)="toggleAutoApprove('codex')"
+                  aria-label="Auto-approve Codex tool calls"
+                />
+              </div>
             </div>
             }
 
@@ -252,7 +271,7 @@ import type {
                   type="checkbox"
                   class="toggle toggle-xs toggle-success"
                   [checked]="agentConfig()!.copilotAutoApprove"
-                  (change)="toggleCopilotAutoApprove()"
+                  (change)="toggleAutoApprove('copilot')"
                   aria-label="Auto-approve Copilot tool calls"
                 />
               </div>
@@ -515,16 +534,15 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     );
   }
 
-  async toggleCopilotAutoApprove(): Promise<void> {
-    const current = this.agentConfig()?.copilotAutoApprove ?? true;
+  async toggleAutoApprove(cli: 'codex' | 'copilot'): Promise<void> {
+    const key = cli === 'codex' ? 'codexAutoApprove' : 'copilotAutoApprove';
+    const current = this.agentConfig()?.[key] ?? true;
     const newValue = !current;
     const result = await this.rpcService.call('agent:setConfig', {
-      copilotAutoApprove: newValue,
+      [key]: newValue,
     });
     if (result.isSuccess()) {
-      this.agentConfig.update((c) =>
-        c ? { ...c, copilotAutoApprove: newValue } : c
-      );
+      this.agentConfig.update((c) => (c ? { ...c, [key]: newValue } : c));
     }
   }
 
