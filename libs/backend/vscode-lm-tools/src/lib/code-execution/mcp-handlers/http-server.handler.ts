@@ -53,7 +53,7 @@ export async function startHttpServer(
 
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
-      handleHttpRequest(req, res, onMCPRequest, logger);
+      handleHttpRequest(req, res, onMCPRequest);
     });
 
     server.listen(configuredPort, 'localhost', () => {
@@ -103,14 +103,16 @@ export async function stopHttpServer(
   });
 }
 
+/** Maximum request body size (1MB) to prevent resource exhaustion */
+const MAX_BODY_SIZE = 1024 * 1024;
+
 /**
  * Handle incoming HTTP request with CORS support
  */
 async function handleHttpRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>,
-  _logger: Logger
+  onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>
 ): Promise<void> {
   // CORS headers for localhost
   res.setHeader('Access-Control-Allow-Origin', 'http://localhost');
@@ -138,13 +140,32 @@ async function handleHttpRequest(
     return;
   }
 
-  // Parse request body
+  // Parse request body with size limit
   let body = '';
+  let bodySize = 0;
+
   req.on('data', (chunk) => {
+    bodySize += chunk.length;
+    if (bodySize > MAX_BODY_SIZE) {
+      req.destroy();
+      const errorResponse: MCPResponse = {
+        jsonrpc: '2.0',
+        id: 0,
+        error: {
+          code: -32600,
+          message: `Request body exceeds maximum size of ${MAX_BODY_SIZE} bytes`,
+        },
+      };
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(errorResponse));
+      return;
+    }
     body += chunk.toString();
   });
 
   req.on('end', async () => {
+    if (bodySize > MAX_BODY_SIZE) return; // Already handled above
+
     try {
       const mcpRequest: MCPRequest = JSON.parse(body);
       const mcpResponse = await onMCPRequest(mcpRequest);

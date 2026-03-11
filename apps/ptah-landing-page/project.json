@@ -36,7 +36,13 @@
               "maximumError": "8kb"
             }
           ],
-          "outputHashing": "all"
+          "outputHashing": "all",
+          "fileReplacements": [
+            {
+              "replace": "apps/ptah-landing-page/src/environments/environment.ts",
+              "with": "apps/ptah-landing-page/src/environments/environment.production.ts"
+            }
+          ]
         },
         "development": {
           "optimization": false,
@@ -49,6 +55,9 @@
     "serve": {
       "continuous": true,
       "executor": "@angular/build:dev-server",
+      "options": {
+        "proxyConfig": "apps/ptah-landing-page/proxy.conf.json"
+      },
       "configurations": {
         "production": {
           "buildTarget": "ptah-landing-page:build:production"
@@ -83,6 +92,12 @@
         "buildTarget": "ptah-landing-page:build",
         "staticFilePath": "dist/ptah-landing-page/browser",
         "spa": true
+      },
+      "typecheck": {
+        "executor": "nx:run-commands",
+        "options": {
+          "command": "tsc --noEmit --project apps/ptah-landing-page/tsconfig.app.json"
+        }
       }
     }
   }

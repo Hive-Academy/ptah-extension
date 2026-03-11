@@ -13,13 +13,28 @@ export {
 export * from './app-state.service';
 export * from './webview-navigation.service';
 
+// Theme Service (TASK_2025_100)
+export { ThemeService, type ThemeName } from './theme.service';
+
 // Model & Autopilot State Services (TASK_2025_035)
 export {
   ModelStateService,
-  type SelectableClaudeModel,
   type ModelInfoWithSelection,
 } from './model-state.service';
 export { AutopilotStateService } from './autopilot-state.service';
+
+// Auth State Service (TASK_2025_133)
+export { AuthStateService } from './auth-state.service';
+
+// LLM Provider State Service (TASK_2025_155)
+export { LlmProviderStateService } from './llm-provider-state.service';
+
+// Message Router (handler registration pattern)
+export { type MessageHandler, MESSAGE_HANDLERS } from './message-router.types';
+export {
+  MessageRouterService,
+  provideMessageRouter,
+} from './message-router.service';
 
 // RPC Services (Phase 2 - TASK_2025_021)
 export {
@@ -28,8 +43,8 @@ export {
   type RpcCallOptions,
 } from './claude-rpc.service';
 
-// File Services (Phase 2 - TASK_2025_021)
-export { ClaudeFileService, type SessionFileInfo } from './claude-file.service';
+// Ptah CLI State Service (TASK_2025_167 -> TASK_2025_170)
+export { PtahCliStateService } from './ptah-cli-state.service';
 
 // Discovery Facades (Phase 2 - TASK_2025_019)
 export {
@@ -40,10 +55,3 @@ export {
   CommandDiscoveryFacade,
   type CommandSuggestion,
 } from './command-discovery.facade';
-
-// UI Interaction Services
-export {
-  DropdownInteractionService,
-  type KeyboardNavConfig,
-  type AutoManageConfig,
-} from './dropdown-interaction.service';

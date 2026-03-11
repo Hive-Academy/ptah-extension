@@ -13,7 +13,7 @@
  * 4. Number of components/services
  *
  * Usage:
- *   node scripts/performance-baseline.mjs > task-tracking/TASK_FE_001/performance-baseline.json
+ *   node scripts/performance-baseline.mjs > .claude/specs/TASK_FE_001/performance-baseline.json
  */
 
 import { execSync } from 'child_process';

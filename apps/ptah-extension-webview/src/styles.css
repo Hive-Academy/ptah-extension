@@ -6,7 +6,7 @@ Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
 /* Google Fonts */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Cinzel:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-/* Angular CDK Overlay Prebuilt Styles */
+/* Angular CDK Overlay Prebuilt Styles - MUST come before Tailwind directives */
 @import '@angular/cdk/overlay-prebuilt.css';
 
 /* Tailwind CSS v3.4.x directives */
@@ -18,6 +18,20 @@ Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
 ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
 ============================================================================ */
 
+/**
+ * Glass Morphism & Brand Identity Variables
+ *
+ * These custom properties define the decorative glass effects, divine gradients,
+ * and Egyptian gold accents used throughout the Anubis theme. They remain
+ * constant across light/dark themes to maintain brand identity.
+ *
+ * Note: Gold accents (--gold-glow, --gold-accent, etc.) are intentionally NOT
+ * theme-switched as they represent the consistent "Egyptian gold" brand aesthetic
+ * that gives Ptah its distinctive visual identity.
+ *
+ * The glass morphism effects use semi-transparent backgrounds with backdrop blur
+ * to create the crystalline "Wisdom of Thoth" visual language.
+ */
 :root {
   /* ========================================================================
      VS CODE SIDEBAR SCALING SYSTEM
@@ -50,12 +64,12 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   --avatar-size-md: 32px;
 
   /* Glass Morphism (Crystalline Wisdom) */
-  --glass-panel: rgba(42, 42, 42, 0.7);
+  --glass-panel: rgba(36, 36, 48, 0.7);
   --glass-border: rgba(212, 175, 55, 0.2);
   --glass-blur: blur(20px);
 
   /* Divine Gradients (Ancient Egyptian Magic) */
-  --gradient-divine: linear-gradient(135deg, #1e3a8a, #d4af37);
+  --gradient-divine: linear-gradient(135deg, #2563eb, #d4af37);
   --gradient-shadow: linear-gradient(
     180deg,
     rgba(212, 175, 55, 0.2),
@@ -63,20 +77,52 @@ ANUBIS MYSTICAL EFFECTS - Glass Morphism & Divine Gradients
   );
   --gradient-panel: linear-gradient(
     135deg,
-    rgba(30, 58, 138, 0.1),
+    rgba(37, 99, 235, 0.1),
     rgba(212, 175, 55, 0.05)
   );
 
   /* Agent Color Variables (God Pantheon) */
   --agent-color-anubis: #d4af37; /* Supervisor - Gold */
-  --agent-color-thoth: #1e3a8a; /* Architect - Blue */
-  --agent-color-ptah: #228b22; /* Developer - Green */
-  --agent-color-seshat: #f5f5dc; /* QA - White */
+  --agent-color-thoth: #2563eb; /* Architect - Blue */
+  --agent-color-ptah: #16a34a; /* Developer - Green */
+  --agent-color-seshat: #e8e6e1; /* QA - White */
   --agent-color-maat: #d4af37; /* Reviewer - Gold */
-  --agent-color-khnum: #b22222; /* PM - Red */
+  --agent-color-khnum: #dc2626; /* PM - Red */
 
   /* Sacred Geometry */
   --golden-ratio: 1.618;
+
+  /* Animation colors (for keyframes that need theme-awareness) */
+  --aura-color-dim: oklch(70% 0.18 70 / 0.5); /* Gold glow dim */
+  --aura-color-bright: oklch(70% 0.18 70 / 0.8); /* Gold glow bright */
+}
+
+/* Light theme overrides for glass morphism and decorative elements */
+[data-theme='anubis-light'] {
+  /* Glass Morphism - Light mode (subtle warm cream overlay) */
+  --glass-panel: rgba(255, 251, 245, 0.85);
+  --glass-border: rgba(180, 140, 80, 0.25);
+
+  /* Divine Gradients - Adjusted for light backgrounds */
+  --gradient-divine: linear-gradient(
+    135deg,
+    oklch(75% 0.12 181),
+    oklch(75% 0.15 70)
+  );
+  --gradient-shadow: linear-gradient(
+    180deg,
+    rgba(180, 140, 80, 0.15),
+    transparent
+  );
+  --gradient-panel: linear-gradient(
+    135deg,
+    rgba(100, 180, 180, 0.08),
+    rgba(255, 200, 120, 0.05)
+  );
+
+  /* Animation colors - Adjusted for light backgrounds */
+  --aura-color-dim: oklch(65% 0.15 181 / 0.4); /* Teal glow dim */
+  --aura-color-bright: oklch(65% 0.15 181 / 0.7); /* Teal glow bright */
 }
 
 /* ============================================================================
@@ -88,8 +134,8 @@ GLASS MORPHISM UTILITY CLASSES
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  box-shadow: 0 0 20px rgba(212, 175, 55, 0.1),
-    inset 0 1px 0 rgba(212, 175, 55, 0.2);
+  box-shadow: 0 0 20px oklch(var(--s) / 0.1),
+    inset 0 1px 0 oklch(var(--s) / 0.2);
 }
 
 .glass-panel-divine::before {
@@ -107,7 +153,7 @@ GLASS MORPHISM UTILITY CLASSES
 }
 
 .divine-glow {
-  box-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+  box-shadow: 0 0 20px oklch(var(--s) / 0.3);
 }
 
 /* ============================================================================
@@ -180,14 +226,14 @@ ANUBIS ANIMATIONS - Egyptian Mystical Effects
   }
 }
 
-/* Divine Aura - Active workflow node */
+/* Divine Aura - Active workflow node (uses --aura-color for theming) */
 @keyframes divine-aura {
   0%,
   100% {
-    box-shadow: 0 0 20px rgba(212, 175, 55, 0.5);
+    box-shadow: 0 0 20px var(--aura-color-dim, oklch(70% 0.15 70 / 0.5));
   }
   50% {
-    box-shadow: 0 0 40px rgba(212, 175, 55, 0.8);
+    box-shadow: 0 0 40px var(--aura-color-bright, oklch(70% 0.15 70 / 0.8));
   }
 }
 
@@ -247,7 +293,7 @@ AGENT STATUS ANIMATION CLASSES
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(212, 175, 55, 0.3),
+    oklch(var(--s) / 0.3),
     transparent
   );
   animation: hieroglyph-scan 2s linear infinite;
@@ -266,7 +312,7 @@ AGENT STATUS ANIMATION CLASSES
   display: inline-block;
   width: 16px;
   height: 16px;
-  border: 2px solid #d4af37;
+  border: 2px solid oklch(var(--s)); /* secondary - theme-aware */
   border-top: 2px solid transparent;
   border-radius: 50%;
   animation: cosmic-spin 1s linear infinite;
@@ -320,16 +366,22 @@ SCROLLBAR STYLING - Anubis Theme
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(10, 10, 10, 0.6);
+  /* Fallback for browsers without oklch support */
+  background: rgba(19, 19, 23, 0.6);
+  background: oklch(var(--b1) / 0.6);
 }
 
 ::-webkit-scrollbar-thumb {
+  /* Fallback for browsers without oklch support */
   background: rgba(212, 175, 55, 0.3);
+  background: oklch(var(--s) / 0.3);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  /* Fallback for browsers without oklch support */
   background: rgba(212, 175, 55, 0.5);
+  background: oklch(var(--s) / 0.5);
 }
 
 /* ============================================================================
@@ -353,7 +405,9 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 a:focus-visible {
+  /* Fallback for browsers without oklch support */
   outline: 2px solid #d4af37;
+  outline: 2px solid oklch(var(--s));
   outline-offset: 2px;
 }
 
@@ -381,51 +435,112 @@ a:focus:not(:focus-visible) {
 
 /* ============================================================================
 AGENT COLOR BADGES - Egyptian Pantheon
+Theme-aware CSS custom properties for agent badges
 ============================================================================ */
 
+/**
+ * Agent Badge Color System
+ *
+ * These custom properties define colors for the Ptah agent badges.
+ * The color scheme is inspired by the Egyptian god pantheon and
+ * professional roles:
+ *
+ * - architect:   Deep blue (wisdom, stability)
+ * - frontend:    Sky blue (creativity, interface)
+ * - backend:     Forest green (growth, infrastructure)
+ * - tester:      Purple (quality, precision)
+ * - reviewer:    Gold (judgment, excellence)
+ * - leader:      Indigo (leadership, vision)
+ * - pm:          Crimson (action, coordination)
+ * - researcher:  Cyan (discovery, analysis)
+ * - supervisor:  Gold (oversight, guidance)
+ *
+ * Theme Adaptation:
+ * - Dark theme (anubis): Uses vibrant colors against dark backgrounds
+ * - Light theme (anubis-light): Uses slightly darker variants for contrast
+ *
+ * Text colors (--agent-badge-text-*) ensure WCAG AA contrast ratios.
+ */
+
+/* Agent badge colors - Dark theme (default) */
+:root,
+[data-theme='anubis'] {
+  --agent-architect: #2563eb;
+  --agent-frontend: #3b82f6;
+  --agent-backend: #16a34a;
+  --agent-tester: #8b5cf6;
+  --agent-reviewer: #d4af37;
+  --agent-leader: #6366f1;
+  --agent-pm: #dc2626;
+  --agent-researcher: #06b6d4;
+  --agent-supervisor: #d4af37;
+  --agent-badge-text-light: #e8e6e1;
+  --agent-badge-text-dark: #131317;
+}
+
+/* Agent badge colors - Light theme (cupcake-inspired, optimized for warm cream backgrounds) */
+[data-theme='anubis-light'] {
+  --agent-architect: oklch(50% 0.18 240); /* Deep blue for cream background */
+  --agent-frontend: oklch(55% 0.17 237); /* Vivid blue */
+  --agent-backend: oklch(50% 0.15 162); /* Rich green */
+  --agent-tester: oklch(55% 0.18 303); /* Vibrant purple */
+  --agent-reviewer: oklch(65% 0.16 70); /* Rich gold */
+  --agent-leader: oklch(55% 0.18 270); /* Deep indigo */
+  --agent-pm: oklch(55% 0.18 25); /* Rich red */
+  --agent-researcher: oklch(60% 0.14 200); /* Cyan */
+  --agent-supervisor: oklch(65% 0.16 70); /* Rich gold */
+  /* Badge text colors for proper contrast */
+  --agent-badge-text-light: oklch(97% 0.01 0); /* Near-white for dark badges */
+  --agent-badge-text-dark: oklch(
+    23% 0.066 313
+  ); /* Match base-content for light badges */
+}
+
 .badge-agent-architect {
-  background-color: #1e3a8a !important; /* Thoth - Lapis Blue */
-  color: #f5f5dc !important;
+  background-color: var(--agent-architect) !important; /* Thoth - Lapis Blue */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-frontend {
-  background-color: #3b82f6 !important; /* Light Blue */
-  color: #f5f5dc !important;
+  background-color: var(--agent-frontend) !important; /* Light Blue */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-backend {
-  background-color: #228b22 !important; /* Ptah - Malachite Green */
-  color: #f5f5dc !important;
+  background-color: var(
+    --agent-backend
+  ) !important; /* Ptah - Malachite Green */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-tester {
-  background-color: #8b5cf6 !important; /* Purple */
-  color: #f5f5dc !important;
+  background-color: var(--agent-tester) !important; /* Purple */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-reviewer {
-  background-color: #d4af37 !important; /* Ma'at - Gold */
-  color: #0a0a0a !important;
+  background-color: var(--agent-reviewer) !important; /* Ma'at - Gold */
+  color: var(--agent-badge-text-dark) !important;
 }
 
 .badge-agent-leader {
-  background-color: #6366f1 !important; /* Indigo */
-  color: #f5f5dc !important;
+  background-color: var(--agent-leader) !important; /* Indigo */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-pm {
-  background-color: #b22222 !important; /* Khnum - Carnelian Red */
-  color: #f5f5dc !important;
+  background-color: var(--agent-pm) !important; /* Khnum - Carnelian Red */
+  color: var(--agent-badge-text-light) !important;
 }
 
 .badge-agent-researcher {
-  background-color: #06b6d4 !important; /* Cyan */
-  color: #0a0a0a !important;
+  background-color: var(--agent-researcher) !important; /* Cyan */
+  color: var(--agent-badge-text-dark) !important;
 }
 
 .badge-agent-supervisor {
-  background-color: #d4af37 !important; /* Anubis - Gold */
-  color: #0a0a0a !important;
+  background-color: var(--agent-supervisor) !important; /* Anubis - Gold */
+  color: var(--agent-badge-text-dark) !important;
 }
 
 /* ============================================================================
@@ -474,120 +589,698 @@ textarea.auto-resize {
 
 /* ============================================================================
 MARKDOWN CONTENT STYLING (for ngx-markdown) - Anubis Theme
+Enhanced typography, visual hierarchy, and reading comfort
 ============================================================================ */
 
 .prose {
   max-width: none;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
 }
 
-.prose code {
-  background-color: #2a2a2a;
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas,
-    monospace;
-  font-size: 0.875em;
-  color: #fbbf24;
+/* --- Headings: Distinct hierarchy with decorative accents --- */
+
+.prose h1 {
+  color: oklch(var(--s)); /* secondary (gold) */
+  font-weight: 700;
+  font-size: 1.5em;
+  margin-top: 1.75em;
+  margin-bottom: 0.75em;
+  line-height: 1.25;
+  padding-bottom: 0.4em;
+  border-bottom: 2px solid oklch(var(--s) / 0.25);
 }
 
-.prose pre {
-  background-color: #2a2a2a;
-  border: 1px solid #1a1a1a;
-  border-radius: 0.375rem;
-  padding: 1rem;
-  overflow-x: auto;
-}
-
-.prose pre code {
-  background-color: transparent;
-  padding: 0;
-  border-radius: 0;
-  color: #f5f5dc;
-}
-
-.prose a {
-  color: #3b82f6;
-  text-decoration: underline;
-}
-
-.prose a:hover {
-  color: #60a5fa;
-}
-
-.prose h1,
-.prose h2,
-.prose h3,
-.prose h4,
-.prose h5,
-.prose h6 {
-  color: #d4af37;
+.prose h2 {
+  color: oklch(var(--s)); /* secondary (gold) */
   font-weight: 600;
-  margin-top: 1.5em;
+  font-size: 1.3em;
+  margin-top: 1.6em;
+  margin-bottom: 0.6em;
+  line-height: 1.3;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid oklch(var(--s) / 0.15);
+}
+
+.prose h3 {
+  color: oklch(var(--s) / 0.9);
+  font-weight: 600;
+  font-size: 1.15em;
+  margin-top: 1.4em;
   margin-bottom: 0.5em;
   line-height: 1.3;
 }
 
-.prose blockquote {
-  border-left: 4px solid #d4af37;
-  padding-left: 1rem;
-  font-style: italic;
-  color: #9ca3af;
+.prose h4,
+.prose h5,
+.prose h6 {
+  color: oklch(var(--bc) / 0.9);
+  font-weight: 600;
+  font-size: 1em;
+  margin-top: 1.25em;
+  margin-bottom: 0.4em;
+  line-height: 1.35;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.85em;
 }
+
+/* Remove top margin on first heading in a block */
+.prose > h1:first-child,
+.prose > h2:first-child,
+.prose > h3:first-child,
+.prose > h4:first-child {
+  margin-top: 0;
+}
+
+/* --- Paragraph rhythm --- */
+
+.prose p {
+  margin-bottom: 0.75em;
+}
+
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Strong / Bold: Brighter for emphasis --- */
+
+.prose strong {
+  color: oklch(var(--bc));
+  font-weight: 700;
+}
+
+/* --- Inline code: Pill-shaped with subtle border --- */
+
+.prose code {
+  background-color: oklch(var(--b3) / 0.7);
+  border: 1px solid oklch(var(--bc) / 0.1);
+  padding: 0.1em 0.4em;
+  border-radius: 0.3rem;
+  font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Monaco, Consolas,
+    monospace;
+  font-size: 0.85em;
+  color: oklch(var(--wa)); /* warning (amber) */
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+/* --- Code blocks: Elevated card with subtle shadow --- */
+
+.prose pre {
+  background-color: oklch(var(--b3));
+  border: 1px solid oklch(var(--bc) / 0.08);
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  margin: 1em 0;
+  box-shadow: 0 1px 3px oklch(var(--b1) / 0.4);
+}
+
+.prose pre code {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+  color: oklch(var(--bc));
+  white-space: pre;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+
+/* --- Links: Smooth transitions --- */
+
+.prose a {
+  color: oklch(var(--in)); /* info (blue) */
+  text-decoration: none;
+  border-bottom: 1px solid oklch(var(--in) / 0.3);
+  transition: color 0.15s ease, border-color 0.15s ease;
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+.prose a:hover {
+  color: oklch(var(--in) / 0.85);
+  border-bottom-color: oklch(var(--in) / 0.7);
+}
+
+/* --- Blockquotes: Callout card style --- */
+
+.prose blockquote {
+  border-left: 3px solid oklch(var(--s) / 0.5);
+  background-color: oklch(var(--b2) / 0.3);
+  border-radius: 0 0.375rem 0.375rem 0;
+  padding: 0.75em 1em;
+  margin: 1em 0;
+  font-style: italic;
+  color: oklch(var(--bc) / 0.8);
+}
+
+.prose blockquote p {
+  margin-bottom: 0.4em;
+}
+
+.prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Lists: Generous spacing and custom markers --- */
 
 .prose ul,
 .prose ol {
-  color: #f5f5dc;
+  color: oklch(var(--bc));
+  padding-left: 1.5em;
+  margin: 0.75em 0;
 }
 
-.prose strong {
-  color: #f5f5dc;
+.prose ul {
+  list-style: none;
+}
+
+.prose ul > li {
+  position: relative;
+  padding-left: 0.25em;
+  margin-bottom: 0.4em;
+}
+
+/* Custom bullet: small gold/secondary dot */
+.prose ul > li::before {
+  content: '';
+  position: absolute;
+  left: -1.1em;
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: oklch(var(--s) / 0.6);
+}
+
+.prose ol > li {
+  margin-bottom: 0.4em;
+  padding-left: 0.25em;
+}
+
+.prose ol > li::marker {
+  color: oklch(var(--s) / 0.7);
   font-weight: 600;
+}
+
+/* Nested list indent */
+.prose ul ul,
+.prose ol ol,
+.prose ul ol,
+.prose ol ul {
+  margin-top: 0.3em;
+  margin-bottom: 0.3em;
+}
+
+/* Nested bullet: dimmer, smaller */
+.prose ul ul > li::before {
+  width: 4px;
+  height: 4px;
+  background-color: oklch(var(--bc) / 0.3);
+}
+
+/* --- Horizontal rules: Decorative gradient divider --- */
+
+.prose hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(var(--s) / 0.3) 20%,
+    oklch(var(--s) / 0.3) 80%,
+    transparent
+  );
+  margin: 1.75em 0;
+}
+
+/* --- Tables: Refined with header accent --- */
+
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 0.9em;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  border: 1px solid oklch(var(--bc) / 0.1);
+}
+
+.prose th {
+  background-color: oklch(var(--b2) / 0.6);
+  border-bottom: 2px solid oklch(var(--s) / 0.2);
+  padding: 0.6em 0.9em;
+  text-align: left;
+  font-weight: 600;
+  color: oklch(var(--bc) / 0.95);
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.prose td {
+  border-bottom: 1px solid oklch(var(--bc) / 0.07);
+  padding: 0.5em 0.9em;
+  text-align: left;
+  color: oklch(var(--bc) / 0.85);
+}
+
+.prose tr:last-child td {
+  border-bottom: none;
+}
+
+.prose tr:hover td {
+  background-color: oklch(var(--bc) / 0.03);
+}
+
+/* --- Images --- */
+
+.prose img {
+  border-radius: 0.5rem;
+  margin: 1em 0;
+}
+
+/* --- Emphasis / Italic --- */
+
+.prose em {
+  color: oklch(var(--bc) / 0.85);
+  font-style: italic;
+}
+
+/* ============================================================================
+CALLOUT CARDS & COLLAPSIBLE CODE - Rich Markdown Elements
+Styled GitHub-style callout cards and collapsible long code blocks
+Optimized for VS Code sidebar (200-600px)
+============================================================================ */
+
+/* --- Base Callout Card --- */
+.callout {
+  border-left: 3px solid oklch(var(--in));
+  background-color: oklch(var(--b2) / 0.35);
+  border-radius: 0 0.375rem 0.375rem 0;
+  padding: 0.5em 0.75em;
+  margin: 0.75em 0;
+  font-size: 0.85em;
+  line-height: 1.55;
+}
+
+.callout-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  font-weight: 600;
+  margin-bottom: 0.3em;
+  font-size: 0.95em;
+}
+
+.callout-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
+  flex-shrink: 0;
+}
+
+.callout-title {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.85em;
+}
+
+.callout-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Callout Variants --- */
+.callout-note {
+  border-left-color: oklch(var(--in));
+  background-color: oklch(var(--in) / 0.08);
+}
+
+.callout-note .callout-header {
+  color: oklch(var(--in));
+}
+
+.callout-tip {
+  border-left-color: oklch(var(--su));
+  background-color: oklch(var(--su) / 0.08);
+}
+
+.callout-tip .callout-header {
+  color: oklch(var(--su));
+}
+
+.callout-warning {
+  border-left-color: oklch(var(--wa));
+  background-color: oklch(var(--wa) / 0.08);
+}
+
+.callout-warning .callout-header {
+  color: oklch(var(--wa));
+}
+
+.callout-important {
+  border-left-color: oklch(var(--s));
+  background-color: oklch(var(--s) / 0.08);
+}
+
+.callout-important .callout-header {
+  color: oklch(var(--s));
+}
+
+.callout-caution {
+  border-left-color: oklch(var(--er));
+  background-color: oklch(var(--er) / 0.08);
+}
+
+.callout-caution .callout-header {
+  color: oklch(var(--er));
+}
+
+/* --- Code Block Container with Language Badge Header --- */
+.code-block-container {
+  margin: 0.75em 0;
+  border: 1px solid oklch(var(--bc) / 0.08);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.code-block-container pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.35em 0.75em;
+  background-color: oklch(var(--b3) / 0.6);
+  border-bottom: 1px solid oklch(var(--bc) / 0.06);
+  min-height: 1.6em;
+}
+
+.code-lang-badge {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.7em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: oklch(var(--s) / 0.85);
+}
+
+.code-line-count {
+  font-size: 0.7em;
+  color: oklch(var(--bc) / 0.45);
+  font-weight: 400;
+}
+
+.code-block-collapsible summary.code-block-toggle {
+  cursor: pointer;
+  padding: 0.25em 0.75em;
+  font-size: 0.75em;
+  font-weight: 500;
+  color: oklch(var(--bc) / 0.6);
+  background-color: oklch(var(--b3) / 0.3);
+  border-bottom: 1px solid oklch(var(--bc) / 0.04);
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+
+.code-block-collapsible summary.code-block-toggle:hover {
+  background-color: oklch(var(--b3) / 0.6);
+  color: oklch(var(--bc) / 0.85);
+}
+
+.code-block-collapsible summary.code-block-toggle::marker {
+  color: oklch(var(--s) / 0.5);
+}
+
+/* --- Decorative Divider (hr replacement) --- */
+.prose-divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 1px;
+  margin: 1.75em 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(var(--s) / 0.25) 15%,
+    oklch(var(--s) / 0.4) 50%,
+    oklch(var(--s) / 0.25) 85%,
+    transparent
+  );
+}
+
+.prose-divider-ornament {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  background-color: oklch(var(--s) / 0.5);
+  transform: rotate(45deg);
+}
+
+/* --- Enhanced Headings --- */
+.prose-heading-accented {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.prose-heading-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: oklch(var(--s) / 0.7);
+  flex-shrink: 0;
+}
+
+.prose-heading-bordered {
+  padding-left: 0.6em;
+  border-left: 3px solid oklch(var(--s) / 0.35);
+}
+
+/* --- List Card (Ordered & Unordered Lists in bordered card) --- */
+.prose-list-card {
+  background-color: oklch(var(--b2) / 0.12);
+  border: 1px solid oklch(var(--bc) / 0.08);
+  border-radius: 0.5rem;
+  padding: 0.6em 0.75em 0.6em 0.4em;
+  margin: 0.85em 0;
+  font-size: 0.88em;
+}
+
+.prose-list-card ol,
+.prose-list-card ul {
+  margin: 0;
+  padding-left: 1.8em;
+}
+
+.prose-list-card li {
+  margin-bottom: 0.4em;
+  padding-left: 0.2em;
+  line-height: 1.6;
+}
+
+.prose-list-card li:last-child {
+  margin-bottom: 0;
+}
+
+.prose-list-card li p {
+  margin-bottom: 0.25em;
+}
+
+.prose-list-card li > p:last-child {
+  margin-bottom: 0;
+}
+
+/* Gold-accented markers for ordered lists inside cards */
+.prose-list-card ol > li::marker {
+  color: oklch(var(--s) / 0.7);
+  font-weight: 600;
+}
+
+/* Gold dot bullets for unordered lists inside cards */
+.prose-list-card ul {
+  list-style: none;
+}
+
+.prose-list-card ul > li {
+  position: relative;
+}
+
+.prose-list-card ul > li::before {
+  content: '';
+  position: absolute;
+  left: -1.1em;
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: oklch(var(--s) / 0.6);
+}
+
+/* Nested lists inside cards — tighter spacing, dimmer bullets */
+.prose-list-card ul ul,
+.prose-list-card ol ol,
+.prose-list-card ul ol,
+.prose-list-card ol ul {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.prose-list-card ul ul > li::before {
+  width: 4px;
+  height: 4px;
+  background-color: oklch(var(--bc) / 0.3);
+}
+
+/* --- Enhanced Tables --- */
+.prose table {
+  border-top: 2px solid oklch(var(--s) / 0.3);
+}
+
+.prose tr:nth-child(even) td {
+  background-color: oklch(var(--bc) / 0.02);
+}
+
+/* --- Narrow sidebar (<300px) — compact adjustments --- */
+@container (max-width: 299px) {
+  .callout {
+    padding: 0.35em 0.5em;
+    font-size: 0.8em;
+  }
+
+  .callout-header {
+    gap: 0.25em;
+    margin-bottom: 0.2em;
+  }
+
+  .code-block-header {
+    padding: 0.25em 0.5em;
+  }
+
+  .code-lang-badge {
+    font-size: 0.65em;
+  }
+
+  .code-line-count {
+    font-size: 0.65em;
+  }
+
+  .code-block-collapsible summary.code-block-toggle {
+    padding: 0.2em 0.5em;
+    font-size: 0.7em;
+  }
+
+  .prose-divider {
+    margin: 1.25em 0;
+  }
+
+  .prose-divider-ornament {
+    width: 5px;
+    height: 5px;
+  }
+
+  .prose-heading-dot {
+    width: 5px;
+    height: 5px;
+  }
+
+  .prose-list-card {
+    padding: 0.4em 0.5em 0.4em 0.25em;
+    font-size: 0.82em;
+  }
+}
+
+/* ============================================================================
+AGENT PROSE — Compact prose for sidebar agent cards (380px wide)
+Scales down the main .prose typography while preserving visual hierarchy.
+============================================================================ */
+
+.agent-prose {
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.agent-prose a,
+.agent-prose code {
+  overflow-wrap: break-word;
+  word-break: break-all;
+}
+
+.agent-prose h1,
+.agent-prose h2 {
+  font-size: 0.95em;
+  margin-top: 0.75em;
+  margin-bottom: 0.35em;
+  padding-bottom: 0.2em;
+}
+
+.agent-prose h3 {
+  font-size: 0.9em;
+  margin-top: 0.6em;
+  margin-bottom: 0.25em;
+}
+
+.agent-prose p {
+  margin-bottom: 0.4em;
+}
+
+.agent-prose ul,
+.agent-prose ol {
+  margin: 0.35em 0;
+  padding-left: 1.25em;
+}
+
+.agent-prose li {
+  margin-bottom: 0.2em;
+}
+
+.agent-prose code {
+  font-size: 0.85em;
+  padding: 0.05em 0.3em;
+}
+
+.agent-prose pre {
+  padding: 0.5em 0.65em;
+  margin: 0.5em 0;
+  font-size: 0.85em;
+}
+
+.agent-prose blockquote {
+  padding: 0.35em 0.5em;
+  margin: 0.5em 0;
+}
+
+.agent-prose .prose-list-card {
+  padding: 0.3em 0.5em;
+  font-size: 0.9em;
+}
+
+.agent-prose .callout {
+  padding: 0.3em 0.5em;
+  font-size: 0.85em;
 }
 
 /* ============================================================================
 UTILITY CLASSES
 ============================================================================ */
 
-/* Truncate text with ellipsis */
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Smooth transitions */
-.transition-colors {
-  transition-property: color, background-color, border-color;
-  transition-duration: 200ms;
-  transition-timing-function: ease-in-out;
-}
-
-.transition-shadow {
-  transition-property: box-shadow;
-  transition-duration: 200ms;
-  transition-timing-function: ease-in-out;
-}
-
-.transition-opacity {
-  transition-property: opacity;
-  transition-duration: 200ms;
-  transition-timing-function: ease-in-out;
-}
-
-/* Flexbox helpers */
-.flex-center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.flex-between {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* Egyptian-themed text utilities */
+/* Egyptian-themed text utilities (custom theme-specific classes) */
 .text-divine {
   background: var(--gradient-divine);
   -webkit-background-clip: text;
@@ -596,7 +1289,7 @@ UTILITY CLASSES
 }
 
 .text-papyrus {
-  color: #f5f5dc;
+  color: #e8e6e1;
 }
 
 .text-gold {
@@ -604,7 +1297,7 @@ UTILITY CLASSES
 }
 
 .text-lapis {
-  color: #1e3a8a;
+  color: #2563eb;
 }
 
 /* ============================================================================
@@ -834,6 +1527,204 @@ lucide-angular.w-5 svg {
 lucide-angular.w-6 svg {
   width: 20px;
   height: 20px;
+}
+
+/* ============================================================================
+LIGHT THEME (ANUBIS-LIGHT) VISIBILITY FIXES
+Ensures proper contrast for buttons, icons, and text in warm cream backgrounds
+============================================================================ */
+
+/**
+ * Light Theme Visibility Overrides
+ *
+ * The cupcake-inspired light theme uses light primary/secondary colors (85-89% lightness).
+ * DaisyUI's btn-ghost and other elements may pick up these light colors, making them
+ * invisible against the warm cream background. These overrides ensure:
+ *
+ * 1. Ghost buttons use dark text color (base-content)
+ * 2. Icons have proper contrast
+ * 3. Tab text is visible
+ * 4. Dropdown triggers are visible
+ * 5. Permission cards have visible backgrounds
+ */
+
+[data-theme='anubis-light'] {
+  /* ===== Ghost Button Fixes ===== */
+  /* Ghost buttons should use dark text, not light primary */
+  .btn-ghost {
+    color: oklch(var(--bc)); /* Use base-content (dark text) */
+  }
+
+  .btn-ghost:hover {
+    background-color: oklch(var(--bc) / 0.1); /* Subtle dark hover */
+    color: oklch(var(--bc)); /* Keep dark text on hover */
+  }
+
+  /* ===== Icon Visibility ===== */
+  /* Lucide icons in buttons should be visible */
+  .btn-ghost lucide-angular,
+  .btn-ghost svg {
+    color: oklch(var(--bc)); /* Dark icon color */
+  }
+
+  /* ===== Tab Bar Fixes ===== */
+  /* Ensure tab text is visible against base-100/200 backgrounds */
+  .truncate {
+    color: oklch(var(--bc)); /* Dark text for tab titles */
+  }
+
+  /* Active tab styling with better contrast */
+  .border-b-primary {
+    border-bottom-color: oklch(var(--n)); /* Use dark neutral for border */
+  }
+
+  /* ===== Navbar Header Fixes ===== */
+  /* Navbar should have clear boundary */
+  .navbar {
+    background-color: oklch(var(--b1)); /* Ensure proper background */
+    border-bottom-color: oklch(var(--b3)); /* Visible border */
+  }
+
+  /* ===== Dropdown/Popover Fixes ===== */
+  /* Dropdown content backgrounds */
+  .dropdown-content,
+  [content] {
+    background-color: oklch(var(--b1)); /* Warm white background */
+    border: 1px solid oklch(var(--b3)); /* Visible border */
+    box-shadow: 0 4px 12px oklch(var(--bc) / 0.15); /* Subtle shadow */
+  }
+
+  /* ===== Model Selector Specific ===== */
+  /* Model selector trigger button text */
+  .btn-ghost .font-medium,
+  .btn-ghost .text-xs {
+    color: oklch(var(--bc)); /* Dark text for model name */
+  }
+
+  /* ===== Permission Card Fixes ===== */
+  /* Permission request cards need visible backgrounds */
+  .bg-base-300\/30 {
+    background-color: oklch(var(--b3) / 0.5); /* More visible background */
+  }
+
+  .bg-base-100\/20 {
+    background-color: oklch(var(--b2) / 0.7); /* More visible action area */
+  }
+
+  /* Permission card border colors should be visible */
+  .border-base-300\/30 {
+    border-color: oklch(var(--b3) / 0.5);
+  }
+
+  /* ===== Menu and List Items ===== */
+  /* Menu items should have dark text */
+  .menu li > * {
+    color: oklch(var(--bc));
+  }
+
+  .menu li > *:hover {
+    background-color: oklch(var(--b2));
+    color: oklch(var(--bc));
+  }
+
+  /* ===== Badge Text Visibility ===== */
+  /* Ensure badge text is visible */
+  .badge {
+    border: 1px solid oklch(var(--bc) / 0.1);
+  }
+
+  /* ===== Input and Form Elements ===== */
+  .input,
+  .textarea,
+  .select {
+    background-color: oklch(var(--b1));
+    border-color: oklch(var(--b3));
+    color: oklch(var(--bc));
+  }
+
+  .input::placeholder,
+  .textarea::placeholder {
+    color: oklch(var(--bc) / 0.5);
+  }
+
+  /* ===== Popover/Overlay Backgrounds ===== */
+  /* Native popovers should have solid backgrounds */
+  .ptah-native-popover-panel,
+  [class*='popover'] {
+    background-color: oklch(var(--b1));
+    border: 1px solid oklch(var(--b3));
+  }
+
+  /* ===== Card Improvements ===== */
+  .card {
+    background-color: oklch(var(--b1));
+    border: 1px solid oklch(var(--b3));
+  }
+
+  /* ===== Session List Sidebar ===== */
+  /* Session items should have visible text */
+  .menu-sm li button {
+    color: oklch(var(--bc));
+  }
+
+  .menu-sm li button:hover {
+    background-color: oklch(var(--b2));
+  }
+
+  /* Active session styling */
+  .menu-sm li button.active,
+  .menu-sm li button.bg-primary {
+    background-color: oklch(var(--n)); /* Use dark neutral for active */
+    color: oklch(var(--nc)); /* Light text on dark background */
+  }
+
+  /* Sidebar session list overrides for light theme */
+  .sidebar-item-active {
+    background-color: oklch(var(--b2));
+    border-left-color: oklch(var(--n));
+  }
+
+  .sidebar-item-open-tab {
+    border-left-color: oklch(var(--n) / 0.3);
+  }
+}
+
+/* ============================================================================
+SIDEBAR SESSION LIST STYLES - TASK_2025_130
+============================================================================ */
+
+/* Active session in sidebar */
+.sidebar-item-active {
+  background-color: oklch(var(--b3) / 0.7);
+  border-left-color: oklch(var(--p));
+}
+
+/* Session with open tab (but not active) */
+.sidebar-item-open-tab {
+  border-left-color: oklch(var(--p) / 0.3);
+}
+
+/* Sidebar-specific thin scrollbar (only visible on aside hover) */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: oklch(var(--bc) / 0.15);
+  border-radius: 9999px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(var(--bc) / 0.25);
+}
+
+/* Hide scrollbar until sidebar is hovered */
+aside:not(:hover) .sidebar-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
 }
 
 /* ============================================================================

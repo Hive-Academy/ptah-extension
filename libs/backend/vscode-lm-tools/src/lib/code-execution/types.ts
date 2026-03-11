@@ -8,6 +8,19 @@
  */
 
 import * as vscode from 'vscode';
+import type {
+  SpawnAgentRequest,
+  SpawnAgentResult,
+  AgentProcessInfo,
+  AgentOutput,
+  CliDetectionResult,
+} from '@ptah-extension/shared';
+import type {
+  WorkspaceInfo,
+  ProjectInfo,
+  WorkspaceStructureAnalysis,
+  StructuralSummaryResult,
+} from '@ptah-extension/workspace-intelligence';
 
 // ========================================
 // Ptah API - Main Interface
@@ -15,8 +28,9 @@ import * as vscode from 'vscode';
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 13 namespaces for comprehensive workspace intelligence
+ * Provides 15 namespaces for comprehensive workspace intelligence
  * TASK_2025_039: Enhanced with ide namespace for LSP and editor superpowers
+ * TASK_2025_111: Added orchestration namespace for workflow state management
  */
 export interface PtahAPI {
   // Original 8 namespaces
@@ -40,6 +54,31 @@ export interface PtahAPI {
   // IDE superpowers namespace (TASK_2025_039)
   ide: IDENamespace;
 
+  // LLM provider namespace (VS Code LM API)
+  llm: LLMNamespace;
+
+  // Orchestration workflow state management (TASK_2025_111)
+  orchestration: OrchestrationNamespace;
+
+  // Agent orchestration namespace (TASK_2025_157)
+  agent: AgentNamespace;
+
+  // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
+  dependencies: DependenciesNamespace;
+
+  // Web search namespace (TASK_2025_189)
+  webSearch?: {
+    search(
+      query: string,
+      timeoutMs?: number
+    ): Promise<{
+      query: string;
+      summary: string;
+      provider: 'vscode-lm' | 'gemini-cli';
+      durationMs: number;
+    }>;
+  };
+
   /**
    * Get help documentation for Ptah API namespaces
    * @param topic Optional topic (e.g., 'ai', 'workspace', 'ai.ide.lsp'). Omit for overview.
@@ -61,13 +100,17 @@ export interface WorkspaceNamespace {
    * Analyze complete workspace structure and project configuration
    * @returns Combined workspace info and structure analysis
    */
-  analyze: () => Promise<{ info: any; structure: any }>;
+  analyze: () => Promise<{
+    info: WorkspaceInfo | undefined;
+    structure: WorkspaceStructureAnalysis | null;
+    projectInfo?: ProjectInfo;
+  }>;
 
   /**
    * Get current workspace information (project type, frameworks, etc.)
    * @returns Workspace metadata
    */
-  getInfo: () => Promise<any>;
+  getInfo: () => Promise<WorkspaceInfo | undefined>;
 
   /**
    * Get detected project type (React, Angular, NestJS, etc.)
@@ -93,7 +136,7 @@ export interface SearchNamespace {
    * @param limit - Maximum results (default: 20)
    * @returns Array of matching file paths
    */
-  findFiles: (pattern: string, limit?: number) => Promise<any[]>;
+  findFiles: (pattern: string, limit?: number) => Promise<string[]>;
 
   /**
    * Get files most relevant to a semantic query
@@ -101,7 +144,7 @@ export interface SearchNamespace {
    * @param maxFiles - Maximum results (default: 10)
    * @returns Array of relevant file metadata
    */
-  getRelevantFiles: (query: string, maxFiles?: number) => Promise<any[]>;
+  getRelevantFiles: (query: string, maxFiles?: number) => Promise<string[]>;
 }
 
 /**
@@ -324,7 +367,10 @@ export interface AINamespace {
    * @param input - Tool input parameters (must match tool's schema)
    * @returns Tool execution result
    */
-  invokeTool: (name: string, input: any) => Promise<any>;
+  invokeTool: (
+    name: string,
+    input: Record<string, unknown>
+  ) => Promise<vscode.LanguageModelToolResult>;
 
   /**
    * Chat with access to specific VS Code tools
@@ -429,7 +475,7 @@ export interface ToolInfo {
   description: string;
 
   /** JSON Schema for tool input parameters */
-  inputSchema: any;
+  inputSchema: Record<string, unknown> | undefined;
 }
 
 /**
@@ -443,6 +489,13 @@ export interface FilesNamespace {
    * @returns File contents
    */
   read: (path: string) => Promise<string>;
+
+  /**
+   * Read and parse JSON file, handling comments and trailing commas
+   * @param path - Absolute file path
+   * @returns Parsed JSON object
+   */
+  readJson: (path: string) => Promise<unknown>;
 
   /**
    * List directory contents
@@ -464,13 +517,77 @@ export interface CommandsNamespace {
    * @param args - Command arguments
    * @returns Command result
    */
-  execute: (commandId: string, ...args: any[]) => Promise<any>;
+  execute: (commandId: string, ...args: unknown[]) => Promise<unknown>;
 
   /**
    * List all available Ptah commands
    * @returns Array of command IDs starting with "ptah."
    */
   list: () => Promise<string[]>;
+}
+
+// ========================================
+// Agent Namespace (TASK_2025_157)
+// ========================================
+
+/**
+ * Agent orchestration namespace
+ * Enables spawning, monitoring, and steering CLI agents as background workers.
+ * Supports fire-and-check async delegation pattern.
+ */
+export interface AgentNamespace {
+  /**
+   * Spawn a CLI agent with a task
+   * @param request - Spawn configuration (task, cli, timeout, files, taskFolder)
+   * @returns Spawn result with agentId
+   */
+  spawn: (request: SpawnAgentRequest) => Promise<SpawnAgentResult>;
+
+  /**
+   * Get status of a specific agent or all agents
+   * @param agentId - Optional agent ID. Omit to get all agents.
+   * @returns Agent status info
+   */
+  status: (agentId?: string) => Promise<AgentProcessInfo | AgentProcessInfo[]>;
+
+  /**
+   * Read agent output (stdout + stderr)
+   * @param agentId - Agent ID
+   * @param tail - Optional: only return last N lines
+   * @returns Agent output
+   */
+  read: (agentId: string, tail?: number) => Promise<AgentOutput>;
+
+  /**
+   * Send steering instruction to agent stdin
+   * @param agentId - Agent ID
+   * @param instruction - Text to send to stdin
+   */
+  steer: (agentId: string, instruction: string) => Promise<void>;
+
+  /**
+   * Stop a running agent
+   * @param agentId - Agent ID
+   * @returns Final agent status
+   */
+  stop: (agentId: string) => Promise<AgentProcessInfo>;
+
+  /**
+   * List available CLI agents with installation status
+   * @returns Array of CLI detection results
+   */
+  list: () => Promise<CliDetectionResult[]>;
+
+  /**
+   * Wait for an agent to complete (polling)
+   * @param agentId - Agent ID
+   * @param options - Poll interval (default: 2000ms), timeout (default: no timeout)
+   * @returns Final agent status
+   */
+  waitFor: (
+    agentId: string,
+    options?: { pollInterval?: number; timeout?: number }
+  ) => Promise<AgentProcessInfo>;
 }
 
 // ========================================
@@ -491,7 +608,7 @@ export interface MCPRequest {
   method: string;
 
   /** Method-specific parameters */
-  params?: any;
+  params?: Record<string, unknown>;
 }
 
 /**
@@ -505,7 +622,7 @@ export interface MCPResponse {
   id: string | number;
 
   /** Success result (mutually exclusive with error) */
-  result?: any;
+  result?: unknown;
 
   /** Error response (mutually exclusive with result) */
   error?: MCPError;
@@ -522,7 +639,7 @@ export interface MCPError {
   message: string;
 
   /** Additional error data (e.g., stack trace) */
-  data?: any;
+  data?: unknown;
 }
 
 /**
@@ -538,8 +655,20 @@ export interface MCPToolDefinition {
   /** JSON Schema for tool parameters */
   inputSchema: {
     type: 'object';
-    properties: Record<string, any>;
+    properties: Record<string, unknown>;
     required?: string[];
+  };
+
+  /** MCP protocol annotations — hints for LLM clients about tool behavior */
+  annotations?: {
+    /** Tool only reads data, does not modify state */
+    readOnlyHint?: boolean;
+    /** Tool may perform destructive/irreversible operations */
+    destructiveHint?: boolean;
+    /** Calling with same args produces same result (safe to retry) */
+    idempotentHint?: boolean;
+    /** Tool interacts with external systems beyond the local environment */
+    openWorldHint?: boolean;
   };
 }
 
@@ -554,7 +683,7 @@ export interface ExecuteCodeParams {
   /** TypeScript code to execute */
   code: string;
 
-  /** Execution timeout in milliseconds (default: 5000, max: 30000) */
+  /** Execution timeout in milliseconds (default: 15000, max: 30000) */
   timeout?: number;
 }
 
@@ -566,7 +695,7 @@ export interface ExecuteCodeResult {
   success: boolean;
 
   /** Return value from code (if success) */
-  result?: any;
+  result?: unknown;
 
   /** Error message (if failure) */
   error?: string;
@@ -627,6 +756,67 @@ export interface ContextNamespace {
   getRecommendedBudget: (
     projectType: 'monorepo' | 'library' | 'application' | 'unknown'
   ) => number;
+
+  /**
+   * Generate a structural summary (.d.ts-style) of a file for reduced token usage.
+   * Includes imports, class outlines, and function signatures without bodies.
+   * @param filePath - Absolute or workspace-relative file path
+   * @param language - Optional language hint ('typescript' | 'javascript')
+   * @returns Structural summary with token reduction metrics
+   */
+  enrichFile: (
+    filePath: string,
+    language?: string
+  ) => Promise<StructuralSummaryResult>;
+}
+
+/**
+ * Dependencies namespace for import-based dependency graph analysis
+ * TASK_2025_182: Exposes DependencyGraphService to agents
+ */
+export interface DependenciesNamespace {
+  /**
+   * Build an import-based dependency graph for the given files
+   * @param filePaths - Absolute paths of files to include
+   * @param workspaceRoot - Workspace root for relative path resolution
+   * @returns The built dependency graph summary
+   */
+  buildGraph: (
+    filePaths: string[],
+    workspaceRoot: string
+  ) => Promise<{
+    nodeCount: number;
+    edgeCount: number;
+    unresolvedCount: number;
+    builtAt: number;
+  }>;
+
+  /**
+   * Get dependencies of a file (what it imports)
+   * @param filePath - Absolute file path
+   * @param depth - Max traversal depth (1-3, default: 1)
+   * @returns Array of dependent file paths
+   */
+  getDependencies: (filePath: string, depth?: number) => Promise<string[]>;
+
+  /**
+   * Get reverse dependencies (what files import this file)
+   * @param filePath - Absolute file path
+   * @returns Array of file paths that import this file
+   */
+  getDependents: (filePath: string) => Promise<string[]>;
+
+  /**
+   * Get exported symbols per file from the dependency graph
+   * @returns Map entries of [filePath, exportedSymbolNames[]]
+   */
+  getSymbolIndex: () => Promise<Array<{ file: string; symbols: string[] }>>;
+
+  /**
+   * Check if the dependency graph has been built
+   * @returns true if buildGraph() has been called
+   */
+  isBuilt: () => Promise<boolean>;
 }
 
 /**
@@ -1380,4 +1570,246 @@ export interface CoverageInfo {
 
   /** Branch coverage */
   branches: { covered: number; total: number };
+}
+
+// ========================================
+// LLM Namespace (Native SDK Abstraction)
+// ========================================
+
+/**
+ * LLM provider namespace
+ * Enables Claude CLI to delegate tasks to other AI models via VS Code LM API.
+ */
+export interface LLMNamespace {
+  /** VS Code Language Model API (always available) */
+  vscodeLm: LLMProviderNamespace;
+
+  /**
+   * Chat with the default configured provider
+   * @param message - User message to send
+   * @param options - Optional chat configuration
+   * @returns Complete model response text
+   */
+  chat: (message: string, options?: LLMChatOptions) => Promise<string>;
+
+  /**
+   * Get list of configured providers (those with API keys)
+   * @returns Array of configured provider info
+   */
+  getConfiguredProviders: () => Promise<LLMConfiguredProvider[]>;
+
+  /**
+   * Get the default provider name from settings
+   * @returns Default provider identifier
+   */
+  getDefaultProvider: () => string;
+
+  /**
+   * Get full configuration state for all providers
+   * @returns Configuration including default provider and all provider configs
+   */
+  getConfiguration: () => Promise<{
+    defaultProvider: string;
+    providers: LLMConfiguredProvider[];
+  }>;
+}
+
+/**
+ * Provider-specific namespace (e.g., ptah.llm.anthropic)
+ */
+export interface LLMProviderNamespace {
+  /**
+   * Send a chat message to this provider
+   * @param message - User message to send
+   * @param options - Optional chat configuration
+   * @returns Complete model response text
+   */
+  chat: (message: string, options?: LLMChatOptions) => Promise<string>;
+
+  /**
+   * Check if this provider is available (has API key configured)
+   * @returns true if provider can be used
+   */
+  isAvailable: () => Promise<boolean>;
+
+  /**
+   * Get the default model for this provider
+   * @returns Default model identifier
+   */
+  getDefaultModel: () => string;
+
+  /**
+   * Get display name for this provider
+   * @returns Human-readable provider name
+   */
+  getDisplayName: () => string;
+}
+
+/**
+ * Options for LLM chat requests
+ */
+export interface LLMChatOptions {
+  /** Specific model to use (overrides default) */
+  model?: string;
+
+  /** System prompt to use (overrides default) */
+  systemPrompt?: string;
+
+  /** Temperature for response generation (0-1) */
+  temperature?: number;
+
+  /** Maximum tokens in response */
+  maxTokens?: number;
+}
+
+/**
+ * Information about a configured LLM provider
+ */
+export interface LLMConfiguredProvider {
+  /** Provider identifier (e.g., 'vscode-lm') */
+  name: string;
+
+  /** Human-readable display name */
+  displayName: string;
+
+  /** Default model for this provider */
+  defaultModel: string;
+
+  /** Whether provider has API key configured */
+  isConfigured: boolean;
+}
+
+// ========================================
+// Orchestration Namespace (TASK_2025_111)
+// ========================================
+
+/**
+ * Orchestration workflow phase
+ * Represents the current stage of an orchestration workflow
+ */
+export type OrchestrationPhase =
+  | 'planning'
+  | 'design'
+  | 'implementation'
+  | 'qa'
+  | 'complete';
+
+/**
+ * Checkpoint type for orchestration workflow
+ * Identifies the type of user approval checkpoint
+ */
+export type CheckpointType =
+  | 'requirements'
+  | 'architecture'
+  | 'batch-complete'
+  | null;
+
+/**
+ * Checkpoint status for orchestration workflow
+ * Represents the approval status of a checkpoint
+ */
+export type CheckpointStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * Orchestration checkpoint state
+ * Tracks the last checkpoint presented to the user
+ */
+export interface OrchestrationCheckpoint {
+  /** Type of checkpoint that was presented */
+  type: CheckpointType;
+
+  /** Approval status from user */
+  status: CheckpointStatus;
+
+  /** ISO timestamp when checkpoint was presented */
+  timestamp: string;
+}
+
+/**
+ * Orchestration workflow state
+ * Persists the complete state of an orchestration workflow for a task.
+ * Stored in .claude/specs/TASK_XXX/.orchestration-state.json
+ */
+export interface OrchestrationState {
+  /** Task identifier (e.g., "TASK_2025_111") */
+  taskId: string;
+
+  /** Current workflow phase */
+  phase: OrchestrationPhase;
+
+  /** Currently active agent (null if between agent invocations) */
+  currentAgent: string | null;
+
+  /** Last checkpoint presented to user */
+  lastCheckpoint: OrchestrationCheckpoint;
+
+  /** List of pending actions to be executed */
+  pendingActions: string[];
+
+  /** Selected workflow strategy (e.g., "FEATURE", "BUGFIX") */
+  strategy: string;
+
+  /** Additional metadata for workflow context */
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * Next action type for orchestration workflow
+ * Determines what the orchestrator should do next
+ */
+export type OrchestrationActionType =
+  | 'invoke-agent'
+  | 'present-checkpoint'
+  | 'complete';
+
+/**
+ * Next action recommendation for orchestration workflow
+ * Returned by getNextAction to guide the orchestrator on what to do next
+ */
+export interface OrchestrationNextAction {
+  /** Type of action to perform */
+  action: OrchestrationActionType;
+
+  /** Agent to invoke (when action is 'invoke-agent') */
+  agent?: string;
+
+  /** Context to pass to the agent */
+  context?: Record<string, unknown>;
+
+  /** Required inputs that must be available before proceeding */
+  requiredInputs?: string[];
+
+  /** Checkpoint type to present (when action is 'present-checkpoint') */
+  checkpointType?: string;
+}
+
+/**
+ * Orchestration namespace for MCP
+ * Provides state management tools for orchestration workflows.
+ * Enables workflow state persistence and continuation across sessions.
+ */
+export interface OrchestrationNamespace {
+  /**
+   * Get the current orchestration state for a task
+   * @param taskId - Task identifier (e.g., "TASK_2025_111")
+   * @returns Current state or null if no state exists
+   */
+  getState: (taskId: string) => Promise<OrchestrationState | null>;
+
+  /**
+   * Update the orchestration state for a task
+   * @param taskId - Task identifier
+   * @param state - Partial state to merge with existing state
+   */
+  setState: (
+    taskId: string,
+    state: Partial<OrchestrationState>
+  ) => Promise<void>;
+
+  /**
+   * Analyze current state and recommend the next action
+   * @param taskId - Task identifier
+   * @returns Recommended next action for the orchestrator
+   */
+  getNextAction: (taskId: string) => Promise<OrchestrationNextAction>;
 }

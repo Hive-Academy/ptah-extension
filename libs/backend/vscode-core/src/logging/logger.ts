@@ -12,6 +12,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { PtahProdDefaults, PtahDevDefaults } from '@ptah-extension/shared';
 import { OUTPUT_MANAGER } from '../di/tokens';
 import { OutputManager } from '../api-wrappers/output-manager';
 import type { LogLevel, LogContext, LogEntry } from './types';
@@ -19,16 +20,81 @@ import type { LogLevel, LogContext, LogEntry } from './types';
 /**
  * Logger service for centralized logging
  * Uses OutputManager for VS Code integration
+ *
+ * Log Level Filtering:
+ * - Production: 'info' (skips debug messages)
+ * - Development: 'debug' (logs everything)
+ * - Detects development mode via VS Code extensionMode
  */
 @injectable()
 export class Logger {
   private static readonly CHANNEL_NAME = 'Ptah';
+
+  /**
+   * Minimum log level - messages below this level are filtered out
+   * Levels ordered: debug < info < warn < error
+   */
+  private readonly minLevel: LogLevel;
+
+  /**
+   * Whether to also log to the developer console.
+   * Enabled in development, disabled in production to reduce noise.
+   */
+  private readonly logToConsole: boolean;
+
+  private static readonly LEVEL_ORDER: Record<LogLevel, number> = {
+    debug: 0,
+    info: 1,
+    warn: 2,
+    error: 3,
+  };
 
   constructor(
     @inject(OUTPUT_MANAGER) private readonly outputManager: OutputManager
   ) {
     // Ensure output channel is created for logging
     this.outputManager.createOutputChannel({ name: Logger.CHANNEL_NAME });
+
+    // Detect development mode and apply centralized log level defaults.
+    // PTAH_LOG_LEVEL env var always takes priority for explicit overrides.
+    const explicitLevel = process.env['PTAH_LOG_LEVEL'] as LogLevel | undefined;
+    if (explicitLevel && Logger.LEVEL_ORDER[explicitLevel] !== undefined) {
+      this.minLevel = explicitLevel;
+    } else {
+      const isDevelopment = this.detectDevelopmentMode();
+      this.minLevel = isDevelopment
+        ? PtahDevDefaults.LOG_LEVEL
+        : PtahProdDefaults.LOG_LEVEL;
+    }
+    this.logToConsole = this.detectDevelopmentMode()
+      ? PtahDevDefaults.LOG_TO_CONSOLE
+      : PtahProdDefaults.LOG_TO_CONSOLE;
+  }
+
+  /**
+   * Detect if running in development mode
+   * Uses VS Code's extension host detection
+   */
+  private detectDevelopmentMode(): boolean {
+    try {
+      // Check for VS Code extension development mode
+      // process.env.VSCODE_DEBUG_MODE is set during F5 debugging
+      // NODE_ENV can also be used for explicit configuration
+      return (
+        process.env['VSCODE_DEBUG_MODE'] === 'true' ||
+        process.env['NODE_ENV'] === 'development' ||
+        process.env['PTAH_LOG_LEVEL'] === 'debug'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if a log level should be logged based on minLevel
+   */
+  private shouldLog(level: LogLevel): boolean {
+    return Logger.LEVEL_ORDER[level] >= Logger.LEVEL_ORDER[this.minLevel];
   }
 
   /**
@@ -114,6 +180,9 @@ export class Logger {
    * @param context - Contextual information
    */
   logWithContext(level: LogLevel, message: string, context: LogContext): void {
+    // Skip logging if below minimum level
+    if (!this.shouldLog(level)) return;
+
     const entry = this.createLogEntry(level, message, context);
     this.writeLogEntry(entry);
   }
@@ -138,15 +207,38 @@ export class Logger {
    * Log message with arguments
    * Internal helper for standard log methods
    *
+   * DIAGNOSTIC MODE: Stringify objects directly into the message for easier log analysis
+   * This ensures all context is visible in the saved log file as a single line.
+   *
    * @param level - Log severity level
    * @param message - Log message
    * @param args - Additional arguments
    */
   private log(level: LogLevel, message: string, args: unknown[]): void {
-    const context: LogContext =
-      args.length > 0 ? { metadata: this.serializeArgs(args) } : {};
+    // Skip logging if below minimum level (early check for performance)
+    if (!this.shouldLog(level)) return;
 
-    this.logWithContext(level, message, context);
+    // DIAGNOSTIC: Inline objects directly into the message for easier debugging
+    // This makes log entries self-contained and visible in saved log files
+    let inlinedMessage = message;
+    if (args.length > 0) {
+      const inlinedArgs = args
+        .map((arg) => {
+          try {
+            if (typeof arg === 'object' && arg !== null) {
+              return JSON.stringify(arg);
+            }
+            return String(arg);
+          } catch {
+            return '[Unserializable]';
+          }
+        })
+        .join(' ');
+      inlinedMessage = `${message}: ${inlinedArgs}`;
+    }
+
+    // Use empty context since args are now inlined into message
+    this.logWithContext(level, inlinedMessage, {});
   }
 
   /**
@@ -222,8 +314,10 @@ export class Logger {
       this.outputManager.write(Logger.CHANNEL_NAME, entry.stackTrace);
     }
 
-    // Also log to console for debugging
-    this.logToConsole(entry);
+    // Also log to console when enabled (dev mode)
+    if (this.logToConsole) {
+      this.writeToConsole(entry);
+    }
   }
 
   /**
@@ -232,7 +326,7 @@ export class Logger {
    *
    * @param entry - Log entry to write to console
    */
-  private logToConsole(entry: LogEntry): void {
+  private writeToConsole(entry: LogEntry): void {
     const consoleMessage = `[${entry.level.toUpperCase()}] ${entry.message}`;
     const consoleArgs = entry.context?.metadata ? [entry.context.metadata] : [];
 

@@ -57,7 +57,7 @@ export class AgentDiscoveryService {
   ) {}
 
   /**
-   * Get built-in Claude Code agents
+   * Get built-in agents
    */
   private getBuiltinAgents(): AgentInfo[] {
     return [
@@ -72,7 +72,7 @@ export class AgentDiscoveryService {
       },
       {
         name: 'statusline-setup',
-        description: 'Configure Claude Code status line setting',
+        description: 'Configure status line setting',
         tools: ['Read', 'Edit'],
         scope: 'builtin',
         filePath: '',
@@ -97,8 +97,7 @@ export class AgentDiscoveryService {
       },
       {
         name: 'claude-code-guide',
-        description:
-          'Agent for Claude Code documentation and SDK architecture questions',
+        description: 'Agent for documentation and SDK architecture questions',
         tools: ['Glob', 'Grep', 'Read', 'WebFetch', 'WebSearch'],
         scope: 'builtin',
         filePath: '',

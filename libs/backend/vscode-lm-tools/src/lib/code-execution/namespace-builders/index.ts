@@ -15,6 +15,7 @@ export {
   buildContextNamespace,
   buildProjectNamespace,
   buildRelevanceNamespace,
+  buildDependencyNamespace,
   type AnalysisNamespaceDependencies,
 } from './analysis-namespace.builders';
 
@@ -39,3 +40,21 @@ export {
 
 // IDE namespace (lsp, editor, actions, testing)
 export { buildIDENamespace } from './ide-namespace.builder';
+
+// LLM namespace (VS Code LM provider)
+export {
+  buildLLMNamespace,
+  type LlmNamespaceDependencies,
+} from './llm-namespace.builder';
+
+// Orchestration namespace (TASK_2025_111 - workflow state management)
+export {
+  buildOrchestrationNamespace,
+  type OrchestrationNamespaceDependencies,
+} from './orchestration-namespace.builder';
+
+// Agent namespace (TASK_2025_157 - async agent orchestration)
+export {
+  buildAgentNamespace,
+  type AgentNamespaceDependencies,
+} from './agent-namespace.builder';

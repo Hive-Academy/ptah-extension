@@ -1,11 +1,22 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="ptah">
+<html lang="en" data-theme="anubis">
   <head>
     <meta charset="utf-8" />
     <title>ptah-extension-webview</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!-- FOUC Prevention: Apply saved theme before Angular bootstraps (TASK_2025_100) -->
+    <script>
+      (function () {
+        try {
+          var savedTheme = window.ptahConfig && window.ptahConfig.savedTheme;
+          if (savedTheme === 'anubis' || savedTheme === 'anubis-light') {
+            document.documentElement.setAttribute('data-theme', savedTheme);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <ptah-root></ptah-root>

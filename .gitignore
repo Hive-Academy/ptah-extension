@@ -45,3 +45,38 @@ Thumbs.db
 
 .angular
 /.env
+.mcp.json
+
+# ============================================
+# Docker Environment Files
+# ============================================
+# Docker Compose environment (contains local configuration)
+.env.docker
+
+# Production environment (contains secrets)
+.env.prod
+
+# Docker Compose local overrides (user-specific settings)
+docker-compose.override.yml
+
+# Database backups
+backups/
+
+# ============================================
+# License Server Environment Files
+# ============================================
+# Local environment files (contain secrets)
+.env
+apps/ptah-license-server/.env
+apps/ptah-license-server/.env
+
+# ============================================
+# Build Output
+# ============================================
+build-output.txt
+generated-prisma-client
+
+# ============================================
+# Google OAuth Client Secrets
+# ============================================
+client_secret_*.json

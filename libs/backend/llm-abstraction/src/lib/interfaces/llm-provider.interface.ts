@@ -1,7 +1,12 @@
 import { Result } from '@ptah-extension/shared';
 import { z } from 'zod';
-import type { BaseLanguageModelInput } from '@langchain/core/language_models/base';
 import { LlmProviderError } from '../errors/llm-provider.error';
+
+/**
+ * Native prompt input type replacing Langchain's LlmPromptInput.
+ * Supports plain string prompts or structured message arrays.
+ */
+export type LlmPromptInput = string | Array<{ role: string; content: string }>;
 
 /**
  * LLM completion configuration options.
@@ -26,7 +31,7 @@ export interface LlmCompletionConfig {
 
 /**
  * Core LLM provider abstraction interface.
- * Implemented by all provider adapters (Anthropic, OpenAI, Google, OpenRouter).
+ * Implemented by the VS Code LM provider adapter.
  */
 export interface ILlmProvider {
   readonly name: string;
@@ -44,14 +49,14 @@ export interface ILlmProvider {
 
   /**
    * Get a structured completion that conforms to a Zod schema.
-   * Uses Langchain's structured output capabilities.
+   * Uses provider-native JSON mode for structured output.
    * @param prompt The prompt to send
    * @param schema Zod schema defining expected output structure
    * @param completionConfig Optional completion parameters
    * @returns Result containing parsed, type-safe object or error
    */
   getStructuredCompletion<T extends z.ZodTypeAny>(
-    prompt: BaseLanguageModelInput,
+    prompt: LlmPromptInput,
     schema: T,
     completionConfig?: LlmCompletionConfig
   ): Promise<Result<z.infer<T>, LlmProviderError>>;
@@ -100,7 +105,7 @@ export interface ILlmService {
    * @returns Result containing parsed, type-safe object or error
    */
   getStructuredCompletion<T extends z.ZodTypeAny>(
-    prompt: BaseLanguageModelInput,
+    prompt: LlmPromptInput,
     schema: T,
     completionConfig?: LlmCompletionConfig
   ): Promise<Result<z.infer<T>, LlmProviderError>>;
@@ -127,11 +132,14 @@ export interface ILlmService {
 
 /**
  * Factory function type for creating LLM providers.
- * @param apiKey API key for the provider
+ * Can be synchronous or asynchronous (e.g., VS Code LM provider requires async initialization).
+ * @param apiKey API key for the provider (may be empty for providers that don't need it)
  * @param model Model name to use
- * @returns Result containing provider instance or error
+ * @returns Result containing provider instance or error (or Promise of Result for async factories)
  */
 export type LlmProviderFactory = (
   apiKey: string,
   model: string
-) => Result<ILlmProvider, LlmProviderError>;
+) =>
+  | Result<ILlmProvider, LlmProviderError>
+  | Promise<Result<ILlmProvider, LlmProviderError>>;

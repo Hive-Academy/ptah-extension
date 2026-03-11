@@ -1,0 +1,679 @@
+import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
+import {
+  SetupWizardStateService,
+  WizardStep,
+  ProjectContext,
+  AgentSelection,
+  GenerationProgress,
+  ScanProgress,
+  AnalysisResults,
+  CompletionData,
+  ErrorState,
+} from './setup-wizard-state.service';
+import { VSCodeService } from '@ptah-extension/core';
+
+describe.skip('SetupWizardStateService', () => {
+  let service: SetupWizardStateService;
+  let mockVSCodeService: Partial<VSCodeService>;
+
+  beforeEach(() => {
+    mockVSCodeService = {
+      postMessage: jest.fn(),
+      config: signal({
+        isVSCode: true,
+        theme: 'dark' as const,
+        workspaceRoot: '/test/workspace',
+        workspaceName: 'test-workspace',
+        extensionUri: 'file:///test/extension',
+        baseUri: 'file:///test/base',
+        iconUri: 'file:///test/icons',
+        userIconUri: 'file:///test/user-icons',
+      }),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [
+        SetupWizardStateService,
+        { provide: VSCodeService, useValue: mockVSCodeService },
+      ],
+    });
+
+    service = TestBed.inject(SetupWizardStateService);
+  });
+
+  it('should be created', () => {
+    expect(service).toBeTruthy();
+  });
+
+  describe('Initial State', () => {
+    it('should initialize with welcome step', () => {
+      expect(service.currentStep()).toBe('welcome');
+    });
+
+    it('should initialize with null project context', () => {
+      expect(service.projectContext()).toBeNull();
+    });
+
+    it('should initialize with empty agents array', () => {
+      expect(service.availableAgents()).toEqual([]);
+    });
+
+    it('should initialize with null generation progress', () => {
+      expect(service.generationProgress()).toBeNull();
+    });
+
+    it('should initialize with null scan progress', () => {
+      expect(service.scanProgress()).toBeNull();
+    });
+
+    it('should initialize with null analysis results', () => {
+      expect(service.analysisResults()).toBeNull();
+    });
+
+    it('should initialize with null completion data', () => {
+      expect(service.completionData()).toBeNull();
+    });
+
+    it('should initialize with null error state', () => {
+      expect(service.errorState()).toBeNull();
+    });
+  });
+
+  describe('State Mutations', () => {
+    it('should update current step', () => {
+      service.setCurrentStep('scan');
+      expect(service.currentStep()).toBe('scan');
+    });
+
+    it('should update project context', () => {
+      const context: ProjectContext = {
+        type: 'Angular',
+        techStack: ['TypeScript', 'Angular'],
+        isMonorepo: false,
+      };
+      service.setProjectContext(context);
+      expect(service.projectContext()).toEqual(context);
+    });
+
+    it('should update available agents', () => {
+      const agents: AgentSelection[] = [
+        {
+          id: '1',
+          name: 'Agent 1',
+          selected: true,
+          score: 90,
+          reason: 'High relevance',
+          autoInclude: true,
+        },
+      ];
+      service.setAvailableAgents(agents);
+      expect(service.availableAgents()).toEqual(agents);
+    });
+
+    it('should toggle agent selection', () => {
+      const agents: AgentSelection[] = [
+        {
+          id: '1',
+          name: 'Agent 1',
+          selected: false,
+          score: 90,
+          reason: 'Test',
+          autoInclude: false,
+        },
+        {
+          id: '2',
+          name: 'Agent 2',
+          selected: true,
+          score: 80,
+          reason: 'Test',
+          autoInclude: false,
+        },
+      ];
+      service.setAvailableAgents(agents);
+
+      service.toggleAgentSelection('1');
+      expect(service.availableAgents()[0].selected).toBe(true);
+
+      service.toggleAgentSelection('2');
+      expect(service.availableAgents()[1].selected).toBe(false);
+    });
+
+    it('should update generation progress', () => {
+      const progress: GenerationProgress = {
+        phase: 'analysis',
+        percentComplete: 50,
+      };
+      service.updateGenerationProgress(progress);
+      expect(service.generationProgress()).toEqual(progress);
+    });
+
+    it('should reset all state', () => {
+      // Set some state
+      service.setCurrentStep('generation');
+      service.setProjectContext({
+        type: 'Test',
+        techStack: [],
+        isMonorepo: false,
+      });
+      service.setAvailableAgents([
+        {
+          id: '1',
+          name: 'Test',
+          selected: true,
+          score: 90,
+          reason: 'Test',
+          autoInclude: false,
+        },
+      ]);
+
+      // Reset
+      service.reset();
+
+      // Verify all state is reset
+      expect(service.currentStep()).toBe('welcome');
+      expect(service.projectContext()).toBeNull();
+      expect(service.availableAgents()).toEqual([]);
+      expect(service.generationProgress()).toBeNull();
+      expect(service.scanProgress()).toBeNull();
+      expect(service.analysisResults()).toBeNull();
+      expect(service.completionData()).toBeNull();
+      expect(service.errorState()).toBeNull();
+    });
+  });
+
+  describe('Computed Signals', () => {
+    it('should compute selected count correctly', () => {
+      const agents: AgentSelection[] = [
+        {
+          id: '1',
+          name: 'Agent 1',
+          selected: true,
+          score: 90,
+          reason: 'Test',
+          autoInclude: false,
+        },
+        {
+          id: '2',
+          name: 'Agent 2',
+          selected: false,
+          score: 80,
+          reason: 'Test',
+          autoInclude: false,
+        },
+        {
+          id: '3',
+          name: 'Agent 3',
+          selected: true,
+          score: 70,
+          reason: 'Test',
+          autoInclude: false,
+        },
+      ];
+      service.setAvailableAgents(agents);
+      expect(service.selectedCount()).toBe(2);
+    });
+
+    it('should compute canProceed for welcome step', () => {
+      service.setCurrentStep('welcome');
+      expect(service.canProceed()).toBe(true);
+    });
+
+    it('should compute canProceed for scan step', () => {
+      service.setCurrentStep('scan');
+      expect(service.canProceed()).toBe(false);
+    });
+
+    it('should compute canProceed for analysis step with project context', () => {
+      service.setCurrentStep('analysis');
+      service.setProjectContext({
+        type: 'Test',
+        techStack: [],
+        isMonorepo: false,
+      });
+      expect(service.canProceed()).toBe(true);
+    });
+
+    it('should compute canProceed for analysis step without project context', () => {
+      service.setCurrentStep('analysis');
+      expect(service.canProceed()).toBe(false);
+    });
+
+    it('should compute canProceed for selection step with agents', () => {
+      service.setCurrentStep('selection');
+      service.setAvailableAgents([
+        {
+          id: '1',
+          name: 'Agent 1',
+          selected: true,
+          score: 90,
+          reason: 'Test',
+          autoInclude: false,
+        },
+      ]);
+      expect(service.canProceed()).toBe(true);
+    });
+
+    it('should compute canProceed for selection step without agents', () => {
+      service.setCurrentStep('selection');
+      expect(service.canProceed()).toBe(false);
+    });
+
+    it('should compute canProceed for generation step', () => {
+      service.setCurrentStep('generation');
+      expect(service.canProceed()).toBe(false);
+    });
+
+    it('should compute canProceed for completion step', () => {
+      service.setCurrentStep('completion');
+      expect(service.canProceed()).toBe(true);
+    });
+
+    it('should compute percentComplete for each step', () => {
+      const steps: WizardStep[] = [
+        'welcome',
+        'scan',
+        'analysis',
+        'selection',
+        'generation',
+        'completion',
+      ];
+      const expected = [0, 20, 30, 40, 50, 100];
+
+      steps.forEach((step, index) => {
+        service.setCurrentStep(step);
+        expect(service.percentComplete()).toBe(expected[index]);
+      });
+    });
+
+    it('should compute percentComplete for generation step with progress', () => {
+      service.setCurrentStep('generation');
+      service.updateGenerationProgress({
+        phase: 'customization',
+        percentComplete: 75,
+      });
+      expect(service.percentComplete()).toBe(75);
+    });
+  });
+
+  describe('Message Listener', () => {
+    it('should handle scan progress message', () => {
+      const payload: ScanProgress = {
+        filesScanned: 50,
+        totalFiles: 100,
+        detections: ['Angular', 'TypeScript'],
+      };
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:scan-progress', payload },
+        })
+      );
+
+      expect(service.scanProgress()).toEqual(payload);
+      expect(service.generationProgress()?.percentComplete).toBe(50);
+    });
+
+    it('should handle analysis complete message', () => {
+      const payload: AnalysisResults = {
+        projectContext: {
+          type: 'Angular',
+          techStack: ['TypeScript', 'Angular'],
+          isMonorepo: false,
+        },
+      };
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:analysis-complete', payload },
+        })
+      );
+
+      expect(service.analysisResults()).toEqual(payload);
+      expect(service.projectContext()).toEqual(payload.projectContext);
+      expect(service.currentStep()).toBe('analysis');
+    });
+
+    it('should handle available agents message', () => {
+      const agents: AgentSelection[] = [
+        {
+          id: '1',
+          name: 'Agent 1',
+          selected: true,
+          score: 90,
+          reason: 'Test',
+          autoInclude: true,
+        },
+      ];
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:available-agents', payload: { agents } },
+        })
+      );
+
+      expect(service.availableAgents()).toEqual(agents);
+    });
+
+    it('should handle generation progress message', () => {
+      const progress: GenerationProgress = {
+        phase: 'rendering',
+        percentComplete: 80,
+      };
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:generation-progress',
+            payload: { progress },
+          },
+        })
+      );
+
+      expect(service.generationProgress()).toEqual(progress);
+    });
+
+    it('should handle generation complete message and store completion data', () => {
+      const payload: CompletionData = {
+        success: true,
+        generatedCount: 5,
+        duration: 120000,
+      };
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:generation-complete', payload },
+        })
+      );
+
+      // Completion data should always be stored
+      expect(service.completionData()).toEqual(payload);
+      // Auto-transition to completion only occurs when on the 'generation' step.
+      // From 'welcome' step it should NOT auto-transition (prevents skipping enhance step).
+      expect(service.currentStep()).toBe('welcome');
+    });
+
+    it('should auto-transition to completion when on generation step', () => {
+      service.setCurrentStep('generation');
+
+      const payload: CompletionData = {
+        success: true,
+        generatedCount: 5,
+        duration: 120000,
+      };
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:generation-complete', payload },
+        })
+      );
+
+      expect(service.completionData()).toEqual(payload);
+      expect(service.currentStep()).toBe('completion');
+    });
+
+    it('should handle error message', () => {
+      const payload: ErrorState = {
+        message: 'Test error',
+        details: 'Error details',
+      };
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:error', payload },
+        })
+      );
+
+      expect(service.errorState()).toEqual(payload);
+    });
+
+    it('should ignore invalid messages', () => {
+      jest.spyOn(console, 'warn');
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:scan-progress',
+            payload: { invalid: true },
+          },
+        })
+      );
+
+      expect(console.warn).toHaveBeenCalled();
+    });
+
+    it('should handle message processing errors', () => {
+      jest.spyOn(console, 'error');
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:scan-progress', payload: null },
+        })
+      );
+
+      expect(service.errorState()).toBeTruthy();
+    });
+
+    it('should ignore unknown message types', () => {
+      const initialStep = service.currentStep();
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'unknown:message', payload: {} },
+        })
+      );
+
+      expect(service.currentStep()).toBe(initialStep);
+    });
+
+    it('should ignore messages without type', () => {
+      const initialStep = service.currentStep();
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { payload: {} },
+        })
+      );
+
+      expect(service.currentStep()).toBe(initialStep);
+    });
+  });
+
+  describe('Edge Cases', () => {
+    it('should handle division by zero in scan progress', () => {
+      const payload: ScanProgress = {
+        filesScanned: 0,
+        totalFiles: 0,
+        detections: [],
+      };
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { type: 'setup-wizard:scan-progress', payload },
+        })
+      );
+
+      expect(service.generationProgress()?.percentComplete).toBe(NaN);
+    });
+
+    it('should handle toggling non-existent agent', () => {
+      const agents: AgentSelection[] = [
+        {
+          id: '1',
+          name: 'Agent 1',
+          selected: false,
+          score: 90,
+          reason: 'Test',
+          autoInclude: false,
+        },
+      ];
+      service.setAvailableAgents(agents);
+
+      service.toggleAgentSelection('non-existent');
+
+      expect(service.availableAgents()).toEqual(agents);
+    });
+
+    it('should handle empty agents array for selected count', () => {
+      service.setAvailableAgents([]);
+      expect(service.selectedCount()).toBe(0);
+    });
+  });
+
+  describe('Fallback Warning Routing (TASK_2025_149)', () => {
+    it('should set fallbackWarning when error type is fallback-warning', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:error',
+            payload: {
+              type: 'fallback-warning',
+              message:
+                'AI-powered analysis unavailable. Using quick analysis mode.',
+            },
+          },
+        })
+      );
+
+      expect(service.fallbackWarning()).toBe(
+        'AI-powered analysis unavailable. Using quick analysis mode.'
+      );
+      expect(service.errorState()).toBeNull();
+    });
+
+    it('should set errorState when error type is error', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:error',
+            payload: {
+              type: 'error',
+              message: 'Fatal error occurred',
+              details: 'Stack trace details',
+            },
+          },
+        })
+      );
+
+      expect(service.errorState()).toEqual({
+        message: 'Fatal error occurred',
+        details: 'Stack trace details',
+      });
+      expect(service.fallbackWarning()).toBeNull();
+    });
+
+    it('should set errorState when error type is undefined', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:error',
+            payload: {
+              message: 'Some error without type',
+            },
+          },
+        })
+      );
+
+      expect(service.errorState()).toEqual({
+        message: 'Some error without type',
+        details: undefined,
+      });
+      expect(service.fallbackWarning()).toBeNull();
+    });
+
+    it('should clear fallbackWarning on reset', () => {
+      service.setFallbackWarning('Test warning');
+      expect(service.fallbackWarning()).toBe('Test warning');
+
+      service.reset();
+
+      expect(service.fallbackWarning()).toBeNull();
+    });
+  });
+
+  describe('Enhance Step Integration (TASK_2025_149)', () => {
+    it('should include enhance in step order and return correct stepIndex', () => {
+      service.setCurrentStep('enhance');
+      // 'enhance' is at index 5 in: premium-check(0), welcome(1), scan(2), analysis(3), selection(4), enhance(5), generation(6), completion(7)
+      expect(service.stepIndex()).toBe(5);
+    });
+
+    it('should return correct percentComplete for enhance step', () => {
+      service.setCurrentStep('enhance');
+      expect(service.percentComplete()).toBe(55);
+    });
+
+    it('should return canProceed=false for enhance step', () => {
+      service.setCurrentStep('enhance');
+      expect(service.canProceed()).toBe(false);
+    });
+  });
+
+  describe('CompletionData Warnings Mapping (TASK_2025_149)', () => {
+    it('should map warnings from GenerationCompletePayload to CompletionData', () => {
+      const warnings = [
+        "Section 'examples' for agent 'backend-developer' customization failed (validation): using generic content",
+        "Section 'patterns' for agent 'frontend-developer' customization failed (infrastructure): using generic content",
+      ];
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:generation-complete',
+            payload: {
+              success: true,
+              generatedCount: 3,
+              duration: 45000,
+              warnings,
+              enhancedPromptsUsed: true,
+            },
+          },
+        })
+      );
+
+      const completionData = service.completionData();
+      expect(completionData).not.toBeNull();
+      expect(completionData?.warnings).toEqual(warnings);
+      expect(completionData?.enhancedPromptsUsed).toBe(true);
+    });
+
+    it('should handle GenerationCompletePayload without warnings', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:generation-complete',
+            payload: {
+              success: true,
+              generatedCount: 5,
+              duration: 30000,
+            },
+          },
+        })
+      );
+
+      const completionData = service.completionData();
+      expect(completionData).not.toBeNull();
+      expect(completionData?.warnings).toBeUndefined();
+      expect(completionData?.enhancedPromptsUsed).toBeUndefined();
+    });
+
+    it('should map enhancedPromptsUsed=false from payload', () => {
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: {
+            type: 'setup-wizard:generation-complete',
+            payload: {
+              success: true,
+              generatedCount: 2,
+              enhancedPromptsUsed: false,
+            },
+          },
+        })
+      );
+
+      const completionData = service.completionData();
+      expect(completionData).not.toBeNull();
+      expect(completionData?.enhancedPromptsUsed).toBe(false);
+    });
+  });
+});

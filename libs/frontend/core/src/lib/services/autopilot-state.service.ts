@@ -10,11 +10,14 @@
  */
 
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ClaudeRpcService, RpcResult } from './claude-rpc.service';
+import { ClaudeRpcService } from './claude-rpc.service';
+import { MessageHandler } from './message-router.types';
 import {
   PermissionLevel,
   PERMISSION_LEVEL_NAMES,
   isPermissionLevel,
+  SessionId,
+  MESSAGE_TYPES,
 } from '@ptah-extension/shared';
 
 /**
@@ -59,13 +62,24 @@ import {
  * <input type="checkbox" [checked]="autopilotState.enabled()" />
  */
 @Injectable({ providedIn: 'root' })
-export class AutopilotStateService {
+export class AutopilotStateService implements MessageHandler {
   private readonly rpc = inject(ClaudeRpcService);
+
+  // MessageHandler implementation
+  readonly handledMessageTypes = [MESSAGE_TYPES.PLAN_MODE_CHANGED] as const;
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    const payload = message.payload as { active: boolean } | undefined;
+    if (payload) {
+      this.setAgentPlanMode(payload.active);
+    }
+  }
 
   // Private mutable signals
   private readonly _enabled = signal(false);
   private readonly _permissionLevel = signal<PermissionLevel>('ask');
   private readonly _isPending = signal(false);
+  private readonly _agentPlanMode = signal(false);
 
   // Public readonly signals
   /**
@@ -81,10 +95,17 @@ export class AutopilotStateService {
   readonly isPending = this._isPending.asReadonly();
 
   /**
-   * Permission level (ask | auto-edit | yolo)
+   * Permission level (ask | auto-edit | yolo | plan)
    * Read-only signal, updates reactively when changed
    */
   readonly permissionLevel = this._permissionLevel.asReadonly();
+
+  /**
+   * Agent-initiated plan mode indicator
+   * True when the agent has called EnterPlanMode tool
+   * This is separate from the user's permission level setting
+   */
+  readonly agentPlanMode = this._agentPlanMode.asReadonly();
 
   /**
    * Status text for UI display
@@ -97,6 +118,11 @@ export class AutopilotStateService {
    * enabled: true, level: 'yolo' → 'Full Auto (YOLO)'
    */
   readonly statusText = computed(() => {
+    // Agent-initiated plan mode takes priority
+    if (this._agentPlanMode()) {
+      return 'Plan Mode';
+    }
+
     const enabled = this._enabled();
     const level = this._permissionLevel();
 
@@ -126,13 +152,14 @@ export class AutopilotStateService {
    * When toggling on, uses current permission level.
    * When toggling off, preserves permission level for next enable.
    *
+   * @param sessionId - Optional active session ID for live SDK sync
    * @returns Promise that resolves when RPC call completes
    *
    * @example
    * await autopilotState.toggleAutopilot();
    * // UI updates immediately, persists to backend asynchronously
    */
-  async toggleAutopilot(): Promise<void> {
+  async toggleAutopilot(sessionId?: SessionId | null): Promise<void> {
     // QA FIX: Prevent concurrent autopilot toggles (race condition protection)
     if (this._isPending()) {
       console.warn(
@@ -151,14 +178,12 @@ export class AutopilotStateService {
       // Optimistic update (UI updates immediately)
       this._enabled.set(newState);
 
-      // Persist to backend via RPC
-      const result: RpcResult<void> = await this.rpc.call<void>(
-        'config:autopilot-toggle',
-        {
-          enabled: newState,
-          permissionLevel: this._permissionLevel(),
-        }
-      );
+      // Persist to backend via RPC (with sessionId for live SDK sync)
+      const result = await this.rpc.call('config:autopilot-toggle', {
+        enabled: newState,
+        permissionLevel: this._permissionLevel(),
+        sessionId: sessionId ?? null,
+      });
 
       if (!result.isSuccess()) {
         console.error(
@@ -184,13 +209,17 @@ export class AutopilotStateService {
    * Implements optimistic update pattern with rollback on failure.
    *
    * @param level - Permission level to set
+   * @param sessionId - Optional active session ID for live SDK sync
    * @returns Promise that resolves when RPC call completes
    *
    * @example
    * await autopilotState.setPermissionLevel('auto-edit');
    * // UI updates immediately, persists to backend asynchronously
    */
-  async setPermissionLevel(level: PermissionLevel): Promise<void> {
+  async setPermissionLevel(
+    level: PermissionLevel,
+    sessionId?: SessionId | null
+  ): Promise<void> {
     // QA FIX: Prevent concurrent permission level updates (race condition protection)
     if (this._isPending()) {
       console.warn(
@@ -208,16 +237,14 @@ export class AutopilotStateService {
       // Optimistic update (UI updates immediately)
       this._permissionLevel.set(level);
 
-      // Persist to backend via RPC
+      // Persist to backend via RPC (with sessionId for live SDK sync)
       // Note: We always call config:autopilot-toggle RPC with current enabled state
       // Backend will persist the new permission level
-      const result: RpcResult<void> = await this.rpc.call<void>(
-        'config:autopilot-toggle',
-        {
-          enabled: this._enabled(),
-          permissionLevel: level,
-        }
-      );
+      const result = await this.rpc.call('config:autopilot-toggle', {
+        enabled: this._enabled(),
+        permissionLevel: level,
+        sessionId: sessionId ?? null,
+      });
 
       if (!result.isSuccess()) {
         console.error(
@@ -234,6 +261,21 @@ export class AutopilotStateService {
   }
 
   /**
+   * Set agent-initiated plan mode state
+   * Called when the agent uses EnterPlanMode/ExitPlanMode tools
+   *
+   * @param active - Whether plan mode is active
+   */
+  setAgentPlanMode(active: boolean): void {
+    this._agentPlanMode.set(active);
+    console.log(
+      `[AutopilotStateService] Agent plan mode: ${
+        active ? 'entered' : 'exited'
+      }`
+    );
+  }
+
+  /**
    * Load persisted state from backend
    *
    * Called on service construction to initialize state from backend configuration.
@@ -242,13 +284,7 @@ export class AutopilotStateService {
    * @private
    */
   private async loadPersistedState(): Promise<void> {
-    const result: RpcResult<{
-      enabled: boolean;
-      permissionLevel: PermissionLevel;
-    }> = await this.rpc.call<{
-      enabled: boolean;
-      permissionLevel: PermissionLevel;
-    }>('config:autopilot-get', {});
+    const result = await this.rpc.call('config:autopilot-get', {});
 
     if (result.isSuccess() && result.data) {
       const { enabled, permissionLevel } = result.data;

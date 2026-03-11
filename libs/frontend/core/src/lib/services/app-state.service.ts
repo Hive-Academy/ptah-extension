@@ -6,14 +6,17 @@
  */
 
 import { Injectable, signal, computed } from '@angular/core';
-import { WorkspaceInfo } from '@ptah-extension/shared';
+import { WorkspaceInfo, MESSAGE_TYPES } from '@ptah-extension/shared';
+import { MessageHandler } from './message-router.types';
 
 export type ViewType =
   | 'chat'
   | 'command-builder'
   | 'analytics'
   | 'context-tree'
-  | 'settings';
+  | 'settings'
+  | 'setup-wizard'
+  | 'welcome';
 
 export interface AppState {
   currentView: ViewType;
@@ -21,6 +24,8 @@ export interface AppState {
   statusMessage: string;
   workspaceInfo: WorkspaceInfo | null;
   isConnected: boolean;
+  /** Whether the user has a valid license */
+  isLicensed: boolean;
 }
 
 /**
@@ -28,13 +33,42 @@ export interface AppState {
  * KEEPING: This service is clean and functional
  */
 @Injectable({ providedIn: 'root' })
-export class AppStateManager {
+export class AppStateManager implements MessageHandler {
+  // MessageHandler implementation
+  readonly handledMessageTypes = [MESSAGE_TYPES.SWITCH_VIEW] as const;
+
+  handleMessage(message: { type: string; payload?: unknown }): void {
+    const payload = message.payload as { view?: string } | undefined;
+    const view = payload?.view;
+    const validViews: ViewType[] = [
+      'chat',
+      'command-builder',
+      'analytics',
+      'context-tree',
+      'settings',
+      'setup-wizard',
+      'welcome',
+    ];
+    if (view && validViews.includes(view as ViewType)) {
+      console.log(
+        `[AppStateManager] Backend requested view switch to: ${view}`
+      );
+      this.handleViewSwitch(view as ViewType);
+    } else {
+      console.warn(
+        `[AppStateManager] switchView received with invalid or missing view: ${view}`
+      );
+    }
+  }
+
   // Core state signals
   private readonly _currentView = signal<ViewType>('chat');
   private readonly _isLoading = signal(false);
   private readonly _statusMessage = signal('Ready');
   private readonly _workspaceInfo = signal<WorkspaceInfo | null>(null);
   private readonly _isConnected = signal(true);
+  /** License status - controls access to premium features and RPC calls */
+  private readonly _isLicensed = signal(true);
 
   constructor() {
     this.initializeState();
@@ -46,19 +80,71 @@ export class AppStateManager {
   readonly statusMessage = this._statusMessage.asReadonly();
   readonly workspaceInfo = this._workspaceInfo.asReadonly();
   readonly isConnected = this._isConnected.asReadonly();
+  /** Whether the user has a valid license - controls RPC access */
+  readonly isLicensed = this._isLicensed.asReadonly();
 
   // Computed signals
-  readonly canSwitchViews = computed(
-    () => !this._isLoading() && this._isConnected()
-  );
+  // TASK_2025_126: Added welcome view check to prevent license bypass
+  // Users on welcome view (unlicensed) cannot navigate to other views
+  readonly canSwitchViews = computed(() => {
+    const onWelcomeView = this._currentView() === 'welcome';
+    if (onWelcomeView) {
+      // Block navigation from welcome view - license gate enforcement
+      return false;
+    }
+    return !this._isLoading() && this._isConnected();
+  });
   readonly appTitle = computed(() => {
     const workspace = this._workspaceInfo();
     return workspace ? `Ptah - ${workspace.name}` : 'Ptah';
   });
 
+  /**
+   * Initialize application state from window object augmentation.
+   *
+   * **Window Augmentation for Debugging:**
+   * The extension backend can inject initial state into the webview by augmenting
+   * the window object before the Angular app bootstraps. This is useful for:
+   * - Setting initial view based on command context (e.g., open wizard directly)
+   * - Debugging webview initialization in VS Code DevTools
+   * - Testing different initial states during development
+   *
+   * **Usage in Extension:**
+   * ```typescript
+   * panel.webview.html = generateHtml({
+   *   workspaceInfo: {...},
+   *   initialView: 'setup-wizard' // Sets window.initialView before app loads
+   * });
+   * ```
+   *
+   * **DevTools Debugging:**
+   * You can inspect/modify window.initialView in Chrome DevTools before app loads:
+   * ```javascript
+   * // In VS Code DevTools console (before app bootstrap)
+   * window.initialView = 'analytics'; // Force initial view
+   * ```
+   *
+   * **Production Warning:**
+   * This pattern is safe for production as it only reads from window during
+   * initialization. However, avoid writing to window after app bootstrap as it
+   * bypasses Angular's change detection.
+   *
+   * @private
+   */
   private initializeState(): void {
-    const windowWithState = window as Window & { initialView?: ViewType };
+    const windowWithState = window as Window & {
+      initialView?: ViewType;
+      ptahConfig?: { isLicensed?: boolean; initialView?: string };
+    };
+
+    // Read license status from ptahConfig (set by backend)
+    const isLicensed = windowWithState.ptahConfig?.isLicensed ?? true;
+    this._isLicensed.set(isLicensed);
+
     const initialView = windowWithState.initialView || 'chat';
+    console.log(
+      `[AppStateManager] Initializing with view: ${initialView}, isLicensed: ${isLicensed}`
+    );
     this._currentView.set(initialView);
   }
 
@@ -115,6 +201,7 @@ export class AppStateManager {
       statusMessage: this._statusMessage(),
       workspaceInfo: this._workspaceInfo(),
       isConnected: this._isConnected(),
+      isLicensed: this._isLicensed(),
     };
   }
 }

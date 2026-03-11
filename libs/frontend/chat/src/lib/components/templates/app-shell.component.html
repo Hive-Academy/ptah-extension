@@ -1,78 +1,140 @@
 <!-- Global confirmation dialog (replaces window.confirm) -->
 <ptah-confirmation-dialog />
 
-<!-- Main layout - No drawer, simple sidebar + content -->
+<!-- TASK_2025_142: Trial ended modal (shows when trial_ended reason) -->
+<ptah-trial-ended-modal [reason]="licenseReason()" />
+
+<!--
+  Layout Architecture:
+  - Wizard and Settings views render STANDALONE (no sidebar, no tabs)
+  - Chat view renders with full sidebar + tab bar layout
+  - View determined by appStateManager.currentView() signal
+-->
+
+@switch (currentView()) {
+<!-- Setup Wizard: Full-width, standalone layout -->
+@case ('setup-wizard') {
+<div class="h-full w-full">
+  <ptah-wizard-view />
+</div>
+}
+
+<!-- Settings: Full-width, standalone layout -->
+@case ('settings') {
+<div class="h-full w-full">
+  <ptah-settings />
+</div>
+}
+
+<!-- Welcome: Full-width, standalone layout (no sidebar, no tabs) -->
+@case ('welcome') {
+<div class="h-full w-full">
+  <ptah-auth-welcome />
+</div>
+}
+
+<!-- Chat (default): Sidebar + Header + Chat layout -->
+@default {
 <div class="flex h-full">
   <!-- Session Sidebar (always visible, fixed width) -->
   <aside
-    class="flex flex-col bg-base-200 border-r border-base-300"
+    class="flex flex-col bg-base-200 border-r border-base-content/5 transition-all duration-300"
     [class.w-0]="!sidebarOpen()"
-    [class.w-52]="sidebarOpen()"
+    [class.w-56]="sidebarOpen()"
     [class.overflow-hidden]="!sidebarOpen()"
   >
-    <!-- Sidebar header -->
-    <div class="p-2 border-b border-base-300">
-      <button
-        class="btn btn-primary btn-sm w-full gap-1"
-        (click)="createNewSession()"
-      >
-        <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
-        New Session
-      </button>
+    <!-- Sidebar header with Ptah icon -->
+    <div
+      class="p-3 border-b border-base-content/10 flex items-center justify-center"
+    >
+      <!-- Ptah icon -->
+      <img
+        [ngSrc]="ptahIconUri"
+        alt="Ptah"
+        class="w-5 h-5 flex-shrink-0 opacity-80"
+        width="20"
+        height="20"
+      />
     </div>
 
     <!-- Session list (scrollable) -->
-    <div class="flex-1 overflow-y-auto p-1">
-      <ul class="menu menu-sm p-0 gap-0.5">
+    <div class="flex-1 overflow-y-auto p-1.5 sidebar-scroll">
+      <ul class="flex flex-col gap-0.5 p-0" role="list">
         @for (session of chatStore.sessions(); track session.id) {
-        <li>
+        <li class="group relative" role="listitem">
           <button
             type="button"
-            class="flex flex-col items-start gap-0.5 py-1.5 px-2 w-full text-left rounded-lg border border-transparent"
-            [class.active]="session.id === chatStore.currentSession()?.id"
-            [class.bg-primary]="session.id === chatStore.currentSession()?.id"
-            [class.text-primary-content]="
+            class="flex flex-col items-start gap-1 py-2.5 px-3 pr-8 w-full text-left rounded-md transition-all duration-200 border-l-2 border-transparent hover:bg-base-300/50"
+            [class.sidebar-item-active]="
               session.id === chatStore.currentSession()?.id
             "
-            [class.border-primary!]="isSessionOpen(session.id)"
-            [class.text-primary]="
+            [class.sidebar-item-open-tab]="
               isSessionOpen(session.id) &&
               session.id !== chatStore.currentSession()?.id
             "
+            [attr.aria-current]="
+              session.id === chatStore.currentSession()?.id ? 'true' : null
+            "
             (click)="chatStore.switchSession(session.id)"
           >
-            <!-- Session title -->
+            <!-- Session name -->
             <span
-              class="font-medium text-xs truncate w-full leading-tight"
+              class="font-medium text-sm truncate w-full leading-snug"
+              [class.text-primary]="
+                session.id === chatStore.currentSession()?.id ||
+                isSessionOpen(session.id)
+              "
               [title]="session.name"
             >
               {{ getSessionDisplayName(session) }}
             </span>
-            <!-- Session metadata -->
+            <!-- Session metadata row -->
             <span
-              class="text-[10px] opacity-60 flex items-center gap-1.5 w-full"
+              class="text-xs text-base-content/50 flex items-center gap-2 w-full"
             >
-              <span>{{ session.lastActivityAt | date : 'M/d HH:mm' }}</span>
+              <span>{{ formatRelativeDate(session.lastActivityAt) }}</span>
               @if (session.messageCount > 0) {
-              <span class="badge badge-xs badge-ghost px-1">
-                {{ session.messageCount }} msgs
-              </span>
+              <span class="text-base-content/40"
+                >{{ session.messageCount }} msgs</span
+              >
               }
             </span>
           </button>
+          <!-- Delete button (hover reveal) -->
+          <button
+            type="button"
+            class="absolute right-1.5 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs btn-square rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 text-base-content/40 hover:text-error hover:bg-error/10"
+            title="Delete session"
+            [attr.aria-label]="
+              'Delete session: ' + getSessionDisplayName(session)
+            "
+            (click)="deleteSession($event, session)"
+          >
+            <lucide-angular [img]="Trash2Icon" class="w-3.5 h-3.5" />
+          </button>
         </li>
         } @empty {
-        <li class="p-3 text-center text-xs text-base-content/50">
-          No sessions yet
+        <li
+          class="flex flex-col items-center justify-center p-6 text-center"
+          role="presentation"
+        >
+          <lucide-angular
+            [img]="MessageSquareIcon"
+            class="w-8 h-8 text-base-content/20 mb-2"
+          />
+          <span class="text-sm text-base-content/40">No sessions yet</span>
+          <span class="text-xs text-base-content/25 mt-1"
+            >Create one to get started</span
+          >
         </li>
         }
       </ul>
 
       <!-- Load More button -->
       @if (chatStore.hasMoreSessions()) {
-      <div class="p-2 pt-1">
+      <div class="px-1.5 pt-1 pb-1">
         <button
-          class="btn btn-ghost btn-xs w-full"
+          class="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-base-content/70 hover:bg-base-300/30 transition-all duration-200 gap-1"
           [class.loading]="chatStore.isLoadingMoreSessions()"
           [disabled]="chatStore.isLoadingMoreSessions()"
           (click)="chatStore.loadMoreSessions()"
@@ -81,10 +143,13 @@
           <span class="loading loading-spinner loading-xs"></span>
           Loading... } @else {
           <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
-          Load More ({{
-            chatStore.totalSessions() - chatStore.sessions().length
-          }}
-          more) }
+          Load More
+          <span class="text-base-content/30"
+            >({{
+              chatStore.totalSessions() - chatStore.sessions().length
+            }})</span
+          >
+          }
         </button>
       </div>
       }
@@ -109,25 +174,141 @@
         />
       </button>
 
-      <!-- Title -->
-      <div class="flex-1">
-        <span class="text-lg font-bold">Ptah</span>
+      <!-- Tab bar (relocated from below) -->
+      <div class="flex-1 min-w-0">
+        <ptah-tab-bar />
       </div>
 
       <!-- Header actions -->
       <div class="flex gap-1">
-        <button class="btn btn-square btn-ghost btn-sm" aria-label="Settings">
+        <!-- Agent monitor toggle (always visible) -->
+        <button
+          class="btn btn-square btn-ghost btn-sm relative"
+          aria-label="Toggle agent monitor"
+          (click)="agentMonitorStore.togglePanel()"
+        >
+          <lucide-angular
+            [img]="
+              agentMonitorStore.panelOpen()
+                ? PanelRightCloseIcon
+                : PanelRightOpenIcon
+            "
+            class="w-4 h-4"
+          />
+          @if (agentMonitorStore.pendingPermissions().length > 0) {
+          <span
+            class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-warning rounded-full animate-pulse ring-2 ring-base-100"
+          ></span>
+          } @else if (agentMonitorStore.hasRunningAgents()) {
+          <span
+            class="absolute top-0 right-0 w-2 h-2 bg-info rounded-full animate-pulse"
+          ></span>
+          } @else if (agentMonitorStore.agentCount() > 0) {
+          <span
+            class="absolute top-0 right-0 w-1.5 h-1.5 bg-base-content/30 rounded-full"
+          ></span>
+          }
+        </button>
+
+        <!-- Background agent badge -->
+        @if (backgroundAgentStore.totalCount() > 0) {
+        <ptah-background-agent-badge />
+        }
+
+        <!-- Notification bell -->
+        @if (chatStore.licenseStatus(); as license) {
+        <ptah-notification-bell
+          [trialActive]="license.trialActive"
+          [trialDaysRemaining]="license.trialDaysRemaining"
+          [isCommunity]="license.isCommunity"
+          [reason]="license.reason"
+        />
+        }
+
+        <!-- Theme toggle -->
+        <ptah-theme-toggle />
+
+        <!-- New session popover -->
+        <ptah-native-popover
+          [isOpen]="sessionNamePopoverOpen()"
+          [placement]="'bottom'"
+          [hasBackdrop]="true"
+          [backdropClass]="'transparent'"
+          (closed)="handleCancelSession()"
+        >
+          <!-- Trigger: New Session button -->
+          <button
+            trigger
+            class="btn btn-square btn-ghost btn-sm"
+            (click)="createNewSession()"
+            aria-label="New Session"
+            title="New Session"
+          >
+            <lucide-angular [img]="PlusIcon" class="w-4 h-4" />
+          </button>
+
+          <!-- Popover content -->
+          <div
+            content
+            class="p-4 w-72 bg-base-200 border border-base-content/10 rounded-xl shadow-lg"
+          >
+            <h3 class="text-sm font-semibold mb-3 text-base-content/90">
+              New Session
+            </h3>
+
+            <!-- Input field with Enter/ESC keyboard support -->
+            <input
+              #sessionNameInputRef
+              type="text"
+              class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
+              placeholder="Enter session name (optional)"
+              [(ngModel)]="sessionNameInput"
+              (keydown.enter)="handleCreateSession()"
+              (keydown.escape)="handleCancelSession()"
+            />
+
+            <!-- Action buttons -->
+            <div class="flex gap-2">
+              <button
+                class="btn btn-sm btn-ghost flex-1 gap-1.5 text-base-content/60"
+                (click)="handleCancelSession()"
+              >
+                <lucide-angular [img]="XIcon" class="w-3 h-3" />
+                Cancel
+              </button>
+              <button
+                class="btn btn-sm btn-primary flex-1 gap-1.5"
+                (click)="handleCreateSession()"
+              >
+                <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
+                Create
+              </button>
+            </div>
+          </div>
+        </ptah-native-popover>
+
+        <button
+          class="btn btn-square btn-ghost btn-sm"
+          aria-label="Settings"
+          (click)="openSettings()"
+        >
           <lucide-angular [img]="SettingsIcon" class="w-4 h-4" />
         </button>
       </div>
     </div>
 
-    <!-- Tab bar at top -->
-    <ptah-tab-bar />
-
-    <!-- Chat View takes remaining space -->
+    <!-- Chat content area -->
     <div class="flex-1 overflow-hidden">
       <ptah-chat-view />
     </div>
   </div>
+
+  <!-- Resize handle (visible only when agent panel is open) -->
+  @if (agentMonitorStore.panelOpen()) {
+  <ptah-resize-handle />
+  }
+
+  <!-- Right sidebar: Agent Monitor Panel -->
+  <ptah-agent-monitor-panel />
 </div>
+} }

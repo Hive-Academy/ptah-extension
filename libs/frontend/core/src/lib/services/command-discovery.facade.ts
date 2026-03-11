@@ -4,7 +4,7 @@ import { ClaudeRpcService } from './claude-rpc.service';
 export interface CommandSuggestion {
   readonly name: string;
   readonly description: string;
-  readonly scope: 'builtin' | 'project' | 'user' | 'mcp';
+  readonly scope: 'builtin' | 'project' | 'user' | 'mcp' | 'plugin';
   readonly argumentHint?: string;
   readonly icon: string;
 }
@@ -47,14 +47,10 @@ export class CommandDiscoveryFacade {
     this._error.set(null);
 
     try {
-      const result = await this.rpc.call<{
-        commands?: Array<{
-          name: string;
-          description: string;
-          scope: 'builtin' | 'project' | 'user' | 'mcp';
-          argumentHint?: string;
-        }>;
-      }>('autocomplete:commands', { query: '', maxResults: 100 });
+      const result = await this.rpc.call('autocomplete:commands', {
+        query: '',
+        maxResults: 100,
+      });
 
       if (result.success && result.data?.commands) {
         this._commands.set(
@@ -128,6 +124,8 @@ export class CommandDiscoveryFacade {
         return '👤';
       case 'mcp':
         return '🔌';
+      case 'plugin':
+        return '🧩';
       default:
         return '❓';
     }

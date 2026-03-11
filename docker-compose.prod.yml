@@ -1,0 +1,124 @@
+# =============================================================================
+# Ptah Extension - Production Docker Compose (DigitalOcean Droplet)
+# =============================================================================
+#
+# Production stack: PostgreSQL + License Server + Caddy (auto-HTTPS)
+#
+# INITIAL SETUP:
+#   1. Copy .env.prod.example to .env.prod and fill in secrets
+#   2. Run: docker compose -f docker-compose.prod.yml up -d
+#   3. Caddy automatically obtains and renews SSL certificates via Let's Encrypt
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 - Production Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: ptah_postgres_prod
+    restart: always
+    env_file:
+      - .env.prod
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    networks:
+      - ptah-network
+
+  # ---------------------------------------------------------------------------
+  # License Server - NestJS Application (Production)
+  # ---------------------------------------------------------------------------
+  license-server:
+    image: ghcr.io/hive-academy/ptah-extension/license-server:latest
+    build:
+      context: .
+      dockerfile: apps/ptah-license-server/Dockerfile
+    container_name: ptah_license_server_prod
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env.prod
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      NODE_ENV: production
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks:
+      - ptah-network
+
+  # ---------------------------------------------------------------------------
+  # Caddy - Reverse Proxy with Auto-HTTPS (Let's Encrypt)
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    container_name: ptah_caddy
+    restart: always
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      license-server:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    networks:
+      - ptah-network
+
+# =============================================================================
+# Named Volumes
+# =============================================================================
+volumes:
+  postgres-data:
+    name: ptah_postgres_prod_data
+  caddy-data:
+    name: ptah_caddy_data
+  caddy-config:
+    name: ptah_caddy_config
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  ptah-network:
+    name: ptah_prod_network
+    driver: bridge

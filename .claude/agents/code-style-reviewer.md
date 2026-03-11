@@ -189,8 +189,8 @@ if (node().toolCallId ?? '')  // Empty string fallback - why? What does '' mean?
 
 ```bash
 # Read task requirements
-Read(task-tracking/TASK_[ID]/context.md)
-Read(task-tracking/TASK_[ID]/implementation-plan.md)
+Read(.claude/specs/TASK_[ID]/context.md)
+Read(.claude/specs/TASK_[ID]/implementation-plan.md)
 
 # Find similar patterns in codebase for comparison
 Glob(**/*similar*.ts)

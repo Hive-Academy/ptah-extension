@@ -2,8 +2,8 @@ import {
   Directive,
   ElementRef,
   inject,
-  input,
   output,
+  input,
   OnInit,
   DestroyRef,
 } from '@angular/core';
@@ -72,13 +72,22 @@ export class SlashTriggerDirective implements OnInit {
   // Inputs
   readonly enabled = input(true);
 
-  // Convert signal to observable in injection context (field initializer)
-  // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
+  // CRITICAL: Field initializer pattern for toObservable() call
+  // Why: toObservable() uses inject() internally, which requires injection context
+  // Injection context: Only available during class construction (field initializers, constructor)
+  // Violation: Calling toObservable() in ngOnInit causes NG0203 "inject() must be called from injection context"
+  // Reference: https://angular.dev/guide/signals/inputs#reading-input-values-in-ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
 
   // Outputs (prefixed with 'slash' to avoid conflicts with other trigger directives)
+  /**
+   * Emitted IMMEDIATELY when / trigger becomes active (inactive→active transition).
+   * Use this to open the dropdown without waiting for debounce.
+   */
+  readonly slashActivated = output<SlashTriggerEvent>();
   readonly slashTriggered = output<SlashTriggerEvent>();
   readonly slashClosed = output<void>();
+  readonly slashQueryChanged = output<string>();
 
   private readonly DEBOUNCE_DELAY_MS = 150;
 
@@ -107,26 +116,30 @@ export class SlashTriggerDirective implements OnInit {
         const cursorPosition = textarea.selectionStart;
 
         // Slash trigger detection rules:
-        // 1. Value must start with /
-        // 2. Value must NOT contain @ (which means user wants @ autocomplete instead)
-        // 3. Query must NOT contain a space (space indicates command was completed/selected)
+        // 1. Value must start with / (slash commands are always at position 0)
+        // 2. The command portion (text between / and first space) must have no space
+        //    (space indicates command was completed/selected)
         //    This prevents re-triggering after user selects a command like "/orchestrate "
-        if (!value.startsWith('/') || value.includes('@')) {
+        //
+        // NOTE: Removed the `value.includes('@')` guard — it was overly aggressive
+        // and disabled slash commands if ANY @ existed in the text (e.g., email addresses,
+        // leftover @ from file selection). The @ and / triggers now operate independently.
+        if (!value.startsWith('/')) {
           return { isActive: false, query: '', cursorPosition };
         }
 
-        // Extract potential command (text after / until first space or end)
-        const query = value.substring(1);
-        const spaceIndex = query.indexOf(' ');
+        // Extract potential command (text after / up to cursor position)
+        // Only consider text up to cursor — user may have moved cursor back
+        const textAfterSlash = value.substring(1, cursorPosition);
+        const spaceIndex = textAfterSlash.indexOf(' ');
 
-        // If there's a space, command is complete - don't trigger autocomplete
-        // User has either selected a command or typed a complete command
+        // If there's a space before the cursor, command is complete
         if (spaceIndex !== -1) {
           return { isActive: false, query: '', cursorPosition };
         }
 
         // Active: no space yet, still typing command name
-        return { isActive: true, query, cursorPosition };
+        return { isActive: true, query: textAfterSlash, cursorPosition };
       }),
       startWith({
         isActive: false,
@@ -135,7 +148,7 @@ export class SlashTriggerDirective implements OnInit {
       } as TriggerState)
     );
 
-    // Combined stream that respects enabled state
+    // Combined stream that respects enabled state AND dropdown open state
     const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
       filter(([, enabled]) => enabled),
       map(([state]) => state),
@@ -146,9 +159,22 @@ export class SlashTriggerDirective implements OnInit {
     triggerState$
       .pipe(pairwise(), takeUntilDestroyed(this.destroyRef))
       .subscribe(([prev, curr]) => {
+        // Emit activated immediately on inactive→active transition
+        if (!prev.isActive && curr.isActive) {
+          this.slashActivated.emit({
+            query: curr.query,
+            cursorPosition: curr.cursorPosition,
+          });
+        }
+
         // Emit close immediately when transitioning from active to inactive
         if (prev.isActive && !curr.isActive) {
           this.slashClosed.emit();
+        }
+
+        // Emit query change immediately (including on activation)
+        if (curr.isActive && (!prev.isActive || curr.query !== prev.query)) {
+          this.slashQueryChanged.emit(curr.query);
         }
       });
 

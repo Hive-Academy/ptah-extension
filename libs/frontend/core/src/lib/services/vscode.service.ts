@@ -11,6 +11,9 @@ export interface WebviewConfig {
   extensionUri: string;
   baseUri: string;
   iconUri: string;
+  userIconUri: string;
+  /** Unique panel identifier for multi-webview support (TASK_2025_117). Empty string for sidebar. */
+  panelId?: string;
 }
 
 /**
@@ -45,9 +48,10 @@ function getPtahWindow(): PtahWindow {
  *
  * Core responsibilities:
  * 1. Provide webview configuration (workspaceRoot, theme, URIs)
- * 2. Route incoming messages to appropriate services (RPC responses, chat chunks)
- * 3. Expose VS Code API for message sending (used by ClaudeRpcService)
+ * 2. Expose VS Code API for message sending (used by ClaudeRpcService)
+ * 3. Manage webview state persistence (getState/setState)
  *
+ * Message routing is handled by MessageRouterService (decoupled via handler pattern).
  * This service is initialized via APP_INITIALIZER before Angular bootstrap.
  */
 @Injectable({
@@ -56,12 +60,6 @@ function getPtahWindow(): PtahWindow {
 export class VSCodeService {
   // VS Code API instance (null in development mode)
   private vscode: VsCodeApi | null = null;
-
-  // RPC service will be injected lazily to avoid circular dependency
-  private claudeRpcService: any = null;
-
-  // ChatStore will be injected lazily to avoid circular dependency
-  private chatStore: any = null;
 
   // Signal-based reactive state
   private readonly _config = signal<WebviewConfig>({
@@ -72,6 +70,8 @@ export class VSCodeService {
     extensionUri: '',
     baseUri: '',
     iconUri: '',
+    userIconUri: '',
+    panelId: '',
   });
 
   private readonly _isConnected = signal(false);
@@ -82,7 +82,6 @@ export class VSCodeService {
 
   constructor() {
     this.initializeFromGlobals();
-    this.setupMessageListener();
   }
 
   /**
@@ -120,24 +119,6 @@ export class VSCodeService {
     }
   }
 
-  /**
-   * Set RPC service for response routing
-   * Called by ClaudeRpcService constructor to avoid circular dependency
-   */
-  setRpcService(rpcService: any): void {
-    this.claudeRpcService = rpcService;
-    console.log('[VSCodeService] RPC service registered for response routing');
-  }
-
-  /**
-   * Set ChatStore for message routing
-   * Called by ChatStore constructor to avoid circular dependency
-   */
-  setChatStore(chatStore: any): void {
-    this.chatStore = chatStore;
-    console.log('[VSCodeService] ChatStore registered for message routing');
-  }
-
   getAssetUri(relativePath: string): string {
     const config = this.config();
     if (this.isConnected() && config.extensionUri) {
@@ -153,118 +134,74 @@ export class VSCodeService {
     return this.config().iconUri || this.getAssetUri('assets/ptah-icon.svg');
   }
 
-  private setupMessageListener(): void {
-    window.addEventListener('message', (event) => {
-      const message = event.data;
+  /**
+   * Get Ptah user icon URI
+   */
+  getPtahUserIconUri(): string {
+    return (
+      this.config().userIconUri || this.getAssetUri('assets/user-icon.png')
+    );
+  }
 
-      // Route RPC responses to ClaudeRpcService
-      if (message.type === 'rpc:response') {
-        console.log('[VSCodeService] Received RPC response:', message);
-        if (this.claudeRpcService) {
-          this.claudeRpcService.handleResponse(message);
-        } else {
-          console.warn(
-            '[VSCodeService] RPC response received but no RPC service registered!'
-          );
-        }
-      }
+  /**
+   * Send message to VS Code extension host
+   * Public wrapper for vscode.postMessage() to avoid type assertions
+   */
+  public postMessage(message: unknown): void {
+    if (this.vscode) {
+      this.vscode.postMessage(message);
+    } else {
+      console.warn(
+        '[VSCodeService] postMessage called but VS Code API not available'
+      );
+    }
+  }
 
-      // Route chat:chunk messages to ChatStore (TASK_2025_023)
-      if (message.type === 'chat:chunk') {
-        if (message.payload && this.chatStore) {
-          const { sessionId, message: jsonlMessage } = message.payload;
-          this.chatStore.processJsonlChunk(jsonlMessage, sessionId);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] chat:chunk received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] chat:chunk received but ChatStore not registered!'
-          );
-        }
-      }
+  /**
+   * Get a value from the webview state by key
+   *
+   * VS Code webview state is persisted across webview lifecycles.
+   * This method provides keyed access to the state object.
+   *
+   * @param key - The key to retrieve from state
+   * @returns The value if found, undefined otherwise
+   */
+  public getState<T>(key: string): T | undefined {
+    if (!this.vscode) {
+      return undefined;
+    }
 
-      // Handle chat completion - CRITICAL for resetting streaming state
-      if (message.type === 'chat:complete') {
-        const { sessionId, code } = message.payload ?? {};
-        console.log('[VSCodeService] Chat complete:', { sessionId, code });
-        if (this.chatStore) {
-          // Call ChatStore to reset streaming state and finalize message
-          this.chatStore.handleChatComplete({ sessionId, code: code ?? 0 });
-        } else {
-          console.warn(
-            '[VSCodeService] chat:complete received but ChatStore not registered!'
-          );
-        }
-      }
+    const state = this.vscode.getState() as Record<string, unknown> | undefined;
+    if (!state) {
+      return undefined;
+    }
 
-      // Handle chat errors - CRITICAL for resetting streaming state on error
-      if (message.type === 'chat:error') {
-        const { sessionId, error } = message.payload ?? {};
-        console.error('[VSCodeService] Chat error:', { sessionId, error });
-        if (this.chatStore) {
-          // Call ChatStore to reset streaming state
-          this.chatStore.handleChatError({
-            sessionId,
-            error: error ?? 'Unknown error',
-          });
-        } else {
-          console.warn(
-            '[VSCodeService] chat:error received but ChatStore not registered!'
-          );
-        }
-      }
+    return state[key] as T | undefined;
+  }
 
-      // Handle session ID resolution (TASK_2025_027 Batch 2)
-      if (message.type === 'session:id-resolved') {
-        if (message.payload && this.chatStore) {
-          this.chatStore.handleSessionIdResolved(message.payload);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] session:id-resolved received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] session:id-resolved received but ChatStore not registered!'
-          );
-        }
-      }
+  /**
+   * Set a value in the webview state by key
+   *
+   * VS Code webview state is persisted across webview lifecycles.
+   * This method provides keyed access to the state object, merging
+   * with existing state to preserve other keys.
+   *
+   * @param key - The key to set in state
+   * @param value - The value to store
+   */
+  public setState<T>(key: string, value: T): void {
+    if (!this.vscode) {
+      console.warn(
+        '[VSCodeService] setState called but VS Code API not available'
+      );
+      return;
+    }
 
-      // Handle permission request (TASK_2025_026)
-      if (message.type === 'permission:request') {
-        if (message.payload && this.chatStore) {
-          console.log(
-            '[VSCodeService] Permission request received:',
-            message.payload
-          );
-          this.chatStore.handlePermissionRequest(message.payload);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] permission:request received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] permission:request received but ChatStore not registered!'
-          );
-        }
-      }
-
-      // Handle agent summary chunk (real-time agent summary streaming)
-      if (message.type === 'agent:summary-chunk') {
-        if (message.payload && this.chatStore) {
-          this.chatStore.handleAgentSummaryChunk(message.payload);
-        } else if (!message.payload) {
-          console.warn(
-            '[VSCodeService] agent:summary-chunk received but payload is undefined!'
-          );
-        } else {
-          console.warn(
-            '[VSCodeService] agent:summary-chunk received but ChatStore not registered!'
-          );
-        }
-      }
-    });
+    // Get existing state and merge with new key-value
+    const currentState =
+      (this.vscode.getState() as Record<string, unknown>) || {};
+    const newState = { ...currentState, [key]: value };
+    this.vscode.setState(newState);
   }
 }
 
@@ -273,7 +210,6 @@ export class VSCodeService {
  * Ensures VSCodeService is initialized before application bootstrap.
  */
 export function initializeVSCodeService(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _vscodeService: VSCodeService
 ): () => void {
   return () => {

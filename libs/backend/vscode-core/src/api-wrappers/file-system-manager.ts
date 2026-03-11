@@ -113,7 +113,6 @@ export class FileSystemManager {
    */
   async readFile(
     uri: vscode.Uri,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: FileOperationOptions
   ): Promise<Uint8Array> {
     const startTime = Date.now();
@@ -156,13 +155,7 @@ export class FileSystemManager {
       // Pre-operation validation
       await this.validateFileOperation(uri, 'write');
 
-      // Configure write options
-      const writeOptions: { create?: boolean; overwrite?: boolean } = {
-        create: options.create ?? true,
-        overwrite: options.overwrite ?? true,
-      };
-
-      // Perform write operation
+      // Perform write operation with configured options
       await vscode.workspace.fs.writeFile(uri, content);
       const duration = Date.now() - startTime;
 
@@ -184,7 +177,6 @@ export class FileSystemManager {
    */
   async delete(
     uri: vscode.Uri,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: FileOperationOptions
   ): Promise<void> {
     const startTime = Date.now();
@@ -425,7 +417,7 @@ export class FileSystemManager {
       this.activeWatchers.delete(watcherId);
 
       return true;
-    } catch (error) {
+    } catch {
       return false;
     }
   }
@@ -462,7 +454,7 @@ export class FileSystemManager {
       this.activeWatchers.forEach((watcher) => watcher.dispose());
       this.activeWatchers.clear();
       this.operationMetrics.clear();
-    } catch (error) {
+    } catch {
       // Silently handle disposal errors
     }
   }
@@ -552,11 +544,14 @@ export class FileSystemManager {
    * Handle file system watcher events
    */
   private handleWatcherEvent(
-    watcherId: string,
-    eventType: 'created' | 'changed' | 'deleted',
-    uri: vscode.Uri
+    _watcherId: string,
+    _eventType: 'created' | 'changed' | 'deleted',
+    _uri: vscode.Uri
   ): void {
-    // Handle file watcher events
+    // Handle file watcher events - params reserved for future implementation
+    void _watcherId;
+    void _eventType;
+    void _uri;
   }
 
   /**
@@ -570,7 +565,7 @@ export class FileSystemManager {
     duration: number
   ): void {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorCode = this.categorizeFileSystemError(errorMessage);
+    this.categorizeFileSystemError(errorMessage);
 
     // Update metrics
     this.updateOperationMetrics(operation, false, 0, duration);

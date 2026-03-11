@@ -1,0 +1,11 @@
+{
+  "name": "@ptah-extension/ui",
+  "version": "0.0.1",
+  "peerDependencies": {
+    "@angular/cdk": "^20.2.14",
+    "@angular/core": "~20.1.0",
+    "@angular/common": "~20.1.0",
+    "@floating-ui/dom": "^1.7.4"
+  },
+  "sideEffects": false
+}

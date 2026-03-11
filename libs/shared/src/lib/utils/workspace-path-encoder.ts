@@ -9,8 +9,8 @@
  * 5. Enforce length limits (prevent filesystem overflow)
  *
  * **Use Cases**:
- * - Frontend: ClaudeFileService encodes workspace paths for session file lookup
  * - Backend: SessionManager encodes paths for session directory creation
+ * - SDK Storage: Path normalization for cross-platform session storage
  *
  * **Design**: Pure utility class (no dependencies, stateless, testable)
  */

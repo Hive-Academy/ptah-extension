@@ -69,7 +69,6 @@ export default [
       '@angular-eslint/template/mouse-events-have-key-events': 'warn',
       '@angular-eslint/template/valid-aria': 'error',
       '@angular-eslint/template/elements-content': 'warn',
-      '@angular-eslint/template/click-events-have-key-events': 'off',
       '@angular-eslint/template/interactive-supports-focus': 'off',
       // Performance & Structure
       '@angular-eslint/template/no-call-expression': 'off',
@@ -79,7 +78,7 @@ export default [
         { maxComplexity: 7 },
       ],
       '@angular-eslint/template/cyclomatic-complexity': [
-        'warn',
+        'off',
         { maxComplexity: 20 },
       ],
 

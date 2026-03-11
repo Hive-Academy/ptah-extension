@@ -1,0 +1,118 @@
+# =============================================================================
+# Ptah Extension - Docker Compose Development Environment
+# =============================================================================
+#
+# Local development environment with PostgreSQL and license server.
+#
+# QUICK START:
+#   1. Copy apps/ptah-license-server/.env.example to .env
+#   2. Run: docker compose up -d
+#   3. Access API at http://localhost:3000/api
+#
+# WITH NGROK (for Paddle webhook testing):
+#   1. Set NGROK_AUTHTOKEN in root .env file
+#   2. Run: docker compose --profile webhook-testing up -d
+#   3. Get public URL: docker compose logs ngrok | grep "url="
+#
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 - Local Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: ptah_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ptah
+      POSTGRES_PASSWORD: ptah_dev_password
+      POSTGRES_DB: ptah_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ptah -d ptah_db']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ptah-network
+
+  # ---------------------------------------------------------------------------
+  # License Server - NestJS Application
+  # ---------------------------------------------------------------------------
+  license-server:
+    build:
+      context: .
+      dockerfile: apps/ptah-license-server/Dockerfile.dev
+    container_name: ptah_license_server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - apps/ptah-license-server/.env
+    environment:
+      DATABASE_URL: postgresql://ptah:ptah_dev_password@postgres:5432/ptah_db
+      NODE_ENV: development
+      NX_DAEMON: 'false'
+    volumes:
+      - ./apps/ptah-license-server/src:/app/apps/ptah-license-server/src:delegated
+      - ./apps/ptah-license-server/prisma:/app/apps/ptah-license-server/prisma:delegated
+      - ./apps/ptah-license-server/prisma.config.ts:/app/apps/ptah-license-server/prisma.config.ts:delegated
+      - license-server-node-modules:/app/node_modules
+    ports:
+      - '${LICENSE_SERVER_PORT:-3000}:3000'
+    command: >
+      sh -c "
+        echo 'Waiting for PostgreSQL...' &&
+        cd apps/ptah-license-server &&
+        echo 'Running database migrations...' &&
+        npx prisma migrate deploy &&
+        echo 'Generating Prisma Client...' &&
+        npx prisma generate &&
+        cd /app &&
+        echo 'Starting license server in development mode...' &&
+        npx nx serve ptah-license-server
+      "
+    networks:
+      - ptah-network
+
+  # ---------------------------------------------------------------------------
+  # ngrok - Webhook Tunnel for Paddle Testing
+  # ---------------------------------------------------------------------------
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: ptah_ngrok
+    restart: unless-stopped
+    command:
+      - 'http'
+      - 'license-server:3000'
+      - '--log=stdout'
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+    depends_on:
+      - license-server
+    networks:
+      - ptah-network
+    profiles:
+      - webhook-testing
+
+# =============================================================================
+# Named Volumes
+# =============================================================================
+volumes:
+  postgres-data:
+    name: ptah_postgres_data
+  license-server-node-modules:
+    name: ptah_license_server_node_modules
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  ptah-network:
+    name: ptah_network
+    driver: bridge

@@ -329,14 +329,5 @@ export const SessionUIDataSchema = z.object({
   isActive: z.boolean(),
 });
 
-/**
- * @deprecated Use SessionUIData instead
- * Legacy alias for backward compatibility - will be removed in future release
- */
-export type SessionSummary = SessionUIData;
-
-/**
- * @deprecated Use SessionUIDataSchema instead
- * Legacy alias for backward compatibility - will be removed in future release
- */
-export const SessionSummarySchema = SessionUIDataSchema;
+// SessionSummary alias - DELETED in TASK_2025_078 (use SessionUIData directly)
+// SessionSummarySchema alias - DELETED in TASK_2025_078 (use SessionUIDataSchema directly)

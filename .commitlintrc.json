@@ -30,7 +30,9 @@
         "ci",
         "docs",
         "hooks",
-        "scripts"
+        "scripts",
+        "landing",
+        "license-server"
       ]
     ],
     "scope-case": [2, "always", "lower-case"],

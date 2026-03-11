@@ -5,8 +5,8 @@ import {
   ChangeDetectionStrategy,
   ElementRef,
   inject,
+  computed,
 } from '@angular/core';
-import { Highlightable } from '@angular/cdk/a11y';
 import type { CommandSuggestion } from '@ptah-extension/core';
 import type { FileSuggestion } from '../../services/file-picker.service';
 
@@ -24,8 +24,11 @@ export type SuggestionItem =
 /**
  * SuggestionOptionComponent - Single Option in Autocomplete Dropdown
  *
- * Implements Highlightable interface for ActiveDescendantKeyManager.
- * This allows keyboard navigation while focus stays on the textarea.
+ * MIGRATION NOTE (TASK_2025_092 Batch 4):
+ * - Removed Highlightable interface (was causing signal dependency loops)
+ * - Removed setActiveStyles/setInactiveStyles methods
+ * - Active state now controlled via isActive INPUT signal from parent
+ * - This pattern avoids the CDK ActiveDescendantKeyManager signal issues
  *
  * ARIA Pattern:
  * - role="option" on the option element
@@ -34,87 +37,87 @@ export type SuggestionItem =
  */
 @Component({
   selector: 'ptah-suggestion-option',
-  standalone: true,
+  host: {
+    '[id]': 'optionId()',
+    class:
+      'flex items-start gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors',
+    '[class.bg-primary]': 'isActive()',
+    '[class.text-primary-content]': 'isActive()',
+    '[class.hover:bg-base-300]': '!isActive()',
+    '(click)': 'handleClick()',
+    '(mouseenter)': 'handleMouseEnter()',
+    role: 'option',
+    '[attr.aria-selected]': 'isActive()',
+    tabindex: '-1',
+  },
   template: `
-    <div
-      [id]="optionId()"
-      class="flex items-start gap-3 px-3 py-2 rounded-md cursor-pointer transition-colors"
-      [class.bg-primary]="isActive"
-      [class.text-primary-content]="isActive"
-      [class.hover:bg-base-300]="!isActive"
-      (click)="handleClick()"
-      (mouseenter)="handleMouseEnter()"
-      role="option"
-      [attr.aria-selected]="isActive"
-    >
-      <!-- Icon -->
-      <span class="shrink-0 w-5 h-5 flex items-center justify-center text-base">
-        {{ suggestion().icon }}
-      </span>
+    <!-- Icon -->
+    <span class="shrink-0 w-4 h-4 flex items-center justify-center text-sm">
+      {{ suggestion().icon }}
+    </span>
 
-      <!-- Content area -->
-      <div class="flex-1 min-w-0 flex flex-col gap-0.5">
-        @if (suggestion().type === 'file') {
-        <!-- Files/Folders: Name prominent, directory secondary -->
-        <span class="font-medium text-sm truncate">{{
+    <!-- Content area -->
+    <div class="flex-1 min-w-0 flex flex-col gap-0.5">
+      @if (suggestion().type === 'file') {
+      <!-- Files/Folders: Name prominent, directory secondary -->
+      <span class="font-medium text-xs truncate">{{ suggestion().name }}</span>
+      <span class="text-[11px] opacity-70 truncate">{{
+        suggestion().description
+      }}</span>
+      } @else if (suggestion().type === 'command') {
+      <!-- Commands: Name with badge styling -->
+      <div class="flex items-center gap-2">
+        <span class="font-medium text-xs truncate">{{
           suggestion().name
         }}</span>
-        <span class="text-xs opacity-70 truncate">{{
-          suggestion().description
-        }}</span>
-        } @else if (suggestion().type === 'command') {
-        <!-- Commands: Name with badge styling -->
-        <div class="flex items-center gap-2">
-          <span class="font-medium text-sm truncate">{{
-            suggestion().name
-          }}</span>
-          @if (isBuiltinCommand()) {
-          <span class="badge badge-accent badge-xs">Built-in</span>
-          }
-        </div>
-        <span class="text-xs opacity-70 truncate">{{
-          suggestion().description
-        }}</span>
+        @if (isBuiltinCommand()) {
+        <span class="badge badge-accent badge-xs">Built-in</span>
+        } @else if (isPluginCommand()) {
+        <span class="badge badge-info badge-xs">Plugin</span>
         }
       </div>
+      <span class="text-[11px] opacity-70 truncate">{{
+        suggestion().description
+      }}</span>
+      }
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SuggestionOptionComponent implements Highlightable {
+export class SuggestionOptionComponent {
   private readonly elementRef = inject(ElementRef);
 
   // Inputs
   readonly suggestion = input.required<SuggestionItem>();
   readonly optionId = input.required<string>();
 
+  /**
+   * Whether this option is currently active/highlighted.
+   * CONTROLLED BY PARENT - not self-managed like CDK Highlightable.
+   * Parent passes this based on keyboard navigation state (i === activeIndex).
+   */
+  readonly isActive = input<boolean>(false);
+
   // Outputs
   readonly selected = output<SuggestionItem>();
   readonly hovered = output<void>();
 
-  // Highlightable interface state
-  isActive = false;
+  /**
+   * Computed signal to check if this is a built-in command.
+   * Uses type narrowing to safely access scope property.
+   */
+  readonly isBuiltinCommand = computed(() => {
+    const suggestion = this.suggestion();
+    return suggestion.type === 'command' && suggestion.scope === 'builtin';
+  });
 
   /**
-   * Highlightable interface - called by ActiveDescendantKeyManager
-   * Sets visual active state without moving focus
+   * Computed signal to check if this is a plugin command/skill.
    */
-  setActiveStyles(): void {
-    this.isActive = true;
-    // Scroll into view when activated via keyboard
-    this.elementRef.nativeElement.scrollIntoView({
-      block: 'nearest',
-      behavior: 'smooth',
-    });
-  }
-
-  /**
-   * Highlightable interface - called by ActiveDescendantKeyManager
-   * Removes visual active state
-   */
-  setInactiveStyles(): void {
-    this.isActive = false;
-  }
+  readonly isPluginCommand = computed(() => {
+    const suggestion = this.suggestion();
+    return suggestion.type === 'command' && suggestion.scope === 'plugin';
+  });
 
   handleClick(): void {
     this.selected.emit(this.suggestion());
@@ -125,12 +128,14 @@ export class SuggestionOptionComponent implements Highlightable {
   }
 
   /**
-   * Check if this is a built-in command
-   * Uses type narrowing to safely access scope property
+   * Scroll this option into view.
+   * Called by parent when this becomes active via keyboard navigation.
    */
-  isBuiltinCommand(): boolean {
-    const suggestion = this.suggestion();
-    return suggestion.type === 'command' && suggestion.scope === 'builtin';
+  scrollIntoView(): void {
+    this.elementRef.nativeElement.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth',
+    });
   }
 
   /**

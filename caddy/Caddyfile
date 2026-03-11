@@ -1,0 +1,28 @@
+# Ptah License Server - Caddy Reverse Proxy
+#
+# Auto-HTTPS via Let's Encrypt (ACME HTTP-01 challenge on port 80).
+# HTTP-to-HTTPS redirect is automatic.
+# TLS 1.2+ with modern cipher suite (Caddy defaults).
+#
+# IMPORTANT: The caddy-data volume stores Let's Encrypt certificates.
+# Never delete the caddy-data volume in production or certificates will
+# need to be re-issued (Let's Encrypt has rate limits).
+
+api.ptah.live {
+    request_body {
+        max_size 10MB
+    }
+
+    reverse_proxy license-server:3000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    encode gzip
+
+    log {
+        output stdout
+        format console
+    }
+}

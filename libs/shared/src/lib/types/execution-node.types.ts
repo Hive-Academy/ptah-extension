@@ -52,12 +52,40 @@ export type ExecutionStatus =
   | 'pending' // Waiting to execute
   | 'streaming' // Currently receiving content
   | 'complete' // Successfully finished
+  | 'interrupted' // User aborted/stopped (TASK_2025_098)
   | 'error'; // Failed with error
 
 /**
  * MessageRole - Role of the message sender
  */
 export type MessageRole = 'user' | 'assistant' | 'system';
+
+// ============================================================================
+// TOKEN USAGE TYPE (Aligned with Claude SDK Cost Tracking)
+// ============================================================================
+
+/**
+ * MessageTokenUsage - Token consumption data aligned with Claude SDK
+ *
+ * Named "MessageTokenUsage" to distinguish from TokenUsage in common.types
+ * which represents context window usage (used/max).
+ *
+ * @see https://platform.claude.com/docs/en/agent-sdk/cost-tracking
+ *
+ * Cache tokens are significant for cost optimization:
+ * - cacheRead: Tokens read from cache (cheaper than input)
+ * - cacheCreation: Tokens used to create cache entries
+ */
+export interface MessageTokenUsage {
+  /** Base input tokens processed */
+  readonly input: number;
+  /** Tokens generated in the response */
+  readonly output: number;
+  /** Tokens read from cache (reduces input cost) */
+  readonly cacheRead?: number;
+  /** Tokens used to create cache entries */
+  readonly cacheCreation?: number;
+}
 
 // ============================================================================
 // EXECUTION NODE INTERFACE
@@ -71,6 +99,13 @@ export type MessageRole = 'user' | 'assistant' | 'system';
  * rich interactive components.
  *
  * Key feature: `children` array enables infinite nesting depth.
+ *
+ * **IMPORTANT - USAGE CONTEXT** (TASK_2025_082):
+ * - ExecutionNode represents **FINALIZED** message trees (after streaming completes)
+ * - During streaming, use `FlatStreamEventUnion` instead (no nested children)
+ * - Frontend builds ExecutionNode trees **at render time** from flat event map
+ * - This prevents state corruption from interleaved sub-agent streams
+ * - ExecutionNode is for **storage, rendering, and historical messages** only
  */
 export interface ExecutionNode {
   /** Unique identifier for this node */
@@ -105,6 +140,12 @@ export interface ExecutionNode {
   readonly toolCallId?: string;
 
   /**
+   * Parent tool use ID - links sub-agent messages to their parent agent
+   * Used to nest execution trees: Parent Message → Agent Tool → Sub-agent Message
+   */
+  readonly parentToolUseId?: string;
+
+  /**
    * Whether this tool execution is awaiting permission.
    * Set when tool_result has is_error: true AND error message contains "permission".
    * Used to show special permission request UI instead of generic error.
@@ -126,6 +167,14 @@ export interface ExecutionNode {
   readonly agentPrompt?: string;
 
   /**
+   * Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook.
+   * Used as a stable key for summary content lookup since toolCallId differs
+   * between hook (UUID format) and complete message (toolu_* format).
+   * @see TASK_2025_099 - Real-time subagent streaming
+   */
+  readonly agentId?: string;
+
+  /**
    * Summary content for agent nodes - Real-time text updates from agent session.
    * This is populated during streaming by the AgentSessionWatcherService,
    * which tails the agent's JSONL file for text blocks.
@@ -143,11 +192,11 @@ export interface ExecutionNode {
   /** Duration in milliseconds */
   readonly duration?: number;
 
-  /** Token usage for this node */
-  readonly tokenUsage?: {
-    readonly input: number;
-    readonly output: number;
-  };
+  /** Token usage for this node (aligned with Claude SDK) */
+  readonly tokenUsage?: MessageTokenUsage;
+
+  /** Cost in USD calculated from token usage */
+  readonly cost?: number;
 
   /** Model ID used for this execution (e.g., 'claude-opus-4-5-20251101') */
   readonly model?: string;
@@ -173,6 +222,9 @@ export interface ExecutionNode {
 
   /** Whether this node is highlighted (e.g., during search) */
   readonly isHighlighted?: boolean;
+
+  /** Whether this is a background agent (continues executing independently of main turn) */
+  readonly isBackground?: boolean;
 }
 
 // ============================================================================
@@ -217,7 +269,7 @@ export interface AgentInfo {
 
   /**
    * Indicates if we have execution data (tool calls, results).
-   * When true but executionTree is empty, show a loading placeholder.
+   * When true but streamingState is empty, show a loading placeholder.
    */
   readonly hasExecution?: boolean;
 
@@ -235,6 +287,13 @@ export interface AgentInfo {
   readonly isStreaming?: boolean;
 
   /**
+   * Whether this agent is running in the background.
+   * Background agents continue executing independently of the main turn.
+   * When true, the agent card shows a background badge and different controls.
+   */
+  readonly isBackground?: boolean;
+
+  /**
    * Links to parent Task tool_use ID for message updates.
    * Used during streaming to route nested content to the correct agent bubble.
    */
@@ -246,7 +305,7 @@ export interface AgentInfo {
  *
  * Each ExecutionChatMessage contains either:
  * - rawContent (for user messages): Plain text input
- * - executionTree (for assistant messages): Root ExecutionNode with nested children
+ * - streamingState (for assistant messages): Root ExecutionNode with nested children
  *
  * Note: Named "ExecutionChatMessage" to avoid conflict with legacy ChatMessage type
  */
@@ -261,10 +320,11 @@ export interface ExecutionChatMessage {
   readonly timestamp: number;
 
   /**
-   * Root of the execution tree (for assistant messages)
+   * Finalized execution tree (null during streaming)
    * This contains all nested content: text, thinking, tools, agents
+   * Built from StreamingState after message completion.
    */
-  readonly executionTree: ExecutionNode | null;
+  readonly streamingState: ExecutionNode | null;
 
   /** Raw text content (for user messages) */
   readonly rawContent?: string;
@@ -283,12 +343,8 @@ export interface ExecutionChatMessage {
 
   // ---- Usage Metrics (TASK_2025_047) ----
 
-  /** Token usage for this message */
-  readonly tokens?: {
-    readonly input: number;
-    readonly output: number;
-    readonly cacheHit?: number;
-  };
+  /** Token usage for this message (aligned with Claude SDK) */
+  readonly tokens?: MessageTokenUsage;
 
   /** Cost in USD for this message */
   readonly cost?: number;
@@ -320,11 +376,8 @@ export interface ChatSessionSummary {
   /** Last activity timestamp */
   readonly lastActivityAt: number;
 
-  /** Token usage totals */
-  readonly tokenUsage?: {
-    readonly input: number;
-    readonly output: number;
-  };
+  /** Token usage totals (aligned with Claude SDK) */
+  readonly tokenUsage?: MessageTokenUsage;
 
   /** Whether this session is currently active */
   readonly isActive: boolean;
@@ -442,6 +495,17 @@ export const ExecutionStatusSchema = z.enum([
 
 export const MessageRoleSchema = z.enum(['user', 'assistant', 'system']);
 
+/**
+ * MessageTokenUsage Zod schema - validates token usage with optional cache fields
+ * Aligned with Claude SDK cost tracking
+ */
+export const MessageTokenUsageSchema = z.object({
+  input: z.number(),
+  output: z.number(),
+  cacheRead: z.number().optional(),
+  cacheCreation: z.number().optional(),
+});
+
 // Recursive schema requires lazy evaluation
 export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
   z.object({
@@ -463,16 +527,12 @@ export const ExecutionNodeSchema: z.ZodType<ExecutionNode> = z.lazy(() =>
     startTime: z.number().optional(),
     endTime: z.number().optional(),
     duration: z.number().optional(),
-    tokenUsage: z
-      .object({
-        input: z.number(),
-        output: z.number(),
-      })
-      .optional(),
+    tokenUsage: MessageTokenUsageSchema.optional(),
     toolCount: z.number().optional(),
     children: z.array(ExecutionNodeSchema),
     isCollapsed: z.boolean(),
     isHighlighted: z.boolean().optional(),
+    isBackground: z.boolean().optional(),
   })
 );
 
@@ -485,6 +545,7 @@ export const AgentInfoSchema = z.object({
   hasExecution: z.boolean().optional(),
   isInterrupted: z.boolean().optional(),
   isStreaming: z.boolean().optional(),
+  isBackground: z.boolean().optional(),
   toolUseId: z.string().optional(),
 });
 
@@ -492,7 +553,7 @@ export const ExecutionChatMessageSchema = z.object({
   id: z.string(),
   role: MessageRoleSchema,
   timestamp: z.number(),
-  executionTree: ExecutionNodeSchema.nullable(),
+  streamingState: ExecutionNodeSchema.nullable(),
   rawContent: z.string().optional(),
   files: z.array(z.string()).readonly().optional(),
   sessionId: z.string().optional(),
@@ -505,12 +566,7 @@ export const ChatSessionSummarySchema = z.object({
   messageCount: z.number().int().nonnegative(),
   createdAt: z.number(),
   lastActivityAt: z.number(),
-  tokenUsage: z
-    .object({
-      input: z.number(),
-      output: z.number(),
-    })
-    .optional(),
+  tokenUsage: MessageTokenUsageSchema.optional(),
   isActive: z.boolean(),
 });
 
@@ -592,7 +648,7 @@ export function createExecutionChatMessage(
 ): ExecutionChatMessage {
   return {
     timestamp: Date.now(),
-    executionTree: null,
+    streamingState: null,
     ...partial,
   };
 }
@@ -642,3 +698,352 @@ export function isTaskToolMessage(msg: JSONLMessage): boolean {
 export function isNestedToolMessage(msg: JSONLMessage): boolean {
   return !!msg.parent_tool_use_id;
 }
+
+// ============================================================================
+// FLAT STREAMING EVENT TYPES (TASK_2025_082)
+// ============================================================================
+
+/**
+ * EventSource - Indicates the origin of a streaming event
+ *
+ * TASK_2025_095: Used to distinguish streaming preview events from
+ * definitive complete message events for proper deduplication.
+ *
+ * - 'stream': Real-time streaming delta from SDK stream_event
+ * - 'complete': Definitive data from complete assistant/user messages
+ * - 'history': Event reconstructed from session JSONL history
+ * - 'hook': Event from file system hook (agent watcher), arrives before SDK events
+ *
+ * Priority: history > complete > stream > hook (higher priority overwrites lower)
+ */
+export type EventSource = 'stream' | 'complete' | 'history' | 'hook';
+
+/**
+ * Flat streaming event types - replaces ExecutionNode during streaming
+ * Events contain relationship IDs instead of nested children
+ *
+ * Architecture: Backend emits these flat events during streaming,
+ * frontend stores them in a Map, builds ExecutionNode tree at render time.
+ *
+ * This eliminates state corruption from interleaved sub-agent streams.
+ */
+export type StreamEventType =
+  | 'message_start'
+  | 'text_delta'
+  | 'thinking_start'
+  | 'thinking_delta'
+  | 'tool_start'
+  | 'tool_delta'
+  | 'tool_result'
+  | 'agent_start'
+  | 'message_complete'
+  | 'message_delta'
+  | 'signature_delta'
+  | 'compaction_start'
+  | 'compaction_complete'
+  | 'background_agent_started'
+  | 'background_agent_progress'
+  | 'background_agent_completed'
+  | 'background_agent_stopped';
+
+/**
+ * Base flat event with common fields
+ * All streaming events inherit from this base interface
+ */
+export interface FlatStreamEvent {
+  /** Unique event ID */
+  readonly id: string;
+
+  /** Discriminated union type for TypeScript narrowing */
+  readonly eventType: StreamEventType;
+
+  /** Event timestamp (Unix epoch ms) */
+  readonly timestamp: number;
+
+  /** Session ID this event belongs to */
+  readonly sessionId: string;
+
+  /**
+   * TASK_2025_095: Event source for deduplication and priority handling.
+   * - 'stream': Real-time streaming delta (may be incomplete)
+   * - 'complete': Definitive data from complete messages
+   * - 'history': Reconstructed from session JSONL history
+   */
+  readonly source?: EventSource;
+
+  // ---- Relationship IDs for tree building ----
+
+  /** Root message this event belongs to */
+  readonly messageId: string;
+
+  /** For nesting under tools (agents, sub-tools) */
+  readonly parentToolUseId?: string;
+
+  /** For tool-related events */
+  readonly toolCallId?: string;
+
+  /** For multiple text blocks in same message (edge case) */
+  readonly blockIndex?: number;
+}
+
+/**
+ * Message start event - creates message node
+ */
+export interface MessageStartEvent extends FlatStreamEvent {
+  readonly eventType: 'message_start';
+  readonly role: 'user' | 'assistant';
+  readonly parentToolUseId?: string; // For sub-agent messages
+}
+
+/**
+ * Text delta event - accumulates text content
+ */
+export interface TextDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'text_delta';
+  readonly delta: string; // Text chunk to append
+  readonly blockIndex: number; // Which text block (0, 1, 2...) - handles multiple text blocks
+}
+
+/**
+ * Thinking block start event
+ */
+export interface ThinkingStartEvent extends FlatStreamEvent {
+  readonly eventType: 'thinking_start';
+  readonly blockIndex: number;
+}
+
+/**
+ * Thinking block delta event
+ */
+export interface ThinkingDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'thinking_delta';
+  readonly delta: string;
+  readonly blockIndex: number;
+  readonly signature?: string; // Thinking verification signature
+}
+
+/**
+ * Tool execution start event
+ */
+export interface ToolStartEvent extends FlatStreamEvent {
+  readonly eventType: 'tool_start';
+  readonly toolCallId: string; // SDK tool use ID
+  readonly toolName: string;
+  readonly toolInput?: Record<string, unknown>; // May be streaming JSON
+  readonly isTaskTool: boolean; // true if Task tool (agent spawn)
+
+  // Agent-specific fields (only if isTaskTool = true)
+  readonly agentType?: string;
+  readonly agentDescription?: string;
+  readonly agentPrompt?: string;
+}
+
+/**
+ * Tool input delta event (for streaming JSON input)
+ */
+export interface ToolDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'tool_delta';
+  readonly toolCallId: string;
+  readonly delta: string; // Partial JSON for toolInput
+}
+
+/**
+ * Tool result event
+ */
+export interface ToolResultEvent extends FlatStreamEvent {
+  readonly eventType: 'tool_result';
+  readonly toolCallId: string;
+  readonly output: unknown;
+  readonly isError: boolean;
+  readonly isPermissionRequest?: boolean;
+}
+
+/**
+ * Agent spawn event (when Task tool starts)
+ */
+export interface AgentStartEvent extends FlatStreamEvent {
+  readonly eventType: 'agent_start';
+  readonly toolCallId: string; // Links to parent Task tool
+  readonly agentType: string;
+  readonly agentDescription?: string;
+  readonly agentPrompt?: string;
+  /**
+   * Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook.
+   * Used as a stable key for summary content lookup since toolCallId differs
+   * between hook (UUID format) and complete message (toolu_* format).
+   * @see TASK_2025_099 - Real-time subagent streaming
+   */
+  readonly agentId?: string;
+}
+
+/**
+ * Message completion event - updates message node with final metadata
+ */
+export interface MessageCompleteEvent extends FlatStreamEvent {
+  readonly eventType: 'message_complete';
+  readonly stopReason?: string;
+  readonly tokenUsage?: { input: number; output: number };
+  readonly cost?: number;
+  readonly duration?: number;
+  readonly model?: string;
+}
+
+/**
+ * Message delta event - updates cumulative token usage during streaming
+ */
+export interface MessageDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'message_delta';
+  readonly tokenUsage: { input: number; output: number };
+}
+
+/**
+ * Signature delta event - validates extended thinking blocks
+ *
+ * Emitted by the SDK for extended thinking scenarios.
+ * Contains cryptographic signature for thinking block verification.
+ */
+export interface SignatureDeltaEvent extends FlatStreamEvent {
+  readonly eventType: 'signature_delta';
+  readonly blockIndex: number;
+  readonly signature: string; // Cryptographic signature for thinking verification
+}
+
+/**
+ * Compaction start event - notifies UI that context compaction is starting
+ * TASK_2025_098: SDK Session Compaction
+ *
+ * Emitted when the SDK detects the context window is approaching threshold
+ * and begins automatic compaction (summarizing conversation history).
+ * Used to display a notification banner in the chat UI.
+ */
+export interface CompactionStartEvent extends FlatStreamEvent {
+  readonly eventType: 'compaction_start';
+  /** Whether compaction was triggered manually or automatically */
+  readonly trigger: 'manual' | 'auto';
+}
+
+/**
+ * Compaction complete event - notifies UI that context compaction has finished
+ * Emitted when the SDK sends a compact_boundary system message after compaction.
+ * Used to dismiss the compaction banner, reset the execution tree, and clear
+ * deduplication state across the compaction boundary.
+ */
+export interface CompactionCompleteEvent extends FlatStreamEvent {
+  readonly eventType: 'compaction_complete';
+  /** Whether compaction was triggered manually or automatically */
+  readonly trigger: 'manual' | 'auto';
+  /** Token count before compaction (from SDK compact_metadata) */
+  readonly preTokens?: number;
+}
+
+// ============================================================================
+// BACKGROUND AGENT EVENT TYPES (Background Subagent Support)
+// ============================================================================
+
+/**
+ * Background agent started event
+ *
+ * Emitted when a subagent is spawned with run_in_background: true, or when
+ * a running foreground agent is moved to the background by the user.
+ * The SDK returns an immediate placeholder tool_result and the subagent
+ * continues executing independently of the main agent's turn.
+ */
+export interface BackgroundAgentStartedEvent extends FlatStreamEvent {
+  readonly eventType: 'background_agent_started';
+  /** Links to the parent Task tool_use that spawned this agent */
+  readonly toolCallId: string;
+  /** Agent subtype (e.g., 'Explore', 'software-architect') */
+  readonly agentType: string;
+  /** Short task description from Task tool args */
+  readonly agentDescription?: string;
+  /** Short agent identifier (e.g., "adcecb2") from SDK SubagentStart hook */
+  readonly agentId?: string;
+  /** Path to background agent output file (from SDK placeholder tool_result) */
+  readonly outputFilePath?: string;
+  /** Tab ID for routing events to the correct webview tab */
+  readonly tabId?: string;
+}
+
+/**
+ * Background agent progress event
+ *
+ * Emitted periodically while a background agent executes. Contains streaming
+ * summary deltas from the agent's JSONL transcript file. These events flow
+ * through a separate delivery path (WebviewManager.broadcastMessage) since
+ * they outlive the main agent's streaming loop.
+ */
+export interface BackgroundAgentProgressEvent extends FlatStreamEvent {
+  readonly eventType: 'background_agent_progress';
+  /** Links to the parent Task tool_use */
+  readonly toolCallId: string;
+  /** Short agent identifier for lookup */
+  readonly agentId: string;
+  /** New summary text delta from the agent's transcript */
+  readonly summaryDelta?: string;
+  /** Current agent execution status */
+  readonly status: 'running' | 'completed' | 'error';
+  /** Tab ID for routing */
+  readonly tabId?: string;
+}
+
+/**
+ * Background agent completed event
+ *
+ * Emitted when a background subagent finishes execution (SubagentStop hook fires).
+ * Contains the final result and usage statistics. Used to update the UI with
+ * completion notification and allow viewing the agent's output.
+ */
+export interface BackgroundAgentCompletedEvent extends FlatStreamEvent {
+  readonly eventType: 'background_agent_completed';
+  /** Links to the parent Task tool_use */
+  readonly toolCallId: string;
+  /** Short agent identifier */
+  readonly agentId: string;
+  /** Final result text from the agent */
+  readonly result?: string;
+  /** Total cost in USD */
+  readonly cost?: number;
+  /** Execution duration in milliseconds */
+  readonly duration?: number;
+  /** Tab ID for routing */
+  readonly tabId?: string;
+}
+
+/**
+ * Background agent stopped event
+ *
+ * Emitted when a background agent is explicitly stopped by the user
+ * (via TaskStop tool or UI action). Distinguished from completed to
+ * show appropriate UI state (stopped vs. finished).
+ */
+export interface BackgroundAgentStoppedEvent extends FlatStreamEvent {
+  readonly eventType: 'background_agent_stopped';
+  /** Links to the parent Task tool_use */
+  readonly toolCallId: string;
+  /** Short agent identifier */
+  readonly agentId: string;
+  /** Tab ID for routing */
+  readonly tabId?: string;
+}
+
+/**
+ * Union type for all flat events - enables discriminated unions
+ */
+export type FlatStreamEventUnion =
+  | MessageStartEvent
+  | TextDeltaEvent
+  | ThinkingStartEvent
+  | ThinkingDeltaEvent
+  | ToolStartEvent
+  | ToolDeltaEvent
+  | ToolResultEvent
+  | AgentStartEvent
+  | MessageCompleteEvent
+  | MessageDeltaEvent
+  | SignatureDeltaEvent
+  | CompactionStartEvent
+  | CompactionCompleteEvent
+  | BackgroundAgentStartedEvent
+  | BackgroundAgentProgressEvent
+  | BackgroundAgentCompletedEvent
+  | BackgroundAgentStoppedEvent;

@@ -46,13 +46,10 @@ export class AgentDiscoveryFacade {
     this._error.set(null);
 
     try {
-      const result = await this.rpc.call<{
-        agents?: Array<{
-          name: string;
-          description: string;
-          scope: 'project' | 'user' | 'builtin';
-        }>;
-      }>('autocomplete:agents', { query: '', maxResults: 100 });
+      const result = await this.rpc.call('autocomplete:agents', {
+        query: '',
+        maxResults: 100,
+      });
 
       if (result.success && result.data?.agents) {
         this._agents.set(

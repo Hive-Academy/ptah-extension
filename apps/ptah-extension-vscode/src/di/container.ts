@@ -1,99 +1,159 @@
 /**
- * Centralized Dependency Injection Container
+ * Centralized Dependency Injection Container (Orchestrator)
  *
- * SINGLE SOURCE OF TRUTH for all service registrations.
- * All services from all libraries are registered here in the correct order.
+ * RESPONSIBILITY: Orchestrate service registration across all libraries
+ * Each library now has its own registration function (registerXXXServices)
  *
- * Benefits of centralized registration:
- * - Clear registration order (prevents webpack bundling issues)
- * - No hidden re-registrations (prevents EventBus overwrite bug)
- * - Single place to debug DI issues
- * - Explicit control over service lifecycle
- * - Better for monorepo single-application architecture
+ * TASK_2025_071: Refactored from direct registrations to orchestration pattern
+ * - Libraries: vscode-core, workspace-intelligence, vscode-lm-tools, agent-sdk,
+ *              agent-generation, llm-abstraction, template-generation
+ * - App-level: Logger (must be first), RpcMethodRegistrationService (requires container),
+ *              storage adapters, webview services
+ *
+ * Benefits of orchestration pattern:
+ * - Libraries own their own registrations (better separation of concerns)
+ * - Clear registration order at orchestration level
+ * - Single place to see service initialization flow
+ * - Libraries can be tested independently with their registration functions
  */
 
 import 'reflect-metadata';
 import { container, DependencyContainer } from 'tsyringe';
 import * as vscode from 'vscode';
 
-// Import TOKENS (single source of truth)
-import { TOKENS } from '@ptah-extension/vscode-core';
-
-// Import vscode-core services
+// Import Logger and OutputManager (must be registered directly - cannot be in registration function)
+// Logger depends on OutputManager, so OutputManager must be registered BEFORE Logger is resolved
+// TASK_2025_103: Import SubagentRegistryService for subagent resumption
 import {
   Logger,
-  ErrorHandler,
-  ConfigManager,
-  MessageValidatorService,
-  CommandManager,
-  WebviewManager,
   OutputManager,
-  StatusBarManager,
-  FileSystemManager,
-  RpcHandler,
-  RpcMethodRegistrationService,
-  SessionDiscoveryService,
-  AgentSessionWatcherService,
+  LlmRpcHandlers,
+  SubagentRegistryService,
+  TOKENS,
+  registerVsCodeCoreServices,
+  LicenseService,
 } from '@ptah-extension/vscode-core';
 
-// Import workspace-intelligence services
+// Import app-level RPC service and handlers (TASK_2025_074: Modular architecture)
 import {
-  PatternMatcherService,
-  IgnorePatternResolverService,
-  FileTypeClassifierService,
-  WorkspaceIndexerService,
-  WorkspaceAnalyzerService,
-  WorkspaceService,
-  MonorepoDetectorService,
-  DependencyAnalyzerService,
-  FrameworkDetectorService,
-  ProjectDetectorService,
-  ContextService,
-  FileSystemService,
-  TokenCounterService,
-  FileRelevanceScorerService,
-  ContextSizeOptimizerService,
-  ContextOrchestrationService,
-  TreeSitterParserService,
-  AstAnalysisService,
-  AgentDiscoveryService,
-  CommandDiscoveryService,
-} from '@ptah-extension/workspace-intelligence';
+  RpcMethodRegistrationService,
+  ChatRpcHandlers,
+  SessionRpcHandlers,
+  ContextRpcHandlers,
+  AutocompleteRpcHandlers,
+  FileRpcHandlers,
+  ConfigRpcHandlers,
+  AuthRpcHandlers,
+  SetupRpcHandlers,
+  LicenseRpcHandlers,
+  LlmRpcHandlers as AppLlmRpcHandlers,
+  ProviderRpcHandlers,
+  SubagentRpcHandlers,
+  CommandRpcHandlers, // TASK_2025_126: Webview command execution
+  EnhancedPromptsRpcHandlers, // TASK_2025_137: Enhanced Prompts
+  QualityRpcHandlers, // TASK_2025_144: Quality Dashboard
+  WizardGenerationRpcHandlers, // TASK_2025_148: Wizard Generation Pipeline
+  PluginRpcHandlers, // TASK_2025_153: Plugin Configuration
+  AgentRpcHandlers, // TASK_2025_157: Agent Orchestration
+  PtahCliRpcHandlers, // TASK_2025_167: Ptah CLI Management
+} from '../services/rpc';
 
-// Import Code Execution MCP services (TASK_2025_025)
-// DELETED: AnalyzeWorkspaceTool, SearchFilesTool, GetRelevantFilesTool,
-// GetDiagnosticsTool, FindSymbolTool, GetGitStatusTool, LMToolsRegistrationService
-// (These languageModelTools only worked with Copilot, not Claude CLI)
+// Import agent-sdk services (TASK_2025_044 Batch 3)
 import {
-  PtahAPIBuilder,
-  CodeExecutionMCP,
-  PermissionPromptService,
-} from '@ptah-extension/vscode-lm-tools';
+  registerSdkServices,
+  SDK_TOKENS,
+  EnhancedPromptsService,
+} from '@ptah-extension/agent-sdk';
+import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
 
-// Import claude-domain services
+// Import agent-generation services (TASK_2025_069)
+
 import {
-  ClaudeCliDetector,
-  ProcessManager,
-  ClaudeCliService,
-  MCPConfigManagerService,
-  ClaudeProcess,
-  PricingService,
-  // DELETED in TASK_2025_023 purge: SessionManager, InteractiveSessionManager, ClaudeCliLauncher
-  // DELETED: PermissionService, InMemoryPermissionRulesStore (over-engineered, unused)
-  // DELETED in TASK_2025_025: MCPRegistrationService (replaced by MCPConfigManagerService)
-} from '@ptah-extension/claude-domain';
+  registerAgentGenerationServices,
+  AGENT_GENERATION_TOKENS,
+} from '@ptah-extension/agent-generation';
+
+import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
+
+import { registerVsCodeLmToolsServices } from '@ptah-extension/vscode-lm-tools';
+
+import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
+
+import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 
 // Import webview support services
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
+import { WebviewHtmlGenerator } from '../services/webview-html-generator';
+
+// Import command handlers
+import { LicenseCommands } from '../commands/license-commands';
 
 /**
- * Centralized DI Container
- * Registers ALL services for the entire application
+ * DI Container Orchestrator
+ * Orchestrates service registration across all libraries
+ *
+ * TASK_2025_071: Now uses library registration functions instead of direct registrations
  */
 export class DIContainer {
   /**
-   * Setup and register all services
+   * Minimal DI setup for license verification (TASK_2025_121 Batch 3)
+   *
+   * Called BEFORE license check. Only registers services required for license verification:
+   * 1. EXTENSION_CONTEXT (required by all services)
+   * 2. OUTPUT_MANAGER (required by Logger)
+   * 3. LOGGER (required for logging)
+   * 4. LICENSE_SERVICE (for license verification)
+   *
+   * This minimal setup ensures license can be verified without initializing
+   * unnecessary services that depend on license status.
+   *
+   * @param context - VS Code extension context
+   * @returns Configured DependencyContainer with minimal services
+   */
+  static setupMinimal(context: vscode.ExtensionContext): DependencyContainer {
+    // ========================================
+    // PHASE 0: Extension Context (MUST BE FIRST)
+    // ========================================
+    container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+
+    // ========================================
+    // PHASE 1: Logger Dependencies
+    // ========================================
+    // CRITICAL: OutputManager must be registered BEFORE Logger
+    // because Logger depends on OutputManager (@inject(OUTPUT_MANAGER))
+    container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
+
+    // Now Logger can be registered and resolved safely
+    container.registerSingleton(TOKENS.LOGGER, Logger);
+
+    // ========================================
+    // PHASE 2: License Service for verification
+    // ========================================
+    // License Service only depends on EXTENSION_CONTEXT and LOGGER
+
+    container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
+
+    return container;
+  }
+
+  /**
+   * Setup and orchestrate all service registrations
+   *
+   * Order matters:
+   * 1. Logger (MUST be first)
+   * 2. vscode-core infrastructure
+   * 3. workspace-intelligence
+   * 4. vscode-lm-tools
+   * 5. agent-sdk
+   * 6. agent-generation
+   * 7. llm-abstraction (NEW - fixes LlmService error)
+   * 8. template-generation (NEW)
+   * 9. App-level services (RPC, storage, webview)
+   *
+   * IMPORTANT (TASK_2025_121): This method should only be called AFTER license
+   * verification passes. Use setupMinimal() first to check license status.
+   *
    * @param context - VS Code extension context
    * @returns Configured DependencyContainer
    */
@@ -101,168 +161,230 @@ export class DIContainer {
     // ========================================
     // PHASE 0: Extension Context (MUST BE FIRST)
     // ========================================
-    // Extension Context must be registered BEFORE any services that depend on it
-    container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+    // TASK_2025_121: Check if already registered by setupMinimal()
+    // If not, register now (supports both flows: with/without setupMinimal)
+    if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
+      container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+    }
 
     // ========================================
     // PHASE 1: Infrastructure Services (vscode-core)
     // ========================================
-    // These must be registered FIRST as they're dependencies for everything else
+    // TASK_2025_121: Check if already registered by setupMinimal()
+    // CRITICAL: OutputManager must be registered BEFORE Logger
+    // because Logger depends on OutputManager (@inject(OUTPUT_MANAGER))
+    // Dependency chain: Logger → OutputManager → EXTENSION_CONTEXT
+    if (!container.isRegistered(TOKENS.OUTPUT_MANAGER)) {
+      container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
+    }
 
-    // Core infrastructure
-    container.registerSingleton(TOKENS.LOGGER, Logger);
-    container.registerSingleton(TOKENS.ERROR_HANDLER, ErrorHandler);
-    container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
+    // Now Logger can be registered and resolved safely
+    if (!container.isRegistered(TOKENS.LOGGER)) {
+      container.registerSingleton(TOKENS.LOGGER, Logger);
+    }
+    const logger = container.resolve<Logger>(TOKENS.LOGGER);
+
+    // PHASE 1.5: Register remaining vscode-core infrastructure services
+    registerVsCodeCoreServices(container, context, logger);
+
+    // PHASE 1.5.1: Subagent Registry Service (TASK_2025_103)
+    // Must be registered AFTER vscode-core (Logger dependency) but BEFORE RPC handlers
     container.registerSingleton(
-      TOKENS.MESSAGE_VALIDATOR,
-      MessageValidatorService
+      TOKENS.SUBAGENT_REGISTRY_SERVICE,
+      SubagentRegistryService
     );
 
-    // NOTE: CONFIGURATION_PROVIDER token removed - orchestration services deleted in RPC Phase 3.5
-    // Configuration now accessed directly via ConfigManager
+    // ========================================
+    // PHASE 1.6: RPC Domain Handlers (TASK_2025_074)
+    // ========================================
+    // Register all domain-specific RPC handler classes
+    // These are used by RpcMethodRegistrationService to delegate RPC registration
+    container.registerSingleton(ChatRpcHandlers);
+    container.registerSingleton(SessionRpcHandlers);
+    container.registerSingleton(ContextRpcHandlers);
+    container.registerSingleton(AutocompleteRpcHandlers);
+    container.registerSingleton(FileRpcHandlers);
+    container.registerSingleton(ConfigRpcHandlers);
+    container.registerSingleton(AuthRpcHandlers);
+    container.registerSingleton(LicenseRpcHandlers);
+    // SetupRpcHandlers and LlmRpcHandlers require container instance for lazy resolution
+    // Must use factory pattern because DependencyContainer is an interface (no reflection metadata)
+    container.register(SetupRpcHandlers, {
+      useFactory: (c) =>
+        new SetupRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(TOKENS.CONFIG_MANAGER),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c
+        ),
+    });
 
-    // API Wrappers
-    container.registerSingleton(TOKENS.COMMAND_MANAGER, CommandManager);
-    container.registerSingleton(TOKENS.WEBVIEW_MANAGER, WebviewManager);
-    container.registerSingleton(TOKENS.OUTPUT_MANAGER, OutputManager);
-    container.registerSingleton(TOKENS.STATUS_BAR_MANAGER, StatusBarManager);
-    container.registerSingleton(TOKENS.FILE_SYSTEM_MANAGER, FileSystemManager);
+    container.register(AppLlmRpcHandlers, {
+      useFactory: (c) =>
+        new AppLlmRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c
+        ),
+    });
 
-    // RPC Handler (Phase 2 - TASK_2025_021)
-    container.registerSingleton(TOKENS.RPC_HANDLER, RpcHandler);
+    // ProviderRpcHandlers requires SDK_PROVIDER_MODELS which is registered in Phase 2.7
+    // Must be registered after agent-sdk services but resolved lazily
+    // Temporarily register as placeholder - will be re-registered after agent-sdk
+    container.registerSingleton(ProviderRpcHandlers);
 
-    // RPC Method Registration Service (Phase 2 - Clean separation)
-    container.registerSingleton(
-      TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
-      RpcMethodRegistrationService
-    );
+    // TASK_2025_103: Subagent RPC handlers for subagent resumption
+    container.registerSingleton(SubagentRpcHandlers);
 
-    // Session Discovery Service (extracted from RpcMethodRegistrationService)
-    container.registerSingleton(
-      TOKENS.SESSION_DISCOVERY_SERVICE,
-      SessionDiscoveryService
-    );
+    // TASK_2025_126: Command RPC handlers for webview command execution
+    container.registerSingleton(CommandRpcHandlers);
 
-    // Agent Session Watcher (real-time summary streaming during agent execution)
-    container.registerSingleton(
-      TOKENS.AGENT_SESSION_WATCHER_SERVICE,
-      AgentSessionWatcherService
-    );
+    // TASK_2025_137: Enhanced Prompts RPC handlers
+    // Must use factory pattern because DependencyContainer is an interface (no reflection metadata)
+    // Same pattern as SetupRpcHandlers and WizardGenerationRpcHandlers
+    container.register(EnhancedPromptsRpcHandlers, {
+      useFactory: (c) =>
+        new EnhancedPromptsRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
+          c.resolve(TOKENS.LICENSE_SERVICE),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c
+        ),
+    });
 
-    // ClaudeProcess factory (Batch 4 - TASK_2025_023)
-    container.register('ClaudeProcessFactory', {
-      useValue: (cliPath: string, workspacePath: string) =>
-        new ClaudeProcess(cliPath, workspacePath),
+    // TASK_2025_144: Quality Dashboard RPC handlers
+    container.registerSingleton(QualityRpcHandlers);
+
+    // TASK_2025_153: Plugin Configuration RPC handlers
+    container.registerSingleton(PluginRpcHandlers);
+
+    // TASK_2025_157: Agent Orchestration RPC handlers
+    container.registerSingleton(AgentRpcHandlers);
+
+    // TASK_2025_167: Ptah CLI Management RPC handlers
+    container.registerSingleton(PtahCliRpcHandlers);
+
+    // TASK_2025_148: Wizard Generation RPC handlers (requires container for lazy resolution)
+    container.register(WizardGenerationRpcHandlers, {
+      useFactory: (c) =>
+        new WizardGenerationRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c
+        ),
+    });
+
+    // RPC Method Registration Service (orchestrator - requires container instance)
+    // TASK_2025_074: Refactored to use domain-specific handler classes
+    // TASK_2025_079: Added LicenseRpcHandlers for premium feature gating
+    // TASK_2025_103: Added SubagentRpcHandlers for subagent resumption
+    // TASK_2025_137: Added EnhancedPromptsRpcHandlers
+    container.register(TOKENS.RPC_METHOD_REGISTRATION_SERVICE, {
+      useFactory: (c) => {
+        return new RpcMethodRegistrationService(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(TOKENS.WEBVIEW_MANAGER),
+          c.resolve(TOKENS.AGENT_SESSION_WATCHER_SERVICE),
+          c.resolve(TOKENS.COMMAND_MANAGER),
+          c.resolve(SDK_TOKENS.SDK_AGENT_ADAPTER),
+          // Domain-specific handlers
+          c.resolve(ChatRpcHandlers),
+          c.resolve(SessionRpcHandlers),
+          c.resolve(ContextRpcHandlers),
+          c.resolve(AutocompleteRpcHandlers),
+          c.resolve(FileRpcHandlers),
+          c.resolve(ConfigRpcHandlers),
+          c.resolve(AuthRpcHandlers),
+          c.resolve(SetupRpcHandlers),
+          c.resolve(LicenseRpcHandlers),
+          c.resolve(AppLlmRpcHandlers),
+          c.resolve(ProviderRpcHandlers),
+          c.resolve(SubagentRpcHandlers),
+          c.resolve(CommandRpcHandlers), // TASK_2025_126
+          c.resolve(EnhancedPromptsRpcHandlers), // TASK_2025_137
+          c.resolve(QualityRpcHandlers), // TASK_2025_144
+          c.resolve(WizardGenerationRpcHandlers), // TASK_2025_148
+          c.resolve(PluginRpcHandlers), // TASK_2025_153
+          c.resolve(AgentRpcHandlers), // TASK_2025_157
+          c.resolve(PtahCliRpcHandlers), // TASK_2025_167
+          c // Pass container instance
+        );
+      },
     });
 
     // ========================================
     // PHASE 2: Workspace Intelligence Services
     // ========================================
-
-    // Base services (no dependencies)
-    container.registerSingleton(
-      TOKENS.PATTERN_MATCHER_SERVICE,
-      PatternMatcherService
-    );
-    container.registerSingleton(
-      TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE,
-      IgnorePatternResolverService
-    );
-    container.registerSingleton(
-      TOKENS.FILE_TYPE_CLASSIFIER_SERVICE,
-      FileTypeClassifierService
-    );
-    container.registerSingleton(TOKENS.FILE_SYSTEM_SERVICE, FileSystemService);
-    container.registerSingleton(
-      TOKENS.TOKEN_COUNTER_SERVICE,
-      TokenCounterService
-    );
-
-    // Project detection services
-    container.registerSingleton(
-      TOKENS.MONOREPO_DETECTOR_SERVICE,
-      MonorepoDetectorService
-    );
-    container.registerSingleton(
-      TOKENS.DEPENDENCY_ANALYZER_SERVICE,
-      DependencyAnalyzerService
-    );
-    container.registerSingleton(
-      TOKENS.FRAMEWORK_DETECTOR_SERVICE,
-      FrameworkDetectorService
-    );
-    container.registerSingleton(
-      TOKENS.PROJECT_DETECTOR_SERVICE,
-      ProjectDetectorService
-    );
-
-    // Indexing services (depend on base services)
-    container.registerSingleton(
-      TOKENS.WORKSPACE_INDEXER_SERVICE,
-      WorkspaceIndexerService
-    );
-
-    // Analysis services (depend on indexing)
-    container.registerSingleton(
-      TOKENS.WORKSPACE_ANALYZER_SERVICE,
-      WorkspaceAnalyzerService
-    );
-    container.registerSingleton(TOKENS.WORKSPACE_SERVICE, WorkspaceService);
-
-    // Context services
-    container.registerSingleton(TOKENS.CONTEXT_SERVICE, ContextService);
-    container.registerSingleton(
-      TOKENS.FILE_RELEVANCE_SCORER,
-      FileRelevanceScorerService
-    );
-    container.registerSingleton(
-      TOKENS.CONTEXT_SIZE_OPTIMIZER,
-      ContextSizeOptimizerService
-    );
-    container.registerSingleton(
-      TOKENS.CONTEXT_ORCHESTRATION_SERVICE,
-      ContextOrchestrationService
-    );
-
-    // AST services (Phase 2: RooCode migration)
-    container.registerSingleton(
-      TOKENS.TREE_SITTER_PARSER_SERVICE,
-      TreeSitterParserService
-    );
-    container.registerSingleton(
-      TOKENS.AST_ANALYSIS_SERVICE,
-      AstAnalysisService
-    );
-
-    // Autocomplete discovery services (TASK_2025_019)
-    container.registerSingleton(
-      TOKENS.AGENT_DISCOVERY_SERVICE,
-      AgentDiscoveryService
-    );
-    container.registerSingleton(
-      TOKENS.COMMAND_DISCOVERY_SERVICE,
-      CommandDiscoveryService
-    );
+    registerWorkspaceIntelligenceServices(container, logger);
 
     // ========================================
     // PHASE 2.5: Code Execution MCP (TASK_2025_025)
     // ========================================
-    // DELETED: Individual languageModelTools registrations (only worked with Copilot)
-    // DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
-    // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
-
-    // Code Execution MCP services (expose workspace-intelligence to Claude CLI)
-    container.registerSingleton(TOKENS.PTAH_API_BUILDER, PtahAPIBuilder);
-    container.registerSingleton(TOKENS.CODE_EXECUTION_MCP, CodeExecutionMCP);
-
-    // Permission Prompt Service (TASK_2025_026)
-    container.registerSingleton(
-      TOKENS.PERMISSION_PROMPT_SERVICE,
-      PermissionPromptService
-    );
+    registerVsCodeLmToolsServices(container, logger);
 
     // ========================================
-    // PHASE 3: Claude Domain Services
+    // PHASE 2.7: Agent SDK Integration (TASK_2025_044 Batch 3)
+    // ========================================
+    // Register Agent SDK services (adapter, storage, permission handler)
+    // TASK_2025_092: SdkPermissionHandler now handles permission emitter directly
+    // (SdkRpcHandlers deleted - was dead code, only initializePermissionEmitter() was used)
+    registerSdkServices(container, context, logger);
+
+    // TASK_2025_140: Bridge registration removed. TOKENS.SDK_AGENT_ADAPTER and
+    // SDK_TOKENS.SDK_AGENT_ADAPTER both use Symbol.for('SdkAgentAdapter'), so
+    // they are the same symbol. registerSdkServices() registers the adapter
+    // directly against that symbol -- no bridge needed.
+
+    // ========================================
+    // PHASE 2.8: Agent Generation Services (TASK_2025_069)
+    // ========================================
+    // SetupStatusService, SetupWizardService, and supporting services
+    // Required for setup wizard functionality
+    registerAgentGenerationServices(container, logger, context.extensionPath);
+
+    // TASK_2025_154: Wire multi-phase analysis reader into EnhancedPromptsService
+    // Both SDK and agent-generation services are now registered, so we can
+    // safely resolve and connect them for optional multi-phase enrichment.
+    try {
+      const enhancedPrompts = container.resolve<EnhancedPromptsService>(
+        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE
+      );
+      const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE
+      );
+      enhancedPrompts.setAnalysisReader(analysisStorage);
+    } catch (error) {
+      logger.warn(
+        '[DI] Failed to wire multi-phase analysis reader into EnhancedPromptsService',
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    }
+
+    // ========================================
+    // PHASE 2.9: LLM Abstraction Services (TASK_2025_071 - CRITICAL FIX)
+    // ========================================
+    // FIXES: LlmService was never registered before this task
+    // This registration function was created but NEVER called in container.ts
+    registerLlmAbstractionServices(container, logger);
+
+    // Register LlmRpcHandlers (TASK_2025_073 Batch 5)
+    // Must come AFTER llm-abstraction (depends on LLM_SECRETS_SERVICE, LLM_CONFIGURATION_SERVICE)
+    container.registerSingleton(TOKENS.LLM_RPC_HANDLERS, LlmRpcHandlers);
+
+    // ========================================
+    // PHASE 2.10: Template Generation Services (TASK_2025_071)
+    // ========================================
+    // Template processing and generation services
+    // This registration function was created but NEVER called in container.ts
+    registerTemplateGenerationServices(container, logger);
+
+    // ========================================
+    // PHASE 3: Storage Adapters (app-level)
     // ========================================
 
     // Storage adapter (from VS Code workspace state)
@@ -281,39 +403,26 @@ export class DIContainer {
     // Global state adapter (for pricing cache - uses globalState for cross-workspace persistence)
     container.register(TOKENS.GLOBAL_STATE, { useValue: context.globalState });
 
-    // NOTE: CONFIGURATION_PROVIDER is NOW registered during Phase 1 (line 121)
-    // It was moved from main.ts to fix dependency injection order issues.
-
-    // Core domain services
-    container.registerSingleton(TOKENS.CLAUDE_CLI_DETECTOR, ClaudeCliDetector);
-    container.registerSingleton(TOKENS.PROCESS_MANAGER, ProcessManager);
-    container.registerSingleton(TOKENS.CLAUDE_CLI_SERVICE, ClaudeCliService);
-    container.registerSingleton(
-      TOKENS.MCP_CONFIG_MANAGER_SERVICE,
-      MCPConfigManagerService
-    );
-
-    // Pricing service (fetches pricing from LiteLLM, caches in globalState)
-    container.registerSingleton(TOKENS.PRICING_SERVICE, PricingService);
-
-    // Session management - DELETED in TASK_2025_023 purge + cleanup
-    // SessionManager, InteractiveSessionManager, ClaudeCliLauncher removed
-    // New pattern: ClaudeProcess handles sessions directly via CLI --session-id flag
-    // Process lifecycle: ProcessManager tracks active processes by SessionId
-
     // ========================================
-    // PHASE 4: Main App Services
+    // PHASE 4: Webview Support Services (app-level)
     // ========================================
-
-    // Webview support services (restored - still needed for webview lifecycle)
     container.registerSingleton(TOKENS.WEBVIEW_EVENT_QUEUE, WebviewEventQueue);
+
+    // WebviewHtmlGenerator - used by AngularWebviewProvider and SetupWizardService
+    // Registered as factory because it requires ExtensionContext (not injectable)
+    container.register(TOKENS.WEBVIEW_HTML_GENERATOR, {
+      useFactory: () => new WebviewHtmlGenerator(context),
+    });
+
     container.registerSingleton(
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
       AngularWebviewProvider
     );
 
-    // NOTE: WebviewHtmlGenerator is not registered in DI (instantiated directly in AngularWebviewProvider)
-    // NOTE: Orchestration services and CONFIGURATION_PROVIDER removed in RPC Phase 3.5
+    // ========================================
+    // PHASE 5: Command Handlers (TASK_2025_075)
+    // ========================================
+    container.registerSingleton(TOKENS.LICENSE_COMMANDS, LicenseCommands);
 
     return container;
   }

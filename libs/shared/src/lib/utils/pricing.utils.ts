@@ -51,10 +51,19 @@ export interface TokenBreakdown {
  */
 export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   // ============================================================================
-  // Anthropic Claude Models (Claude Code CLI)
+  // Anthropic Claude Models
   // ============================================================================
 
-  // Claude 4.5 Opus (latest flagship)
+  // Claude 4.6 Opus (latest flagship)
+  'claude-opus-4-6-20250623': {
+    inputCostPerToken: 5e-6, // $5.00 per 1M tokens
+    outputCostPerToken: 25e-6, // $25.00 per 1M tokens
+    cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
+    cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // Claude 4.5 Opus (previous flagship)
   'claude-opus-4-5-20251101': {
     inputCostPerToken: 5e-6, // $5.00 per 1M tokens
     outputCostPerToken: 25e-6, // $25.00 per 1M tokens
@@ -97,10 +106,33 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     provider: 'anthropic',
   },
 
+  // Claude 4.5 Haiku (new fast model)
+  'claude-haiku-4-5-20251001': {
+    inputCostPerToken: 0.8e-6, // $0.80 per 1M tokens
+    outputCostPerToken: 4e-6, // $4.00 per 1M tokens
+    cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
+    cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
+    provider: 'anthropic',
+  },
+
   // Claude 3 Haiku (legacy)
   'claude-3-haiku-20240307': {
     inputCostPerToken: 0.25e-6, // $0.25 per 1M tokens
     outputCostPerToken: 1.25e-6, // $1.25 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // ============================================================================
+  // OpenRouter Model ID Aliases
+  // These map OpenRouter's naming convention to the same pricing
+  // ============================================================================
+
+  // OpenRouter Claude Haiku 4.5 alias
+  'anthropic/claude-haiku-4.5': {
+    inputCostPerToken: 0.8e-6, // Same as claude-3-5-haiku-20241022
+    outputCostPerToken: 4e-6,
+    cacheReadCostPerToken: 0.08e-6,
+    cacheCreationCostPerToken: 1e-6,
     provider: 'anthropic',
   },
 
@@ -165,14 +197,18 @@ let modelPricingMap: Record<string, ModelPricing> = {
 };
 
 /**
- * Update the pricing map with new data (called by PricingService after fetch)
+ * Merge new pricing entries into the runtime pricing map.
  *
- * @param newPricing - New pricing data to merge
+ * Uses additive merge: new entries override existing ones, but previously
+ * added dynamic entries from other providers are preserved. The bundled
+ * DEFAULT_MODEL_PRICING is always the base layer (set at initialization).
+ *
+ * @param newPricing - New pricing data to merge into the existing map
  */
 export function updatePricingMap(
   newPricing: Record<string, ModelPricing>
 ): void {
-  modelPricingMap = { ...DEFAULT_MODEL_PRICING, ...newPricing };
+  modelPricingMap = { ...modelPricingMap, ...newPricing };
 }
 
 /**
@@ -304,4 +340,101 @@ export function getModelPricingDescription(modelId: string): string {
   const outputPer1M = (pricing.outputCostPerToken * 1000000).toFixed(2);
 
   return `Input: $${inputPer1M}/1M, Output: $${outputPer1M}/1M`;
+}
+
+/**
+ * Format a full model ID to a human-readable display name.
+ *
+ * Maps model identifiers from the API to short readable names:
+ * - "claude-sonnet-4-20250514" -> "Sonnet 4"
+ * - "claude-opus-4-5-20251101" -> "Opus 4.5"
+ * - "claude-haiku-4-5-20251001" -> "Haiku 4.5"
+ * - "gpt-4o-2024-08-06" -> "GPT-4o"
+ * - Unknown models -> truncated ID
+ *
+ * @param modelId - Full model identifier from API
+ * @returns Human-readable model name
+ */
+export function formatModelDisplayName(modelId: string): string {
+  if (!modelId) return 'Unknown';
+
+  const lower = modelId.toLowerCase();
+
+  // Strip date suffix (e.g., -20250514) to avoid digit collisions in version matching
+  const withoutDate = lower.replace(/-\d{8}$/, '');
+
+  // Anthropic Claude models
+  if (withoutDate.includes('opus')) {
+    if (withoutDate.includes('4.6') || withoutDate.includes('4-6'))
+      return 'Opus 4.6';
+    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
+      return 'Opus 4.5';
+    if (withoutDate.includes('opus-4') || withoutDate.includes('opus 4'))
+      return 'Opus 4';
+    if (withoutDate.includes('3-opus') || withoutDate.includes('opus-3'))
+      return 'Opus 3';
+    return 'Opus';
+  }
+
+  if (withoutDate.includes('sonnet')) {
+    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
+      return 'Sonnet 4.5';
+    if (withoutDate.includes('sonnet-4') || withoutDate.includes('sonnet 4'))
+      return 'Sonnet 4';
+    if (withoutDate.includes('3.5') || withoutDate.includes('3-5'))
+      return 'Sonnet 3.5';
+    return 'Sonnet';
+  }
+
+  if (withoutDate.includes('haiku')) {
+    if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
+      return 'Haiku 4.5';
+    if (withoutDate.includes('3.5') || withoutDate.includes('3-5'))
+      return 'Haiku 3.5';
+    if (withoutDate.includes('3-haiku') || withoutDate.includes('haiku-3'))
+      return 'Haiku 3';
+    return 'Haiku';
+  }
+
+  // OpenAI models
+  if (lower.includes('gpt-4o-mini')) return 'GPT-4o Mini';
+  if (lower.includes('gpt-4o')) return 'GPT-4o';
+  if (lower.includes('gpt-4-turbo')) return 'GPT-4 Turbo';
+  if (lower.includes('gpt-4')) return 'GPT-4';
+  if (lower.includes('gpt-3.5')) return 'GPT-3.5';
+
+  // Google Gemini models
+  if (lower.includes('gemini-2.5-pro')) return 'Gemini 2.5 Pro';
+  if (lower.includes('gemini-2.5-flash')) return 'Gemini 2.5 Flash';
+  if (lower.includes('gemini-2.0-pro')) return 'Gemini 2.0 Pro';
+  if (lower.includes('gemini-2.0-flash')) return 'Gemini 2.0 Flash';
+  if (lower.includes('gemini-2')) return 'Gemini 2';
+  if (lower.includes('gemini-1.5-pro')) return 'Gemini 1.5 Pro';
+  if (lower.includes('gemini-1.5-flash')) return 'Gemini 1.5 Flash';
+  if (lower.includes('gemini')) return 'Gemini';
+
+  // Moonshot Kimi models
+  if (lower.includes('kimi-k2.5')) return 'Kimi K2.5';
+  if (lower.includes('kimi-k2-thinking')) return 'Kimi K2 Thinking';
+  if (lower.includes('kimi-k2')) return 'Kimi K2';
+
+  // Z.AI GLM models
+  if (lower.includes('glm-5-code')) return 'GLM-5 Code';
+  if (lower.includes('glm-5')) return 'GLM-5';
+  if (lower.includes('glm-4.7-flash') && !lower.includes('flashx'))
+    return 'GLM-4.7 Flash';
+  if (lower.includes('glm-4.7-flashx')) return 'GLM-4.7 FlashX';
+  if (lower.includes('glm-4.7')) return 'GLM-4.7';
+  if (lower.includes('glm-4.6')) return 'GLM-4.6';
+  if (lower.includes('glm-4.5-x') && !lower.includes('air')) return 'GLM-4.5-X';
+  if (lower.includes('glm-4.5-airx')) return 'GLM-4.5 AirX';
+  if (lower.includes('glm-4.5-air')) return 'GLM-4.5 Air';
+  if (lower.includes('glm-4.5-flash')) return 'GLM-4.5 Flash';
+  if (lower.includes('glm-4.5')) return 'GLM-4.5';
+
+  // Fallback: truncate long IDs
+  if (modelId.length > 30) {
+    return modelId.substring(0, 30) + '...';
+  }
+  return modelId;
 }

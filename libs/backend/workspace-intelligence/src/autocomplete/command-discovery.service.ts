@@ -13,7 +13,7 @@ export interface CommandInfo {
   readonly name: string;
   readonly description: string;
   readonly argumentHint?: string;
-  readonly scope: 'builtin' | 'project' | 'user' | 'mcp';
+  readonly scope: 'builtin' | 'project' | 'user' | 'mcp' | 'plugin';
   readonly filePath?: string;
   readonly template?: string;
   readonly allowedTools?: string[];
@@ -51,10 +51,23 @@ export interface CommandSearchRequest {
 export class CommandDiscoveryService {
   private cache: CommandInfo[] = [];
   private watchers: vscode.FileSystemWatcher[] = [];
+  private pluginPaths: string[] = [];
 
   constructor(
     @inject(TOKENS.EXTENSION_CONTEXT) private context: vscode.ExtensionContext
   ) {}
+
+  /**
+   * Set plugin paths for command/skill discovery.
+   * Called after PluginLoaderService is initialized (late initialization pattern).
+   *
+   * @param pluginPaths - Absolute paths to enabled plugin directories
+   */
+  setPluginPaths(pluginPaths: string[]): void {
+    this.pluginPaths = pluginPaths;
+    // Invalidate cache so next search picks up plugin commands
+    this.cache = [];
+  }
 
   /**
    * Discover all commands (built-in + custom)
@@ -79,10 +92,14 @@ export class CommandDiscoveryService {
         path.join(os.homedir(), '.claude/commands')
       );
 
+      // Plugin commands and skills
+      const pluginCommands = await this.scanPluginDirectories();
+
       const allCommands = [
         ...builtins,
         ...projectCommands.map((c) => ({ ...c, scope: 'project' as const })),
         ...userCommands.map((c) => ({ ...c, scope: 'user' as const })),
+        ...pluginCommands,
       ];
 
       // Update cache
@@ -165,52 +182,38 @@ export class CommandDiscoveryService {
    * Get hardcoded built-in commands (from CLI docs)
    */
   private getBuiltinCommands(): CommandInfo[] {
+    // SDK commands (supportsNonInteractive=true) + natively handled commands
     return [
       {
-        name: 'help',
-        description: 'List all available commands',
-        scope: 'builtin',
-      },
-      {
-        name: 'clear',
-        description: 'Clear conversation history',
-        scope: 'builtin',
-      },
-      {
         name: 'compact',
-        description: 'Compact conversation',
+        description: 'Compact conversation to reduce token usage',
         scope: 'builtin',
       },
-      { name: 'context', description: 'Monitor token usage', scope: 'builtin' },
       {
-        name: 'cost',
-        description: 'Show API cost estimates',
-        scope: 'builtin',
-      },
-      { name: 'model', description: 'Switch model', scope: 'builtin' },
-      {
-        name: 'permissions',
-        description: 'Manage tool permissions',
+        name: 'review',
+        description: 'Code review workflow',
         scope: 'builtin',
       },
       {
         name: 'memory',
-        description: 'Manage long-term memory',
+        description: 'Manage long-term memory (CLAUDE.md)',
         scope: 'builtin',
       },
-      { name: 'sandbox', description: 'Toggle sandbox mode', scope: 'builtin' },
-      { name: 'vim', description: 'Enable vim mode', scope: 'builtin' },
-      { name: 'export', description: 'Export conversation', scope: 'builtin' },
-      { name: 'doctor', description: 'Check CLI health', scope: 'builtin' },
-      { name: 'status', description: 'Show session status', scope: 'builtin' },
-      { name: 'mcp', description: 'Manage MCP servers', scope: 'builtin' },
-      { name: 'review', description: 'Code review workflow', scope: 'builtin' },
       {
-        name: 'init',
-        description: 'Initialize project config',
+        name: 'clear',
+        description: 'Clear conversation and start fresh',
         scope: 'builtin',
       },
-      // TODO: Add remaining 17 built-in commands
+      {
+        name: 'context',
+        description: 'Show current context and token usage',
+        scope: 'builtin',
+      },
+      {
+        name: 'cost',
+        description: 'Show API cost for current session',
+        scope: 'builtin',
+      },
     ];
   }
 
@@ -281,9 +284,15 @@ export class CommandDiscoveryService {
       const content = await fs.readFile(filePath, 'utf-8');
       const { data: frontmatter, content: template } = matter(content);
 
+      // Extract description: prefer frontmatter, fallback to first paragraph in markdown
+      let description = frontmatter['description'];
+      if (!description) {
+        description = this.extractDescriptionFromMarkdown(template);
+      }
+
       return {
         name: path.basename(filePath, '.md'),
-        description: frontmatter['description'] || 'No description',
+        description: description || 'No description',
         argumentHint: frontmatter['argument-hint'],
         scope: 'project', // Will be overridden by caller
         filePath,
@@ -302,6 +311,144 @@ export class CommandDiscoveryService {
       );
       return null;
     }
+  }
+
+  /**
+   * Extract a description from markdown content when no frontmatter description exists.
+   * Looks for the first non-heading, non-empty paragraph line after the heading.
+   */
+  private extractDescriptionFromMarkdown(
+    markdownContent: string
+  ): string | null {
+    const lines = markdownContent.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Skip empty lines, headings, code fences, and list items
+      if (
+        !trimmed ||
+        trimmed.startsWith('#') ||
+        trimmed.startsWith('```') ||
+        trimmed.startsWith('- ') ||
+        trimmed.startsWith('* ')
+      ) {
+        continue;
+      }
+      // Found first paragraph — use it as description (truncate at 120 chars)
+      return trimmed.length > 120 ? trimmed.substring(0, 117) + '...' : trimmed;
+    }
+    return null;
+  }
+
+  /**
+   * Scan plugin directories for commands and skills.
+   * SDK automatically namespaces plugin commands as `plugin-name:command-name`,
+   * so we mirror that format in autocomplete suggestions.
+   */
+  private async scanPluginDirectories(): Promise<CommandInfo[]> {
+    if (this.pluginPaths.length === 0) return [];
+
+    const commands: CommandInfo[] = [];
+
+    for (const pluginPath of this.pluginPaths) {
+      const pluginName = await this.readPluginName(pluginPath);
+
+      // Scan plugin commands/ directory (same format as .claude/commands/)
+      const pluginCommands = await this.scanCommandDirectory(
+        path.join(pluginPath, 'commands')
+      );
+      commands.push(
+        ...pluginCommands.map((c) => ({
+          ...c,
+          name: `${pluginName}:${c.name}`,
+          scope: 'plugin' as const,
+        }))
+      );
+
+      // Scan plugin skills/ directory (SKILL.md with frontmatter)
+      const pluginSkills = await this.scanSkillsDirectory(pluginPath);
+      commands.push(
+        ...pluginSkills.map((s) => ({
+          ...s,
+          name: `${pluginName}:${s.name}`,
+        }))
+      );
+    }
+
+    return commands;
+  }
+
+  /**
+   * Read plugin name from .claude-plugin/plugin.json manifest.
+   * Falls back to directory name if manifest is missing.
+   */
+  private async readPluginName(pluginPath: string): Promise<string> {
+    try {
+      const manifestPath = path.join(
+        pluginPath,
+        '.claude-plugin',
+        'plugin.json'
+      );
+      const content = await fs.readFile(manifestPath, 'utf-8');
+      const manifest = JSON.parse(content);
+      if (manifest.name && typeof manifest.name === 'string') {
+        return manifest.name;
+      }
+    } catch (error) {
+      console.debug(
+        `[CommandDiscovery] Cannot read plugin manifest at ${pluginPath}:`,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    return path.basename(pluginPath);
+  }
+
+  /**
+   * Scan a plugin's skills/ directory for skill definitions
+   */
+  private async scanSkillsDirectory(
+    pluginPath: string
+  ): Promise<CommandInfo[]> {
+    const skillsDir = path.join(pluginPath, 'skills');
+    const skills: CommandInfo[] = [];
+
+    try {
+      const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const skillMdPath = path.join(skillsDir, entry.name, 'SKILL.md');
+        try {
+          const content = await fs.readFile(skillMdPath, 'utf-8');
+          const { data: frontmatter } = matter(content);
+
+          const name = frontmatter['name'] || entry.name;
+          const description = frontmatter['description'] || 'Plugin skill';
+
+          skills.push({
+            name,
+            description:
+              typeof description === 'string'
+                ? description.replace(/\s+/g, ' ').trim()
+                : String(description),
+            scope: 'plugin',
+            filePath: skillMdPath,
+          });
+        } catch (error) {
+          console.debug(
+            `[CommandDiscovery] Cannot read SKILL.md at ${skillMdPath}:`,
+            error instanceof Error ? error.message : String(error)
+          );
+        }
+      }
+    } catch (error) {
+      console.debug(
+        `[CommandDiscovery] Skills directory not accessible at ${skillsDir}:`,
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+
+    return skills;
   }
 
   /**

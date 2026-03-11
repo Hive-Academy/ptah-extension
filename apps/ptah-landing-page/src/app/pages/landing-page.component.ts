@@ -1,17 +1,11 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  inject,
-  OnInit,
-} from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { NavigationComponent } from '../components/navigation.component';
-import { HeroSectionComponent } from '../sections/hero/hero-section.component';
-import { DemoSectionComponent } from '../sections/demo/demo-section.component';
-import { FeaturesSectionComponent } from '../sections/features/features-section.component';
 import { ComparisonSectionComponent } from '../sections/comparison/comparison-section.component';
 import { CTASectionComponent } from '../sections/cta/cta-section.component';
-import { StaticSessionProvider } from '../services/static-session.provider';
+import { FooterComponent } from '../components/footer.component';
+import { FeaturesHijackedScrollComponent } from '../sections/features/features-hijacked-scroll.component';
+import { HeroComponent } from '../sections/hero/hero.component';
 
 /**
  * LandingPageComponent - Root page component that composes all landing page sections
@@ -21,36 +15,42 @@ import { StaticSessionProvider } from '../services/static-session.provider';
  * Single Responsibility: Compose and orchestrate all landing page sections with session data initialization
  *
  * SOLID Principles Applied:
- * - ✅ Single Responsibility: Only composes sections and initializes session data
- * - ✅ Open/Closed: New sections can be added via composition
- * - ✅ Composition Over Inheritance: Uses child components, no inheritance
- * - ✅ Dependency Inversion: Depends on StaticSessionProvider abstraction
+ * - Single Responsibility: Only composes sections, initializes session data, and manages Lenis scroll
+ * - Open/Closed: New sections can be added via composition
+ * - Composition Over Inheritance: Uses child components, no inheritance
+ * - Dependency Inversion: Depends on StaticSessionProvider and LenisSmoothScrollService abstractions
+ *
+ * Batch 5 Enhancements (Task 5.2):
+ * - Lenis smooth scroll initialization via LenisSmoothScrollService
+ * - afterNextRender() for client-side only initialization
+ * - DestroyRef.onDestroy() for cleanup (handled automatically by service)
  *
  * Patterns Applied:
  * - Composition Pattern: Composes NavigationComponent + 5 section components
- * - Container Pattern: Manages page-level concerns (session loading)
- * - Signal-Based State: Leverages signals from StaticSessionProvider
+ * - Container Pattern: Manages page-level concerns (session loading, scroll)
+ * - Signal-Based State: Leverages signals from StaticSessionProvider and LenisSmoothScrollService
  *
  * Architecture:
  * ```
  * LandingPageComponent (Container)
  * ├── NavigationComponent (Fixed Header)
  * └── main
- *     ├── HeroSectionComponent (Full viewport with Three.js)
+ *     ├── HeroSectionComponent (Full viewport with @hive-academy/angular-3d)
  *     ├── DemoSectionComponent (Live chat demo)
- *     ├── FeaturesSectionComponent (Features grid)
- *     ├── ComparisonSectionComponent (Before/After)
+ *     ├── FeaturesSectionComponent (Hijacked scroll timeline)
+ *     ├── ComparisonSectionComponent (Parallax split scroll)
  *     └── CTASectionComponent (Final CTA + Footer)
  * ```
  *
  * Lifecycle:
+ * - afterNextRender: Initialize Lenis smooth scroll (client-side only)
  * - OnInit: Pre-load demo session data via StaticSessionProvider
  * - Session data flows reactively to DemoSectionComponent
- * - All GSAP animations managed by individual sections
+ * - Lenis service handles cleanup automatically via ngOnDestroy
  *
  * Design Spec Compliance:
  * - Anubis theme (DaisyUI)
- * - Smooth scroll behavior
+ * - Lenis smooth scroll for premium feel
  * - Responsive layout (mobile-first)
  * - Accessibility: Semantic HTML structure
  *
@@ -73,11 +73,11 @@ import { StaticSessionProvider } from '../services/static-session.provider';
   imports: [
     CommonModule,
     NavigationComponent,
-    HeroSectionComponent,
-    DemoSectionComponent,
-    FeaturesSectionComponent,
+    HeroComponent,
+    FeaturesHijackedScrollComponent,
     ComparisonSectionComponent,
     CTASectionComponent,
+    FooterComponent,
   ],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
@@ -86,74 +86,27 @@ import { StaticSessionProvider } from '../services/static-session.provider';
 
       <!-- Main Content Sections -->
       <main>
-        <!-- Hero Section: Full viewport with Egyptian theme -->
-        <ptah-hero-section />
+        <ptah-hero />
 
-        <!-- Demo Section: Live chat interface showcase -->
-        <ptah-demo-section />
+        <section id="features" aria-label="Features">
+          <ptah-features-hijacked-scroll />
+        </section>
 
-        <!-- Features Section: Workspace-intelligence & LM Tools -->
-        <ptah-features-section />
-
-        <!-- Comparison Section: Before/After CLI vs Ptah -->
         <ptah-comparison-section />
-
-        <!-- CTA Section: Final call-to-action + footer -->
         <ptah-cta-section />
       </main>
+
+      <ptah-footer />
     </div>
   `,
   styles: [
     `
       :host {
         display: block;
-      }
-
-      /* Smooth scroll behavior for the entire page */
-      :host ::ng-deep html {
-        scroll-behavior: smooth;
-      }
-
-      /* Respect prefers-reduced-motion */
-      @media (prefers-reduced-motion: reduce) {
-        :host ::ng-deep html {
-          scroll-behavior: auto;
-        }
+        overflow-x: hidden;
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LandingPageComponent implements OnInit {
-  // ============================================================================
-  // DEPENDENCY INJECTION
-  // ============================================================================
-  // Pattern: inject() function for service dependencies
-  // Evidence: All section components use this pattern
-
-  private readonly sessionProvider = inject(StaticSessionProvider);
-
-  // ============================================================================
-  // LIFECYCLE HOOKS
-  // ============================================================================
-
-  /**
-   * Initialize component and pre-load demo session data
-   *
-   * Why OnInit?
-   * - Session data must load before DemoSectionComponent renders
-   * - Async loading allows progressive page display
-   * - Errors handled gracefully by StaticSessionProvider
-   *
-   * Session Loading Strategy:
-   * - Load /assets/demo-sessions/sample.json
-   * - StaticSessionProvider signals notify child components reactively
-   * - DemoSectionComponent subscribes to sessionProvider.messages()
-   * - Loading/error states handled by provider
-   */
-  ngOnInit(): void {
-    // Pre-load demo session data
-    // Path: public/assets/demo-sessions/sample.json (Task 3)
-    this.sessionProvider.loadSession('/assets/demo-sessions/sample.json');
-  }
-}
+export class LandingPageComponent {}

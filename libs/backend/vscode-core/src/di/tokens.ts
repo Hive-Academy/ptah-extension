@@ -1,20 +1,40 @@
 /**
- * DI Token Symbols - Type-safe dependency injection tokens
- * SINGLE SOURCE OF TRUTH for ALL dependency injection tokens
- * Based on MONSTER_EXTENSION_REFACTOR_PLAN lines 176-194
+ * DI Token Registry - Core Infrastructure Tokens
  *
- * ⚠️ CRITICAL: This is the ONLY file that defines DI tokens in the entire codebase
- * All libraries import from here. No other token definitions should exist.
+ * This file is the CANONICAL reference for DI token conventions.
+ * Other token files (@see below) follow these same conventions.
  *
- * Uses Symbol.for() to create global symbols shared across module boundaries
+ * CONVENTION: All DI tokens MUST use Symbol.for('DescriptiveName')
+ *
+ * Why Symbol.for():
+ * - Symbol.for() creates globally shared symbols (same description = same symbol)
+ * - String tokens ('Name') and Symbol.for('Name') are different — causes silent DI failures
+ * - Plain Symbol('Name') !== Symbol('Name') — creates unique symbols per call
+ * - Symbol.for('Name') === Symbol.for('Name') — always matches, even across modules
+ *
+ * Rules:
+ * 1. Always use Symbol.for() for token values
+ * 2. Never use string literals as DI tokens
+ * 3. Never use plain Symbol() (without .for)
+ * 4. Always inject via token constants (TOKENS.X, SDK_TOKENS.X), never hardcode strings
+ *    in @inject() decorators
+ * 5. Each Symbol.for() description must be globally unique across all token files
+ *    (unless intentionally shared for cross-library resolution, e.g.,
+ *    TOKENS.SDK_AGENT_ADAPTER and SDK_TOKENS.SDK_AGENT_ADAPTER both resolve to
+ *    Symbol.for('SdkAgentAdapter') so they reference the same registration)
+ *
+ * Token files:
+ * - vscode-core/src/di/tokens.ts    (this file) — core infrastructure tokens
+ * - agent-sdk/src/lib/di/tokens.ts  — SDK-specific tokens (SDK_TOKENS)
+ * - agent-generation/src/lib/di/tokens.ts — agent generation tokens (AGENT_GENERATION_TOKENS)
  */
 
 // ========================================
 // VS Code API Tokens
 // ========================================
 export const EXTENSION_CONTEXT = Symbol.for('ExtensionContext');
-export const WEBVIEW_PROVIDER = Symbol.for('WebviewProvider');
-export const COMMAND_REGISTRY = Symbol.for('CommandRegistry');
+// WEBVIEW_PROVIDER - DELETED in TASK_2025_078 (never registered, use WEBVIEW_MANAGER)
+// COMMAND_REGISTRY - DELETED in TASK_2025_078 (never registered, use COMMAND_MANAGER)
 
 // ========================================
 // Messaging System Tokens (DELETED - event-based system removed)
@@ -44,10 +64,11 @@ export const RPC_HANDLER = Symbol.for('RpcHandler');
 export const RPC_METHOD_REGISTRATION_SERVICE = Symbol.for(
   'RpcMethodRegistrationService'
 );
-export const SESSION_DISCOVERY_SERVICE = Symbol.for('SessionDiscoveryService');
+// SDK_RPC_HANDLERS - DELETED in TASK_2025_092 (dead code - permission emitter moved to SdkPermissionHandler)
 export const AGENT_SESSION_WATCHER_SERVICE = Symbol.for(
   'AgentSessionWatcherService'
 );
+export const SUBAGENT_REGISTRY_SERVICE = Symbol.for('SubagentRegistryService');
 
 // ========================================
 // Workspace Intelligence Service Tokens
@@ -88,16 +109,56 @@ export const TREE_SITTER_PARSER_SERVICE = Symbol.for('TreeSitterParserService');
 export const AST_ANALYSIS_SERVICE = Symbol.for('AstAnalysisService');
 export const AGENT_DISCOVERY_SERVICE = Symbol.for('AgentDiscoveryService');
 export const COMMAND_DISCOVERY_SERVICE = Symbol.for('CommandDiscoveryService');
+export const CONTEXT_ENRICHMENT_SERVICE = Symbol.for(
+  'ContextEnrichmentService'
+);
+export const DEPENDENCY_GRAPH_SERVICE = Symbol.for('DependencyGraphService');
 
 // ========================================
 // LLM Abstraction Service Tokens
 // ========================================
 export const LLM_SERVICE = Symbol.for('LlmService');
 export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
+export const LLM_SECRETS_SERVICE = Symbol.for('LlmSecretsService');
+export const LLM_CONFIGURATION_SERVICE = Symbol.for('LlmConfigurationService');
+export const LLM_RPC_HANDLERS = Symbol.for('LlmRpcHandlers');
+
+// ========================================
+// Agent Orchestration Tokens (TASK_2025_157)
+// ========================================
+export const AGENT_PROCESS_MANAGER = Symbol.for('AgentProcessManager');
+export const CLI_DETECTION_SERVICE = Symbol.for('CliDetectionService');
+
+// ========================================
+// CLI Plugin Sync Tokens (TASK_2025_160)
+// ========================================
+export const CLI_PLUGIN_SYNC_SERVICE = Symbol.for('CliPluginSyncService');
+
+// ========================================
+// Auth Secrets Service Token (TASK_2025_076)
+// ========================================
+export const AUTH_SECRETS_SERVICE = Symbol.for('AuthSecretsService');
+
+// ========================================
+// License Service Token (TASK_2025_075)
+// ========================================
+export const LICENSE_SERVICE = Symbol.for('LicenseService');
+export const LICENSE_COMMANDS = Symbol.for('LicenseCommands');
+
+// ========================================
+// Feature Gate Service Token (TASK_2025_121)
+// ========================================
+export const FEATURE_GATE_SERVICE = Symbol.for('FeatureGateService');
 
 // ========================================
 // Template Generation Service Tokens
 // ========================================
+// TASK_2025_071 Batch 5: Dedicated token for template-generation's FileSystemAdapter
+// This resolves the collision where both workspace-intelligence (FileSystemService)
+// and template-generation (FileSystemAdapter) were using TOKENS.FILE_SYSTEM_SERVICE
+export const TEMPLATE_FILE_SYSTEM_ADAPTER = Symbol.for(
+  'TemplateFileSystemAdapter'
+);
 export const TEMPLATE_MANAGER = Symbol.for('TemplateManager');
 export const CONTENT_GENERATOR = Symbol.for('ContentGenerator');
 export const CONTENT_PROCESSOR = Symbol.for('ContentProcessor');
@@ -117,8 +178,9 @@ export const TEMPLATE_GENERATOR_SERVICE = Symbol.for(
 
 export const PTAH_API_BUILDER = Symbol.for('PtahAPIBuilder');
 export const CODE_EXECUTION_MCP = Symbol.for('CodeExecutionMCP');
-export const MCP_CONFIG_MANAGER_SERVICE = Symbol.for('MCPConfigManagerService');
+// MCP_CONFIG_MANAGER_SERVICE - DELETED (SDK tools are native, no .mcp.json needed)
 export const PERMISSION_PROMPT_SERVICE = Symbol.for('PermissionPromptService');
+// IMAGE_GENERATION_SERVICE - DELETED (SDK-only migration: image generation removed)
 
 // ========================================
 // AI Providers Core Tokens (DELETED - library removed)
@@ -139,6 +201,9 @@ export const PRICING_SERVICE = Symbol.for('PricingService');
 
 // VS Code Memento for pricing cache
 export const GLOBAL_STATE = Symbol.for('GlobalState');
+
+// Agent SDK adapter token (TASK_2025_057 Batch 1)
+export const SDK_AGENT_ADAPTER = Symbol.for('SdkAgentAdapter');
 // PERMISSION_SERVICE - DELETED (over-engineered, unused)
 
 // DELETED tokens (TASK_2025_023 purge)
@@ -154,12 +219,66 @@ export const GLOBAL_STATE = Symbol.for('GlobalState');
 
 // Service dependencies
 export const STORAGE_SERVICE = Symbol.for('StorageService');
-export const CONFIGURATION_PROVIDER = Symbol.for('ConfigurationProvider');
+// CONFIGURATION_PROVIDER - DELETED in TASK_2025_078 (orphaned, never registered)
+
+// ========================================
+// Project Intelligence Service Tokens (TASK_2025_141)
+// ========================================
+
+/**
+ * CodeQualityAssessmentService - Anti-pattern detection and quality scoring
+ * Responsibilities: Sample files, detect anti-patterns, calculate quality score
+ */
+export const CODE_QUALITY_ASSESSMENT_SERVICE = Symbol.for(
+  'CodeQualityAssessmentService'
+);
+
+/**
+ * AntiPatternDetectionService - Rule-based anti-pattern detection
+ * Responsibilities: Load rules, execute detection, aggregate results
+ */
+export const ANTI_PATTERN_DETECTION_SERVICE = Symbol.for(
+  'AntiPatternDetectionService'
+);
+
+/**
+ * ProjectIntelligenceService - Unified facade for project intelligence
+ * Responsibilities: Orchestrate workspace analysis + quality assessment + guidance generation
+ */
+export const PROJECT_INTELLIGENCE_SERVICE = Symbol.for(
+  'ProjectIntelligenceService'
+);
+
+/**
+ * PrescriptiveGuidanceService - Generate corrective recommendations
+ * Responsibilities: Prioritize issues, generate actionable guidance, respect token budgets
+ */
+export const PRESCRIPTIVE_GUIDANCE_SERVICE = Symbol.for(
+  'PrescriptiveGuidanceService'
+);
+
+/**
+ * FileHashCacheService - SHA-256 content hashing for incremental analysis (TASK_2025_144)
+ * Responsibilities: Cache file content hashes, detect changed files, store per-file analysis results
+ */
+export const FILE_HASH_CACHE_SERVICE = Symbol.for('FileHashCacheService');
+
+/**
+ * QualityHistoryService - Assessment history persistence via globalState (TASK_2025_144)
+ * Responsibilities: Record assessment snapshots, retrieve history, manage max entries limit
+ */
+export const QUALITY_HISTORY_SERVICE = Symbol.for('QualityHistoryService');
+
+/**
+ * QualityExportService - Quality report export in multiple formats (TASK_2025_144)
+ * Responsibilities: Generate Markdown, JSON, and CSV reports from ProjectIntelligence data
+ */
+export const QUALITY_EXPORT_SERVICE = Symbol.for('QualityExportService');
 
 // ========================================
 // Main App Service Tokens (PARTIALLY DELETED)
 // ========================================
-export const COMMAND_BUILDER_SERVICE = Symbol.for('CommandBuilderService');
+// COMMAND_BUILDER_SERVICE - DELETED in TASK_2025_078 (never used)
 // ANALYTICS_DATA_COLLECTOR - DELETED (analytics-data-collector removed)
 export const ANGULAR_WEBVIEW_PROVIDER = Symbol.for('AngularWebviewProvider');
 export const COMMAND_HANDLERS = Symbol.for('CommandHandlers');
@@ -167,10 +286,8 @@ export const WEBVIEW_EVENT_QUEUE = Symbol.for('WebviewEventQueue');
 export const WEBVIEW_INITIAL_DATA_BUILDER = Symbol.for(
   'WebviewInitialDataBuilder'
 );
-
-// Legacy tokens (being phased out)
-export const CLAUDE_SERVICE = Symbol.for('ClaudeService');
-export const WORKSPACE_ANALYZER = Symbol.for('WorkspaceAnalyzer');
+export const WEBVIEW_HTML_GENERATOR = Symbol.for('WebviewHtmlGenerator');
+export const WEBVIEW_MESSAGE_HANDLER = Symbol.for('WebviewMessageHandler');
 
 /**
  * TOKENS constant for convenient access to all DI tokens
@@ -181,8 +298,8 @@ export const TOKENS = {
   // VS Code APIs
   // ========================================
   EXTENSION_CONTEXT,
-  WEBVIEW_PROVIDER,
-  COMMAND_REGISTRY,
+  // WEBVIEW_PROVIDER - DELETED in TASK_2025_078
+  // COMMAND_REGISTRY - DELETED in TASK_2025_078
   COMMAND_MANAGER,
   WEBVIEW_MANAGER,
 
@@ -210,8 +327,9 @@ export const TOKENS = {
   CONTEXT_MANAGER,
   RPC_HANDLER,
   RPC_METHOD_REGISTRATION_SERVICE,
-  SESSION_DISCOVERY_SERVICE,
+  // SDK_RPC_HANDLERS - DELETED in TASK_2025_092
   AGENT_SESSION_WATCHER_SERVICE,
+  SUBAGENT_REGISTRY_SERVICE,
 
   // ========================================
   // Workspace Intelligence
@@ -238,16 +356,48 @@ export const TOKENS = {
   AST_ANALYSIS_SERVICE,
   AGENT_DISCOVERY_SERVICE,
   COMMAND_DISCOVERY_SERVICE,
+  CONTEXT_ENRICHMENT_SERVICE,
+  DEPENDENCY_GRAPH_SERVICE,
+
+  // Project Intelligence (TASK_2025_141)
+  CODE_QUALITY_ASSESSMENT_SERVICE,
+  ANTI_PATTERN_DETECTION_SERVICE,
+  PROJECT_INTELLIGENCE_SERVICE,
+  PRESCRIPTIVE_GUIDANCE_SERVICE,
+  FILE_HASH_CACHE_SERVICE,
+  QUALITY_HISTORY_SERVICE,
+  QUALITY_EXPORT_SERVICE,
 
   // ========================================
   // LLM Abstraction
   // ========================================
   LLM_SERVICE,
   PROVIDER_REGISTRY,
+  LLM_SECRETS_SERVICE,
+  LLM_CONFIGURATION_SERVICE,
+  LLM_RPC_HANDLERS,
+
+  // Agent Orchestration (TASK_2025_157)
+  AGENT_PROCESS_MANAGER,
+  CLI_DETECTION_SERVICE,
+
+  // CLI Plugin Sync (TASK_2025_160)
+  CLI_PLUGIN_SYNC_SERVICE,
+
+  // Auth Secrets (TASK_2025_076)
+  AUTH_SECRETS_SERVICE,
+
+  // License Service (TASK_2025_075)
+  LICENSE_SERVICE,
+  LICENSE_COMMANDS,
+
+  // Feature Gate Service (TASK_2025_121)
+  FEATURE_GATE_SERVICE,
 
   // ========================================
   // Template Generation
   // ========================================
+  TEMPLATE_FILE_SYSTEM_ADAPTER, // TASK_2025_071 Batch 5: Dedicated adapter token
   TEMPLATE_MANAGER,
   CONTENT_GENERATOR,
   CONTENT_PROCESSOR,
@@ -261,10 +411,11 @@ export const TOKENS = {
   // ========================================
   // DELETED: ANALYZE_WORKSPACE_TOOL, SEARCH_FILES_TOOL, GET_RELEVANT_FILES_TOOL,
   // GET_DIAGNOSTICS_TOOL, FIND_SYMBOL_TOOL, GET_GIT_STATUS_TOOL, LM_TOOLS_REGISTRATION_SERVICE
+  // MCP_CONFIG_MANAGER_SERVICE - DELETED (SDK tools are native)
   PTAH_API_BUILDER,
   CODE_EXECUTION_MCP,
-  MCP_CONFIG_MANAGER_SERVICE,
   PERMISSION_PROMPT_SERVICE,
+  // IMAGE_GENERATION_SERVICE - DELETED (SDK-only migration)
 
   // ========================================
   // AI Providers Core (DELETED - library removed)
@@ -283,7 +434,8 @@ export const TOKENS = {
   PRICING_SERVICE,
   GLOBAL_STATE,
   STORAGE_SERVICE,
-  CONFIGURATION_PROVIDER,
+  // CONFIGURATION_PROVIDER - DELETED in TASK_2025_078
+  SDK_AGENT_ADAPTER,
   // PERMISSION_SERVICE - DELETED (over-engineered, unused)
   // DELETED (TASK_2025_023 cleanup): SESSION_MANAGER, INTERACTIVE_SESSION_MANAGER,
   // SESSION_PROXY, CLAUDE_DOMAIN_EVENT_PUBLISHER, CHAT_ORCHESTRATION_SERVICE,
@@ -293,16 +445,14 @@ export const TOKENS = {
   // ========================================
   // Main App Services (PARTIALLY DELETED)
   // ========================================
-  COMMAND_BUILDER_SERVICE,
+  // COMMAND_BUILDER_SERVICE - DELETED in TASK_2025_078
   // ANALYTICS_DATA_COLLECTOR - DELETED
   ANGULAR_WEBVIEW_PROVIDER,
   COMMAND_HANDLERS,
   WEBVIEW_EVENT_QUEUE,
   WEBVIEW_INITIAL_DATA_BUILDER,
-
-  // Legacy (being phased out)
-  CLAUDE_SERVICE,
-  WORKSPACE_ANALYZER,
+  WEBVIEW_HTML_GENERATOR,
+  WEBVIEW_MESSAGE_HANDLER,
 } as const;
 
 /**

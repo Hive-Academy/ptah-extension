@@ -10,6 +10,8 @@
 
 import { injectable } from 'tsyringe';
 import { IndexedFile, FileType } from '../types/workspace.types';
+import { SymbolIndex } from '../ast/dependency-graph.service';
+import { ImportInfo } from '../ast/ast-analysis.interfaces';
 
 /**
  * File relevance scoring result
@@ -45,7 +47,12 @@ export class FileRelevanceScorerService {
    * @param query - User query string (optional)
    * @returns Relevance score (0-100, higher = more relevant)
    */
-  scoreFile(file: IndexedFile, query?: string): FileRelevanceResult {
+  scoreFile(
+    file: IndexedFile,
+    query?: string,
+    symbolIndex?: SymbolIndex,
+    activeFileImports?: ImportInfo[]
+  ): FileRelevanceResult {
     const reasons: string[] = [];
     let score = 0;
 
@@ -138,6 +145,15 @@ export class FileRelevanceScorerService {
     // 5. Common coding task patterns
     score += this.scoreByTaskPattern(file, normalizedQuery, reasons);
 
+    // 6. Symbol-aware scoring (when dependency graph data is available)
+    score += this.scoreBySymbols(
+      file,
+      keywords,
+      reasons,
+      symbolIndex,
+      activeFileImports
+    );
+
     // Normalize score to 0-100 range
     const normalizedScore = Math.min(100, Math.max(0, score));
 
@@ -155,12 +171,22 @@ export class FileRelevanceScorerService {
    * @param query - User query string (optional)
    * @returns Map of file path to relevance score (sorted by score descending)
    */
-  rankFiles(files: IndexedFile[], query?: string): Map<IndexedFile, number> {
+  rankFiles(
+    files: IndexedFile[],
+    query?: string,
+    symbolIndex?: SymbolIndex,
+    activeFileImports?: ImportInfo[]
+  ): Map<IndexedFile, number> {
     const scores = new Map<IndexedFile, number>();
 
     // Score all files
     files.forEach((file) => {
-      const result = this.scoreFile(file, query);
+      const result = this.scoreFile(
+        file,
+        query,
+        symbolIndex,
+        activeFileImports
+      );
       scores.set(file, result.score);
     });
 
@@ -183,10 +209,14 @@ export class FileRelevanceScorerService {
   getTopFiles(
     files: IndexedFile[],
     query: string,
-    limit = 10
+    limit = 10,
+    symbolIndex?: SymbolIndex,
+    activeFileImports?: ImportInfo[]
   ): FileRelevanceResult[] {
     const results = files
-      .map((file) => this.scoreFile(file, query))
+      .map((file) =>
+        this.scoreFile(file, query, symbolIndex, activeFileImports)
+      )
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
 
@@ -392,5 +422,75 @@ export class FileRelevanceScorerService {
     }
 
     return score;
+  }
+
+  /**
+   * Score based on exported symbol matches from the dependency graph.
+   * Returns 0 immediately when no symbolIndex is provided (zero overhead).
+   *
+   * Scoring:
+   * - +15 per exported symbol whose name contains a query keyword (case-insensitive)
+   * - +10 bonus if the file exports a symbol that the active file imports
+   *
+   * @private
+   */
+  private scoreBySymbols(
+    file: IndexedFile,
+    keywords: string[],
+    reasons: string[],
+    symbolIndex?: SymbolIndex,
+    activeFileImports?: ImportInfo[]
+  ): number {
+    if (!symbolIndex) {
+      return 0;
+    }
+
+    // Lookup exports for this file by absolute path or relative path
+    const fileExports =
+      symbolIndex.get(file.path) ?? symbolIndex.get(file.relativePath);
+
+    if (!fileExports || fileExports.length === 0) {
+      return 0;
+    }
+
+    let score = 0;
+
+    // Check each keyword against exported symbol names
+    for (const keyword of keywords) {
+      const keywordLower = keyword.toLowerCase();
+      for (const exp of fileExports) {
+        if (exp.name.toLowerCase().includes(keywordLower)) {
+          score += 15;
+          reasons.push(`Export symbol '${exp.name}' matches query`);
+        }
+      }
+    }
+
+    // Check if any exported symbol is imported by the active file
+    if (activeFileImports && activeFileImports.length > 0) {
+      // Build a set of all symbol names imported by the active file for O(1) lookup
+      const importedSymbolNames = new Set<string>();
+      for (const imp of activeFileImports) {
+        if (imp.importedSymbols) {
+          for (const sym of imp.importedSymbols) {
+            importedSymbolNames.add(sym.toLowerCase());
+          }
+        }
+      }
+
+      if (importedSymbolNames.size > 0) {
+        for (const exp of fileExports) {
+          if (importedSymbolNames.has(exp.name.toLowerCase())) {
+            score += 10;
+            reasons.push(
+              `Exports symbol '${exp.name}' imported by active file`
+            );
+          }
+        }
+      }
+    }
+
+    // Cap total symbol score so symbols remain one signal among many
+    return Math.min(score, 30);
   }
 }

@@ -11,7 +11,7 @@ import { SessionId, CorrelationId } from './branded.types';
 /**
  * Supported AI Provider IDs
  */
-export type ProviderId = 'claude-cli' | 'vscode-lm';
+export type ProviderId = 'claude-cli' | 'vscode-lm' | 'ptah-cli';
 
 /**
  * Provider Status Types
@@ -69,12 +69,39 @@ export interface AIMessageOptions {
   readonly model?: string;
   readonly temperature?: number;
   readonly maxTokens?: number;
-  readonly files?: readonly string[];
+  readonly files?: string[];
+  readonly images?: ReadonlyArray<{ data: string; mediaType: string }>;
   readonly correlationId?: CorrelationId;
   readonly timeout?: number;
   readonly streaming?: boolean;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
+
+/**
+ * TASK_2025_184: Thinking/reasoning mode configuration for Claude SDK.
+ * Controls how Claude uses extended thinking.
+ * - adaptive: Claude decides when/how much to think (default for Opus 4.6+)
+ * - enabled: Fixed thinking token budget
+ * - disabled: No extended thinking
+ *
+ * Must be serializable (no functions) since it crosses the RPC boundary.
+ */
+export type ThinkingConfig =
+  | { type: 'adaptive' }
+  | { type: 'enabled'; budgetTokens: number }
+  | { type: 'disabled' };
+
+/**
+ * TASK_2025_184: Effort level for Claude's reasoning depth.
+ * Works with adaptive thinking to guide thinking depth.
+ * - low: Minimal thinking, fastest responses
+ * - medium: Moderate thinking
+ * - high: Deep reasoning (SDK default)
+ * - max: Maximum effort (Opus 4.6 only)
+ *
+ * When undefined, SDK defaults to 'high'.
+ */
+export type EffortLevel = 'low' | 'medium' | 'high' | 'max';
 
 /**
  * AI Session Configuration
@@ -86,6 +113,45 @@ export interface AISessionConfig {
   readonly systemPrompt?: string;
   readonly model?: string;
   readonly temperature?: number;
+  /**
+   * TASK_2025_095: Frontend tab ID for direct event routing.
+   * Used to route session:id-resolved events directly to the correct tab
+   * without needing temp session ID lookup.
+   */
+  readonly tabId?: string;
+  /**
+   * System prompt preset selection.
+   * - 'claude_code': Use default preset with minimal customization
+   * - 'enhanced': Use AI-generated project-specific guidance from setup wizard
+   *
+   * If not specified, defaults to 'enhanced' if enhanced prompts are generated,
+   * otherwise falls back to 'claude_code'.
+   *
+   * For premium users, PTAH_SYSTEM_PROMPT (MCP documentation) is always injected
+   * regardless of preset selection when MCP server is running.
+   */
+  readonly preset?: 'claude_code' | 'enhanced';
+  /**
+   * TASK_2025_184: Thinking/reasoning configuration for Claude SDK.
+   * Controls how Claude uses extended thinking.
+   * - adaptive: Claude decides when/how much to think (default for Opus 4.6+)
+   * - enabled: Fixed thinking token budget
+   * - disabled: No extended thinking
+   *
+   * When undefined, SDK applies its own default (adaptive for supported models).
+   */
+  readonly thinking?: ThinkingConfig;
+  /**
+   * TASK_2025_184: Effort level for Claude's reasoning depth.
+   * Works with adaptive thinking to guide thinking depth.
+   * - low: Minimal thinking, fastest responses
+   * - medium: Moderate thinking
+   * - high: Deep reasoning (SDK default)
+   * - max: Maximum effort (Opus 4.6 only)
+   *
+   * When undefined, SDK defaults to 'high'.
+   */
+  readonly effort?: EffortLevel;
 }
 
 /**
@@ -141,11 +207,26 @@ export interface IAIProvider {
   reset(): Promise<void>;
 
   /**
-   * Session Management
+   * Start a NEW chat session with streaming support
+   *
+   * TASK_2025_093: Uses tabId as the primary tracking key for session lifecycle.
+   * The real SDK UUID is resolved later via session:id-resolved event.
+   *
+   * @param config - Session configuration with REQUIRED tabId for multi-tab isolation
    */
   startChatSession(
-    sessionId: SessionId,
-    config?: AISessionConfig
+    config: AISessionConfig & {
+      /** REQUIRED: Frontend tab identifier for routing and multi-tab isolation */
+      tabId: string;
+      /** Session name (optional) */
+      name?: string;
+      /** Initial prompt to send (optional) */
+      prompt?: string;
+      /** Files to attach (optional) */
+      files?: readonly string[];
+      /** Inline images (pasted/dropped) to include with the initial message */
+      images?: ReadonlyArray<{ data: string; mediaType: string }>;
+    }
   ): Promise<Readable>;
   endSession(sessionId: SessionId): void;
   sendMessageToSession(
@@ -255,7 +336,7 @@ export function isProviderError(error: unknown): error is ProviderError {
 }
 
 export function isValidProviderId(id: string): id is ProviderId {
-  return id === 'claude-cli' || id === 'vscode-lm';
+  return id === 'claude-cli' || id === 'vscode-lm' || id === 'ptah-cli';
 }
 
 /**
@@ -264,6 +345,7 @@ export function isValidProviderId(id: string): id is ProviderId {
 export const PROVIDER_IDS: readonly ProviderId[] = [
   'claude-cli',
   'vscode-lm',
+  'ptah-cli',
 ] as const;
 
 export const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilities = {

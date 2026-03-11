@@ -38,7 +38,7 @@ import type { ExecutionNode } from '@ptah-extension/shared';
           [class.rotate-0]="!isCollapsed()"
           [class.-rotate-90]="isCollapsed()"
         />
-        <lucide-angular [img]="BrainIcon" class="w-4 h-4 text-purple-400" />
+        <lucide-angular [img]="BrainIcon" class="w-4 h-4 text-secondary" />
         <span class="text-base-content/80">Extended Thinking</span>
       </button>
 

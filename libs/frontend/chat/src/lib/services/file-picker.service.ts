@@ -163,17 +163,7 @@ export class FilePickerService {
 
     try {
       // Call backend via RPC
-      const result = await this.rpcService.call<{
-        files?: Array<{
-          uri: string;
-          relativePath: string;
-          fileName: string;
-          fileType: string;
-          size: number;
-          lastModified: number;
-          isDirectory: boolean;
-        }>;
-      }>('context:getAllFiles', {
+      const result = await this.rpcService.call('context:getAllFiles', {
         includeImages: false,
         limit: 500,
       });
@@ -189,7 +179,9 @@ export class FilePickerService {
               : file.relativePath; // Use full path if no slash or at root
 
           return {
-            path: file.uri,
+            // FIXED: Use fsPath (actual file system path) instead of uri (file:///... string)
+            // The attachment processor needs a real file system path to read files
+            path: file.fsPath || file.uri,
             name: file.fileName,
             directory,
             type: file.isDirectory ? 'directory' : 'file',
@@ -237,7 +229,7 @@ export class FilePickerService {
    */
   searchFiles(query: string): FileSuggestion[] {
     if (!query || query.length < 1) {
-      return this._workspaceFiles().slice(0, 10); // Return first 10 files
+      return this._workspaceFiles().slice(0, 50); // Return first 50 files (sorted by lastModified from backend)
     }
 
     const searchTerm = query.toLowerCase();
@@ -245,13 +237,25 @@ export class FilePickerService {
       .filter(
         (file) =>
           file.name.toLowerCase().includes(searchTerm) ||
-          file.path.toLowerCase().includes(searchTerm)
+          file.path.toLowerCase().includes(searchTerm) ||
+          file.directory.toLowerCase().includes(searchTerm)
       )
       .sort((a, b) => {
-        // Sort by relevance - exact matches first
-        const aExact = a.name.toLowerCase().startsWith(searchTerm) ? 0 : 1;
-        const bExact = b.name.toLowerCase().startsWith(searchTerm) ? 0 : 1;
+        // Sort by relevance - exact name match first
+        const aExact = a.name.toLowerCase() === searchTerm ? 0 : 1;
+        const bExact = b.name.toLowerCase() === searchTerm ? 0 : 1;
         if (aExact !== bExact) return aExact - bExact;
+
+        // Then startsWith (most relevant partial match)
+        const aStarts = a.name.toLowerCase().startsWith(searchTerm) ? 0 : 1;
+        const bStarts = b.name.toLowerCase().startsWith(searchTerm) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+
+        // Then name contains (more relevant than path-only match)
+        const aNameContains = a.name.toLowerCase().includes(searchTerm) ? 0 : 1;
+        const bNameContains = b.name.toLowerCase().includes(searchTerm) ? 0 : 1;
+        if (aNameContains !== bNameContains)
+          return aNameContains - bNameContains;
 
         // Then by file type preference (text files first)
         const aScore = a.isText ? 0 : a.isImage ? 1 : 2;
@@ -261,7 +265,7 @@ export class FilePickerService {
         // Finally alphabetically
         return a.name.localeCompare(b.name);
       })
-      .slice(0, 20); // Limit to 20 results
+      .slice(0, 30); // Limit to 30 results
   }
 
   /**

@@ -16,7 +16,7 @@ import { Component, input, ChangeDetectionStrategy } from '@angular/core';
   standalone: true,
   template: `
     <span
-      class="badge badge-outline badge-sm badge-success"
+      class="badge badge-sm badge-success text-success-content"
       [title]="'$' + cost().toFixed(4) + ' USD'"
     >
       {{ formatCost() }}

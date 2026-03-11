@@ -1,5 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "ENABLE_TOOL_SEARCH": "true"
+  },
   "permissions": {
     "allow": [
       "mcp__sequential-thinking__sequentialthinking",
@@ -27,18 +30,16 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:platform.claude.com)",
       "WebFetch(domain:spin.atomicobject.com)",
-      "WebFetch(domain:angular.love)"
+      "WebFetch(domain:angular.love)",
+      "Bash(npm run typecheck:all:*)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(npx prisma generate:*)"
     ],
     "deny": [],
     "ask": [],
     "additionalDirectories": ["D:\\projects\\ptah-extension"]
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": [
-    "browser",
-    "sequential-thinking",
-    "nx-mcp",
-    "angular-cli"
-  ],
+  "enabledMcpjsonServers": ["sequential-thinking", "angular-cli", "daisyui"],
   "outputStyle": "default"
 }

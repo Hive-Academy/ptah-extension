@@ -38,7 +38,16 @@ export class Result<T, E extends Error = Error> {
    * @param fn The mapping function
    */
   public map<U>(fn: (value: T) => U): Result<U, E> {
-    return this.isOk() ? Result.ok(fn(this._value!)) : Result.err(this._error!);
+    if (this.isOk()) {
+      if (this._value === undefined) {
+        throw new Error('Result in Ok state but value is undefined');
+      }
+      return Result.ok(fn(this._value));
+    }
+    if (this._error === undefined) {
+      throw new Error('Result in Err state but error is undefined');
+    }
+    return Result.err(this._error);
   }
 
   /**
@@ -46,7 +55,16 @@ export class Result<T, E extends Error = Error> {
    * @param fn The mapping function that returns a Result
    */
   public flatMap<U>(fn: (value: T) => Result<U, E>): Result<U, E> {
-    return this.isOk() ? fn(this._value!) : Result.err(this._error!);
+    if (this.isOk()) {
+      if (this._value === undefined) {
+        throw new Error('Result in Ok state but value is undefined');
+      }
+      return fn(this._value);
+    }
+    if (this._error === undefined) {
+      throw new Error('Result in Err state but error is undefined');
+    }
+    return Result.err(this._error);
   }
 
   /**
@@ -54,7 +72,9 @@ export class Result<T, E extends Error = Error> {
    * @param defaultValue The default value to return if this is an error
    */
   public unwrapOr(defaultValue: T): T {
-    return this.isOk() ? this._value! : defaultValue;
+    return this.isOk() && this._value !== undefined
+      ? this._value
+      : defaultValue;
   }
 
   /**
@@ -69,7 +89,10 @@ export class Result<T, E extends Error = Error> {
       // This should never happen due to type constraint E extends Error
       throw new Error('Unknown error');
     }
-    return this._value!;
+    if (this._value === undefined) {
+      throw new Error('Result in Ok state but value is undefined');
+    }
+    return this._value;
   }
 
   /**

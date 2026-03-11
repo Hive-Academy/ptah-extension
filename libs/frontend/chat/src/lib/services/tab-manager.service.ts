@@ -1,6 +1,8 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, Injector } from '@angular/core';
 import { TabState } from './chat.types';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
+import { StreamingHandlerService } from './chat-store/streaming-handler.service';
+import { AgentMonitorStore } from './agent-monitor.store';
 
 /**
  * TabManagerService - Manages multi-session tab state
@@ -24,6 +26,7 @@ export class TabManagerService {
   // ============================================================================
 
   private readonly confirmationDialog = inject(ConfirmationDialogService);
+  private readonly injector = inject(Injector);
 
   // ============================================================================
   // PRIVATE STATE SIGNALS
@@ -32,12 +35,34 @@ export class TabManagerService {
   private readonly _tabs = signal<TabState[]>([]);
   private readonly _activeTabId = signal<string | null>(null);
 
+  /**
+   * Streaming indicator signal - tracks which tabs are currently streaming.
+   * This is a VISUAL-ONLY indicator, completely isolated from tab.status state machine.
+   * Does not affect session management, message sending, or any backend communication.
+   */
+  private readonly _streamingTabIds = signal<Set<string>>(new Set());
+
+  // Debounce timer for localStorage saves (reduces spam during streaming)
+  private _saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly SAVE_DEBOUNCE_MS = 500;
+
+  /**
+   * Panel-aware localStorage key for tab state persistence.
+   * Sidebar uses 'ptah.tabs' (backward compatible).
+   * Editor panels use 'ptah.tabs.ptah.panel.{uuid}' (namespaced by panelId).
+   * TASK_2025_117: Prevents localStorage collisions between multiple Angular instances.
+   */
+  private readonly storageKey: string;
+
   // ============================================================================
   // PUBLIC READONLY SIGNALS
   // ============================================================================
 
   readonly tabs = this._tabs.asReadonly();
   readonly activeTabId = this._activeTabId.asReadonly();
+
+  /** Read-only signal of tab IDs that are currently streaming (visual indicator only) */
+  readonly streamingTabIds = this._streamingTabIds.asReadonly();
 
   // ============================================================================
   // COMPUTED SIGNALS
@@ -54,13 +79,10 @@ export class TabManagerService {
 
   /**
    * Find a tab by its Claude session ID
-   * @param claudeSessionId - The Claude CLI session UUID
-   * @returns Tab state if found, null otherwise
+   * Returns null for tabs without sessions (new tabs)
    */
-  findTabBySessionId(claudeSessionId: string): TabState | null {
-    return (
-      this._tabs().find((t) => t.claudeSessionId === claudeSessionId) ?? null
-    );
+  findTabBySessionId(sessionId: string): TabState | null {
+    return this._tabs().find((t) => t.claudeSessionId === sessionId) ?? null;
   }
 
   // ============================================================================
@@ -68,6 +90,14 @@ export class TabManagerService {
   // ============================================================================
 
   constructor() {
+    // TASK_2025_117: Compute panel-aware localStorage key before loading state.
+    // window.ptahConfig is injected by the extension host before Angular bootstraps.
+    // Sidebar gets empty panelId (uses backward-compatible 'ptah.tabs' key).
+    // Editor panels get unique panelId like 'ptah.panel.{uuid}' (namespaced key).
+    const panelId = (window as unknown as { ptahConfig?: { panelId?: string } })
+      .ptahConfig?.panelId;
+    this.storageKey = panelId ? `ptah.tabs.${panelId}` : 'ptah.tabs';
+
     // Load saved tab state on service initialization
     this.loadTabState();
 
@@ -95,10 +125,6 @@ export class TabManagerService {
     if (existingTab) {
       // Switch to existing tab instead of creating duplicate
       this.switchTab(existingTab.id);
-      console.log(
-        '[TabManager] Switched to existing tab for session:',
-        claudeSessionId
-      );
       return existingTab.id;
     }
 
@@ -107,52 +133,51 @@ export class TabManagerService {
     const newTab: TabState = {
       id,
       claudeSessionId,
+      placeholderSessionId: null, // No placeholder for existing session
+      name: title || claudeSessionId.substring(0, 50),
       title: title || claudeSessionId.substring(0, 50),
       order: this._tabs().length,
       status: 'loaded',
       isDirty: false,
       lastActivityAt: Date.now(),
       messages: [],
-      executionTree: null,
+      streamingState: null,
     };
 
     this._tabs.update((tabs) => [...tabs, newTab]);
     this._activeTabId.set(id);
     this.saveTabState();
 
-    console.log(
-      '[TabManager] Created new tab for session:',
-      claudeSessionId,
-      '->',
-      id
-    );
     return id;
   }
 
   /**
    * Create a new tab
-   * @param title - Optional tab title (defaults to "New Chat")
+   * @param name - Optional session name
    * @returns Tab ID
    */
-  createTab(title?: string): string {
+  createTab(name?: string): string {
     const id = this.generateTabId();
+    const sessionName = name || 'New Chat';
+
     const newTab: TabState = {
       id,
-      claudeSessionId: null,
-      title: title || 'New Chat',
+      claudeSessionId: null, // Set by StreamingHandler on first streaming event
+      placeholderSessionId: null, // No longer used
+      name: sessionName,
+      title: sessionName,
       order: this._tabs().length,
       status: 'fresh',
       isDirty: false,
       lastActivityAt: Date.now(),
       messages: [],
-      executionTree: null,
+      streamingState: null,
     };
 
     this._tabs.update((tabs) => [...tabs, newTab]);
     this._activeTabId.set(id);
     this.saveTabState();
 
-    console.log('[TabManager] Tab created:', id, title);
     return id;
   }
 
@@ -182,9 +207,19 @@ export class TabManagerService {
       });
 
       if (!confirmed) {
-        console.log('[TabManager] Tab close cancelled by user');
         return;
       }
+    }
+
+    // TASK_2025_090: Clean up deduplication state to prevent memory leaks
+    // Use lazy injection to avoid circular dependency (StreamingHandler depends on TabManager)
+    if (tab.claudeSessionId) {
+      const streamingHandler = this.injector.get(StreamingHandlerService);
+      streamingHandler.cleanupSessionDeduplication(tab.claudeSessionId);
+
+      // Clean up agent monitor cards for this session
+      const agentMonitorStore = this.injector.get(AgentMonitorStore);
+      agentMonitorStore.clearSessionAgents(tab.claudeSessionId);
     }
 
     const tabIndex = tabs.findIndex((t) => t.id === tabId);
@@ -205,7 +240,6 @@ export class TabManagerService {
     }
 
     this.saveTabState();
-    console.log('[TabManager] Tab closed:', tabId);
   }
 
   /**
@@ -221,22 +255,50 @@ export class TabManagerService {
 
     this._activeTabId.set(tabId);
     this.saveTabState();
-    console.log('[TabManager] Switched to tab:', tabId);
   }
 
   /**
    * Update tab properties
+   *
+   * PERFORMANCE OPTIMIZATION: Uses shallow equality check to avoid
+   * unnecessary signal updates when streamingState hasn't actually changed.
+   * This is critical during high-frequency streaming events.
+   *
    * @param tabId - Tab ID to update
    * @param updates - Partial tab state updates
    */
   updateTab(tabId: string, updates: Partial<TabState>): void {
-    this._tabs.update((tabs) =>
-      tabs.map((tab) =>
-        tab.id === tabId
-          ? { ...tab, ...updates, lastActivityAt: Date.now() }
-          : tab
-      )
-    );
+    this._tabs.update((tabs) => {
+      const tabIndex = tabs.findIndex((t) => t.id === tabId);
+      if (tabIndex === -1) return tabs; // Tab not found, no change
+
+      const existingTab = tabs[tabIndex];
+
+      // PERFORMANCE: Skip update if streamingState reference is identical
+      // During batched streaming updates, the state object reference is reused
+      // until flush, so we can skip redundant updates
+      if (
+        updates.streamingState !== undefined &&
+        updates.streamingState === existingTab.streamingState &&
+        Object.keys(updates).length === 1
+      ) {
+        // Only streamingState is being updated and it's the same reference
+        return tabs;
+      }
+
+      // Create new tab with updates
+      const updatedTab = {
+        ...existingTab,
+        ...updates,
+        lastActivityAt: Date.now(),
+      };
+
+      // PERFORMANCE: Create new array only if tab actually changed
+      // Use reference equality for the tab object
+      const newTabs = [...tabs];
+      newTabs[tabIndex] = updatedTab;
+      return newTabs;
+    });
     this.saveTabState();
   }
 
@@ -255,25 +317,6 @@ export class TabManagerService {
       return result.map((tab, index) => ({ ...tab, order: index }));
     });
     this.saveTabState();
-    console.log('[TabManager] Tabs reordered:', fromIndex, '->', toIndex);
-  }
-
-  /**
-   * Resolve real Claude session ID for a tab
-   * Called when backend responds with real UUID
-   * @param tabId - Tab ID
-   * @param claudeSessionId - Real Claude CLI session UUID
-   */
-  resolveSessionId(tabId: string, claudeSessionId: string): void {
-    this.updateTab(tabId, {
-      claudeSessionId,
-      status: 'streaming',
-    });
-    console.log(
-      '[TabManager] Session ID resolved for tab:',
-      tabId,
-      claudeSessionId
-    );
   }
 
   // ============================================================================
@@ -293,7 +336,6 @@ export class TabManagerService {
 
     // If no title provided, this is a no-op (UI should handle input)
     if (!newTitle || newTitle.trim() === '') {
-      console.log('[TabManager] Rename requires newTitle parameter');
       return;
     }
 
@@ -301,7 +343,6 @@ export class TabManagerService {
     const sanitizedTitle = newTitle.trim().substring(0, 100);
 
     this.updateTab(tabId, { title: sanitizedTitle });
-    console.log('[TabManager] Tab renamed:', tabId, '->', sanitizedTitle);
   }
 
   /**
@@ -316,6 +357,7 @@ export class TabManagerService {
     const duplicatedTab: TabState = {
       ...tab,
       id: newTabId,
+      name: `${tab.name} (Copy)`,
       title: `${tab.title} (Copy)`,
       order: this._tabs().length,
       status: 'loaded', // Duplicated tab is loaded (not streaming)
@@ -326,8 +368,6 @@ export class TabManagerService {
     this._tabs.update((tabs) => [...tabs, duplicatedTab]);
     this._activeTabId.set(newTabId);
     this.saveTabState();
-
-    console.log('[TabManager] Tab duplicated:', tabId, '->', newTabId);
   }
 
   /**
@@ -357,8 +397,6 @@ export class TabManagerService {
     this._tabs.set([tab]);
     this._activeTabId.set(tabId);
     this.saveTabState();
-
-    console.log('[TabManager] Closed all other tabs, kept:', tabId);
   }
 
   /**
@@ -395,7 +433,6 @@ export class TabManagerService {
     }
 
     this.saveTabState();
-    console.log('[TabManager] Closed tabs to right of:', tabId);
   }
 
   // ============================================================================
@@ -404,9 +441,26 @@ export class TabManagerService {
 
   /**
    * Save tab state to browser localStorage (temporary)
+   * Uses debouncing to reduce write frequency during streaming.
    * TODO: Integrate with VS Code workspace state API
    */
   saveTabState(): void {
+    // Cancel any pending save
+    if (this._saveTimeout) {
+      clearTimeout(this._saveTimeout);
+    }
+
+    // Schedule debounced save (reduces 220+ writes to just a few during streaming)
+    this._saveTimeout = setTimeout(() => {
+      this._saveTimeout = null;
+      this._doSaveTabState();
+    }, this.SAVE_DEBOUNCE_MS);
+  }
+
+  /**
+   * Actually perform the localStorage save (called after debounce)
+   */
+  private _doSaveTabState(): void {
     try {
       const state = {
         tabs: this._tabs(),
@@ -414,8 +468,7 @@ export class TabManagerService {
         version: 1, // For future migration
       };
 
-      localStorage.setItem('ptah.tabs', JSON.stringify(state));
-      console.log('[TabManager] Tab state saved to localStorage');
+      localStorage.setItem(this.storageKey, JSON.stringify(state));
     } catch (error) {
       console.warn('[TabManager] Failed to save tab state:', error);
     }
@@ -427,9 +480,8 @@ export class TabManagerService {
    */
   loadTabState(): void {
     try {
-      const stored = localStorage.getItem('ptah.tabs');
+      const stored = localStorage.getItem(this.storageKey);
       if (!stored) {
-        console.log('[TabManager] No saved tab state found');
         return;
       }
 
@@ -441,17 +493,51 @@ export class TabManagerService {
       }
 
       if (state.tabs && Array.isArray(state.tabs)) {
-        this._tabs.set(state.tabs);
+        // TASK_2025_087: Clear streamingState when loading from localStorage
+        // Maps (events, eventsByMessage, etc.) don't serialize to JSON properly
+        // and become plain objects, causing "get is not a function" errors
+        const sanitizedTabs = state.tabs.map((tab: TabState) => ({
+          ...tab,
+          streamingState: null, // Clear transient streaming state
+          status: tab.status === 'streaming' ? 'loaded' : tab.status, // Reset stuck streaming status
+        }));
+        this._tabs.set(sanitizedTabs);
         this._activeTabId.set(state.activeTabId);
-        console.log(
-          '[TabManager] Loaded tab state from localStorage:',
-          state.tabs.length,
-          'tabs'
-        );
       }
     } catch (error) {
       console.warn('[TabManager] Failed to load tab state:', error);
     }
+  }
+
+  // ============================================================================
+  // STREAMING INDICATOR (Visual Only - No Side Effects)
+  // ============================================================================
+
+  /**
+   * Mark a tab as streaming (shows spinner in tab bar).
+   * This is VISUAL ONLY - does not affect tab.status or any state machine.
+   */
+  markTabStreaming(tabId: string): void {
+    this._streamingTabIds.update((set) => new Set([...set, tabId]));
+  }
+
+  /**
+   * Mark a tab as idle (hides spinner in tab bar).
+   * This is VISUAL ONLY - does not block any actions or affect state.
+   */
+  markTabIdle(tabId: string): void {
+    this._streamingTabIds.update((set) => {
+      const newSet = new Set(set);
+      newSet.delete(tabId);
+      return newSet;
+    });
+  }
+
+  /**
+   * Check if a tab is currently streaming (for visual indicator).
+   */
+  isTabStreaming(tabId: string): boolean {
+    return this._streamingTabIds().has(tabId);
   }
 
   // ============================================================================

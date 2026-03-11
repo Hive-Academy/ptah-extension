@@ -1,6 +1,21 @@
 import * as vscode from 'vscode';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+
+/**
+ * Options for generating webview HTML content
+ */
+export interface WebviewHtmlOptions {
+  workspaceInfo?: Record<string, unknown>;
+  /** Initial view to navigate to (e.g., 'chat', 'setup-wizard') */
+  initialView?: string;
+  /** Whether the user has a valid license (default: true for licensed activation) */
+  isLicensed?: boolean;
+  /** Unique panel identifier for multi-webview support (TASK_2025_117) */
+  panelId?: string;
+}
 
 /**
  * WebviewHtmlGenerator - Single Responsibility: Generate HTML content for Angular webviews
@@ -14,18 +29,63 @@ export class WebviewHtmlGenerator {
    * Generate HTML content for Angular SPA application - IMPROVED METHOD
    * Based on research: Read actual index.html and modify it rather than recreating
    * Optimized for Angular 20+ with proper CSP and modern asset handling
+   *
+   * @param webview - VS Code webview instance
+   * @param options - Options object with workspaceInfo and/or initialView, or legacy Record<string, unknown>
    */
   generateAngularWebviewContent(
     webview: vscode.Webview,
-    workspaceInfo?: Record<string, unknown>
+    options?:
+      | {
+          workspaceInfo?: Record<string, unknown>;
+          initialView?: string;
+          isLicensed?: boolean;
+          panelId?: string;
+        }
+      | Record<string, unknown>
   ): string {
     try {
-      const htmlContent = this._getHtmlForWebview(webview, workspaceInfo);
+      // Support both new options object and legacy workspaceInfo object
+      let workspaceInfo: Record<string, unknown> | undefined;
+      let initialView: string | undefined;
+      let isLicensed = true; // Default to licensed for normal activation
+      let panelId: string | undefined;
+
+      if (options) {
+        if (
+          'initialView' in options ||
+          'workspaceInfo' in options ||
+          'isLicensed' in options ||
+          'panelId' in options
+        ) {
+          // New format with explicit options
+          workspaceInfo = (
+            options as { workspaceInfo?: Record<string, unknown> }
+          ).workspaceInfo;
+          initialView = (options as { initialView?: string }).initialView;
+          isLicensed = (options as { isLicensed?: boolean }).isLicensed ?? true;
+          panelId = (options as { panelId?: string }).panelId;
+        } else {
+          // Legacy format - treat as workspaceInfo directly
+          workspaceInfo = options as Record<string, unknown>;
+        }
+      }
+
+      const htmlContent = this._getHtmlForWebview(
+        webview,
+        workspaceInfo,
+        initialView,
+        isLicensed,
+        panelId
+      );
       return htmlContent;
     } catch (error) {
       console.error('Error generating webview content:', error);
       // Fallback to basic HTML
-      return this.generateFallbackHtml(webview, workspaceInfo);
+      return this.generateFallbackHtml(
+        webview,
+        options as Record<string, unknown>
+      );
     }
   }
 
@@ -35,8 +95,29 @@ export class WebviewHtmlGenerator {
    */
   private _getHtmlForWebview(
     webview: vscode.Webview,
-    workspaceInfo?: Record<string, unknown>
+    workspaceInfo?: Record<string, unknown>,
+    initialView?: string,
+    isLicensed = true,
+    panelId?: string
   ): string {
+    // CRITICAL: Validate initialView to prevent invalid views from crashing navigation
+    const VALID_VIEWS = [
+      'chat',
+      'command-builder',
+      'analytics',
+      'context-tree',
+      'settings',
+      'setup-wizard',
+      'welcome', // TASK_2025_126: Welcome view for unlicensed users
+    ];
+
+    if (initialView && !VALID_VIEWS.includes(initialView)) {
+      throw new Error(
+        `Invalid initialView: "${initialView}". Valid values are: ${VALID_VIEWS.join(
+          ', '
+        )}`
+      );
+    }
     // Path to Angular dist folder (browser build output)
     // FIXED: context.extensionPath already points to dist/apps/ptah-extension-vscode
     const appDistPath = path.join(
@@ -78,7 +159,10 @@ export class WebviewHtmlGenerator {
     const integrationScript = this.getVSCodeIntegrationScript(
       theme,
       workspaceInfo,
-      webview
+      webview,
+      initialView,
+      isLicensed,
+      panelId
     );
     const themeStyles = this.getThemeStyles();
 
@@ -235,7 +319,7 @@ export class WebviewHtmlGenerator {
   private getImprovedCSP(webview: vscode.Webview, nonce: string): string {
     return `default-src 'none';
             img-src ${webview.cspSource} https: data: blob:;
-            script-src 'nonce-${nonce}' 'unsafe-eval';
+            script-src 'nonce-${nonce}';
             style-src ${webview.cspSource} 'nonce-${nonce}' https://fonts.googleapis.com;
             font-src ${webview.cspSource} https://fonts.gstatic.com https://fonts.googleapis.com data:;
             connect-src 'self' ${webview.cspSource};
@@ -261,7 +345,7 @@ export class WebviewHtmlGenerator {
       <html lang="en">
       <head>
         <meta charset="utf-8">
-        <title>Ptah - Claude Code Assistant</title>
+        <title>Ptah - AI Coding Orchestra</title>
         <base href="${webview.asWebviewUri(
           vscode.Uri.joinPath(this.context.extensionUri, 'webview', 'browser')
         )}/">
@@ -336,7 +420,10 @@ export class WebviewHtmlGenerator {
   private getVSCodeIntegrationScript(
     theme: vscode.ColorThemeKind,
     workspaceInfo?: Record<string, unknown>,
-    webview?: vscode.Webview
+    webview?: vscode.Webview,
+    initialView?: string,
+    isLicensed = true,
+    panelId?: string
   ): string {
     // Generate proper webview URIs for assets
     const appDistPath = path.join(
@@ -352,6 +439,12 @@ export class WebviewHtmlGenerator {
           vscode.Uri.joinPath(appDistPathUri, 'images', 'ptah-icon.png')
         )
         .toString() || '';
+    const userIconUri =
+      webview
+        ?.asWebviewUri(
+          vscode.Uri.joinPath(appDistPathUri, 'images', 'user-icon.png')
+        )
+        .toString() || '';
 
     return `
       // Acquire VS Code API
@@ -361,6 +454,7 @@ export class WebviewHtmlGenerator {
       window.vscode = vscode;
       window.ptahConfig = {
         isVSCode: true,
+        isLicensed: ${isLicensed},
         theme: '${this.getThemeString(theme)}',
         workspaceRoot: '${this.escapeJsString(
           String(workspaceInfo?.['path'] || '')
@@ -370,7 +464,12 @@ export class WebviewHtmlGenerator {
         )}',
         extensionUri: '${this.context.extensionUri.toString()}',
         baseUri: '${baseUri}',
-        iconUri: '${iconUri}'
+        iconUri: '${iconUri}',
+        userIconUri: '${userIconUri}',
+        initialView: ${
+          initialView ? `'${this.escapeJsString(initialView)}'` : 'null'
+        },
+        panelId: '${this.escapeJsString(panelId || '')}'
       };
 
 
@@ -412,7 +511,7 @@ export class WebviewHtmlGenerator {
       setTimeout(() => {
         if (window.vscode) {
           console.log('Sending webview-ready message to extension...');
-          window.vscode.postMessage({ type: 'webview-ready' });
+          window.vscode.postMessage({ type: '${MESSAGE_TYPES.WEBVIEW_READY}' });
         } else {
           console.error('CRITICAL: window.vscode is not available!');
         }
@@ -445,13 +544,7 @@ export class WebviewHtmlGenerator {
   }
 
   private generateNonce(): string {
-    let text = '';
-    const possible =
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return crypto.randomBytes(16).toString('hex');
   }
 
   /**
@@ -464,7 +557,12 @@ export class WebviewHtmlGenerator {
       .replace(/'/g, "\\'") // Escape single quotes
       .replace(/"/g, '\\"') // Escape double quotes
       .replace(/\n/g, '\\n') // Escape newlines
-      .replace(/\r/g, '\\r'); // Escape carriage returns
+      .replace(/\r/g, '\\r') // Escape carriage returns
+      .replace(/`/g, '\\`') // Escape backticks (template literal injection)
+      .replace(/\$\{/g, '\\${') // Escape template expressions
+      .replace(/<\//g, '<\\/') // Prevent script context breakout
+      .replace(/\u2028/g, '\\u2028') // Escape Unicode line separator
+      .replace(/\u2029/g, '\\u2029'); // Escape Unicode paragraph separator
   }
 
   public buildWorkspaceInfo(): Record<string, unknown> | null {
@@ -480,7 +578,7 @@ export class WebviewHtmlGenerator {
         name: workspaceFolder.name,
         path: workspaceFolder.uri.fsPath,
       };
-    } catch (error) {
+    } catch {
       return null;
     }
   }

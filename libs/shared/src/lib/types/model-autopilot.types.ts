@@ -35,6 +35,8 @@ export interface ModelInfo {
   description: string;
   /** Whether this is the recommended/default model */
   isRecommended?: boolean;
+  /** SDK API model name (e.g., 'claude-sonnet-4-20250514') */
+  apiName: string;
 }
 
 /**
@@ -50,7 +52,7 @@ export interface ModelInfo {
  *   // Safe to use userInput as PermissionLevel
  * }
  */
-export type PermissionLevel = 'ask' | 'auto-edit' | 'yolo';
+export type PermissionLevel = 'ask' | 'auto-edit' | 'yolo' | 'plan';
 
 /**
  * Model display names for UI rendering
@@ -66,7 +68,7 @@ export const MODEL_DISPLAY_NAMES: Record<
   Exclude<ClaudeModel, 'default'>,
   string
 > = {
-  opus: 'Opus 4.5',
+  opus: 'Opus 4.6',
   sonnet: 'Sonnet 4.5',
   haiku: 'Haiku 4.5',
 } as const;
@@ -108,16 +110,19 @@ export const AVAILABLE_MODELS: readonly ModelInfo[] = [
     name: 'Sonnet 4.5',
     description: 'Best for everyday tasks',
     isRecommended: true,
+    apiName: 'claude-sonnet-4-5-20250929',
   },
   {
     id: 'opus',
-    name: 'Opus 4.5',
+    name: 'Opus 4.6',
     description: 'Most capable for complex work',
+    apiName: 'claude-opus-4-6-20250623',
   },
   {
     id: 'haiku',
     name: 'Haiku 4.5',
     description: 'Fastest for quick answers',
+    apiName: 'claude-haiku-4-5-20251001',
   },
 ] as const;
 
@@ -133,6 +138,7 @@ export const PERMISSION_LEVEL_NAMES: Record<PermissionLevel, string> = {
   ask: 'Manual',
   'auto-edit': 'Auto-edit',
   yolo: 'Full Auto (YOLO)',
+  plan: 'Plan Mode',
 } as const;
 
 /**
@@ -171,6 +177,9 @@ export function isSelectableClaudeModel(
 export function isPermissionLevel(value: unknown): value is PermissionLevel {
   return (
     typeof value === 'string' &&
-    (value === 'ask' || value === 'auto-edit' || value === 'yolo')
+    (value === 'ask' ||
+      value === 'auto-edit' ||
+      value === 'yolo' ||
+      value === 'plan')
   );
 }

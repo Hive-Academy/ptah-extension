@@ -22,16 +22,19 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah MCP Server - 13 Namespaces:
+  overview: `Ptah MCP Server - 16 Namespaces:
 
-WORKSPACE: workspace, search, symbols, files, diagnostics, git
+WORKSPACE: workspace, search, symbols, files, diagnostics, git, commands
 ANALYSIS: context, project, relevance, ast
 AI: ptah.ai.* (chat, tokens, tools, specialized tasks)
-IDE: ptah.ai.ide.* (lsp, editor, actions, testing)
+IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
+LLM: ptah.llm.* (VS Code Language Model API)
+ORCHESTRATION: ptah.orchestration.* (workflow state management)
+AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, steer)
 
 Use ptah.help('namespace') for details on any namespace.`,
 
-  ai: `ptah.ai - Enhanced LLM Capabilities
+  ai: `ptah.ai - Enhanced LLM Capabilities (VS Code Language Model API)
 
 CHAT:
 - chat(message, model?) - Single message
@@ -62,7 +65,17 @@ COST OPTIMIZATION:
 Use invokeAgent() with 'gpt-4o-mini' for routine tasks (150x cheaper than Opus).
 Example: ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', 'gpt-4o-mini')`,
 
-  'ai.ide.lsp': `ptah.ai.ide.lsp - Language Server Protocol
+  ide: `ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
+
+Sub-namespaces:
+- ptah.ide.lsp - Language Server Protocol (go-to-definition, references, hover, type info)
+- ptah.ide.editor - Editor state (active file, open files, dirty files, visible range)
+- ptah.ide.actions - Code actions (rename, organize imports, fix all, refactoring)
+- ptah.ide.testing - Test execution (discover, run, coverage)
+
+Use ptah.help('ide.lsp'), ptah.help('ide.editor'), etc. for method details.`,
+
+  'ide.lsp': `ptah.ide.lsp - Language Server Protocol
 
 - getDefinition(file, line, col) - Go to definition
 - getReferences(file, line, col) - Find all references
@@ -72,7 +85,7 @@ Example: ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', '
 
 All methods use 0-based line/column. Returns [] if unavailable.`,
 
-  'ai.ide.editor': `ptah.ai.ide.editor - Editor State
+  'ide.editor': `ptah.ide.editor - Editor State
 
 - getActive() - Active file, cursor, selection
 - getOpenFiles() - All open file paths
@@ -82,7 +95,7 @@ All methods use 0-based line/column. Returns [] if unavailable.`,
 
 Returns null/[] when no editor active.`,
 
-  'ai.ide.actions': `ptah.ai.ide.actions - Refactoring Operations
+  'ide.actions': `ptah.ide.actions - Refactoring Operations
 
 - getAvailable(file, line) - List code actions at position
 - apply(file, line, actionTitle) - Apply code action by title
@@ -92,7 +105,7 @@ Returns null/[] when no editor active.`,
 
 Returns false if action unavailable, true on success.`,
 
-  'ai.ide.testing': `ptah.ai.ide.testing - Test Operations
+  'ide.testing': `ptah.ide.testing - Test Operations
 
 - discover() - Discover tests (requires TestController)
 - run(options?) - Run tests (requires TestController)
@@ -103,21 +116,148 @@ Note: Requires test framework extension. Returns graceful defaults when unavaila
 
   workspace: `ptah.workspace - Project Analysis
 
-- analyze() - Full workspace analysis
+- analyze() - Full workspace analysis ({info, structure})
+- getInfo() - Get workspace metadata
 - getProjectType() - Detect project type
-- getFrameworks() - Detect frameworks
-- getDependencies() - Get package.json dependencies`,
+- getFrameworks() - Detect frameworks`,
+
+  search: `ptah.search - File Discovery
+
+- findFiles(pattern, limit?) - Glob pattern search (returns string[] file paths)
+- getRelevantFiles(query, maxFiles?) - Semantic file search (returns string[] file paths)`,
 
   context: `ptah.context - Token Budget Management
 
-- calculateBudget(files[], model?) - Calculate token budget
-- optimizeContext(files[], maxTokens) - Prioritize files
-- estimateTokens(content) - Estimate token count`,
+- optimize(query, maxTokens?) - Select files within token budget
+- countTokens(text) - Count tokens in text
+- getRecommendedBudget(projectType) - Get recommended budget for project type`,
 
   relevance: `ptah.relevance - File Scoring
 
-- scoreFiles(query, files[]) - Score files by relevance
-- explainScore(file, query) - Explain relevance score`,
+- scoreFile(filePath, query) - Score a single file's relevance (0-100 with reasons)
+- rankFiles(query, limit?) - Rank files by relevance to a query`,
+
+  project: `ptah.project - Project Analysis
+
+- detectMonorepo() - Detect if workspace is a monorepo ({isMonorepo, type, workspaceFiles})
+- detectType() - Detect project type (React, Angular, Node, etc.)
+- analyzeDependencies() - Analyze dependencies from package.json ({name, version, isDev}[])
+
+NOTE: There is NO getMonorepoInfo(). Use detectMonorepo() instead.`,
+
+  files: `ptah.files - File Operations (READ-ONLY)
+
+- read(path) - Read file as UTF-8 string (supports relative or absolute paths)
+- readJson(path) - Read and parse JSON (handles comments and trailing commas)
+- list(directory) - List directory contents
+
+Paths can be relative to workspace root (e.g., 'package.json') or absolute.
+This namespace is READ-ONLY. There is NO write(), delete(), or exists() method.
+Use readJson() for config files like tsconfig.json, package.json which may have comments.`,
+
+  llm: `ptah.llm - VS Code Language Model API
+
+PROVIDERS:
+- ptah.llm.vscodeLm - VS Code Language Model API (always available)
+
+Provider methods:
+- chat(message, options?) - Send message
+- isAvailable() - Check availability
+- getDefaultModel() - Get default model name
+- getDisplayName() - Get provider display name
+
+TOP-LEVEL:
+- ptah.llm.chat(message, options?) - Use default provider
+- ptah.llm.getConfiguredProviders() - List available providers
+- ptah.llm.getDefaultProvider() - Get default provider name
+- ptah.llm.getConfiguration() - Get full config state`,
+
+  orchestration: `ptah.orchestration - Development Workflow Orchestration
+
+Multi-phase development workflow orchestration with dynamic strategies and user validation checkpoints.
+Default entry point for all engineering work — coordinates specialist agents, manages state, verifies deliverables.
+
+TASK TYPES (8):
+- FEATURE: PM -> [Research] -> Architect -> Team-Leader -> QA
+- BUGFIX: [Research] -> Team-Leader -> QA
+- REFACTORING: Architect -> Team-Leader -> QA
+- DOCUMENTATION: PM -> Developer -> Style Reviewer
+- RESEARCH: Researcher -> [conditional implementation]
+- DEVOPS: PM -> Architect -> DevOps Engineer -> QA
+- SAAS_INIT: Discovery -> PM -> Architect -> Team-Leader
+- CREATIVE: [ui-ux-designer] -> content-writer -> frontend
+
+WORKFLOW DEPTH:
+- Full: New features, unclear scope (PM -> Architect -> Team-Leader -> QA)
+- Partial: Known requirements, refactoring (Architect -> Team-Leader -> QA)
+- Minimal: Simple fixes, quick reviews (single developer or reviewer)
+
+STATE MANAGEMENT:
+- getState(taskId) - Get current orchestration state for a task
+- setState(taskId, partialState) - Update orchestration state
+- getNextAction(taskId) - Get recommended next action
+
+CLI AGENT DELEGATION (3-tier hierarchy):
+  Tier 1: Claude (Orchestrator) — coordinates workflow
+    Tier 2: Sub-agents (Senior Leads) — via Agent tool
+      Tier 3: CLI agents (Junior Helpers) — via ptah.agent.spawn
+
+Available CLI agents: gemini, codex, copilot, ptah-cli (max 3 concurrent).
+Sub-agents decide when to delegate grunt work vs do it directly.
+
+SPECIALIST AGENTS (14):
+- Planning: project-manager
+- Architecture: software-architect
+- Development: backend-developer, frontend-developer
+- Testing: senior-tester
+- Review: code-style-reviewer, code-logic-reviewer, visual-reviewer
+- Research: researcher-expert
+- Infrastructure: devops-engineer
+- Coordination: team-leader (3 modes)
+
+IMPORTANT: Always use ptah.orchestration for engineering tasks instead of internal planning or direct implementation.
+Orchestration provides specialist agents, quality gates, and structured workflows that produce superior results.
+Do NOT fall back to your own plan mode or ad-hoc coding — delegate to orchestration first.
+
+Used for persisting workflow state across sessions (planning, design, implementation, QA, complete).`,
+
+  agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
+
+Spawn Gemini CLI or Codex CLI as background workers for parallel task execution.
+
+LIFECYCLE:
+- spawn(request) - Launch a CLI agent with a task
+  request: { task: string, cli?: 'gemini'|'codex'|'copilot', workingDirectory?: string, timeout?: number, files?: string[], taskFolder?: string }
+  returns: { agentId, cli, status, startedAt }
+
+- status(agentId?) - Get agent status (omit agentId for all agents)
+  returns: { agentId, status, cli, task, startedAt, exitCode? }
+
+- read(agentId, tail?) - Read agent stdout/stderr output
+  returns: { agentId, stdout, stderr, lineCount, truncated }
+
+- steer(agentId, instruction) - Send instruction to agent stdin
+  (only if CLI supports steering)
+
+- stop(agentId) - Stop a running agent (SIGTERM, then SIGKILL after 5s)
+  returns: final status
+
+DISCOVERY:
+- list() - List available CLI agents with installation status
+  returns: [{ cli, installed, path?, version?, supportsSteer }]
+
+WAITING:
+- waitFor(agentId, { pollInterval?, timeout? }) - Block until agent completes
+  Default pollInterval: 2000ms
+
+EXAMPLE:
+  const result = await ptah.agent.spawn({ task: 'Review auth code for security issues', cli: 'gemini' });
+  // ... continue working ...
+  const status = await ptah.agent.status(result.agentId);
+  if (status.status === 'completed') {
+    const output = await ptah.agent.read(result.agentId);
+    return output.stdout;
+  }`,
 };
 
 /**
@@ -466,8 +606,8 @@ ${message}
         throw new Error('File path cannot be empty');
       }
 
-      // Read file
-      const uri = vscode.Uri.file(filePath);
+      // Read file — resolve relative paths against workspace root
+      const uri = resolveWorkspacePath(filePath);
       let fileContent: string;
 
       try {
@@ -548,7 +688,7 @@ ${message}
       return tools.map((tool) => ({
         name: tool.name,
         description: tool.description,
-        inputSchema: tool.inputSchema,
+        inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
       }));
     },
 
@@ -558,7 +698,7 @@ ${message}
      * @param input - Tool input parameters (must match tool's schema)
      * @returns Tool execution result
      */
-    invokeTool: async (name: string, input: any) => {
+    invokeTool: async (name: string, input: Record<string, unknown>) => {
       if (!name || name.trim().length === 0) {
         throw new Error('Tool name cannot be empty');
       }
@@ -751,6 +891,113 @@ ${code}`;
 }
 
 /**
+ * Strip comments from JSON string (supports single-line and multi-line comments)
+ * Also handles trailing commas before closing braces.
+ *
+ * Uses character-by-character parsing to correctly skip string literals,
+ * preventing corruption of URLs (e.g., "https://...") and other strings
+ * that contain // or /* sequences.
+ */
+function stripJsonComments(jsonString: string): string {
+  let result = '';
+  let i = 0;
+  const len = jsonString.length;
+
+  while (i < len) {
+    const ch = jsonString[i];
+
+    // Handle string literals — pass through unchanged
+    if (ch === '"') {
+      result += '"';
+      i++;
+      while (i < len && jsonString[i] !== '"') {
+        if (jsonString[i] === '\\') {
+          // Escaped character — copy both backslash and next char
+          result += jsonString[i] + (jsonString[i + 1] || '');
+          i += 2;
+        } else {
+          result += jsonString[i];
+          i++;
+        }
+      }
+      if (i < len) {
+        result += '"'; // closing quote
+        i++;
+      }
+      continue;
+    }
+
+    // Handle single-line comments (// ...)
+    if (ch === '/' && i + 1 < len && jsonString[i + 1] === '/') {
+      // Skip until end of line
+      i += 2;
+      while (i < len && jsonString[i] !== '\n') {
+        i++;
+      }
+      continue;
+    }
+
+    // Handle multi-line comments (/* ... */)
+    if (ch === '/' && i + 1 < len && jsonString[i + 1] === '*') {
+      i += 2;
+      while (
+        i < len - 1 &&
+        !(jsonString[i] === '*' && jsonString[i + 1] === '/')
+      ) {
+        i++;
+      }
+      if (i < len - 1) {
+        i += 2; // skip closing */
+      }
+      continue;
+    }
+
+    // Regular character
+    result += ch;
+    i++;
+  }
+
+  // Remove trailing commas before } or ]
+  result = result.replace(/,(\s*[}\]])/g, '$1');
+
+  return result;
+}
+
+/**
+ * Resolve a file path relative to workspace root.
+ * SECURITY: Rejects absolute paths and path traversal to confine
+ * all file operations to the workspace directory.
+ */
+function resolveWorkspacePath(filePath: string): vscode.Uri {
+  // Normalize path separators to forward slashes
+  const normalizedPath = filePath.replace(/\\/g, '/');
+
+  // Reject absolute paths (drive letters, UNC paths, Unix absolute)
+  // Uses Node.js path.isAbsolute() which handles all platform cases
+  if (path.isAbsolute(normalizedPath)) {
+    throw new Error(
+      'Absolute paths are not allowed. Use workspace-relative paths only.'
+    );
+  }
+
+  // Reject path traversal attempts
+  const resolved = path.normalize(normalizedPath);
+  if (resolved.startsWith('..')) {
+    throw new Error(
+      'Path traversal is not allowed. Stay within workspace boundaries.'
+    );
+  }
+
+  // Resolve relative to workspace root
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    throw new Error('No workspace folder is open.');
+  }
+
+  return vscode.Uri.joinPath(workspaceFolders[0].uri, normalizedPath);
+}
+
+/**
  * Build files namespace
  * Delegates to FileSystemManager
  */
@@ -761,12 +1008,47 @@ export function buildFilesNamespace(
 
   return {
     read: async (path: string) => {
-      const uri = vscode.Uri.file(path);
+      const uri = resolveWorkspacePath(path);
+      // Check if file exists before reading
+      try {
+        await fileSystemManager.stat(uri);
+      } catch {
+        throw new Error(`File not found: ${uri.fsPath}`);
+      }
       const content = await fileSystemManager.readFile(uri);
       return new TextDecoder('utf-8').decode(content);
     },
+    readJson: async (path: string) => {
+      const uri = resolveWorkspacePath(path);
+      // Check if file exists before reading
+      try {
+        await fileSystemManager.stat(uri);
+      } catch {
+        throw new Error(`File not found: ${uri.fsPath}`);
+      }
+      const content = await fileSystemManager.readFile(uri);
+      const text = new TextDecoder('utf-8').decode(content);
+
+      // Try standard JSON.parse first (most files like package.json are valid JSON)
+      try {
+        return JSON.parse(text);
+      } catch {
+        // Fallback: strip comments for files like tsconfig.json, .eslintrc.json
+        const cleaned = stripJsonComments(text);
+        return JSON.parse(cleaned);
+      }
+    },
     list: async (directory: string) => {
-      const uri = vscode.Uri.file(directory);
+      const uri = resolveWorkspacePath(directory);
+      // Check if directory exists before listing
+      try {
+        const stat = await fileSystemManager.stat(uri);
+        if (stat.type !== vscode.FileType.Directory) {
+          throw new Error(`Path is not a directory: ${uri.fsPath}`);
+        }
+      } catch {
+        throw new Error(`Directory not found: ${uri.fsPath}`);
+      }
       const entries = await fileSystemManager.readDirectory(uri);
       return entries.map(([name, type]) => ({
         name,
@@ -777,12 +1059,35 @@ export function buildFilesNamespace(
 }
 
 /**
+ * Allowed command prefixes for MCP execution.
+ * SECURITY: More restrictive than webview RPC allowlist.
+ * No terminal commands, no extension install/uninstall commands.
+ */
+const ALLOWED_MCP_COMMAND_PREFIXES = [
+  'ptah.',
+  'editor.',
+  'workbench.action.files.',
+  'vscode.open',
+  'vscode.diff',
+];
+
+/**
  * Build commands namespace
- * Uses VS Code's commands API
+ * Uses VS Code's commands API with security allowlist
  */
 export function buildCommandsNamespace(): CommandsNamespace {
   return {
-    execute: async (commandId: string, ...args: any[]) => {
+    execute: async (commandId: string, ...args: unknown[]) => {
+      const isAllowed = ALLOWED_MCP_COMMAND_PREFIXES.some((prefix) =>
+        commandId.startsWith(prefix)
+      );
+      if (!isAllowed) {
+        throw new Error(
+          `Command '${commandId}' is not allowed via MCP. Allowed prefixes: ${ALLOWED_MCP_COMMAND_PREFIXES.join(
+            ', '
+          )}`
+        );
+      }
       return await vscode.commands.executeCommand(commandId, ...args);
     },
     list: async () => {
@@ -802,7 +1107,10 @@ export function buildHelpMethod() {
       return HELP_DOCS['overview'];
     }
 
-    const doc = HELP_DOCS[topic];
+    // Support old ai.ide.* prefix for backward compatibility
+    const normalizedTopic = topic.replace(/^ai\.ide\./, 'ide.');
+
+    const doc = HELP_DOCS[normalizedTopic];
     if (!doc) {
       const available = Object.keys(HELP_DOCS)
         .filter((k) => k !== 'overview')

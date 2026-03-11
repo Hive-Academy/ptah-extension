@@ -9,6 +9,7 @@ import type {
   WebviewManager,
 } from '@ptah-extension/vscode-core';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
+import type { LicenseCommands } from '../commands/license-commands';
 
 /**
  * Main extension class for Ptah
@@ -81,7 +82,14 @@ export class PtahExtension implements vscode.Disposable {
    * Register all components - called after initialization
    */
   async registerAll(): Promise<void> {
-    // All registration now happens in initialize()
+    // Register license commands (TASK_2025_075 Batch 6)
+    const licenseCommands = DIContainer.resolve<LicenseCommands>(
+      TOKENS.LICENSE_COMMANDS
+    );
+    licenseCommands.registerCommands(this.context);
+    this.logger.info('License commands registered');
+
+    // All other registration now happens in initialize()
     // This method kept for API compatibility with main.ts
     this.logger.info('Extension components registered');
   }
@@ -110,15 +118,32 @@ export class PtahExtension implements vscode.Disposable {
     );
     this.disposables.push(disposable);
 
-    this.logger.info('Webview providers registered');
+    // TASK_2025_117: Register command to open editor panel
+    // This command is declared in package.json and triggered from webview header button
+    const provider = this.angularWebviewProvider;
+    const logger = this.logger;
+    const panelCommand = vscode.commands.registerCommand(
+      'ptah.openFullPanel',
+      async () => {
+        try {
+          await provider.createPanel();
+        } catch (err) {
+          logger.error('Failed to create editor panel', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    );
+    this.disposables.push(panelCommand);
+
+    this.logger.info('Webview providers and panel command registered');
   }
 
   /**
    * Welcome message for first-time users
    */
   async showWelcome(): Promise<void> {
-    const message =
-      'Welcome to Ptah! Ready to transform your Claude Code experience?';
+    const message = 'Welcome to Ptah! Your AI coding orchestra is ready.';
     const actions = ['Get Started', 'Documentation'];
 
     const selection = await vscode.window.showInformationMessage(
@@ -148,8 +173,11 @@ export class PtahExtension implements vscode.Disposable {
       this.angularWebviewProvider?.dispose?.();
 
       this.logger.info('Ptah extension disposed successfully');
-    } catch (error: any) {
-      this.logger.error('Extension disposal failed', error);
+    } catch (error) {
+      this.logger.error(
+        'Extension disposal failed',
+        error instanceof Error ? error : new Error(String(error))
+      );
     }
   }
 }

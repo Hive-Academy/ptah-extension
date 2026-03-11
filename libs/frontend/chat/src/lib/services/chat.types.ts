@@ -1,8 +1,39 @@
 import {
   ExecutionChatMessage,
   ExecutionNode,
-  JSONLMessage,
+  FlatStreamEventUnion,
+  InlineImageAttachment,
+  EffortLevel,
 } from '@ptah-extension/shared';
+
+/**
+ * Options for sending a message (options bag pattern).
+ * Replaces positional optional parameters for clarity and extensibility.
+ * Defined here (not in service file) to avoid circular dependencies with TabState.
+ */
+export interface SendMessageOptions {
+  /** Optional file paths to include */
+  files?: string[];
+  /** Optional inline images (pasted/dropped) */
+  images?: InlineImageAttachment[];
+  /** Optional effort level for reasoning depth (TASK_2025_184) */
+  effort?: EffortLevel;
+}
+
+/**
+ * TASK_2025_102: Content block from agent JSONL file - preserves interleaved structure.
+ * Mirrors the backend AgentContentBlock type for frontend usage.
+ */
+export interface AgentContentBlock {
+  /** Block type - text for narrative, tool_ref for tool position marker */
+  type: 'text' | 'tool_ref';
+  /** Text content (only for type: 'text') */
+  text?: string;
+  /** Tool use ID for correlation with SDK events (only for type: 'tool_ref') */
+  toolUseId?: string;
+  /** Tool name (only for type: 'tool_ref') */
+  toolName?: string;
+}
 
 /**
  * Maps for tracking execution nodes during session operations.
@@ -13,6 +44,82 @@ export interface NodeMaps {
   agents: Map<string, ExecutionNode>;
   /** Map of tool call IDs to their execution nodes */
   tools: Map<string, ExecutionNode>;
+}
+
+/**
+ * Flat event-based streaming state (replaces ExecutionNode tree).
+ * Stores all streaming events as flat list with lookup maps for performance.
+ */
+export interface StreamingState {
+  /** All streaming events indexed by event ID */
+  events: Map<string, FlatStreamEventUnion>;
+
+  /** Ordered list of event IDs for message-level events (excludes chunks/deltas) */
+  messageEventIds: string[];
+
+  /** Maps tool call IDs to their child event IDs */
+  toolCallMap: Map<string, string[]>;
+
+  /** Accumulated text for text-delta events, keyed by parent event ID */
+  textAccumulators: Map<string, string>;
+
+  /** Accumulated tool input for input-json-delta events, keyed by tool call ID */
+  toolInputAccumulators: Map<string, string>;
+
+  /**
+   * Accumulated agent summary content from real-time file watcher.
+   * Keyed by toolCallId (agent's tool use ID).
+   * Updated via AGENT_SUMMARY_CHUNK events from backend.
+   * @deprecated Use agentContentBlocksMap for proper interleaving
+   */
+  agentSummaryAccumulators: Map<string, string>;
+
+  /**
+   * TASK_2025_102: Structured content blocks from agent file watcher.
+   * Preserves the interleaved structure of text and tool_use blocks.
+   * Keyed by agentId (stable across hook and complete events).
+   * Frontend uses this to interleave text nodes between tool nodes.
+   */
+  agentContentBlocksMap: Map<string, AgentContentBlock[]>;
+
+  /** Current message ID being built during streaming */
+  currentMessageId: string | null;
+
+  /** Current token usage for the active message */
+  currentTokenUsage: { input: number; output: number } | null;
+
+  /** Pre-indexed events by messageId for O(1) lookup (eliminates O(n²) iteration) */
+  eventsByMessage: Map<string, FlatStreamEventUnion[]>;
+
+  /**
+   * Pending session stats to apply during finalization.
+   * Stores stats that arrive before finalizeCurrentMessage is called.
+   */
+  pendingStats?: {
+    cost: number;
+    tokens: { input: number; output: number };
+    duration: number;
+  } | null;
+}
+
+/**
+ * Factory function to create an empty StreamingState.
+ * Used for tab initialization and resetting streaming state.
+ */
+export function createEmptyStreamingState(): StreamingState {
+  return {
+    events: new Map(),
+    messageEventIds: [],
+    toolCallMap: new Map(),
+    textAccumulators: new Map(),
+    toolInputAccumulators: new Map(),
+    agentSummaryAccumulators: new Map(),
+    agentContentBlocksMap: new Map(), // TASK_2025_102: Structured content blocks
+    currentMessageId: null,
+    currentTokenUsage: null,
+    eventsByMessage: new Map(),
+    pendingStats: null,
+  };
 }
 
 /**
@@ -52,60 +159,6 @@ export interface SessionLoadResult {
 }
 
 /**
- * Agent session data from backend.
- * Represents a single agent's execution within a parent session.
- */
-export interface AgentSessionData {
-  /** Unique identifier for the agent */
-  agentId: string;
-  /** Raw JSONL messages from the agent's execution */
-  messages: JSONLMessage[];
-}
-
-/**
- * Result of classifying agent messages into summary and execution content.
- * Separates agent metadata (summary) from actual execution messages.
- */
-export interface ClassifiedAgentMessages {
-  /** Optional summary content describing the agent's execution */
-  summaryContent: string | null;
-  /** Messages representing actual execution steps */
-  executionMessages: JSONLMessage[];
-}
-
-/**
- * Types of processed chunks from JSONL streaming.
- * Each type represents a different kind of streaming event.
- */
-export type ProcessedChunkType =
-  | 'system-init'
-  | 'text'
-  | 'thinking'
-  | 'tool-start'
-  | 'tool-result'
-  | 'agent-spawn'
-  | 'agent-message'
-  | 'stream-complete';
-
-/**
- * Result from processing a JSONL chunk.
- * Contains the chunk type, payload data, and execution context.
- */
-export interface ProcessedChunk {
-  /** Type of the processed chunk */
-  type: ProcessedChunkType;
-  /** Payload data specific to the chunk type */
-  payload: unknown;
-  /** Execution context for nested agent/tool operations */
-  context: {
-    /** ID of parent agent for nested executions */
-    parentAgentId?: string;
-    /** ID of tool call for tool-related chunks */
-    toolCallId?: string;
-  };
-}
-
-/**
  * Represents a single tab/session in the multi-session UI
  */
 export interface TabState {
@@ -115,7 +168,19 @@ export interface TabState {
   /** Real Claude CLI session UUID (null if draft) */
   claudeSessionId: string | null;
 
-  /** Display title for the tab */
+  /**
+   * Placeholder session ID (proper UUID v4) used temporarily before Claude SDK resolves real ID.
+   * Generated via uuid.v4() at tab creation.
+   * Cleared after session:id-resolved event updates claudeSessionId.
+   *
+   * @example "550e8400-e29b-41d4-a716-446655440000"
+   */
+  placeholderSessionId: string | null;
+
+  /** User-provided or auto-generated session name */
+  name: string;
+
+  /** Display title shown in tab UI (typically derived from name) */
   title: string;
 
   /** Tab order position */
@@ -133,8 +198,8 @@ export interface TabState {
   /** Messages for this session */
   messages: ExecutionChatMessage[];
 
-  /** Current execution tree (if streaming) */
-  executionTree: ExecutionNode | null;
+  /** Current streaming state (flat events model, replaces executionTree) */
+  streamingState: StreamingState | null;
 
   /**
    * ID of the message currently being built during streaming.
@@ -148,4 +213,90 @@ export interface TabState {
    * Auto-sent via continueConversation() when streaming completes.
    */
   queuedContent?: string | null;
+
+  /**
+   * Options associated with the queued message (files, images, effort).
+   * Stored alongside queuedContent to preserve full message context.
+   * When multiple messages are queued, only the first message's options are kept
+   * (subsequent queued messages are text-only appends).
+   */
+  queuedOptions?: SendMessageOptions | null;
+
+  /**
+   * Preloaded stats from backend (for old sessions loaded from JSONL).
+   * Used to display cost/tokens for historical sessions without recalculation.
+   */
+  preloadedStats?: {
+    totalCost: number;
+    tokens: {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheCreation: number;
+    };
+    messageCount: number;
+  } | null;
+
+  /**
+   * Live model stats from current session (updated after each turn completion).
+   * Includes context window size for percentage calculation and model name.
+   * Used by SessionStatsSummaryComponent to display context usage.
+   */
+  liveModelStats?: {
+    /** Primary model name (first model in modelUsage list) */
+    model: string;
+    /** Total context tokens used (input + output) */
+    contextUsed: number;
+    /** Total context window size */
+    contextWindow: number;
+    /** Context usage as percentage (0-100) */
+    contextPercent: number;
+  } | null;
+
+  /**
+   * Original model from session history (detected from system init message).
+   * Used to pass the correct model when continuing a loaded historical session.
+   */
+  sessionModel?: string | null;
+
+  /**
+   * System prompt preset selection for this tab.
+   * - 'claude_code': Default preset with minimal customization
+   * - 'enhanced': AI-generated project-specific guidance
+   *
+   * When undefined, defaults to 'enhanced' if enhanced prompts are generated,
+   * otherwise falls back to 'claude_code'.
+   */
+  preset?: 'claude_code' | 'enhanced';
+
+  /**
+   * Full per-model usage breakdown for collapsible display.
+   * Contains all models used in the session with their individual stats.
+   */
+  modelUsageList?: Array<{
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUSD: number;
+    contextWindow: number;
+    cacheReadInputTokens?: number;
+  }> | null;
 }
+
+/**
+ * Accumulator key helpers to ensure consistency across streaming-handler and tree-builder.
+ * Prevents magic string coupling.
+ */
+export const AccumulatorKeys = {
+  toolInput: (toolCallId: string) => `${toolCallId}-input`,
+  textBlock: (messageId: string, blockIndex: number) =>
+    `${messageId}-block-${blockIndex}`,
+  thinkingBlock: (messageId: string, blockIndex: number) =>
+    `${messageId}-thinking-${blockIndex}`,
+  /**
+   * Key for agent summary content, keyed by agentId (NOT toolCallId).
+   * TASK_2025_099: agentId is stable across hook (UUID toolCallId) and
+   * complete message (toolu_* toolCallId), making it the reliable lookup key.
+   */
+  agentSummary: (agentId: string) => agentId,
+} as const;

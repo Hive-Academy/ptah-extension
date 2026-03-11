@@ -1,15 +1,15 @@
-import { BaseLanguageModelInput } from '@langchain/core/language_models/base';
 import { z } from 'zod';
 import { Result } from '@ptah-extension/shared';
 import {
   ILlmProvider,
   LlmCompletionConfig,
+  LlmPromptInput,
 } from '../interfaces/llm-provider.interface';
 import { LlmProviderError } from '../errors/llm-provider.error';
 
 /**
  * Abstract base class for all LLM providers.
- * Extended by Anthropic, OpenAI, Google, and OpenRouter providers.
+ * Extended by the VS Code LM provider.
  *
  * Provides default implementations for context window and token counting.
  * Subclasses must implement getCompletion and getStructuredCompletion.
@@ -39,7 +39,7 @@ export abstract class BaseLlmProvider implements ILlmProvider {
    * @returns Promise resolving to a Result containing parsed object or error
    */
   abstract getStructuredCompletion<T extends z.ZodTypeAny>(
-    prompt: BaseLanguageModelInput,
+    prompt: LlmPromptInput,
     schema: T,
     completionConfig?: LlmCompletionConfig
   ): Promise<Result<z.infer<T>, LlmProviderError>>;

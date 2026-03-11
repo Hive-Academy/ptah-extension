@@ -1,0 +1,38 @@
+name: Deploy Landing Page
+
+on:
+  push:
+    branches:
+      - release/landing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - run: npm ci --legacy-peer-deps
+
+      - name: Quality gates
+        run: npx nx run-many -t lint test typecheck build --projects=ptah-landing-page
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: quality-gates
+    steps:
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Trigger App Platform deployment
+        run: doctl apps create-deployment ${{ secrets.DO_APP_ID }} --wait

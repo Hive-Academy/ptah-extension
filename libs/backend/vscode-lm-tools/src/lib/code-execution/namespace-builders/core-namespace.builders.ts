@@ -40,9 +40,12 @@ export function buildWorkspaceNamespace(
 
   return {
     analyze: async () => {
-      const info = await workspaceAnalyzer.getCurrentWorkspaceInfo();
-      const structure = await workspaceAnalyzer.analyzeWorkspaceStructure();
-      return { info, structure };
+      const [info, structure, projectInfo] = await Promise.all([
+        workspaceAnalyzer.getCurrentWorkspaceInfo(),
+        workspaceAnalyzer.analyzeWorkspaceStructure(),
+        workspaceAnalyzer.getProjectInfo().catch(() => undefined),
+      ]);
+      return { info, structure, projectInfo };
     },
     getInfo: async () => workspaceAnalyzer.getCurrentWorkspaceInfo(),
     getProjectType: async () => {
@@ -67,21 +70,33 @@ export function buildSearchNamespace(
 
   return {
     findFiles: async (pattern: string, limit = 20) => {
-      const result = await contextOrchestration.searchFiles({
-        requestId: `mcp-search-${Date.now()}` as CorrelationId,
-        query: pattern,
-        includeImages: false,
-        maxResults: limit,
-      });
-      return result.results || [];
+      try {
+        const result = await contextOrchestration.searchFiles({
+          requestId: `mcp-search-${Date.now()}` as CorrelationId,
+          query: pattern,
+          includeImages: false,
+          maxResults: limit,
+        });
+        return (result.results || [])
+          .filter((r) => r != null)
+          .map((r) => r.relativePath || String(r));
+      } catch {
+        return [];
+      }
     },
     getRelevantFiles: async (query: string, maxFiles = 10) => {
-      const result = await contextOrchestration.getFileSuggestions({
-        requestId: `mcp-relevant-${Date.now()}` as CorrelationId,
-        query,
-        limit: maxFiles,
-      });
-      return result.suggestions || [];
+      try {
+        const result = await contextOrchestration.getFileSuggestions({
+          requestId: `mcp-relevant-${Date.now()}` as CorrelationId,
+          query,
+          limit: maxFiles,
+        });
+        return (result.suggestions || [])
+          .filter((s) => s != null)
+          .map((s) => s.relativePath || String(s));
+      } catch {
+        return [];
+      }
     },
   };
 }
@@ -136,6 +151,15 @@ export function buildDiagnosticsNamespace(): DiagnosticsNamespace {
   };
 }
 
+/** Git extension status code for untracked files */
+const GIT_STATUS_UNTRACKED = 7;
+
+/** Shape of a git extension change object (VS Code git extension API is untyped) */
+interface GitChange {
+  uri?: { fsPath: string };
+  status?: number;
+}
+
 /**
  * Build git status namespace
  * Uses VS Code's git extension API
@@ -143,26 +167,41 @@ export function buildDiagnosticsNamespace(): DiagnosticsNamespace {
 export function buildGitNamespace(): GitNamespace {
   return {
     getStatus: async () => {
-      const gitExtension =
-        vscode.extensions.getExtension('vscode.git')?.exports;
-      if (!gitExtension) {
-        throw new Error('Git extension not available');
-      }
-      const git = gitExtension.getAPI(1);
-      const repo = git.repositories[0];
-      if (!repo) {
-        throw new Error('No git repository found');
-      }
+      try {
+        const gitExtension =
+          vscode.extensions.getExtension('vscode.git')?.exports;
+        if (!gitExtension) {
+          return { branch: 'unknown', modified: [], staged: [], untracked: [] };
+        }
+        const git = gitExtension.getAPI(1);
+        const repo = git.repositories[0];
+        if (!repo) {
+          return { branch: 'unknown', modified: [], staged: [], untracked: [] };
+        }
 
-      const status: GitStatus = {
-        branch: repo.state.HEAD?.name || 'unknown',
-        modified: repo.state.workingTreeChanges.map((c: any) => c.uri.fsPath),
-        staged: repo.state.indexChanges.map((c: any) => c.uri.fsPath),
-        untracked: repo.state.workingTreeChanges
-          .filter((c: any) => c.status === 7) // Untracked = 7
-          .map((c: any) => c.uri.fsPath),
-      };
-      return status;
+        const status: GitStatus = {
+          branch: repo.state.HEAD?.name || 'unknown',
+          modified: ((repo.state.workingTreeChanges || []) as GitChange[])
+            .filter((c): c is GitChange & { uri: { fsPath: string } } =>
+              Boolean(c?.uri?.fsPath)
+            )
+            .map((c) => c.uri.fsPath),
+          staged: ((repo.state.indexChanges || []) as GitChange[])
+            .filter((c): c is GitChange & { uri: { fsPath: string } } =>
+              Boolean(c?.uri?.fsPath)
+            )
+            .map((c) => c.uri.fsPath),
+          untracked: ((repo.state.workingTreeChanges || []) as GitChange[])
+            .filter(
+              (c): c is GitChange & { uri: { fsPath: string } } =>
+                c?.status === GIT_STATUS_UNTRACKED && Boolean(c?.uri?.fsPath)
+            )
+            .map((c) => c.uri.fsPath),
+        };
+        return status;
+      } catch {
+        return { branch: 'unknown', modified: [], staged: [], untracked: [] };
+      }
     },
   };
 }

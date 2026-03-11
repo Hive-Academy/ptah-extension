@@ -1,1387 +1,188 @@
 /**
- * Infrastructure Test Application
+ * Infra Test - Trial Reminder Cron Test Client
  *
- * Tests Claude CLI spawn behavior outside of VS Code extension context
- * to identify issues with process spawning, shell execution, and JSONL parsing.
+ * TASK_2025_143: Test script for manually triggering trial expiration workflow
+ *
+ * This script calls the license server's admin endpoint to trigger the actual
+ * TrialReminderService cron job, ensuring we test the real implementation.
+ *
+ * Usage:
+ *   npx ts-node apps/infra-test/src/main.ts              # Trigger cron job
+ *   npx ts-node apps/infra-test/src/main.ts --help       # Show help
+ *
+ * Environment Variables:
+ *   LICENSE_SERVER_URL - URL of the license server (default: http://localhost:3000)
+ *   ADMIN_SECRET - Admin secret for authentication (required)
+ *
+ * Server Setup:
+ *   The license server must be running with ADMIN_SECRET configured in its .env
  */
 
-import { spawn, exec, SpawnOptions } from 'child_process';
-import * as os from 'os';
-import * as path from 'path';
-
-interface TestResult {
-  name: string;
-  success: boolean;
-  duration: number;
-  error?: string;
-  output?: string;
-}
-
-const results: TestResult[] = [];
-
-function log(message: string): void {
-  console.log(`[${new Date().toISOString()}] ${message}`);
-}
-
-function logSection(title: string): void {
-  console.log('\n' + '='.repeat(60));
-  console.log(`  ${title}`);
-  console.log('='.repeat(60));
-}
-
-async function runTest(
-  name: string,
-  testFn: () => Promise<{ success: boolean; output?: string; error?: string }>
-): Promise<void> {
-  const start = Date.now();
-  log(`Running: ${name}`);
-
-  try {
-    const result = await testFn();
-    const duration = Date.now() - start;
-    results.push({ name, ...result, duration });
-
-    if (result.success) {
-      log(`  ✅ PASSED (${duration}ms)`);
-      if (result.output) {
-        log(
-          `  Output: ${result.output.substring(0, 200)}${
-            result.output.length > 200 ? '...' : ''
-          }`
-        );
-      }
-    } else {
-      log(`  ❌ FAILED (${duration}ms)`);
-      if (result.error) {
-        log(`  Error: ${result.error}`);
-      }
-    }
-  } catch (err) {
-    const duration = Date.now() - start;
-    const error = err instanceof Error ? err.message : String(err);
-    results.push({ name, success: false, duration, error });
-    log(`  ❌ EXCEPTION (${duration}ms): ${error}`);
-  }
-}
-
-// Test 1: Check system environment
-async function testSystemEnvironment(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  const info = {
-    platform: os.platform(),
-    arch: os.arch(),
-    nodeVersion: process.version,
-    cwd: process.cwd(),
-    shell: process.env['SHELL'] || process.env['ComSpec'] || 'unknown',
-    pathSeparator: path.delimiter,
-    pathDirs: (process.env['PATH'] || '').split(path.delimiter).length,
-  };
-
-  return {
-    success: true,
-    output: JSON.stringify(info, null, 2),
-  };
-}
-
-// Test 2: Check if claude command exists using 'where' (Windows) or 'which' (Unix)
-async function testClaudeInPath(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const cmd = os.platform() === 'win32' ? 'where claude' : 'which claude';
-
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        resolve({
-          success: false,
-          error: `Claude not found in PATH: ${stderr || error.message}`,
-        });
-      } else {
-        resolve({
-          success: true,
-          output: `Claude found at: ${stdout.trim()}`,
-        });
-      }
-    });
-  });
-}
-
-// Test 3: Spawn claude --version with shell: false
-async function testSpawnNoShell(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    };
-
-    log('  Spawning: claude --version (shell: false)');
-
-    const proc = spawn('claude', ['--version'], options);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      resolve({
-        success: false,
-        error: `Spawn error: ${err.message} (code: ${
-          (err as NodeJS.ErrnoException).code
-        })`,
-      });
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve({
-          success: true,
-          output: stdout.trim() || stderr.trim(),
-        });
-      } else {
-        resolve({
-          success: false,
-          error: `Exit code ${code}: ${stderr || stdout}`,
-        });
-      }
-    });
-
-    // Timeout after 10 seconds
-    setTimeout(() => {
-      proc.kill();
-      resolve({
-        success: false,
-        error: 'Timeout after 10 seconds',
-      });
-    }, 10000);
-  });
-}
-
-// Test 4: Spawn claude --version with shell: true
-async function testSpawnWithShell(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    };
-
-    log('  Spawning: claude --version (shell: true)');
-
-    const proc = spawn('claude', ['--version'], options);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      resolve({
-        success: false,
-        error: `Spawn error: ${err.message} (code: ${
-          (err as NodeJS.ErrnoException).code
-        })`,
-      });
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve({
-          success: true,
-          output: stdout.trim() || stderr.trim(),
-        });
-      } else {
-        resolve({
-          success: false,
-          error: `Exit code ${code}: ${stderr || stdout}`,
-        });
-      }
-    });
-
-    // Timeout after 10 seconds
-    setTimeout(() => {
-      proc.kill();
-      resolve({
-        success: false,
-        error: 'Timeout after 10 seconds',
-      });
-    }, 10000);
-  });
-}
-
-// Test 5: Spawn claude --help to verify CLI works
-async function testClaudeHelp(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    };
-
-    log('  Spawning: claude --help (shell: false)');
-
-    const proc = spawn('claude', ['--help'], options);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      resolve({
-        success: false,
-        error: `Spawn error: ${err.message} (code: ${
-          (err as NodeJS.ErrnoException).code
-        })`,
-      });
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        const hasExpectedContent =
-          stdout.includes('claude') || stdout.includes('Usage');
-        resolve({
-          success: hasExpectedContent,
-          output: hasExpectedContent
-            ? `Help output received (${stdout.length} chars)`
-            : `Unexpected output: ${stdout.substring(0, 100)}`,
-        });
-      } else {
-        resolve({
-          success: false,
-          error: `Exit code ${code}: ${stderr || stdout}`,
-        });
-      }
-    });
-
-    // Timeout after 10 seconds
-    setTimeout(() => {
-      proc.kill();
-      resolve({
-        success: false,
-        error: 'Timeout after 10 seconds',
-      });
-    }, 10000);
-  });
-}
-
-// Test 6: Test JSONL parsing simulation
-async function testJsonlParsing(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  const sampleJsonl = [
-    '{"type":"system","subtype":"init","session_id":"test-123"}',
-    '{"type":"assistant","message":{"role":"assistant","content":"Hello!"}}',
-    '{"type":"result","subtype":"success","cost_usd":0.001}',
-  ];
-
-  try {
-    const parsed = sampleJsonl.map((line) => JSON.parse(line));
-
-    const hasInit = parsed.some(
-      (p) => p.type === 'system' && p.subtype === 'init'
-    );
-    const hasAssistant = parsed.some((p) => p.type === 'assistant');
-    const hasResult = parsed.some((p) => p.type === 'result');
-
-    return {
-      success: hasInit && hasAssistant && hasResult,
-      output: `Parsed ${parsed.length} JSONL messages: init=${hasInit}, assistant=${hasAssistant}, result=${hasResult}`,
-    };
-  } catch (err) {
-    return {
-      success: false,
-      error: `JSONL parse error: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    };
-  }
-}
-
-// Test 7: Test with explicit .cmd path
-async function testExplicitCmdPath(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    // Try to find claude.cmd and execute it directly
-    const claudeCmdPath = 'C:\\Users\\abdal\\AppData\\Roaming\\npm\\claude.cmd';
-
-    const options: SpawnOptions = {
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    };
-
-    log(
-      `  Spawning: "${claudeCmdPath}" --version (shell: true, explicit path)`
-    );
-
-    const proc = spawn(claudeCmdPath, ['--version'], options);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      resolve({
-        success: false,
-        error: `Spawn error: ${err.message} (code: ${
-          (err as NodeJS.ErrnoException).code
-        })`,
-      });
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve({
-          success: true,
-          output: stdout.trim() || stderr.trim(),
-        });
-      } else {
-        resolve({
-          success: false,
-          error: `Exit code ${code}: ${stderr || stdout}`,
-        });
-      }
-    });
-
-    setTimeout(() => {
-      proc.kill();
-      resolve({
-        success: false,
-        error: 'Timeout after 10 seconds',
-      });
-    }, 10000);
-  });
-}
-
-// Test 8: Test with explicit shell (cmd.exe)
-async function testExplicitShell(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: 'C:\\Windows\\System32\\cmd.exe',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    };
-
-    log('  Spawning: claude --version (shell: cmd.exe)');
-
-    const proc = spawn('claude', ['--version'], options);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      resolve({
-        success: false,
-        error: `Spawn error: ${err.message} (code: ${
-          (err as NodeJS.ErrnoException).code
-        })`,
-      });
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0) {
-        resolve({
-          success: true,
-          output: stdout.trim() || stderr.trim(),
-        });
-      } else {
-        resolve({
-          success: false,
-          error: `Exit code ${code}: ${stderr || stdout}`,
-        });
-      }
-    });
-
-    setTimeout(() => {
-      proc.kill();
-      resolve({
-        success: false,
-        error: 'Timeout after 10 seconds',
-      });
-    }, 10000);
-  });
-}
-
-// Test 9: Check shell environment variables
-async function testShellEnvironment(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  const shellInfo = {
-    SHELL: process.env['SHELL'] || 'not set',
-    ComSpec: process.env['ComSpec'] || 'not set',
-    COMSPEC: process.env['COMSPEC'] || 'not set',
-    SystemRoot: process.env['SystemRoot'] || 'not set',
-    windir: process.env['windir'] || 'not set',
-  };
-
-  return {
-    success: true,
-    output: JSON.stringify(shellInfo, null, 2),
-  };
-}
-
-// Test 10: Interactive mode spawn test (short timeout)
-async function testInteractiveSpawn(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: true, // Required on Windows for .cmd files
-      stdio: ['pipe', 'pipe', 'pipe'],
-    };
-
-    log(
-      '  Spawning: claude -p "Say hello" --output-format stream-json (shell: true)'
-    );
-
-    const proc = spawn(
-      'claude',
-      ['-p', 'Say hello in one word', '--output-format', 'stream-json'],
-      options
-    );
-    let stdout = '';
-    let stderr = '';
-    const jsonLines: unknown[] = [];
-
-    proc.stdout?.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-
-      // Try to parse JSONL lines
-      const lines = chunk.split('\n').filter((l: string) => l.trim());
-      for (const line of lines) {
-        try {
-          jsonLines.push(JSON.parse(line));
-        } catch {
-          // Not valid JSON, skip
-        }
-      }
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      resolve({
-        success: false,
-        error: `Spawn error: ${err.message} (code: ${
-          (err as NodeJS.ErrnoException).code
-        })`,
-      });
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0 || jsonLines.length > 0) {
-        resolve({
-          success: true,
-          output: `Received ${jsonLines.length} JSON messages, exit code: ${code}`,
-        });
-      } else {
-        resolve({
-          success: false,
-          error: `Exit code ${code}: ${stderr || stdout.substring(0, 200)}`,
-        });
-      }
-    });
-
-    // Timeout after 30 seconds for API call
-    setTimeout(() => {
-      proc.kill();
-      if (jsonLines.length > 0) {
-        resolve({
-          success: true,
-          output: `Timeout but received ${jsonLines.length} JSON messages`,
-        });
-      } else {
-        resolve({
-          success: false,
-          error: 'Timeout after 30 seconds with no JSON output',
-        });
-      }
-    }, 30000);
-  });
-}
-
-// Test 11: Verify cross-platform shell execution logic
-async function testCrossPlatformLogic(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  /**
-   * This test verifies the logic used in ClaudeProcess.needsShellExecution()
-   * would work correctly across platforms
-   */
-  const needsShellExecution = (cliPath: string, platform: string): boolean => {
-    // On non-Windows, never need shell
-    if (platform !== 'win32') {
-      return false;
-    }
-
-    const pathLower = cliPath.toLowerCase();
-
-    // If it's an explicit .exe with full path, we can spawn directly
-    if (pathLower.endsWith('.exe') && pathLower.includes('\\')) {
-      return false;
-    }
-
-    // Everything else on Windows needs shell
-    return true;
-  };
-
-  const testCases = [
-    // Windows cases
-    {
-      path: 'claude',
-      platform: 'win32',
-      expected: true,
-      reason: 'PATH command needs shell',
-    },
-    {
-      path: 'C:\\npm\\claude.cmd',
-      platform: 'win32',
-      expected: true,
-      reason: '.cmd needs shell',
-    },
-    {
-      path: 'C:\\Program Files\\claude.exe',
-      platform: 'win32',
-      expected: false,
-      reason: 'Full path .exe can spawn directly',
-    },
-    {
-      path: './claude',
-      platform: 'win32',
-      expected: true,
-      reason: 'Relative path needs shell',
-    },
-    // macOS cases
-    {
-      path: 'claude',
-      platform: 'darwin',
-      expected: false,
-      reason: 'macOS no shell needed',
-    },
-    {
-      path: '/usr/local/bin/claude',
-      platform: 'darwin',
-      expected: false,
-      reason: 'macOS full path no shell',
-    },
-    // Linux cases
-    {
-      path: 'claude',
-      platform: 'linux',
-      expected: false,
-      reason: 'Linux no shell needed',
-    },
-    {
-      path: '/usr/bin/claude',
-      platform: 'linux',
-      expected: false,
-      reason: 'Linux full path no shell',
-    },
-  ];
-
-  const results: string[] = [];
-  let allPassed = true;
-
-  for (const tc of testCases) {
-    const actual = needsShellExecution(tc.path, tc.platform);
-    const passed = actual === tc.expected;
-    if (!passed) allPassed = false;
-
-    results.push(
-      `${passed ? '✅' : '❌'} ${tc.platform}: "${
-        tc.path
-      }" -> shell:${actual} (expected:${tc.expected}) - ${tc.reason}`
-    );
-  }
-
-  return {
-    success: allPassed,
-    output: results.join('\n'),
-    error: allPassed ? undefined : 'Some cross-platform tests failed',
-  };
-}
-
-// Test 12: Test agent streaming to see JSONL structure
-async function testAgentStreaming(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  const fs = await import('fs');
-
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: process.cwd(),
-    };
-
-    // Similar prompt to the Anubis session - invoke researcher/explore agent
-    const prompt =
-      'Use the Task tool to spawn an Explore agent with description "Research codebase structure" to analyze the project structure. The agent should look at the main directories and key files. Just invoke the Explore agent once.';
-
-    log(
-      `  Spawning: claude -p "${prompt.substring(
-        0,
-        60
-      )}..." --output-format stream-json --verbose`
-    );
-
-    const proc = spawn(
-      'claude',
-      ['-p', prompt, '--output-format', 'stream-json', '--verbose'],
-      options
-    );
-
-    let stdout = '';
-    let stderr = '';
-    const jsonLines: any[] = [];
-    const rawLines: string[] = [];
-
-    proc.stdout?.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-
-      // Save raw lines for file output
-      const lines = chunk.split('\n').filter((l: string) => l.trim());
-      rawLines.push(...lines);
-
-      // Parse each JSONL line
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line);
-          jsonLines.push(parsed);
-
-          // Log key information about each message
-          const info: string[] = [];
-          info.push(`type=${parsed.type}`);
-          if (parsed.subtype) info.push(`subtype=${parsed.subtype}`);
-          if (parsed.agentId) info.push(`agentId=${parsed.agentId}`);
-          if (parsed.isSidechain !== undefined)
-            info.push(`isSidechain=${parsed.isSidechain}`);
-          if (parsed.tool) info.push(`tool=${parsed.tool}`);
-          if (parsed.tool_use_id)
-            info.push(`tool_use_id=${parsed.tool_use_id?.substring(0, 15)}...`);
-          if (parsed.parent_tool_use_id)
-            info.push(
-              `parent_tool_use_id=${parsed.parent_tool_use_id?.substring(
-                0,
-                15
-              )}...`
-            );
-          if (parsed.message?.model) info.push(`model=${parsed.message.model}`);
-          if (parsed.slug) info.push(`slug=${parsed.slug}`);
-
-          log(`    [${jsonLines.length}] ${info.join(' | ')}`);
-        } catch {
-          // Not valid JSON, skip
-        }
-      }
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      resolve({
-        success: false,
-        error: `Spawn error: ${err.message}`,
-      });
-    });
-
-    proc.on('close', (code) => {
-      // Save raw JSONL to file for analysis
-      const outputPath = path.join(process.cwd(), 'agent-test-output.jsonl');
-      fs.writeFileSync(outputPath, rawLines.join('\n'));
-      log(`\n  Raw JSONL saved to: ${outputPath}`);
-
-      // Analyze the session structure
-      const agentIds = [
-        ...new Set(jsonLines.filter((j) => j.agentId).map((j) => j.agentId)),
-      ];
-      const sidechainMsgs = jsonLines.filter((j) => j.isSidechain === true);
-      const mainMsgs = jsonLines.filter((j) => j.isSidechain === false);
-      const taskTools = jsonLines.filter(
-        (j) =>
-          j.type === 'assistant' &&
-          j.message?.content?.some(
-            (c: any) => c.type === 'tool_use' && c.name === 'Task'
-          )
-      );
-      const messagesWithParent = jsonLines.filter((j) => j.parent_tool_use_id);
-      const models = [
-        ...new Set(
-          jsonLines.filter((j) => j.message?.model).map((j) => j.message.model)
-        ),
-      ];
-
-      const analysis = {
-        totalMessages: jsonLines.length,
-        mainSessionMessages: mainMsgs.length,
-        sidechainMessages: sidechainMsgs.length,
-        agentIds,
-        taskToolInvocations: taskTools.length,
-        messagesWithParentToolUseId: messagesWithParent.length,
-        modelsUsed: models,
-        messageTypes: [...new Set(jsonLines.map((j) => j.type))],
-      };
-
-      log(`\n  === ANALYSIS ===`);
-      log(`  ${JSON.stringify(analysis, null, 2)}`);
-
-      // Group messages by agentId for detailed view
-      if (agentIds.length > 0) {
-        log(`\n  === AGENT BREAKDOWN ===`);
-        for (const agentId of agentIds) {
-          const agentMsgs = jsonLines.filter((j) => j.agentId === agentId);
-          const firstMsg = agentMsgs[0];
-          log(`\n  Agent: ${agentId}`);
-          log(`    Messages: ${agentMsgs.length}`);
-          log(`    isSidechain: ${firstMsg?.isSidechain}`);
-          log(`    Model: ${firstMsg?.message?.model || 'unknown'}`);
-          log(`    Slug: ${firstMsg?.slug || 'none'}`);
-          log(
-            `    First content preview: ${JSON.stringify(
-              firstMsg?.message?.content?.[0]
-            )?.substring(0, 100)}...`
-          );
-        }
-      }
-
-      // Check for parent_tool_use_id linkage
-      if (messagesWithParent.length > 0) {
-        log(`\n  === PARENT_TOOL_USE_ID LINKAGE ===`);
-        const parentIds = [
-          ...new Set(messagesWithParent.map((m) => m.parent_tool_use_id)),
-        ];
-        for (const parentId of parentIds) {
-          const linked = messagesWithParent.filter(
-            (m) => m.parent_tool_use_id === parentId
-          );
-          log(`  parent_tool_use_id: ${parentId}`);
-          log(`    Linked messages: ${linked.length}`);
-          log(
-            `    Types: ${[...new Set(linked.map((l) => l.type))].join(', ')}`
-          );
-        }
-      }
-
-      resolve({
-        success: jsonLines.length > 0,
-        output: `Received ${jsonLines.length} messages. Agents: ${agentIds.length}. Sidechain: ${sidechainMsgs.length}. Output saved to ${outputPath}`,
-      });
-    });
-
-    // Timeout after 180 seconds for agent execution
-    setTimeout(() => {
-      proc.kill();
-      // Still save what we got
-      const outputPath = path.join(process.cwd(), 'agent-test-output.jsonl');
-      fs.writeFileSync(outputPath, rawLines.join('\n'));
-
-      if (jsonLines.length > 0) {
-        resolve({
-          success: true,
-          output: `Timeout but received ${jsonLines.length} messages. Output saved to ${outputPath}`,
-        });
-      } else {
-        resolve({
-          success: false,
-          error: 'Timeout after 180 seconds with no output',
-        });
-      }
-    }, 180000);
-  });
-}
-
-// =============================================================================
-// INTERACTIVE SESSION EXPERIMENTS (TASK: Validate stdin behavior)
-// =============================================================================
+// Load environment variables
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('dotenv').config({ path: 'apps/ptah-license-server/.env' });
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+require('dotenv').config({ path: '.env' });
+
+// Parse command line arguments
+const args = process.argv.slice(2);
 
 /**
- * EXPERIMENT 1: Interactive mode WITHOUT -p flag
- *
- * Hypothesis: Claude CLI without -p enters interactive mode where stdin stays open
- * and we can send multiple messages.
- *
- * Test: Spawn claude without -p, send prompt via stdin, see if it processes
+ * Display usage information
  */
-async function testInteractiveModeNoPFlag(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: process.cwd(),
-    };
+function showUsage(): void {
+  console.log(`
+Trial Reminder Cron Test Client
 
-    // Note: --output-format stream-json requires --verbose
-    log(
-      '  Spawning: claude --output-format stream-json --verbose (NO -p flag)'
-    );
-    log('  Will send prompt via stdin WITHOUT closing it...');
+This script triggers the actual TrialReminderService cron job in the license server,
+testing the real implementation including:
+- Finding expired trials
+- Downgrading users to Community plan
+- Recording trial reminders
+- Sending emails
 
-    const proc = spawn(
-      'claude',
-      ['--output-format', 'stream-json', '--verbose'],
-      options
-    );
+Usage:
+  npx ts-node apps/infra-test/src/main.ts [options]
 
-    let stdout = '';
-    let stderr = '';
-    const jsonLines: any[] = [];
-    let gotResponse = false;
+Options:
+  --help                 Show this help message
+  --url=<url>            Override LICENSE_SERVER_URL (default: http://localhost:3000)
+  --secret=<secret>      Override ADMIN_SECRET
 
-    proc.stdout?.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      log(
-        `  [stdout] ${chunk.substring(0, 100)}${
-          chunk.length > 100 ? '...' : ''
-        }`
-      );
+Environment Variables:
+  LICENSE_SERVER_URL     Base URL of the license server
+  ADMIN_SECRET           Admin secret for authentication (required)
 
-      // Parse JSONL
-      const lines = chunk.split('\n').filter((l: string) => l.trim());
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line);
-          jsonLines.push(parsed);
-          if (parsed.type === 'assistant') {
-            gotResponse = true;
-          }
-        } catch {
-          // Not JSON
-        }
-      }
-    });
+Examples:
+  # Trigger cron job (uses env vars)
+  npx ts-node apps/infra-test/src/main.ts
 
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-      log(`  [stderr] ${data.toString().substring(0, 100)}`);
-    });
+  # Override URL
+  npx ts-node apps/infra-test/src/main.ts --url=http://localhost:3001
 
-    proc.on('error', (err) => {
-      resolve({
-        success: false,
-        error: `Spawn error: ${err.message}`,
-      });
-    });
+Prerequisites:
+  1. License server must be running:
+     nx serve ptah-license-server
 
-    proc.on('close', (code) => {
-      resolve({
-        success: gotResponse,
-        output: `Exit code: ${code}, Got response: ${gotResponse}, Messages: ${jsonLines.length}`,
-        error: gotResponse
-          ? undefined
-          : `No response. stderr: ${stderr.substring(0, 200)}`,
-      });
-    });
+  2. ADMIN_SECRET must be set in the license server's .env:
+     echo "ADMIN_SECRET=my-test-secret" >> apps/ptah-license-server/.env
 
-    // Send prompt via stdin (WITHOUT closing stdin)
-    setTimeout(() => {
-      log('  Writing prompt to stdin (not closing stdin yet)...');
-      proc.stdin?.write('Say "hello" in one word only\n');
-      // NOT calling proc.stdin?.end() here!
-    }, 1000);
+  3. Set ADMIN_SECRET for this script (same value as above)
+`);
+}
 
-    // Wait for response
-    setTimeout(() => {
-      if (gotResponse) {
-        log('  Got response! Killing process...');
-        proc.kill();
-      } else {
-        log('  No response after 15s, trying to close stdin...');
-        proc.stdin?.end();
-      }
-    }, 15000);
-
-    // Final timeout
-    setTimeout(() => {
-      proc.kill();
-      resolve({
-        success: gotResponse,
-        output: `Timeout. Got response: ${gotResponse}, Messages: ${jsonLines.length}`,
-        error: gotResponse
-          ? undefined
-          : 'Timeout - prompt may not have been processed without stdin.end()',
-      });
-    }, 30000);
-  });
+// Show help if requested
+if (args.includes('--help')) {
+  showUsage();
+  process.exit(0);
 }
 
 /**
- * EXPERIMENT 2: stdin.write + newline vs stdin.end
- *
- * Hypothesis: Claude needs stdin.end() to process the prompt, newline alone isn't enough
- *
- * Test: Compare behavior with and without stdin.end()
+ * Main entry point
  */
-async function testStdinEndVsNewline(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: process.cwd(),
-    };
-
-    log('  Spawning: claude -p --output-format stream-json --verbose');
-    log('  Will test: Write + newline, wait 5s, then stdin.end()');
-
-    const proc = spawn(
-      'claude',
-      ['-p', '--output-format', 'stream-json', '--verbose'],
-      options
-    );
-
-    let stdout = '';
-    let stderr = '';
-    const jsonLines: any[] = [];
-    let gotResponseBeforeEnd = false;
-    let gotResponseAfterEnd = false;
-    let stdinEndedAt = 0;
-
-    proc.stdout?.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-
-      const lines = chunk.split('\n').filter((l: string) => l.trim());
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line);
-          jsonLines.push(parsed);
-          if (parsed.type === 'assistant') {
-            if (stdinEndedAt === 0) {
-              gotResponseBeforeEnd = true;
-              log(`  ✅ Got response BEFORE stdin.end()!`);
-            } else {
-              gotResponseAfterEnd = true;
-              log(
-                `  Got response ${
-                  Date.now() - stdinEndedAt
-                }ms after stdin.end()`
-              );
-            }
-          }
-        } catch {
-          // Not JSON
-        }
-      }
-    });
-
-    proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('error', (err) => {
-      resolve({ success: false, error: `Spawn error: ${err.message}` });
-    });
-
-    proc.on('close', (code) => {
-      resolve({
-        success: gotResponseAfterEnd || gotResponseBeforeEnd,
-        output: `Exit: ${code}, Before stdin.end: ${gotResponseBeforeEnd}, After stdin.end: ${gotResponseAfterEnd}`,
-      });
-    });
-
-    // Step 1: Write prompt with newline (no end)
-    setTimeout(() => {
-      log('  Step 1: Writing prompt + newline (stdin still open)...');
-      proc.stdin?.write('Say "test" only\n');
-    }, 500);
-
-    // Step 2: Wait 5 seconds to see if newline alone triggers processing
-    setTimeout(() => {
-      if (!gotResponseBeforeEnd) {
-        log('  Step 2: No response from newline alone. Calling stdin.end()...');
-        stdinEndedAt = Date.now();
-        proc.stdin?.end();
-      }
-    }, 5500);
-
-    // Timeout
-    setTimeout(() => {
-      proc.kill();
-    }, 30000);
-  });
-}
-
-/**
- * EXPERIMENT 3: Send Esc key to interrupt
- *
- * Hypothesis: Sending \x1b (Escape) character to stdin will interrupt Claude
- *
- * Test: Start a long task, send Esc, see if it interrupts
- */
-async function testEscKeyInterrupt(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: process.cwd(),
-    };
-
-    log('  Spawning: claude -p --output-format stream-json --verbose');
-    log('  Will start long task, then send Esc to interrupt');
-
-    const proc = spawn(
-      'claude',
-      ['-p', '--output-format', 'stream-json', '--verbose'],
-      options
-    );
-
-    let stdout = '';
-    const jsonLines: any[] = [];
-    let interrupted = false;
-    let startedProcessing = false;
-
-    proc.stdout?.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-
-      const lines = chunk.split('\n').filter((l: string) => l.trim());
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line);
-          jsonLines.push(parsed);
-          if (parsed.type === 'assistant' || parsed.type === 'system') {
-            startedProcessing = true;
-          }
-          // Check for interruption signals
-          if (parsed.type === 'result' && parsed.subtype === 'error') {
-            interrupted = true;
-            log(`  ⚠️ Got error result - might be interruption`);
-          }
-        } catch {
-          // Not JSON
-        }
-      }
-    });
-
-    proc.on('close', (code) => {
-      // Code 130 typically indicates SIGINT (Ctrl+C)
-      // Code 0 with incomplete output might indicate Esc interrupt
-      const wasInterrupted = code !== 0 || interrupted;
-      resolve({
-        success: startedProcessing,
-        output: `Exit code: ${code}, Started: ${startedProcessing}, Interrupted: ${wasInterrupted}, Messages: ${jsonLines.length}`,
-      });
-    });
-
-    // Start a task that takes a while
-    setTimeout(() => {
-      log('  Writing long task prompt...');
-      proc.stdin?.write(
-        'List all prime numbers from 1 to 1000, one per line\n'
-      );
-      proc.stdin?.end();
-    }, 500);
-
-    // After Claude starts responding, send Esc
-    setTimeout(() => {
-      if (startedProcessing) {
-        log('  Sending Esc character (\\x1b) to stdin...');
-        // Try to write Esc - but stdin might be closed already!
-        try {
-          proc.stdin?.write('\x1b');
-        } catch (e) {
-          log(`  Could not write to stdin (already closed): ${e}`);
-        }
-      }
-    }, 3000);
-
-    // Also try SIGINT
-    setTimeout(() => {
-      if (!interrupted && startedProcessing) {
-        log('  Esc might not work. Trying SIGINT...');
-        proc.kill('SIGINT');
-      }
-    }, 5000);
-
-    // Timeout
-    setTimeout(() => {
-      proc.kill();
-    }, 20000);
-  });
-}
-
-/**
- * EXPERIMENT 4: Keep stdin open and send multiple messages
- *
- * Hypothesis: In interactive mode (no -p), we can send multiple prompts
- *
- * Test: Spawn without -p, send message 1, wait for response, send message 2
- */
-async function testMultipleMessagesOnStdin(): Promise<{
-  success: boolean;
-  output?: string;
-  error?: string;
-}> {
-  return new Promise((resolve) => {
-    const options: SpawnOptions = {
-      shell: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      cwd: process.cwd(),
-    };
-
-    log(
-      '  Spawning: claude --output-format stream-json --verbose (interactive mode)'
-    );
-    log('  Will try to send TWO messages sequentially');
-
-    const proc = spawn(
-      'claude',
-      ['--output-format', 'stream-json', '--verbose'],
-      options
-    );
-
-    let stdout = '';
-    const jsonLines: any[] = [];
-    let message1Response = false;
-    let message2Response = false;
-    let resultCount = 0;
-
-    proc.stdout?.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      log(`  [stdout chunk] ${chunk.substring(0, 80)}...`);
-
-      const lines = chunk.split('\n').filter((l: string) => l.trim());
-      for (const line of lines) {
-        try {
-          const parsed = JSON.parse(line);
-          jsonLines.push(parsed);
-
-          if (parsed.type === 'result') {
-            resultCount++;
-            if (resultCount === 1) {
-              message1Response = true;
-              log(`  ✅ First message completed!`);
-            } else if (resultCount === 2) {
-              message2Response = true;
-              log(`  ✅ Second message completed!`);
-            }
-          }
-        } catch {
-          // Not JSON
-        }
-      }
-    });
-
-    proc.on('close', (code) => {
-      resolve({
-        success: message1Response && message2Response,
-        output: `Exit: ${code}, Msg1: ${message1Response}, Msg2: ${message2Response}, Total results: ${resultCount}`,
-        error: !message1Response
-          ? 'First message never completed'
-          : !message2Response
-          ? 'Second message never completed'
-          : undefined,
-      });
-    });
-
-    // Send first message
-    setTimeout(() => {
-      log('  Sending message 1: "Say apple"');
-      proc.stdin?.write('Say the word "apple" only\n');
-      // Don't close stdin!
-    }, 1000);
-
-    // Wait for first response, then send second message
-    setTimeout(() => {
-      if (message1Response) {
-        log('  Sending message 2: "Say banana"');
-        proc.stdin?.write('Say the word "banana" only\n');
-      } else {
-        log('  Message 1 not complete yet, trying message 2 anyway...');
-        proc.stdin?.write('Say the word "banana" only\n');
-      }
-    }, 15000);
-
-    // Give time for second response
-    setTimeout(() => {
-      if (!message2Response) {
-        log('  Closing stdin to trigger processing...');
-        proc.stdin?.end();
-      }
-    }, 25000);
-
-    // Timeout
-    setTimeout(() => {
-      proc.kill();
-    }, 45000);
-  });
-}
-
-/**
- * EXPERIMENT 5: Test --resume with new process for each message
- *
- * This is our current fallback pattern - can we reliably resume?
- */
-
-// Main execution
 async function main(): Promise<void> {
-  logSection('PTAH Infrastructure Test Suite');
-  log('Testing Claude CLI spawn behavior outside VS Code context');
+  console.log('='.repeat(60));
+  console.log('Trial Reminder Cron Test Client');
+  console.log('='.repeat(60));
+  console.log('');
 
-  // Check command line flags
-  const runAgentTest = process.argv.includes('--agent-test');
-  const runInteractiveTest = process.argv.includes('--interactive-test');
+  // Get configuration
+  const urlArg = args.find((arg) => arg.startsWith('--url='));
+  const secretArg = args.find((arg) => arg.startsWith('--secret='));
 
-  if (runInteractiveTest) {
-    logSection('Interactive Session Experiments (--interactive-test mode)');
-    log('Testing hypotheses about stdin behavior and interactive sessions');
-    log('');
-    log('EXPERIMENTS:');
-    log('1. Interactive mode (no -p flag) - Can we keep stdin open?');
-    log('2. stdin.write vs stdin.end - Does newline alone trigger processing?');
-    log('3. Esc key interrupt - Can we send \\x1b to stop Claude?');
-    log('4. Multiple messages - Can we send follow-up messages?');
-    log('5. Resume pattern - Fallback: new process per message with --resume');
-    log('');
+  const baseUrl =
+    urlArg?.split('=')[1] ||
+    process.env['LICENSE_SERVER_URL'] ||
+    'http://localhost:3000';
 
-    await runTest(
-      'EXPERIMENT 1: Interactive mode (no -p flag)',
-      testInteractiveModeNoPFlag
+  const adminSecret = secretArg?.split('=')[1] || process.env['ADMIN_SECRET'];
+
+  if (!adminSecret) {
+    console.error('❌ ERROR: ADMIN_SECRET is not set!');
+    console.error('');
+    console.error(
+      '   Set ADMIN_SECRET in your environment or use --secret=<value>'
     );
-    await runTest('EXPERIMENT 2: stdin.end vs newline', testStdinEndVsNewline);
-    await runTest('EXPERIMENT 3: Esc key interrupt', testEscKeyInterrupt);
-    await runTest(
-      'EXPERIMENT 4: Multiple messages on stdin',
-      testMultipleMessagesOnStdin
+    console.error('');
+    console.error('   Example:');
+    console.error(
+      '     ADMIN_SECRET=my-test-secret npx ts-node apps/infra-test/src/main.ts'
     );
-  } else if (runAgentTest) {
-    logSection('Agent Streaming Test (--agent-test mode)');
-    await runTest('Agent Streaming JSONL Structure', testAgentStreaming);
-  } else {
-    logSection('Environment Tests');
-    await runTest('System Environment', testSystemEnvironment);
-    await runTest('Claude in PATH', testClaudeInPath);
-
-    logSection('Spawn Tests (shell: false - recommended)');
-    await runTest('Spawn --version (no shell)', testSpawnNoShell);
-    await runTest('Spawn --help (no shell)', testClaudeHelp);
-
-    logSection('Spawn Tests (shell: true - works on Windows)');
-    await runTest('Spawn --version (with shell)', testSpawnWithShell);
-    await runTest('Spawn with explicit .cmd path', testExplicitCmdPath);
-    await runTest('Spawn with explicit cmd.exe shell', testExplicitShell);
-
-    logSection('Environment Analysis');
-    await runTest('Shell Environment Variables', testShellEnvironment);
-
-    logSection('JSONL Parsing Tests');
-    await runTest('JSONL Parsing Simulation', testJsonlParsing);
-
-    logSection('Interactive Claude Tests (shell: true)');
-    await runTest('Interactive Spawn Test', testInteractiveSpawn);
-
-    logSection('Cross-Platform Logic Verification');
-    await runTest(
-      'Cross-Platform Shell Execution Logic',
-      testCrossPlatformLogic
-    );
+    console.error('');
+    process.exit(1);
   }
 
-  // Summary
-  logSection('TEST SUMMARY');
-  const passed = results.filter((r) => r.success).length;
-  const failed = results.filter((r) => !r.success).length;
+  const endpoint = `${baseUrl}/admin/trial-reminder/trigger`;
+  console.log(`Server URL: ${baseUrl}`);
+  console.log(`Endpoint: POST ${endpoint}`);
+  console.log('');
 
-  log(`Total: ${results.length} tests`);
-  log(`Passed: ${passed}`);
-  log(`Failed: ${failed}`);
-  log('');
+  try {
+    console.log('🚀 Triggering trial reminder cron job...');
+    console.log('');
 
-  for (const result of results) {
-    const icon = result.success ? '✅' : '❌';
-    log(`${icon} ${result.name} (${result.duration}ms)`);
-  }
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Secret': adminSecret,
+      },
+    });
 
-  if (failed > 0) {
-    logSection('FAILED TEST DETAILS');
-    for (const result of results.filter((r) => !r.success)) {
-      log(`\n${result.name}:`);
-      log(`  Error: ${result.error}`);
+    const data = await response.json();
+
+    if (response.ok && data.success) {
+      console.log('✅ Cron job executed successfully!');
+      console.log('');
+      console.log(`Message: ${data.message}`);
+    } else if (response.status === 401) {
+      console.error('❌ Authentication failed!');
+      console.error('');
+      console.error(
+        '   Check that ADMIN_SECRET matches the license server configuration.'
+      );
+      console.error(`   Response: ${data.message || 'Unauthorized'}`);
+      process.exit(1);
+    } else {
+      console.error('❌ Cron job failed!');
+      console.error('');
+      console.error(`   Status: ${response.status}`);
+      console.error(`   Message: ${data.message || JSON.stringify(data)}`);
+      process.exit(1);
     }
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('ECONNREFUSED')) {
+      console.error('❌ Connection refused!');
+      console.error('');
+      console.error(`   Cannot connect to ${baseUrl}`);
+      console.error('');
+      console.error('   Make sure the license server is running:');
+      console.error('     nx serve ptah-license-server');
+    } else {
+      console.error('❌ Request failed!');
+      console.error('');
+      console.error(
+        `   Error: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    process.exit(1);
   }
 
-  process.exit(failed > 0 ? 1 : 0);
+  console.log('');
+  console.log('─'.repeat(60));
+  console.log('');
+  console.log('Next Steps:');
+  console.log('  1. Check license server logs for detailed execution output');
+  console.log('  2. Verify database changes in Prisma Studio:');
+  console.log('     npm run prisma:studio');
+  console.log(
+    '  3. Check if downgraded users appear in extension with Community plan'
+  );
+  console.log('');
 }
 
-main().catch((err) => {
-  console.error('Fatal error:', err);
+// Run main
+main().catch((error) => {
+  console.error('Fatal error:', error);
   process.exit(1);
 });

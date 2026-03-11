@@ -99,25 +99,25 @@ export class AstAnalysisService {
         language
       );
       const functions: FunctionInfo[] = functionsResult.isOk()
-        ? this.extractFunctionsFromMatches(functionsResult.value!)
+        ? this.extractFunctionsFromMatches(functionsResult.value ?? [])
         : [];
 
       // Extract classes using query
       const classesResult = this.parserService.queryClasses(content, language);
       const classes: ClassInfo[] = classesResult.isOk()
-        ? this.extractClassesFromMatches(classesResult.value!)
+        ? this.extractClassesFromMatches(classesResult.value ?? [])
         : [];
 
       // Extract imports using query
       const importsResult = this.parserService.queryImports(content, language);
       const imports: ImportInfo[] = importsResult.isOk()
-        ? this.extractImportsFromMatches(importsResult.value!)
+        ? this.extractImportsFromMatches(importsResult.value ?? [])
         : [];
 
       // Extract exports using query
       const exportsResult = this.parserService.queryExports(content, language);
       const exports: ExportInfo[] = exportsResult.isOk()
-        ? this.extractExportsFromMatches(exportsResult.value!)
+        ? this.extractExportsFromMatches(exportsResult.value ?? [])
         : [];
 
       const insights: CodeInsights = {
@@ -501,23 +501,27 @@ export class AstAnalysisService {
    * Checks if a node represents a function declaration/expression.
    */
   private isFunctionNode(node: GenericAstNode): boolean {
-    return [
-      AST_NODE_TYPES.FUNCTION_DECLARATION,
-      AST_NODE_TYPES.FUNCTION_EXPRESSION,
-      AST_NODE_TYPES.ARROW_FUNCTION,
-      AST_NODE_TYPES.METHOD_DEFINITION,
-      AST_NODE_TYPES.GENERATOR_FUNCTION,
-    ].includes(node.type as any);
+    return (
+      [
+        AST_NODE_TYPES.FUNCTION_DECLARATION,
+        AST_NODE_TYPES.FUNCTION_EXPRESSION,
+        AST_NODE_TYPES.ARROW_FUNCTION,
+        AST_NODE_TYPES.METHOD_DEFINITION,
+        AST_NODE_TYPES.GENERATOR_FUNCTION,
+      ] as string[]
+    ).includes(node.type);
   }
 
   /**
    * Checks if a node represents a class declaration/expression.
    */
   private isClassNode(node: GenericAstNode): boolean {
-    return [
-      AST_NODE_TYPES.CLASS_DECLARATION,
-      AST_NODE_TYPES.CLASS_EXPRESSION,
-    ].includes(node.type as any);
+    return (
+      [
+        AST_NODE_TYPES.CLASS_DECLARATION,
+        AST_NODE_TYPES.CLASS_EXPRESSION,
+      ] as string[]
+    ).includes(node.type);
   }
 
   /**

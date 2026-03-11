@@ -8,7 +8,7 @@ import { ChatFile } from '../../services';
 
 /**
  * File Tag Component - Compact Chip for Selected Files
- * - Displays included file as small removable chip (like Claude Code CLI)
+ * - Displays included file as a small removable chip
  * - Shows icon + truncated name + remove button
  * - Tooltip for full path and metadata
  * - No preview - keep it minimal

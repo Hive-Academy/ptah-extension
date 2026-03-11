@@ -39,7 +39,7 @@ describe('TreeSitterParserService', () => {
       debug: jest.fn(),
       lifecycle: jest.fn(),
       dispose: jest.fn(),
-    } as any;
+    } as unknown as jest.Mocked<Logger>;
 
     // Create service with mock logger
     service = new TreeSitterParserService(mockLogger);
@@ -51,8 +51,8 @@ describe('TreeSitterParserService', () => {
       const result = service.parse(code, 'typescript');
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.type).toBe('program');
-      expect(Array.isArray(result.value!.children)).toBe(true);
+      expect(result.value?.type).toBe('program');
+      expect(Array.isArray(result.value?.children)).toBe(true);
     });
   });
 
@@ -62,8 +62,8 @@ describe('TreeSitterParserService', () => {
       const result = service.parse(code, 'javascript');
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!.type).toBe('program');
-      expect(Array.isArray(result.value!.children)).toBe(true);
+      expect(result.value?.type).toBe('program');
+      expect(Array.isArray(result.value?.children)).toBe(true);
     });
   });
 
@@ -105,13 +105,15 @@ describe('TreeSitterParserService', () => {
       const result = service.parse(code, 'typescript');
 
       expect(result.isOk()).toBe(true);
-      expect(result.value!).toHaveProperty('type');
-      expect(result.value!).toHaveProperty('text');
-      expect(result.value!).toHaveProperty('startPosition');
-      expect(result.value!).toHaveProperty('endPosition');
-      expect(result.value!).toHaveProperty('isNamed');
-      expect(result.value!).toHaveProperty('fieldName');
-      expect(result.value!).toHaveProperty('children');
+      const astNode = result.value;
+      expect(astNode).toBeDefined();
+      expect(astNode).toHaveProperty('type');
+      expect(astNode).toHaveProperty('text');
+      expect(astNode).toHaveProperty('startPosition');
+      expect(astNode).toHaveProperty('endPosition');
+      expect(astNode).toHaveProperty('isNamed');
+      expect(astNode).toHaveProperty('fieldName');
+      expect(astNode).toHaveProperty('children');
     });
   });
 });

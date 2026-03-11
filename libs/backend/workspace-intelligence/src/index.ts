@@ -8,14 +8,6 @@
 // Type exports
 export * from './types/workspace.types';
 
-/**
- * Workspace Intelligence Library
- * Public API exports
- */
-
-// Type exports
-export * from './types/workspace.types';
-
 // Service exports (gradual implementation - uncomment as services are implemented)
 export { TokenCounterService } from './services/token-counter.service';
 export {
@@ -88,7 +80,14 @@ export {
   type ContextOptimizationRequest,
   type OptimizedContext,
   type ContextOptimizationStats,
+  type FileContextMode,
 } from './context-analysis/context-size-optimizer.service';
+
+// Context enrichment
+export {
+  ContextEnrichmentService,
+  type StructuralSummaryResult,
+} from './context-analysis/context-enrichment.service';
 
 // Composite services - Unified facades
 export {
@@ -97,13 +96,20 @@ export {
   type ContextRecommendations,
 } from './composite/workspace-analyzer.service';
 
-// AST services (Phase 2: RooCode migration)
+// AST Analysis Services
 export {
   TreeSitterParserService,
   type QueryCapture,
   type QueryMatch,
+  type EditDelta,
 } from './ast/tree-sitter-parser.service';
 export { AstAnalysisService } from './ast/ast-analysis.service';
+export {
+  DependencyGraphService,
+  type DependencyGraph,
+  type FileNode,
+  type SymbolIndex,
+} from './ast/dependency-graph.service';
 
 // AST types and interfaces
 export * from './ast/ast.types';
@@ -113,5 +119,8 @@ export * from './ast/tree-sitter.config';
 export * from './autocomplete/agent-discovery.service';
 export * from './autocomplete/command-discovery.service';
 
-// DI registration bootstrap function
-// NOTE: DI registration is now centralized in apps/ptah-extension-vscode/src/di/container.ts
+// Quality Assessment (TASK_2025_141)
+export * from './quality';
+
+// DI registration function
+export { registerWorkspaceIntelligenceServices } from './di';

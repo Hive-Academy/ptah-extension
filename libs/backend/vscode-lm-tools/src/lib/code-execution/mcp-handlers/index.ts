@@ -28,6 +28,7 @@ export {
 export {
   handleMCPRequest,
   type ProtocolHandlerDependencies,
+  type ToolResultCallback,
 } from './protocol-handlers';
 
 // HTTP server handler

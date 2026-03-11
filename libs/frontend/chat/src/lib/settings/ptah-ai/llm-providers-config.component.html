@@ -1,0 +1,171 @@
+<!-- LLM Providers Configuration -->
+<div class="space-y-4">
+  <!-- Section header -->
+  <div class="flex items-center gap-2 mb-4">
+    <lucide-angular [img]="CpuIcon" class="w-5 h-5 text-primary" />
+    <h3 class="text-lg font-semibold">AI Providers</h3>
+  </div>
+
+  <!-- Loading state -->
+  @if (llmState.isLoading()) {
+  <div class="flex justify-center py-8">
+    <span class="loading loading-spinner loading-md"></span>
+  </div>
+  } @else {
+  <!-- Error banner -->
+  @if (llmState.error()) {
+  <div class="alert alert-error mb-4" role="alert">
+    <span class="text-sm">{{ llmState.error() }}</span>
+  </div>
+  }
+
+  <!-- Provider cards -->
+  @for (provider of filteredProviders(); track provider.provider) {
+  <div class="card bg-base-200 shadow-sm">
+    <div class="card-body p-4">
+      <!-- Provider header row -->
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="font-medium text-sm">{{ provider.displayName }}</span>
+          <!-- Default provider badge -->
+          @if (provider.provider === llmState.defaultProvider()) {
+          <span
+            class="badge badge-primary badge-sm gap-1"
+            aria-label="Default provider"
+          >
+            <lucide-angular [img]="StarIcon" class="w-3 h-3" />
+            Default
+          </span>
+          }
+        </div>
+        <!-- Configuration status badge -->
+        @if (provider.isConfigured) {
+        <span
+          class="badge badge-success badge-sm gap-1"
+          aria-label="Provider configured"
+        >
+          <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
+          Configured
+        </span>
+        } @else {
+        <span class="badge badge-ghost badge-sm">Not Configured</span>
+        }
+      </div>
+
+      <!-- Default model -->
+      <div class="flex items-center gap-2 mt-1 min-w-0">
+        <label
+          class="text-xs text-base-content/60 shrink-0"
+          [for]="'model-' + provider.provider"
+          >Model:</label
+        >
+        @if ((llmState.providerModels().get(provider.provider)?.length ?? 0) >
+        0) {
+        <!-- Dropdown: models loaded from provider API -->
+        <select
+          [id]="'model-' + provider.provider"
+          class="select select-bordered select-xs flex-1 min-w-0 max-w-[260px] text-xs truncate"
+          [value]="provider.defaultModel"
+          (change)="onProviderModelSelectEvent(provider.provider, $event)"
+          [disabled]="savingModel() === provider.provider"
+          [attr.aria-label]="'Default model for ' + provider.displayName"
+        >
+          @for (model of llmState.providerModels().get(provider.provider); track
+          model.id) {
+          <option
+            [value]="model.id"
+            [selected]="model.id === provider.defaultModel"
+          >
+            {{ model.displayName }}
+          </option>
+          }
+        </select>
+        @if (savingModel() === provider.provider) {
+        <span class="loading loading-spinner loading-xs"></span>
+        } } @else if (llmState.loadingModels().has(provider.provider)) {
+        <!-- Loading spinner while fetching models -->
+        <span class="text-xs text-base-content/50 flex items-center gap-1">
+          <span class="loading loading-spinner loading-xs"></span>
+          Loading models...
+        </span>
+        } @else {
+        <!-- Fallback: editable text input -->
+        <input
+          [id]="'model-' + provider.provider"
+          type="text"
+          class="input input-bordered input-xs flex-1 min-w-0 max-w-[260px] text-xs"
+          [value]="
+            modelInputs().get(provider.provider) ?? provider.defaultModel
+          "
+          (input)="updateModelInputEvent(provider.provider, $event)"
+          [attr.aria-label]="'Default model for ' + provider.displayName"
+        />
+        <button
+          type="button"
+          class="btn btn-xs btn-ghost"
+          [disabled]="
+            savingModel() !== null ||
+            !modelInputs().get(provider.provider) ||
+            modelInputs().get(provider.provider)?.trim() ===
+              provider.defaultModel
+          "
+          (click)="onSaveDefaultModel(provider.provider)"
+          [attr.aria-label]="'Save default model for ' + provider.displayName"
+          title="Save model"
+        >
+          @if (savingModel() === provider.provider) {
+          <span class="loading loading-spinner loading-xs"></span>
+          } @else {
+          <lucide-angular [img]="SaveIcon" class="w-3 h-3" />
+          }
+        </button>
+        }
+      </div>
+
+      <!-- Capabilities -->
+      @if (provider.capabilities.length > 0) {
+      <div class="flex flex-wrap gap-1 mt-2">
+        @for (cap of provider.capabilities; track cap) {
+        <span class="badge badge-outline badge-xs flex items-center gap-0.5">
+          {{ formatCapability(cap) }}
+        </span>
+        }
+      </div>
+      }
+
+      <!-- VS Code LM info note -->
+      @if (provider.provider === 'vscode-lm') {
+      <div class="text-xs text-base-content/50 mt-2">
+        Uses models from VS Code's Language Model API. No API key required.
+      </div>
+      }
+
+      <!-- Set as Default button (shown when provider is configured and is not already the default) -->
+      @if (provider.provider !== llmState.defaultProvider() &&
+      provider.isConfigured) {
+      <button
+        type="button"
+        class="btn btn-xs btn-outline mt-2 self-start"
+        (click)="onDefaultProviderChange(provider.provider)"
+        [attr.aria-label]="
+          'Set ' + provider.displayName + ' as default provider'
+        "
+      >
+        Set as Default
+      </button>
+      }
+    </div>
+  </div>
+  }
+
+  <!-- Empty state: no providers loaded -->
+  @if (!llmState.isLoading() && filteredProviders().length === 0 &&
+  !llmState.error()) {
+  <div class="alert alert-info py-2 px-3">
+    <span class="text-xs"
+      >No LLM providers available. Configure a provider to enable AI
+      features.</span
+    >
+  </div>
+  } }
+</div>

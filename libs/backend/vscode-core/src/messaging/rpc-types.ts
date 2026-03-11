@@ -10,11 +10,11 @@
  * RPC message from frontend to backend
  * Sent via webview.postMessage() and received by extension host
  */
-export interface RpcMessage {
+export interface RpcMessage<TParams = unknown> {
   /** Method name (e.g., 'session:list', 'chat:sendMessage') */
   method: string;
-  /** Method parameters (arbitrary data) */
-  params: unknown;
+  /** Method parameters */
+  params: TParams;
   /** Correlation ID for matching requests with responses */
   correlationId: string;
 }
@@ -30,12 +30,37 @@ export interface RpcResponse<T = unknown> {
   data?: T;
   /** Error message (if success=false) */
   error?: string;
+  /**
+   * Error code for programmatic handling by frontend.
+   * Used to distinguish license-related errors from other failures.
+   *
+   * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
+   * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
+   *
+   * @example
+   * ```typescript
+   * if (response.errorCode === 'LICENSE_REQUIRED') {
+   *   showLicensePrompt();
+   * } else if (response.errorCode === 'PRO_TIER_REQUIRED') {
+   *   showUpgradePrompt();
+   * }
+   * ```
+   */
+  errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED';
   /** Correlation ID matching the original request */
   correlationId: string;
 }
 
 /**
- * RPC method handler function signature
- * All handlers are async and return arbitrary data
+ * RPC method handler function signature (generic version)
+ * Allows type-safe parameter and return types
  */
-export type RpcMethodHandler = (params: unknown) => Promise<unknown>;
+export type RpcMethodHandler<TParams = unknown, TResult = unknown> = (
+  params: TParams
+) => Promise<TResult>;
+
+/**
+ * Base RPC method handler (for internal Map storage)
+ * Used internally by RpcHandler - external code should use typed handlers
+ */
+export type BaseRpcMethodHandler = (params: unknown) => Promise<unknown>;

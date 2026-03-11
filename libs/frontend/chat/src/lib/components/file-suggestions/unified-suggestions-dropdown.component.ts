@@ -1,16 +1,19 @@
 import {
-  Component,
-  input,
-  output,
-  signal,
-  computed,
-  effect,
-  viewChildren,
   ChangeDetectionStrategy,
-  AfterViewInit,
+  Component,
+  effect,
+  ElementRef,
+  inject,
+  input,
   OnDestroy,
+  output,
+  viewChild,
+  viewChildren,
 } from '@angular/core';
-import { ActiveDescendantKeyManager } from '@angular/cdk/a11y';
+import {
+  FloatingUIService,
+  KeyboardNavigationService,
+} from '@ptah-extension/ui';
 import {
   SuggestionOptionComponent,
   type SuggestionItem,
@@ -20,39 +23,52 @@ import {
 export type { SuggestionItem } from './suggestion-option.component';
 
 /**
- * UnifiedSuggestionsDropdownComponent - Autocomplete UI with CDK A11y
+ * UnifiedSuggestionsDropdownComponent - Autocomplete UI with Native Floating UI
  *
  * ARCHITECTURE:
- * - Uses ActiveDescendantKeyManager for keyboard navigation
- * - Focus stays on parent textarea (aria-activedescendant pattern)
+ * - Uses Floating UI for positioning (replaces CDK Overlay)
+ * - Uses KeyboardNavigationService for signal-based navigation (replaces ActiveDescendantKeyManager)
+ * - Options receive isActive as INPUT (not via Highlightable interface)
+ * - Filter input INSIDE dropdown (Batch 13) - focus stays on filter input
  * - Supports file and command types via discriminated union
  * - Agents handled by dedicated AgentSelectorComponent
  *
  * KEYBOARD NAVIGATION:
- * - Parent component calls onKeyDown() with keyboard events
- * - ActiveDescendantKeyManager handles ArrowUp/ArrowDown
- * - Parent handles Enter (via selectFocused) and Escape (via close)
+ * - KeyboardNavigationService manages activeIndex signal
+ * - Active state passed to options via [isActive]="i === activeIndex()"
+ * - ArrowUp/ArrowDown/Home/End navigates the list
+ * - Enter selects focused suggestion, Escape closes dropdown
  *
  * ACCESSIBILITY:
  * - role="listbox" on container
- * - role="option" on each item
+ * - role="option" on each item (via SuggestionOptionComponent)
  * - aria-activedescendant points to currently focused option
- * - getActiveDescendantId() provides the ID for parent's aria-activedescendant
+ *
+ * MIGRATION NOTE (TASK_2025_092 Batch 4):
+ * - Replaced CDK Overlay with Floating UI
+ * - Replaced ActiveDescendantKeyManager with KeyboardNavigationService
+ * - Options now receive isActive as input signal, not via setActiveStyles()
+ * - This fixes the signal dependency loop causing VS Code webview hang
  */
 @Component({
   selector: 'ptah-unified-suggestions-dropdown',
   standalone: true,
   imports: [SuggestionOptionComponent],
+  providers: [FloatingUIService, KeyboardNavigationService],
   template: `
+    <!-- Panel positioned by Floating UI relative to overlayOrigin -->
     <div
-      class="absolute bottom-full left-0 right-0 mb-1 z-50 flex flex-col max-h-80 p-1 shadow-lg bg-base-200 rounded-lg border border-base-300"
+      #floatingPanel
+      [id]="listboxId"
+      class="suggestions-panel flex flex-col max-h-96 shadow-lg bg-base-200 rounded-lg border border-base-300 z-50 overflow-hidden"
+      style="visibility: hidden; position: absolute;"
       role="listbox"
       [attr.aria-label]="getHeaderTitle()"
     >
       <!-- Header -->
-      <div class="px-3 py-2 border-b border-base-300">
+      <div class="px-2 py-1.5 border-b border-base-300">
         <span
-          class="text-xs font-semibold text-base-content/70 uppercase tracking-wide"
+          class="text-[11px] font-semibold text-base-content/70 uppercase tracking-wide"
         >
           {{ getHeaderTitle() }}
         </span>
@@ -60,27 +76,28 @@ export type { SuggestionItem } from './suggestion-option.component';
 
       <!-- Loading State -->
       @if (isLoading()) {
-      <div class="flex items-center justify-center gap-3 p-4">
-        <span class="loading loading-spinner loading-sm"></span>
-        <span class="text-sm text-base-content/70">Loading...</span>
+      <div class="flex items-center justify-center gap-2 p-3">
+        <span class="loading loading-spinner loading-xs"></span>
+        <span class="text-xs text-base-content/70">Loading...</span>
       </div>
       }
 
       <!-- Empty State -->
       @else if (suggestions().length === 0) {
-      <div class="flex items-center justify-center p-4">
-        <span class="text-sm text-base-content/60">No matches found</span>
+      <div class="flex items-center justify-center p-3">
+        <span class="text-xs text-base-content/60">No matches found</span>
       </div>
       }
 
       <!-- Suggestions List -->
       @else {
       <div class="flex flex-col overflow-y-auto overflow-x-hidden max-h-64 p-1">
-        @for (suggestion of suggestions(); track trackBy($index, suggestion);
-        let i = $index) {
+        @for ( suggestion of suggestions(); track trackBy($index, suggestion);
+        let i = $index ) {
         <ptah-suggestion-option
           [suggestion]="suggestion"
           [optionId]="'suggestion-' + i"
+          [isActive]="i === activeIndex()"
           (selected)="handleSelection($event)"
           (hovered)="handleHover(i)"
         />
@@ -91,10 +108,12 @@ export type { SuggestionItem } from './suggestion-option.component';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class UnifiedSuggestionsDropdownComponent
-  implements AfterViewInit, OnDestroy
-{
+export class UnifiedSuggestionsDropdownComponent implements OnDestroy {
+  private readonly floatingUI = inject(FloatingUIService);
+  private readonly keyboardNav = inject(KeyboardNavigationService);
+
   // Inputs
+  readonly overlayOrigin = input.required<{ elementRef: ElementRef }>(); // Origin element (textarea) from parent
   readonly suggestions = input.required<SuggestionItem[]>();
   readonly isLoading = input(false);
 
@@ -102,75 +121,70 @@ export class UnifiedSuggestionsDropdownComponent
   readonly suggestionSelected = output<SuggestionItem>();
   readonly closed = output<void>();
 
-  // ViewChildren for ActiveDescendantKeyManager
+  // ViewChild for floating panel
+  private readonly floatingPanel =
+    viewChild<ElementRef<HTMLElement>>('floatingPanel');
+
+  // ViewChildren for option components (for scroll into view)
   private readonly optionComponents = viewChildren(SuggestionOptionComponent);
 
-  // ActiveDescendantKeyManager - manages keyboard navigation
-  private keyManager: ActiveDescendantKeyManager<SuggestionOptionComponent> | null =
-    null;
+  // Expose activeIndex from keyboard navigation service
+  readonly activeIndex = this.keyboardNav.activeIndex;
 
-  // Track active option ID for aria-activedescendant
-  private readonly _activeOptionId = signal<string | null>(null);
-  readonly activeOptionId = this._activeOptionId.asReadonly();
+  // Unique ID for the listbox element (used by aria-controls on parent input)
+  readonly listboxId = `suggestions-listbox-${Math.random()
+    .toString(36)
+    .substring(2, 9)}`;
 
   constructor() {
-    // Initialize/re-initialize key manager when options change
-    // This handles both initial render AND subsequent suggestion changes
+    // Configure keyboard navigation when suggestions change
     effect(() => {
+      const count = this.suggestions().length;
+      this.keyboardNav.configure({ itemCount: count, wrap: true });
+    });
+
+    // Position panel relative to origin
+    effect(() => {
+      const panel = this.floatingPanel()?.nativeElement;
+      const origin = this.overlayOrigin()?.elementRef?.nativeElement;
+
+      if (panel && origin) {
+        // Position using Floating UI
+        queueMicrotask(() => this.positionPanel());
+      }
+    });
+
+    // Scroll active option into view when activeIndex changes
+    effect(() => {
+      const index = this.activeIndex();
       const options = this.optionComponents();
-      if (options.length > 0) {
-        if (this.keyManager) {
-          // Key manager exists - just reset to first item
-          this.keyManager.setFirstItemActive();
-          this.updateActiveOptionId();
-        } else {
-          // First time options are available - initialize key manager
-          this.initKeyManager();
-        }
+      if (index >= 0 && index < options.length) {
+        options[index].scrollIntoView();
       }
     });
   }
 
-  ngAfterViewInit(): void {
-    // Key manager may already be initialized by effect() if options were available
-    if (!this.keyManager) {
-      this.initKeyManager();
-    }
-  }
-
   ngOnDestroy(): void {
-    this.keyManager?.destroy();
+    this.floatingUI.cleanup();
   }
 
   /**
-   * Initialize the ActiveDescendantKeyManager
+   * Position the floating panel relative to the origin element
    */
-  private initKeyManager(): void {
-    const options = this.optionComponents();
-    if (options.length === 0) return;
+  private async positionPanel(): Promise<void> {
+    const panel = this.floatingPanel()?.nativeElement;
+    const origin = this.overlayOrigin()?.elementRef?.nativeElement;
 
-    this.keyManager = new ActiveDescendantKeyManager(options)
-      .withVerticalOrientation()
-      .withWrap()
-      .withHomeAndEnd();
+    if (panel && origin) {
+      // Set width to match origin
+      panel.style.width = `${origin.offsetWidth}px`;
 
-    // Set first item active initially
-    this.keyManager.setFirstItemActive();
-    this.updateActiveOptionId();
-
-    // Subscribe to active item changes
-    this.keyManager.change.subscribe(() => {
-      this.updateActiveOptionId();
-    });
-  }
-
-  /**
-   * Update the active option ID for aria-activedescendant
-   */
-  private updateActiveOptionId(): void {
-    const activeItem = this.keyManager?.activeItem;
-    if (activeItem) {
-      this._activeOptionId.set(activeItem.optionId());
+      await this.floatingUI.position(origin, panel, {
+        placement: 'top-start', // Above textarea (chat input at bottom of sidebar)
+        offset: 4,
+        flip: true,
+        shift: true,
+      });
     }
   }
 
@@ -179,7 +193,8 @@ export class UnifiedSuggestionsDropdownComponent
    * Parent component should bind this to the input's aria-activedescendant
    */
   getActiveDescendantId(): string | null {
-    return this._activeOptionId();
+    const index = this.activeIndex();
+    return index >= 0 ? `suggestion-${index}` : null;
   }
 
   /**
@@ -200,22 +215,28 @@ export class UnifiedSuggestionsDropdownComponent
   // ============================================================
 
   /**
-   * Handle keyboard events from parent
-   * Call this from parent's (keydown) handler when dropdown is open
+   * Handle keyboard events from parent component
    *
-   * @param event KeyboardEvent from parent textarea
-   * @returns true if event was handled (parent should preventDefault)
+   * CRITICAL: Must return FALSE when not ready to handle events.
+   * This signals to the parent that the event was NOT handled, allowing
+   * fallback behavior (e.g., normal textarea cursor movement).
+   *
+   * @param event KeyboardEvent from parent
+   * @returns true if event was handled, false if not ready to handle
    */
   onKeyDown(event: KeyboardEvent): boolean {
-    if (!this.keyManager) return false;
+    // Don't handle if loading
+    if (this.isLoading()) {
+      return false;
+    }
 
     switch (event.key) {
       case 'ArrowDown':
       case 'ArrowUp':
       case 'Home':
       case 'End':
-        this.keyManager.onKeydown(event);
-        return true;
+        // Navigate options list - keyboardNav handles the navigation
+        return this.keyboardNav.handleKeyDown(event);
 
       case 'Enter':
         this.selectFocused();
@@ -234,23 +255,24 @@ export class UnifiedSuggestionsDropdownComponent
    * Navigate to next item (ArrowDown)
    */
   navigateDown(): void {
-    this.keyManager?.setNextItemActive();
+    this.keyboardNav.setNext();
   }
 
   /**
    * Navigate to previous item (ArrowUp)
    */
   navigateUp(): void {
-    this.keyManager?.setPreviousItemActive();
+    this.keyboardNav.setPrevious();
   }
 
   /**
    * Select currently focused item (Enter)
    */
   selectFocused(): void {
-    const activeItem = this.keyManager?.activeItem;
-    if (activeItem) {
-      this.suggestionSelected.emit(activeItem.suggestion());
+    const index = this.activeIndex();
+    const suggestions = this.suggestions();
+    if (index >= 0 && index < suggestions.length) {
+      this.suggestionSelected.emit(suggestions[index]);
     }
   }
 
@@ -258,14 +280,14 @@ export class UnifiedSuggestionsDropdownComponent
    * Reset to first item
    */
   resetFocus(): void {
-    this.keyManager?.setFirstItemActive();
+    this.keyboardNav.setFirstItemActive();
   }
 
   /**
    * Handle mouse hover on option
    */
   handleHover(index: number): void {
-    this.keyManager?.setActiveItem(index);
+    this.keyboardNav.setActiveIndex(index);
   }
 
   /**
@@ -276,6 +298,7 @@ export class UnifiedSuggestionsDropdownComponent
   }
 
   trackBy(index: number, item: SuggestionItem): string {
+    if (item.type === 'file') return `file-${item.path}`;
     return `${item.type}-${item.name}`;
   }
 }

@@ -1,10 +1,13 @@
 // Main library exports
 
-// Dependency Injection - TOKENS only (registration now centralized in app)
+// Dependency Injection - TOKENS and registration function (TASK_2025_071)
+// TASK_2025_071 Batch 6: TOKENS exported directly from tokens.ts (not via di/index.ts)
+// di/index.ts only exports registration function (pattern consistency with other libraries)
 export { TOKENS } from './di/tokens';
+export { registerVsCodeCoreServices } from './di';
 
-// NOTE: DIContainer and registration moved to apps/ptah-extension-vscode/src/di/container.ts
-// This library now only exports services and TOKENS, not DI setup
+// NOTE: DIContainer moved to apps/ptah-extension-vscode/src/di/container.ts
+// This library exports services, TOKENS, and registration function
 // DO NOT export tokens directly - only export via TOKENS namespace
 
 // Core Infrastructure (TASK_CORE_001)
@@ -52,20 +55,73 @@ export type {
   FileOperationType,
   FileOperationOptions,
   FileWatcherConfig,
+  IWebviewHtmlGenerator,
+  WebviewHtmlOptions,
 } from './api-wrappers';
 
-export { RpcHandler, RpcMethodRegistrationService } from './messaging';
-export type { RpcMessage, RpcResponse, RpcMethodHandler } from './messaging';
-
-// Session Discovery
-export { SessionDiscoveryService } from './services/session-discovery.service';
+// NOTE: RpcMethodRegistrationService moved to app layer (TASK_2025_051)
+// to break circular dependency between vscode-core and agent-sdk
+// TASK_2025_092: SdkRpcHandlers deleted (dead code - permission emitter moved to SdkPermissionHandler)
+// TASK_2025_124: RpcLicenseValidationResult added for license middleware testing
+export { RpcHandler } from './messaging';
 export type {
-  SessionMetadata,
-  SessionSummary,
-  LinkedAgentSession,
-  SessionData,
-} from './services/session-discovery.service';
+  RpcMessage,
+  RpcResponse,
+  RpcMethodHandler,
+  RpcLicenseValidationResult,
+} from './messaging';
+
+// RPC Registration Verification (TASK_2025_074)
+export {
+  verifyRpcRegistration,
+  assertRpcRegistration,
+} from './messaging/rpc-verification';
+export type { RpcVerificationResult } from './messaging/rpc-verification';
+
+// RPC handlers (TASK_2025_073 Batch 5)
+export { LlmRpcHandlers } from './rpc/llm-rpc-handlers';
+export type {
+  LlmProviderName,
+  LlmProviderStatus,
+  SetApiKeyRequest,
+  SetApiKeyResponse,
+  VsCodeModelInfo,
+} from './rpc/llm-rpc-handlers';
 
 // Agent Session Watcher (real-time summary streaming)
 export { AgentSessionWatcherService } from './services/agent-session-watcher.service';
-export type { AgentSummaryChunk } from './services/agent-session-watcher.service';
+export type {
+  AgentSummaryChunk,
+  AgentStartEvent,
+} from './services/agent-session-watcher.service';
+
+// Subagent Registry (TASK_2025_103: subagent resumption)
+export { SubagentRegistryService } from './services/subagent-registry.service';
+export type { SubagentRegistration } from './services/subagent-registry.service';
+
+// Webview Message Handler (shared message handling for all webviews)
+export { WebviewMessageHandlerService } from './services/webview-message-handler.service';
+export type {
+  CustomMessageHandler,
+  WebviewMessageHandlerConfig,
+  WebviewMessage,
+} from './services/webview-message-handler.service';
+
+// Auth Secrets Service (TASK_2025_076)
+export { AuthSecretsService } from './services/auth-secrets.service';
+export type {
+  IAuthSecretsService,
+  AuthCredentialType,
+} from './services/auth-secrets.service';
+
+// License Service (TASK_2025_075, TASK_2025_121)
+export { LicenseService, isPremiumTier } from './services/license.service';
+export type {
+  LicenseStatus,
+  LicenseEvents,
+  LicenseTierValue,
+} from './services/license.service';
+
+// Feature Gate Service (TASK_2025_121)
+export { FeatureGateService } from './services/feature-gate.service';
+export type { Feature, ProOnlyFeature } from './services/feature-gate.service';

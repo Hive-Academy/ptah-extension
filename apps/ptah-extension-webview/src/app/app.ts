@@ -7,6 +7,7 @@ import {
   inject,
 } from '@angular/core';
 import { Subject } from 'rxjs';
+import { LucideAngularModule, AlertCircle } from 'lucide-angular';
 
 // UPDATED: Import from @ptah-extension/core library
 import {
@@ -22,12 +23,15 @@ import { AppShellComponent } from '@ptah-extension/chat';
 
 @Component({
   selector: 'ptah-root',
-  imports: [AppShellComponent],
+  imports: [AppShellComponent, LucideAngularModule],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
 })
 export class App implements OnInit, OnDestroy {
   private readonly destroy$ = new Subject<void>();
+
+  /** Lucide icon reference for template binding */
+  protected readonly AlertCircleIcon = AlertCircle;
 
   // ANGULAR 20 PATTERN: Use inject() instead of constructor injection
   public readonly appState = inject(AppStateManager);
@@ -108,11 +112,50 @@ export class App implements OnInit, OnDestroy {
   private async handleInitialView(): Promise<void> {
     console.log('Setting up initial view with pure signal navigation');
 
-    // Initialize to chat view by default
-    const success = await this.navigationService.navigateToView('chat');
+    // Check for initialView in ptahConfig (set by extension for specific views like wizard)
+    const ptahConfig = (
+      window as unknown as { ptahConfig?: { initialView?: string } }
+    ).ptahConfig;
+    const rawInitialView = ptahConfig?.initialView;
+
+    // CRITICAL: Validate initialView at runtime with graceful degradation
+    // TASK_2025_126: Added 'welcome' for embedded welcome page
+    const VALID_VIEWS: ViewType[] = [
+      'chat',
+      'command-builder',
+      'analytics',
+      'context-tree',
+      'settings',
+      'setup-wizard',
+      'welcome',
+    ];
+    const isValidView =
+      rawInitialView && VALID_VIEWS.includes(rawInitialView as ViewType);
+
+    // Use configured initial view if valid, otherwise default to 'chat'
+    const targetView: ViewType = isValidView
+      ? (rawInitialView as ViewType)
+      : 'chat';
+
+    if (rawInitialView && !isValidView) {
+      console.warn(
+        `Invalid initialView "${rawInitialView}" in ptahConfig. Valid values are: ${VALID_VIEWS.join(
+          ', '
+        )}. Defaulting to 'chat'.`
+      );
+    }
+
+    console.log(`Initial view target: ${targetView}`, {
+      fromConfig: !!rawInitialView,
+      wasValid: isValidView,
+    });
+
+    const success = await this.navigationService.navigateToView(targetView);
     if (!success) {
-      console.warn('Initial navigation to chat failed, using fallback');
-      this.appState.setCurrentView('chat');
+      console.warn(
+        `Initial navigation to ${targetView} failed, using fallback`
+      );
+      this.appState.setCurrentView(targetView);
     }
   }
 }

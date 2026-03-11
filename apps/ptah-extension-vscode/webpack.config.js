@@ -32,17 +32,58 @@ module.exports = {
     {
       vscode: 'commonjs vscode', // Don't bundle VS Code API, it's provided by the host
     },
-    // Bundle reflect-metadata and tsyringe for DI to work properly
-    function ({ context, request }, callback) {
+    // Custom externals function for LLM provider tree-shaking
+    function ({ request }, callback) {
+      // === BUNDLE THESE (critical for extension to work) ===
+
       // Bundle reflect-metadata and tsyringe (required for DI)
       if (request === 'reflect-metadata' || request === 'tsyringe') {
         return callback(); // null means "bundle this"
       }
-      // Externalize all other node_modules
+
+      // Bundle all @ptah-extension/* packages (our internal libraries)
+      // This includes dynamic imports like @ptah-extension/llm-abstraction/anthropic
+      if (request.startsWith('@ptah-extension/')) {
+        return callback(); // Bundle it
+      }
+
+      // Bundle @anthropic-ai/claude-agent-sdk - it's ESM-only and must be bundled
+      // for proper ESM/CommonJS interop in the VS Code extension host
+      if (request.startsWith('@anthropic-ai/claude-agent-sdk')) {
+        return callback(); // Bundle it
+      }
+
+      // Bundle @github/copilot-sdk and @github/copilot - both ESM-only
+      // ("type": "module", exports only "import"). Same treatment as
+      // claude-agent-sdk: must be bundled for CJS interop
+      if (request.startsWith('@github/copilot')) {
+        return callback(); // Bundle it
+      }
+
+      // Bundle @openai/codex-sdk - ESM-only ("type": "module", exports
+      // only "import"). Same treatment as claude-agent-sdk and copilot-sdk.
+      if (request.startsWith('@openai/codex-sdk')) {
+        return callback(); // Bundle it
+      }
+
+      // @google/genai - REMOVED (SDK-only migration: Google GenAI provider removed)
+      // @google/gemini-cli-core - REMOVED (SDK-only migration: CLI auth removed)
+
+      // === EXTERNALIZE THESE (loaded at runtime from node_modules) ===
+
+      // Externalize other scoped packages (@anthropic-ai/*, etc.)
+      // These are loaded dynamically by agent-sdk
+      if (request.startsWith('@')) {
+        return callback(null, 'commonjs ' + request);
+      }
+
+      // Externalize other node_modules (lowercase packages like zod, uuid, etc.)
       if (/^[a-z\-0-9]+/.test(request)) {
         return callback(null, 'commonjs ' + request);
       }
-      callback(); // Bundle project files
+
+      // Bundle everything else (relative imports, project files)
+      callback();
     },
   ],
 
@@ -57,10 +98,6 @@ module.exports = {
         __dirname,
         '../../libs/backend/vscode-core/src'
       ),
-      '@ptah-extension/claude-domain': path.resolve(
-        __dirname,
-        '../../libs/backend/claude-domain/src'
-      ),
       '@ptah-extension/workspace-intelligence': path.resolve(
         __dirname,
         '../../libs/backend/workspace-intelligence/src'
@@ -68,6 +105,38 @@ module.exports = {
       '@ptah-extension/vscode-lm-tools': path.resolve(
         __dirname,
         '../../libs/backend/vscode-lm-tools/src'
+      ),
+      '@ptah-extension/agent-sdk': path.resolve(
+        __dirname,
+        '../../libs/backend/agent-sdk/src'
+      ),
+      '@ptah-extension/agent-generation': path.resolve(
+        __dirname,
+        '../../libs/backend/agent-generation/src'
+      ),
+      '@ptah-extension/template-generation': path.resolve(
+        __dirname,
+        '../../libs/backend/template-generation/src'
+      ),
+      // Main llm-abstraction entry point
+      '@ptah-extension/llm-abstraction': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src'
+      ),
+      // Secondary entry points for tree-shaking (dynamic imports)
+      '@ptah-extension/llm-abstraction/vscode-lm': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src/vscode-lm.ts'
+      ),
+      '@ptah-extension/llm-abstraction/anthropic': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src/anthropic.ts'
+      ),
+      // '@ptah-extension/llm-abstraction/openai' - REMOVED (SDK-only migration)
+      // '@ptah-extension/llm-abstraction/google' - REMOVED (SDK-only migration)
+      '@ptah-extension/llm-abstraction/openrouter': path.resolve(
+        __dirname,
+        '../../libs/backend/llm-abstraction/src/openrouter.ts'
       ),
     },
   },

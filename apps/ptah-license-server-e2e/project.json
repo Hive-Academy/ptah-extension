@@ -1,0 +1,17 @@
+{
+  "name": "ptah-license-server-e2e",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "implicitDependencies": ["ptah-license-server"],
+  "targets": {
+    "e2e": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{e2eProjectRoot}"],
+      "options": {
+        "jestConfig": "apps/ptah-license-server-e2e/jest.config.cts",
+        "passWithNoTests": true
+      },
+      "dependsOn": ["ptah-license-server:build", "ptah-license-server:serve"]
+    }
+  }
+}

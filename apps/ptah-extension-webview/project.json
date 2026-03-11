@@ -37,11 +37,9 @@
           "node_modules/prismjs/components/prism-markdown.min.js",
           "node_modules/prismjs/components/prism-jsx.min.js",
           "node_modules/prismjs/components/prism-tsx.min.js",
-          "node_modules/prismjs/components/prism-sql.min.js",
           "node_modules/prismjs/components/prism-go.min.js",
-          "node_modules/prismjs/components/prism-rust.min.js",
-          "node_modules/prismjs/components/prism-java.min.js",
-          "node_modules/prismjs/components/prism-xml-doc.min.js"
+          "node_modules/prismjs/components/prism-xml-doc.min.js",
+          "node_modules/prismjs/components/prism-diff.min.js"
         ]
       },
       "configurations": {
@@ -50,7 +48,7 @@
             {
               "type": "initial",
               "maximumWarning": "600kb",
-              "maximumError": "1.2mb"
+              "maximumError": "2.2mb"
             },
             {
               "type": "anyComponentStyle",

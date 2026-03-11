@@ -1,0 +1,969 @@
+# Claude Agent SDK - Complete Type Reference
+
+**Research Date**: 2025-12-18
+**SDK Version**: 0.1.69
+**Source**: `@anthropic-ai/claude-agent-sdk`
+
+---
+
+## Executive Summary
+
+This document provides a comprehensive reference of ALL types returned by the Claude Agent SDK, extracted directly from the SDK's TypeScript definitions and verified against runtime message captures. This is the **source of truth** for typing our transformers and handling SDK messages.
+
+### Key Insights
+
+1. **Stream Event Model**: SDK uses Anthropic's `RawMessageStreamEvent` protocol wrapped in `SDKPartialAssistantMessage`
+2. **Message Lifecycle**: Clear progression from `message_start` → content blocks → `message_stop`
+3. **Tool Execution**: Handled via `tool_use` content blocks, not streaming events
+4. **Resume Behavior**: Uses `SDKUserMessageReplay` with `isReplay: true` flag
+5. **Session Init**: `SDKSystemMessage` with `subtype: 'init'` contains all session metadata
+
+---
+
+## Table of Contents
+
+1. [Core SDK Message Union Types](#core-sdk-message-union-types)
+2. [Session Lifecycle Messages](#session-lifecycle-messages)
+3. [Conversation Messages](#conversation-messages)
+4. [Stream Events (RawMessageStreamEvent)](#stream-events-rawmessagestreamevent)
+5. [Result Messages](#result-messages)
+6. [System Messages](#system-messages)
+7. [Resume Session Behavior](#resume-session-behavior)
+8. [Field-by-Field Analysis](#field-by-field-analysis)
+
+---
+
+## Core SDK Message Union Types
+
+### `SDKMessage` - All Possible Messages
+
+```typescript
+export type SDKMessage =
+  | SDKAssistantMessage // Complete assistant message
+  | SDKUserMessage // User message
+  | SDKUserMessageReplay // Historical message replay (resume)
+  | SDKResultMessage // Final session statistics
+  | SDKSystemMessage // System metadata (init, status, etc.)
+  | SDKPartialAssistantMessage // Streaming events
+  | SDKCompactBoundaryMessage // Context window compaction marker
+  | SDKStatusMessage // Session status updates
+  | SDKHookResponseMessage // Hook execution results
+  | SDKToolProgressMessage // Tool execution progress
+  | SDKAuthStatusMessage; // Authentication status
+```
+
+### Message Type Discrimination
+
+```typescript
+// Discriminate by 'type' field
+switch (message.type) {
+  case 'assistant': // SDKAssistantMessage
+  case 'user': // SDKUserMessage or SDKUserMessageReplay
+  case 'result': // SDKResultMessage
+  case 'system': // SDKSystemMessage (check subtype)
+  case 'stream_event': // SDKPartialAssistantMessage
+  case 'tool_progress': // SDKToolProgressMessage
+  case 'auth_status': // SDKAuthStatusMessage
+}
+```
+
+---
+
+## Session Lifecycle Messages
+
+### 1. `SDKSystemMessage` - Session Initialization
+
+**When**: First message in new session (not resume)
+**Purpose**: Provides session metadata, available tools, MCP servers, configuration
+
+```typescript
+export type SDKSystemMessage = {
+  type: 'system';
+  subtype: 'init';
+
+  // Session identity
+  session_id: string; // UUID - session identifier
+  uuid: UUID; // Message UUID
+
+  // Environment
+  cwd: string; // Current working directory
+  claude_code_version: string; // e.g., "2.0.69"
+
+  // Available capabilities
+  tools: string[]; // e.g., ["Bash", "Read", "Edit", "Task", ...]
+  agents?: string[]; // e.g., ["general-purpose", "Explore", "Plan"]
+  slash_commands: string[]; // e.g., ["/compact", "/cost", "/review"]
+  skills: string[]; // Custom skills
+  plugins: {
+    // Loaded plugins
+    name: string;
+    path: string;
+  }[];
+
+  // MCP Server status
+  mcp_servers: {
+    name: string;
+    status: string; // "connected" | "failed" | "needs-auth" | "pending"
+  }[];
+
+  // Configuration
+  model: string; // e.g., "claude-sonnet-4-5-20250929"
+  permissionMode: PermissionMode; // "default" | "acceptEdits" | "bypassPermissions" | ...
+  apiKeySource: ApiKeySource; // "user" | "project" | "org" | "temporary" | "none"
+  betas?: string[]; // e.g., ["context-1m-2025-08-07"]
+  output_style: string; // "default" | ...
+};
+```
+
+**Example**:
+
+```json
+{
+  "type": "system",
+  "subtype": "init",
+  "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+  "uuid": "04e973fe-a58f-49a8-817e-3ff62610d049",
+  "cwd": "D:\\projects\\ptah-extension",
+  "claude_code_version": "2.0.69",
+  "tools": ["Task", "Bash", "Read", "Edit", "WebSearch", ...],
+  "agents": ["general-purpose", "Explore", "Plan"],
+  "slash_commands": ["/compact", "/cost", "/review"],
+  "mcp_servers": [],
+  "model": "claude-sonnet-4-5-20250929",
+  "permissionMode": "default",
+  "apiKeySource": "none"
+}
+```
+
+---
+
+## Conversation Messages
+
+### 2. `SDKUserMessage` - User Input
+
+**When**: User sends a message
+**Purpose**: Represents user's text/content input
+
+```typescript
+type SDKUserMessageContent = {
+  type: 'user';
+
+  // Anthropic SDK message format
+  message: APIUserMessage; // MessageParam from @anthropic-ai/sdk
+
+  // Relationship tracking
+  parent_tool_use_id: string | null; // null for top-level, set for agent responses
+
+  // Optional metadata
+  isSynthetic?: boolean; // True if generated by system (not user)
+  tool_use_result?: unknown; // JSON result if responding to tool use
+};
+
+export type SDKUserMessage = SDKUserMessageContent & {
+  uuid?: UUID; // May be undefined for new messages
+  session_id: string;
+};
+```
+
+**`APIUserMessage` Structure**:
+
+```typescript
+// From @anthropic-ai/sdk
+type MessageParam = {
+  role: 'user';
+  content: string | Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } } | { type: 'tool_result'; tool_use_id: string; content?: string; is_error?: boolean }>;
+};
+```
+
+**Example**:
+
+```json
+{
+  "type": "user",
+  "uuid": "abc123...",
+  "session_id": "3a018310...",
+  "parent_tool_use_id": null,
+  "message": {
+    "role": "user",
+    "content": "Write a haiku about TypeScript"
+  }
+}
+```
+
+### 3. `SDKAssistantMessage` - Complete Assistant Response
+
+**When**: After assistant finishes response (not streaming)
+**Purpose**: Complete message with all content blocks
+
+```typescript
+export type SDKAssistantMessage = {
+  type: 'assistant';
+
+  // Anthropic SDK message format
+  message: APIAssistantMessage; // BetaMessage from @anthropic-ai/sdk
+
+  // Relationship tracking
+  parent_tool_use_id: string | null; // For nested agent messages
+
+  // Identity
+  uuid: UUID; // Always present
+  session_id: string;
+
+  // Error state
+  error?: SDKAssistantMessageError; // Optional error type
+};
+
+export type SDKAssistantMessageError = 'authentication_failed' | 'billing_error' | 'rate_limit' | 'invalid_request' | 'server_error' | 'unknown';
+```
+
+**`APIAssistantMessage` Structure**:
+
+```typescript
+// From @anthropic-ai/sdk
+type BetaMessage = {
+  id: string; // e.g., "msg_0154MB2oEHrKRdk27Aeseao4"
+  type: 'message';
+  role: 'assistant';
+  model: string;
+  content: Array<{ type: 'text'; text: string } | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }>;
+  stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | null;
+  stop_sequence: string | null;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation?: {
+      ephemeral_5m_input_tokens?: number;
+      ephemeral_1h_input_tokens?: number;
+    };
+  };
+};
+```
+
+**Example**:
+
+```json
+{
+  "type": "assistant",
+  "uuid": "863961d3-6a2e-4f04-b8c9-3701484f3d0a",
+  "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+  "parent_tool_use_id": null,
+  "message": {
+    "id": "msg_0154MB2oEHrKRdk27Aeseao4",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5-20250929",
+    "content": [{ "type": "text", "text": "Here's a haiku..." }],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 3,
+      "output_tokens": 301,
+      "cache_read_input_tokens": 14473
+    }
+  }
+}
+```
+
+---
+
+## Stream Events (RawMessageStreamEvent)
+
+### 4. `SDKPartialAssistantMessage` - Streaming Wrapper
+
+**When**: During streaming response (real-time)
+**Purpose**: Wraps Anthropic's streaming protocol
+
+```typescript
+export type SDKPartialAssistantMessage = {
+  type: 'stream_event';
+
+  // Anthropic streaming event (union of many types)
+  event: RawMessageStreamEvent;
+
+  // Relationship tracking
+  parent_tool_use_id: string | null; // For nested agents
+
+  // Identity
+  uuid: UUID;
+  session_id: string;
+};
+```
+
+### Stream Event Types (RawMessageStreamEvent)
+
+The `event` field contains one of these Anthropic SDK stream events:
+
+#### A. Message Lifecycle Events
+
+##### `message_start` - Stream Initialization
+
+```typescript
+{
+  type: 'message_start';
+  message: {
+    id: string; // Canonical message ID (e.g., "msg_abc123")
+    type: 'message';
+    role: 'assistant';
+    content: []; // Empty at start
+    model: string;
+    stop_reason: null;
+    stop_sequence: null;
+    usage: {
+      input_tokens: number;
+      cache_creation_input_tokens: number;
+      cache_read_input_tokens: number;
+      cache_creation: {
+        ephemeral_5m_input_tokens: number;
+        ephemeral_1h_input_tokens: number;
+      }
+      output_tokens: number;
+    }
+  }
+}
+```
+
+**Critical**: Use `message.id` as the canonical message identifier. This ID is consistent across stream events and final assistant messages.
+
+##### `message_delta` - Token Usage Updates
+
+```typescript
+{
+  type: 'message_delta';
+  delta: {
+    stop_reason?: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use';
+    stop_sequence?: string | null;
+  };
+  usage: {
+    output_tokens: number;    // Cumulative output tokens
+  };
+}
+```
+
+**Note**: Only `output_tokens` updates during streaming. Final `input_tokens` come from `message_start`.
+
+##### `message_stop` - Stream Completion
+
+```typescript
+{
+  type: 'message_stop';
+  // No additional fields
+}
+```
+
+**Critical**: This signals stream completion. Transform should emit `message_complete` event here.
+
+#### B. Content Block Lifecycle
+
+##### `content_block_start` - New Content Block
+
+```typescript
+{
+  type: 'content_block_start';
+  index: number;              // Block position in content array
+  content_block:
+    | { type: 'text'; text: '' }
+    | { type: 'thinking'; thinking: '' }
+    | { type: 'tool_use'; id: string; name: string; input: {} };
+}
+```
+
+**For tool_use blocks**:
+
+```typescript
+{
+  type: 'content_block_start';
+  index: number;
+  content_block: {
+    type: 'tool_use';
+    id: string; // Real tool call ID (e.g., "toolu_abc123")
+    name: string; // Tool name (e.g., "Bash", "Read", "Task")
+    input: {
+    } // Empty at start
+  }
+}
+```
+
+**Critical**: Capture `content_block.id` for tool_use blocks. This is the real `toolCallId` needed for subsequent `tool_delta` events.
+
+##### `content_block_delta` - Incremental Content
+
+```typescript
+{
+  type: 'content_block_delta';
+  index: number;              // Block position
+  delta:
+    | { type: 'text_delta'; text: string }
+    | { type: 'input_json_delta'; partial_json: string }
+    | { type: 'thinking_delta'; thinking: string; signature?: string }
+    | { type: 'signature_delta'; signature: string };
+}
+```
+
+**Delta Types**:
+
+- **`text_delta`**: Regular text content
+
+  ```typescript
+  {
+    type: 'text_delta';
+    text: 'Hello world';
+  }
+  ```
+
+- **`input_json_delta`**: Tool use input (JSON fragments)
+
+  ```typescript
+  {
+    type: 'input_json_delta';
+    partial_json: '{"command": "ls';
+  }
+  ```
+
+- **`thinking_delta`**: Extended thinking content
+
+  ```typescript
+  { type: 'thinking_delta'; thinking: 'Let me analyze...'; signature?: string }
+  ```
+
+- **`signature_delta`**: Cryptographic signature for thinking
+  ```typescript
+  {
+    type: 'signature_delta';
+    signature: 'sha256:abc123...';
+  }
+  ```
+
+##### `content_block_stop` - Block Completion
+
+```typescript
+{
+  type: 'content_block_stop';
+  index: number; // Block position
+}
+```
+
+**Note**: No additional data. Frontend accumulates deltas.
+
+#### C. Special Events
+
+##### `ping` - Keep-Alive
+
+```typescript
+{
+  type: 'ping';
+  // No additional fields
+}
+```
+
+**Action**: Ignore (SSE keep-alive)
+
+##### `error` - Stream Error
+
+```typescript
+{
+  type: 'error';
+  error: {
+    type: string; // Error type
+    message: string; // Error message
+  }
+}
+```
+
+**Action**: Log error, stop stream
+
+---
+
+## Result Messages
+
+### 5. `SDKResultMessage` - Session Summary
+
+**When**: After session completes (success or error)
+**Purpose**: Final statistics, costs, token usage
+
+```typescript
+export type SDKResultMessage =
+  // Success case
+  | {
+      type: 'result';
+      subtype: 'success';
+
+      // Timing
+      duration_ms: number; // Total session time
+      duration_api_ms: number; // API request time
+
+      // Status
+      is_error: boolean; // Always false for success
+      num_turns: number; // Conversation turns
+
+      // Output
+      result: string; // Final text result
+      structured_output?: unknown; // If outputFormat specified
+
+      // Costs & Usage
+      total_cost_usd: number; // Total USD cost
+      usage: NonNullableUsage; // Cumulative token usage
+      modelUsage: {
+        // Per-model breakdown
+        [modelName: string]: ModelUsage;
+      };
+
+      // Permissions
+      permission_denials: SDKPermissionDenial[];
+
+      // Identity
+      uuid: UUID;
+      session_id: string;
+    }
+
+  // Error cases
+  | {
+      type: 'result';
+      subtype: 'error_during_execution' | 'error_max_turns' | 'error_max_budget_usd' | 'error_max_structured_output_retries';
+
+      // Timing
+      duration_ms: number;
+      duration_api_ms: number;
+
+      // Status
+      is_error: boolean; // Always true for errors
+      num_turns: number;
+
+      // Costs & Usage
+      total_cost_usd: number;
+      usage: NonNullableUsage;
+      modelUsage: {
+        [modelName: string]: ModelUsage;
+      };
+
+      // Error details
+      errors: string[]; // Error messages
+
+      // Permissions
+      permission_denials: SDKPermissionDenial[];
+
+      // Identity
+      uuid: UUID;
+      session_id: string;
+    };
+```
+
+**Supporting Types**:
+
+```typescript
+export type NonNullableUsage = {
+  input_tokens: number;
+  cache_creation_input_tokens: number;
+  cache_read_input_tokens: number;
+  output_tokens: number;
+  server_tool_use?: {
+    web_search_requests: number;
+    web_fetch_requests: number;
+  };
+  service_tier: string;
+  cache_creation?: {
+    ephemeral_1h_input_tokens: number;
+    ephemeral_5m_input_tokens: number;
+  };
+};
+
+export type ModelUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  webSearchRequests: number;
+  costUSD: number;
+  contextWindow: number;
+};
+
+export type SDKPermissionDenial = {
+  tool_name: string;
+  tool_use_id: string;
+  tool_input: Record<string, unknown>;
+};
+```
+
+**Example**:
+
+```json
+{
+  "type": "result",
+  "subtype": "success",
+  "session_id": "3a018310-5da1-4ee1-a959-dbe50c6f99e3",
+  "uuid": "30a21acd-c661-4df3-9a84-b51e42e66761",
+  "is_error": false,
+  "duration_ms": 10224,
+  "duration_api_ms": 23198,
+  "num_turns": 1,
+  "result": "Here's a haiku about TypeScript programming...",
+  "total_cost_usd": 0.0164341,
+  "usage": {
+    "input_tokens": 3,
+    "cache_read_input_tokens": 14473,
+    "output_tokens": 301
+  },
+  "modelUsage": {
+    "claude-sonnet-4-5-20250929": {
+      "inputTokens": 6,
+      "outputTokens": 575,
+      "cacheReadInputTokens": 16547,
+      "costUSD": 0.0136071,
+      "contextWindow": 200000
+    }
+  },
+  "permission_denials": []
+}
+```
+
+---
+
+## System Messages
+
+### 6. Other `SDKSystemMessage` Subtypes
+
+#### `SDKCompactBoundaryMessage` - Context Compaction
+
+**When**: Context window compaction occurs
+**Purpose**: Marks where messages were condensed
+
+```typescript
+export type SDKCompactBoundaryMessage = {
+  type: 'system';
+  subtype: 'compact_boundary';
+
+  compact_metadata: {
+    trigger: 'manual' | 'auto'; // How compaction was triggered
+    pre_tokens: number; // Tokens before compaction
+  };
+
+  uuid: UUID;
+  session_id: string;
+};
+```
+
+#### `SDKStatusMessage` - Session Status
+
+**When**: Session status changes
+**Purpose**: Notify of background operations
+
+```typescript
+export type SDKStatusMessage = {
+  type: 'system';
+  subtype: 'status';
+
+  status: 'compacting' | null; // Current operation
+
+  uuid: UUID;
+  session_id: string;
+};
+```
+
+#### `SDKHookResponseMessage` - Hook Execution
+
+**When**: Custom hook completes
+**Purpose**: Return hook execution results
+
+```typescript
+export type SDKHookResponseMessage = {
+  type: 'system';
+  subtype: 'hook_response';
+
+  hook_name: string;
+  hook_event: string;
+  stdout: string;
+  stderr: string;
+  exit_code?: number;
+
+  uuid: UUID;
+  session_id: string;
+};
+```
+
+### 7. Tool & Auth Progress Messages
+
+#### `SDKToolProgressMessage` - Long-Running Tools
+
+**When**: Tool execution exceeds timeout threshold
+**Purpose**: Show progress for slow operations
+
+```typescript
+export type SDKToolProgressMessage = {
+  type: 'tool_progress';
+
+  tool_use_id: string;
+  tool_name: string;
+  parent_tool_use_id: string | null;
+  elapsed_time_seconds: number;
+
+  uuid: UUID;
+  session_id: string;
+};
+```
+
+#### `SDKAuthStatusMessage` - Authentication State
+
+**When**: API key authentication in progress
+**Purpose**: Show auth flow status
+
+```typescript
+export type SDKAuthStatusMessage = {
+  type: 'auth_status';
+
+  isAuthenticating: boolean;
+  output: string[]; // Auth flow messages
+  error?: string; // Auth error
+
+  uuid: UUID;
+  session_id: string;
+};
+```
+
+---
+
+## Resume Session Behavior
+
+### 8. `SDKUserMessageReplay` - Historical Messages
+
+**When**: Session resumed with `resume` option
+**Purpose**: Replay historical messages from storage
+
+```typescript
+export type SDKUserMessageReplay = SDKUserMessageContent & {
+  uuid: UUID; // Always present (from storage)
+  session_id: string;
+
+  // Replay marker
+  isReplay: true; // Distinguishes from new messages
+};
+```
+
+**Key Difference from `SDKUserMessage`**:
+
+- `uuid` is **always present** (from storage)
+- `isReplay: true` flag prevents duplicate storage
+- Same `message` structure as regular user messages
+
+### Resume Flow
+
+When you call `query()` with `resume: sessionId`:
+
+```typescript
+const query = await query({
+  prompt: 'Continue the conversation',
+  options: {
+    resume: 'session-123', // Resume from this session
+    resumeSessionAt: 'msg-5', // Optional: resume up to specific message
+  },
+});
+```
+
+**SDK Replay Sequence**:
+
+1. **System Init** (`SDKSystemMessage` with `subtype: 'init'`)
+2. **Historical Messages** (alternating user/assistant):
+   - `SDKUserMessageReplay` (user, `isReplay: true`)
+   - `SDKAssistantMessage` (assistant, from storage)
+   - `SDKUserMessageReplay` (user, `isReplay: true`)
+   - `SDKAssistantMessage` (assistant, from storage)
+   - ...
+3. **New User Message** (`SDKUserMessage`, `isReplay` not set)
+4. **Streaming Response** (`SDKPartialAssistantMessage` events)
+
+**Critical**: Check `isReplay` flag to avoid duplicate storage:
+
+```typescript
+if (message.type === 'user') {
+  const isReplay = 'isReplay' in message && message.isReplay === true;
+
+  if (!isReplay) {
+    // Only store new messages, skip replayed history
+    storage.addMessage(message);
+  }
+}
+```
+
+---
+
+## Field-by-Field Analysis
+
+### Guaranteed vs Optional Fields
+
+#### Always Present (Guaranteed)
+
+```typescript
+// ALL messages have these:
+type: string; // Discriminator
+session_id: string; // Session identifier
+
+// Most messages have UUID:
+uuid: UUID; // Unique message ID (except some user messages)
+```
+
+#### Context-Dependent Fields
+
+```typescript
+// Assistant & User messages:
+parent_tool_use_id: string | null;  // null = top-level, string = nested agent
+
+// Assistant messages only:
+message.id: string;                 // Anthropic API message ID
+message.content: ContentBlock[];    // Text, tool_use, thinking blocks
+message.stop_reason: string | null; // end_turn, tool_use, max_tokens
+message.usage: Usage;               // Token counts
+
+// Stream events only:
+event: RawMessageStreamEvent;       // Streaming protocol wrapper
+
+// Result messages only:
+total_cost_usd: number;             // USD cost
+usage: NonNullableUsage;            // Cumulative tokens
+modelUsage: Record<string, ModelUsage>; // Per-model breakdown
+```
+
+#### Optional Fields
+
+```typescript
+// User messages:
+isSynthetic?: boolean;              // System-generated (not user input)
+tool_use_result?: unknown;          // Tool result payload
+
+// Assistant messages:
+error?: SDKAssistantMessageError;   // Error state
+
+// Result messages (success only):
+structured_output?: unknown;        // If outputFormat specified
+```
+
+### Tool Use Content Blocks
+
+Tool execution is NOT a stream event. It's a content block in assistant messages:
+
+```typescript
+// In SDKAssistantMessage.message.content:
+{
+  type: 'tool_use';
+  id: string; // e.g., "toolu_abc123"
+  name: string; // Tool name: "Bash", "Read", "Task", etc.
+  input: Record<string, unknown>; // Tool-specific parameters
+}
+```
+
+**For Task tool (agent spawning)**:
+
+```typescript
+{
+  type: 'tool_use';
+  id: 'toolu_agent_123';
+  name: 'Task';
+  input: {
+    subagent_type: string;          // "Explore", "Plan", etc.
+    description: string;            // Short task description
+    prompt: string;                 // Detailed instructions
+    model?: 'sonnet' | 'opus' | 'haiku';
+    resume?: string;                // Resume agent session
+    run_in_background?: boolean;
+  };
+}
+```
+
+**Tool Results** (in next user message):
+
+```typescript
+// In SDKUserMessage.message.content:
+{
+  type: 'tool_result';
+  tool_use_id: string;              // Matches tool_use.id
+  content?: string | unknown;       // Tool output
+  is_error?: boolean;               // Error flag
+}
+```
+
+---
+
+## Implementation Checklist
+
+### Transformer Requirements
+
+✅ **Handle all message types**:
+
+- [x] `SDKSystemMessage` (init) - Skip (metadata only)
+- [x] `SDKUserMessage` - Transform to flat events
+- [x] `SDKUserMessageReplay` - Check `isReplay` flag
+- [x] `SDKAssistantMessage` - Transform complete message
+- [x] `SDKPartialAssistantMessage` - Transform stream events
+- [x] `SDKResultMessage` - Extract via callback (not flat events)
+
+✅ **Handle all stream event types**:
+
+- [x] `message_start` - Emit `message_start` event
+- [x] `content_block_start` - Emit `tool_start` or `thinking_start`
+- [x] `content_block_delta` - Emit text/tool/thinking deltas
+- [x] `content_block_stop` - No event (frontend accumulates)
+- [x] `message_delta` - Emit `message_delta` with token usage
+- [x] `message_stop` - Emit `message_complete` event
+- [x] `ping` - Ignore
+- [x] `error` - Log error
+
+✅ **Preserve relationships**:
+
+- [x] Use `message.id` as canonical `messageId`
+- [x] Capture `content_block.id` as `toolCallId`
+- [x] Track `parent_tool_use_id` for nested agents
+
+✅ **Handle resume**:
+
+- [x] Detect `isReplay: true` flag
+- [x] Skip storing replayed messages
+- [x] Process new messages normally
+
+---
+
+## Testing Scenarios
+
+### New Session
+
+1. Receive `SDKSystemMessage` (init)
+2. Receive `SDKPartialAssistantMessage` (stream_event: message_start)
+3. Receive multiple `SDKPartialAssistantMessage` (content_block_delta)
+4. Receive `SDKPartialAssistantMessage` (stream_event: message_stop)
+5. Receive `SDKResultMessage` (success)
+
+### Resume Session
+
+1. Receive `SDKSystemMessage` (init)
+2. Receive historical `SDKUserMessageReplay` (isReplay: true)
+3. Receive historical `SDKAssistantMessage`
+4. ...repeat for all history...
+5. Receive new `SDKUserMessage` (no isReplay)
+6. Normal streaming continues
+
+### Tool Use
+
+1. `content_block_start` with `type: 'tool_use'` - Capture ID
+2. `content_block_delta` with `type: 'input_json_delta'` - Accumulate JSON
+3. `content_block_stop` - Tool input complete
+4. Next user message contains `tool_result` with matching `tool_use_id`
+
+### Agent (Task Tool)
+
+1. `content_block_start` with `name: 'Task'` - Extract agent metadata
+2. Subsequent messages have `parent_tool_use_id` set to Task tool ID
+3. Nested messages follow same protocol with different session_id
+
+---
+
+## References
+
+- **SDK Package**: `@anthropic-ai/claude-agent-sdk@0.1.69`
+- **Type Definitions**: `node_modules/@anthropic-ai/claude-agent-sdk/entrypoints/agentSdkTypes.d.ts`
+- **Runtime Examples**: `sdk-messages-raw.json`
+- **Anthropic SDK**: Messages follow `@anthropic-ai/sdk` protocol (bundled in Agent SDK)
+
+---
+
+## Revision History
+
+| Date       | Version | Changes                                  |
+| ---------- | ------- | ---------------------------------------- |
+| 2025-12-18 | 1.0     | Initial comprehensive type documentation |

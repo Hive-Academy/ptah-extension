@@ -41,12 +41,11 @@ export default [
 
       // Accessibility & UX
       '@angular-eslint/template/alt-text': 'warn',
-      '@angular-eslint/template/click-events-have-key-events': 'warn',
+      '@angular-eslint/template/click-events-have-key-events': 'off',
+      '@angular-eslint/template/interactive-supports-focus': 'off',
       '@angular-eslint/template/mouse-events-have-key-events': 'warn',
       '@angular-eslint/template/valid-aria': 'error',
       '@angular-eslint/template/elements-content': 'warn',
-      '@angular-eslint/template/click-events-have-key-events': 'off',
-      '@angular-eslint/template/interactive-supports-focus': 'off',
       '@angular-eslint/template/no-call-expression': 'off',
 
       '@angular-eslint/template/no-duplicate-attributes': 'error',
@@ -55,7 +54,7 @@ export default [
         { maxComplexity: 10 },
       ],
       '@angular-eslint/template/cyclomatic-complexity': [
-        'warn',
+        'off',
         { maxComplexity: 20 },
       ],
 

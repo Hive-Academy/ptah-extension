@@ -21,7 +21,7 @@ export class TemplateGeneratorService {
   constructor(
     @inject(TOKENS.TEMPLATE_ORCHESTRATOR)
     private readonly orchestrator: ITemplateOrchestrator,
-    @inject(TOKENS.WORKSPACE_ANALYZER)
+    @inject(TOKENS.WORKSPACE_ANALYZER_SERVICE)
     private readonly workspaceAnalyzer: WorkspaceAnalyzerService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger
   ) {}

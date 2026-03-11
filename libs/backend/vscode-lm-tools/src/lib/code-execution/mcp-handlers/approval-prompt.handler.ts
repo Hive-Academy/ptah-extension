@@ -6,7 +6,7 @@
  */
 
 import type { Logger, WebviewManager } from '@ptah-extension/vscode-core';
-import type { PermissionResponse } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, type PermissionResponse } from '@ptah-extension/shared';
 import type { PermissionPromptService } from '../../permission/permission-prompt.service';
 import type { MCPRequest, MCPResponse, ApprovalPromptParams } from '../types';
 
@@ -49,11 +49,12 @@ export async function handleApprovalPrompt(
     );
   });
 
-  // 3. Send to webview via WebviewManager
+  // 3. Send MCP permission request to webview via WebviewManager
   // The webview is registered as 'ptah.main' in angular-webview.provider.ts
+  // Uses shared PERMISSION_REQUEST type (same as SDK)
   await webviewManager.sendMessage(
     'ptah.main',
-    'permission:request',
+    MESSAGE_TYPES.PERMISSION_REQUEST,
     permissionRequest
   );
 

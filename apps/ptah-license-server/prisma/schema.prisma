@@ -1,0 +1,135 @@
+// Prisma Schema for Ptah License Server
+// Database: PostgreSQL with driver adapters (Nx monorepo compatible)
+// Prisma 7.1.0+ - URL configured in prisma.config.ts, adapter passed at runtime
+//
+// IMPORTANT: url field is DEPRECATED in Prisma 7 and should NOT be in schema
+// Configure datasource.url in prisma.config.ts instead
+
+datasource db {
+  provider = "postgresql"
+}
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated-prisma-client"
+}
+
+// User model - stores user information for license ownership
+// Syncs with WorkOS User Management for authentication
+model User {
+  id               String         @id @default(uuid()) @db.Uuid
+  workosId         String?        @unique @map("workos_id") // WorkOS user ID for sync
+  paddleCustomerId String?        @unique @map("paddle_customer_id") // Paddle customer ID for billing
+  email            String         @unique
+  firstName        String?        @map("first_name")
+  lastName         String?        @map("last_name")
+  emailVerified    Boolean        @default(false) @map("email_verified")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  licenses         License[]
+  subscriptions    Subscription[]
+  trialReminders   TrialReminder[]
+  sessionRequests  SessionRequest[]
+
+  @@index([workosId])
+  @@index([paddleCustomerId])
+  @@map("users")
+}
+
+// Subscription model - tracks Paddle subscription state for payment lifecycle
+// TASK_2025_121: Added trialEnd field for trial period tracking
+model Subscription {
+  id                   String    @id @default(uuid()) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  paddleSubscriptionId String    @unique @map("paddle_subscription_id")
+  paddleCustomerId     String    @map("paddle_customer_id")
+  status               String // "active" | "trialing" | "paused" | "canceled" | "past_due"
+  priceId              String    @map("price_id")
+  currentPeriodEnd     DateTime  @map("current_period_end")
+  trialEnd             DateTime? @map("trial_end") // TASK_2025_121: Trial end date (null if not in trial)
+  canceledAt           DateTime? @map("canceled_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([paddleSubscriptionId])
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+// License model - stores license keys with plan, status, and expiration
+// TASK_2025_128: Freemium model - Community (free) + Pro (paid)
+model License {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  licenseKey String    @unique @map("license_key")
+  plan       String // "community" | "pro"
+  status     String    @default("active") // "active" | "expired" | "revoked" | "paused"
+  expiresAt  DateTime? @map("expires_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  createdBy  String    @default("admin") @map("created_by")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([licenseKey])
+  @@index([userId])
+  @@index([status, expiresAt])
+  @@map("licenses")
+}
+
+// FailedWebhook model - stores failed webhook payloads for manual recovery and investigation
+// TASK_2025_123: Webhook resilience - store failures for later retry
+model FailedWebhook {
+  id           String    @id @default(uuid()) @db.Uuid
+  eventId      String    @map("event_id")
+  eventType    String    @map("event_type")
+  rawPayload   Json      @map("raw_payload")
+  errorMessage String    @map("error_message")
+  stackTrace   String?   @map("stack_trace")
+  attemptedAt  DateTime  @map("attempted_at") @default(now())
+  retryCount   Int       @default(0) @map("retry_count")
+  resolved     Boolean   @default(false)
+  resolvedAt   DateTime? @map("resolved_at")
+
+  @@index([eventId])
+  @@index([eventType])
+  @@index([resolved])
+  @@map("failed_webhooks")
+}
+
+// TrialReminder model - tracks trial reminder emails sent to users
+// TASK_2025_142: Trial reminder scheduler - tracks which reminders have been sent
+model TrialReminder {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reminderType String   @map("reminder_type") // "7_day" | "3_day" | "1_day" | "expired"
+  sentAt       DateTime @default(now()) @map("sent_at")
+  emailSentTo  String   @map("email_sent_to")
+
+  @@unique([userId, reminderType])
+  @@index([userId])
+  @@index([reminderType])
+  @@map("trial_reminders")
+}
+
+// SessionRequest model - stores training session registration requests
+// Users can request free (community) or paid ($100) 2-hour training sessions
+model SessionRequest {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionTopicId      String    @map("session_topic_id")
+  additionalNotes     String?   @map("additional_notes")
+  isFreeSession       Boolean   @default(false) @map("is_free_session")
+  status              String    @default("pending") // pending | scheduled | completed | canceled
+  paymentStatus       String    @default("none") @map("payment_status") // none | pending | completed
+  paddleTransactionId String?   @map("paddle_transaction_id")
+  scheduledAt         DateTime? @map("scheduled_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("session_requests")
+}

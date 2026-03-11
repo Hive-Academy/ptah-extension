@@ -67,23 +67,24 @@ export class ToolIconComponent {
 
   /**
    * Map tool name to semantic color class
-   * Extracted from tool-call-item.component.ts:322-340
+   * Uses DaisyUI semantic color classes for theme-aware styling
+   * TASK_2025_100 Batch 4: Migrated from Tailwind colors to DaisyUI semantic classes
    */
   protected getColorClass(): string {
     const name = this.toolName();
     switch (name) {
       case 'Read':
-        return 'text-blue-400';
+        return 'text-info'; // info (blue) - file reading
       case 'Write':
-        return 'text-green-400';
+        return 'text-success'; // success (green) - file creation
       case 'Bash':
-        return 'text-yellow-400';
+        return 'text-warning'; // warning (amber) - shell commands
       case 'Grep':
-        return 'text-purple-400';
+        return 'text-secondary'; // secondary - search operations
       case 'Edit':
-        return 'text-orange-400';
+        return 'text-accent'; // accent - file modifications
       case 'Glob':
-        return 'text-cyan-400';
+        return 'text-info'; // info - file pattern matching
       default:
         return 'text-base-content/60';
     }

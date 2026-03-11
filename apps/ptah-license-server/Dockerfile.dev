@@ -1,0 +1,79 @@
+# =============================================================================
+# Ptah License Server - Development Dockerfile
+# =============================================================================
+#
+# This Dockerfile creates a development container with:
+#   - Node.js 20 LTS (Alpine for smaller image size)
+#   - Prisma client generation
+#   - Hot-reload support via volume mounting
+#
+# BUILD:
+#   docker build -f apps/ptah-license-server/Dockerfile.dev -t ptah-license-server:dev .
+#
+# NOTE: This is NOT for production use. Use a multi-stage production Dockerfile
+#       that builds and bundles the application.
+#
+# =============================================================================
+
+# Base image: Node.js 20 LTS on Alpine Linux
+FROM node:20-alpine
+
+# Set working directory to monorepo root
+WORKDIR /app
+
+# Install system dependencies required by Prisma and other native modules
+# - openssl: Required by Prisma for secure connections
+# - libc6-compat: Required for native Node.js modules on Alpine
+RUN apk add --no-cache openssl libc6-compat
+
+# Copy package files from monorepo root
+# This allows npm to resolve workspace dependencies correctly
+COPY package.json package-lock.json ./
+
+# Copy Nx workspace configuration files
+COPY nx.json tsconfig.base.json ./
+
+# Copy the license server project configuration
+COPY apps/ptah-license-server/project.json ./apps/ptah-license-server/
+COPY apps/ptah-license-server/tsconfig*.json ./apps/ptah-license-server/
+COPY apps/ptah-license-server/webpack.config.js ./apps/ptah-license-server/
+
+# Copy Prisma schema and config for client generation
+# prisma.config.ts is required for Prisma 7 CLI commands (generate, migrate)
+# IMPORTANT: prisma.config.ts must be at the app root, not inside prisma/ directory
+COPY apps/ptah-license-server/prisma ./apps/ptah-license-server/prisma/
+COPY apps/ptah-license-server/prisma.config.ts ./apps/ptah-license-server/
+
+# Install all dependencies (including devDependencies for development)
+# Using --ignore-scripts to prevent postinstall issues in Docker build
+RUN npm ci --ignore-scripts
+
+# Generate Prisma client
+# This must happen after npm ci installs prisma
+# Prisma 7 requires running from the app directory where prisma.config.ts is located
+RUN cd apps/ptah-license-server && npx prisma generate
+
+# Copy source code
+# NOTE: In development, this is overwritten by the volume mount in docker-compose.yml
+# The copy here is for initial container startup and when not using volumes
+COPY apps/ptah-license-server/src ./apps/ptah-license-server/src/
+
+# Copy shared libraries that the license server depends on
+# Adjust these paths if your monorepo structure differs
+COPY libs ./libs/
+
+# Expose the application port
+# Default NestJS port is 3000, configurable via PORT environment variable
+EXPOSE 3000
+
+# Set default environment to development
+ENV NODE_ENV=development
+
+# Health check for container orchestration
+# Checks if the server responds to requests
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api || exit 1
+
+# Default command: start the development server with hot-reload
+# NOTE: This is typically overridden by docker-compose.yml to run migrations first
+CMD ["npx", "nx", "serve", "ptah-license-server"]

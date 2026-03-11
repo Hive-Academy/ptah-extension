@@ -1,0 +1,209 @@
+<!--
+  SettingsComponent - Compact VS Code Sidebar Design
+
+  TASK_2025_079: Conditional visibility based on auth and license status
+
+  Visibility Rules:
+  - Authentication: Always visible
+  - Model Selection & Autopilot: Visible after auth configured
+  - MCP Port & LLM Providers: Pro-only (Pro tier)
+
+  Follows VS Code UX Guidelines:
+  - Icons: 16-20px (was 24px+)
+  - Headings: 14-16px (text-sm)
+  - Padding: 12-16px (px-3, py-3)
+  - Compact spacing: space-y-3, gap-2
+-->
+
+<div class="h-full overflow-y-auto bg-base-100">
+  <div class="px-3 py-3 space-y-3">
+    <!-- Compact Header with back button -->
+    <div class="flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <button
+          class="btn btn-ghost btn-xs gap-1.5"
+          (click)="backToChat()"
+          aria-label="Back to Chat"
+        >
+          <lucide-angular [img]="ArrowLeftIcon" class="w-3.5 h-3.5" />
+          <span class="text-xs">Back</span>
+        </button>
+        <h1 class="text-sm font-semibold">Settings</h1>
+      </div>
+      <!-- License tier badge -->
+      @if (!isLoadingLicenseStatus()) {
+      <div class="flex items-center gap-1">
+        @if (isPremium()) {
+        <span class="badge badge-primary badge-xs gap-1" aria-label="Pro user">
+          <lucide-angular [img]="SparklesIcon" class="w-2.5 h-2.5" />
+          <span>Pro</span>
+        </span>
+        } @else {
+        <span class="badge badge-ghost badge-xs">Free</span>
+        }
+      </div>
+      }
+    </div>
+
+    <!-- License Status Card -->
+    <ptah-license-status-card />
+
+    <!-- Tab Bar -->
+    <div class="tabs tabs-boxed bg-base-200/50 p-1 gap-1">
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'claude-auth'"
+        (click)="setActiveTab('claude-auth')"
+      >
+        <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
+        <span class="text-xs">Claude Auth</span>
+      </button>
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'pro-features'"
+        (click)="setActiveTab('pro-features')"
+      >
+        @if (isPremium()) {
+        <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+        } @else {
+        <lucide-angular [img]="LockIcon" class="w-3 h-3" />
+        }
+        <span class="text-xs">Pro Features</span>
+      </button>
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'ptah-ai'"
+        (click)="setActiveTab('ptah-ai')"
+      >
+        <lucide-angular [img]="CpuIcon" class="w-3 h-3" />
+        <span class="text-xs">Ptah AI</span>
+      </button>
+    </div>
+
+    <!-- ============================================ -->
+    <!-- Tab 1: Claude Auth                          -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'claude-auth') {
+    <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-sm">🔐</span>
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            Authentication
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Configure your authentication method to connect with AI providers.
+        </p>
+        <ptah-auth-config />
+
+        <!-- Provider Model Mapping - shown when provider auth + key configured (TASK_2025_133) -->
+        @if (showProviderModels()) {
+        <div class="divider my-2 text-[10px] opacity-50">
+          Provider Model Mapping
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Override default Anthropic model aliases with models from your
+          provider.
+        </p>
+        <ptah-provider-model-selector
+          [providerId]="authState.selectedProviderId()"
+          [hasKey]="authState.hasProviderKey()"
+        />
+        }
+      </div>
+    </div>
+    }
+
+    <!-- ============================================ -->
+    <!-- Tab 2: Pro Features                         -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'pro-features') { @if (showPremiumSections()) {
+    <!-- System Prompt Mode (TASK_2025_151) -->
+    <ptah-enhanced-prompts-config />
+
+    <!-- MCP Port Configuration -->
+    <div class="border border-primary/30 rounded-md bg-primary/5">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <span class="text-sm">🔌</span>
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            MCP Server Port
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Configure the port for Ptah's MCP server (code execution tools).
+        </p>
+        <div class="text-xs text-base-content/50 italic">
+          Configure in VS Code Settings: <code>ptah.mcpPort</code> (default:
+          51820)
+        </div>
+      </div>
+    </div>
+
+    <!-- VS Code Language Model Config -->
+    <ptah-vscode-lm-config (modelChanged)="onModelChanged()" />
+    } @else {
+    <!-- Upsell for non-premium users -->
+    <div class="border border-base-300 rounded-md bg-base-200/30 opacity-75">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular
+            [img]="LockIcon"
+            class="w-4 h-4 text-base-content/50"
+          />
+          <h2
+            class="text-xs font-medium uppercase tracking-wide text-base-content/70"
+          >
+            Pro Features
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/50 mb-3">
+          Upgrade to access enhanced system prompts, MCP server configuration,
+          and more.
+        </p>
+        <button class="btn btn-primary btn-xs gap-1.5" (click)="openPricing()">
+          <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+          <span>Upgrade to Pro</span>
+        </button>
+      </div>
+    </div>
+    } }
+
+    <!-- ============================================ -->
+    <!-- Tab 3: Ptah AI                              -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'ptah-ai') { @if (isPremium()) {
+    <!-- Agent Orchestration + Ptah CLI Agents (unified panel) -->
+    <ptah-agent-orchestration-config>
+      <ptah-cli-config (ptahCliChanged)="onPtahCliChanged()" />
+    </ptah-agent-orchestration-config>
+
+    } @else {
+    <!-- Upsell for non-premium users -->
+    <div class="border border-base-300 rounded-md bg-base-200/30 opacity-75">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular
+            [img]="LockIcon"
+            class="w-4 h-4 text-base-content/50"
+          />
+          <h2
+            class="text-xs font-medium uppercase tracking-wide text-base-content/70"
+          >
+            Ptah AI Providers
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/50 mb-3">
+          Upgrade to configure additional LLM providers that power Ptah's AI
+          tools (image generation, code analysis, and more).
+        </p>
+        <button class="btn btn-primary btn-xs gap-1.5" (click)="openPricing()">
+          <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+          <span>Upgrade to Pro</span>
+        </button>
+      </div>
+    </div>
+    } }
+  </div>
+</div>

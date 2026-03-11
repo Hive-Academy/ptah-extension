@@ -22,12 +22,26 @@
     /* Glass Effects */
     --glass-panel: rgba(42, 42, 42, 0.7);
     --glass-border: rgba(212, 175, 55, 0.2);
+
+    /* Glassmorphism */
+    --glass-blur: blur(20px);
+    --glass-bg: rgba(42, 42, 42, 0.6);
+
+    /* Gradient Text */
+    --gradient-text-gold: linear-gradient(135deg, #d4af37, #fbbf24, #d4af37);
+
+    /* Animation Timing */
+    --animation-slow: 2s;
+    --animation-medium: 1.2s;
+    --animation-fast: 0.6s;
   }
 }
 
-/* Smooth Scrolling */
-html {
-  scroll-behavior: smooth;
+/* Smooth Scrolling - handled by Lenis */
+/* NOTE: Do NOT use scroll-behavior: smooth here as it conflicts with Lenis */
+html.lenis,
+html.lenis body {
+  height: auto;
 }
 
 /* Custom Scrollbar Styling */
@@ -46,4 +60,25 @@ html {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #d4af37;
+}
+
+/* Utility Classes */
+.glassmorphism {
+  backdrop-filter: var(--glass-blur);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+}
+
+/* Fallback for browsers without backdrop-filter */
+@supports not (backdrop-filter: blur(20px)) {
+  .glassmorphism {
+    background: rgba(42, 42, 42, 0.95);
+  }
+}
+
+.gradient-text-gold {
+  background: var(--gradient-text-gold);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }

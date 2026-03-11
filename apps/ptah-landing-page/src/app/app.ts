@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { LandingPageComponent } from './pages/landing-page.component';
+import { RouterOutlet } from '@angular/router';
 
 /**
  * App - Root application component
@@ -28,7 +28,7 @@ import { LandingPageComponent } from './pages/landing-page.component';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [LandingPageComponent],
+  imports: [RouterOutlet],
   templateUrl: './app.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

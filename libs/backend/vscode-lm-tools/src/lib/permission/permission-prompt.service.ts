@@ -16,6 +16,14 @@ import { minimatch } from 'minimatch';
 import type { ExtensionContext } from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import {
+  isBashToolInput,
+  isEditToolInput,
+  isGlobToolInput,
+  isGrepToolInput,
+  isReadToolInput,
+  isWriteToolInput,
+} from '@ptah-extension/shared';
 import type {
   PermissionRequest,
   PermissionResponse,
@@ -334,18 +342,42 @@ export class PermissionPromptService {
   ): string {
     // Extract key parameters for common tools
     switch (toolName) {
-      case 'Bash':
-        return `Execute bash command: ${toolInput['command'] ?? 'unknown'}`;
-      case 'Write':
-        return `Write file: ${toolInput['file_path'] ?? 'unknown'}`;
-      case 'Read':
-        return `Read file: ${toolInput['file_path'] ?? 'unknown'}`;
-      case 'Edit':
-        return `Edit file: ${toolInput['file_path'] ?? 'unknown'}`;
-      case 'Glob':
-        return `Search files: ${toolInput['pattern'] ?? 'unknown'}`;
-      case 'Grep':
-        return `Search content: ${toolInput['pattern'] ?? 'unknown'}`;
+      case 'Bash': {
+        if (isBashToolInput(toolInput)) {
+          return `Execute bash command: ${toolInput.command}`;
+        }
+        return `Execute bash command: unknown`;
+      }
+      case 'Write': {
+        if (isWriteToolInput(toolInput)) {
+          return `Write file: ${toolInput.file_path}`;
+        }
+        return `Write file: unknown`;
+      }
+      case 'Read': {
+        if (isReadToolInput(toolInput)) {
+          return `Read file: ${toolInput.file_path}`;
+        }
+        return `Read file: unknown`;
+      }
+      case 'Edit': {
+        if (isEditToolInput(toolInput)) {
+          return `Edit file: ${toolInput.file_path}`;
+        }
+        return `Edit file: unknown`;
+      }
+      case 'Glob': {
+        if (isGlobToolInput(toolInput)) {
+          return `Search files: ${toolInput.pattern}`;
+        }
+        return `Search files: unknown`;
+      }
+      case 'Grep': {
+        if (isGrepToolInput(toolInput)) {
+          return `Search content: ${toolInput.pattern}`;
+        }
+        return `Search content: unknown`;
+      }
       default:
         // Generic description for unknown tools
         return `Execute ${toolName} with ${

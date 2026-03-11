@@ -58,26 +58,35 @@ export default [
       '**/*.mjs',
     ],
     // Override or add rules here
-    rules: {},
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+        },
+      ],
+    },
   },
-  // {
-  //   files: ['**/*.ts'],
-  //   rules: {
-  //     'no-restricted-syntax': [
-  //       'error',
-  //       {
-  //         selector:
-  //           "CallExpression[callee.property.name='postStrictMessage'][arguments.0.type='Literal']",
-  //         message:
-  //           'Use MESSAGE_TYPES constants instead of string literals for message types. Import from @ptah-extension/shared.',
-  //       },
-  //       {
-  //         selector:
-  //           "CallExpression[callee.property.name='publish'][arguments.0.type='Literal']",
-  //         message:
-  //           'Use MESSAGE_TYPES constants instead of string literals for event types. Import from @ptah-extension/shared.',
-  //       },
-  //     ],
-  //   },
-  // },
+  {
+    files: ['**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.property.name='postStrictMessage'][arguments.0.type='Literal']",
+          message:
+            'Use MESSAGE_TYPES constants instead of string literals for message types. Import from @ptah-extension/shared.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='publish'][arguments.0.type='Literal']",
+          message:
+            'Use MESSAGE_TYPES constants instead of string literals for event types. Import from @ptah-extension/shared.',
+        },
+      ],
+    },
+  },
 ];

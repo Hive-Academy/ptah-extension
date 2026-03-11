@@ -14,6 +14,34 @@ module.exports = {
         mono: ['JetBrains Mono', 'Fira Code', 'Menlo', 'monospace'],
         display: ['Cinzel', 'Playfair Display', 'serif'],
       },
+      fontSize: {
+        '8xl': ['6rem', { lineHeight: '1', letterSpacing: '-0.03em' }],
+        '9xl': ['8rem', { lineHeight: '0.95', letterSpacing: '-0.04em' }],
+      },
+      animation: {
+        'glow-pulse': 'glow-pulse 2s ease-in-out infinite',
+        'pulse-ring': 'pulse-ring 2s ease-out infinite',
+        'divider-draw': 'divider-draw 1.5s ease-out forwards',
+      },
+      keyframes: {
+        'glow-pulse': {
+          '0%, 100%': { boxShadow: '0 0 40px rgba(212, 175, 55, 0.3)' },
+          '50%': { boxShadow: '0 0 60px rgba(212, 175, 55, 0.5)' },
+        },
+        'pulse-ring': {
+          '0%': { boxShadow: '0 0 0 0 rgba(212, 175, 55, 0.4)' },
+          '50%': { boxShadow: '0 0 0 20px rgba(212, 175, 55, 0)' },
+          '100%': { boxShadow: '0 0 0 0 rgba(212, 175, 55, 0)' },
+        },
+        'divider-draw': {
+          from: { transform: 'translateX(-100%)' },
+          to: { transform: 'translateX(0)' },
+        },
+      },
+      boxShadow: {
+        'glow-gold': '0 0 60px rgba(212, 175, 55, 0.4)',
+        'glow-gold-lg': '0 0 100px rgba(212, 175, 55, 0.5)',
+      },
     },
   },
   plugins: [require('daisyui')],

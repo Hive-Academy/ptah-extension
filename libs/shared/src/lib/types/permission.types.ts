@@ -8,6 +8,8 @@
  */
 
 import { z } from 'zod';
+import type { PermissionLevel } from './model-autopilot.types';
+import type { QuestionItem } from '../type-guards/tool-input-guards';
 
 /**
  * Permission request sent from MCP server to webview
@@ -36,6 +38,9 @@ export interface PermissionRequest {
 
   /** Timeout deadline (Unix epoch milliseconds) - auto-deny after this time */
   readonly timeoutAt: number;
+
+  /** Session ID this permission belongs to (for UI routing to correct tab) */
+  readonly sessionId?: string;
 }
 
 /**
@@ -48,11 +53,51 @@ export interface PermissionResponse {
   /** Must match request ID from PermissionRequest */
   readonly id: string;
 
-  /** User's decision: allow (once), deny, or always_allow (create rule) */
-  readonly decision: 'allow' | 'deny' | 'always_allow';
+  /** User's decision: allow (once), deny, always_allow (create rule), or deny_with_message (deny but continue) */
+  readonly decision: 'allow' | 'deny' | 'always_allow' | 'deny_with_message';
+
+  /** Modified tool input parameters (optional, user may edit before approval) */
+  readonly modifiedInput?: Readonly<Record<string, unknown>>;
 
   /** Optional reason for deny decision (shown in logs) */
   readonly reason?: string;
+}
+
+/**
+ * Interface for SDK Permission Handler
+ *
+ * Allows vscode-core to call handleResponse without importing agent-sdk directly.
+ * This breaks the circular dependency between vscode-core and agent-sdk.
+ */
+export interface ISdkPermissionHandler {
+  /**
+   * Handle permission response from webview
+   * @param requestId - The permission request ID
+   * @param response - The user's response
+   */
+  handleResponse(requestId: string, response: PermissionResponse): void;
+
+  /**
+   * Handle question response from webview (for AskUserQuestion tool)
+   * @param response - The user's answers
+   */
+  handleQuestionResponse(response: {
+    id: string;
+    answers: Record<string, string>;
+  }): void;
+
+  /**
+   * Get the current permission level
+   * Used by SessionLifecycleManager to set initial SDK permissionMode at query creation
+   */
+  getPermissionLevel(): PermissionLevel;
+
+  /**
+   * Cleanup pending permission requests for a session
+   * Called when session is aborted to prevent unhandled promise rejections
+   * @param sessionId - The session ID to cleanup (optional, cleanup all if not provided)
+   */
+  cleanupPendingPermissions(sessionId?: string): void;
 }
 
 /**
@@ -82,6 +127,39 @@ export interface PermissionRule {
 }
 
 /**
+ * AskUserQuestion request sent from backend to webview
+ *
+ * Represents a pending question request from the SDK's AskUserQuestion tool.
+ * The backend creates this when Claude invokes AskUserQuestion.
+ */
+export interface AskUserQuestionRequest {
+  /** Unique request ID (for correlation with response) */
+  readonly id: string;
+  /** Tool name (always 'AskUserQuestion') */
+  readonly toolName: 'AskUserQuestion';
+  /** Array of questions to present to the user */
+  readonly questions: QuestionItem[];
+  /** Claude's tool_use_id for correlation */
+  readonly toolUseId?: string;
+  /** Request timestamp (Unix epoch milliseconds) */
+  readonly timestamp: number;
+  /** Timeout deadline (Unix epoch milliseconds) */
+  readonly timeoutAt: number;
+  /** Session ID this question belongs to (for UI routing to correct tab) */
+  readonly sessionId?: string;
+}
+
+/**
+ * AskUserQuestion response sent from webview to backend
+ */
+export interface AskUserQuestionResponse {
+  /** Must match request ID from AskUserQuestionRequest */
+  readonly id: string;
+  /** User's answers keyed by question ID */
+  readonly answers: Record<string, string>;
+}
+
+/**
  * Zod schema for PermissionRequest runtime validation
  *
  * Validates incoming permission requests from MCP server.
@@ -94,6 +172,7 @@ export const PermissionRequestSchema = z.object({
   timestamp: z.number(),
   description: z.string(),
   timeoutAt: z.number(),
+  sessionId: z.string().optional(),
 });
 
 /**
@@ -102,8 +181,9 @@ export const PermissionRequestSchema = z.object({
  * Validates user responses before sending back to MCP server.
  */
 export const PermissionResponseSchema = z.object({
-  id: z.string().uuid(),
-  decision: z.enum(['allow', 'deny', 'always_allow']),
+  id: z.string(),
+  decision: z.enum(['allow', 'deny', 'always_allow', 'deny_with_message']),
+  modifiedInput: z.record(z.string(), z.unknown()).optional(),
   reason: z.string().optional(),
 });
 

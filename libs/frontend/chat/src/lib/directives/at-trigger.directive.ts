@@ -74,14 +74,25 @@ export class AtTriggerDirective implements OnInit {
   private readonly elementRef = inject(ElementRef<HTMLTextAreaElement>);
   private readonly destroyRef = inject(DestroyRef);
 
+  // Inputs
   /**
    * Enable/disable the directive
    */
   readonly enabled = input(true);
 
-  // Convert signal to observable in injection context (field initializer)
-  // CRITICAL: toObservable() uses inject() internally, must be called here, not in ngOnInit
+  // CRITICAL: Field initializer pattern for toObservable() call
+  // Why: toObservable() uses inject() internally, which requires injection context
+  // Injection context: Only available during class construction (field initializers, constructor)
+  // Violation: Calling toObservable() in ngOnInit causes NG0203 "inject() must be called from injection context"
+  // Reference: https://angular.dev/guide/signals/inputs#reading-input-values-in-ngOnInit
   private readonly enabled$ = toObservable(this.enabled);
+
+  /**
+   * Emitted IMMEDIATELY when @ trigger becomes active (inactive→active transition).
+   * Use this to open the dropdown without waiting for debounce.
+   * NOT debounced - fires on the first detection of @.
+   */
+  readonly atActivated = output<AtTriggerEvent>();
 
   /**
    * Emitted when @ trigger is detected with valid query
@@ -94,6 +105,12 @@ export class AtTriggerDirective implements OnInit {
    * NOT debounced - immediate
    */
   readonly atClosed = output<void>();
+
+  /**
+   * Emitted immediately when query changes (no debounce)
+   * Used for responsive filtering in UI
+   */
+  readonly atQueryChanged = output<string>();
 
   private readonly DEBOUNCE_DELAY_MS = 150;
 
@@ -127,7 +144,7 @@ export class AtTriggerDirective implements OnInit {
       } as AtTriggerState)
     );
 
-    // Combined stream that respects enabled state
+    // Combined stream that respects enabled state AND dropdown open state
     const triggerState$ = combineLatest([inputState$, this.enabled$]).pipe(
       filter(([, enabled]) => enabled),
       map(([state]) => state),
@@ -138,9 +155,24 @@ export class AtTriggerDirective implements OnInit {
     triggerState$
       .pipe(pairwise(), takeUntilDestroyed(this.destroyRef))
       .subscribe(([prev, curr]) => {
+        // Emit activated immediately on inactive→active transition
+        // This allows the parent to open the dropdown without waiting for debounce
+        if (!prev.isActive && curr.isActive) {
+          this.atActivated.emit({
+            query: curr.query,
+            cursorPosition: curr.cursorPosition,
+            triggerPosition: curr.triggerPosition,
+          });
+        }
+
         // Emit close immediately when transitioning from active to inactive
         if (prev.isActive && !curr.isActive) {
           this.atClosed.emit();
+        }
+
+        // Emit query change immediately (including on activation)
+        if (curr.isActive && (!prev.isActive || curr.query !== prev.query)) {
+          this.atQueryChanged.emit(curr.query);
         }
       });
 

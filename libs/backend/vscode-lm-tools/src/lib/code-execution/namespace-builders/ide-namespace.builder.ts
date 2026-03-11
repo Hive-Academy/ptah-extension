@@ -43,7 +43,6 @@ import type {
   HoverInfo,
   SignatureHelp,
   ActiveEditorInfo,
-  VisibleRange,
   TestItem,
   TestRunOptions,
   TestResult,
@@ -61,6 +60,33 @@ export function buildIDENamespace(): IDENamespace {
     actions: buildActionsNamespace(),
     testing: buildTestingNamespace(),
   };
+}
+
+/**
+ * Resolve a file path relative to workspace root if it's not absolute.
+ * Handles relative paths like 'src/contexts/AuthContext.tsx' by prepending workspace root.
+ */
+function resolveFilePath(filePath: string): vscode.Uri {
+  // Normalize path separators to forward slashes
+  const normalizedPath = filePath.replace(/\\/g, '/');
+
+  // Check if it's already an absolute path (starts with drive letter or /)
+  const isAbsolute =
+    /^[a-zA-Z]:/.test(normalizedPath) || normalizedPath.startsWith('/');
+
+  if (isAbsolute) {
+    return vscode.Uri.file(normalizedPath);
+  }
+
+  // Relative path - resolve to workspace root
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    throw new Error(
+      'No workspace folder open. Cannot resolve relative path: ' + filePath
+    );
+  }
+
+  return vscode.Uri.joinPath(workspaceFolders[0].uri, normalizedPath);
 }
 
 /**
@@ -88,7 +114,7 @@ function buildLSPNamespace(): LSPNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
         const position = new vscode.Position(line, col);
 
         const definitions = await vscode.commands.executeCommand<
@@ -134,7 +160,7 @@ function buildLSPNamespace(): LSPNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
         const position = new vscode.Position(line, col);
 
         const references = await vscode.commands.executeCommand<
@@ -180,7 +206,7 @@ function buildLSPNamespace(): LSPNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
         const position = new vscode.Position(line, col);
 
         const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
@@ -254,7 +280,7 @@ function buildLSPNamespace(): LSPNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
         const position = new vscode.Position(line, col);
 
         const typeDefinitions = await vscode.commands.executeCommand<
@@ -300,7 +326,7 @@ function buildLSPNamespace(): LSPNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
         const position = new vscode.Position(line, col);
 
         const signatureHelp =
@@ -501,7 +527,7 @@ function buildActionsNamespace(): ActionsNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
         const position = new vscode.Position(line, 0);
         const range = new vscode.Range(position, position);
 
@@ -545,7 +571,7 @@ function buildActionsNamespace(): ActionsNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
         const position = new vscode.Position(line, 0);
         const range = new vscode.Range(position, position);
 
@@ -609,7 +635,7 @@ function buildActionsNamespace(): ActionsNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
         const position = new vscode.Position(line, col);
 
         // Execute rename command
@@ -641,7 +667,7 @@ function buildActionsNamespace(): ActionsNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
 
         // Execute organize imports command
         await vscode.commands.executeCommand(
@@ -668,7 +694,7 @@ function buildActionsNamespace(): ActionsNamespace {
       }
 
       try {
-        const uri = vscode.Uri.file(file);
+        const uri = resolveFilePath(file);
 
         if (kind) {
           // Execute fixAll with specific kind
@@ -733,6 +759,7 @@ function buildTestingNamespace(): TestingNamespace {
      * @returns Test results with passed/failed/skipped counts
      */
     run: async (options?: TestRunOptions): Promise<TestResult> => {
+      void options; // Reserved for when test controller integration is available
       // VS Code doesn't provide a global "run all tests" API
       // Test execution requires a TestController
       // Return zero results as graceful degradation

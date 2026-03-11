@@ -21,18 +21,11 @@
   @if (hasError()) {
   <div class="flex items-center justify-center h-full p-4">
     <div class="alert alert-error max-w-md">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
+      <lucide-angular
+        [img]="AlertCircleIcon"
         class="w-6 h-6"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <circle cx="12" cy="12" r="10" />
-        <line x1="12" x2="12" y1="8" y2="12" />
-        <line x1="12" x2="12.01" y1="16" y2="16" />
-      </svg>
+        aria-hidden="true"
+      />
       <div>
         <h3 class="font-bold">Initialization Error</h3>
         <p class="text-sm">
