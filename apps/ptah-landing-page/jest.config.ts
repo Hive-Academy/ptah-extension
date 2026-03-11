@@ -1,6 +1,6 @@
 export default {
   displayName: 'ptah-landing-page',
-  preset: '../jest.preset.js',
+  preset: '../../jest.preset.js',
   setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
   coverageDirectory: '../coverage/ptah-landing-page',
   transform: {
