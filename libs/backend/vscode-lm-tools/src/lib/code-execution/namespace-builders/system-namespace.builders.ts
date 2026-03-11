@@ -972,10 +972,9 @@ function resolveWorkspacePath(filePath: string): vscode.Uri {
   // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
 
-  // Reject absolute paths - only workspace-relative paths allowed
-  const isAbsolute =
-    /^[a-zA-Z]:/.test(normalizedPath) || normalizedPath.startsWith('/');
-  if (isAbsolute) {
+  // Reject absolute paths (drive letters, UNC paths, Unix absolute)
+  // Uses Node.js path.isAbsolute() which handles all platform cases
+  if (path.isAbsolute(normalizedPath)) {
     throw new Error(
       'Absolute paths are not allowed. Use workspace-relative paths only.'
     );

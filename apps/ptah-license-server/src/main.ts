@@ -36,7 +36,12 @@ async function bootstrap() {
 
   // Configure helmet for HTTP security headers (HSTS, X-Frame-Options, etc.)
   // Must be applied before other middleware to ensure headers are set on all responses
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: false, // API server, not serving HTML
+      crossOriginEmbedderPolicy: false, // Allow API consumption from any origin (CORS handles this)
+    })
+  );
 
   // Configure cookie-parser middleware for PKCE state cookie management
   // Used by WorkOS OAuth flow to store state parameter in HTTP-only cookies

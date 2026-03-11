@@ -196,65 +196,59 @@ export class JwtTokenService {
   private async determineTier(
     databaseUserId: string
   ): Promise<'community' | 'pro' | 'trial_pro' | 'expired'> {
-    try {
-      // Check for an active subscription first (most authoritative source)
-      const subscription = await this.prisma.subscription.findFirst({
-        where: {
-          userId: databaseUserId,
-          status: { in: ['active', 'trialing', 'past_due'] },
-        },
-        orderBy: { updatedAt: 'desc' },
-      });
+    // Check for an active subscription first (most authoritative source)
+    // NOTE: DB errors are intentionally NOT caught here — a Pro user should
+    // never silently degrade to 'community' on a transient DB failure.
+    // Let the error propagate so the auth flow returns 500 and the user retries.
+    const subscription = await this.prisma.subscription.findFirst({
+      where: {
+        userId: databaseUserId,
+        status: { in: ['active', 'trialing', 'past_due'] },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
 
-      if (subscription) {
-        if (subscription.status === 'trialing') {
-          return 'trial_pro';
-        }
-        if (subscription.status === 'past_due') {
+    if (subscription) {
+      if (subscription.status === 'trialing') {
+        return 'trial_pro';
+      }
+      if (subscription.status === 'past_due') {
+        return 'expired';
+      }
+      // status === 'active'
+      return 'pro';
+    }
+
+    // Fall back to license record if no subscription found
+    const license = await this.prisma.license.findFirst({
+      where: {
+        userId: databaseUserId,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (license) {
+      if (license.status === 'active' && license.plan === 'pro') {
+        // Check if license has expired by date
+        if (license.expiresAt && license.expiresAt < new Date()) {
           return 'expired';
         }
-        // status === 'active'
         return 'pro';
       }
-
-      // Fall back to license record if no subscription found
-      const license = await this.prisma.license.findFirst({
-        where: {
-          userId: databaseUserId,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      if (license) {
-        if (license.status === 'active' && license.plan === 'pro') {
-          // Check if license has expired by date
-          if (license.expiresAt && license.expiresAt < new Date()) {
-            return 'expired';
-          }
-          return 'pro';
-        }
-        if (
-          license.status === 'revoked' ||
-          license.status === 'expired' ||
-          license.status === 'paused'
-        ) {
-          return 'expired';
-        }
-        // Active community license
-        if (license.status === 'active' && license.plan === 'community') {
-          return 'community';
-        }
+      if (
+        license.status === 'revoked' ||
+        license.status === 'expired' ||
+        license.status === 'paused'
+      ) {
+        return 'expired';
       }
-
-      // No subscription or license found — default to community (free tier)
-      return 'community';
-    } catch (error) {
-      this.logger.error(
-        `Failed to determine tier for user ${databaseUserId}, defaulting to community`,
-        error instanceof Error ? error.stack : error
-      );
-      // Fail-safe: default to community rather than blocking authentication
-      return 'community';
+      // Active community license
+      if (license.status === 'active' && license.plan === 'community') {
+        return 'community';
+      }
     }
+
+    // No subscription or license found — default to community (free tier)
+    return 'community';
   }
 }

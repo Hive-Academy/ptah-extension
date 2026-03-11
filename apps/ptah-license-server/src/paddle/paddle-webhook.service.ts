@@ -134,7 +134,13 @@ export class PaddleWebhookService {
     // Wrap processing in try/catch for failed webhook storage
     // Return 500 on failure so Paddle retries the webhook delivery
     try {
-      return await this.routeEvent(event);
+      const result = await this.routeEvent(event);
+
+      // Mark as processed ONLY after successful processing.
+      // If processing fails, Paddle will retry and the event won't be rejected as duplicate.
+      this.markEventAsProcessed(event.eventId);
+
+      return result;
     } catch (error) {
       await this.storeFailedWebhook(event, error);
 
@@ -425,18 +431,28 @@ export class PaddleWebhookService {
   /**
    * Check if a webhook event has already been processed (idempotency guard).
    *
-   * Uses an in-memory Set with a size cap. When the cap is reached,
-   * the oldest half of entries are evicted (Set maintains insertion order).
+   * This method ONLY checks membership -- it does NOT add the event ID.
+   * Use markEventAsProcessed() after successful processing.
    *
    * @param eventId - The Paddle event ID to check
    * @returns true if event was already processed, false if it is new
    */
   private isEventAlreadyProcessed(eventId: string): boolean {
-    if (this.processedEventIds.has(eventId)) {
-      return true;
-    }
+    return this.processedEventIds.has(eventId);
+  }
 
-    // Evict oldest entries when approaching the cap
+  /**
+   * Mark a webhook event as successfully processed.
+   *
+   * Called ONLY after routeEvent() succeeds, so that failed events
+   * are NOT marked and can be retried by Paddle.
+   *
+   * Uses an in-memory Set with a size cap. When the cap is reached,
+   * the oldest half of entries are evicted (Set maintains insertion order).
+   *
+   * @param eventId - The Paddle event ID to mark as processed
+   */
+  private markEventAsProcessed(eventId: string): void {
     if (this.processedEventIds.size >= this.MAX_PROCESSED_EVENTS) {
       const iterator = this.processedEventIds.values();
       const entriesToRemove = Math.floor(this.MAX_PROCESSED_EVENTS / 2);
@@ -446,9 +462,7 @@ export class PaddleWebhookService {
         this.processedEventIds.delete(next.value);
       }
     }
-
     this.processedEventIds.add(eventId);
-    return false;
   }
 
   /**

@@ -265,17 +265,11 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   /**
    * Load the Ed25519 public key from the embedded constant.
    *
-   * TASK_2025_188: Returns null if the key is the placeholder value
-   * (verification disabled during development).
+   * TASK_2025_188: Loads the Ed25519 public key for signature verification.
    *
-   * @returns KeyObject for Ed25519 verification, or null if not configured
+   * @returns KeyObject for Ed25519 verification, or null if key is invalid
    */
   private loadPublicKey(): KeyObject | null {
-    if (
-      LICENSE_PUBLIC_KEY_BASE64 === 'PLACEHOLDER_GENERATE_BEFORE_PRODUCTION'
-    ) {
-      return null;
-    }
     try {
       return createPublicKey({
         key: Buffer.from(LICENSE_PUBLIC_KEY_BASE64, 'base64'),
@@ -312,7 +306,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       return true;
     }
     try {
-      const data = JSON.stringify(payload);
+      const data = JSON.stringify(payload, Object.keys(payload).sort());
       return verify(
         null,
         Buffer.from(data),
@@ -463,12 +457,20 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         // TASK_2025_188: Verify response signature to prevent MITM attacks
         // Extract signature before creating the LicenseStatus object
         const { signature: responseSignature, ...licenseData } = responseJson;
-        if (responseSignature) {
+        if (this.publicKey) {
+          // When a real public key is configured, signature is mandatory
+          if (!responseSignature) {
+            throw new Error(
+              'License response missing required signature — possible tampering'
+            );
+          }
           if (!this.verifySignature(licenseData, responseSignature)) {
             this.logger.error(
               '[LicenseService.verifyLicense] License response signature verification failed - possible MITM attack'
             );
-            throw new Error('License response signature verification failed');
+            throw new Error(
+              'License response signature verification failed — possible tampering'
+            );
           }
           this.logger.debug(
             '[LicenseService.verifyLicense] Response signature verified successfully'

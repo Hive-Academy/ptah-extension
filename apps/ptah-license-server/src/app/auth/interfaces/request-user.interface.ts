@@ -22,13 +22,13 @@ export interface RequestUser {
 
   /**
    * User roles within the tenant
-   * @example ['user', 'admin', 'owner']
+   * @example ['user', 'admin']
    */
   roles: string[];
 
   /**
    * Fine-grained permissions
-   * @example ['read:docs', 'write:docs', 'admin:tenant']
+   * @example ['read:docs', 'write:docs', 'manage:users']
    */
   permissions: string[];
 

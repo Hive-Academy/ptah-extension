@@ -148,7 +148,7 @@ export class LicenseService {
     if (!key) return undefined;
 
     try {
-      const data = JSON.stringify(payload);
+      const data = JSON.stringify(payload, Object.keys(payload).sort());
       return sign(null, Buffer.from(data), key).toString('base64');
     } catch (error) {
       this.logger.error(
