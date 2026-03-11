@@ -1,6 +1,6 @@
 ---
 name: angular-gsap-animation-crafter
-description: Interactive scroll animation designer for @hive-academy/angular-gsap library. Guides users through creating smooth, professional scroll-based animations using GSAP and ScrollTrigger. Use when users want to: (1) Create scroll-triggered animations or viewport animations, (2) Design scroll experiences (parallax, pinned sections, hijacked scroll), (3) Get recommendations for animation types and timing, (4) Learn GSAP best practices and easing functions, (5) Generate complete Angular components with scroll animations, (6) Analyze reference videos or images to reverse-engineer scroll animation sequences and recreate similar motion timing with available directives (extracts animation types, easing, trigger points, durations).
+description: "Interactive scroll animation designer for @hive-academy/angular-gsap library. Guides users through creating smooth, professional scroll-based animations using GSAP and ScrollTrigger. Use when users want to: (1) Create scroll-triggered animations or viewport animations, (2) Design scroll experiences (parallax, pinned sections, hijacked scroll), (3) Get recommendations for animation types and timing, (4) Learn GSAP best practices and easing functions, (5) Generate complete Angular components with scroll animations, (6) Analyze reference videos or images to reverse-engineer scroll animation sequences and recreate similar motion timing with available directives (extracts animation types, easing, trigger points, durations)."
 ---
 
 # Angular GSAP Animation Crafter

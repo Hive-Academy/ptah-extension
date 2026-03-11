@@ -276,9 +276,13 @@ export interface SdkQueryOptions {
     type: 'preset';
     preset: 'claude_code';
   };
+  /** Tools to exclude from the preset (e.g., server-side tools unsupported by third-party providers) */
+  disallowedTools?: string[];
   mcpServers: Record<string, McpHttpServerConfig>;
   permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
   canUseTool?: CanUseTool;
+  /** Skip permission checks entirely (use with caution — only for trusted auto-approved contexts) */
+  allowDangerouslySkipPermissions?: boolean;
   includePartialMessages: boolean;
   settingSources?: Array<'user' | 'project' | 'local'>;
   env?: Record<string, string | undefined>;

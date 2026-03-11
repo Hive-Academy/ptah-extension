@@ -884,6 +884,11 @@ export class PtahCliAdapter implements IAIProvider {
           type: 'preset' as const,
           preset: 'claude_code' as const,
         },
+        // WebSearch is a server-side Anthropic API feature. Third-party providers
+        // (Moonshot, Z.AI, OpenRouter) don't implement it, causing:
+        //   "Invalid request: function web_search not found"
+        // Disallow it so the SDK doesn't send it in the tools list.
+        disallowedTools: ['WebSearch'],
         mcpServers,
         permissionMode: sdkPermMode,
         ...(useBypass

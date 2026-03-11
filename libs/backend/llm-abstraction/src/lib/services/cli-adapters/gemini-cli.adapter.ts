@@ -252,7 +252,14 @@ export class GeminiCliAdapter implements CliAdapter {
     // Handle system prompt via Gemini's native mechanism (GEMINI_SYSTEM_MD env var).
     // Prefers full systemPrompt (premium prompt harness) over projectGuidance.
     // This avoids polluting the task prompt and uses the model's system instruction slot.
-    const spawnEnv: Record<string, string> = {};
+    const spawnEnv: Record<string, string> = {
+      // Hint node-pty to skip ConPTY on Windows. ConPTY's AttachConsole() fails
+      // when Gemini is spawned as a child process (no real console), causing
+      // harmless but noisy "AttachConsole failed" errors in stderr.
+      // This env var is respected by some node-pty versions/forks to fall back
+      // to winpty, which doesn't need AttachConsole.
+      ...(process.platform === 'win32' ? { NODE_PTY_USE_CONPTY: '0' } : {}),
+    };
     let systemPromptTmpPath: string | undefined;
     const systemContent = options.systemPrompt || options.projectGuidance;
     if (systemContent) {
@@ -397,19 +404,37 @@ export class GeminiCliAdapter implements CliAdapter {
       }
     });
 
-    // Stderr: emit as-is (error output, warnings) + structured segments
+    // Stderr: emit meaningful errors, filter known Windows ConPTY noise.
+    // Gemini CLI uses node-pty/ConPTY internally for run_shell_command.
+    // On Windows, the conpty_console_list_agent.js sub-process frequently
+    // fails with "AttachConsole failed" — this is cosmetic (non-blocking)
+    // and clutters output. We suppress it along with the associated stack trace.
+    let suppressConptyLines = 0;
     child.stderr?.on('data', (data: string) => {
-      // Filter out ANSI noise but keep meaningful errors
       const cleaned = stripAnsiCodes(data).trim();
-      if (cleaned) {
-        emitOutput(`[stderr] ${cleaned}\n`);
-        // Classify: error keywords → error segment, otherwise info
-        const isError =
-          /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-            cleaned
-          );
-        emitSegment({ type: isError ? 'error' : 'info', content: cleaned });
+      if (!cleaned) return;
+
+      // Suppress ConPTY console attachment errors (Windows-only cosmetic noise)
+      if (cleaned.includes('conpty_console_list_agent')) {
+        suppressConptyLines = 5; // Suppress this + next few stack trace lines
+        return;
       }
+      if (cleaned.includes('AttachConsole failed')) {
+        suppressConptyLines = 3;
+        return;
+      }
+      if (suppressConptyLines > 0) {
+        suppressConptyLines--;
+        return;
+      }
+
+      emitOutput(`[stderr] ${cleaned}\n`);
+      // Classify: error keywords → error segment, otherwise info
+      const isError =
+        /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
+          cleaned
+        );
+      emitSegment({ type: isError ? 'error' : 'info', content: cleaned });
     });
 
     // Done promise: resolves when the process exits

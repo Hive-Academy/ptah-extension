@@ -1,9 +1,15 @@
 /**
  * Gemini CLI Skill Installer
- * TASK_2025_160: Copies Ptah plugin skills to ~/.gemini/skills/ptah-{pluginId}/
+ * TASK_2025_160: Copies Ptah plugin skills to ~/.gemini/skills/ptah-{skillName}/
  *
- * Same installation pattern as CopilotSkillInstaller but targeting
- * Gemini CLI's user-level discovery directory (~/.gemini/skills/).
+ * Gemini CLI discovers skills from ~/.gemini/skills/{skillName}/SKILL.md
+ * (flat structure, one level deep). Unlike Codex which supports nested
+ * directories, Gemini requires each skill to be a direct child of the
+ * skills/ directory.
+ *
+ * Deployment: ~/.gemini/skills/ptah-{skillName}/SKILL.md
+ * Prefix "ptah-" enables cleanup via uninstall() without touching
+ * Gemini's built-in skills.
  */
 
 import { mkdir, readdir, lstat, rm } from 'fs/promises';
@@ -16,8 +22,9 @@ import { copyDirectoryRecursive } from './skill-sync-utils';
 /**
  * Installs Ptah skills into Gemini CLI's user-level discovery directory.
  *
- * Target: ~/.gemini/skills/ptah-{pluginId}/{skillName}/SKILL.md
- * Gemini CLI auto-discovers skills from ~/.gemini/skills/ directory.
+ * Target: ~/.gemini/skills/ptah-{skillName}/SKILL.md
+ * Gemini CLI auto-discovers skills from ~/.gemini/skills/ directory
+ * but only scans one level deep (no nested plugin directories).
  */
 export class GeminiSkillInstaller implements ICliSkillInstaller {
   readonly target = 'gemini' as const;
@@ -34,9 +41,22 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
       const basePath = this.getSkillsBasePath();
       await mkdir(basePath, { recursive: true });
 
+      // Clean up old ptah- prefixed skills before re-installing
+      // This handles migration from nested (ptah-{pluginId}/{skill}) to flat (ptah-{skill})
+      try {
+        const existingEntries = await readdir(basePath);
+        for (const entry of existingEntries) {
+          if (entry.startsWith('ptah-')) {
+            const entryPath = join(basePath, entry);
+            await rm(entryPath, { recursive: true, force: true });
+          }
+        }
+      } catch {
+        // Non-fatal: best-effort cleanup of old format
+      }
+
       for (const pluginPath of pluginPaths) {
         try {
-          const pluginId = basename(pluginPath);
           const skillsSourceDir = join(pluginPath, 'skills');
 
           // Check if skills/ directory exists in plugin (use lstat for symlink safety)
@@ -51,11 +71,7 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
             continue;
           }
 
-          // Target: ~/.gemini/skills/ptah-{pluginId}/
-          const targetDir = join(basePath, `ptah-${pluginId}`);
-          await mkdir(targetDir, { recursive: true });
-
-          // Copy each skill directory
+          // Copy each skill directory FLAT into ~/.gemini/skills/ptah-{skillName}/
           const skillDirs = await readdir(skillsSourceDir);
           for (const skillDirName of skillDirs) {
             try {
@@ -69,7 +85,8 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
                 continue;
               }
 
-              const skillTargetPath = join(targetDir, skillDirName);
+              // Flat target: ~/.gemini/skills/ptah-{skillName}/
+              const skillTargetPath = join(basePath, `ptah-${skillDirName}`);
               await mkdir(skillTargetPath, { recursive: true });
 
               const copied = await copyDirectoryRecursive(

@@ -231,7 +231,8 @@ function isFileWriteTool(toolName: string): boolean {
   );
 }
 
-/** Copilot CLI model list (from `copilot --help` output) */
+/** Copilot CLI model list (from `copilot --help` output).
+ *  Keep in sync with latest available models. */
 const COPILOT_MODELS: CliModelInfo[] = [
   { id: 'claude-sonnet-4.6', name: 'Claude Sonnet 4.6' },
   { id: 'claude-opus-4.6', name: 'Claude Opus 4.6' },
@@ -240,6 +241,7 @@ const COPILOT_MODELS: CliModelInfo[] = [
   { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
   { id: 'claude-sonnet-4', name: 'Claude Sonnet 4' },
   { id: 'claude-haiku-4.5', name: 'Claude Haiku 4.5' },
+  { id: 'gpt-5.4', name: 'GPT 5.4' },
   { id: 'gpt-5.3-codex', name: 'GPT 5.3 Codex' },
   { id: 'gpt-5.2-codex', name: 'GPT 5.2 Codex' },
   { id: 'gpt-5.2', name: 'GPT 5.2' },

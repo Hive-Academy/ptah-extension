@@ -62,6 +62,59 @@ export function stripAllowedToolsFromFrontmatter(content: string): string {
 }
 
 /**
+ * Ensure YAML description values containing colons are properly quoted.
+ *
+ * Strict YAML parsers (e.g., Codex's Rust-based serde_yaml) treat bare
+ * colons followed by a space as mapping value indicators. Claude Code's
+ * lenient JS parser tolerates unquoted colons, but other CLIs do not.
+ *
+ * This function finds `description: value` lines where the value contains
+ * `: ` (colon-space) and wraps the value in double quotes if not already
+ * quoted. Existing single-quoted values are also left unchanged.
+ */
+export function sanitizeYamlDescriptions(content: string): string {
+  const normalized = normalizeCrlf(content);
+
+  const frontmatterMatch = normalized.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatterMatch) {
+    return normalized;
+  }
+
+  const frontmatter = frontmatterMatch[1];
+  const lines = frontmatter.split('\n');
+  const sanitizedLines = lines.map((line) => {
+    // Match description: value (not already quoted)
+    const descMatch = line.match(/^(\s*description:\s*)(.+)$/);
+    if (!descMatch) {
+      return line;
+    }
+
+    const prefix = descMatch[1];
+    const value = descMatch[2].trim();
+
+    // Already quoted with single or double quotes — leave as-is
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      return line;
+    }
+
+    // Contains colon-space which breaks strict YAML parsers — quote it
+    if (value.includes(': ')) {
+      // Escape any existing double quotes inside the value
+      const escaped = value.replace(/"/g, '\\"');
+      return `${prefix}"${escaped}"`;
+    }
+
+    return line;
+  });
+
+  const newFrontmatter = sanitizedLines.join('\n');
+  return normalized.replace(frontmatterMatch[0], `---\n${newFrontmatter}\n---`);
+}
+
+/**
  * Recursively copy directory contents, stripping allowed-tools from markdown files.
  * Returns count of files copied.
  *
@@ -98,9 +151,11 @@ export async function copyDirectoryRecursive(
       count += await copyDirectoryRecursive(sourcePath, targetPath, depth + 1);
     } else if (entryStat.isFile()) {
       // For markdown files, strip Claude-specific frontmatter fields
+      // and sanitize YAML descriptions for strict parsers (Codex/Gemini)
       if (extname(entry).toLowerCase() === '.md') {
         const content = await readFile(sourcePath, 'utf8');
-        const processed = stripAllowedToolsFromFrontmatter(content);
+        const stripped = stripAllowedToolsFromFrontmatter(content);
+        const processed = sanitizeYamlDescriptions(stripped);
         await writeFile(targetPath, processed, 'utf8');
       } else {
         // Binary/other files: direct copy via read+write

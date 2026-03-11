@@ -11,5 +11,6 @@ export { GeminiSkillInstaller } from './gemini-skill-installer';
 export { CliSkillManifestTracker } from './cli-skill-manifest-tracker';
 export {
   stripAllowedToolsFromFrontmatter,
+  sanitizeYamlDescriptions,
   copyDirectoryRecursive,
 } from './skill-sync-utils';
