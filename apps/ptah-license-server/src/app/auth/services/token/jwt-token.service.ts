@@ -1,10 +1,28 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { User } from '@workos-inc/node';
 import type {
   JWTPayload,
   RequestUser,
 } from '../../interfaces/request-user.interface';
+import { PrismaService } from '../../../../prisma/prisma.service';
+
+/**
+ * Valid roles that can be assigned via WorkOS metadata.
+ * 'owner' is intentionally excluded — owner status must be determined server-side,
+ * not via user-writable metadata, to prevent privilege escalation.
+ */
+const VALID_ROLES = ['user', 'admin'] as const;
+type ValidRole = (typeof VALID_ROLES)[number];
+
+/**
+ * Server-side permission mapping per role.
+ * Permissions are NEVER read from user metadata to prevent injection attacks.
+ */
+const ROLE_PERMISSIONS: Record<ValidRole, string[]> = {
+  user: ['read:docs', 'write:docs'],
+  admin: ['read:docs', 'write:docs', 'manage:users'],
+};
 
 /**
  * JWT Token Service
@@ -14,7 +32,12 @@ import type {
  */
 @Injectable()
 export class JwtTokenService {
-  constructor(private readonly jwtService: JwtService) {}
+  private readonly logger = new Logger(JwtTokenService.name);
+
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly prisma: PrismaService
+  ) {}
 
   /**
    * Generate JWT token using database user ID
@@ -26,12 +49,12 @@ export class JwtTokenService {
    * @param workosUser - WorkOS user for extracting roles/permissions
    * @param organizationId - Optional organization ID
    */
-  generateToken(
+  async generateToken(
     databaseUserId: string,
     workosUser: User,
     organizationId?: string
-  ): string {
-    const requestUser = this.mapWorkOSUserToRequestUser(
+  ): Promise<string> {
+    const requestUser = await this.mapWorkOSUserToRequestUser(
       workosUser,
       organizationId,
       databaseUserId
@@ -85,16 +108,16 @@ export class JwtTokenService {
    * @param organizationId - Optional organization ID
    * @param databaseUserId - Optional database UUID to use instead of WorkOS user ID
    */
-  mapWorkOSUserToRequestUser(
+  async mapWorkOSUserToRequestUser(
     user: User,
     organizationId?: string,
     databaseUserId?: string
-  ): RequestUser {
-    const roles = this.extractRoles(user);
-    const permissions = this.extractPermissions(user, roles);
-    const tier = this.determineTier(organizationId);
+  ): Promise<RequestUser> {
+    const roles = this.extractValidatedRoles(user);
+    const permissions = this.derivePermissionsFromRoles(roles);
     // Use database UUID if provided, otherwise fall back to WorkOS ID
     const userId = databaseUserId || user.id;
+    const tier = await this.determineTier(userId);
     const tenantId = organizationId || `user_${userId}`;
 
     return {
@@ -109,59 +132,129 @@ export class JwtTokenService {
   }
 
   /**
-   * Extract user roles from WorkOS user metadata
+   * Extract and validate user roles from WorkOS user metadata.
+   *
+   * SECURITY FIX (TASK_2025_188): WorkOS user metadata is writable by org admins,
+   * so we filter roles against a server-side allowlist. The 'owner' role is
+   * intentionally excluded from VALID_ROLES to prevent privilege escalation
+   * via metadata manipulation.
    */
-  private extractRoles(user: User): string[] {
+  private extractValidatedRoles(user: User): string[] {
     const metadata = user.metadata as Record<string, unknown> | undefined;
-    if (metadata?.['roles'] && Array.isArray(metadata['roles'])) {
-      return metadata['roles'] as string[];
+    const rawRoles =
+      metadata?.['roles'] && Array.isArray(metadata['roles'])
+        ? (metadata['roles'] as string[])
+        : ['user'];
+
+    // Filter against allowlist — reject any role not in VALID_ROLES
+    const validatedRoles = rawRoles.filter((role): role is ValidRole =>
+      (VALID_ROLES as readonly string[]).includes(role)
+    );
+
+    // Ensure at least the default 'user' role
+    if (validatedRoles.length === 0) {
+      validatedRoles.push('user');
     }
-    return ['user'];
+
+    return validatedRoles;
   }
 
   /**
-   * Extract permissions based on roles
+   * Derive permissions purely from validated roles using a server-side mapping.
+   *
+   * SECURITY FIX (TASK_2025_188): Permissions are NEVER read from user metadata.
+   * This prevents attackers from injecting arbitrary permissions via WorkOS
+   * metadata fields.
    */
-  private extractPermissions(user: User, roles: string[]): string[] {
+  private derivePermissionsFromRoles(roles: string[]): string[] {
     const permissions = new Set<string>();
 
-    if (roles.includes('owner')) {
-      permissions.add('admin:tenant');
-      permissions.add('write:docs');
-      permissions.add('read:docs');
-      permissions.add('manage:users');
-    } else if (roles.includes('admin')) {
-      permissions.add('write:docs');
-      permissions.add('read:docs');
-      permissions.add('manage:users');
-    } else if (roles.includes('user')) {
-      permissions.add('read:docs');
-      permissions.add('write:docs');
-    }
-
-    // Add custom permissions from metadata
-    const metadata = user.metadata as Record<string, unknown> | undefined;
-    if (metadata?.['permissions'] && Array.isArray(metadata['permissions'])) {
-      (metadata['permissions'] as string[]).forEach((p) => permissions.add(p));
+    for (const role of roles) {
+      const rolePerms = ROLE_PERMISSIONS[role as ValidRole];
+      if (rolePerms) {
+        for (const perm of rolePerms) {
+          permissions.add(perm);
+        }
+      }
     }
 
     return Array.from(permissions);
   }
 
   /**
-   * Determine subscription tier
+   * Determine subscription tier from the database.
+   *
+   * SECURITY FIX (TASK_2025_188): Looks up the user's actual license and
+   * subscription records instead of hardcoding tier based on organizationId.
    *
    * TASK_2025_128: Freemium model (Community + Pro)
-   * - 'community': Free tier (always valid)
+   * - 'community': Free tier (always valid, no active license)
    * - 'pro': Active Pro subscription
    * - 'trial_pro': Pro plan during 14-day trial
-   * - 'expired': Revoked or payment failed
+   * - 'expired': License revoked or subscription past_due/canceled
    */
-  private determineTier(
-    organizationId?: string
-  ): 'community' | 'pro' | 'trial_pro' | 'expired' {
-    // TODO: Implement tier lookup from database based on user's subscription
-    // For now, default to 'community' - actual tier should come from license lookup
-    return organizationId ? 'pro' : 'community';
+  private async determineTier(
+    databaseUserId: string
+  ): Promise<'community' | 'pro' | 'trial_pro' | 'expired'> {
+    try {
+      // Check for an active subscription first (most authoritative source)
+      const subscription = await this.prisma.subscription.findFirst({
+        where: {
+          userId: databaseUserId,
+          status: { in: ['active', 'trialing', 'past_due'] },
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+
+      if (subscription) {
+        if (subscription.status === 'trialing') {
+          return 'trial_pro';
+        }
+        if (subscription.status === 'past_due') {
+          return 'expired';
+        }
+        // status === 'active'
+        return 'pro';
+      }
+
+      // Fall back to license record if no subscription found
+      const license = await this.prisma.license.findFirst({
+        where: {
+          userId: databaseUserId,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (license) {
+        if (license.status === 'active' && license.plan === 'pro') {
+          // Check if license has expired by date
+          if (license.expiresAt && license.expiresAt < new Date()) {
+            return 'expired';
+          }
+          return 'pro';
+        }
+        if (
+          license.status === 'revoked' ||
+          license.status === 'expired' ||
+          license.status === 'paused'
+        ) {
+          return 'expired';
+        }
+        // Active community license
+        if (license.status === 'active' && license.plan === 'community') {
+          return 'community';
+        }
+      }
+
+      // No subscription or license found — default to community (free tier)
+      return 'community';
+    } catch (error) {
+      this.logger.error(
+        `Failed to determine tier for user ${databaseUserId}, defaulting to community`,
+        error instanceof Error ? error.stack : error
+      );
+      // Fail-safe: default to community rather than blocking authentication
+      return 'community';
+    }
   }
 }

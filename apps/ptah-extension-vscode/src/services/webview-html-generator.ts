@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
@@ -318,7 +319,7 @@ export class WebviewHtmlGenerator {
   private getImprovedCSP(webview: vscode.Webview, nonce: string): string {
     return `default-src 'none';
             img-src ${webview.cspSource} https: data: blob:;
-            script-src 'nonce-${nonce}' 'unsafe-eval';
+            script-src 'nonce-${nonce}';
             style-src ${webview.cspSource} 'nonce-${nonce}' https://fonts.googleapis.com;
             font-src ${webview.cspSource} https://fonts.gstatic.com https://fonts.googleapis.com data:;
             connect-src 'self' ${webview.cspSource};
@@ -543,13 +544,7 @@ export class WebviewHtmlGenerator {
   }
 
   private generateNonce(): string {
-    let text = '';
-    const possible =
-      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-      text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return crypto.randomBytes(16).toString('hex');
   }
 
   /**
@@ -562,7 +557,12 @@ export class WebviewHtmlGenerator {
       .replace(/'/g, "\\'") // Escape single quotes
       .replace(/"/g, '\\"') // Escape double quotes
       .replace(/\n/g, '\\n') // Escape newlines
-      .replace(/\r/g, '\\r'); // Escape carriage returns
+      .replace(/\r/g, '\\r') // Escape carriage returns
+      .replace(/`/g, '\\`') // Escape backticks (template literal injection)
+      .replace(/\$\{/g, '\\${') // Escape template expressions
+      .replace(/<\//g, '<\\/') // Prevent script context breakout
+      .replace(/\u2028/g, '\\u2028') // Escape Unicode line separator
+      .replace(/\u2029/g, '\\u2029'); // Escape Unicode paragraph separator
   }
 
   public buildWorkspaceInfo(): Record<string, unknown> | null {

@@ -119,12 +119,12 @@ export class AuthService {
 
     // Generate JWT using DATABASE user ID (not WorkOS user ID)
     // This ensures the JWT sub claim matches the database UUID
-    const token = this.jwtTokenService.generateToken(
+    const token = await this.jwtTokenService.generateToken(
       dbUser.id,
       result.user,
       result.organizationId
     );
-    const user = this.jwtTokenService.mapWorkOSUserToRequestUser(
+    const user = await this.jwtTokenService.mapWorkOSUserToRequestUser(
       result.user,
       result.organizationId,
       dbUser.id
@@ -161,12 +161,12 @@ export class AuthService {
     const dbUser = await this.userSyncService.syncUser(result.user);
 
     // Generate JWT using DATABASE user ID (not WorkOS user ID)
-    const token = this.jwtTokenService.generateToken(
+    const token = await this.jwtTokenService.generateToken(
       dbUser.id,
       result.user,
       result.organizationId
     );
-    const user = this.jwtTokenService.mapWorkOSUserToRequestUser(
+    const user = await this.jwtTokenService.mapWorkOSUserToRequestUser(
       result.user,
       result.organizationId,
       dbUser.id
@@ -225,8 +225,11 @@ export class AuthService {
     const dbUser = await this.userSyncService.syncUser(workosUser);
 
     // Generate JWT using DATABASE user ID (not WorkOS user ID)
-    const token = this.jwtTokenService.generateToken(dbUser.id, workosUser);
-    const user = this.jwtTokenService.mapWorkOSUserToRequestUser(
+    const token = await this.jwtTokenService.generateToken(
+      dbUser.id,
+      workosUser
+    );
+    const user = await this.jwtTokenService.mapWorkOSUserToRequestUser(
       workosUser,
       undefined,
       dbUser.id

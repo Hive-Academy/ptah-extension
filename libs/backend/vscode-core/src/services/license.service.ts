@@ -19,7 +19,11 @@
 import { injectable, inject } from 'tsyringe';
 import * as vscode from 'vscode';
 import EventEmitter from 'eventemitter3';
-import { resolveEnvironment } from '@ptah-extension/shared';
+import { createPublicKey, verify, KeyObject } from 'crypto';
+import {
+  resolveEnvironment,
+  LICENSE_PUBLIC_KEY_BASE64,
+} from '@ptah-extension/shared';
 import { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
 
@@ -109,6 +113,8 @@ export interface LicenseStatus {
     firstName: string | null;
     lastName: string | null;
   };
+  /** Ed25519 signature of the response payload (TASK_2025_188: MITM prevention) */
+  signature?: string;
 }
 
 /**
@@ -157,6 +163,14 @@ export interface LicenseEvents {
  *
  * Pattern Reference: AuthSecretsService (vscode-core)
  */
+/**
+ * LICENSE_PUBLIC_KEY_BASE64 is imported from @ptah-extension/shared
+ * (environment.constants.ts) - single source of truth for the Ed25519 public key
+ * used to verify license server response signatures (MITM prevention).
+ *
+ * Generate a key pair with: npx ts-node scripts/generate-license-keys.ts
+ */
+
 @injectable()
 export class LicenseService extends EventEmitter<LicenseEvents> {
   private static readonly SECRET_KEY = 'ptah.licenseKey';
@@ -182,6 +196,12 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    */
   private static readonly PREVIOUS_CONTEXT_MAX_AGE_MS =
     90 * 24 * 60 * 60 * 1000; // 90 days
+
+  /**
+   * Cached Ed25519 public key for verifying license server response signatures.
+   * TASK_2025_188: null means signing verification is disabled (placeholder key).
+   */
+  private publicKey: KeyObject | null = null;
 
   /**
    * In-memory cache for quick access (1-hour TTL)
@@ -224,6 +244,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       gracePeriodMs: LicenseService.GRACE_PERIOD_MS,
     });
 
+    // Load and cache the Ed25519 public key for signature verification (TASK_2025_188)
+    this.publicKey = this.loadPublicKey();
+
     // Load persisted cache on initialization (for offline grace period)
     this.loadPersistedCache().then((persistedCache) => {
       if (persistedCache) {
@@ -237,6 +260,71 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         );
       }
     });
+  }
+
+  /**
+   * Load the Ed25519 public key from the embedded constant.
+   *
+   * TASK_2025_188: Returns null if the key is the placeholder value
+   * (verification disabled during development).
+   *
+   * @returns KeyObject for Ed25519 verification, or null if not configured
+   */
+  private loadPublicKey(): KeyObject | null {
+    if (
+      LICENSE_PUBLIC_KEY_BASE64 === 'PLACEHOLDER_GENERATE_BEFORE_PRODUCTION'
+    ) {
+      return null;
+    }
+    try {
+      return createPublicKey({
+        key: Buffer.from(LICENSE_PUBLIC_KEY_BASE64, 'base64'),
+        format: 'der',
+        type: 'spki',
+      });
+    } catch (error) {
+      this.logger.error(
+        '[LicenseService] Failed to load Ed25519 public key for signature verification',
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Verify the Ed25519 signature of a license server response.
+   *
+   * TASK_2025_188: Prevents MITM attacks by verifying that the response
+   * was signed by the license server's private key.
+   *
+   * Verification is graceful:
+   * - If no public key is configured (placeholder), returns true (skip verification)
+   * - If no signature is present in the response, returns true (server not updated yet)
+   * - Only rejects if a signature IS present but IS INVALID
+   *
+   * @param payload - The response data (without the signature field)
+   * @param signature - The base64-encoded Ed25519 signature
+   * @returns true if signature is valid or verification is skipped
+   */
+  private verifySignature(payload: object, signature: string): boolean {
+    if (!this.publicKey) {
+      // Public key not configured (placeholder) - skip verification
+      return true;
+    }
+    try {
+      const data = JSON.stringify(payload);
+      return verify(
+        null,
+        Buffer.from(data),
+        this.publicKey,
+        Buffer.from(signature, 'base64')
+      );
+    } catch (error) {
+      this.logger.error('[LicenseService] Signature verification error', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   /**
@@ -370,7 +458,24 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
           );
         }
 
-        const status: LicenseStatus = await response.json();
+        const responseJson = await response.json();
+
+        // TASK_2025_188: Verify response signature to prevent MITM attacks
+        // Extract signature before creating the LicenseStatus object
+        const { signature: responseSignature, ...licenseData } = responseJson;
+        if (responseSignature) {
+          if (!this.verifySignature(licenseData, responseSignature)) {
+            this.logger.error(
+              '[LicenseService.verifyLicense] License response signature verification failed - possible MITM attack'
+            );
+            throw new Error('License response signature verification failed');
+          }
+          this.logger.debug(
+            '[LicenseService.verifyLicense] Response signature verified successfully'
+          );
+        }
+
+        const status: LicenseStatus = licenseData;
 
         // TASK_2025_128: Community fallback for expired Pro users
         // When server says license is invalid (expired/trial_ended/not_found),

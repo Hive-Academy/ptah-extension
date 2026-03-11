@@ -9,6 +9,7 @@ import {
   Logger,
   BadRequestException,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import {
   PaddleWebhookService,
@@ -48,6 +49,7 @@ interface RequestWithRawBody extends Request {
  * - Returns 401 Unauthorized for missing signature
  * - Returns 400 Bad Request for missing raw body
  */
+@SkipThrottle()
 @Controller('webhooks/paddle')
 export class PaddleController {
   private readonly logger = new Logger(PaddleController.name);

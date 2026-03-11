@@ -169,14 +169,10 @@ export class LlmSecretsService implements ILlmSecretsService {
     const secretKey = this.getSecretKey(provider);
     await this.context.secrets.store(secretKey, key);
 
-    this.logger.info(
-      '[LlmSecretsService.setApiKey] API key stored successfully',
-      {
-        provider,
-        keyLength: key.length,
-        keyPrefix: key.substring(0, 10) + '...',
-      }
-    );
+    this.logger.info('API key stored', {
+      provider,
+      keyLength: key.length,
+    });
   }
 
   /**

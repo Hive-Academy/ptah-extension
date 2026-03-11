@@ -50,6 +50,19 @@ export const PtahDevDefaults = {
 } as const;
 
 /**
+ * License response signing public key (Ed25519, base64-encoded DER SPKI).
+ *
+ * Used by the VS Code extension to verify license server responses,
+ * preventing MITM attacks from faking valid license status.
+ *
+ * Generate a key pair with: npx ts-node scripts/generate-license-keys.ts
+ * Set the private key as LICENSE_SIGNING_PRIVATE_KEY env var on the server.
+ * Replace this placeholder with the generated public key before production.
+ */
+export const LICENSE_PUBLIC_KEY_BASE64 =
+  'MCowBQYDK2VwAyEAKCYdta2d6ePQAQirldcF90FXv00yuXQgaLJ0aW3/wWQ=';
+
+/**
  * Resolve the correct URL set and defaults for the current environment.
  *
  * @param isDevelopment - true when running in dev mode (e.g., VS Code ExtensionMode.Development)

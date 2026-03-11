@@ -964,24 +964,35 @@ function stripJsonComments(jsonString: string): string {
 }
 
 /**
- * Resolve a file path relative to workspace root if it's not absolute
+ * Resolve a file path relative to workspace root.
+ * SECURITY: Rejects absolute paths and path traversal to confine
+ * all file operations to the workspace directory.
  */
-function resolveWorkspacePath(path: string): vscode.Uri {
+function resolveWorkspacePath(filePath: string): vscode.Uri {
   // Normalize path separators to forward slashes
-  const normalizedPath = path.replace(/\\/g, '/');
+  const normalizedPath = filePath.replace(/\\/g, '/');
 
-  // Check if it's already an absolute path (starts with drive letter or /)
+  // Reject absolute paths - only workspace-relative paths allowed
   const isAbsolute =
     /^[a-zA-Z]:/.test(normalizedPath) || normalizedPath.startsWith('/');
-
   if (isAbsolute) {
-    return vscode.Uri.file(normalizedPath);
+    throw new Error(
+      'Absolute paths are not allowed. Use workspace-relative paths only.'
+    );
   }
 
-  // Relative path - resolve to workspace root
+  // Reject path traversal attempts
+  const resolved = path.normalize(normalizedPath);
+  if (resolved.startsWith('..')) {
+    throw new Error(
+      'Path traversal is not allowed. Stay within workspace boundaries.'
+    );
+  }
+
+  // Resolve relative to workspace root
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
-    throw new Error('No workspace folder open');
+    throw new Error('No workspace folder is open.');
   }
 
   return vscode.Uri.joinPath(workspaceFolders[0].uri, normalizedPath);
@@ -1049,12 +1060,35 @@ export function buildFilesNamespace(
 }
 
 /**
+ * Allowed command prefixes for MCP execution.
+ * SECURITY: More restrictive than webview RPC allowlist.
+ * No terminal commands, no extension install/uninstall commands.
+ */
+const ALLOWED_MCP_COMMAND_PREFIXES = [
+  'ptah.',
+  'editor.',
+  'workbench.action.files.',
+  'vscode.open',
+  'vscode.diff',
+];
+
+/**
  * Build commands namespace
- * Uses VS Code's commands API
+ * Uses VS Code's commands API with security allowlist
  */
 export function buildCommandsNamespace(): CommandsNamespace {
   return {
     execute: async (commandId: string, ...args: unknown[]) => {
+      const isAllowed = ALLOWED_MCP_COMMAND_PREFIXES.some((prefix) =>
+        commandId.startsWith(prefix)
+      );
+      if (!isAllowed) {
+        throw new Error(
+          `Command '${commandId}' is not allowed via MCP. Allowed prefixes: ${ALLOWED_MCP_COMMAND_PREFIXES.join(
+            ', '
+          )}`
+        );
+      }
       return await vscode.commands.executeCommand(commandId, ...args);
     },
     list: async () => {

@@ -12,6 +12,7 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import helmet from 'helmet';
 import { AppModule } from './app/app.module';
 import cookieParser = require('cookie-parser');
 
@@ -32,6 +33,10 @@ async function bootstrap() {
     rawBody: true,
     logger: logLevels,
   });
+
+  // Configure helmet for HTTP security headers (HSTS, X-Frame-Options, etc.)
+  // Must be applied before other middleware to ensure headers are set on all responses
+  app.use(helmet());
 
   // Configure cookie-parser middleware for PKCE state cookie management
   // Used by WorkOS OAuth flow to store state parameter in HTTP-only cookies

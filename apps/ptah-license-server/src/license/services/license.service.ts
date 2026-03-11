@@ -6,7 +6,7 @@ import {
   calculateTrialExpirationDate,
   getTrialDurationDays,
 } from '../../config/trial.config';
-import { randomBytes } from 'crypto';
+import { randomBytes, createPrivateKey, sign, KeyObject } from 'crypto';
 
 /**
  * License Tier type for TASK_2025_128: Freemium Model
@@ -39,6 +39,8 @@ export interface LicenseVerificationResponse {
     firstName: string | null;
     lastName: string | null;
   };
+  /** Ed25519 signature of the response payload (TASK_2025_188: MITM prevention) */
+  signature?: string;
 }
 
 /**
@@ -82,10 +84,100 @@ function mapPlanToTier(dbPlan: string, isInTrial: boolean): LicenseTier {
 export class LicenseService {
   private readonly logger = new Logger(LicenseService.name);
 
+  /**
+   * Cached Ed25519 signing key for license response signing (TASK_2025_188).
+   * Loaded lazily from LICENSE_SIGNING_PRIVATE_KEY environment variable.
+   * null = not yet loaded, undefined = env var not configured (signing disabled).
+   */
+  private signingKey: KeyObject | undefined | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventsService: EventsService
   ) {}
+
+  /**
+   * Get the Ed25519 private key for signing license responses.
+   *
+   * TASK_2025_188: License response signing to prevent MITM attacks.
+   * The key is loaded from the LICENSE_SIGNING_PRIVATE_KEY env var (base64-encoded DER, PKCS8).
+   * Returns undefined if the env var is not set (graceful degradation).
+   *
+   * @returns Ed25519 KeyObject or undefined if not configured
+   */
+  private getSigningKey(): KeyObject | undefined {
+    if (this.signingKey === null) {
+      const keyBase64 = process.env['LICENSE_SIGNING_PRIVATE_KEY'];
+      if (!keyBase64) {
+        this.logger.warn(
+          'LICENSE_SIGNING_PRIVATE_KEY not configured - license response signing disabled'
+        );
+        this.signingKey = undefined;
+        return undefined;
+      }
+      try {
+        this.signingKey = createPrivateKey({
+          key: Buffer.from(keyBase64, 'base64'),
+          format: 'der',
+          type: 'pkcs8',
+        });
+        this.logger.log('Ed25519 signing key loaded successfully');
+      } catch (error) {
+        this.logger.error(
+          `Failed to load Ed25519 signing key: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        this.signingKey = undefined;
+      }
+    }
+    return this.signingKey;
+  }
+
+  /**
+   * Sign a license response payload with Ed25519.
+   *
+   * TASK_2025_188: Creates a cryptographic signature of the JSON-serialized payload
+   * so the VS Code extension can verify the response was not tampered with.
+   *
+   * @param payload - The license response object to sign (without the signature field)
+   * @returns Base64-encoded Ed25519 signature, or undefined if signing is not configured
+   */
+  private signResponse(payload: object): string | undefined {
+    const key = this.getSigningKey();
+    if (!key) return undefined;
+
+    try {
+      const data = JSON.stringify(payload);
+      return sign(null, Buffer.from(data), key).toString('base64');
+    } catch (error) {
+      this.logger.error(
+        `Failed to sign license response: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return undefined;
+    }
+  }
+
+  /**
+   * Build a license response with an Ed25519 signature attached.
+   *
+   * TASK_2025_188: Signs the response payload and attaches the signature field.
+   * If signing is not configured, returns the response without a signature.
+   *
+   * @param response - The unsigned license verification response
+   * @returns The response with optional signature field
+   */
+  private buildSignedResponse(
+    response: LicenseVerificationResponse
+  ): LicenseVerificationResponse {
+    const signature = this.signResponse(response);
+    if (signature) {
+      return { ...response, signature };
+    }
+    return response;
+  }
 
   /**
    * Verify a license key's validity and return plan details
@@ -125,21 +217,21 @@ export class LicenseService {
     // Step 2: Check if license exists
     if (!license) {
       this.logger.debug(`License not found: ${licenseKey.substring(0, 10)}...`);
-      return {
+      return this.buildSignedResponse({
         valid: false,
         tier: 'expired',
         reason: 'not_found',
-      };
+      });
     }
 
     // Step 3: Check if license is revoked
     if (license.status === 'revoked') {
       this.logger.debug(`License revoked: ${license.id}`);
-      return {
+      return this.buildSignedResponse({
         valid: false,
         tier: 'expired',
         reason: 'revoked',
-      };
+      });
     }
 
     // Step 4: Check if license is expired
@@ -149,11 +241,11 @@ export class LicenseService {
           license.id
         }, expired at ${license.expiresAt.toISOString()}`
       );
-      return {
+      return this.buildSignedResponse({
         valid: false,
         tier: 'expired',
         reason: 'expired',
-      };
+      });
     }
 
     // Step 5: Detect trial status from subscription
@@ -168,11 +260,11 @@ export class LicenseService {
           license.id
         }, trial ended at ${trialEnd.toISOString()}`
       );
-      return {
+      return this.buildSignedResponse({
         valid: false,
         tier: 'expired',
         reason: 'trial_ended',
-      };
+      });
     }
 
     // Step 6: Determine tier based on plan and trial status
@@ -183,11 +275,11 @@ export class LicenseService {
       this.logger.debug(
         `License has expired tier: ${license.id}, plan: ${license.plan}`
       );
-      return {
+      return this.buildSignedResponse({
         valid: false,
         tier: 'expired',
         reason: 'expired',
-      };
+      });
     }
 
     // Step 7: Calculate days remaining (if expiration exists)
@@ -219,8 +311,8 @@ export class LicenseService {
       `License verified: ${license.id}, tier: ${tier}, trial: ${isInTrial}`
     );
 
-    // Step 10: Return valid license with full details
-    return {
+    // Step 10: Build valid license response and sign it (TASK_2025_188)
+    return this.buildSignedResponse({
       valid: true,
       tier,
       plan: planConfig,
@@ -236,7 +328,7 @@ export class LicenseService {
             lastName: license.user.lastName,
           }
         : undefined,
-    };
+    });
   }
 
   /**
@@ -331,6 +423,7 @@ export class LicenseService {
   }): Promise<{ licenseKey: string; expiresAt: Date }> {
     const { email } = params;
     const normalizedEmail = email.toLowerCase();
+    const normalizedForLookup = this.normalizeEmailForLookup(email);
 
     // Step 1: Find or create user
     let user = await this.prisma.user.findUnique({
@@ -361,6 +454,38 @@ export class LicenseService {
         licenseKey: existingLicense.licenseKey,
         expiresAt: existingLicense.expiresAt ?? calculateTrialExpirationDate(),
       };
+    }
+
+    // Step 2b: Check for trial abuse via email aliasing (+tag, dots for Gmail)
+    // Find ALL users in the system and check if any normalize to the same address.
+    // This prevents user+1@gmail.com and u.s.e.r@gmail.com from getting separate trials.
+    const allUsers = await this.prisma.user.findMany({
+      select: { id: true, email: true },
+    });
+    const aliasUserIds = allUsers
+      .filter(
+        (u) =>
+          u.id !== user!.id &&
+          this.normalizeEmailForLookup(u.email) === normalizedForLookup
+      )
+      .map((u) => u.id);
+
+    if (aliasUserIds.length > 0) {
+      const existingAliasTrial = await this.prisma.license.findFirst({
+        where: {
+          userId: { in: aliasUserIds },
+          createdBy: 'auto_trial_signup',
+        },
+      });
+
+      if (existingAliasTrial) {
+        this.logger.warn(
+          `Trial abuse detected: ${normalizedEmail} is an alias of an existing trial user`
+        );
+        throw new Error(
+          'A trial license already exists for this email address'
+        );
+      }
     }
 
     // Step 3: If no trial license, check if user already has a paid license
@@ -517,6 +642,41 @@ export class LicenseService {
       plan: 'community',
       status: 'active',
     };
+  }
+
+  /**
+   * Normalize an email address to prevent trial abuse via aliasing tricks.
+   *
+   * Applies:
+   * - Lowercase the entire address
+   * - Strip '+' aliases (user+tag@domain -> user@domain)
+   * - Strip dots in the local part for Gmail/Googlemail domains
+   *   (u.s.e.r@gmail.com -> user@gmail.com)
+   *
+   * The normalized form is used for LOOKUP/CHECK only.
+   * The original email is still stored in the database.
+   *
+   * @param email - Raw email address
+   * @returns Normalized email for comparison purposes
+   */
+  private normalizeEmailForLookup(email: string): string {
+    const lower = email.toLowerCase();
+    const atIndex = lower.indexOf('@');
+    if (atIndex === -1) return lower;
+
+    const localPart = lower.substring(0, atIndex);
+    const domain = lower.substring(atIndex + 1);
+
+    // Strip + aliases (user+tag@gmail.com -> user@gmail.com)
+    const withoutAlias = localPart.split('+')[0];
+
+    // Strip dots for Gmail/Googlemail (u.s.e.r@gmail.com -> user@gmail.com)
+    const gmailDomains = ['gmail.com', 'googlemail.com'];
+    const normalizedLocal = gmailDomains.includes(domain)
+      ? withoutAlias.replace(/\./g, '')
+      : withoutAlias;
+
+    return `${normalizedLocal}@${domain}`;
   }
 
   /**

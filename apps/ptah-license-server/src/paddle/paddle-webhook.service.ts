@@ -3,6 +3,7 @@ import {
   Inject,
   Logger,
   UnauthorizedException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -56,6 +57,15 @@ export interface WebhookResponse {
 @Injectable()
 export class PaddleWebhookService {
   private readonly logger = new Logger(PaddleWebhookService.name);
+
+  /**
+   * In-memory set of processed webhook event IDs for idempotency.
+   * Prevents duplicate processing when Paddle retries delivery.
+   * Acceptable for single-instance deployment; for multi-instance,
+   * migrate to a database-backed check.
+   */
+  private readonly processedEventIds = new Set<string>();
+  private readonly MAX_PROCESSED_EVENTS = 10000;
 
   constructor(
     private readonly paddleService: PaddleService,
@@ -113,8 +123,16 @@ export class PaddleWebhookService {
 
     this.logger.log(`Received webhook: ${event.eventType} (${event.eventId})`);
 
+    // Idempotency check: skip events that have already been processed
+    if (this.isEventAlreadyProcessed(event.eventId)) {
+      this.logger.log(
+        `Duplicate webhook detected: ${event.eventId} (${event.eventType}) - skipping`
+      );
+      return { received: true, duplicate: true };
+    }
+
     // Wrap processing in try/catch for failed webhook storage
-    // Always return 200 OK to Paddle - store failures for investigation
+    // Return 500 on failure so Paddle retries the webhook delivery
     try {
       return await this.routeEvent(event);
     } catch (error) {
@@ -124,11 +142,10 @@ export class PaddleWebhookService {
         `Webhook processing failed for ${event.eventType} (${event.eventId}) - stored for recovery`
       );
 
-      return {
-        received: true,
-        success: false,
-        error: 'Processing failed - stored for recovery',
-      };
+      // Throw 500 so Paddle knows delivery failed and will retry
+      throw new InternalServerErrorException(
+        'Webhook processing failed - stored for recovery'
+      );
     }
   }
 
@@ -403,6 +420,35 @@ export class PaddleWebhookService {
     }
 
     return this.paddleService.getCustomerEmail(customerId);
+  }
+
+  /**
+   * Check if a webhook event has already been processed (idempotency guard).
+   *
+   * Uses an in-memory Set with a size cap. When the cap is reached,
+   * the oldest half of entries are evicted (Set maintains insertion order).
+   *
+   * @param eventId - The Paddle event ID to check
+   * @returns true if event was already processed, false if it is new
+   */
+  private isEventAlreadyProcessed(eventId: string): boolean {
+    if (this.processedEventIds.has(eventId)) {
+      return true;
+    }
+
+    // Evict oldest entries when approaching the cap
+    if (this.processedEventIds.size >= this.MAX_PROCESSED_EVENTS) {
+      const iterator = this.processedEventIds.values();
+      const entriesToRemove = Math.floor(this.MAX_PROCESSED_EVENTS / 2);
+      for (let i = 0; i < entriesToRemove; i++) {
+        const next = iterator.next();
+        if (next.done) break;
+        this.processedEventIds.delete(next.value);
+      }
+    }
+
+    this.processedEventIds.add(eventId);
+    return false;
   }
 
   /**

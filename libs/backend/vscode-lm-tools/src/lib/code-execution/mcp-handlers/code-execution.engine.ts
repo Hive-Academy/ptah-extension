@@ -64,6 +64,12 @@ export async function executeCode(
     'ptah',
     'console',
     'require',
+    'process',
+    'global',
+    'globalThis',
+    'Buffer',
+    '__dirname',
+    '__filename',
     `
     'use strict';
     ${wrappedCode}
@@ -71,7 +77,13 @@ export async function executeCode(
   ) as (
     ptah: PtahAPI,
     console: Console,
-    require: NodeRequire
+    require: NodeRequire,
+    process: undefined,
+    global: undefined,
+    globalThis: undefined,
+    Buffer: undefined,
+    __dirname: undefined,
+    __filename: undefined
   ) => Promise<unknown>;
 
   // Wrap API with validation proxy to catch invalid method calls early
@@ -87,10 +99,17 @@ export async function executeCode(
   }) as unknown as NodeRequire;
 
   // Execute with timeout protection
+  // Pass undefined for dangerous Node.js globals to shadow them in function scope
   let executionPromise = asyncFunction(
     validatedAPI,
     sandboxConsole,
-    sandboxRequire
+    sandboxRequire,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined
   );
 
   // Handle nested Promises (from IIFEs that return Promises)

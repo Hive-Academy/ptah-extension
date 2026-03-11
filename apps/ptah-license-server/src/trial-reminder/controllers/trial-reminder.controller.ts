@@ -8,6 +8,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { createHash, timingSafeEqual } from 'crypto';
 import { TrialReminderService } from '../services/trial-reminder.service';
 
 /**
@@ -45,6 +46,16 @@ export class TrialReminderController {
   }
 
   /**
+   * Constant-time secret comparison using SHA-256 hashing.
+   * Prevents timing attacks by always comparing fixed-length hashes.
+   */
+  private isSecretValid(provided: string, expected: string): boolean {
+    const providedHash = createHash('sha256').update(provided).digest();
+    const expectedHash = createHash('sha256').update(expected).digest();
+    return timingSafeEqual(providedHash, expectedHash);
+  }
+
+  /**
    * POST /admin/trial-reminder/trigger
    *
    * Manually triggers the trial reminder cron job.
@@ -65,7 +76,7 @@ export class TrialReminderController {
       );
     }
 
-    if (adminSecret !== this.adminSecret) {
+    if (!adminSecret || !this.isSecretValid(adminSecret, this.adminSecret)) {
       this.logger.warn('Invalid admin secret attempt');
       throw new UnauthorizedException('Invalid admin secret');
     }

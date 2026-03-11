@@ -3,8 +3,9 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZoneChangeDetection,
   ErrorHandler,
+  SecurityContext,
 } from '@angular/core';
-import { provideMarkdown, MARKED_EXTENSIONS } from 'ngx-markdown';
+import { provideMarkdown, MARKED_EXTENSIONS, SANITIZE } from 'ngx-markdown';
 import {
   provideVSCodeService,
   provideMessageRouter,
@@ -85,6 +86,7 @@ export const appConfig: ApplicationConfig = {
     // Markdown rendering for chat messages (required for ngx-markdown)
     // Includes custom extensions for callout cards and collapsible code blocks
     provideMarkdown({
+      sanitize: { provide: SANITIZE, useValue: SecurityContext.HTML },
       markedExtensions: getMarkedExtensions().map((ext) => ({
         provide: MARKED_EXTENSIONS,
         useValue: ext,
