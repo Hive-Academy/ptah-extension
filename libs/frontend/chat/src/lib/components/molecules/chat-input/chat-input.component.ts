@@ -225,9 +225,9 @@ interface PastedImage {
 
       <!-- Bottom Controls Row -->
       <div class="flex items-center justify-between gap-1.5 min-w-0">
-        <!-- Left: Auth Method Badge -->
+        <!-- Left: Auth Method Badge + Model Selector -->
         <div
-          class="flex items-center gap-1.5 text-base-content/60 flex-shrink-0"
+          class="flex items-center gap-0.5 text-base-content/60 flex-shrink-0"
         >
           <!-- Auth Method Badge (TASK_2025_129 Batch 3) -->
           @if (authMethodLabel()) {
@@ -238,18 +238,18 @@ interface PastedImage {
             <span class="text-[10px]">{{ authMethodLabel() }}</span>
           </div>
           }
+
+          <!-- Model Selector Component -->
+          <ptah-model-selector />
         </div>
 
-        <!-- Right: Agent Selector, Model Selector and Autopilot Popover -->
+        <!-- Right: Agent Selector, Effort Selector and Autopilot Popover -->
         <div class="flex items-center gap-0.5 min-w-0">
           <!-- Agent Selector - dedicated button for built-in sub-agents -->
           <ptah-agent-selector (agentSelected)="handleAgentSelected($event)" />
 
           <!-- Effort Selector Component (TASK_2025_184) -->
           <ptah-effort-selector (effortChanged)="onEffortChange($event)" />
-
-          <!-- Model Selector Component -->
-          <ptah-model-selector />
 
           <!-- Autopilot Popover Component -->
           <ptah-autopilot-popover />
