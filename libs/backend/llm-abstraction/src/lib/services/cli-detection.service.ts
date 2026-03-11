@@ -181,4 +181,32 @@ export class CliDetectionService {
     this.detectionInFlight = null;
     this.modelCache = null;
   }
+
+  /**
+   * Ensure CLI OAuth tokens are fresh (non-blocking background task).
+   * Currently only Codex requires OAuth token refresh.
+   * Call during extension startup to avoid stale-token fallbacks on first use.
+   */
+  async refreshCliTokens(): Promise<void> {
+    const codexAdapter = this.adapters.get('codex');
+    if (
+      codexAdapter &&
+      'ensureTokensFresh' in codexAdapter &&
+      typeof (codexAdapter as { ensureTokensFresh: () => Promise<boolean> })
+        .ensureTokensFresh === 'function'
+    ) {
+      const fresh = await (
+        codexAdapter as { ensureTokensFresh: () => Promise<boolean> }
+      ).ensureTokensFresh();
+      this.logger.info(
+        `[CliDetection] Codex token refresh: ${
+          fresh ? 'fresh' : 'stale/unavailable'
+        }`
+      );
+      // Invalidate model cache so next listModels() fetches with fresh token
+      if (fresh) {
+        this.modelCache = null;
+      }
+    }
+  }
 }

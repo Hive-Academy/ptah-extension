@@ -300,6 +300,18 @@ export class AgentProcessManager {
       }
     }
 
+    // Resolve reasoning effort from per-CLI config
+    let resolvedReasoningEffort: string | undefined;
+    if (cli === 'codex' || cli === 'copilot') {
+      const effortKey =
+        cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
+      const agentCfg = vscode.workspace.getConfiguration(
+        'ptah.agentOrchestration'
+      );
+      const effort = agentCfg.get<string>(effortKey, '');
+      if (effort) resolvedReasoningEffort = effort;
+    }
+
     // No sanitization needed: spawn() is called without shell:true,
     // so args are passed directly to the binary (no shell interpretation).
     const command = adapter.buildCommand({
@@ -312,6 +324,7 @@ export class AgentProcessManager {
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
       systemPrompt: request.systemPrompt,
+      reasoningEffort: resolvedReasoningEffort,
     });
 
     // Create agent ID and info
@@ -486,6 +499,18 @@ export class AgentProcessManager {
       );
     }
 
+    // Resolve reasoning effort from per-CLI config for SDK path
+    let sdkReasoningEffort: string | undefined;
+    if (cli === 'codex' || cli === 'copilot') {
+      const effortKey =
+        cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
+      const agentCfg = vscode.workspace.getConfiguration(
+        'ptah.agentOrchestration'
+      );
+      const effort = agentCfg.get<string>(effortKey, '');
+      if (effort) sdkReasoningEffort = effort;
+    }
+
     const sdkHandle = await runSdk({
       task,
       workingDirectory,
@@ -497,6 +522,7 @@ export class AgentProcessManager {
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
       systemPrompt: request.systemPrompt,
+      reasoningEffort: sdkReasoningEffort,
     });
 
     // Capture CLI session ID immediately if available (e.g., from sync init)

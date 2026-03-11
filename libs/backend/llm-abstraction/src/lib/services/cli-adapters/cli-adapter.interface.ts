@@ -37,6 +37,8 @@ export interface CliCommandOptions {
   /** Full system prompt content (prompt harness). Replaces projectGuidance for premium users.
    *  Includes core prompt, enhanced prompts, skill catalog, and MCP docs. */
   readonly systemPrompt?: string;
+  /** Reasoning effort level for the CLI agent (adapter-specific values) */
+  readonly reasoningEffort?: string;
 }
 
 export interface CliCommand {

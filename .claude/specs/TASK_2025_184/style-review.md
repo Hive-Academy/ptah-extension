@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric          | Value         |
-| --------------- | ------------- |
-| Overall Score   | 6/10          |
+| Metric          | Value          |
+| --------------- | -------------- |
+| Overall Score   | 6/10           |
 | Assessment      | NEEDS_REVISION |
-| Blocking Issues | 2             |
-| Serious Issues  | 5             |
-| Minor Issues    | 4             |
-| Files Reviewed  | 10            |
+| Blocking Issues | 2              |
+| Serious Issues  | 5              |
+| Minor Issues    | 4              |
+| Files Reviewed  | 10             |
 
 ## The 5 Critical Questions
 
@@ -126,6 +126,7 @@ The `EffortSelectorComponent` stores state locally (`selectedEffort` signal) but
 **Analysis**: Clean type definitions. `ThinkingConfig` discriminated union is well-designed with proper tagged types. `EffortLevel` is a simple string union, appropriate for the use case. JSDoc comments are thorough with SDK version constraints documented.
 
 **Specific Concerns**:
+
 1. Line 92: `budgetTokens` in `{ type: 'enabled'; budgetTokens: number }` has no minimum/maximum validation hint in the type or comments. What's a valid range?
 2. Line 104: `max` documented as "Opus 4.6 only" but this is not enforced anywhere.
 
@@ -137,6 +138,7 @@ The `EffortSelectorComponent` stores state locally (`selectedEffort` signal) but
 **Analysis**: Adding `thinking` and `effort` to `SdkQueryOptions` is straightforward and consistent with how other optional config (`compactionControl`, `plugins`) is structured. Comments reference the task ID appropriately.
 
 **Specific Concerns**:
+
 1. Lines 300-302: `thinking` and `effort` use the shared types, maintaining single source of truth. Good.
 
 ### sdk-query-options-builder.ts
@@ -147,6 +149,7 @@ The `EffortSelectorComponent` stores state locally (`selectedEffort` signal) but
 **Analysis**: The builder correctly passes through `thinking` and `effort` from `QueryOptionsInput` to `SdkQueryOptions`. The destructuring in `build()` intentionally omits `thinking` and `effort` from the destructured set (they're accessed via `sessionConfig?.thinking` and `sessionConfig?.effort` at lines 475-476). This is slightly inconsistent -- `input.thinking` exists as a direct field, but the builder reads from `sessionConfig` instead. Both paths work because `thinking`/`effort` are set on both `QueryOptionsInput` and `AISessionConfig`.
 
 **Specific Concerns**:
+
 1. Lines 475-476: Reading from `sessionConfig?.thinking` rather than `input.thinking` means if the caller sets `input.thinking` but not `sessionConfig.thinking`, the value is lost. The `QueryOptionsInput` interface has its own `thinking`/`effort` fields (lines 257-262) which shadow `sessionConfig`'s. This is a **potential data mismatch** depending on how callers populate the input.
 
 ### rpc.types.ts
@@ -157,6 +160,7 @@ The `EffortSelectorComponent` stores state locally (`selectedEffort` signal) but
 **Analysis**: The structural inconsistency between `ChatStartParams.options.{thinking,effort}` and `ChatContinueParams.{thinking,effort}` is the main concern. The types are individually correct but collectively inconsistent.
 
 **Specific Concerns**:
+
 1. Lines 77-81 vs 111-114: Different nesting levels for the same concepts in sibling types.
 
 ### ptah-cli-adapter.ts
@@ -174,6 +178,7 @@ The `EffortSelectorComponent` stores state locally (`selectedEffort` signal) but
 **Analysis**: The handler correctly threads `options?.thinking` and `options?.effort` from `ChatStartParams` and `params.thinking`/`params.effort` from `ChatContinueParams`. But the access pattern difference (`options?.X` vs `params.X`) directly reflects the RPC type inconsistency. The handler code at lines 715-716 and 830-831 is mechanically correct but would benefit from normalized types.
 
 **Specific Concerns**:
+
 1. The resume path (line 822-832) passes `thinking` and `effort` for resumeSession, which is correct. But if the session was originally started without thinking/effort and is resumed with them, the behavior depends on SDK -- does it override per-query or is it session-scoped? Not documented.
 
 ### message-sender.service.ts
@@ -198,6 +203,7 @@ The `EffortSelectorComponent` stores state locally (`selectedEffort` signal) but
 **Analysis**: The component is minimal and follows Angular 20+ patterns correctly: standalone, OnPush, signal state, `output()` API. The template uses DaisyUI classes consistent with `model-selector.component.ts`. But the unsafe type assertion and missing reset-on-tab-switch are real concerns.
 
 **Specific Concerns**:
+
 1. Line 42: `signal<EffortLevel | ''>('')` -- empty string as sentinel is fine for the template `<option value="">`, but it leaks into type signatures awkwardly.
 2. Line 52: Double type assertion without runtime validation.
 
@@ -209,33 +215,36 @@ The `EffortSelectorComponent` stores state locally (`selectedEffort` signal) but
 **Analysis**: Integration of `EffortSelectorComponent` is clean. Import added, component added to `imports` array, template placement is logical (between agent-selector and model-selector). The `onEffortChange` handler at line 589 and `_selectedEffort` signal at line 311 are straightforward. The `handleSend` method correctly passes `this._selectedEffort()` at line 796.
 
 **Specific Concerns**:
+
 1. Line 796: `this._selectedEffort()` is passed as the 4th positional arg -- readability suffers. What does the 4th arg mean without looking at the callee signature?
 
 ---
 
 ## Pattern Compliance
 
-| Pattern            | Status | Concern                                                        |
-| ------------------ | ------ | -------------------------------------------------------------- |
-| Signal-based state | PASS   | Effort uses signal correctly in both component and store        |
-| Type safety        | FAIL   | Unsafe cast in EffortSelectorComponent; no runtime validation  |
-| DI patterns        | PASS   | No new DI tokens needed; existing injection patterns followed  |
-| Layer separation   | PASS   | Types in shared, backend plumbing in agent-sdk, UI in chat     |
-| OnPush detection   | PASS   | EffortSelectorComponent uses OnPush                            |
-| DaisyUI/Tailwind   | PASS   | Matches compact ghost style from model-selector                |
-| Atomic Design      | PASS   | Placed in molecules/chat-input, correct hierarchy level        |
-| Standalone comps   | PASS   | EffortSelectorComponent is standalone                          |
-| output() API       | PASS   | Uses modern output() instead of @Output EventEmitter           |
+| Pattern            | Status | Concern                                                       |
+| ------------------ | ------ | ------------------------------------------------------------- |
+| Signal-based state | PASS   | Effort uses signal correctly in both component and store      |
+| Type safety        | FAIL   | Unsafe cast in EffortSelectorComponent; no runtime validation |
+| DI patterns        | PASS   | No new DI tokens needed; existing injection patterns followed |
+| Layer separation   | PASS   | Types in shared, backend plumbing in agent-sdk, UI in chat    |
+| OnPush detection   | PASS   | EffortSelectorComponent uses OnPush                           |
+| DaisyUI/Tailwind   | PASS   | Matches compact ghost style from model-selector               |
+| Atomic Design      | PASS   | Placed in molecules/chat-input, correct hierarchy level       |
+| Standalone comps   | PASS   | EffortSelectorComponent is standalone                         |
+| output() API       | PASS   | Uses modern output() instead of @Output EventEmitter          |
 
 ## Technical Debt Assessment
 
 **Introduced**:
+
 - Positional parameter chain (4 args) that will grow with next per-message config
 - Dead ThinkingConfig UI path (backend-ready, frontend-missing)
 - Effort state persistence ambiguity (not per-session, not global -- just transient)
 - Effort silently dropped in queue path
 
 **Mitigated**:
+
 - SDK reasoning configuration was completely absent before this task; now effort is at least functional for the happy path (non-queued, non-fallback messages)
 
 **Net Impact**: Slight increase in technical debt. The plumbing is solid but the edges are rough.

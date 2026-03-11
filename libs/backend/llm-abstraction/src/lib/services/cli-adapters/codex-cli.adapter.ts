@@ -8,11 +8,9 @@
  * CLI fallback: codex --quiet "task description"
  * SDK path: Codex SDK thread.runStreamed() for in-process execution
  */
-import { execFile } from 'child_process';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
-import { promisify } from 'util';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -28,9 +26,8 @@ import {
   stripAnsiCodes,
   buildTaskPrompt,
   resolveCliPath,
+  spawnCli,
 } from './cli-adapter.utils';
-
-const execFileAsync = promisify(execFile);
 
 /**
  * Minimal local types for the dynamically imported Codex SDK.
@@ -51,6 +48,7 @@ interface CodexThreadOptions {
   model?: string;
   approvalPolicy?: 'never' | 'on-request' | 'on-failure';
   sandboxMode?: 'read-only' | 'workspace-write' | 'danger-full-access';
+  modelReasoningEffort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 }
 
 interface CodexClient {
@@ -153,6 +151,19 @@ async function getCodexSdk(): Promise<CodexSdkModule> {
   }
 }
 
+/** Shape of ~/.codex/auth.json */
+interface CodexAuthFile {
+  auth_mode?: string;
+  OPENAI_API_KEY?: string | null;
+  tokens?: {
+    access_token?: string;
+    refresh_token?: string;
+    id_token?: string;
+    account_id?: string;
+  };
+  last_refresh?: string;
+}
+
 export class CodexCliAdapter implements CliAdapter {
   readonly name = 'codex' as const;
   readonly displayName = 'Codex CLI';
@@ -164,14 +175,33 @@ export class CodexCliAdapter implements CliAdapter {
         return { cli: 'codex', installed: false, supportsSteer: false };
       }
 
+      // Use cross-spawn (via spawnCli) for version detection to avoid
+      // EINVAL when execFile encounters a Windows .cmd wrapper.
       let version: string | undefined;
       try {
-        const { stdout: versionOutput } = await execFileAsync(
-          binaryPath,
-          ['--version'],
-          { timeout: 5000 }
-        );
-        version = versionOutput.trim().split('\n')[0];
+        version = await new Promise<string | undefined>((resolve) => {
+          let stdout = '';
+          const child = spawnCli(binaryPath, ['--version'], {});
+
+          const timer = setTimeout(() => {
+            child.kill();
+            resolve(undefined);
+          }, 5000);
+
+          child.stdout?.setEncoding('utf8');
+          child.stdout?.on('data', (data: string) => {
+            stdout += data;
+          });
+          child.on('close', () => {
+            clearTimeout(timer);
+            const trimmed = stdout.trim().split('\n')[0];
+            resolve(trimmed || undefined);
+          });
+          child.on('error', () => {
+            clearTimeout(timer);
+            resolve(undefined);
+          });
+        });
       } catch {
         // Version check failed
       }
@@ -226,12 +256,20 @@ export class CodexCliAdapter implements CliAdapter {
     { id: 'gpt-5.1-codex-mini', name: 'GPT 5.1 Codex Mini' },
   ];
 
+  /** OAuth token refresh endpoint (same as Codex CLI uses) */
+  private static readonly AUTH_PATH = join(homedir(), '.codex', 'auth.json');
+  private static readonly REFRESH_URL = 'https://auth.openai.com/oauth/token';
+  /** Max age (ms) before proactive refresh. OAuth tokens last ~1h; refresh at 50 min. */
+  private static readonly TOKEN_MAX_AGE_MS = 50 * 60 * 1000;
+
+  /** Guard against concurrent refresh attempts (single-use refresh tokens) */
+  private refreshInFlight: Promise<string | null> | null = null;
+
   /**
    * List available models for Codex.
    * Queries the same Codex models API that the Codex CLI uses:
    * GET https://chatgpt.com/backend-api/codex/models?client_version=<version>
-   * Uses the OAuth access_token from ~/.codex/auth.json.
-   * Falls back to a curated list if the API call fails.
+   * On 401, refreshes the OAuth token and retries once before falling back.
    */
   async listModels(): Promise<CliModelInfo[]> {
     try {
@@ -246,66 +284,236 @@ export class CodexCliAdapter implements CliAdapter {
         signal: AbortSignal.timeout(5000),
       });
 
+      // On 401/403, try refreshing the token and retry once
+      if (response.status === 401 || response.status === 403) {
+        const retryModels = await this.retryListModelsAfterRefresh(url);
+        if (retryModels) return retryModels;
+        return CodexCliAdapter.FALLBACK_MODELS;
+      }
+
       if (!response.ok) return CodexCliAdapter.FALLBACK_MODELS;
 
-      const body = (await response.json()) as {
-        models?: Array<{
-          slug: string;
-          name?: string;
-          description?: string;
-          is_default?: boolean;
-        }>;
-      };
-      if (!body.models?.length) return CodexCliAdapter.FALLBACK_MODELS;
-
-      // Map API models, preserving order from the API (default model first)
-      const models: CliModelInfo[] = body.models.map((m) => ({
-        id: m.slug,
-        name: m.name || this.formatModelName(m.slug),
-      }));
-
-      return models.length > 0 ? models : CodexCliAdapter.FALLBACK_MODELS;
+      return this.parseModelsResponse(response);
     } catch {
       return CodexCliAdapter.FALLBACK_MODELS;
     }
   }
 
   /**
+   * Retry the models API call after refreshing the OAuth token.
+   */
+  private async retryListModelsAfterRefresh(
+    url: string
+  ): Promise<CliModelInfo[] | null> {
+    try {
+      const raw = await readFile(CodexCliAdapter.AUTH_PATH, 'utf-8');
+      const auth = JSON.parse(raw) as CodexAuthFile;
+      if (!auth.tokens?.refresh_token) return null;
+
+      const freshToken = await this.refreshAccessToken(auth);
+      if (!freshToken) return null;
+
+      const retryResponse = await fetch(url, {
+        headers: { Authorization: `Bearer ${freshToken}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!retryResponse.ok) return null;
+
+      return this.parseModelsResponse(retryResponse);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Parse the Codex models API response into CliModelInfo[]. */
+  private async parseModelsResponse(
+    response: Response
+  ): Promise<CliModelInfo[]> {
+    const body = (await response.json()) as {
+      models?: Array<{
+        slug: string;
+        name?: string;
+        display_name?: string;
+        description?: string;
+        is_default?: boolean;
+      }>;
+    };
+    if (!body.models?.length) return CodexCliAdapter.FALLBACK_MODELS;
+
+    const models: CliModelInfo[] = body.models.map((m) => ({
+      id: m.slug,
+      name: m.display_name
+        ? this.formatModelName(m.display_name)
+        : m.name || this.formatModelName(m.slug),
+    }));
+
+    return models.length > 0 ? models : CodexCliAdapter.FALLBACK_MODELS;
+  }
+
+  /**
    * Resolve the OAuth access_token for Codex API calls.
-   * Reads from ~/.codex/auth.json (same auth the Codex CLI uses).
+   * Proactively refreshes if the token looks stale (last_refresh > 50 min ago).
    */
   private async resolveAccessToken(): Promise<string | null> {
     try {
-      const authPath = join(homedir(), '.codex', 'auth.json');
-      const raw = await readFile(authPath, 'utf-8');
-      const auth = JSON.parse(raw) as {
-        OPENAI_API_KEY?: string | null;
-        tokens?: { access_token?: string };
-      };
-      // API key takes priority if explicitly set
+      const raw = await readFile(CodexCliAdapter.AUTH_PATH, 'utf-8');
+      const auth = JSON.parse(raw) as CodexAuthFile;
+
+      // API key takes priority — never expires
       if (auth.OPENAI_API_KEY) return auth.OPENAI_API_KEY;
-      if (auth.tokens?.access_token) return auth.tokens.access_token;
+      if (!auth.tokens?.access_token) return null;
+
+      // Proactively refresh if token looks stale
+      if (auth.tokens.refresh_token && this.isTokenStale(auth.last_refresh)) {
+        const refreshed = await this.refreshAccessToken(auth);
+        if (refreshed) return refreshed;
+      }
+
+      return auth.tokens.access_token;
     } catch {
       // Auth file not found or unreadable
     }
     return null;
   }
 
+  /** Check whether the stored token is likely expired based on last_refresh. */
+  private isTokenStale(lastRefresh?: string): boolean {
+    if (!lastRefresh) return true;
+    try {
+      const refreshTime = new Date(lastRefresh).getTime();
+      return Date.now() - refreshTime > CodexCliAdapter.TOKEN_MAX_AGE_MS;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Refresh the OAuth access_token using the stored refresh_token.
+   * POST https://auth.openai.com/oauth/token (same endpoint Codex CLI uses).
+   * Guards against concurrent refresh (OpenAI uses single-use refresh tokens).
+   * On success, writes updated tokens back to auth.json.
+   */
+  private async refreshAccessToken(
+    auth: CodexAuthFile
+  ): Promise<string | null> {
+    if (!auth.tokens?.refresh_token) return null;
+
+    // Deduplicate concurrent refresh calls
+    if (this.refreshInFlight) return this.refreshInFlight;
+
+    this.refreshInFlight = this.doRefreshAccessToken(auth);
+    try {
+      return await this.refreshInFlight;
+    } finally {
+      this.refreshInFlight = null;
+    }
+  }
+
+  private async doRefreshAccessToken(
+    auth: CodexAuthFile
+  ): Promise<string | null> {
+    try {
+      const response = await fetch(CodexCliAdapter.REFRESH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: auth.tokens!.refresh_token!,
+        }).toString(),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!response.ok) return null;
+
+      const body = (await response.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        id_token?: string;
+        expires_in?: number;
+      };
+      if (!body.access_token) return null;
+
+      // Write updated tokens back to auth.json (same as Codex CLI does)
+      const updated: CodexAuthFile = {
+        ...auth,
+        tokens: {
+          ...auth.tokens!,
+          access_token: body.access_token,
+          ...(body.refresh_token && { refresh_token: body.refresh_token }),
+          ...(body.id_token && { id_token: body.id_token }),
+        },
+        last_refresh: new Date().toISOString(),
+      };
+
+      await writeFile(
+        CodexCliAdapter.AUTH_PATH,
+        JSON.stringify(updated, null, 2),
+        'utf-8'
+      );
+
+      return body.access_token;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Public: Ensure the Codex OAuth token is fresh.
+   * Called during extension startup (fire-and-forget) so that
+   * listModels() hits the API with a valid token on first use.
+   */
+  async ensureTokensFresh(): Promise<boolean> {
+    try {
+      const raw = await readFile(CodexCliAdapter.AUTH_PATH, 'utf-8');
+      const auth = JSON.parse(raw) as CodexAuthFile;
+
+      if (auth.OPENAI_API_KEY) return true;
+      if (!auth.tokens?.access_token || !auth.tokens.refresh_token)
+        return false;
+
+      if (this.isTokenStale(auth.last_refresh)) {
+        const refreshed = await this.refreshAccessToken(auth);
+        return refreshed !== null;
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Resolve the installed Codex CLI version for the models API query param.
-   * Falls back to a reasonable default if version detection fails.
+   * Uses cross-spawn (via spawnCli) to handle Windows .cmd wrappers.
    */
   private async resolveCliVersion(): Promise<string> {
     try {
       const binaryPath = await resolveCliPath('codex');
-      if (binaryPath) {
-        const { stdout } = await execFileAsync(binaryPath, ['--version'], {
-          timeout: 3000,
+      if (!binaryPath) return '0.107.0';
+
+      return await new Promise<string>((resolve) => {
+        let stdout = '';
+        const child = spawnCli(binaryPath, ['--version'], {});
+
+        const timer = setTimeout(() => {
+          child.kill();
+          resolve('0.107.0');
+        }, 3000);
+
+        child.stdout?.setEncoding('utf8');
+        child.stdout?.on('data', (data: string) => {
+          stdout += data;
         });
-        // Output: "codex-cli 0.107.0" → extract "0.107.0"
-        const match = stdout.trim().match(/[\d.]+/);
-        if (match) return match[0];
-      }
+        child.on('close', () => {
+          clearTimeout(timer);
+          const match = stdout.trim().match(/[\d.]+/);
+          resolve(match ? match[0] : '0.107.0');
+        });
+        child.on('error', () => {
+          clearTimeout(timer);
+          resolve('0.107.0');
+        });
+      });
     } catch {
       // Version detection failed
     }
@@ -376,6 +584,14 @@ export class CodexCliAdapter implements CliAdapter {
     };
     if (options.model) {
       threadOptions.model = options.model;
+    }
+    if (options.reasoningEffort) {
+      threadOptions.modelReasoningEffort = options.reasoningEffort as
+        | 'minimal'
+        | 'low'
+        | 'medium'
+        | 'high'
+        | 'xhigh';
     }
 
     // Session resume or new thread

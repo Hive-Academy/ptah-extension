@@ -2,14 +2,14 @@
 
 ## Review Summary
 
-| Metric              | Value           |
-| ------------------- | --------------- |
-| Overall Score       | 6/10            |
-| Assessment          | NEEDS_REVISION  |
-| Critical Issues     | 1               |
-| Serious Issues      | 3               |
-| Moderate Issues     | 3               |
-| Failure Modes Found | 6               |
+| Metric              | Value          |
+| ------------------- | -------------- |
+| Overall Score       | 6/10           |
+| Assessment          | NEEDS_REVISION |
+| Critical Issues     | 1              |
+| Serious Issues      | 3              |
+| Moderate Issues     | 3              |
+| Failure Modes Found | 6              |
 
 ## The 5 Paranoid Questions
 
@@ -103,6 +103,7 @@
 - **Scenario**: `QueryOptionsInput` interface defines `thinking?: ThinkingConfig` and `effort?: EffortLevel` fields. The `SessionLifecycleManager.executeQuery()` method at line 618 calls `this.queryOptionsBuilder.build({...})` WITHOUT passing `thinking` or `effort` from the input. The builder's `build()` method reads these from `sessionConfig?.thinking` and `sessionConfig?.effort` instead (lines 475-476). Since `sessionConfig` is the full `AISessionConfig` that contains these fields, the data DOES flow correctly -- but the standalone fields on `QueryOptionsInput` are dead code that a future developer might try to use, expecting them to work.
 - **Impact**: Future maintenance confusion; a developer might add `thinking: someValue` to the `build()` input expecting it to be used, when it's silently ignored. This is a code design issue that could lead to real bugs.
 - **Evidence**:
+
   ```typescript
   // QueryOptionsInput defines these (dead fields):
   thinking?: ThinkingConfig;
@@ -118,6 +119,7 @@
     // NO thinking or effort here
   });
   ```
+
 - **Fix**: Either (a) remove `thinking`/`effort` from `QueryOptionsInput` since they're read from `sessionConfig`, or (b) update `build()` to use `input.thinking ?? sessionConfig?.thinking` to support both paths.
 
 ## Serious Issues
@@ -219,28 +221,30 @@ MessageSenderService.send()
 ```
 
 ### Gap Points Identified:
+
 1. **[*] Active session continue path**: `effort` from `ChatContinueParams` is present but not forwarded to `sendMessageToSession`. This is architecturally correct (SDK doesn't support per-message effort) but creates a UX gap.
 2. **Queue path**: `queueOrAppendMessage(content)` drops `effort`, `files`, `images`.
 3. **PtahCliAdapter continue path**: `handlePtahCliContinue` at line 502 calls `sendMessageToSession` without effort -- same gap as the main adapter.
 
 ## Requirements Fulfillment
 
-| Requirement | Status | Concern |
-|-------------|--------|---------|
-| EffortLevel type definition | COMPLETE | Clean discriminated union |
-| ThinkingConfig type definition | COMPLETE | No UI path to configure |
-| AISessionConfig extended | COMPLETE | Types are correct |
-| RPC params updated (ChatStart/Continue) | COMPLETE | Both params include thinking/effort |
-| SdkQueryOptions extended | COMPLETE | Matches SDK Options interface |
-| Query builder threads values | COMPLETE | Reads from sessionConfig |
-| PtahCliAdapter threads values | COMPLETE | Both start and resume paths |
-| Chat RPC handlers thread values | COMPLETE | Both chat:start and chat:continue resume paths |
-| MessageSenderService threads effort | COMPLETE | Both start and continue |
-| ChatStore threads effort | COMPLETE | Via sendMessage and sendOrQueueMessage |
-| EffortSelector component | COMPLETE | Clean, minimal, accessible |
-| ChatInputComponent integrates selector | COMPLETE | Properly wired with output |
+| Requirement                             | Status   | Concern                                        |
+| --------------------------------------- | -------- | ---------------------------------------------- |
+| EffortLevel type definition             | COMPLETE | Clean discriminated union                      |
+| ThinkingConfig type definition          | COMPLETE | No UI path to configure                        |
+| AISessionConfig extended                | COMPLETE | Types are correct                              |
+| RPC params updated (ChatStart/Continue) | COMPLETE | Both params include thinking/effort            |
+| SdkQueryOptions extended                | COMPLETE | Matches SDK Options interface                  |
+| Query builder threads values            | COMPLETE | Reads from sessionConfig                       |
+| PtahCliAdapter threads values           | COMPLETE | Both start and resume paths                    |
+| Chat RPC handlers thread values         | COMPLETE | Both chat:start and chat:continue resume paths |
+| MessageSenderService threads effort     | COMPLETE | Both start and continue                        |
+| ChatStore threads effort                | COMPLETE | Via sendMessage and sendOrQueueMessage         |
+| EffortSelector component                | COMPLETE | Clean, minimal, accessible                     |
+| ChatInputComponent integrates selector  | COMPLETE | Properly wired with output                     |
 
 ### Implicit Requirements NOT Addressed:
+
 1. Effort selection persistence across webview reloads
 2. Visual indicator of current session's effective effort level
 3. Model-effort compatibility validation
@@ -249,27 +253,27 @@ MessageSenderService.send()
 
 ## Edge Case Analysis
 
-| Edge Case | Handled | How | Concern |
-|-----------|---------|-----|---------|
-| undefined effort (default) | YES | `effort || undefined` in component, `sessionConfig?.effort` in builder | Clean |
-| effort='max' with non-Opus model | NO | Passed through to SDK without validation | SDK may reject |
-| Effort change mid-session | PARTIALLY | Ignored on active sessions, applied on resume | No user feedback |
-| ThinkingConfig without effort | YES | Independent optional fields | Fine |
-| Invalid effort string via RPC | NO | No runtime validation | SDK likely rejects |
-| Webview reload resets selection | YES (reset) | Signal initialized to '' | No persistence |
-| Multiple tabs with different effort | YES | Each ChatInputComponent has own signal | Independent per-tab |
-| Ptah CLI adapter effort threading | YES | Both start and resume paths | Matches main adapter |
+| Edge Case                           | Handled     | How                                           | Concern              |
+| ----------------------------------- | ----------- | --------------------------------------------- | -------------------- | --------------------------------------------------------- | ----- |
+| undefined effort (default)          | YES         | `effort                                       |                      | undefined`in component,`sessionConfig?.effort` in builder | Clean |
+| effort='max' with non-Opus model    | NO          | Passed through to SDK without validation      | SDK may reject       |
+| Effort change mid-session           | PARTIALLY   | Ignored on active sessions, applied on resume | No user feedback     |
+| ThinkingConfig without effort       | YES         | Independent optional fields                   | Fine                 |
+| Invalid effort string via RPC       | NO          | No runtime validation                         | SDK likely rejects   |
+| Webview reload resets selection     | YES (reset) | Signal initialized to ''                      | No persistence       |
+| Multiple tabs with different effort | YES         | Each ChatInputComponent has own signal        | Independent per-tab  |
+| Ptah CLI adapter effort threading   | YES         | Both start and resume paths                   | Matches main adapter |
 
 ## Integration Risk Assessment
 
-| Integration | Failure Probability | Impact | Mitigation |
-|-------------|---------------------|--------|------------|
-| Frontend -> RPC (effort serialization) | LOW | LOW | Simple string, JSON-safe |
-| RPC -> AISessionConfig mapping | LOW | LOW | Direct field pass-through |
-| AISessionConfig -> SdkQueryOptions | LOW | MEDIUM | Works but via sessionConfig indirection |
-| SdkQueryOptions -> SDK query() | LOW | MEDIUM | Types match SDK, but no runtime validation |
-| EffortSelector -> ChatInput | LOW | LOW | Clean output() binding |
-| Effort on Ptah CLI adapters | MEDIUM | MEDIUM | Third-party providers may not support |
+| Integration                            | Failure Probability | Impact | Mitigation                                 |
+| -------------------------------------- | ------------------- | ------ | ------------------------------------------ |
+| Frontend -> RPC (effort serialization) | LOW                 | LOW    | Simple string, JSON-safe                   |
+| RPC -> AISessionConfig mapping         | LOW                 | LOW    | Direct field pass-through                  |
+| AISessionConfig -> SdkQueryOptions     | LOW                 | MEDIUM | Works but via sessionConfig indirection    |
+| SdkQueryOptions -> SDK query()         | LOW                 | MEDIUM | Types match SDK, but no runtime validation |
+| EffortSelector -> ChatInput            | LOW                 | LOW    | Clean output() binding                     |
+| Effort on Ptah CLI adapters            | MEDIUM              | MEDIUM | Third-party providers may not support      |
 
 ## Verdict
 

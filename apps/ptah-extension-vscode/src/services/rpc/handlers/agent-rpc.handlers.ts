@@ -126,6 +126,14 @@ export class AgentRpcHandlers {
             codexModel: config.get<string>('codexModel', ''),
             copilotModel: config.get<string>('copilotModel', ''),
             copilotAutoApprove: config.get<boolean>('copilotAutoApprove', true),
+            codexReasoningEffort: config.get<string>(
+              'codexReasoningEffort',
+              ''
+            ),
+            copilotReasoningEffort: config.get<string>(
+              'copilotReasoningEffort',
+              ''
+            ),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -312,6 +320,22 @@ export class AgentRpcHandlers {
         ).permissionBridge;
         bridge.setAutoApprove(params.copilotAutoApprove);
       }
+    }
+
+    if (params.codexReasoningEffort !== undefined) {
+      await config.update(
+        'codexReasoningEffort',
+        params.codexReasoningEffort || undefined,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+
+    if (params.copilotReasoningEffort !== undefined) {
+      await config.update(
+        'copilotReasoningEffort',
+        params.copilotReasoningEffort || undefined,
+        vscode.ConfigurationTarget.Global
+      );
     }
   }
 

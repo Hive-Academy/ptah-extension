@@ -542,11 +542,13 @@ export async function activate(
         detectAll: () => Promise<
           Array<{ cli: string; installed: boolean; version?: string }>
         >;
+        refreshCliTokens: () => Promise<void>;
       };
-      // Fire-and-forget: detectAll caches results internally
+      // Fire-and-forget: detectAll caches results internally,
+      // then refresh OAuth tokens (Codex) so model lists work on first use
       cliDetection
         .detectAll()
-        .then((results) => {
+        .then(async (results) => {
           const installed = results.filter((r) => r.installed);
           logger.info(
             `CLI detection complete: ${installed.length}/${results.length} CLIs found`,
@@ -554,6 +556,20 @@ export async function activate(
               clis: installed.map((r) => `${r.cli}@${r.version || 'unknown'}`),
             }
           );
+
+          // Background token refresh for CLIs that use OAuth (Codex)
+          if (installed.some((r) => r.cli === 'codex')) {
+            try {
+              await cliDetection.refreshCliTokens();
+            } catch (refreshErr) {
+              logger.debug('CLI token refresh failed (non-blocking)', {
+                error:
+                  refreshErr instanceof Error
+                    ? refreshErr.message
+                    : String(refreshErr),
+              });
+            }
+          }
         })
         .catch((err) => {
           logger.debug('CLI detection failed (non-blocking)', {
