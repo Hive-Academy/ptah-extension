@@ -33,6 +33,7 @@ import {
   buildAgentSteerTool,
   buildAgentListTool,
   buildAgentStopTool,
+  buildWebSearchTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -50,6 +51,7 @@ import {
   formatAgentSteer,
   formatAgentStop,
   formatAgentList,
+  formatWebSearch,
 } from './mcp-response-formatter';
 
 /**
@@ -169,6 +171,8 @@ function handleToolsList(request: MCPRequest): MCPResponse {
         buildAgentSteerTool(),
         buildAgentStopTool(),
         buildAgentListTool(),
+        // Web search tool (TASK_2025_189)
+        buildWebSearchTool(),
         // Power-user tools
         buildExecuteCodeTool(),
         buildApprovalPromptTool(),
@@ -468,6 +472,31 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentList(agents),
+          deps
+        );
+      }
+
+      case 'ptah_web_search': {
+        const { query, timeout } = args as { query: string; timeout?: number };
+        if (!deps.ptahAPI.webSearch) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Web search service not available.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+        const result = await deps.ptahAPI.webSearch.search(query, timeout);
+        return createToolSuccessResponse(
+          request,
+          formatWebSearch(result),
           deps
         );
       }

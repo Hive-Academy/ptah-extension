@@ -454,6 +454,41 @@ export function buildAgentStopTool(): MCPToolDefinition {
   };
 }
 
+// ========================================
+// Web Search MCP Tool (TASK_2025_189)
+// ========================================
+
+/**
+ * Build the ptah_web_search tool definition
+ * Web search via LLM providers with fallback chain
+ */
+export function buildWebSearchTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_web_search',
+    description:
+      'Search the web for information using available LLM providers. ' +
+      'Returns a narrative summary of search results. ' +
+      'Uses VS Code LM API (Copilot) as primary provider, falls back to Gemini CLI. ' +
+      'Use this when you need current information from the internet.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The search query. Be specific for better results.',
+        },
+        timeout: {
+          type: 'number',
+          description:
+            'Search timeout in milliseconds (default: 30000, max: 60000)',
+        },
+      },
+      required: ['query'],
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  };
+}
+
 /**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().

@@ -634,6 +634,37 @@ export function formatAgentSteer(result: {
 }
 
 // ============================================================
+// Web Search Tools (TASK_2025_189)
+// ============================================================
+
+/**
+ * Format ptah_web_search result
+ */
+export function formatWebSearch(result: {
+  query: string;
+  summary: string;
+  provider: string;
+  durationMs: number;
+}): string {
+  try {
+    return json2md([
+      { h2: 'Web Search Results' },
+      {
+        p: [
+          `**Query:** ${result.query}`,
+          `**Provider:** ${result.provider}`,
+          `**Duration:** ${(result.durationMs / 1000).toFixed(1)}s`,
+        ].join('  \n'),
+      },
+      { h3: 'Summary' },
+      { p: result.summary },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
 // Fallback
 // ============================================================
 

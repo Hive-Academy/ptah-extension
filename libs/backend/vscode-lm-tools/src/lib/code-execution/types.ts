@@ -66,6 +66,19 @@ export interface PtahAPI {
   // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
   dependencies: DependenciesNamespace;
 
+  // Web search namespace (TASK_2025_189)
+  webSearch?: {
+    search(
+      query: string,
+      timeoutMs?: number
+    ): Promise<{
+      query: string;
+      summary: string;
+      provider: 'vscode-lm' | 'gemini-cli';
+      durationMs: number;
+    }>;
+  };
+
   /**
    * Get help documentation for Ptah API namespaces
    * @param topic Optional topic (e.g., 'ai', 'workspace', 'ai.ide.lsp'). Omit for overview.

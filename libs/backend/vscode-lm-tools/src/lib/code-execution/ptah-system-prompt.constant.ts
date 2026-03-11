@@ -22,6 +22,7 @@ You have access to Ptah MCP tools. **You MUST prefer ptah_* tools** whenever the
 | Navigating to find definitions       | \`ptah_lsp_definitions\`          | Go-to-definition via LSP                   |
 | \`git status\` via Bash              | \`ptah_get_dirty_files\`          | Shows unsaved VS Code buffers too          |
 | Reading a file to check its size     | \`ptah_count_tokens\`             | Token count, not byte count                |
+| Web search / browsing for info       | \`ptah_web_search\`               | Grounded web search via LLM providers      |
 
 ### DO NOT use Bash, Grep, or Glob when a ptah_* tool provides the same capability.
 
@@ -52,6 +53,9 @@ List files with unsaved changes in VS Code editor.
 
 ### ptah_count_tokens { file }
 Count tokens in a file. Use before reading large files to check size.
+
+### ptah_web_search { query, timeout? }
+Search the web for current information. Returns a narrative summary of search results using VS Code LM (Copilot) or Gemini CLI as providers. Use when you need up-to-date information from the internet (latest docs, current APIs, recent changes, etc.).
 
 ## Code Understanding — Structural Summaries & Dependencies
 
@@ -85,6 +89,7 @@ For complex multi-step operations that combine multiple API calls, use the \`exe
 2. \`ptah_search_files\` — Find relevant files
 3. \`ptah_get_diagnostics\` — Check for existing errors
 4. \`ptah_lsp_references\` — Before any refactoring
+5. \`ptah_web_search\` — Get current info from the internet when needed
 
 ## Multi-Agent Delegation — Fire-and-Check Pattern
 

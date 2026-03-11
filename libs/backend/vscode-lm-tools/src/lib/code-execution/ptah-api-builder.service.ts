@@ -51,6 +51,7 @@ import {
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
 import { PtahAPI } from './types';
+import { WebSearchService } from './services/web-search.service';
 import {
   // Core namespace builders
   buildWorkspaceNamespace,
@@ -419,6 +420,14 @@ export class PtahAPIBuilder {
             return undefined;
           }
         },
+      }),
+
+      // Web search namespace (TASK_2025_189 - VS Code LM + Gemini CLI fallback)
+      webSearch: new WebSearchService({
+        llmService: this.llmService,
+        configService: this.llmConfigService,
+        cliDetectionService: this.cliDetectionService,
+        logger: this.logger,
       }),
 
       // Help method at root level (ptah.help())
