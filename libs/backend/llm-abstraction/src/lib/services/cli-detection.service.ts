@@ -189,15 +189,8 @@ export class CliDetectionService {
    */
   async refreshCliTokens(): Promise<void> {
     const codexAdapter = this.adapters.get('codex');
-    if (
-      codexAdapter &&
-      'ensureTokensFresh' in codexAdapter &&
-      typeof (codexAdapter as { ensureTokensFresh: () => Promise<boolean> })
-        .ensureTokensFresh === 'function'
-    ) {
-      const fresh = await (
-        codexAdapter as { ensureTokensFresh: () => Promise<boolean> }
-      ).ensureTokensFresh();
+    if (codexAdapter?.ensureTokensFresh) {
+      const fresh = await codexAdapter.ensureTokensFresh();
       this.logger.info(
         `[CliDetection] Codex token refresh: ${
           fresh ? 'fresh' : 'stale/unavailable'

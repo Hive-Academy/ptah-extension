@@ -8,7 +8,7 @@
  * CLI fallback: codex --quiet "task description"
  * SDK path: Codex SDK thread.runStreamed() for in-process execution
  */
-import { readFile, writeFile } from 'fs/promises';
+import { readFile, rename, writeFile } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 import type {
@@ -28,6 +28,16 @@ import {
   resolveCliPath,
   spawnCli,
 } from './cli-adapter.utils';
+
+/** Valid reasoning effort values for the Codex SDK. */
+const CODEX_REASONING_EFFORTS = [
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+] as const;
+type CodexReasoningEffort = (typeof CODEX_REASONING_EFFORTS)[number];
 
 /**
  * Minimal local types for the dynamically imported Codex SDK.
@@ -381,6 +391,7 @@ export class CodexCliAdapter implements CliAdapter {
     if (!lastRefresh) return true;
     try {
       const refreshTime = new Date(lastRefresh).getTime();
+      if (isNaN(refreshTime)) return true;
       return Date.now() - refreshTime > CodexCliAdapter.TOKEN_MAX_AGE_MS;
     } catch {
       return true;
@@ -433,7 +444,9 @@ export class CodexCliAdapter implements CliAdapter {
       };
       if (!body.access_token) return null;
 
-      // Write updated tokens back to auth.json (same as Codex CLI does)
+      // Persist updated tokens to auth.json. Use write-to-temp-then-rename
+      // for atomicity — prevents corruption if the process crashes mid-write
+      // or the Codex CLI writes concurrently.
       const updated: CodexAuthFile = {
         ...auth,
         tokens: {
@@ -445,11 +458,15 @@ export class CodexCliAdapter implements CliAdapter {
         last_refresh: new Date().toISOString(),
       };
 
-      await writeFile(
-        CodexCliAdapter.AUTH_PATH,
-        JSON.stringify(updated, null, 2),
-        'utf-8'
-      );
+      const tmpPath = CodexCliAdapter.AUTH_PATH + '.tmp';
+      try {
+        await writeFile(tmpPath, JSON.stringify(updated, null, 2), 'utf-8');
+        await rename(tmpPath, CodexCliAdapter.AUTH_PATH);
+      } catch {
+        // Write failed but we still have the fresh access_token in memory.
+        // Return it so this session works; the stale refresh_token on disk
+        // will be retried next time (OpenAI has a grace window for reuse).
+      }
 
       return body.access_token;
     } catch {
@@ -555,15 +572,21 @@ export class CodexCliAdapter implements CliAdapter {
       config?: Record<string, unknown>;
       codexPathOverride?: string;
     } = {};
+    // Build config: MCP servers + feature flags for skill/agent discovery
+    const config: Record<string, unknown> = {
+      features: {
+        child_agents_md: true,
+        multi_agent: true,
+      },
+    };
     if (options.mcpPort) {
-      codexOptions.config = {
-        mcp_servers: {
-          ptah: {
-            url: `http://localhost:${options.mcpPort}`,
-          },
+      config['mcp_servers'] = {
+        ptah: {
+          url: `http://localhost:${options.mcpPort}`,
         },
       };
     }
+    codexOptions.config = config;
     // Only set codexPathOverride for non-.cmd paths. On Windows, npm-installed
     // CLIs are .cmd wrappers that the SDK's internal spawn() cannot execute
     // (causes EINVAL). The SDK can resolve 'codex' from PATH on its own,
@@ -585,13 +608,14 @@ export class CodexCliAdapter implements CliAdapter {
     if (options.model) {
       threadOptions.model = options.model;
     }
-    if (options.reasoningEffort) {
-      threadOptions.modelReasoningEffort = options.reasoningEffort as
-        | 'minimal'
-        | 'low'
-        | 'medium'
-        | 'high'
-        | 'xhigh';
+    if (
+      options.reasoningEffort &&
+      (CODEX_REASONING_EFFORTS as readonly string[]).includes(
+        options.reasoningEffort
+      )
+    ) {
+      threadOptions.modelReasoningEffort =
+        options.reasoningEffort as CodexReasoningEffort;
     }
 
     // Session resume or new thread

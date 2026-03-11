@@ -125,4 +125,11 @@ export interface CliAdapter {
    * Returns curated/dynamic model list, or null if not supported.
    */
   listModels?(): Promise<CliModelInfo[]>;
+
+  /**
+   * Optional: Ensure OAuth tokens are fresh (for adapters that use OAuth).
+   * Called during extension startup to proactively refresh stale tokens.
+   * Returns true if tokens are fresh (or were refreshed), false otherwise.
+   */
+  ensureTokensFresh?(): Promise<boolean>;
 }

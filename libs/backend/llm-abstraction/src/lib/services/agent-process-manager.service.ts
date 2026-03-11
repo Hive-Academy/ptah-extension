@@ -143,6 +143,20 @@ export class AgentProcessManager {
   /** Flush timers per agent */
   private readonly flushTimers = new Map<string, NodeJS.Timeout>();
 
+  /**
+   * Resolve per-CLI reasoning effort from VS Code config.
+   * Returns undefined if the CLI doesn't support it or no effort is configured.
+   */
+  private resolveReasoningEffort(cli: CliType): string | undefined {
+    if (cli !== 'codex' && cli !== 'copilot') return undefined;
+    const effortKey =
+      cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
+    const effort = vscode.workspace
+      .getConfiguration('ptah.agentOrchestration')
+      .get<string>(effortKey, '');
+    return effort || undefined;
+  }
+
   /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
   private mcpHealthCache: {
     port: number | undefined;
@@ -300,18 +314,6 @@ export class AgentProcessManager {
       }
     }
 
-    // Resolve reasoning effort from per-CLI config
-    let resolvedReasoningEffort: string | undefined;
-    if (cli === 'codex' || cli === 'copilot') {
-      const effortKey =
-        cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
-      const agentCfg = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration'
-      );
-      const effort = agentCfg.get<string>(effortKey, '');
-      if (effort) resolvedReasoningEffort = effort;
-    }
-
     // No sanitization needed: spawn() is called without shell:true,
     // so args are passed directly to the binary (no shell interpretation).
     const command = adapter.buildCommand({
@@ -324,7 +326,7 @@ export class AgentProcessManager {
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
       systemPrompt: request.systemPrompt,
-      reasoningEffort: resolvedReasoningEffort,
+      reasoningEffort: this.resolveReasoningEffort(cli),
     });
 
     // Create agent ID and info
@@ -499,18 +501,6 @@ export class AgentProcessManager {
       );
     }
 
-    // Resolve reasoning effort from per-CLI config for SDK path
-    let sdkReasoningEffort: string | undefined;
-    if (cli === 'codex' || cli === 'copilot') {
-      const effortKey =
-        cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
-      const agentCfg = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration'
-      );
-      const effort = agentCfg.get<string>(effortKey, '');
-      if (effort) sdkReasoningEffort = effort;
-    }
-
     const sdkHandle = await runSdk({
       task,
       workingDirectory,
@@ -522,7 +512,7 @@ export class AgentProcessManager {
       resumeSessionId: request.resumeSessionId,
       projectGuidance: request.projectGuidance,
       systemPrompt: request.systemPrompt,
-      reasoningEffort: sdkReasoningEffort,
+      reasoningEffort: this.resolveReasoningEffort(cli),
     });
 
     // Capture CLI session ID immediately if available (e.g., from sync init)
