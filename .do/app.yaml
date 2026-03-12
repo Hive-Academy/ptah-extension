@@ -23,13 +23,18 @@
 name: starfish-app
 region: fra
 
+# Custom domain — ptah.live (apex domain)
+# DNS: A records pointing to DO App Platform ingress IPs
+# The default .ondigitalocean.app URL will redirect to this domain.
+domains:
+  - domain: ptah.live
+    type: PRIMARY
+
 ingress:
   rules:
   - component:
       name: landing
     match:
-      authority:
-        exact: ""
       path:
         prefix: /
 
