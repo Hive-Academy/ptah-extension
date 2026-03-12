@@ -55,5 +55,5 @@ jobs:
             echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             cd /opt/ptah-extension
             docker compose -f docker-compose.prod.yml pull license-server
-            docker compose -f docker-compose.prod.yml up -d license-server
+            docker compose -f docker-compose.prod.yml up -d
             docker image prune -f

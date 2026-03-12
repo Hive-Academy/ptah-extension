@@ -18,43 +18,45 @@
 # UPDATE:
 #   doctl apps update <APP_ID> --spec .do/app.yaml
 #
-# COST: ~$6/month (Droplet $6 + Domain ~$12/year)
-#
 # =============================================================================
 
-name: ptah-production
-region: nyc
+name: starfish-app
+region: fra
+
+features:
+- buildpack-stack-ubuntu-22
+
+ingress:
+  rules:
+  - component:
+      name: landing
+    match:
+      authority:
+        exact: ""
+      path:
+        prefix: /
+
+alerts:
+- rule: DEPLOYMENT_FAILED
+- rule: DOMAIN_FAILED
 
 # =============================================================================
 # Static Site: Landing Page (Angular)
 # =============================================================================
-# Free tier - no additional cost
-# Serves the marketing website at ptah.live
-#
 static_sites:
   - name: landing
     github:
-      repo: Hive-Academy/ptah-extension # TODO: Verify this matches your GitHub repo
-      branch: release/landing
+      repo: Hive-Academy/ptah-extension
+      branch: main
       deploy_on_push: false
     source_dir: /
-    build_command: npm ci && npx nx build ptah-landing-page --configuration=production
+    build_command: bash scripts/do-build.sh
     output_dir: dist/ptah-landing-page/browser
-    catchall_document: index.html # SPA routing support
-    routes:
-      - path: /
+    environment_slug: node-js
     envs:
       - key: NODE_ENV
         scope: BUILD_TIME
         value: production
-# =============================================================================
-# Domains
-# =============================================================================
-# Configure after initial deployment via DO console or CLI
-#
-# domains:
-#   - domain: ptah.live
-#     type: PRIMARY
-#     zone: ptah.live
-#   - domain: www.ptah.live
-#     type: ALIAS
+      - key: NX_CACHE_DIRECTORY
+        scope: BUILD_TIME
+        value: /tmp/.nx-cache
