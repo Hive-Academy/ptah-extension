@@ -50,7 +50,3 @@ static_sites:
     build_command: bash scripts/do-build.sh
     output_dir: dist/ptah-landing-page/browser
     environment_slug: node-js
-    envs:
-      - key: NX_CACHE_DIRECTORY
-        scope: BUILD_TIME
-        value: /tmp/.nx-cache
