@@ -259,8 +259,13 @@ export class CodexCliAdapter implements CliAdapter {
 
   /** Fallback curated list when the Codex models API is unreachable.
    *  Keep in sync with `codex -m` interactive model list. */
-  private static readonly FALLBACK_MODELS: CliModelInfo[] = [
-    { id: 'gpt-5.3-codex', name: 'GPT 5.3 Codex' },
+  /**
+   * Codex-supported models matching the Codex CLI `/model` menu.
+   * The chatgpt.com API returns a broader set (including non-Codex models),
+   * so we use this curated list instead of the API response.
+   */
+  private static readonly SUPPORTED_MODELS: CliModelInfo[] = [
+    { id: 'gpt-5.3-codex', name: 'GPT 5.3 Codex (current)' },
     { id: 'gpt-5.4', name: 'GPT 5.4' },
     { id: 'gpt-5.2-codex', name: 'GPT 5.2 Codex' },
     { id: 'gpt-5.2', name: 'GPT 5.2' },
@@ -279,87 +284,11 @@ export class CodexCliAdapter implements CliAdapter {
 
   /**
    * List available models for Codex.
-   * Queries the same Codex models API that the Codex CLI uses:
-   * GET https://chatgpt.com/backend-api/codex/models?client_version=<version>
-   * On 401, refreshes the OAuth token and retries once before falling back.
+   * Returns the curated list of Codex-supported models (matching Codex CLI's /model menu)
+   * rather than querying the API, which returns a broader set of non-Codex models.
    */
   async listModels(): Promise<CliModelInfo[]> {
-    try {
-      const token = await this.resolveAccessToken();
-      if (!token) return CodexCliAdapter.FALLBACK_MODELS;
-
-      const version = await this.resolveCliVersion();
-      const url = `https://chatgpt.com/backend-api/codex/models?client_version=${version}`;
-
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(5000),
-      });
-
-      // On 401/403, try refreshing the token and retry once
-      if (response.status === 401 || response.status === 403) {
-        const retryModels = await this.retryListModelsAfterRefresh(url);
-        if (retryModels) return retryModels;
-        return CodexCliAdapter.FALLBACK_MODELS;
-      }
-
-      if (!response.ok) return CodexCliAdapter.FALLBACK_MODELS;
-
-      return this.parseModelsResponse(response);
-    } catch {
-      return CodexCliAdapter.FALLBACK_MODELS;
-    }
-  }
-
-  /**
-   * Retry the models API call after refreshing the OAuth token.
-   */
-  private async retryListModelsAfterRefresh(
-    url: string
-  ): Promise<CliModelInfo[] | null> {
-    try {
-      const raw = await readFile(CodexCliAdapter.AUTH_PATH, 'utf-8');
-      const auth = JSON.parse(raw) as CodexAuthFile;
-      if (!auth.tokens?.refresh_token) return null;
-
-      const freshToken = await this.refreshAccessToken(auth);
-      if (!freshToken) return null;
-
-      const retryResponse = await fetch(url, {
-        headers: { Authorization: `Bearer ${freshToken}` },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!retryResponse.ok) return null;
-
-      return this.parseModelsResponse(retryResponse);
-    } catch {
-      return null;
-    }
-  }
-
-  /** Parse the Codex models API response into CliModelInfo[]. */
-  private async parseModelsResponse(
-    response: Response
-  ): Promise<CliModelInfo[]> {
-    const body = (await response.json()) as {
-      models?: Array<{
-        slug: string;
-        name?: string;
-        display_name?: string;
-        description?: string;
-        is_default?: boolean;
-      }>;
-    };
-    if (!body.models?.length) return CodexCliAdapter.FALLBACK_MODELS;
-
-    const models: CliModelInfo[] = body.models.map((m) => ({
-      id: m.slug,
-      name: m.display_name
-        ? this.formatModelName(m.display_name)
-        : m.name || this.formatModelName(m.slug),
-    }));
-
-    return models.length > 0 ? models : CodexCliAdapter.FALLBACK_MODELS;
+    return CodexCliAdapter.SUPPORTED_MODELS;
   }
 
   /**
@@ -500,60 +429,6 @@ export class CodexCliAdapter implements CliAdapter {
     } catch {
       return false;
     }
-  }
-
-  /**
-   * Resolve the installed Codex CLI version for the models API query param.
-   * Uses cross-spawn (via spawnCli) to handle Windows .cmd wrappers.
-   */
-  private async resolveCliVersion(): Promise<string> {
-    try {
-      const binaryPath = await resolveCliPath('codex');
-      if (!binaryPath) return '0.107.0';
-
-      return await new Promise<string>((resolve) => {
-        let stdout = '';
-        const child = spawnCli(binaryPath, ['--version'], {});
-
-        const timer = setTimeout(() => {
-          child.kill();
-          resolve('0.107.0');
-        }, 3000);
-
-        child.stdout?.setEncoding('utf8');
-        child.stdout?.on('data', (data: string) => {
-          stdout += data;
-        });
-        child.on('close', () => {
-          clearTimeout(timer);
-          const match = stdout.trim().match(/[\d.]+/);
-          resolve(match ? match[0] : '0.107.0');
-        });
-        child.on('error', () => {
-          clearTimeout(timer);
-          resolve('0.107.0');
-        });
-      });
-    } catch {
-      // Version detection failed
-    }
-    return '0.107.0';
-  }
-
-  /**
-   * Format a model slug into a human-readable name.
-   * e.g. "gpt-5.3-codex" → "GPT 5.3 Codex"
-   */
-  private formatModelName(slug: string): string {
-    return slug
-      .split('-')
-      .map((part) => {
-        if (/^\d/.test(part)) return part;
-        const upper = part.toUpperCase();
-        if (['GPT', 'AI'].includes(upper)) return upper;
-        return part.charAt(0).toUpperCase() + part.slice(1);
-      })
-      .join(' ');
   }
 
   /**
