@@ -59,7 +59,7 @@
     "package": "nx build ptah-extension-vscode && nx build ptah-extension-webview && vsce package --out dist/",
     "serve:webview": "nx serve ptah-extension-webview",
     "serve:extension": "nx serve ptah-extension-vscode",
-    "prepare": "husky",
+    "prepare": "husky || true",
     "validate-skill": "npx ts-node scripts/validate-orchestration-skill.ts"
   },
   "private": true,
