@@ -4,7 +4,10 @@
 set -e
 
 export NX_CACHE_DIRECTORY=/tmp/.nx-cache
-export NODE_ENV=production
 
+# Install all dependencies (including devDependencies like Nx)
+# NODE_ENV must NOT be production here or npm ci skips devDependencies
 npm ci
+
+# Now build with production config
 npx nx build ptah-landing-page --configuration=production
