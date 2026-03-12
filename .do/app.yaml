@@ -23,9 +23,6 @@
 name: starfish-app
 region: fra
 
-features:
-- buildpack-stack-ubuntu-22
-
 ingress:
   rules:
   - component:
