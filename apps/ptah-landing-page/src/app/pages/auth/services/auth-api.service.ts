@@ -1,6 +1,7 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, throwError } from 'rxjs';
+import { environment } from '../../../../environments/environment';
 import {
   AuthErrorResponse,
   AuthSuccessResponse,
@@ -106,7 +107,7 @@ export class AuthApiService {
     returnUrl?: string | null,
     plan?: string | null
   ): void {
-    let url = `${this.baseUrl}/oauth/${provider}`;
+    let url = `${environment.apiBaseUrl}${this.baseUrl}/oauth/${provider}`;
     const params = new URLSearchParams();
 
     if (returnUrl) {

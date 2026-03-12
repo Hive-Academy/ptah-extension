@@ -1,6 +1,7 @@
 import { inject, Injectable, OnDestroy, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, Subject, filter, firstValueFrom } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 /**
  * SSE Event types received from the backend
@@ -206,14 +207,16 @@ export class SSEEventsService implements OnDestroy {
       const ticket = await this.getTicket();
 
       // Step 2: Open SSE connection with ticket
-      const url = `${this.sseBaseUrl}/subscribe?ticket=${encodeURIComponent(
-        ticket
-      )}`;
+      // EventSource bypasses HttpClient interceptors, so we must prepend apiBaseUrl manually
+      const url = `${environment.apiBaseUrl}${
+        this.sseBaseUrl
+      }/subscribe?ticket=${encodeURIComponent(ticket)}`;
       this.eventSource = new EventSource(url, { withCredentials: true });
 
       this.eventSource.onopen = () => {
         this.connectionState.set('connected');
         this.errorMessage.set(null);
+        this.reconnectAttempts = 0;
         console.log('[SSE] Connection established');
       };
 
@@ -283,17 +286,42 @@ export class SSEEventsService implements OnDestroy {
     }
   }
 
+  private reconnectAttempts = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10;
+  private readonly BASE_RECONNECT_DELAY_MS = 3000;
+  private readonly MAX_RECONNECT_DELAY_MS = 60000;
+
   /**
-   * Schedule a reconnection attempt with a new ticket
+   * Schedule a reconnection attempt with a new ticket.
+   * Uses exponential backoff (3s, 6s, 12s, ... up to 60s) with a max retry limit.
    */
   private scheduleReconnect(): void {
-    // Wait a bit before reconnecting to avoid hammering the server
+    if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+      console.warn(
+        `[SSE] Max reconnect attempts (${this.MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`
+      );
+      this.connectionState.set('error');
+      this.errorMessage.set(
+        'Unable to establish real-time connection. Please refresh the page.'
+      );
+      return;
+    }
+
+    const delay = Math.min(
+      this.BASE_RECONNECT_DELAY_MS * Math.pow(2, this.reconnectAttempts),
+      this.MAX_RECONNECT_DELAY_MS
+    );
+    this.reconnectAttempts++;
+
     setTimeout(() => {
-      if (this.connectionState() === 'disconnected') {
-        console.log('[SSE] Attempting to reconnect...');
+      const state = this.connectionState();
+      if (state === 'disconnected' || state === 'error') {
+        console.log(
+          `[SSE] Reconnect attempt ${this.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS} (delay: ${delay}ms)...`
+        );
         this.connect();
       }
-    }, 3000); // 3 second delay before reconnect
+    }, delay);
   }
 
   /**
