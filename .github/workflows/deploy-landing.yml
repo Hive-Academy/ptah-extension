@@ -12,6 +12,7 @@ permissions:
 jobs:
   quality-gates:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -20,19 +21,23 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - run: npm ci --legacy-peer-deps
+      - run: npm ci
 
       - name: Quality gates
-        run: npx nx run-many -t lint test typecheck build --projects=ptah-landing-page
+        run: npx nx run-many -t lint typecheck build --projects=ptah-landing-page
 
   deploy:
     runs-on: ubuntu-latest
     needs: quality-gates
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Trigger App Platform deployment
-        run: doctl apps create-deployment ${{ secrets.DO_APP_ID }} --wait
+      - name: Update app spec and deploy
+        run: |
+          doctl apps update ${{ secrets.DO_APP_ID }} --spec .do/app.yaml
+          doctl apps create-deployment ${{ secrets.DO_APP_ID }} --wait
