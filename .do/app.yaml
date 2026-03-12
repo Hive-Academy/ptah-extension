@@ -51,9 +51,6 @@ static_sites:
     output_dir: dist/ptah-landing-page/browser
     environment_slug: node-js
     envs:
-      - key: NODE_ENV
-        scope: BUILD_TIME
-        value: production
       - key: NX_CACHE_DIRECTORY
         scope: BUILD_TIME
         value: /tmp/.nx-cache
