@@ -48,31 +48,31 @@
       "options": {
         "commands": [
           {
-            "command": "powershell -Command \"if (!(Test-Path 'dist/apps/ptah-extension-vscode/webview')) { New-Item -ItemType Directory -Force -Path 'dist/apps/ptah-extension-vscode/webview' }\"",
+            "command": "mkdir -p dist/apps/ptah-extension-vscode/webview",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"Copy-Item -Path 'dist/apps/ptah-extension-webview/browser' -Destination 'dist/apps/ptah-extension-vscode/webview/' -Recurse -Force\"",
+            "command": "cp -r dist/apps/ptah-extension-webview/browser dist/apps/ptah-extension-vscode/webview/",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/src/assets' -Destination 'dist/apps/ptah-extension-vscode/' -Recurse -Force\"",
+            "command": "cp -r apps/ptah-extension-vscode/src/assets dist/apps/ptah-extension-vscode/",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/package.json' -Destination 'dist/apps/ptah-extension-vscode/package.json' -Force\"",
+            "command": "cp apps/ptah-extension-vscode/package.json dist/apps/ptah-extension-vscode/package.json",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"Copy-Item -Path 'libs/backend/agent-generation/templates' -Destination 'dist/apps/ptah-extension-vscode/' -Recurse -Force\"",
+            "command": "cp -r libs/backend/agent-generation/templates dist/apps/ptah-extension-vscode/",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"if (Test-Path 'dist/apps/ptah-extension-vscode/assets/plugins') { Remove-Item -Path 'dist/apps/ptah-extension-vscode/assets/plugins' -Recurse -Force }\"",
+            "command": "rm -rf dist/apps/ptah-extension-vscode/assets/plugins",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/assets/plugins' -Destination 'dist/apps/ptah-extension-vscode/assets/plugins/' -Recurse -Force\"",
+            "command": "cp -r apps/ptah-extension-vscode/assets/plugins dist/apps/ptah-extension-vscode/assets/plugins",
             "forwardAllArgs": false
           }
         ],
@@ -139,11 +139,11 @@
       "options": {
         "commands": [
           {
-            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/src/assets' -Destination 'dist/apps/ptah-extension-vscode/' -Recurse -Force\"",
+            "command": "cp -r apps/ptah-extension-vscode/src/assets dist/apps/ptah-extension-vscode/",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/package.json' -Destination 'dist/apps/ptah-extension-vscode/package.json' -Force\"",
+            "command": "cp apps/ptah-extension-vscode/package.json dist/apps/ptah-extension-vscode/package.json",
             "forwardAllArgs": false
           }
         ],
@@ -156,15 +156,15 @@
       "options": {
         "commands": [
           {
-            "command": "powershell -Command \"Copy-Item -Path 'apps/ptah-extension-vscode/.vscodeignore' -Destination 'dist/apps/ptah-extension-vscode/.vscodeignore' -Force\"",
+            "command": "cp apps/ptah-extension-vscode/.vscodeignore dist/apps/ptah-extension-vscode/.vscodeignore",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"Copy-Item -Path 'README.md' -Destination 'dist/apps/ptah-extension-vscode/README.md' -Force\"",
+            "command": "cp README.md dist/apps/ptah-extension-vscode/README.md",
             "forwardAllArgs": false
           },
           {
-            "command": "powershell -Command \"if (Test-Path 'LICENSE') { Copy-Item -Path 'LICENSE' -Destination 'dist/apps/ptah-extension-vscode/LICENSE' -Force }\"",
+            "command": "test -f LICENSE && cp LICENSE dist/apps/ptah-extension-vscode/LICENSE || true",
             "forwardAllArgs": false
           },
           {

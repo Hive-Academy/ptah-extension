@@ -62,6 +62,12 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       NODE_ENV: production
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '-O', '/dev/null', 'http://localhost:3000/api/health']
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
     logging:
       driver: json-file
       options:
