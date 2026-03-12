@@ -42,7 +42,7 @@ COPY apps/ptah-license-server ./apps/ptah-license-server/
 COPY libs ./libs/
 
 # Install ALL dependencies (including devDependencies for build)
-RUN npm ci --legacy-peer-deps
+RUN npm ci
 
 # Generate Prisma client
 RUN cd apps/ptah-license-server && npx prisma generate
