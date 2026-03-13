@@ -24,6 +24,7 @@ import {
   ANTHROPIC_PROVIDERS,
   DEFAULT_PROVIDER_ID,
   ProviderModelsService,
+  COPILOT_DEFAULT_TIERS,
 } from '@ptah-extension/agent-sdk';
 import type { CopilotAuthService } from '@ptah-extension/agent-sdk';
 import {
@@ -415,6 +416,9 @@ export class AuthRpcHandlers {
         // Extract username from the GitHub auth session
         const username = await this.getGitHubUsername();
 
+        // Auto-map default tier models if no mappings exist yet
+        await this.autoMapCopilotTiers();
+
         this.logger.info('RPC: auth:copilotLogin succeeded', { username });
         return { success: true, username };
       } catch (error) {
@@ -490,6 +494,43 @@ export class AuthRpcHandlers {
         return { authenticated: false };
       }
     });
+  }
+
+  /**
+   * Auto-map Copilot's best models to Sonnet/Opus/Haiku tiers on first login.
+   * Only sets tiers that haven't been explicitly configured by the user.
+   */
+  private async autoMapCopilotTiers(): Promise<void> {
+    const providerId = 'github-copilot';
+    try {
+      const currentTiers = this.providerModels.getModelTiers(providerId);
+
+      const tiers = ['sonnet', 'opus', 'haiku'] as const;
+      const promises: Promise<void>[] = [];
+      for (const tier of tiers) {
+        if (!currentTiers[tier]) {
+          promises.push(
+            this.providerModels.setModelTier(
+              providerId,
+              tier,
+              COPILOT_DEFAULT_TIERS[tier]
+            )
+          );
+        }
+      }
+
+      if (promises.length > 0) {
+        await Promise.all(promises);
+        this.logger.info('Auto-mapped Copilot default tier models', {
+          mapped: promises.length,
+        });
+      }
+    } catch (error) {
+      this.logger.warn(
+        'Failed to auto-map Copilot tier models (non-fatal)',
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
   }
 
   /**

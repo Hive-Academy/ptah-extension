@@ -70,16 +70,38 @@ interface ProviderCache {
   timestamp: number;
 }
 
+/** Callback type for dynamic model fetchers (e.g., Copilot SDK listModels) */
+export type DynamicModelFetcher = () => Promise<ProviderModelInfo[]>;
+
 @injectable()
 export class ProviderModelsService {
   private readonly modelCache = new Map<string, ProviderCache>();
   private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  /** Per-provider dynamic model fetcher callbacks */
+  private readonly dynamicFetchers = new Map<string, DynamicModelFetcher>();
 
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv
   ) {}
+
+  /**
+   * Register a dynamic model fetcher for a specific provider.
+   * When registered, fetchModels() will call this instead of using staticModels.
+   * Falls back to staticModels if the fetcher throws.
+   */
+  registerDynamicFetcher(
+    providerId: string,
+    fetcher: DynamicModelFetcher
+  ): void {
+    this.dynamicFetchers.set(providerId, fetcher);
+    this.logger.debug(
+      '[ProviderModelsService] Registered dynamic model fetcher',
+      { providerId }
+    );
+  }
 
   /**
    * Get the per-provider config key for a tier
@@ -114,6 +136,54 @@ export class ProviderModelsService {
     const provider = getAnthropicProvider(providerId);
     if (!provider) {
       throw new Error(`Unknown provider: ${providerId}`);
+    }
+
+    // Path 0: Registered dynamic fetcher (e.g., Copilot SDK listModels)
+    const dynamicFetcher = this.dynamicFetchers.get(providerId);
+    if (dynamicFetcher) {
+      try {
+        // Check cache first
+        const cached = this.modelCache.get(providerId);
+        const now = Date.now();
+        if (
+          cached &&
+          cached.models.length > 0 &&
+          now - cached.timestamp < this.CACHE_TTL_MS
+        ) {
+          const filtered = toolUseOnly
+            ? cached.models.filter((m) => m.supportsToolUse)
+            : cached.models;
+          return {
+            models: filtered,
+            totalCount: cached.models.length,
+            isStatic: false,
+          };
+        }
+
+        const models = await dynamicFetcher();
+        if (models.length > 0) {
+          this.modelCache.set(providerId, { models, timestamp: now });
+
+          const filtered = toolUseOnly
+            ? models.filter((m) => m.supportsToolUse)
+            : models;
+          return {
+            models: filtered,
+            totalCount: models.length,
+            isStatic: false,
+          };
+        }
+        // Empty result — fall through to static fallback
+      } catch (error) {
+        this.logger.warn(
+          '[ProviderModelsService] Dynamic fetcher failed, falling back to static models',
+          {
+            providerId,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+        // Fall through to existing paths
+      }
     }
 
     // Path 1: Has API endpoint AND key → try dynamic first

@@ -45,7 +45,10 @@ export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 
 // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
-export { ProviderModelsService } from './lib/provider-models.service';
+export {
+  ProviderModelsService,
+  type DynamicModelFetcher,
+} from './lib/provider-models.service';
 
 // @deprecated Use ProviderModelsService instead
 export { ProviderModelsService as OpenRouterModelsService } from './lib/provider-models.service';
@@ -183,6 +186,7 @@ export {
   CopilotAuthService,
   CopilotTranslationProxy,
   COPILOT_PROVIDER_ENTRY,
+  COPILOT_DEFAULT_TIERS,
 } from './lib/copilot-provider';
 export type {
   ICopilotAuthService,

@@ -23,7 +23,10 @@ export {
 } from './copilot-request-translator';
 
 // Provider registry entry (static data)
-export { COPILOT_PROVIDER_ENTRY } from './copilot-provider-entry';
+export {
+  COPILOT_PROVIDER_ENTRY,
+  COPILOT_DEFAULT_TIERS,
+} from './copilot-provider-entry';
 
 // Constants
 export {

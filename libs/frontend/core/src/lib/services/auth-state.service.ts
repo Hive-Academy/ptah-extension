@@ -515,9 +515,11 @@ export class AuthStateService {
     this._successMessage.set('');
 
     try {
+      // Extended timeout (120s) — user must complete GitHub OAuth in browser
       const result = await this.rpc.call(
         'auth:copilotLogin',
-        {} as Record<string, never>
+        {} as Record<string, never>,
+        { timeout: 120000 }
       );
 
       if (result.isSuccess() && result.data?.success) {

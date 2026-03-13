@@ -25,6 +25,7 @@ import {
   DEFAULT_PROVIDER_ID,
   getAnthropicProvider,
 } from '@ptah-extension/agent-sdk';
+import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import {
   ProviderListModelsParams,
   ProviderListModelsResult,
@@ -49,13 +50,16 @@ export class ProviderRpcHandlers {
     @inject(TOKENS.AUTH_SECRETS_SERVICE)
     private readonly authSecretsService: IAuthSecretsService,
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
-    private readonly providerModels: ProviderModelsService
+    private readonly providerModels: ProviderModelsService,
+    @inject(TOKENS.CLI_DETECTION_SERVICE)
+    private readonly cliDetection: CliDetectionService
   ) {}
 
   /**
    * Register all provider RPC methods
    */
   register(): void {
+    this.registerCopilotDynamicFetcher();
     this.registerListModels();
     this.registerSetModelTier();
     this.registerGetModelTiers();
@@ -68,6 +72,26 @@ export class ProviderRpcHandlers {
         'provider:getModelTiers',
         'provider:clearModelTier',
       ],
+    });
+  }
+
+  /**
+   * Register the Copilot SDK's listModels() as a dynamic fetcher.
+   * This replaces the static model list with live models from the SDK.
+   */
+  private registerCopilotDynamicFetcher(): void {
+    const copilotAdapter = this.cliDetection.getAdapter('copilot');
+    if (!copilotAdapter?.listModels) return;
+
+    this.providerModels.registerDynamicFetcher('github-copilot', async () => {
+      const models = await copilotAdapter.listModels!();
+      return models.map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: '',
+        contextLength: 0,
+        supportsToolUse: true,
+      }));
     });
   }
 
