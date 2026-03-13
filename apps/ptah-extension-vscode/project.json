@@ -48,31 +48,31 @@
       "options": {
         "commands": [
           {
-            "command": "mkdir -p dist/apps/ptah-extension-vscode/webview",
+            "command": "node -e \"const fs=require('fs'); fs.mkdirSync('dist/apps/ptah-extension-vscode/webview', {recursive:true})\"",
             "forwardAllArgs": false
           },
           {
-            "command": "cp -r dist/apps/ptah-extension-webview/browser dist/apps/ptah-extension-vscode/webview/",
+            "command": "node -e \"const fs=require('fs'); fs.cpSync('dist/apps/ptah-extension-webview/browser', 'dist/apps/ptah-extension-vscode/webview/browser', {recursive:true})\"",
             "forwardAllArgs": false
           },
           {
-            "command": "cp -r apps/ptah-extension-vscode/src/assets dist/apps/ptah-extension-vscode/",
+            "command": "node -e \"const fs=require('fs'); fs.cpSync('apps/ptah-extension-vscode/src/assets', 'dist/apps/ptah-extension-vscode/assets', {recursive:true})\"",
             "forwardAllArgs": false
           },
           {
-            "command": "cp apps/ptah-extension-vscode/package.json dist/apps/ptah-extension-vscode/package.json",
+            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('apps/ptah-extension-vscode/package.json', 'dist/apps/ptah-extension-vscode/package.json')\"",
             "forwardAllArgs": false
           },
           {
-            "command": "cp -r libs/backend/agent-generation/templates dist/apps/ptah-extension-vscode/",
+            "command": "node -e \"const fs=require('fs'); fs.cpSync('libs/backend/agent-generation/templates', 'dist/apps/ptah-extension-vscode/templates', {recursive:true})\"",
             "forwardAllArgs": false
           },
           {
-            "command": "rm -rf dist/apps/ptah-extension-vscode/assets/plugins",
+            "command": "node -e \"const fs=require('fs'); fs.rmSync('dist/apps/ptah-extension-vscode/assets/plugins', {recursive:true, force:true})\"",
             "forwardAllArgs": false
           },
           {
-            "command": "cp -r apps/ptah-extension-vscode/assets/plugins dist/apps/ptah-extension-vscode/assets/plugins",
+            "command": "node -e \"const fs=require('fs'); fs.cpSync('apps/ptah-extension-vscode/assets/plugins', 'dist/apps/ptah-extension-vscode/assets/plugins', {recursive:true})\"",
             "forwardAllArgs": false
           }
         ],
@@ -139,11 +139,11 @@
       "options": {
         "commands": [
           {
-            "command": "cp -r apps/ptah-extension-vscode/src/assets dist/apps/ptah-extension-vscode/",
+            "command": "node -e \"const fs=require('fs'); fs.cpSync('apps/ptah-extension-vscode/src/assets', 'dist/apps/ptah-extension-vscode/assets', {recursive:true})\"",
             "forwardAllArgs": false
           },
           {
-            "command": "cp apps/ptah-extension-vscode/package.json dist/apps/ptah-extension-vscode/package.json",
+            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('apps/ptah-extension-vscode/package.json', 'dist/apps/ptah-extension-vscode/package.json')\"",
             "forwardAllArgs": false
           }
         ],
@@ -156,15 +156,15 @@
       "options": {
         "commands": [
           {
-            "command": "cp apps/ptah-extension-vscode/.vscodeignore dist/apps/ptah-extension-vscode/.vscodeignore",
+            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('apps/ptah-extension-vscode/.vscodeignore', 'dist/apps/ptah-extension-vscode/.vscodeignore')\"",
             "forwardAllArgs": false
           },
           {
-            "command": "cp README.md dist/apps/ptah-extension-vscode/README.md",
+            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('README.md', 'dist/apps/ptah-extension-vscode/README.md')\"",
             "forwardAllArgs": false
           },
           {
-            "command": "test -f LICENSE && cp LICENSE dist/apps/ptah-extension-vscode/LICENSE || true",
+            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE')) fs.copyFileSync('LICENSE', 'dist/apps/ptah-extension-vscode/LICENSE')\"",
             "forwardAllArgs": false
           },
           {
