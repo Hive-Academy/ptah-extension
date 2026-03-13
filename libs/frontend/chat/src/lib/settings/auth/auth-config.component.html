@@ -86,10 +86,7 @@
         {{ selectedProvider()?.name ?? 'Provider' }} Authentication
       </span>
       @if (authState.copilotAuthenticated()) {
-      <span
-        class="badge badge-success badge-xs gap-0.5"
-        aria-label="Connected"
-      >
+      <span class="badge badge-success badge-xs gap-0.5" aria-label="Connected">
         <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
         <span>Connected</span>
       </span>
@@ -138,8 +135,8 @@
     <div class="label flex-col items-start gap-0.5 py-1">
       <span class="label-text-alt text-[10px] opacity-70">
         <strong>{{ selectedProvider()?.name }}:</strong>
-        {{ selectedProvider()?.description }}.
-        Uses your existing GitHub Copilot subscription — no API key needed.
+        {{ selectedProvider()?.description }}. Uses your existing GitHub Copilot
+        subscription — no API key needed.
       </span>
     </div>
   </div>
@@ -244,8 +241,7 @@
       } }
     </div>
   </div>
-  }
-  }
+  } }
 
   <!-- OAuth Token Input -->
   @if (authState.authMethod() === 'oauth' || authState.authMethod() === 'auto')
@@ -438,7 +434,8 @@
   </div>
   }
 
-  <!-- Save & Test Button -->
+  <!-- Save & Test Button (hidden for OAuth providers which have their own login flow) -->
+  @if (!isOAuthProvider()) {
   <div class="form-control pt-1">
     <button
       type="button"
@@ -461,6 +458,7 @@
       }
     </button>
   </div>
+  }
 
   <!-- Success Message -->
   @if (authState.connectionStatus() === 'success' && authState.successMessage())

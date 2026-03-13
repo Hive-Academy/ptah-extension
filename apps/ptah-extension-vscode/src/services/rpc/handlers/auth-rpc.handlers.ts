@@ -60,6 +60,7 @@ export class AuthRpcHandlers {
     this.registerSaveSettings();
     this.registerTestConnection();
     this.registerCopilotLogin();
+    this.registerCopilotLogout();
     this.registerCopilotStatus();
 
     this.logger.debug('Auth RPC handlers registered', {
@@ -69,6 +70,7 @@ export class AuthRpcHandlers {
         'auth:saveSettings',
         'auth:testConnection',
         'auth:copilotLogin',
+        'auth:copilotLogout',
         'auth:copilotStatus',
       ],
     });
@@ -144,14 +146,25 @@ export class AuthRpcHandlers {
           keyPlaceholder: p.keyPlaceholder,
           maskedKeyDisplay: p.maskedKeyDisplay,
           hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
-          authType: p.authType,
+          authType: 'authType' in p ? p.authType : undefined,
         }));
 
         // Check Copilot auth status (TASK_2025_191)
-        const copilotAuthenticated = await this.copilotAuth.isAuthenticated();
+        // Wrapped in try/catch so Copilot failures don't crash the entire auth status response
+        let copilotAuthenticated = false;
         let copilotUsername: string | undefined;
-        if (copilotAuthenticated) {
-          copilotUsername = await this.getGitHubUsername();
+        try {
+          copilotAuthenticated = await this.copilotAuth.isAuthenticated();
+          if (copilotAuthenticated) {
+            copilotUsername = await this.getGitHubUsername();
+          }
+        } catch (copilotError) {
+          this.logger.warn(
+            'Copilot auth status check failed (non-fatal)',
+            copilotError instanceof Error
+              ? copilotError
+              : new Error(String(copilotError))
+          );
         }
 
         this.logger.debug('RPC: auth:getAuthStatus result', {
@@ -415,6 +428,31 @@ export class AuthRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * auth:copilotLogout - Disconnect GitHub Copilot OAuth
+   *
+   * TASK_2025_191: Clears the in-memory Copilot auth state.
+   */
+  private registerCopilotLogout(): void {
+    this.rpcHandler.registerMethod<Record<string, never>, { success: boolean }>(
+      'auth:copilotLogout',
+      async () => {
+        try {
+          this.logger.debug('RPC: auth:copilotLogout called');
+          this.copilotAuth.logout();
+          this.logger.info('RPC: auth:copilotLogout succeeded');
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: auth:copilotLogout failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return { success: false };
+        }
+      }
+    );
   }
 
   /**

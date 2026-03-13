@@ -532,6 +532,14 @@ export interface AuthCopilotLoginResponse {
   error?: string;
 }
 
+/** Parameters for auth:copilotLogout RPC method */
+export type AuthCopilotLogoutParams = Record<string, never>;
+
+/** Response from auth:copilotLogout RPC method */
+export interface AuthCopilotLogoutResponse {
+  success: boolean;
+}
+
 /** Parameters for auth:copilotStatus RPC method */
 export type AuthCopilotStatusParams = Record<string, never>;
 
@@ -1570,6 +1578,10 @@ export interface RpcMethodRegistry {
     params: AuthCopilotLoginParams;
     result: AuthCopilotLoginResponse;
   };
+  'auth:copilotLogout': {
+    params: AuthCopilotLogoutParams;
+    result: AuthCopilotLogoutResponse;
+  };
   'auth:copilotStatus': {
     params: AuthCopilotStatusParams;
     result: AuthCopilotStatusResponse;
@@ -1890,6 +1902,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'auth:testConnection',
   'auth:getAuthStatus',
   'auth:copilotLogin',
+  'auth:copilotLogout',
   'auth:copilotStatus',
 
   // Setup Methods

@@ -154,8 +154,8 @@ export class AuthConfigComponent implements OnInit {
   }
 
   /** Disconnect Copilot OAuth (TASK_2025_191) */
-  copilotLogout(): void {
-    this.authState.copilotLogout();
+  async copilotLogout(): Promise<void> {
+    await this.authState.copilotLogout();
   }
 
   /**

@@ -157,11 +157,16 @@ export class AuthStateService {
   });
 
   /**
-   * Whether any credential is configured (OAuth, API key, or provider key).
+   * Whether any credential is configured (OAuth, API key, provider key, or Copilot OAuth).
    * Used by SettingsComponent to determine if authentication section shows status.
+   * TASK_2025_191: Added Copilot authenticated check.
    */
   readonly hasAnyCredential = computed(
-    () => this._hasOAuthToken() || this._hasApiKey() || this.hasProviderKey()
+    () =>
+      this._hasOAuthToken() ||
+      this._hasApiKey() ||
+      this.hasProviderKey() ||
+      this._copilotAuthenticated()
   );
 
   /**
@@ -525,11 +530,18 @@ export class AuthStateService {
           }`
         );
 
-        // Also save the provider selection so the backend knows to use Copilot
-        await this.rpc.call('auth:saveSettings', {
+        // Save the provider selection so the backend knows to use Copilot
+        const saveResult = await this.rpc.call('auth:saveSettings', {
           authMethod: this._authMethod(),
           anthropicProviderId: 'github-copilot',
         });
+
+        if (!saveResult.isSuccess()) {
+          console.warn(
+            '[AuthStateService] Post-login saveSettings failed:',
+            saveResult.error
+          );
+        }
 
         // Refresh models for the new provider
         try {
@@ -559,10 +571,17 @@ export class AuthStateService {
 
   /**
    * Disconnect from GitHub Copilot.
-   * Clears local Copilot auth state.
+   * Calls backend to clear Copilot auth state, then updates local signals.
    * TASK_2025_191
    */
-  copilotLogout(): void {
+  async copilotLogout(): Promise<void> {
+    try {
+      await this.rpc.call('auth:copilotLogout', {} as Record<string, never>);
+    } catch (error) {
+      console.warn('[AuthStateService] copilotLogout RPC failed:', error);
+    }
+
+    // Always clear local state even if RPC fails
     this._copilotAuthenticated.set(false);
     this._copilotUsername.set(null);
     this._connectionStatus.set('idle');
