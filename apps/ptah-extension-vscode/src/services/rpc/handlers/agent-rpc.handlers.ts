@@ -306,13 +306,8 @@ export class AgentRpcHandlers {
       );
     }
 
-    if (params.codexAutoApprove !== undefined) {
-      await config.update(
-        'codexAutoApprove',
-        params.codexAutoApprove,
-        vscode.ConfigurationTarget.Global
-      );
-    }
+    // codexAutoApprove is ignored — Codex always runs in full-auto headless mode.
+    // The SDK has no runtime permission hooks, so this config has no effect.
 
     if (params.copilotAutoApprove !== undefined) {
       await config.update(

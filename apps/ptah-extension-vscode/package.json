@@ -16,9 +16,8 @@
     "vscode": "^1.74.0"
   },
   "categories": [
-    "AI",
     "Machine Learning",
-    "Chat",
+    "Programming Languages",
     "Other"
   ],
   "keywords": [
@@ -28,11 +27,24 @@
     "code-review",
     "assistant",
     "anthropic",
-    "cli-gui"
+    "cli-gui",
+    "claude-code",
+    "llm",
+    "agent",
+    "ai-coding",
+    "developer-tools"
   ],
   "activationEvents": [
-    "*"
+    "onView:ptah.main",
+    "onCommand:ptah.openFullPanel",
+    "onCommand:ptah.setupAgents"
   ],
+  "license": "SEE LICENSE IN LICENSE",
+  "preview": true,
+  "galleryBanner": {
+    "color": "#1a1a2e",
+    "theme": "dark"
+  },
   "main": "./main.js",
   "icon": "assets/images/ptah-icon.png",
   "contributes": {
@@ -370,7 +382,8 @@
         "ptah.agentOrchestration.codexAutoApprove": {
           "type": "boolean",
           "default": true,
-          "description": "Auto-approve all Codex tool calls without user prompt."
+          "markdownDeprecationMessage": "Codex always runs in full-auto headless mode. This setting has no effect.",
+          "description": "(Deprecated) Codex always runs in full-auto headless mode."
         },
         "ptah.agentOrchestration.copilotAutoApprove": {
           "type": "boolean",

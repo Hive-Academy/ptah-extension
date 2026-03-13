@@ -1320,7 +1320,7 @@ export interface AgentOrchestrationConfig {
   codexReasoningEffort: string;
   /** Copilot reasoning effort (empty string = SDK default) */
   copilotReasoningEffort: string;
-  /** Auto-approve all Codex tool calls without user prompt (default: true) */
+  /** @deprecated Codex always runs in full-auto headless mode. Kept for backward compat. */
   codexAutoApprove: boolean;
   /** Auto-approve all Copilot tool calls without user prompt (default: true) */
   copilotAutoApprove: boolean;
@@ -1355,7 +1355,7 @@ export interface AgentSetConfigParams {
   codexModel?: string;
   /** Copilot model override (empty string = default) */
   copilotModel?: string;
-  /** Auto-approve all Codex tool calls (default: true) */
+  /** @deprecated Codex always runs in full-auto headless mode. No-op, kept for backward compat. */
   codexAutoApprove?: boolean;
   /** Auto-approve all Copilot tool calls (default: true) */
   copilotAutoApprove?: boolean;
