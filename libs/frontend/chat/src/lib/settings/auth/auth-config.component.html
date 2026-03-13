@@ -78,7 +78,73 @@
   </div>
   }
 
-  <!-- Provider API Key Input -->
+  <!-- OAuth Provider UI (GitHub Copilot) - TASK_2025_191 -->
+  @if (isOAuthProvider()) {
+  <div class="form-control">
+    <div class="label py-1 justify-start gap-2">
+      <span class="label-text text-xs font-medium">
+        {{ selectedProvider()?.name ?? 'Provider' }} Authentication
+      </span>
+      @if (authState.copilotAuthenticated()) {
+      <span
+        class="badge badge-success badge-xs gap-0.5"
+        aria-label="Connected"
+      >
+        <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
+        <span>Connected</span>
+      </span>
+      }
+    </div>
+
+    @if (authState.copilotAuthenticated()) {
+    <!-- Connected state -->
+    <div class="flex items-center gap-2">
+      <div
+        class="input input-bordered input-sm flex-1 flex items-center text-xs gap-1.5"
+      >
+        <lucide-angular [img]="GithubIcon" class="w-3.5 h-3.5 opacity-70" />
+        <span class="text-base-content/70">
+          {{ authState.copilotUsername() ?? 'Connected via GitHub' }}
+        </span>
+      </div>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
+        (click)="copilotLogout()"
+        title="Disconnect GitHub Copilot"
+        aria-label="Disconnect GitHub Copilot"
+      >
+        <lucide-angular [img]="LogOutIcon" class="w-4 h-4" />
+      </button>
+    </div>
+    } @else {
+    <!-- Not connected state -->
+    <button
+      type="button"
+      class="btn btn-sm btn-outline gap-1.5 text-xs w-full"
+      (click)="copilotLogin()"
+      [disabled]="authState.copilotLoggingIn()"
+    >
+      @if (authState.copilotLoggingIn()) {
+      <lucide-angular [img]="Loader2Icon" class="w-3.5 h-3.5 animate-spin" />
+      <span>Signing in...</span>
+      } @else {
+      <lucide-angular [img]="GithubIcon" class="w-3.5 h-3.5" />
+      <span>Sign in with GitHub</span>
+      }
+    </button>
+    }
+
+    <div class="label flex-col items-start gap-0.5 py-1">
+      <span class="label-text-alt text-[10px] opacity-70">
+        <strong>{{ selectedProvider()?.name }}:</strong>
+        {{ selectedProvider()?.description }}.
+        Uses your existing GitHub Copilot subscription — no API key needed.
+      </span>
+    </div>
+  </div>
+  } @else {
+  <!-- Standard API Key Provider Input (existing code) -->
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="providerKey">
       <span class="label-text text-xs font-medium">
@@ -178,6 +244,7 @@
       } }
     </div>
   </div>
+  }
   }
 
   <!-- OAuth Token Input -->

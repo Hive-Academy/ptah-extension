@@ -88,6 +88,15 @@ export class AuthStateService {
   /** Success message from last operation */
   private readonly _successMessage = signal('');
 
+  /** Whether Copilot OAuth is authenticated (TASK_2025_191) */
+  private readonly _copilotAuthenticated = signal(false);
+
+  /** Connected GitHub username for Copilot OAuth (TASK_2025_191) */
+  private readonly _copilotUsername = signal<string | null>(null);
+
+  /** Whether a Copilot login is in progress (TASK_2025_191) */
+  private readonly _copilotLoggingIn = signal(false);
+
   /** Guard to ensure loadAuthStatus only fetches once unless refreshed */
   private _isLoaded = false;
 
@@ -126,6 +135,15 @@ export class AuthStateService {
   /** Success message from last operation */
   readonly successMessage = this._successMessage.asReadonly();
 
+  /** Whether Copilot OAuth is authenticated (TASK_2025_191) */
+  readonly copilotAuthenticated = this._copilotAuthenticated.asReadonly();
+
+  /** Connected GitHub username (TASK_2025_191) */
+  readonly copilotUsername = this._copilotUsername.asReadonly();
+
+  /** Whether Copilot login is in progress (TASK_2025_191) */
+  readonly copilotLoggingIn = this._copilotLoggingIn.asReadonly();
+
   // --- Computed signals ---
 
   /**
@@ -148,14 +166,36 @@ export class AuthStateService {
 
   /**
    * Whether provider model mapping section should be shown.
-   * ONLY when authMethod is 'openrouter' or 'auto' AND the selected provider has a key.
+   * ONLY when authMethod is 'openrouter' or 'auto' AND the selected provider has credentials.
+   * For OAuth providers (e.g., GitHub Copilot): shown when OAuth is authenticated.
+   * For API key providers: shown when a provider key is configured.
    * Fixes Critical Issue #3: previously ignored authMethod check.
+   * TASK_2025_191: Extended to support OAuth providers.
    */
   readonly showProviderModels = computed(() => {
     const method = this._authMethod();
-    return (
-      (method === 'openrouter' || method === 'auto') && this.hasProviderKey()
-    );
+    if (method !== 'openrouter' && method !== 'auto') return false;
+
+    // OAuth providers (e.g., GitHub Copilot) use OAuth auth, not API keys
+    const provider = this.selectedProvider();
+    if (provider?.authType === 'oauth') {
+      return this._copilotAuthenticated();
+    }
+
+    return this.hasProviderKey();
+  });
+
+  /**
+   * Whether the selected provider has valid credentials (API key or OAuth).
+   * Used by provider-model-selector to gate model loading.
+   * TASK_2025_191
+   */
+  readonly hasProviderCredential = computed(() => {
+    const provider = this.selectedProvider();
+    if (provider?.authType === 'oauth') {
+      return this._copilotAuthenticated();
+    }
+    return this.hasProviderKey();
   });
 
   /**
@@ -457,6 +497,79 @@ export class AuthStateService {
   }
 
   /**
+   * Trigger GitHub OAuth login for Copilot provider.
+   * Calls auth:copilotLogin RPC which opens VS Code's GitHub sign-in.
+   * TASK_2025_191
+   */
+  async copilotLogin(): Promise<void> {
+    if (this._copilotLoggingIn()) return;
+
+    this._copilotLoggingIn.set(true);
+    this._connectionStatus.set('testing');
+    this._errorMessage.set('');
+    this._successMessage.set('');
+
+    try {
+      const result = await this.rpc.call(
+        'auth:copilotLogin',
+        {} as Record<string, never>
+      );
+
+      if (result.isSuccess() && result.data?.success) {
+        this._copilotAuthenticated.set(true);
+        this._copilotUsername.set(result.data.username ?? null);
+        this._connectionStatus.set('success');
+        this._successMessage.set(
+          `Connected to GitHub Copilot${
+            result.data.username ? ` as ${result.data.username}` : ''
+          }`
+        );
+
+        // Also save the provider selection so the backend knows to use Copilot
+        await this.rpc.call('auth:saveSettings', {
+          authMethod: this._authMethod(),
+          anthropicProviderId: 'github-copilot',
+        });
+
+        // Refresh models for the new provider
+        try {
+          await this.modelState.refreshModels();
+        } catch (refreshError) {
+          console.warn(
+            '[AuthStateService] Post-login model refresh failed:',
+            refreshError
+          );
+        }
+      } else {
+        this._connectionStatus.set('error');
+        this._errorMessage.set(
+          result.data?.error ?? result.error ?? 'GitHub Copilot login failed'
+        );
+      }
+    } catch (error) {
+      console.error('[AuthStateService] copilotLogin error:', error);
+      this._connectionStatus.set('error');
+      this._errorMessage.set(
+        error instanceof Error ? error.message : 'GitHub Copilot login failed'
+      );
+    } finally {
+      this._copilotLoggingIn.set(false);
+    }
+  }
+
+  /**
+   * Disconnect from GitHub Copilot.
+   * Clears local Copilot auth state.
+   * TASK_2025_191
+   */
+  copilotLogout(): void {
+    this._copilotAuthenticated.set(false);
+    this._copilotUsername.set(null);
+    this._connectionStatus.set('idle');
+    this._successMessage.set('');
+  }
+
+  /**
    * Clear connection status messages and reset to idle.
    * Used when user navigates away or starts a new action.
    */
@@ -528,5 +641,13 @@ export class AuthStateService {
     this._providerKeyMap.set(
       new Map([[response.anthropicProviderId, response.hasOpenRouterKey]])
     );
+
+    // Populate Copilot auth status (TASK_2025_191)
+    if (response.copilotAuthenticated !== undefined) {
+      this._copilotAuthenticated.set(response.copilotAuthenticated);
+    }
+    if (response.copilotUsername !== undefined) {
+      this._copilotUsername.set(response.copilotUsername ?? null);
+    }
   }
 }

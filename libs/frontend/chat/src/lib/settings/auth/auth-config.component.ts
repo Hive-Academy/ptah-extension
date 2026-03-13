@@ -16,6 +16,8 @@ import {
   Loader2,
   Check,
   Trash2,
+  Github,
+  LogOut,
 } from 'lucide-angular';
 import { AuthStateService, ClaudeRpcService } from '@ptah-extension/core';
 import type {
@@ -69,6 +71,8 @@ export class AuthConfigComponent implements OnInit {
   readonly Loader2Icon = Loader2;
   readonly CheckIcon = Check;
   readonly Trash2Icon = Trash2;
+  readonly GithubIcon = Github;
+  readonly LogOutIcon = LogOut;
 
   // --- Local form signals (text input values only) ---
 
@@ -99,6 +103,12 @@ export class AuthConfigComponent implements OnInit {
    * Delegates directly to the service's selectedProvider computed signal.
    */
   readonly selectedProvider = this.authState.selectedProvider;
+
+  /** Whether the selected provider uses OAuth (e.g., GitHub Copilot) (TASK_2025_191) */
+  readonly isOAuthProvider = computed(() => {
+    const provider = this.selectedProvider();
+    return provider?.authType === 'oauth';
+  });
 
   /**
    * Computed signal to determine if Save & Test button should be enabled.
@@ -137,6 +147,16 @@ export class AuthConfigComponent implements OnInit {
         return false;
     }
   });
+
+  /** Trigger Copilot OAuth login (TASK_2025_191) */
+  async copilotLogin(): Promise<void> {
+    await this.authState.copilotLogin();
+  }
+
+  /** Disconnect Copilot OAuth (TASK_2025_191) */
+  copilotLogout(): void {
+    this.authState.copilotLogout();
+  }
 
   /**
    * Load auth status on component initialization.

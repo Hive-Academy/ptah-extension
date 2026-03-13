@@ -144,7 +144,15 @@ export class AuthRpcHandlers {
           keyPlaceholder: p.keyPlaceholder,
           maskedKeyDisplay: p.maskedKeyDisplay,
           hasDynamicModels: !!('modelsEndpoint' in p && p.modelsEndpoint),
+          authType: p.authType,
         }));
+
+        // Check Copilot auth status (TASK_2025_191)
+        const copilotAuthenticated = await this.copilotAuth.isAuthenticated();
+        let copilotUsername: string | undefined;
+        if (copilotAuthenticated) {
+          copilotUsername = await this.getGitHubUsername();
+        }
 
         this.logger.debug('RPC: auth:getAuthStatus result', {
           hasOAuthToken,
@@ -152,6 +160,7 @@ export class AuthRpcHandlers {
           hasOpenRouterKey,
           authMethod,
           anthropicProviderId,
+          copilotAuthenticated,
         });
 
         return {
@@ -161,6 +170,8 @@ export class AuthRpcHandlers {
           authMethod,
           anthropicProviderId,
           availableProviders,
+          copilotAuthenticated,
+          copilotUsername,
         };
       } catch (error) {
         this.logger.error(

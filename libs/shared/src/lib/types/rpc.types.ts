@@ -573,6 +573,8 @@ export interface AnthropicProviderInfo {
   maskedKeyDisplay: string;
   /** Whether this provider supports dynamic model listing via API (TASK_2025_132) */
   hasDynamicModels?: boolean;
+  /** Authentication type: 'apiKey' (default) or 'oauth' (e.g., GitHub Copilot) */
+  authType?: 'apiKey' | 'oauth';
 }
 
 /**
@@ -594,6 +596,10 @@ export interface AuthGetAuthStatusResponse {
   anthropicProviderId: string;
   /** Available Anthropic-compatible providers (TASK_2025_129 Batch 3) */
   availableProviders: AnthropicProviderInfo[];
+  /** Whether Copilot OAuth is authenticated (TASK_2025_191) */
+  copilotAuthenticated?: boolean;
+  /** Connected GitHub username for Copilot (TASK_2025_191) */
+  copilotUsername?: string;
 }
 
 // ============================================================
