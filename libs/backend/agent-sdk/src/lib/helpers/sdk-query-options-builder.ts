@@ -43,6 +43,8 @@ import {
   getAnthropicProvider,
   ANTHROPIC_PROVIDERS,
 } from './anthropic-provider-registry';
+import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
 import { PTAH_MCP_PORT } from '../constants';
 
@@ -107,11 +109,25 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
     return null;
   }
 
+  // Detect proxy providers via their token placeholders (baseUrl is dynamic localhost)
+  if (authEnv.ANTHROPIC_AUTH_TOKEN === COPILOT_PROXY_TOKEN_PLACEHOLDER) {
+    return 'github-copilot';
+  }
+  if (authEnv.ANTHROPIC_AUTH_TOKEN === CODEX_PROXY_TOKEN_PLACEHOLDER) {
+    return 'openai-codex';
+  }
+
   // Check which provider matches this base URL (derived from registry to prevent ID mismatches)
   for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
     const provider = getAnthropicProvider(id);
-    if (provider && baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-      return id;
+    if (provider && provider.baseUrl) {
+      try {
+        if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
+          return id;
+        }
+      } catch {
+        // Skip providers with invalid/empty baseUrl
+      }
     }
   }
 
