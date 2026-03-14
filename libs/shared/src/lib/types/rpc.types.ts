@@ -596,8 +596,10 @@ export interface AuthGetAuthStatusResponse {
   hasOAuthToken: boolean;
   /** Whether API key is configured in SecretStorage */
   hasApiKey: boolean;
-  /** Whether provider API key is configured in SecretStorage */
+  /** Whether provider API key is configured for the currently selected provider */
   hasOpenRouterKey: boolean;
+  /** Whether ANY provider has a key configured (covers all third-party providers) */
+  hasAnyProviderKey?: boolean;
   /** Current auth method preference */
   authMethod: AuthMethod;
   /** Currently selected Anthropic-compatible provider ID (TASK_2025_129 Batch 3) */

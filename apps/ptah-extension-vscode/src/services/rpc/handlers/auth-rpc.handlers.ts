@@ -137,6 +137,20 @@ export class AuthRpcHandlers {
           checkProviderId
         );
 
+        // TASK_2025_194: Check if ANY provider has a key configured.
+        // This supports users who only use third-party providers (z-ai, moonshot, etc.)
+        // without Claude/Anthropic auth. The per-provider check above only verifies the
+        // currently selected provider, which may miss keys stored for other providers.
+        let hasAnyProviderKey = hasOpenRouterKey;
+        if (!hasAnyProviderKey) {
+          for (const p of ANTHROPIC_PROVIDERS) {
+            if (await this.authSecretsService.hasProviderKey(p.id)) {
+              hasAnyProviderKey = true;
+              break;
+            }
+          }
+        }
+
         // Map provider registry to frontend-consumable format
         const availableProviders = ANTHROPIC_PROVIDERS.map((p) => ({
           id: p.id,
@@ -172,6 +186,7 @@ export class AuthRpcHandlers {
           hasOAuthToken,
           hasApiKey,
           hasOpenRouterKey,
+          hasAnyProviderKey,
           authMethod,
           anthropicProviderId,
           copilotAuthenticated,
@@ -181,6 +196,7 @@ export class AuthRpcHandlers {
           hasOAuthToken,
           hasApiKey,
           hasOpenRouterKey,
+          hasAnyProviderKey,
           authMethod,
           anthropicProviderId,
           availableProviders,

@@ -255,6 +255,7 @@ export class AppShellComponent {
             data.hasOAuthToken ||
             data.hasApiKey ||
             data.hasOpenRouterKey ||
+            data.hasAnyProviderKey ||
             data.copilotAuthenticated;
           if (!hasAnyAuth) {
             this.appState.setCurrentView('settings');
