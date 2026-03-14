@@ -45,6 +45,8 @@ export interface TranslationProxyConfig {
   name: string;
   /** Model prefix to add during translation (e.g., 'capi:' for Copilot, '' for Codex) */
   modelPrefix: string;
+  /** Path for the upstream chat completions endpoint (e.g., '/chat/completions', '/v1/chat/completions') */
+  completionsPath: string;
 }
 
 /** Maximum request body size (50 MB) */
@@ -97,12 +99,6 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
    * Used for the /v1/models endpoint response.
    */
   protected abstract getStaticModels(): Array<{ id: string }>;
-
-  /**
-   * Get the path for the upstream chat completions endpoint.
-   * e.g., '/chat/completions' for Copilot, '/v1/chat/completions' for Codex.
-   */
-  protected abstract getCompletionsPath(): string;
 
   // ---------------------------------------------------------------------------
   // ITranslationProxy implementation
@@ -366,7 +362,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
     // Get the API endpoint
     const apiEndpoint = await this.getApiEndpoint();
-    const completionsPath = this.getCompletionsPath();
+    const completionsPath = this.config.completionsPath;
 
     const requestBody = JSON.stringify(openaiRequest);
     const targetUrl = new URL(completionsPath, apiEndpoint);

@@ -124,18 +124,42 @@ export class CodexAuthService implements ICodexAuthService {
   }
 
   /**
+   * Invalidate the in-memory auth file cache.
+   * Forces the next readAuthFile() call to read from disk.
+   * Called during clearAuthentication() to prevent stale data after provider switch.
+   */
+  clearCache(): void {
+    this.cachedAuth = null;
+    this.cacheTimestamp = 0;
+  }
+
+  /**
    * Proactively refresh OAuth tokens if they are stale.
    * Called during extension startup and on auth failures.
    *
-   * @returns true if tokens are fresh (or were successfully refreshed)
+   * @returns true if tokens are fresh (or were successfully refreshed).
+   *          Returns false for API key auth (cannot refresh an API key).
    */
   async ensureTokensFresh(): Promise<boolean> {
+    // Invalidate cache so we always read fresh data from disk.
+    // This is critical for 401 retry: without it, the cache serves the same
+    // stale token that caused the 401 in the first place.
+    this.cacheTimestamp = 0;
+
     try {
       const auth = await this.readAuthFile();
       if (!auth) return false;
 
-      // API key never expires
-      if (auth.OPENAI_API_KEY) return true;
+      // API keys cannot be refreshed. If the key is invalid/revoked, retrying
+      // with the same key is pointless. Return false so the proxy does not
+      // wastefully retry with the same bad key.
+      if (auth.OPENAI_API_KEY) {
+        this.logger.warn(
+          '[CodexAuth] ensureTokensFresh called with API key auth -- API keys cannot be refreshed. ' +
+            'If you are seeing 401 errors, your API key may be invalid or revoked.'
+        );
+        return false;
+      }
 
       // No tokens at all
       if (!auth.tokens?.access_token || !auth.tokens.refresh_token) {
@@ -293,10 +317,19 @@ export class CodexAuthService implements ICodexAuthService {
   private async doRefreshAccessToken(
     auth: CodexAuthFile
   ): Promise<string | null> {
+    // Guard: verify tokens and refresh_token are present
+    const refreshToken = auth.tokens?.refresh_token;
+    if (!refreshToken) {
+      this.logger.warn(
+        '[CodexAuth] Cannot refresh: auth file has no refresh_token'
+      );
+      return null;
+    }
+
     try {
-      this.logger.info(
+      this.logger.debug(
         `[CodexAuth] Refreshing OAuth token (refresh_token: ${describeToken(
-          auth.tokens!.refresh_token!
+          refreshToken
         )})`
       );
 
@@ -305,7 +338,7 @@ export class CodexAuthService implements ICodexAuthService {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           grant_type: 'refresh_token',
-          refresh_token: auth.tokens!.refresh_token!,
+          refresh_token: refreshToken,
           client_id: OAUTH_CLIENT_ID,
         }).toString(),
         signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
@@ -340,7 +373,7 @@ export class CodexAuthService implements ICodexAuthService {
       const updated: CodexAuthFile = {
         ...auth,
         tokens: {
-          ...auth.tokens!,
+          ...(auth.tokens ?? {}),
           access_token: body.access_token,
           ...(body.refresh_token && { refresh_token: body.refresh_token }),
           ...(body.id_token && { id_token: body.id_token }),
@@ -365,26 +398,55 @@ export class CodexAuthService implements ICodexAuthService {
     }
   }
 
+  /** Maximum number of retries for writing the auth file */
+  private static readonly WRITE_RETRY_COUNT = 3;
+
   /**
    * Write the auth file atomically using write-to-temp-then-rename.
-   * This prevents corruption if the process crashes mid-write or the
-   * Codex CLI writes concurrently.
+   * Retries up to 3 times on failure. If all retries fail, throws so the
+   * caller knows the refresh token was NOT persisted to disk.
+   *
+   * This is critical because OAuth refresh tokens are single-use: once
+   * consumed server-side, the old token on disk is invalid. If we fail
+   * to persist the new token, the user must re-authenticate via `codex login`.
    */
   private async writeAuthFileAtomic(auth: CodexAuthFile): Promise<void> {
     const tmpPath = AUTH_FILE_PATH + '.tmp';
-    try {
-      await writeFile(tmpPath, JSON.stringify(auth, null, 2), 'utf-8');
-      await rename(tmpPath, AUTH_FILE_PATH);
-      this.logger.debug('[CodexAuth] Auth file updated atomically');
-    } catch (error) {
-      // Write failed but we still have the fresh access_token in memory.
-      // Return without throwing so this session works; the stale refresh_token
-      // on disk will be retried next time.
-      this.logger.warn(
-        `[CodexAuth] Failed to write auth file: ${
-          error instanceof Error ? error.message : String(error)
-        }. In-memory token is still valid.`
-      );
+    let lastError: unknown;
+
+    for (
+      let attempt = 1;
+      attempt <= CodexAuthService.WRITE_RETRY_COUNT;
+      attempt++
+    ) {
+      try {
+        await writeFile(tmpPath, JSON.stringify(auth, null, 2), 'utf-8');
+        await rename(tmpPath, AUTH_FILE_PATH);
+        this.logger.debug('[CodexAuth] Auth file updated atomically');
+        return;
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(
+          `[CodexAuth] Auth file write attempt ${attempt}/${
+            CodexAuthService.WRITE_RETRY_COUNT
+          } failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
+
+    // All retries exhausted -- the refresh token was consumed server-side
+    // but NOT persisted to disk. The user will need to re-authenticate.
+    this.logger.error(
+      `[CodexAuth] CRITICAL: Failed to persist refreshed auth tokens after ${CodexAuthService.WRITE_RETRY_COUNT} attempts. ` +
+        'The OAuth refresh token was consumed but not saved to disk. ' +
+        'On next restart, authentication will fail. Run `codex login` to re-authenticate.'
+    );
+    throw new Error(
+      `Failed to write auth file after ${
+        CodexAuthService.WRITE_RETRY_COUNT
+      } attempts: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`
+    );
   }
 }

@@ -64,4 +64,6 @@ export interface ICodexAuthService {
   getApiEndpoint(): string;
   /** Proactively refresh OAuth tokens if they are stale */
   ensureTokensFresh(): Promise<boolean>;
+  /** Invalidate the in-memory auth file cache, forcing next read from disk */
+  clearCache(): void;
 }

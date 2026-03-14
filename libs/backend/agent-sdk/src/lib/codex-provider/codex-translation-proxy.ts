@@ -12,7 +12,7 @@ import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { TranslationProxyBase } from '../openai-translation';
 import { SDK_TOKENS } from '../di/tokens';
-import type { CodexAuthService } from './codex-auth.service';
+import type { ICodexAuthService } from './codex-provider.types';
 import { CODEX_PROVIDER_ENTRY } from './codex-provider-entry';
 
 @injectable()
@@ -20,9 +20,13 @@ export class CodexTranslationProxy extends TranslationProxyBase {
   constructor(
     @inject(TOKENS.LOGGER) logger: Logger,
     @inject(SDK_TOKENS.SDK_CODEX_AUTH)
-    private readonly codexAuth: CodexAuthService
+    private readonly codexAuth: ICodexAuthService
   ) {
-    super(logger, { name: 'Codex', modelPrefix: '' });
+    super(logger, {
+      name: 'Codex',
+      modelPrefix: '',
+      completionsPath: '/v1/chat/completions',
+    });
   }
 
   /**
@@ -52,12 +56,5 @@ export class CodexTranslationProxy extends TranslationProxyBase {
    */
   protected getStaticModels(): Array<{ id: string }> {
     return CODEX_PROVIDER_ENTRY.staticModels ?? [];
-  }
-
-  /**
-   * Codex uses the standard OpenAI completions path `/v1/chat/completions`.
-   */
-  protected getCompletionsPath(): string {
-    return '/v1/chat/completions';
   }
 }

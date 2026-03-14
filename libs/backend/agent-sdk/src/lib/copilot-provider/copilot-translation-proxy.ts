@@ -11,7 +11,7 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { TranslationProxyBase } from '../openai-translation';
-import type { CopilotAuthService } from './copilot-auth.service';
+import type { ICopilotAuthService } from './copilot-provider.types';
 import { COPILOT_PROVIDER_ENTRY } from './copilot-provider-entry';
 import { SDK_TOKENS } from '../di/tokens';
 
@@ -23,9 +23,13 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
   constructor(
     @inject(TOKENS.LOGGER) logger: Logger,
     @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
-    private readonly copilotAuth: CopilotAuthService
+    private readonly copilotAuth: ICopilotAuthService
   ) {
-    super(logger, { name: 'Copilot', modelPrefix: 'capi:' });
+    super(logger, {
+      name: 'Copilot',
+      modelPrefix: 'capi:',
+      completionsPath: '/chat/completions',
+    });
   }
 
   /**
@@ -56,12 +60,5 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
    */
   protected getStaticModels(): Array<{ id: string }> {
     return COPILOT_PROVIDER_ENTRY.staticModels ?? [];
-  }
-
-  /**
-   * Copilot uses `/chat/completions` (no /v1 prefix).
-   */
-  protected getCompletionsPath(): string {
-    return '/chat/completions';
   }
 }

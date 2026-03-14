@@ -628,6 +628,9 @@ export class AuthManager {
       });
     }
 
+    // Reset Codex auth service cache to prevent stale data on provider re-selection
+    this.codexAuth.clearCache();
+
     this.logger.debug(
       '[AuthManager] Cleared authentication environment variables'
     );
