@@ -12,6 +12,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { z } from 'zod';
+import * as vscode from 'vscode';
 import {
   Logger,
   RpcHandler,
@@ -76,23 +77,62 @@ export class ProviderRpcHandlers {
   }
 
   /**
-   * Register the Copilot SDK's listModels() as a dynamic fetcher.
-   * This replaces the static model list with live models from the SDK.
+   * Register a dynamic fetcher for GitHub Copilot models.
+   * Uses vscode.lm.selectChatModels() — the same source as the VS Code LM dropdown —
+   * so users see identical models in both places.
+   * Falls back to the Copilot SDK adapter's listModels() if VS Code LM API fails.
    */
   private registerCopilotDynamicFetcher(): void {
-    const copilotAdapter = this.cliDetection.getAdapter('copilot');
-    if (!copilotAdapter?.listModels) return;
-
     this.providerModels.registerDynamicFetcher('github-copilot', async () => {
-      const models = await copilotAdapter.listModels!();
-      return models.map((m) => ({
-        id: m.id,
-        name: m.name,
-        description: '',
-        contextLength: 0,
-        supportsToolUse: true,
-      }));
+      // Primary: VS Code LM API (same source as VS Code LM provider dropdown)
+      try {
+        const allModels = await vscode.lm.selectChatModels();
+        const copilotModels = allModels.filter((m) => m.vendor === 'copilot');
+        if (copilotModels.length > 0) {
+          return copilotModels.map((m) => ({
+            id: m.family,
+            name: this.formatModelDisplayName(m.family),
+            description: '',
+            contextLength: 0,
+            supportsToolUse: true,
+          }));
+        }
+      } catch {
+        // Fall through to SDK adapter
+      }
+
+      // Fallback: Copilot SDK adapter's listModels()
+      const copilotAdapter = this.cliDetection.getAdapter('copilot');
+      if (copilotAdapter?.listModels) {
+        const models = await copilotAdapter.listModels();
+        return models.map((m) => ({
+          id: m.id,
+          name: m.name,
+          description: '',
+          contextLength: 0,
+          supportsToolUse: true,
+        }));
+      }
+
+      return [];
     });
+  }
+
+  /**
+   * Convert a model family slug to a human-readable name.
+   * e.g. "claude-opus-4.6" → "Claude Opus 4.6"
+   *      "gpt-5.3-codex"   → "GPT 5.3 Codex"
+   */
+  private formatModelDisplayName(family: string): string {
+    return family
+      .split('-')
+      .map((part) => {
+        if (/^\d/.test(part)) return part;
+        const upper = part.toUpperCase();
+        if (['GPT', 'AI'].includes(upper)) return upper;
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join(' ');
   }
 
   /**

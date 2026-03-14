@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ViewportAnimationDirective,
@@ -11,6 +11,8 @@ import {
   Cpu,
   Layers,
   Settings,
+  AlertTriangle,
+  Play,
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
 import { DocsCodeBlockComponent } from '../components/docs-code-block.component';
@@ -43,9 +45,31 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
         [viewportConfig]="introConfig"
         class="text-neutral-content mb-4 max-w-2xl"
       >
-        Ptah offers four authentication methods. Choose the one that matches
-        your subscription or preferred provider.
+        Ptah offers multiple authentication methods. We recommend using an
+        <strong class="text-base-content/80">API Key</strong> or a
+        <strong class="text-base-content/80">third-party Provider</strong>
+        for the best experience.
       </p>
+      <div
+        viewportAnimation
+        [viewportConfig]="introConfig"
+        class="flex items-start gap-2.5 p-3 rounded-lg bg-info/10 border border-info/20 mb-4 max-w-2xl"
+      >
+        <lucide-angular
+          [img]="AlertTriangleIcon"
+          class="w-4 h-4 text-info shrink-0 mt-0.5"
+          aria-hidden="true"
+        />
+        <p class="text-sm text-neutral-content">
+          <strong class="text-base-content/80">Note:</strong> As of February
+          2026, Anthropic restricts Claude subscription OAuth tokens to their
+          own apps only. The
+          <strong class="text-base-content/80">OAuth</strong> method below is no
+          longer functional. Use
+          <strong class="text-base-content/80">API Key</strong> or
+          <strong class="text-base-content/80">Provider</strong> instead.
+        </p>
+      </div>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
@@ -66,15 +90,62 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
           [icon]="ShieldCheckIcon"
           title="OAuth Token"
           subtitle="Claude Max / Pro subscription"
-          [expanded]="true"
         >
+          <!-- Anthropic Policy Warning Banner -->
+          <div
+            class="flex items-start gap-3 p-3 rounded-lg bg-warning/10 border border-warning/30 mb-4"
+          >
+            <lucide-angular
+              [img]="AlertTriangleIcon"
+              class="w-5 h-5 text-warning shrink-0 mt-0.5"
+              aria-hidden="true"
+            />
+            <div class="text-sm">
+              <p class="font-semibold text-warning mb-1">
+                Anthropic Policy Restriction (Feb 2026)
+              </p>
+              <p class="text-neutral-content mb-2">
+                Anthropic has
+                <strong class="text-base-content/80">officially banned</strong>
+                the use of Claude subscription OAuth tokens (Free, Pro, Max) in
+                all third-party tools — including Ptah. OAuth tokens are now
+                restricted to
+                <strong class="text-base-content/80"
+                  >Claude Code and Claude.ai only</strong
+                >. Tokens are blocked server-side and will not work.
+              </p>
+              <p class="text-neutral-content/70 text-xs">
+                Source:
+                <a
+                  href="https://code.claude.com/docs/en/legal-and-compliance"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-secondary hover:text-secondary/80 underline underline-offset-2"
+                  >Claude Code Legal &amp; Compliance</a
+                >
+              </p>
+            </div>
+          </div>
+
           <p class="text-sm text-neutral-content mb-4">
-            If you have a Claude Max or Pro subscription, use your OAuth token.
-            This covers usage under your existing subscription — no per-token
-            charges.
+            <strong class="text-error/80">This method no longer works.</strong>
+            Anthropic's updated Terms of Service prohibit using OAuth tokens
+            from Claude subscriptions in third-party applications. Use an
+            <a
+              href="#authentication"
+              class="text-secondary hover:text-secondary/80 underline underline-offset-2"
+              >API Key</a
+            >
+            or
+            <a
+              href="#providers"
+              class="text-secondary hover:text-secondary/80 underline underline-offset-2"
+              >third-party Provider</a
+            >
+            instead.
           </p>
 
-          <div class="space-y-4">
+          <div class="space-y-4 opacity-50">
             <ptah-docs-step-card [stepNumber]="1" title="Generate your token">
               <p>Open a terminal and run:</p>
               <div class="mt-2">
@@ -107,7 +178,8 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
         <ptah-docs-collapsible-card
           [icon]="KeyIcon"
           title="API Key"
-          subtitle="Anthropic Console — pay-per-token"
+          subtitle="Anthropic Console — pay-per-token (Recommended)"
+          [expanded]="true"
         >
           <p class="text-sm text-neutral-content mb-4">
             Use a direct Anthropic API key for pay-per-token billing. No
@@ -226,7 +298,6 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
           (click)="toggleVideo($event)"
         >
           <video
-            autoplay
             muted
             loop
             playsinline
@@ -236,13 +307,19 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             <source src="assets/videos/auth.mp4" type="video/mp4" />
           </video>
           <div
-            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
+            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/30 transition-opacity duration-300 pointer-events-none"
+            [class.opacity-0]="isPlaying()"
+            [class.opacity-100]="!isPlaying()"
           >
-            <span
-              class="px-3 py-1.5 rounded-lg bg-slate-900/80 border border-amber-500/20 text-xs font-medium text-white/90 backdrop-blur-sm"
+            <div
+              class="w-20 h-20 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-xl"
             >
-              Click to play / pause
-            </span>
+              <lucide-icon
+                [img]="PlayIcon"
+                class="w-10 h-10 text-slate-900 ml-1"
+                [size]="40"
+              />
+            </div>
           </div>
         </div>
       </ng-container>
@@ -263,6 +340,8 @@ export class AuthenticationSectionComponent {
   public readonly CpuIcon = Cpu;
   public readonly LayersIcon = Layers;
   public readonly SettingsIcon = Settings;
+  public readonly PlayIcon = Play;
+  public readonly AlertTriangleIcon = AlertTriangle;
 
   public readonly headingConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
@@ -291,14 +370,18 @@ export class AuthenticationSectionComponent {
     threshold: 0.2,
   };
 
+  public readonly isPlaying = signal(false);
+
   public toggleVideo(event: MouseEvent): void {
     const container = event.currentTarget as HTMLElement;
     const video = container.querySelector('video');
     if (!video) return;
     if (video.paused) {
       video.play();
+      this.isPlaying.set(true);
     } else {
       video.pause();
+      this.isPlaying.set(false);
     }
   }
 }

@@ -74,11 +74,14 @@ export type {
 
 // Shared prompt-building functions (used by SdkQueryOptionsBuilder and PtahCliAdapter)
 export {
-  assembleSystemPromptAppend,
+  assembleSystemPrompt,
   buildModelIdentityPrompt,
   getActiveProviderId,
 } from './lib/helpers';
-export type { AssembleSystemPromptInput } from './lib/helpers';
+export type {
+  AssembleSystemPromptInput,
+  SystemPromptAssemblyResult,
+} from './lib/helpers';
 
 // ============================================================
 // Enhanced Prompts System (TASK_2025_137)

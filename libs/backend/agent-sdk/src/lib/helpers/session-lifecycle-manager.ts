@@ -122,6 +122,12 @@ export interface ExecuteQueryConfig {
    * Passed through to SdkQueryOptionsBuilder.
    */
   pluginPaths?: string[];
+  /**
+   * Explicit path to Claude Code CLI executable (cli.js).
+   * TASK_2025_194: Passed through to SdkQueryOptionsBuilder to override
+   * the default import.meta.url-based resolution baked at webpack time.
+   */
+  pathToClaudeCodeExecutable?: string;
 }
 
 /**
@@ -136,6 +142,8 @@ export interface SlashCommandConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   onCompactionStart?: CompactionStartCallback;
+  /** TASK_2025_194: Explicit path to cli.js */
+  pathToClaudeCodeExecutable?: string;
 }
 
 /**
@@ -543,6 +551,7 @@ export class SessionLifecycleManager {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
+      pathToClaudeCodeExecutable,
     } = config;
 
     this.logger.info(
@@ -627,6 +636,7 @@ export class SessionLifecycleManager {
       enhancedPromptsContent,
       pluginPaths,
       permissionMode: initialPermissionMode,
+      pathToClaudeCodeExecutable,
     });
 
     // Determine the effective prompt for the SDK query:
@@ -777,6 +787,7 @@ export class SessionLifecycleManager {
       mcpServerRunning: config.mcpServerRunning,
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,
+      pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
     });
   }
 

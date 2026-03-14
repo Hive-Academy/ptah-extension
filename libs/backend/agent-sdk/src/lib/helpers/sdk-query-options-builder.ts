@@ -46,6 +46,7 @@ import {
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
+import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
 import { PTAH_MCP_PORT } from '../constants';
 
 /**
@@ -135,8 +136,8 @@ export function getActiveProviderId(authEnv: AuthEnv): string | null {
 }
 
 /**
- * Input for assembleSystemPromptAppend() pure function.
- * Encapsulates all parameters needed to build the system prompt append string
+ * Input for assembleSystemPrompt() pure function.
+ * Encapsulates all parameters needed to build the system prompt
  * for both SdkQueryOptionsBuilder and PtahCliAdapter.
  */
 export interface AssembleSystemPromptInput {
@@ -157,22 +158,39 @@ export interface AssembleSystemPromptInput {
 }
 
 /**
- * Assemble the system prompt append string from its constituent parts.
+ * Result of system prompt assembly.
+ *
+ * Two distinct paths:
+ * - 'preset-append': Use SDK's claude_code preset as base, append top-ups only
+ * - 'standalone': Use PTAH_CORE_SYSTEM_PROMPT as a standalone string (not layered on claude_code)
+ */
+export interface SystemPromptAssemblyResult {
+  mode: 'preset-append' | 'standalone';
+  content: string | undefined;
+}
+
+/**
+ * Assemble the system prompt from its constituent parts.
+ *
+ * Two distinct paths based on user's preset selection:
+ *
+ * **claude_code path** (preset='claude_code' or default without enhanced prompts):
+ *   SDK's built-in claude_code preset is the base. Only premium top-ups are appended:
+ *   identity + user prompt + enhanced prompts (premium) + MCP docs (premium).
+ *   PTAH_CORE_SYSTEM_PROMPT is NOT included (it would duplicate claude_code).
+ *
+ * **Ptah harness path** (preset='enhanced' or default with enhanced prompts):
+ *   PTAH_CORE_SYSTEM_PROMPT is the standalone base (inspired by but independent of claude_code).
+ *   Premium top-ups layered on top: identity + user prompt + enhanced prompts + MCP docs.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
- * Note: Uses dynamic require() for PTAH_SYSTEM_PROMPT to avoid circular deps.
- * Assembles from:
- * 1. Model identity clarification (for third-party providers)
- * 2. User's custom system prompt
- * 3. Preset-based prompt (enhanced or PTAH_CORE_SYSTEM_PROMPT)
- * 4. MCP documentation (PTAH_SYSTEM_PROMPT) for premium users with MCP server
  *
  * @param input - All parameters needed for prompt assembly
- * @returns Assembled append string, or undefined if no parts to append
+ * @returns Assembly result with mode and content
  */
-export function assembleSystemPromptAppend(
+export function assembleSystemPrompt(
   input: AssembleSystemPromptInput
-): string | undefined {
+): SystemPromptAssemblyResult {
   const {
     providerId,
     authEnv,
@@ -183,38 +201,49 @@ export function assembleSystemPromptAppend(
     preset,
   } = input;
 
-  const appendParts: string[] = [];
+  // Determine path: Ptah harness when preset='enhanced' or when enhanced content
+  // is available and no explicit preset is set (auto-select prefers Ptah harness)
+  const usePtahHarness =
+    preset === 'enhanced' || (!preset && !!enhancedPromptsContent?.trim());
+
+  // Build common top-up parts (shared by both paths)
+  const topUpParts: string[] = [];
 
   // 1. Model identity clarification for third-party providers
   const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
   if (identityPrompt) {
-    appendParts.push(identityPrompt);
+    topUpParts.push(identityPrompt);
   }
 
   // 2. User's custom system prompt
   if (userSystemPrompt) {
-    appendParts.push(userSystemPrompt);
+    topUpParts.push(userSystemPrompt);
   }
 
-  // 3. Determine which preset to use
-  const useEnhanced =
-    (preset === 'enhanced' || (!preset && !!enhancedPromptsContent)) &&
-    !!enhancedPromptsContent;
-  const useCorePrompt = preset === 'claude_code' || (!useEnhanced && isPremium);
-
-  if (useEnhanced) {
-    appendParts.push(enhancedPromptsContent as string);
-  } else if (useCorePrompt) {
-    appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+  // 3. Enhanced prompts (premium top-up, applies to both paths)
+  if (isPremium && enhancedPromptsContent?.trim()) {
+    topUpParts.push(enhancedPromptsContent);
   }
 
-  // 4. MCP documentation for premium users with MCP server (applies to both presets)
+  // 4. MCP documentation for premium users with MCP server (applies to both paths)
   if (isPremium && mcpServerRunning) {
-    const { PTAH_SYSTEM_PROMPT } = require('@ptah-extension/vscode-lm-tools');
-    appendParts.push(PTAH_SYSTEM_PROMPT);
+    topUpParts.push(PTAH_SYSTEM_PROMPT);
   }
 
-  return appendParts.length > 0 ? appendParts.join('\n\n') : undefined;
+  if (usePtahHarness) {
+    // Ptah harness: standalone string with PTAH_CORE_SYSTEM_PROMPT as base
+    const parts = [PTAH_CORE_SYSTEM_PROMPT, ...topUpParts];
+    return {
+      mode: 'standalone',
+      content: parts.join('\n\n'),
+    };
+  } else {
+    // claude_code preset: only top-ups get appended (no PTAH_CORE_SYSTEM_PROMPT)
+    return {
+      mode: 'preset-append',
+      content: topUpParts.length > 0 ? topUpParts.join('\n\n') : undefined,
+    };
+  }
 }
 
 /**
@@ -254,8 +283,9 @@ export interface QueryOptionsInput {
   mcpServerRunning?: boolean;
   /**
    * Enhanced prompts content (TASK_2025_137)
-   * When provided, this AI-generated guidance is appended to the system prompt
-   * instead of the default PTAH_CORE_SYSTEM_PROMPT.
+   * AI-generated project-specific guidance appended as a premium top-up
+   * alongside the base prompt (either claude_code preset or PTAH_CORE_SYSTEM_PROMPT).
+   * Also triggers auto-selection of the Ptah harness path when no explicit preset is set.
    */
   enhancedPromptsContent?: string;
   /**
@@ -271,6 +301,13 @@ export interface QueryOptionsInput {
    * Defaults to 'default' (canUseTool callback handles everything).
    */
   permissionMode?: SdkQueryOptions['permissionMode'];
+  /**
+   * Explicit path to Claude Code CLI executable (cli.js).
+   * TASK_2025_194: Passed through to SDK SessionOptions to override
+   * the default import.meta.url-based resolution which bakes in
+   * the CI runner path at webpack bundle time.
+   */
+  pathToClaudeCodeExecutable?: string;
 }
 
 /**
@@ -283,11 +320,13 @@ export interface SdkQueryOptions {
   model: string;
   resume?: string;
   maxTurns?: number;
-  systemPrompt: {
-    type: 'preset';
-    preset: 'claude_code';
-    append?: string;
-  };
+  systemPrompt:
+    | string
+    | {
+        type: 'preset';
+        preset: 'claude_code';
+        append?: string;
+      };
   tools: {
     type: 'preset';
     preset: 'claude_code';
@@ -315,6 +354,11 @@ export interface SdkQueryOptions {
   thinking?: ThinkingConfig;
   /** TASK_2025_184: Effort level for Claude's reasoning depth */
   effort?: EffortLevel;
+  /**
+   * TASK_2025_194: Explicit path to cli.js executable.
+   * Overrides import.meta.url-based resolution in bundled SDK.
+   */
+  pathToClaudeCodeExecutable?: string;
 }
 
 /**
@@ -384,6 +428,7 @@ export class SdkQueryOptionsBuilder {
       enhancedPromptsContent,
       pluginPaths,
       permissionMode = 'default',
+      pathToClaudeCodeExecutable,
     } = input;
 
     // Model is required - SDK sets default in config at startup
@@ -462,14 +507,22 @@ export class SdkQueryOptionsBuilder {
         permissionMode,
         canUseTool: canUseToolCallback,
         includePartialMessages: true,
-        // Load settings from user and project directories
-        // Required for CLAUDE.md files and proper CLI initialization
-        settingSources: ['user', 'project', 'local'],
+        // Load settings from project and local directories.
+        // IMPORTANT: Exclude 'user' when using a translation proxy because
+        // ~/.claude/settings.json may contain auth from a previous `claude login`
+        // that overrides ANTHROPIC_BASE_URL and routes requests to api.anthropic.com
+        // instead of our local proxy.
+        settingSources: this.authEnv.ANTHROPIC_BASE_URL?.includes('127.0.0.1')
+          ? ['project', 'local']
+          : ['user', 'project', 'local'],
         // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
-        env: { ...process.env, ...this.authEnv } as Record<
-          string,
-          string | undefined
-        >,
+        // Set NO_PROXY to prevent corporate proxy interception of localhost requests
+        env: {
+          ...process.env,
+          ...this.authEnv,
+          NO_PROXY: '127.0.0.1,localhost',
+          DEBUG_CLAUDE_AGENT_SDK: '1',
+        } as Record<string, string | undefined>,
         // Capture stderr for debugging CLI failures
         stderr: (data: string) => {
           this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
@@ -489,6 +542,8 @@ export class SdkQueryOptionsBuilder {
         // undefined values are omitted by SDK, preserving default behavior
         thinking: sessionConfig?.thinking,
         effort: sessionConfig?.effort,
+        // TASK_2025_194: Override baked-in import.meta.url path with runtime-resolved cli.js
+        pathToClaudeCodeExecutable,
       },
     };
   }
@@ -496,26 +551,19 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build system prompt configuration
    *
-   * TASK_2025_137: Simplified prompt assembly
+   * Two distinct paths based on user's preset selection:
    *
-   * Assembles the system prompt from:
-   * 1. Model identity clarification (for third-party providers)
-   * 2. User's custom system prompt (from sessionConfig)
-   * 3. Preset-based prompt (claude_code OR enhanced) based on user selection
-   * 4. PTAH_SYSTEM_PROMPT (MCP documentation) for premium users with MCP server
+   * **claude_code path**: Returns `{ type: 'preset', preset: 'claude_code', append }` —
+   *   SDK's built-in preset is the base. Only premium top-ups appended.
    *
-   * Preset logic:
-   * - If sessionConfig.preset === 'enhanced' AND enhancedPromptsContent exists → Use enhanced prompts
-   * - If sessionConfig.preset === 'claude_code' OR no enhanced prompts → Use PTAH_CORE_SYSTEM_PROMPT (premium only)
-   * - If preset not specified → Auto-select (enhanced if available, otherwise claude_code for premium)
-   *
-   * MCP documentation is ALWAYS injected for premium users with MCP server, regardless of preset.
+   * **Ptah harness path**: Returns standalone string —
+   *   PTAH_CORE_SYSTEM_PROMPT is the base (independent of claude_code), with premium top-ups.
    *
    * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
    * @param isPremium - Whether user has premium features enabled
    * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
    * @param mcpServerRunning - Whether MCP server is running
-   * @returns System prompt configuration for SDK
+   * @returns System prompt configuration for SDK (preset+append or standalone string)
    */
   private buildSystemPrompt(
     sessionConfig?: AISessionConfig,
@@ -523,7 +571,6 @@ export class SdkQueryOptionsBuilder {
     enhancedPromptsContent?: string,
     mcpServerRunning = true
   ): SdkQueryOptions['systemPrompt'] {
-    // TASK_2025_134: Detect third-party provider for identity clarification
     const activeProviderId = getActiveProviderId(this.authEnv);
 
     if (activeProviderId) {
@@ -532,8 +579,7 @@ export class SdkQueryOptionsBuilder {
       );
     }
 
-    // Delegate to shared pure function
-    const assembledAppend = assembleSystemPromptAppend({
+    const result = assembleSystemPrompt({
       providerId: activeProviderId,
       authEnv: this.authEnv,
       userSystemPrompt: sessionConfig?.systemPrompt,
@@ -546,23 +592,26 @@ export class SdkQueryOptionsBuilder {
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
       isPremium,
       mcpServerRunning,
+      mode: result.mode,
       preset: sessionConfig?.preset || 'auto',
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
       hasMcpDocs: isPremium && mcpServerRunning,
-      totalAppendLength: assembledAppend?.length ?? 0,
-      appendPreview: assembledAppend
-        ? assembledAppend.substring(0, 300) +
-          (assembledAppend.length > 300 ? '...' : '')
-        : '(none)',
+      totalContentLength: result.content?.length ?? 0,
     });
 
+    if (result.mode === 'standalone' && result.content) {
+      // Ptah harness: standalone string (not layered on claude_code)
+      return result.content;
+    }
+
+    // claude_code preset: SDK's built-in preset + optional top-ups
     return {
       type: 'preset' as const,
       preset: 'claude_code' as const,
-      append: assembledAppend,
+      append: result.content,
     };
   }
 

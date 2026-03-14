@@ -46,10 +46,11 @@ export {
 } from './sdk-message-factory';
 export {
   SdkQueryOptionsBuilder,
-  assembleSystemPromptAppend,
+  assembleSystemPrompt,
   buildModelIdentityPrompt,
   getActiveProviderId,
   type AssembleSystemPromptInput,
+  type SystemPromptAssemblyResult,
   type QueryOptionsInput,
   type SdkQueryOptions,
   type QueryConfig,

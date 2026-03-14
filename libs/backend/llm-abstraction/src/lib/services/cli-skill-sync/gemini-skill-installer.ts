@@ -86,12 +86,15 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
               }
 
               // Flat target: ~/.gemini/skills/ptah-{skillName}/
-              const skillTargetPath = join(basePath, `ptah-${skillDirName}`);
+              const skillFolderName = `ptah-${skillDirName}`;
+              const skillTargetPath = join(basePath, skillFolderName);
               await mkdir(skillTargetPath, { recursive: true });
 
               const copied = await copyDirectoryRecursive(
                 skillSourcePath,
-                skillTargetPath
+                skillTargetPath,
+                0,
+                skillFolderName
               );
               skillCount += copied;
             } catch (skillError) {

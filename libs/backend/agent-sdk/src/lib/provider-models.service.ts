@@ -408,6 +408,8 @@ export class ProviderModelsService {
 
     // Set AuthEnv variable for immediate use
     this.authEnv[envVar as keyof AuthEnv] = modelId;
+    // Sync to process.env (SDK reads model tiers from process.env internally)
+    process.env[envVar] = modelId;
 
     // Persist to config
     await this.config.set(configKey, modelId);
@@ -471,12 +473,15 @@ export class ProviderModelsService {
 
     if (tiers.sonnet) {
       this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL = tiers.sonnet;
+      process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'] = tiers.sonnet;
     }
     if (tiers.opus) {
       this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL = tiers.opus;
+      process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'] = tiers.opus;
     }
     if (tiers.haiku) {
       this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL = tiers.haiku;
+      process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'] = tiers.haiku;
     }
 
     this.logger.debug(
@@ -493,6 +498,9 @@ export class ProviderModelsService {
     delete this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL;
     delete this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL;
     delete this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+    delete process.env['ANTHROPIC_DEFAULT_SONNET_MODEL'];
+    delete process.env['ANTHROPIC_DEFAULT_OPUS_MODEL'];
+    delete process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
 
     this.logger.debug(
       '[ProviderModelsService] Cleared all tier environment variables'

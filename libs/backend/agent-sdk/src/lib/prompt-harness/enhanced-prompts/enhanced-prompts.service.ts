@@ -50,6 +50,7 @@ import {
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
 } from './enhanced-prompts.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../ptah-core-prompt';
+import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
 import type { InternalQueryService } from '../../internal-query/internal-query.service';
 import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
 import { SdkStreamProcessor } from '../../stream-processing/sdk-stream-processor';
@@ -1249,9 +1250,6 @@ export class EnhancedPromptsService {
 
     // Add MCP documentation for premium users with MCP server enabled
     if (sdkConfig?.isPremium && sdkConfig?.mcpServerRunning) {
-      // Import PTAH_SYSTEM_PROMPT dynamically to avoid circular dependencies
-
-      const { PTAH_SYSTEM_PROMPT } = require('@ptah-extension/vscode-lm-tools');
       sections.push('\n' + PTAH_SYSTEM_PROMPT);
       this.logger.debug(
         'EnhancedPromptsService: Added MCP documentation to enhanced prompt',

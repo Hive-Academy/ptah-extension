@@ -310,6 +310,13 @@ export class AuthRpcHandlers {
           );
         }
 
+        // TASK_2025_194: Explicitly await reinit so testConnection sees updated health.
+        // Without this, saveSettings returns before reinit completes (fire-and-forget
+        // via ConfigWatcher), causing testConnection polls to fail.
+        this.logger.info('RPC: auth:saveSettings triggering adapter reset...');
+        await this.sdkAdapter.reset();
+        this.logger.info('RPC: auth:saveSettings adapter reset completed');
+
         this.logger.info('RPC: auth:saveSettings completed successfully');
         return { success: true };
       } catch (error) {

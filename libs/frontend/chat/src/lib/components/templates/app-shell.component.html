@@ -2,7 +2,10 @@
 <ptah-confirmation-dialog />
 
 <!-- TASK_2025_142: Trial ended modal (shows when trial_ended reason) -->
+<!-- TASK_2025_194: Only render when not on welcome view to prevent invisible overlay stealing focus -->
+@if (currentView() !== 'welcome') {
 <ptah-trial-ended-modal [reason]="licenseReason()" />
+}
 
 <!--
   Layout Architecture:
@@ -57,10 +60,99 @@
       />
     </div>
 
+    <!-- TASK_2025_192: Session search & filter -->
+    <div class="px-1.5 pt-1.5 pb-0.5 flex flex-col gap-1">
+      <!-- Search input -->
+      <label
+        class="input input-xs w-full flex items-center gap-1.5 bg-base-100 border-base-content/10"
+      >
+        <lucide-angular
+          [img]="SearchIcon"
+          class="w-3 h-3 text-base-content/40 flex-shrink-0"
+        />
+        <input
+          type="text"
+          class="grow text-xs min-w-0"
+          placeholder="Search sessions..."
+          [ngModel]="searchQuery()"
+          (ngModelChange)="setSearchQuery($event)"
+          aria-label="Search sessions by name"
+        />
+        @if (searchQuery()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs btn-circle w-4 h-4 min-h-0 p-0"
+          (click)="setSearchQuery('')"
+          aria-label="Clear search"
+        >
+          <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
+        </button>
+        }
+      </label>
+
+      <!-- Date filter toggle + clear filters row -->
+      <div class="flex items-center gap-1">
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs gap-1 text-base-content/50 hover:text-base-content/70 flex-1 justify-start px-1"
+          (click)="toggleDateFilter()"
+          aria-label="Toggle date filter"
+        >
+          <lucide-angular [img]="CalendarDaysIcon" class="w-3 h-3" />
+          <span class="text-[10px]">Date range</span>
+          <lucide-angular
+            [img]="ChevronDownIcon"
+            class="w-2.5 h-2.5 transition-transform duration-200"
+            [class.rotate-180]="dateFilterOpen()"
+          />
+        </button>
+        @if (hasActiveFilters()) {
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs text-[10px] text-base-content/40 hover:text-error px-1"
+          (click)="clearFilters()"
+          aria-label="Clear all filters"
+        >
+          Clear
+        </button>
+        }
+      </div>
+
+      <!-- Date range inputs (collapsible) -->
+      @if (dateFilterOpen()) {
+      <div class="flex flex-col gap-1 px-0.5 pb-0.5">
+        <label
+          for="session-filter-date-from"
+          class="text-[10px] text-base-content/40"
+          >From</label
+        >
+        <input
+          id="session-filter-date-from"
+          type="date"
+          class="input input-xs w-full bg-base-100 border-base-content/10 text-xs"
+          [ngModel]="dateFrom()"
+          (ngModelChange)="setDateFrom($event)"
+        />
+        <label
+          for="session-filter-date-to"
+          class="text-[10px] text-base-content/40"
+          >To</label
+        >
+        <input
+          id="session-filter-date-to"
+          type="date"
+          class="input input-xs w-full bg-base-100 border-base-content/10 text-xs"
+          [ngModel]="dateTo()"
+          (ngModelChange)="setDateTo($event)"
+        />
+      </div>
+      }
+    </div>
+
     <!-- Session list (scrollable) -->
     <div class="flex-1 overflow-y-auto p-1.5 sidebar-scroll">
       <ul class="flex flex-col gap-0.5 p-0" role="list">
-        @for (session of chatStore.sessions(); track session.id) {
+        @for (session of filteredSessions(); track session.id) {
         <li class="group relative" role="listitem">
           <button
             type="button"
@@ -118,6 +210,23 @@
           class="flex flex-col items-center justify-center p-6 text-center"
           role="presentation"
         >
+          @if (hasActiveFilters() && chatStore.sessions().length > 0) {
+          <lucide-angular
+            [img]="SearchIcon"
+            class="w-8 h-8 text-base-content/20 mb-2"
+          />
+          <span class="text-sm text-base-content/40">No matching sessions</span>
+          <span class="text-xs text-base-content/25 mt-1">
+            Try adjusting your search or filters
+          </span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs mt-2 text-primary/60 hover:text-primary"
+            (click)="clearFilters()"
+          >
+            Clear filters
+          </button>
+          } @else {
           <lucide-angular
             [img]="MessageSquareIcon"
             class="w-8 h-8 text-base-content/20 mb-2"
@@ -126,12 +235,14 @@
           <span class="text-xs text-base-content/25 mt-1"
             >Create one to get started</span
           >
+          }
         </li>
         }
       </ul>
 
-      <!-- Load More button -->
-      @if (chatStore.hasMoreSessions()) {
+      <!-- Load More button (hidden when filters produce zero results) -->
+      @if (chatStore.hasMoreSessions() && (!hasActiveFilters() ||
+      filteredSessions().length > 0)) {
       <div class="px-1.5 pt-1 pb-1">
         <button
           class="btn btn-ghost btn-xs w-full text-base-content/50 hover:text-base-content/70 hover:bg-base-300/30 transition-all duration-200 gap-1"
@@ -141,7 +252,9 @@
         >
           @if (chatStore.isLoadingMoreSessions()) {
           <span class="loading loading-spinner loading-xs"></span>
-          Loading... } @else {
+          Loading... } @else { @if (hasActiveFilters()) {
+          <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
+          Load more to expand search } @else {
           <lucide-angular [img]="ChevronDownIcon" class="w-3 h-3" />
           Load More
           <span class="text-base-content/30"
@@ -149,7 +262,7 @@
               chatStore.totalSessions() - chatStore.sessions().length
             }})</span
           >
-          }
+          } }
         </button>
       </div>
       }
@@ -180,11 +293,30 @@
       </div>
 
       <!-- Header actions -->
-      <div class="flex gap-1">
+      <div class="flex gap-0.5 items-center">
+        <!-- Group 1: View controls -->
+        <!-- Pop out to editor tab (highlights when CLI agents need more space) -->
+        <button
+          class="btn btn-square btn-xs relative"
+          [class.btn-ghost]="!agentMonitorStore.shouldSuggestEditorPanel()"
+          [class.btn-primary]="agentMonitorStore.shouldSuggestEditorPanel()"
+          [class.animate-pulse]="agentMonitorStore.shouldSuggestEditorPanel()"
+          aria-label="Open in editor tab"
+          [title]="
+            agentMonitorStore.shouldSuggestEditorPanel()
+              ? 'Pop out to editor tab — CLI agents need more space'
+              : 'Open in editor tab (more space)'
+          "
+          (click)="openInEditor()"
+        >
+          <lucide-angular [img]="ExternalLinkIcon" class="w-3.5 h-3.5" />
+        </button>
+
         <!-- Agent monitor toggle (always visible) -->
         <button
-          class="btn btn-square btn-ghost btn-sm relative"
+          class="btn btn-square btn-ghost btn-xs relative"
           aria-label="Toggle agent monitor"
+          title="Toggle agent monitor"
           (click)="agentMonitorStore.togglePanel()"
         >
           <lucide-angular
@@ -193,7 +325,7 @@
                 ? PanelRightCloseIcon
                 : PanelRightOpenIcon
             "
-            class="w-4 h-4"
+            class="w-3.5 h-3.5"
           />
           @if (agentMonitorStore.pendingPermissions().length > 0) {
           <span
@@ -210,6 +342,10 @@
           }
         </button>
 
+        <!-- Divider between View controls and Session group -->
+        <div class="w-px h-4 bg-base-content/10"></div>
+
+        <!-- Group 2: Session -->
         <!-- Background agent badge -->
         @if (backgroundAgentStore.totalCount() > 0) {
         <ptah-background-agent-badge />
@@ -225,9 +361,6 @@
         />
         }
 
-        <!-- Theme toggle -->
-        <ptah-theme-toggle />
-
         <!-- New session popover -->
         <ptah-native-popover
           [isOpen]="sessionNamePopoverOpen()"
@@ -239,12 +372,12 @@
           <!-- Trigger: New Session button -->
           <button
             trigger
-            class="btn btn-square btn-ghost btn-sm"
+            class="btn btn-square btn-ghost btn-xs"
             (click)="createNewSession()"
             aria-label="New Session"
             title="New Session"
           >
-            <lucide-angular [img]="PlusIcon" class="w-4 h-4" />
+            <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
           </button>
 
           <!-- Popover content -->
@@ -263,7 +396,7 @@
               class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
               placeholder="Enter session name (optional)"
               [(ngModel)]="sessionNameInput"
-              (keydown.enter)="handleCreateSession()"
+              (keydown.enter)="handleCreateSession(); $event.preventDefault(); $event.stopPropagation()"
               (keydown.escape)="handleCancelSession()"
             />
 
@@ -287,12 +420,20 @@
           </div>
         </ptah-native-popover>
 
+        <!-- Divider between Session and App group -->
+        <div class="w-px h-4 bg-base-content/10"></div>
+
+        <!-- Group 3: App -->
+        <!-- Theme toggle -->
+        <ptah-theme-toggle />
+
         <button
-          class="btn btn-square btn-ghost btn-sm"
+          class="btn btn-square btn-ghost btn-xs"
           aria-label="Settings"
+          title="Settings"
           (click)="openSettings()"
         >
-          <lucide-angular [img]="SettingsIcon" class="w-4 h-4" />
+          <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
         </button>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ViewportAnimationDirective,
@@ -9,6 +9,7 @@ import {
   Download,
   UserPlus,
   Sparkles,
+  Play,
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
@@ -100,7 +101,6 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
           (click)="toggleVideo($event)"
         >
           <video
-            autoplay
             muted
             loop
             playsinline
@@ -110,13 +110,19 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
             <source src="assets/videos/install.mp4" type="video/mp4" />
           </video>
           <div
-            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
+            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/30 transition-opacity duration-300 pointer-events-none"
+            [class.opacity-0]="isPlaying()"
+            [class.opacity-100]="!isPlaying()"
           >
-            <span
-              class="px-3 py-1.5 rounded-lg bg-base-200/80 border border-secondary/20 text-xs font-medium text-base-content/90 backdrop-blur-sm"
+            <div
+              class="w-20 h-20 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-xl"
             >
-              Click to play / pause
-            </span>
+              <lucide-icon
+                [img]="PlayIcon"
+                class="w-10 h-10 text-slate-900 ml-1"
+                [size]="40"
+              />
+            </div>
           </div>
         </div>
       </ng-container>
@@ -135,6 +141,7 @@ export class InstallationSectionComponent {
   public readonly DownloadIcon = Download;
   public readonly UserPlusIcon = UserPlus;
   public readonly SparklesIcon = Sparkles;
+  public readonly PlayIcon = Play;
 
   public readonly headingConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
@@ -156,14 +163,18 @@ export class InstallationSectionComponent {
     threshold: 0.2,
   };
 
+  public readonly isPlaying = signal(false);
+
   public toggleVideo(event: MouseEvent): void {
     const container = event.currentTarget as HTMLElement;
     const video = container.querySelector('video');
     if (!video) return;
     if (video.paused) {
       video.play();
+      this.isPlaying.set(true);
     } else {
       video.pause();
+      this.isPlaying.set(false);
     }
   }
 }

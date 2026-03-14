@@ -17,6 +17,7 @@ import type {
   CliSessionReference,
 } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
+import { VSCodeService } from '@ptah-extension/core';
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
 const MAX_FRONTEND_BUFFER = 50 * 1024;
@@ -68,6 +69,7 @@ export interface MonitoredAgent {
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
+  private readonly vscodeService = inject(VSCodeService);
 
   // Private mutable state
   private readonly _agents = signal<Map<string, MonitoredAgent>>(new Map());
@@ -76,6 +78,22 @@ export class AgentMonitorStore implements OnDestroy {
   private _userExplicitlyClosed = false;
   /** Monotonic counter for tracking expand order (oldest = lowest value) */
   private _expandOrder = 0;
+
+  /** Whether this webview instance is the sidebar (not an editor panel) */
+  get isSidebar(): boolean {
+    const panelId = this.vscodeService.config().panelId;
+    return !panelId || panelId === '';
+  }
+
+  /**
+   * Whether the "pop out to editor" button should be highlighted.
+   * True when agents are actively running and we're in the narrow sidebar.
+   */
+  readonly shouldSuggestEditorPanel = computed(
+    () =>
+      this.isSidebar &&
+      Array.from(this._agents().values()).some((a) => a.status === 'running')
+  );
 
   /**
    * Shared tick signal incremented every 1s while agents are running.

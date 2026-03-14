@@ -94,15 +94,44 @@ export class TabManagerService {
     // window.ptahConfig is injected by the extension host before Angular bootstraps.
     // Sidebar gets empty panelId (uses backward-compatible 'ptah.tabs' key).
     // Editor panels get unique panelId like 'ptah.panel.{uuid}' (namespaced key).
-    const panelId = (window as unknown as { ptahConfig?: { panelId?: string } })
-      .ptahConfig?.panelId;
+    const ptahConfig = (
+      window as unknown as {
+        ptahConfig?: {
+          panelId?: string;
+          initialSessionId?: string | null;
+          initialSessionName?: string | null;
+        };
+      }
+    ).ptahConfig;
+    const panelId = ptahConfig?.panelId;
     this.storageKey = panelId ? `ptah.tabs.${panelId}` : 'ptah.tabs';
 
     // Load saved tab state on service initialization
     this.loadTabState();
 
-    // If no tabs loaded, create initial tab
-    if (this._tabs().length === 0) {
+    // If panel was opened with a specific session (pop-out), load that session tab
+    const initialSessionId = ptahConfig?.initialSessionId;
+    if (initialSessionId && panelId) {
+      // Clear any default tabs and open the requested session
+      this._tabs.set([]);
+      this.openSessionTab(
+        initialSessionId,
+        ptahConfig?.initialSessionName || undefined
+      );
+
+      // Defer session loading — SessionLoaderService loads messages via chat:resume RPC.
+      // Uses dynamic import() to avoid circular dependency (SessionLoader → TabManager).
+      const injector = this.injector;
+      const sid = initialSessionId;
+      setTimeout(() => {
+        import('./chat-store/session-loader.service').then(
+          ({ SessionLoaderService }) => {
+            injector.get(SessionLoaderService).switchSession(sid);
+          }
+        );
+      }, 0);
+    } else if (this._tabs().length === 0) {
+      // No tabs loaded and no initial session, create default tab
       this.createTab('New Chat');
     }
   }
@@ -179,6 +208,40 @@ export class TabManagerService {
     this.saveTabState();
 
     return id;
+  }
+
+  /**
+   * Force-close a tab without confirmation dialog.
+   * Used by pop-out flow where the session is being transferred, not abandoned.
+   * @param tabId - Tab ID to close
+   */
+  forceCloseTab(tabId: string): void {
+    const tabs = this._tabs();
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
+    const tabIndex = tabs.findIndex((t) => t.id === tabId);
+
+    // Skip agent cleanup — agents will be restored in the target panel
+    // Only clean up deduplication state
+    if (tab.claudeSessionId) {
+      const streamingHandler = this.injector.get(StreamingHandlerService);
+      streamingHandler.cleanupSessionDeduplication(tab.claudeSessionId);
+    }
+
+    this._tabs.update((tabs) => tabs.filter((t) => t.id !== tabId));
+
+    if (this._activeTabId() === tabId) {
+      const remaining = this._tabs();
+      if (remaining.length > 0) {
+        const newActiveIndex = Math.min(tabIndex, remaining.length - 1);
+        this._activeTabId.set(remaining[newActiveIndex].id);
+      } else {
+        this._activeTabId.set(null);
+      }
+    }
+
+    this.saveTabState();
   }
 
   /**

@@ -24,6 +24,13 @@ import type { CliTarget, CliPluginSyncState } from '@ptah-extension/shared';
 const SYNC_STATE_KEY = 'ptah.cliSkillSync';
 
 /**
+ * Sync pipeline version — bump this when the copy/transform logic changes
+ * (e.g., adding rewriteSkillName, sanitizeYamlDescriptions) to force a
+ * re-sync even when source files haven't changed.
+ */
+const SYNC_PIPELINE_VERSION = 2;
+
+/**
  * Tracks which plugins have been synced to which CLIs.
  *
  * Uses content hashing to avoid redundant re-syncs during extension
@@ -130,8 +137,10 @@ export class CliSkillManifestTracker {
     }
 
     // SHA-256 hash for collision resistance
+    // Include pipeline version so code-level changes to copy/transform
+    // logic (e.g., rewriteSkillName) invalidate the hash and force re-sync
     return createHash('sha256')
-      .update(entries.join('|'))
+      .update(`v${SYNC_PIPELINE_VERSION}|${entries.join('|')}`)
       .digest('hex')
       .substring(0, 16); // 16 hex chars = 64 bits, more than sufficient
   }

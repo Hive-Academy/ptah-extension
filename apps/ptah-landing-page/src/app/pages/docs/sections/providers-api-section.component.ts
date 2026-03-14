@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ViewportAnimationDirective,
@@ -10,6 +10,7 @@ import {
   ArrowRight,
   Repeat,
   Server,
+  Play,
 } from 'lucide-angular';
 
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
@@ -202,7 +203,6 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
           (click)="toggleVideo($event)"
         >
           <video
-            autoplay
             muted
             loop
             playsinline
@@ -212,13 +212,19 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
             <source src="assets/videos/providers.mp4" type="video/mp4" />
           </video>
           <div
-            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
+            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/30 transition-opacity duration-300 pointer-events-none"
+            [class.opacity-0]="isPlaying()"
+            [class.opacity-100]="!isPlaying()"
           >
-            <span
-              class="px-3 py-1.5 rounded-lg bg-slate-900/80 border border-amber-500/20 text-xs font-medium text-white/90 backdrop-blur-sm"
+            <div
+              class="w-20 h-20 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-xl"
             >
-              Click to play / pause
-            </span>
+              <lucide-icon
+                [img]="PlayIcon"
+                class="w-10 h-10 text-slate-900 ml-1"
+                [size]="40"
+              />
+            </div>
           </div>
         </div>
       </ng-container>
@@ -238,6 +244,7 @@ export class ProvidersApiSectionComponent {
   public readonly ArrowRightIcon = ArrowRight;
   public readonly RepeatIcon = Repeat;
   public readonly ServerIcon = Server;
+  public readonly PlayIcon = Play;
 
   public readonly moonshotModels = [
     { name: 'kimi-k2', note: '128K ctx' },
@@ -292,14 +299,18 @@ export class ProvidersApiSectionComponent {
     threshold: 0.1,
   };
 
+  public readonly isPlaying = signal(false);
+
   public toggleVideo(event: MouseEvent): void {
     const container = event.currentTarget as HTMLElement;
     const video = container.querySelector('video');
     if (!video) return;
     if (video.paused) {
       video.play();
+      this.isPlaying.set(true);
     } else {
       video.pause();
+      this.isPlaying.set(false);
     }
   }
 }

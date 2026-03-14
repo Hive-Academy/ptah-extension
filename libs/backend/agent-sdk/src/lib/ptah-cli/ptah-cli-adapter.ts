@@ -42,7 +42,7 @@ import {
   resolveActualModelForPricing,
 } from '../helpers/anthropic-provider-registry';
 import {
-  assembleSystemPromptAppend,
+  assembleSystemPrompt,
   getActiveProviderId,
   type SdkQueryOptions,
 } from '../helpers/sdk-query-options-builder';
@@ -797,7 +797,7 @@ export class PtahCliAdapter implements IAIProvider {
 
     // Build system prompt with full premium capabilities
     const activeProviderId = getActiveProviderId(this.authEnv);
-    const systemPromptAppend = assembleSystemPromptAppend({
+    const promptResult = assembleSystemPrompt({
       providerId: activeProviderId,
       authEnv: this.authEnv,
       userSystemPrompt,
@@ -875,11 +875,14 @@ export class PtahCliAdapter implements IAIProvider {
         cwd,
         model,
         resume: resumeSessionId,
-        systemPrompt: {
-          type: 'preset' as const,
-          preset: 'claude_code' as const,
-          append: systemPromptAppend,
-        },
+        systemPrompt:
+          promptResult.mode === 'standalone' && promptResult.content
+            ? promptResult.content
+            : {
+                type: 'preset' as const,
+                preset: 'claude_code' as const,
+                append: promptResult.content,
+              },
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,

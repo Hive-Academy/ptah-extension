@@ -12,17 +12,20 @@ import { NgOptimizedImage } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
-  Settings,
-  Plus,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ExternalLink,
+  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  ChevronDown,
-  Check,
-  X,
+  Plus,
+  Search,
+  Settings,
   Trash2,
-  MessageSquare,
+  X,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
@@ -123,17 +126,20 @@ export class AppShellComponent {
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
 
   // Lucide icons
-  readonly SettingsIcon = Settings;
-  readonly PlusIcon = Plus;
+  readonly CalendarDaysIcon = CalendarDays;
   readonly CheckIcon = Check;
-  readonly XIcon = X;
+  readonly ChevronDownIcon = ChevronDown;
+  readonly MessageSquareIcon = MessageSquare;
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
-  readonly ChevronDownIcon = ChevronDown;
-  readonly Trash2Icon = Trash2;
-  readonly MessageSquareIcon = MessageSquare;
   readonly PanelRightCloseIcon = PanelRightClose;
   readonly PanelRightOpenIcon = PanelRightOpen;
+  readonly PlusIcon = Plus;
+  readonly SearchIcon = Search;
+  readonly SettingsIcon = Settings;
+  readonly Trash2Icon = Trash2;
+  readonly XIcon = X;
+  readonly ExternalLinkIcon = ExternalLink;
 
   // Ptah icon URI
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -142,6 +148,63 @@ export class AppShellComponent {
   private readonly _sessionNamePopoverOpen = signal(false);
   readonly sessionNamePopoverOpen = this._sessionNamePopoverOpen.asReadonly();
   readonly sessionNameInput = signal('');
+
+  // TASK_2025_192: Session search & filter state
+  private readonly _searchQuery = signal('');
+  private readonly _dateFrom = signal('');
+  private readonly _dateTo = signal('');
+  private readonly _dateFilterOpen = signal(false);
+  readonly searchQuery = this._searchQuery.asReadonly();
+  readonly dateFrom = this._dateFrom.asReadonly();
+  readonly dateTo = this._dateTo.asReadonly();
+  readonly dateFilterOpen = this._dateFilterOpen.asReadonly();
+
+  readonly hasActiveFilters = computed(
+    () =>
+      this._searchQuery().length > 0 ||
+      this._dateFrom().length > 0 ||
+      this._dateTo().length > 0
+  );
+
+  readonly filteredSessions = computed(() => {
+    const sessions = this.chatStore.sessions();
+    const query = this._searchQuery().toLowerCase().trim();
+    const fromStr = this._dateFrom();
+    const toStr = this._dateTo();
+
+    if (!query && !fromStr && !toStr) {
+      return sessions;
+    }
+
+    // Parse dates once outside the filter loop, using local time
+    let fromMs = 0;
+    let toMs = 0;
+    if (fromStr) {
+      const [y, m, d] = fromStr.split('-').map(Number);
+      fromMs = new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+    }
+    if (toStr) {
+      const [y, m, d] = toStr.split('-').map(Number);
+      toMs = new Date(y, m - 1, d, 23, 59, 59, 999).getTime();
+    }
+
+    return sessions.filter((session) => {
+      // Name filter (case-insensitive substring, null-safe)
+      if (query && !(session.name || '').toLowerCase().includes(query)) {
+        return false;
+      }
+
+      // Date range filter on lastActivityAt
+      if (fromMs && session.lastActivityAt < fromMs) {
+        return false;
+      }
+      if (toMs && session.lastActivityAt > toMs) {
+        return false;
+      }
+
+      return true;
+    });
+  });
 
   // TASK_2025_142: License reason for trial ended modal
   readonly licenseReason = computed(
@@ -153,6 +216,12 @@ export class AppShellComponent {
     'sessionNameInputRef'
   );
 
+  /**
+   * TASK_2025_194: Flag to ensure auth redirect check runs only once.
+   * Prevents re-triggering on subsequent signal changes.
+   */
+  private authCheckDone = false;
+
   constructor() {
     // Focus sidebar input when popover opens
     effect(() => {
@@ -161,6 +230,39 @@ export class AppShellComponent {
           this.sessionNameInputRef()?.nativeElement.focus();
         }, 0);
       }
+    });
+
+    // TASK_2025_194: Check auth status on initial load.
+    // If user is licensed but has no auth configured, redirect to settings.
+    // This handles the case where a user activates their license on the welcome
+    // page and lands on chat view with no provider keys configured.
+    effect(() => {
+      const view = this.currentView();
+      if (view !== 'chat' || this.authCheckDone) {
+        return;
+      }
+      this.authCheckDone = true;
+
+      // Check auth status asynchronously (non-blocking)
+      this.rpcService
+        .call('auth:getAuthStatus', {})
+        .then((rpcResult) => {
+          if (!rpcResult.isSuccess() || !rpcResult.data) return;
+          // Re-check: user may have navigated away while RPC was in flight
+          if (this.currentView() !== 'chat') return;
+          const data = rpcResult.data;
+          const hasAnyAuth =
+            data.hasOAuthToken ||
+            data.hasApiKey ||
+            data.hasOpenRouterKey ||
+            data.copilotAuthenticated;
+          if (!hasAnyAuth) {
+            this.appState.setCurrentView('settings');
+          }
+        })
+        .catch(() => {
+          // Non-fatal: if RPC fails, don't redirect
+        });
     });
   }
 
@@ -176,6 +278,52 @@ export class AppShellComponent {
    */
   openSettings(): void {
     this.appState.setCurrentView('settings');
+  }
+
+  /** Guard to prevent double-click opening multiple panels */
+  private _isOpeningPanel = false;
+
+  /**
+   * Open current chat in a full editor panel for more screen space.
+   * Passes the active session so the new panel auto-loads it,
+   * then force-closes the tab in the sidebar to avoid duplication.
+   * Blocked during active streaming to prevent orphaned events.
+   */
+  async openInEditor(): Promise<void> {
+    if (this._isOpeningPanel) return;
+
+    const activeTab = this.tabManager.activeTab();
+
+    // Block pop-out during streaming — events would be orphaned
+    if (activeTab?.status === 'streaming' || activeTab?.status === 'resuming') {
+      console.warn('[AppShell] Cannot pop out during streaming/resuming');
+      return;
+    }
+
+    this._isOpeningPanel = true;
+    try {
+      const sessionId = activeTab?.claudeSessionId;
+      const sessionName = activeTab?.name || activeTab?.title;
+
+      await this.rpcService.call('command:execute', {
+        command: 'ptah.openFullPanel',
+        args: [
+          {
+            initialSessionId: sessionId || undefined,
+            initialSessionName: sessionName || undefined,
+          },
+        ],
+      });
+
+      // Force-close the tab in the sidebar (no confirmation — session is being transferred)
+      if (activeTab && sessionId) {
+        this.tabManager.forceCloseTab(activeTab.id);
+      }
+    } catch (error) {
+      console.error('[AppShell] Failed to open editor panel:', error);
+    } finally {
+      this._isOpeningPanel = false;
+    }
   }
 
   /**
@@ -219,6 +367,36 @@ export class AppShellComponent {
   handleCancelSession(): void {
     this._sessionNamePopoverOpen.set(false);
     this.sessionNameInput.set('');
+  }
+
+  /**
+   * Clear all session search/filter inputs (TASK_2025_192)
+   */
+  clearFilters(): void {
+    this._searchQuery.set('');
+    this._dateFrom.set('');
+    this._dateTo.set('');
+    this._dateFilterOpen.set(false);
+  }
+
+  /**
+   * Toggle date filter visibility (TASK_2025_192)
+   */
+  toggleDateFilter(): void {
+    this._dateFilterOpen.update((open) => !open);
+  }
+
+  // TASK_2025_192: Setter methods for template ngModel bindings
+  setSearchQuery(value: string): void {
+    this._searchQuery.set(value);
+  }
+
+  setDateFrom(value: string): void {
+    this._dateFrom.set(value);
+  }
+
+  setDateTo(value: string): void {
+    this._dateTo.set(value);
   }
 
   /**

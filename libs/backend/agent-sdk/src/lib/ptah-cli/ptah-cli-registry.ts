@@ -586,11 +586,15 @@ export class PtahCliRegistry {
         model,
         // No maxTurns cap — let the agent work freely until done
         cwd,
-        systemPrompt: {
-          type: 'preset' as const,
-          preset: 'claude_code' as const,
-          append: assembly.systemPromptAppend,
-        },
+        systemPrompt:
+          assembly.systemPromptMode === 'standalone' &&
+          assembly.systemPromptContent
+            ? assembly.systemPromptContent
+            : {
+                type: 'preset' as const,
+                preset: 'claude_code' as const,
+                append: assembly.systemPromptContent,
+              },
         tools: {
           type: 'preset' as const,
           preset: 'claude_code' as const,

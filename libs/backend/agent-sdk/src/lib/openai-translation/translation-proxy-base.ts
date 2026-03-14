@@ -224,9 +224,11 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     res: http.ServerResponse
   ): Promise<void> {
     const method = req.method?.toUpperCase() ?? '';
-    const url = req.url ?? '/';
+    const rawUrl = req.url ?? '/';
+    // Strip query string for route matching (SDK sends ?beta=true, etc.)
+    const url = rawUrl.split('?')[0];
 
-    this.logger.debug(`${this.logPrefix} ${method} ${url}`);
+    this.logger.debug(`${this.logPrefix} ${method} ${rawUrl}`);
 
     // Health check
     if (url === '/health' && method === 'GET') {

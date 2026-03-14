@@ -49,6 +49,7 @@ import {
   resolveCliPath,
   resolveWindowsCmd,
 } from './cli-adapter.utils';
+import { resolveAndImportSdk } from './sdk-resolver';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 const execFileAsync = promisify(execFile);
@@ -837,13 +838,14 @@ export class CopilotSdkAdapter implements CliAdapter {
     const token = await this.getGitHubToken();
 
     // Dynamic import to handle the ESM @github/copilot-sdk package.
-    // The SDK is imported at runtime (not statically) to:
-    // 1. Avoid ESM/CJS module resolution issues at compile time
-    // 2. Gracefully handle the case where the SDK is not installed
-    // 3. Follow the same pattern as CodexCliAdapter
-    const sdkModule = (await import(
-      '@github/copilot-sdk'
-    )) as unknown as CopilotSdkModule;
+    // The SDK is NOT bundled with the extension. It is resolved at runtime
+    // from the user's system via resolveAndImportSdk(), which tries standard
+    // Node.js resolution first, then falls back to locating the package
+    // relative to the CLI binary's install location.
+    const sdkModule = await resolveAndImportSdk<CopilotSdkModule>(
+      '@github/copilot-sdk',
+      binaryPath
+    );
 
     const clientOptions: SdkClientOptions = {
       autoStart: true,

@@ -151,7 +151,7 @@
             "openrouter"
           ],
           "default": "auto",
-          "description": "Authentication method for Ptah. 'auto' will try OpenRouter first, then OAuth, then API key."
+          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key. Note: Claude OAuth tokens are restricted by Anthropic to Claude Code/Claude.ai only and will not work in third-party tools (Feb 2026 policy)."
         },
         "ptah.model.selected": {
           "type": "string",
@@ -244,6 +244,30 @@
           ],
           "default": null,
           "description": "Z.AI model override for Haiku tier."
+        },
+        "ptah.provider.github-copilot.modelTier.sonnet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "GitHub Copilot model override for Sonnet tier."
+        },
+        "ptah.provider.github-copilot.modelTier.opus": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "GitHub Copilot model override for Opus tier."
+        },
+        "ptah.provider.github-copilot.modelTier.haiku": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "GitHub Copilot model override for Haiku tier."
         },
         "ptah.anthropicProviderId": {
           "type": "string",

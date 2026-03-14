@@ -47,7 +47,7 @@ export class SessionLoaderService {
   private readonly _isLoadingMoreSessions = signal(false);
 
   // Page size constant
-  private static readonly SESSIONS_PAGE_SIZE = 10;
+  private static readonly SESSIONS_PAGE_SIZE = 30;
 
   // Debounce timer for coalescing rapid loadSessions() calls
   private loadSessionsTimer: ReturnType<typeof setTimeout> | null = null;

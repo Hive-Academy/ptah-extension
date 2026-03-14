@@ -14,6 +14,10 @@ export interface WebviewConfig {
   userIconUri: string;
   /** Unique panel identifier for multi-webview support (TASK_2025_117). Empty string for sidebar. */
   panelId?: string;
+  /** Session ID to auto-load when panel opens (used by pop-out feature). */
+  initialSessionId?: string | null;
+  /** Session name for auto-loaded session tab title. */
+  initialSessionName?: string | null;
 }
 
 /**
