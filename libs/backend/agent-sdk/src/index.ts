@@ -195,6 +195,32 @@ export type {
 } from './lib/copilot-provider';
 
 // ============================================================
+// Codex Provider (TASK_2025_193)
+// OpenAI Codex integration via file-based OAuth + translation proxy
+// ============================================================
+export {
+  CodexAuthService,
+  CodexTranslationProxy,
+  CODEX_PROVIDER_ENTRY,
+  CODEX_DEFAULT_TIERS,
+} from './lib/codex-provider';
+export type { ICodexAuthService, CodexAuthFile } from './lib/codex-provider';
+
+// ============================================================
+// OpenAI Translation Module (TASK_2025_193)
+// Shared Anthropic <-> OpenAI translation infrastructure
+// ============================================================
+export {
+  OpenAIResponseTranslator,
+  TranslationProxyBase,
+  translateAnthropicToOpenAI,
+} from './lib/openai-translation';
+export type {
+  ITranslationProxy,
+  TranslationProxyConfig,
+} from './lib/openai-translation';
+
+// ============================================================
 // Slash Command Interceptor (TASK_2025_184)
 // Detects and classifies follow-up slash commands
 // ============================================================

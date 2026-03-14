@@ -102,6 +102,10 @@ export const SDK_TOKENS = {
   /** Copilot Provider Services (TASK_2025_186) */
   SDK_COPILOT_AUTH: Symbol.for('SdkCopilotAuth'),
   SDK_COPILOT_PROXY: Symbol.for('SdkCopilotProxy'),
+
+  /** Codex Provider Services (TASK_2025_193) */
+  SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
+  SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
 } as const;
 
 /**

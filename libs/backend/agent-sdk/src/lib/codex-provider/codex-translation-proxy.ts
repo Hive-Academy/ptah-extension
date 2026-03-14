@@ -11,20 +11,15 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { TranslationProxyBase } from '../openai-translation';
+import { SDK_TOKENS } from '../di/tokens';
 import type { CodexAuthService } from './codex-auth.service';
 import { CODEX_PROVIDER_ENTRY } from './codex-provider-entry';
-
-/**
- * DI token for the Codex auth service.
- * Uses Symbol.for() directly since Batch 4 will add the proper SDK_TOKENS entry.
- */
-const SDK_CODEX_AUTH_TOKEN = Symbol.for('SdkCodexAuth');
 
 @injectable()
 export class CodexTranslationProxy extends TranslationProxyBase {
   constructor(
     @inject(TOKENS.LOGGER) logger: Logger,
-    @inject(SDK_CODEX_AUTH_TOKEN)
+    @inject(SDK_TOKENS.SDK_CODEX_AUTH)
     private readonly codexAuth: CodexAuthService
   ) {
     super(logger, { name: 'Codex', modelPrefix: '' });

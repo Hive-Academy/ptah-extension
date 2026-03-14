@@ -34,6 +34,9 @@ import type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
 } from '../copilot-provider/copilot-provider.types';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
+import type { ICodexAuthService } from '../codex-provider/codex-provider.types';
+import type { ITranslationProxy } from '../openai-translation';
 
 export interface AuthResult {
   configured: boolean;
@@ -77,7 +80,11 @@ export class AuthManager {
     @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
     private copilotAuth: ICopilotAuthService,
     @inject(SDK_TOKENS.SDK_COPILOT_PROXY)
-    private copilotProxy: ICopilotTranslationProxy
+    private copilotProxy: ICopilotTranslationProxy,
+    @inject(SDK_TOKENS.SDK_CODEX_AUTH)
+    private codexAuth: ICodexAuthService,
+    @inject(SDK_TOKENS.SDK_CODEX_PROXY)
+    private codexProxy: ITranslationProxy
   ) {}
 
   /**
@@ -365,6 +372,24 @@ export class AuthManager {
     name: string;
     staticModels?: Array<{ id: string }>;
   }): Promise<AuthResult> {
+    // Dispatch based on provider ID
+    if (provider.id === 'openai-codex') {
+      return this.configureCodexOAuth(provider);
+    }
+
+    // Default: GitHub Copilot flow (existing behavior, unchanged)
+    return this.configureCopilotOAuth(provider);
+  }
+
+  /**
+   * Configure GitHub Copilot OAuth provider (TASK_2025_186).
+   * Uses VS Code GitHub authentication and the Copilot translation proxy.
+   */
+  private async configureCopilotOAuth(provider: {
+    id: string;
+    name: string;
+    staticModels?: Array<{ id: string }>;
+  }): Promise<AuthResult> {
     const providerName = provider.name;
 
     this.logger.info(
@@ -413,6 +438,83 @@ export class AuthManager {
     // Step 3: Point SDK at the proxy
     this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
     this.authEnv.ANTHROPIC_AUTH_TOKEN = COPILOT_PROXY_TOKEN_PLACEHOLDER;
+
+    // Step 4: Apply tier mappings and seed pricing
+    this.providerModels.switchActiveProvider(provider.id);
+    seedStaticModelPricing(provider.id);
+
+    this.logger.info(
+      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`
+    );
+    this.logger.info(
+      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`
+    );
+
+    return {
+      configured: true,
+      details: [`${providerName} (OAuth via translation proxy at ${proxyUrl})`],
+    };
+  }
+
+  /**
+   * Configure OpenAI Codex OAuth provider (TASK_2025_193).
+   * Uses file-based auth from ~/.codex/auth.json and the Codex translation proxy.
+   */
+  private async configureCodexOAuth(provider: {
+    id: string;
+    name: string;
+    staticModels?: Array<{ id: string }>;
+  }): Promise<AuthResult> {
+    const providerName = provider.name;
+
+    this.logger.info(
+      `[AuthManager] Configuring OAuth provider: ${providerName}`
+    );
+
+    // Step 1: Verify Codex auth and ensure tokens are fresh
+    const isAuthed = await this.codexAuth.isAuthenticated();
+    if (!isAuthed) {
+      this.logger.warn(
+        `[AuthManager] ${providerName} not authenticated. Run \`codex login\` to authenticate.`
+      );
+      return { configured: false, details: [] };
+    }
+
+    const tokensFresh = await this.codexAuth.ensureTokensFresh();
+    if (!tokensFresh) {
+      this.logger.warn(
+        `[AuthManager] ${providerName} token refresh failed. Run \`codex login\` to re-authenticate.`
+      );
+      return { configured: false, details: [] };
+    }
+
+    // Step 2: Start the Codex translation proxy
+    let proxyUrl: string;
+    try {
+      if (this.codexProxy.isRunning()) {
+        proxyUrl = this.codexProxy.getUrl()!;
+        this.logger.info(
+          `[AuthManager] Codex translation proxy already running at ${proxyUrl}`
+        );
+      } else {
+        const result = await this.codexProxy.start();
+        proxyUrl = result.url;
+        this.logger.info(
+          `[AuthManager] Codex translation proxy started at ${proxyUrl}`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[AuthManager] Failed to start Codex translation proxy: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return { configured: false, details: [] };
+    }
+
+    // Step 3: Point SDK at the Codex proxy
+    this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
+    this.authEnv.ANTHROPIC_AUTH_TOKEN = CODEX_PROXY_TOKEN_PLACEHOLDER;
 
     // Step 4: Apply tier mappings and seed pricing
     this.providerModels.switchActiveProvider(provider.id);
@@ -509,6 +611,17 @@ export class AuthManager {
       this.copilotProxy.stop().catch((err) => {
         this.logger.warn(
           `[AuthManager] Failed to stop Copilot proxy during cleanup: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      });
+    }
+
+    // Stop Codex translation proxy if running (TASK_2025_193)
+    if (this.codexProxy?.isRunning()) {
+      this.codexProxy.stop().catch((err) => {
+        this.logger.warn(
+          `[AuthManager] Failed to stop Codex proxy during cleanup: ${
             err instanceof Error ? err.message : String(err)
           }`
         );

@@ -59,6 +59,7 @@ import {
   CopilotAuthService,
   CopilotTranslationProxy,
 } from '../copilot-provider';
+import { CodexAuthService, CodexTranslationProxy } from '../codex-provider';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
 import * as vscode from 'vscode';
@@ -360,6 +361,24 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COPILOT_PROXY,
     { useClass: CopilotTranslationProxy },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Codex Provider Services (TASK_2025_193)
+  // Auth service and translation proxy for OpenAI Codex integration
+  // Must be registered before AuthManager resolves (which depends on these)
+  // ============================================================
+
+  container.register(
+    SDK_TOKENS.SDK_CODEX_AUTH,
+    { useClass: CodexAuthService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_CODEX_PROXY,
+    { useClass: CodexTranslationProxy },
     { lifecycle: Lifecycle.Singleton }
   );
 
