@@ -330,6 +330,9 @@ export class AuthManager {
       // authEnvVar is per-provider: ANTHROPIC_AUTH_TOKEN (Bearer) or ANTHROPIC_API_KEY (X-API-Key)
       this.authEnv.ANTHROPIC_BASE_URL = baseUrl;
       this.authEnv[authEnvVar as keyof AuthEnv] = providerKey.trim();
+      // Sync to process.env — SDK reads these directly, not from the env option
+      process.env['ANTHROPIC_BASE_URL'] = baseUrl;
+      process.env[authEnvVar] = providerKey.trim();
 
       // Apply persisted tier mappings for this provider (TASK_2025_132)
       this.providerModels.switchActiveProvider(providerId);
@@ -438,6 +441,9 @@ export class AuthManager {
     // Step 3: Point SDK at the proxy
     this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
     this.authEnv.ANTHROPIC_AUTH_TOKEN = COPILOT_PROXY_TOKEN_PLACEHOLDER;
+    // Sync to process.env — SDK reads these directly, not from the env option
+    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = COPILOT_PROXY_TOKEN_PLACEHOLDER;
 
     // Step 4: Apply tier mappings and seed pricing
     this.providerModels.switchActiveProvider(provider.id);
@@ -515,6 +521,9 @@ export class AuthManager {
     // Step 3: Point SDK at the Codex proxy
     this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
     this.authEnv.ANTHROPIC_AUTH_TOKEN = CODEX_PROXY_TOKEN_PLACEHOLDER;
+    // Sync to process.env — SDK reads these directly, not from the env option
+    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = CODEX_PROXY_TOKEN_PLACEHOLDER;
 
     // Step 4: Apply tier mappings and seed pricing
     this.providerModels.switchActiveProvider(provider.id);
@@ -561,6 +570,8 @@ export class AuthManager {
       }
 
       this.authEnv.ANTHROPIC_API_KEY = apiKey.trim();
+      // Sync to process.env — SDK reads these directly
+      process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
       details.push(
         `API key from SecretStorage (pay-per-token, format ${
           isValidFormat ? 'valid' : 'INVALID'
@@ -657,6 +668,8 @@ export class AuthManager {
   private clearAllAuthEnvVars(): void {
     for (const varName of AUTH_ENV_VARS) {
       delete this.authEnv[varName as keyof AuthEnv];
+      // Sync to process.env — SDK reads these directly
+      delete process.env[varName];
     }
   }
 
