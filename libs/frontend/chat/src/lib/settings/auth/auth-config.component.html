@@ -105,8 +105,11 @@
   </div>
   }
 
-  <!-- OAuth Provider UI (GitHub Copilot) - TASK_2025_191 -->
+  <!-- OAuth Provider UI - TASK_2025_191, TASK_2025_198 -->
   @if (isOAuthProvider()) {
+
+  <!-- GitHub Copilot: GitHub OAuth login flow -->
+  @if (isCopilotProvider()) {
   <div class="form-control">
     <div class="label py-1 justify-start gap-2">
       <span class="label-text text-xs font-medium">
@@ -167,6 +170,39 @@
       </span>
     </div>
   </div>
+  }
+
+  <!-- OpenAI Codex: File-based auth from ~/.codex/auth.json -->
+  @if (isCodexProvider()) {
+  <div class="form-control">
+    <div class="label py-1 justify-start gap-2">
+      <span class="label-text text-xs font-medium">
+        {{ selectedProvider()?.name ?? 'Provider' }} Authentication
+      </span>
+      <span class="badge badge-info badge-xs gap-0.5" aria-label="File-based auth">
+        <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
+        <span>CLI Auth</span>
+      </span>
+    </div>
+
+    <div
+      class="input input-bordered input-sm flex-1 flex items-center text-xs gap-1.5"
+    >
+      <span class="text-base-content/70">
+        Authenticated via <code class="text-[10px]">~/.codex/auth.json</code>
+      </span>
+    </div>
+
+    <div class="label flex-col items-start gap-0.5 py-1">
+      <span class="label-text-alt text-[10px] opacity-70">
+        <strong>{{ selectedProvider()?.name }}:</strong>
+        {{ selectedProvider()?.description }}. Run
+        <code class="text-[10px] font-semibold">codex login</code>
+        in your terminal to authenticate.
+      </span>
+    </div>
+  </div>
+  }
   } @else {
   <!-- Standard API Key Provider Input (existing code) -->
   <div class="form-control">

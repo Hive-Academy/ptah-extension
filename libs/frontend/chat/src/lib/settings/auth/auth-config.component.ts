@@ -104,10 +104,20 @@ export class AuthConfigComponent implements OnInit {
    */
   readonly selectedProvider = this.authState.selectedProvider;
 
-  /** Whether the selected provider uses OAuth (e.g., GitHub Copilot) (TASK_2025_191) */
+  /** Whether the selected provider uses OAuth (e.g., GitHub Copilot, OpenAI Codex) (TASK_2025_191) */
   readonly isOAuthProvider = computed(() => {
     const provider = this.selectedProvider();
     return provider?.authType === 'oauth';
+  });
+
+  /** Whether the selected provider is GitHub Copilot (uses GitHub OAuth login) */
+  readonly isCopilotProvider = computed(() => {
+    return this.selectedProvider()?.id === 'github-copilot';
+  });
+
+  /** Whether the selected provider is OpenAI Codex (uses file-based auth from ~/.codex/auth.json) */
+  readonly isCodexProvider = computed(() => {
+    return this.selectedProvider()?.id === 'openai-codex';
   });
 
   /**

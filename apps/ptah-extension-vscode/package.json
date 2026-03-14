@@ -269,12 +269,38 @@
           "default": null,
           "description": "GitHub Copilot model override for Haiku tier."
         },
+        "ptah.provider.openai-codex.modelTier.sonnet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "OpenAI Codex model override for Sonnet tier."
+        },
+        "ptah.provider.openai-codex.modelTier.opus": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "OpenAI Codex model override for Opus tier."
+        },
+        "ptah.provider.openai-codex.modelTier.haiku": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "OpenAI Codex model override for Haiku tier."
+        },
         "ptah.anthropicProviderId": {
           "type": "string",
           "enum": [
             "openrouter",
             "moonshot",
-            "z-ai"
+            "z-ai",
+            "github-copilot",
+            "openai-codex"
           ],
           "default": "openrouter",
           "description": "Selected Anthropic-compatible provider for API key authentication."
