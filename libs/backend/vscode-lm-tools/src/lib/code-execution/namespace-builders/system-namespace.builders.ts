@@ -3,11 +3,24 @@
  *
  * Provides AI/LM integration, file system access, and command execution.
  * These namespaces enable system-level interactions.
+ *
+ * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
+ * because buildAINamespace() uses vscode.lm.* (Language Model API),
+ * vscode.LanguageModelChatMessage, vscode.CancellationTokenSource, and
+ * buildCommandsNamespace() uses vscode.commands.* — these are VS Code-specific
+ * IDE APIs with no platform-core equivalent.
+ * File operations (buildFilesNamespace, resolveWorkspacePath) use platform-core
+ * IWorkspaceProvider and IFileSystemProvider for workspace-relative path resolution.
  */
 
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { FileSystemManager, CommandManager } from '@ptah-extension/vscode-core';
+import { FileType } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+} from '@ptah-extension/platform-core';
 import { AINamespace, FilesNamespace, CommandsNamespace } from '../types';
 
 /**
@@ -16,6 +29,8 @@ import { AINamespace, FilesNamespace, CommandsNamespace } from '../types';
 export interface SystemNamespaceDependencies {
   fileSystemManager: FileSystemManager;
   commandManager: CommandManager;
+  workspaceProvider: IWorkspaceProvider;
+  fileSystemProvider: IFileSystemProvider;
 }
 
 /**
@@ -265,7 +280,12 @@ EXAMPLE:
  * Exposes VS Code Language Model API for Claude CLI -> VS Code LM delegation
  * TASK_2025_039: Enhanced with advanced LLM chat, token intelligence, and specialized AI tasks
  */
-export function buildAINamespace(): AINamespace {
+export function buildAINamespace(
+  deps: Pick<
+    SystemNamespaceDependencies,
+    'workspaceProvider' | 'fileSystemProvider'
+  >
+): AINamespace {
   // Helper function to avoid 'this' context issues
   const namespace: AINamespace = {
     // ========================================
@@ -525,20 +545,17 @@ ${message}
       }
 
       // Read agent definition file
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
+      const workspaceRoot = deps.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
         throw new Error('No workspace folder open');
       }
 
-      const agentFilePath = vscode.Uri.joinPath(
-        workspaceFolders[0].uri,
-        normalizedPath
-      );
+      const agentFilePath = path.join(workspaceRoot, normalizedPath);
 
       let agentDefinition: string;
       try {
         // Check file size BEFORE reading (prevent resource exhaustion)
-        const stat = await vscode.workspace.fs.stat(agentFilePath);
+        const stat = await deps.fileSystemProvider.stat(agentFilePath);
         const maxSizeBytes = 10 * 1024 * 1024; // 10MB limit
         if (stat.size > maxSizeBytes) {
           throw new Error(
@@ -547,8 +564,7 @@ ${message}
         }
 
         // Now safe to read
-        const fileContent = await vscode.workspace.fs.readFile(agentFilePath);
-        agentDefinition = Buffer.from(fileContent).toString('utf8');
+        agentDefinition = await deps.fileSystemProvider.readFile(agentFilePath);
       } catch (error) {
         throw new Error(
           `Failed to read agent file ${agentPath}: ${(error as Error).message}`
@@ -607,12 +623,15 @@ ${message}
       }
 
       // Read file — resolve relative paths against workspace root
-      const uri = resolveWorkspacePath(filePath);
+      const resolvedPath = resolveWorkspacePath(
+        filePath,
+        deps.workspaceProvider
+      );
       let fileContent: string;
 
       try {
         // Check file size BEFORE reading (prevent resource exhaustion)
-        const stat = await vscode.workspace.fs.stat(uri);
+        const stat = await deps.fileSystemProvider.stat(resolvedPath);
         const maxSizeBytes = 10 * 1024 * 1024; // 10MB limit
         if (stat.size > maxSizeBytes) {
           throw new Error(
@@ -621,8 +640,7 @@ ${message}
         }
 
         // Now safe to read
-        const fileData = await vscode.workspace.fs.readFile(uri);
-        fileContent = Buffer.from(fileData).toString('utf8');
+        fileContent = await deps.fileSystemProvider.readFile(resolvedPath);
       } catch (error) {
         throw new Error(
           `Failed to read file ${filePath}: ${(error as Error).message}`
@@ -968,7 +986,10 @@ function stripJsonComments(jsonString: string): string {
  * SECURITY: Rejects absolute paths and path traversal to confine
  * all file operations to the workspace directory.
  */
-function resolveWorkspacePath(filePath: string): vscode.Uri {
+function resolveWorkspacePath(
+  filePath: string,
+  workspaceProvider: IWorkspaceProvider
+): string {
   // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
 
@@ -989,12 +1010,12 @@ function resolveWorkspacePath(filePath: string): vscode.Uri {
   }
 
   // Resolve relative to workspace root
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) {
+  const workspaceRoot = workspaceProvider.getWorkspaceRoot();
+  if (!workspaceRoot) {
     throw new Error('No workspace folder is open.');
   }
 
-  return vscode.Uri.joinPath(workspaceFolders[0].uri, normalizedPath);
+  return path.join(workspaceRoot, normalizedPath);
 }
 
 /**
@@ -1004,30 +1025,26 @@ function resolveWorkspacePath(filePath: string): vscode.Uri {
 export function buildFilesNamespace(
   deps: SystemNamespaceDependencies
 ): FilesNamespace {
-  const { fileSystemManager } = deps;
+  const { fileSystemProvider, workspaceProvider } = deps;
 
   return {
-    read: async (path: string) => {
-      const uri = resolveWorkspacePath(path);
+    read: async (filePath: string) => {
+      const resolvedPath = resolveWorkspacePath(filePath, workspaceProvider);
       // Check if file exists before reading
-      try {
-        await fileSystemManager.stat(uri);
-      } catch {
-        throw new Error(`File not found: ${uri.fsPath}`);
+      const exists = await fileSystemProvider.exists(resolvedPath);
+      if (!exists) {
+        throw new Error(`File not found: ${resolvedPath}`);
       }
-      const content = await fileSystemManager.readFile(uri);
-      return new TextDecoder('utf-8').decode(content);
+      return fileSystemProvider.readFile(resolvedPath);
     },
-    readJson: async (path: string) => {
-      const uri = resolveWorkspacePath(path);
+    readJson: async (filePath: string) => {
+      const resolvedPath = resolveWorkspacePath(filePath, workspaceProvider);
       // Check if file exists before reading
-      try {
-        await fileSystemManager.stat(uri);
-      } catch {
-        throw new Error(`File not found: ${uri.fsPath}`);
+      const exists = await fileSystemProvider.exists(resolvedPath);
+      if (!exists) {
+        throw new Error(`File not found: ${resolvedPath}`);
       }
-      const content = await fileSystemManager.readFile(uri);
-      const text = new TextDecoder('utf-8').decode(content);
+      const text = await fileSystemProvider.readFile(resolvedPath);
 
       // Try standard JSON.parse first (most files like package.json are valid JSON)
       try {
@@ -1039,20 +1056,20 @@ export function buildFilesNamespace(
       }
     },
     list: async (directory: string) => {
-      const uri = resolveWorkspacePath(directory);
+      const resolvedPath = resolveWorkspacePath(directory, workspaceProvider);
       // Check if directory exists before listing
       try {
-        const stat = await fileSystemManager.stat(uri);
-        if (stat.type !== vscode.FileType.Directory) {
-          throw new Error(`Path is not a directory: ${uri.fsPath}`);
+        const stat = await fileSystemProvider.stat(resolvedPath);
+        if (stat.type !== FileType.Directory) {
+          throw new Error(`Path is not a directory: ${resolvedPath}`);
         }
       } catch {
-        throw new Error(`Directory not found: ${uri.fsPath}`);
+        throw new Error(`Directory not found: ${resolvedPath}`);
       }
-      const entries = await fileSystemManager.readDirectory(uri);
-      return entries.map(([name, type]) => ({
-        name,
-        type: type === vscode.FileType.Directory ? 'directory' : 'file',
+      const entries = await fileSystemProvider.readDirectory(resolvedPath);
+      return entries.map((entry) => ({
+        name: entry.name,
+        type: entry.type === FileType.Directory ? 'directory' : 'file',
       }));
     },
   };

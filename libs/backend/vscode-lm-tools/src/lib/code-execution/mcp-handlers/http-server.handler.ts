@@ -3,11 +3,18 @@
  *
  * Manages the HTTP server for MCP protocol communication.
  * Handles CORS, request parsing, and response formatting.
+ *
+ * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
+ * because it uses vscode.workspace.getConfiguration() for MCP port config
+ * and vscode.window.showErrorMessage() for user-facing error notifications.
+ * These are VS Code-specific APIs with no platform-core equivalent.
+ * The public interface uses IStateStorage (platform-core) for state persistence.
  */
 
 import * as http from 'http';
 import * as vscode from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { MCPRequest, MCPResponse } from '../types';
 
 /**
@@ -16,7 +23,7 @@ import type { MCPRequest, MCPResponse } from '../types';
 export interface HttpServerConfig {
   port: number;
   logger: Logger;
-  extensionContext: vscode.ExtensionContext;
+  workspaceState: IStateStorage;
   onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>;
 }
 
@@ -44,12 +51,7 @@ export function getConfiguredPort(): number {
 export async function startHttpServer(
   config: HttpServerConfig
 ): Promise<HttpServerResult> {
-  const {
-    port: configuredPort,
-    logger,
-    extensionContext,
-    onMCPRequest,
-  } = config;
+  const { port: configuredPort, logger, workspaceState, onMCPRequest } = config;
 
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
@@ -66,7 +68,7 @@ export async function startHttpServer(
       const port = address.port;
 
       // Store port in workspace state for Claude CLI discovery
-      extensionContext.workspaceState.update('ptah.mcp.port', port);
+      workspaceState.update('ptah.mcp.port', port);
 
       logger.info(
         `CodeExecutionMCP server started on http://localhost:${port}`,
@@ -87,7 +89,7 @@ export async function startHttpServer(
  */
 export async function stopHttpServer(
   server: http.Server | null,
-  extensionContext: vscode.ExtensionContext,
+  workspaceState: IStateStorage,
   logger: Logger
 ): Promise<void> {
   if (!server) {
@@ -97,7 +99,7 @@ export async function stopHttpServer(
   return new Promise((resolve) => {
     server.close(() => {
       logger.info('CodeExecutionMCP server stopped', 'CodeExecutionMCP');
-      extensionContext.workspaceState.update('ptah.mcp.port', undefined);
+      workspaceState.update('ptah.mcp.port', undefined);
       resolve();
     });
   });

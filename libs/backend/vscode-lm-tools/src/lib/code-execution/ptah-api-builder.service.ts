@@ -27,7 +27,6 @@
  * TASK_2025_025: Expanded from 8 to 12 namespaces for better Claude discoverability
  */
 
-import * as vscode from 'vscode';
 import { injectable, inject, container } from 'tsyringe';
 import {
   TOKENS,
@@ -35,6 +34,11 @@ import {
   FileSystemManager,
   CommandManager,
 } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+} from '@ptah-extension/platform-core';
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
@@ -196,7 +200,13 @@ export class PtahAPIBuilder {
     private readonly agentProcessManager: AgentProcessManager,
 
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetectionService: CliDetectionService
+    private readonly cliDetectionService: CliDetectionService,
+
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
+
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystemProvider: IFileSystemProvider
   ) {
     this.logger.info('PtahAPIBuilder initialized with 17 namespaces');
   }
@@ -216,6 +226,8 @@ export class PtahAPIBuilder {
     const systemDeps = {
       fileSystemManager: this.fileSystemManager,
       commandManager: this.commandManager,
+      workspaceProvider: this.workspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
     };
 
     const analysisDeps = {
@@ -229,12 +241,14 @@ export class PtahAPIBuilder {
       workspaceAnalyzer: this.workspaceAnalyzer,
       contextEnrichment: this.contextEnrichment,
       dependencyGraph: this.dependencyGraph,
+      workspaceProvider: this.workspaceProvider,
     };
 
     const astDeps = {
       treeSitterParser: this.treeSitterParser,
       astAnalysis: this.astAnalysis,
-      fileSystemManager: this.fileSystemManager,
+      fileSystemProvider: this.fileSystemProvider,
+      workspaceProvider: this.workspaceProvider,
     };
 
     const llmDeps = {
@@ -258,7 +272,7 @@ export class PtahAPIBuilder {
       git: buildGitNamespace(),
 
       // System namespaces (VS Code integration)
-      ai: buildAINamespace(),
+      ai: buildAINamespace(systemDeps),
       files: buildFilesNamespace(systemDeps),
       commands: buildCommandsNamespace(),
 
@@ -286,7 +300,7 @@ export class PtahAPIBuilder {
       agent: buildAgentNamespace({
         agentProcessManager: this.agentProcessManager,
         cliDetectionService: this.cliDetectionService,
-        workspaceRoot: workspaceRoot.fsPath,
+        workspaceRoot,
         getActiveSessionId: () => {
           // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
           // In single-session mode (current), there's at most one.
@@ -317,7 +331,7 @@ export class PtahAPIBuilder {
                 workspacePath: string
               ): Promise<string | null>;
             }>(SDK_ENHANCED_PROMPTS_SERVICE);
-            const workspacePath = this.getWorkspaceRoot().fsPath;
+            const workspacePath = this.getWorkspaceRoot();
             const content = await service.getProjectGuidanceContent(
               workspacePath
             );
@@ -339,7 +353,7 @@ export class PtahAPIBuilder {
                 workspacePath: string
               ): Promise<string | null>;
             }>(SDK_ENHANCED_PROMPTS_SERVICE);
-            const workspacePath = this.getWorkspaceRoot().fsPath;
+            const workspacePath = this.getWorkspaceRoot();
             const content = await service.getEnhancedPromptContent(
               workspacePath
             );
@@ -436,15 +450,15 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Get the workspace root URI
+   * Get the workspace root path
    * Falls back to current working directory if no workspace is open
    */
-  private getWorkspaceRoot(): vscode.Uri {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (workspaceFolders && workspaceFolders.length > 0) {
-      return workspaceFolders[0].uri;
+  private getWorkspaceRoot(): string {
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (workspaceRoot) {
+      return workspaceRoot;
     }
     // Fallback to current working directory
-    return vscode.Uri.file(process.cwd());
+    return process.cwd();
   }
 }

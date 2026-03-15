@@ -4,6 +4,11 @@
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
  * Supports 11 namespaces exposing VS Code extension capabilities to Claude CLI.
  *
+ * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
+ * because the DiagnosticsNamespace and related types reference
+ * vscode.DiagnosticSeverity for type definitions. These are VS Code-specific
+ * type enums with no platform-core equivalent.
+ *
  * TASK_2025_025: Expanded API surface for better Claude discoverability
  */
 

@@ -13,9 +13,10 @@
 
 import { injectable, inject } from 'tsyringe';
 import { minimatch } from 'minimatch';
-import type { ExtensionContext } from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import {
   isBashToolInput,
   isEditToolInput,
@@ -65,7 +66,8 @@ export class PermissionPromptService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.EXTENSION_CONTEXT) private readonly context: ExtensionContext
+    @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
+    private readonly workspaceState: IStateStorage
   ) {}
 
   /**
@@ -260,9 +262,7 @@ export class PermissionPromptService {
    * @returns Array of permission rules (empty array if none exist)
    */
   getRules(): PermissionRule[] {
-    return (
-      this.context.workspaceState.get<PermissionRule[]>(RULES_STORAGE_KEY) ?? []
-    );
+    return this.workspaceState.get<PermissionRule[]>(RULES_STORAGE_KEY) ?? [];
   }
 
   /**
@@ -304,7 +304,7 @@ export class PermissionPromptService {
    * @param rules - Rules array to persist
    */
   private saveRules(rules: PermissionRule[]): void {
-    this.context.workspaceState.update(RULES_STORAGE_KEY, rules);
+    this.workspaceState.update(RULES_STORAGE_KEY, rules);
   }
 
   /**

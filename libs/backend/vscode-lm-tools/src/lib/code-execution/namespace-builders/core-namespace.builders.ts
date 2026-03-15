@@ -3,6 +3,14 @@
  *
  * Provides workspace analysis, file search, symbol search, diagnostics, and git status.
  * These are the foundational namespaces for codebase exploration.
+ *
+ * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
+ * because buildSymbolsNamespace() uses vscode.commands.executeCommand for workspace
+ * symbol provider, buildDiagnosticsNamespace() uses vscode.languages.getDiagnostics()
+ * and vscode.DiagnosticSeverity, and buildGitNamespace() uses
+ * vscode.extensions.getExtension('vscode.git'). These are VS Code-specific IDE APIs
+ * with no platform-core equivalent. The buildWorkspaceNamespace() and
+ * buildSearchNamespace() functions are already platform-agnostic (use injected services).
  */
 
 import * as vscode from 'vscode';
