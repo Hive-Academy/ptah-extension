@@ -18,10 +18,15 @@
         <div class="relative">
           <lucide-angular [img]="BotIcon" class="w-4 h-4" />
           @if (authState.hasApiKey() || authState.hasOAuthToken()) {
-          <span class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0" aria-label="Configured"></span>
+          <span
+            class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0"
+            aria-label="Configured"
+          ></span>
           }
         </div>
-        <span class="text-[10px] font-medium leading-tight text-center">Claude</span>
+        <span class="text-[10px] font-medium leading-tight text-center"
+          >Claude</span
+        >
       </button>
 
       <!-- Dynamic provider tiles from registry -->
@@ -46,15 +51,26 @@
           <lucide-angular [img]="ZapIcon" class="w-4 h-4" />
           } @else {
           <lucide-angular [img]="GlobeIcon" class="w-4 h-4" />
-          }
-          @if (provider.id === 'openai-codex') {
-            @if (authState.codexAuthenticated() && !authState.codexTokenStale()) {
-            <span class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0" aria-label="Authenticated"></span>
-            } @else if (authState.codexAuthenticated() && authState.codexTokenStale()) {
-            <span class="absolute -top-1 -right-1.5 badge badge-warning badge-xs w-2 h-2 p-0" aria-label="Token expired"></span>
-            }
-          } @else if (provider.authType === 'oauth' ? (provider.id === 'github-copilot' ? authState.copilotAuthenticated() : true) : authState.hasProviderKey() && authState.selectedProviderId() === provider.id) {
-          <span class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0" aria-label="Configured"></span>
+          } @if (provider.id === 'openai-codex') { @if
+          (authState.codexAuthenticated() && !authState.codexTokenStale()) {
+          <span
+            class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0"
+            aria-label="Authenticated"
+          ></span>
+          } @else if (authState.codexAuthenticated() &&
+          authState.codexTokenStale()) {
+          <span
+            class="absolute -top-1 -right-1.5 badge badge-warning badge-xs w-2 h-2 p-0"
+            aria-label="Token expired"
+          ></span>
+          } } @else if (provider.authType === 'oauth' ? (provider.id ===
+          'github-copilot' ? authState.copilotAuthenticated() : true) :
+          authState.hasProviderKey() && authState.selectedProviderId() ===
+          provider.id) {
+          <span
+            class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0"
+            aria-label="Configured"
+          ></span>
           }
         </div>
         <span class="text-[10px] font-medium leading-tight text-center">
@@ -378,14 +394,19 @@
       (click)="codexLogin()"
     >
       <lucide-angular [img]="TerminalIcon" class="w-3.5 h-3.5" />
-      <span>{{ authState.codexTokenStale() ? 'Re-authenticate in Terminal' : 'Open Codex Login' }}</span>
+      <span>{{
+        authState.codexTokenStale()
+          ? 'Re-authenticate in Terminal'
+          : 'Open Codex Login'
+      }}</span>
     </button>
 
     @if (authState.codexTokenStale()) {
     <div class="alert alert-warning py-2 px-3 text-[10px] mt-2" role="alert">
       <span>
-        <strong>Token expired.</strong> Click the button above to re-authenticate,
-        or run <code class="font-semibold">codex login</code> in your terminal.
+        <strong>Token expired.</strong> Click the button above to
+        re-authenticate, or run
+        <code class="font-semibold">codex login</code> in your terminal.
       </span>
     </div>
     }
@@ -498,9 +519,7 @@
       } }
     </div>
   </div>
-  }
-
-  }
+  } }
 
   <!-- Save & Test Button -->
   <div class="form-control pt-1">
