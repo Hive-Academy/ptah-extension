@@ -10,7 +10,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
 import type {
   ProjectIntelligence,
   WorkspaceContext,
@@ -83,13 +82,13 @@ interface CacheEntry {
  * );
  *
  * // Get full project intelligence
- * const intel = await service.getIntelligence(workspaceUri);
+ * const intel = await service.getIntelligence(workspacePath);
  * console.log(`Project: ${intel.workspaceContext.projectType}`);
  * console.log(`Quality: ${intel.qualityAssessment.score}/100`);
  * console.log(`Top issue: ${intel.prescriptiveGuidance.recommendations[0]?.issue}`);
  *
  * // Invalidate after file changes
- * service.invalidateCache(workspaceUri);
+ * service.invalidateCache(workspacePath);
  * ```
  */
 @injectable()
@@ -141,12 +140,12 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
    *
    * Results are cached for 5 minutes by default.
    *
-   * @param workspaceUri - Workspace root URI
+   * @param workspacePath - Workspace root URI
    * @returns Promise resolving to unified ProjectIntelligence
    *
    * @example
    * ```typescript
-   * const intel = await service.getIntelligence(workspaceUri);
+   * const intel = await service.getIntelligence(workspacePath);
    * if (intel.qualityAssessment.score < 60) {
    *   console.log('Quality issues detected:');
    *   intel.prescriptiveGuidance.recommendations.forEach(rec => {
@@ -155,10 +154,8 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
    * }
    * ```
    */
-  async getIntelligence(
-    workspaceUri: vscode.Uri
-  ): Promise<ProjectIntelligence> {
-    const cacheKey = workspaceUri.fsPath;
+  async getIntelligence(workspacePath: string): Promise<ProjectIntelligence> {
+    const cacheKey = workspacePath;
     const startTime = Date.now();
 
     this.logger.debug('Getting project intelligence', {
@@ -178,11 +175,11 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
     // Build fresh intelligence
     try {
       // Get workspace context from detection services
-      const workspaceContext = await this.getWorkspaceContext(workspaceUri);
+      const workspaceContext = await this.getWorkspaceContext(workspacePath);
 
       // Perform quality assessment
       const qualityAssessment = await this.qualityAssessment.assessQuality(
-        workspaceUri
+        workspacePath
       );
 
       // Generate prescriptive guidance
@@ -223,7 +220,7 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
       });
 
       // Return a minimal intelligence object on error
-      return this.createMinimalIntelligence(workspaceUri);
+      return this.createMinimalIntelligence(workspacePath);
     }
   }
 
@@ -233,48 +230,46 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
    * Faster than getIntelligence when only project metadata is needed.
    * Does not trigger quality assessment or prescriptive guidance generation.
    *
-   * @param workspaceUri - Workspace root URI
+   * @param workspacePath - Workspace root URI
    * @returns Promise resolving to WorkspaceContext
    *
    * @example
    * ```typescript
-   * const context = await service.getWorkspaceContext(workspaceUri);
+   * const context = await service.getWorkspaceContext(workspacePath);
    * console.log(`Project: ${context.projectType}`);
    * if (context.isMonorepo) {
    *   console.log(`Monorepo type: ${context.monorepoType}`);
    * }
    * ```
    */
-  async getWorkspaceContext(
-    workspaceUri: vscode.Uri
-  ): Promise<WorkspaceContext> {
+  async getWorkspaceContext(workspacePath: string): Promise<WorkspaceContext> {
     this.logger.debug('Building workspace context', {
-      workspacePath: workspaceUri.fsPath,
+      workspacePath: workspacePath,
     });
 
     try {
       // Detect project type
       const projectType = await this.projectDetector.detectProjectType(
-        workspaceUri
+        workspacePath
       );
 
       // Detect framework based on project type
-      const projectTypesMap = new Map<vscode.Uri, typeof projectType>();
-      projectTypesMap.set(workspaceUri, projectType);
+      const projectTypesMap = new Map<string, typeof projectType>();
+      projectTypesMap.set(workspacePath, projectType);
       const frameworksMap = await this.frameworkDetector.detectFrameworks(
         projectTypesMap
       );
-      const framework = frameworksMap.get(workspaceUri);
+      const framework = frameworksMap.get(workspacePath);
 
       // Detect monorepo
       const monorepoResult = await this.monorepoDetector.detectMonorepo(
-        workspaceUri
+        workspacePath
       );
 
       // Analyze dependencies (requires project type)
       const dependencyResult =
         await this.dependencyAnalyzer.analyzeDependencies(
-          workspaceUri,
+          workspacePath,
           projectType
         );
 
@@ -311,7 +306,7 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
       return context;
     } catch (error) {
       this.logger.error('Failed to build workspace context', {
-        workspacePath: workspaceUri.fsPath,
+        workspacePath: workspacePath,
         error: error instanceof Error ? error.message : String(error),
       });
 
@@ -326,19 +321,19 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
    * Call this when workspace files have changed significantly
    * (e.g., source file modifications, dependency updates).
    *
-   * @param workspaceUri - Workspace root URI to invalidate
+   * @param workspacePath - Workspace root URI to invalidate
    *
    * @example
    * ```typescript
    * // After detecting file changes
-   * service.invalidateCache(workspaceUri);
+   * service.invalidateCache(workspacePath);
    *
    * // Next getIntelligence call will recompute
-   * const freshIntel = await service.getIntelligence(workspaceUri);
+   * const freshIntel = await service.getIntelligence(workspacePath);
    * ```
    */
-  invalidateCache(workspaceUri: vscode.Uri): void {
-    const cacheKey = workspaceUri.fsPath;
+  invalidateCache(workspacePath: string): void {
+    const cacheKey = workspacePath;
     const hadCache = this.cache.has(cacheKey);
 
     this.cache.delete(cacheKey);
@@ -460,11 +455,11 @@ export class ProjectIntelligenceService implements IProjectIntelligenceService {
   /**
    * Creates minimal intelligence object for error scenarios.
    *
-   * @param workspaceUri - Workspace root URI
+   * @param workspacePath - Workspace root URI
    * @returns Minimal ProjectIntelligence
    */
   private createMinimalIntelligence(
-    _workspaceUri: vscode.Uri
+    _workspacePath: string
   ): ProjectIntelligence {
     const minimalContext = this.createMinimalContext();
     const minimalAssessment = this.createMinimalAssessment();

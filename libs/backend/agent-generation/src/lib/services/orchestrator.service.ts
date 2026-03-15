@@ -555,14 +555,14 @@ export class AgentGenerationOrchestratorService {
         );
       }
 
-      // Get monorepo detection
+      // Get monorepo detection (services now use string paths)
       const monorepoResult = await this.monorepoDetector.detectMonorepo(
-        workspaceUri
+        workspaceUri.fsPath
       );
 
       // Get framework detection (from project type)
       const detectedFramework = await this.frameworkDetector.detectFramework(
-        workspaceUri,
+        workspaceUri.fsPath,
         projectInfo.type
       );
 

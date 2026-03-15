@@ -95,14 +95,14 @@ export class QualityRpcHandlers {
 
         // Optionally invalidate cache for fresh analysis
         if (params?.forceRefresh) {
-          this.intelligenceService.invalidateCache(workspaceFolder.uri);
+          this.intelligenceService.invalidateCache(workspaceFolder.uri.fsPath);
         }
 
         // Track timing to detect if result came from cache
         const preCallMs = Date.now();
 
         const intelligence = await this.intelligenceService.getIntelligence(
-          workspaceFolder.uri
+          workspaceFolder.uri.fsPath
         );
 
         // Determine cache status: fresh analysis takes measurable time,
@@ -210,7 +210,7 @@ export class QualityRpcHandlers {
           }
 
           const intelligence = await this.intelligenceService.getIntelligence(
-            workspaceFolder.uri
+            workspaceFolder.uri.fsPath
           );
 
           // Generate export content based on format

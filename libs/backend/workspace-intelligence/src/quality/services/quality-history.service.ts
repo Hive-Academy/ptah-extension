@@ -20,7 +20,8 @@ import type {
   QualityHistoryEntry,
 } from '@ptah-extension/shared';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
-import type * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { IQualityHistoryService } from '../interfaces';
 
 // ============================================
@@ -74,8 +75,8 @@ export class QualityHistoryService implements IQualityHistoryService {
    */
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.GLOBAL_STATE)
-    private readonly globalState: vscode.Memento
+    @inject(PLATFORM_TOKENS.STATE_STORAGE)
+    private readonly globalState: IStateStorage
   ) {
     this.logger.debug('QualityHistoryService initialized');
   }

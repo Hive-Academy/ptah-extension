@@ -155,7 +155,7 @@ export function buildProjectNamespace(
         };
       }
 
-      const result = await monorepoDetector.detectMonorepo(workspaceUri);
+      const result = await monorepoDetector.detectMonorepo(workspaceUri.fsPath);
       return {
         isMonorepo: result.isMonorepo,
         type: result.type || '',
@@ -175,10 +175,12 @@ export function buildProjectNamespace(
         return [];
       }
 
-      const projectType = await projectDetector.detectProjectType(workspaceUri);
+      const projectType = await projectDetector.detectProjectType(
+        workspaceUri.fsPath
+      );
 
       const analysis = await dependencyAnalyzer.analyzeDependencies(
-        workspaceUri,
+        workspaceUri.fsPath,
         projectType
       );
       return [

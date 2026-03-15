@@ -10,7 +10,8 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { AstAnalysisService } from '../ast/ast-analysis.service';
 import {
@@ -54,7 +55,9 @@ export class ContextEnrichmentService {
     private readonly astAnalysis: AstAnalysisService,
     private readonly tokenCounter: TokenCounterService,
     private readonly fileSystem: FileSystemService,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider
   ) {}
 
   /**
@@ -80,8 +83,7 @@ export class ContextEnrichmentService {
       content = fullContent;
     } else {
       try {
-        const uri = vscode.Uri.file(filePath);
-        content = await this.fileSystem.readFile(uri);
+        content = await this.fileSystem.readFile(filePath);
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -401,9 +403,8 @@ export class ContextEnrichmentService {
    * Convert an absolute file path to a workspace-relative path for display.
    */
   private toRelativePath(filePath: string): string {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (workspaceFolders && workspaceFolders.length > 0) {
-      const workspaceRoot = workspaceFolders[0].uri.fsPath;
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (workspaceRoot) {
       const normalizedFile = filePath.replace(/\\/g, '/');
       const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
       if (normalizedFile.startsWith(normalizedRoot)) {
