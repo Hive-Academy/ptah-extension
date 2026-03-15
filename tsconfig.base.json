@@ -33,6 +33,9 @@
       "@ptah-extension/platform-core": [
         "libs/backend/platform-core/src/index.ts"
       ],
+      "@ptah-extension/platform-vscode": [
+        "libs/backend/platform-vscode/src/index.ts"
+      ],
       "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"

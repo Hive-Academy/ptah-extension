@@ -81,6 +81,9 @@ import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction'
 
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 
+import { registerPlatformVscodeServices } from '@ptah-extension/platform-vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+
 // Import webview support services
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
@@ -116,6 +119,12 @@ export class DIContainer {
     // PHASE 0: Extension Context (MUST BE FIRST)
     // ========================================
     container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+
+    // ========================================
+    // PHASE 0.5: Platform Abstraction Layer (TASK_2025_199)
+    // ========================================
+    // MUST be before any library services (they inject PLATFORM_TOKENS)
+    registerPlatformVscodeServices(container, context);
 
     // ========================================
     // PHASE 1: Logger Dependencies
@@ -165,6 +174,15 @@ export class DIContainer {
     // If not, register now (supports both flows: with/without setupMinimal)
     if (!container.isRegistered(TOKENS.EXTENSION_CONTEXT)) {
       container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
+    }
+
+    // ========================================
+    // PHASE 0.5: Platform Abstraction Layer (TASK_2025_199)
+    // ========================================
+    // MUST be before any library services (they inject PLATFORM_TOKENS)
+    // Check if already registered by setupMinimal()
+    if (!container.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+      registerPlatformVscodeServices(container, context);
     }
 
     // ========================================
