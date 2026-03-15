@@ -1,0 +1,37 @@
+{
+  "name": "@ptah-extension/platform-core",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/backend/platform-core/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:util"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/platform-core",
+        "main": "libs/backend/platform-core/src/index.ts",
+        "tsConfig": "libs/backend/platform-core/tsconfig.lib.json",
+        "assets": ["libs/backend/platform-core/*.md"],
+        "format": ["cjs"],
+        "external": ["tsyringe", "reflect-metadata"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/backend/platform-core/jest.config.ts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/platform-core/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}
