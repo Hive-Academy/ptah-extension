@@ -11,6 +11,7 @@ import type {
   InputBoxOptions,
   ProgressOptions,
   IProgress,
+  ICancellationToken,
 } from '../types/platform.types';
 
 export interface IUserInteraction {
@@ -64,6 +65,6 @@ export interface IUserInteraction {
    */
   withProgress<T>(
     options: ProgressOptions,
-    task: (progress: IProgress) => Promise<T>
+    task: (progress: IProgress, token: ICancellationToken) => Promise<T>
   ): Promise<T>;
 }

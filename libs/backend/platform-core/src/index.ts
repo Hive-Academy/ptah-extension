@@ -13,6 +13,7 @@ export type {
   IPlatformInfo,
   ConfigurationChangeEvent,
   SecretChangeEvent,
+  ICancellationToken,
 } from './types/platform.types';
 
 export { FileType, PlatformType } from './types/platform.types';

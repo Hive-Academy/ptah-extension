@@ -58,33 +58,41 @@ export function registerPlatformVscodeServices(
     useValue: new VscodeStateStorage(context.workspaceState),
   });
 
-  // Secret Storage
+  // Secret Storage (holds event subscriptions — register for disposal)
+  const secretStorage = new VscodeSecretStorage(context.secrets);
   container.register(PLATFORM_TOKENS.SECRET_STORAGE, {
-    useValue: new VscodeSecretStorage(context.secrets),
+    useValue: secretStorage,
   });
+  context.subscriptions.push(secretStorage);
 
-  // Workspace Provider
+  // Workspace Provider (holds event subscriptions — register for disposal)
+  const workspaceProvider = new VscodeWorkspaceProvider();
   container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
-    useValue: new VscodeWorkspaceProvider(),
+    useValue: workspaceProvider,
   });
+  context.subscriptions.push(workspaceProvider);
 
   // User Interaction
   container.register(PLATFORM_TOKENS.USER_INTERACTION, {
     useValue: new VscodeUserInteraction(),
   });
 
-  // Output Channel (default channel name)
+  // Output Channel (holds VS Code OutputChannel — register for disposal)
+  const outputChannel = new VscodeOutputChannel('Ptah Extension');
   container.register(PLATFORM_TOKENS.OUTPUT_CHANNEL, {
-    useValue: new VscodeOutputChannel('Ptah Extension'),
+    useValue: outputChannel,
   });
+  context.subscriptions.push(outputChannel);
 
   // Command Registry
   container.register(PLATFORM_TOKENS.COMMAND_REGISTRY, {
     useValue: new VscodeCommandRegistry(),
   });
 
-  // Editor Provider
+  // Editor Provider (holds event subscriptions — register for disposal)
+  const editorProvider = new VscodeEditorProvider();
   container.register(PLATFORM_TOKENS.EDITOR_PROVIDER, {
-    useValue: new VscodeEditorProvider(),
+    useValue: editorProvider,
   });
+  context.subscriptions.push(editorProvider);
 }

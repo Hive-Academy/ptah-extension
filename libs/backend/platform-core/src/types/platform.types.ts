@@ -89,6 +89,15 @@ export interface IProgress {
 }
 
 /**
+ * Cancellation token for cancellable operations.
+ * Replaces: vscode.CancellationToken
+ */
+export interface ICancellationToken {
+  readonly isCancellationRequested: boolean;
+  readonly onCancellationRequested: IEvent<void>;
+}
+
+/**
  * Progress options for withProgress().
  * Replaces: vscode.ProgressOptions
  */

@@ -34,7 +34,7 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
 
     this.disposables.push(
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
-        fireFolders(undefined as never);
+        fireFolders(undefined as unknown as void);
       })
     );
   }

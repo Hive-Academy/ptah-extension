@@ -30,17 +30,22 @@ export class VscodeFileSystemProvider implements IFileSystemProvider {
   /**
    * Convert vscode.FileType to platform FileType
    */
+  /**
+   * Convert vscode.FileType bitflags to platform FileType.
+   * VS Code uses bitwise OR for combinations (e.g., SymbolicLink | Directory = 66).
+   */
   private convertFileType(vsType: vscode.FileType): FileType {
-    switch (vsType) {
-      case vscode.FileType.File:
-        return FileType.File;
-      case vscode.FileType.Directory:
-        return FileType.Directory;
-      case vscode.FileType.SymbolicLink:
-        return FileType.SymbolicLink;
-      default:
-        return FileType.Unknown;
+    let result: FileType = FileType.Unknown;
+    if (vsType & vscode.FileType.File) {
+      result |= FileType.File;
     }
+    if (vsType & vscode.FileType.Directory) {
+      result |= FileType.Directory;
+    }
+    if (vsType & vscode.FileType.SymbolicLink) {
+      result |= FileType.SymbolicLink;
+    }
+    return result;
   }
 
   async readFile(path: string): Promise<string> {

@@ -10,7 +10,9 @@ import type {
   InputBoxOptions,
   ProgressOptions,
   IProgress,
+  ICancellationToken,
 } from '@ptah-extension/platform-core';
+import { createEvent } from '@ptah-extension/platform-core';
 
 export class VscodeUserInteraction implements IUserInteraction {
   async showErrorMessage(
@@ -56,10 +58,14 @@ export class VscodeUserInteraction implements IUserInteraction {
     const result = await vscode.window.showQuickPick(vsItems, vsOptions);
     if (!result) return undefined;
 
+    // Preserve all QuickPickItem fields from the result
+    const vsResult = result as vscode.QuickPickItem;
     return {
-      label: result.label,
-      description: result.description,
-      detail: result.detail,
+      label: vsResult.label,
+      description: vsResult.description,
+      detail: vsResult.detail,
+      picked: vsResult.picked,
+      alwaysShow: vsResult.alwaysShow,
     };
   }
 
@@ -77,7 +83,7 @@ export class VscodeUserInteraction implements IUserInteraction {
 
   async withProgress<T>(
     options: ProgressOptions,
-    task: (progress: IProgress) => Promise<T>
+    task: (progress: IProgress, token: ICancellationToken) => Promise<T>
   ): Promise<T> {
     const locationMap: Record<string, vscode.ProgressLocation> = {
       notification: vscode.ProgressLocation.Notification,
@@ -93,12 +99,28 @@ export class VscodeUserInteraction implements IUserInteraction {
         title: options.title,
         cancellable: options.cancellable,
       },
-      async (vsProgress) => {
-        return task({
-          report(value) {
-            vsProgress.report(value);
+      async (vsProgress, vsToken) => {
+        // Wrap VS Code CancellationToken into platform ICancellationToken
+        const [onCancellationRequested, fireCancellation] = createEvent<void>();
+        const tokenDisposable = vsToken.onCancellationRequested(() =>
+          fireCancellation(undefined as unknown as void)
+        );
+
+        const token: ICancellationToken = {
+          get isCancellationRequested() {
+            return vsToken.isCancellationRequested;
           },
-        });
+          onCancellationRequested,
+        };
+
+        try {
+          return await task(
+            { report: (value) => vsProgress.report(value) },
+            token
+          );
+        } finally {
+          tokenDisposable.dispose();
+        }
       }
     );
   }
