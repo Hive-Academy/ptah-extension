@@ -170,7 +170,7 @@ describe('QualityHistoryService', () => {
     mockGlobalState = createMockGlobalState();
     service = new QualityHistoryService(
       mockLogger,
-      mockGlobalState as unknown as import('vscode').Memento
+      mockGlobalState as unknown as import('@ptah-extension/platform-core').IStateStorage
     );
   });
 

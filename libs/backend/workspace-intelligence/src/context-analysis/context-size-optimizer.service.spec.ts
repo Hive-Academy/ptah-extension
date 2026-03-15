@@ -32,9 +32,22 @@ describe('ContextSizeOptimizerService', () => {
       getMaxInputTokens: jest.fn().mockResolvedValue(200000),
     } as unknown as jest.Mocked<TokenCounterService>;
 
+    const mockEnrichmentService = {
+      enrichContext: jest.fn(),
+    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    const mockLogger = {
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    } as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
     service = new ContextSizeOptimizerService(
       mockRelevanceScorer,
-      mockTokenCounter
+      mockTokenCounter,
+      mockEnrichmentService,
+      mockLogger
     );
   });
 
