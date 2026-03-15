@@ -62,7 +62,6 @@ import {
 import { CodexAuthService, CodexTranslationProxy } from '../codex-provider';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
-import * as vscode from 'vscode';
 
 /**
  * Register all agent-sdk services in DI container
@@ -70,13 +69,15 @@ import * as vscode from 'vscode';
  * Services are registered as singletons using tsyringe's lifecycle management.
  * The @injectable() decorators on each class enable auto-wiring of dependencies.
  *
+ * TASK_2025_199: Removed vscode.ExtensionContext parameter. SessionMetadataStore
+ * now resolves IStateStorage via PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE decorator
+ * injection instead of receiving context.workspaceState manually.
+ *
  * @param container - TSyringe DI container
- * @param context - VS Code extension context (for Memento storage)
  * @param logger - Logger instance
  */
 export function registerSdkServices(
   container: DependencyContainer,
-  context: vscode.ExtensionContext,
   logger: Logger
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
@@ -85,13 +86,13 @@ export function registerSdkServices(
   // Core Services (require special initialization)
   // ============================================================
 
-  // Session metadata store needs VS Code Memento for UI metadata persistence
-  // SDK handles message persistence natively to ~/.claude/projects/
-  container.registerInstance(
+  // Session metadata store - uses @inject decorators for IStateStorage and Logger
+  // TASK_2025_199: Now resolved via decorator injection (PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
+  // instead of manual construction with context.workspaceState
+  container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
-    (() => {
-      return new SessionMetadataStore(context.workspaceState, logger);
-    })()
+    { useClass: SessionMetadataStore },
+    { lifecycle: Lifecycle.Singleton }
   );
 
   // Shared mutable AuthEnv singleton (TASK_2025_164)

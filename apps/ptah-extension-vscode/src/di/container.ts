@@ -351,7 +351,10 @@ export class DIContainer {
     // Register Agent SDK services (adapter, storage, permission handler)
     // TASK_2025_092: SdkPermissionHandler now handles permission emitter directly
     // (SdkRpcHandlers deleted - was dead code, only initializePermissionEmitter() was used)
-    registerSdkServices(container, context, logger);
+    // TASK_2025_199: Removed context parameter — SDK services now inject
+    // platform abstractions via PLATFORM_TOKENS decorators instead of receiving
+    // vscode.ExtensionContext directly.
+    registerSdkServices(container, logger);
 
     // TASK_2025_140: Bridge registration removed. TOKENS.SDK_AGENT_ADAPTER and
     // SDK_TOKENS.SDK_AGENT_ADAPTER both use Symbol.for('SdkAgentAdapter'), so

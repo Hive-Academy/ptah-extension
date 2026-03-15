@@ -14,6 +14,8 @@ import {
   PluginLoaderService,
   PtahCliRegistry,
 } from '@ptah-extension/agent-sdk';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
@@ -423,7 +425,13 @@ export async function activate(
       const pluginLoader = DIContainer.resolve<PluginLoaderService>(
         SDK_TOKENS.SDK_PLUGIN_LOADER
       );
-      pluginLoader.initialize(context.extensionPath, context.workspaceState);
+      // TASK_2025_199: Resolve IStateStorage from DI container instead of passing
+      // raw context.workspaceState (vscode.Memento). The VscodeStateStorage wrapper
+      // is registered as PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE in Phase 0.5.
+      const workspaceStateStorage = DIContainer.resolve<IStateStorage>(
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+      );
+      pluginLoader.initialize(context.extensionPath, workspaceStateStorage);
       logger.info('Plugin loader initialized');
 
       // Wire plugin paths into command discovery for slash command autocomplete

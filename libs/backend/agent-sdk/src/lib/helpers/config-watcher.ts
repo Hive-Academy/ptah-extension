@@ -10,7 +10,11 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  ISecretStorage,
+  IDisposable,
+} from '@ptah-extension/platform-core';
 
 export type ReinitCallback = () => Promise<void>;
 
@@ -19,15 +23,15 @@ export type ReinitCallback = () => Promise<void>;
  */
 @injectable()
 export class ConfigWatcher {
-  private watchers: vscode.Disposable[] = [];
-  private secretsDisposable?: vscode.Disposable;
+  private watchers: IDisposable[] = [];
+  private secretsDisposable?: IDisposable;
   private isReinitializing = false;
 
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
-    @inject(TOKENS.EXTENSION_CONTEXT)
-    private context: vscode.ExtensionContext
+    @inject(PLATFORM_TOKENS.SECRET_STORAGE)
+    private secretStorage: ISecretStorage
   ) {}
 
   /**
@@ -51,7 +55,7 @@ export class ConfigWatcher {
     }
 
     // Watch SecretStorage for credential changes
-    this.secretsDisposable = this.context.secrets.onDidChange((event) => {
+    this.secretsDisposable = this.secretStorage.onDidChange((event) => {
       if (
         event.key === 'ptah.auth.claudeOAuthToken' ||
         event.key === 'ptah.auth.anthropicApiKey' ||

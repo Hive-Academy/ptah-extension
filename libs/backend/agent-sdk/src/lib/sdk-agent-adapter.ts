@@ -18,7 +18,8 @@
 import * as path from 'path';
 import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
   IAIProvider,
   ProviderId,
@@ -157,8 +158,8 @@ export class SdkAgentAdapter implements IAIProvider {
     private readonly moduleLoader: SdkModuleLoader,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
-    @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly extensionContext: vscode.ExtensionContext
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo
   ) {}
 
   /**
@@ -230,7 +231,7 @@ export class SdkAgentAdapter implements IAIProvider {
       } else {
         // Fall back to bundled cli.js shipped alongside the extension
         const bundledCliPath = path.join(
-          this.extensionContext.extensionPath,
+          this.platformInfo.extensionPath,
           'cli.js'
         );
         if (existsSync(bundledCliPath)) {

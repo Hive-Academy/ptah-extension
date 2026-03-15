@@ -17,6 +17,10 @@
  * (write to .tmp then rename) to avoid file corruption.
  *
  * Security: NEVER logs full tokens -- only length and first 4 characters.
+ *
+ * APPROVED EXCEPTION: This file does NOT import vscode — it reads credentials from
+ * ~/.codex/auth.json using Node.js fs APIs. No platform abstraction needed.
+ * See TASK_2025_199.
  */
 
 import { injectable, inject } from 'tsyringe';

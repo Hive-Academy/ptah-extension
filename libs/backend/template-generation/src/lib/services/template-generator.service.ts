@@ -8,7 +8,8 @@ import {
   ProjectContext,
 } from '../interfaces';
 import { TemplateGenerationError } from '../errors';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import path from 'path';
 
 /**
@@ -23,7 +24,9 @@ export class TemplateGeneratorService {
     private readonly orchestrator: ITemplateOrchestrator,
     @inject(TOKENS.WORKSPACE_ANALYZER_SERVICE)
     private readonly workspaceAnalyzer: WorkspaceAnalyzerService,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspace: IWorkspaceProvider
   ) {}
 
   /**
@@ -35,8 +38,8 @@ export class TemplateGeneratorService {
     config?: ProjectConfig
   ): Promise<Result<string, Error>> {
     try {
-      // Get workspace root from VS Code API
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      // Get workspace root from platform-agnostic workspace provider
+      const workspaceRoot = this.workspace.getWorkspaceRoot();
       if (!workspaceRoot) {
         const error = new TemplateGenerationError('No workspace folder open', {
           operation: 'getWorkspaceRoot',

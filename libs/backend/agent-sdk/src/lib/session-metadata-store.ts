@@ -20,8 +20,9 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { CliSessionReference } from '@ptah-extension/shared';
 
 /**
@@ -89,11 +90,10 @@ const STORAGE_KEY = 'ptah.sessionMetadata';
 @injectable()
 export class SessionMetadataStore {
   /**
-   * NOTE: @inject() decorators below are NOT used at runtime.
-   * This class is registered via registerInstance() in di/register.ts,
-   * which manually constructs the instance with context.workspaceState
-   * and a Logger instance. The decorators are retained for documentation
-   * purposes only (they show the logical dependencies).
+   * TASK_2025_199: Dependencies are now resolved via @inject() decorators.
+   * IStateStorage is injected via PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+   * (registered in Phase 0.5 of container.ts as VscodeStateStorage wrapping
+   * context.workspaceState).
    */
 
   /**
@@ -104,7 +104,8 @@ export class SessionMetadataStore {
   private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
-    @inject(TOKENS.GLOBAL_STATE) private storage: vscode.Memento,
+    @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
+    private storage: IStateStorage,
     @inject(TOKENS.LOGGER) private logger: Logger
   ) {}
 
