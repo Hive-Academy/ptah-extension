@@ -366,7 +366,10 @@ export class DIContainer {
     // ========================================
     // SetupStatusService, SetupWizardService, and supporting services
     // Required for setup wizard functionality
-    registerAgentGenerationServices(container, logger, context.extensionPath);
+    // TASK_2025_199: Removed extensionPath parameter — services now inject
+    // IPlatformInfo directly via PLATFORM_TOKENS.PLATFORM_INFO instead of
+    // receiving extensionPath through the registration function.
+    registerAgentGenerationServices(container, logger);
 
     // TASK_2025_154: Wire multi-phase analysis reader into EnhancedPromptsService
     // Both SDK and agent-generation services are now registered, so we can

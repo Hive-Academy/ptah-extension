@@ -13,6 +13,8 @@
 import { join } from 'path';
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 
 // Import services
@@ -45,8 +47,7 @@ import { AnalysisStorageService } from '../services/analysis-storage.service';
  */
 export function registerAgentGenerationServices(
   container: DependencyContainer,
-  logger: Logger,
-  extensionPath?: string
+  logger: Logger
 ): void {
   logger.info('[AgentGeneration] Registering agent-generation services...');
 
@@ -62,13 +63,16 @@ export function registerAgentGenerationServices(
   );
 
   // Template storage service - loads and caches templates
-  // Uses factory registration to handle optional templatesPath parameter
+  // Uses factory registration to resolve extensionPath from IPlatformInfo
   // (tsyringe cannot inject primitive types without explicit tokens)
   container.register(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE, {
     useFactory: (c) => {
       const loggerInstance = c.resolve<Logger>(TOKENS.LOGGER);
-      const templatesPath = extensionPath
-        ? join(extensionPath, 'templates', 'agents')
+      const platformInfo = c.resolve<IPlatformInfo>(
+        PLATFORM_TOKENS.PLATFORM_INFO
+      );
+      const templatesPath = platformInfo.extensionPath
+        ? join(platformInfo.extensionPath, 'templates', 'agents')
         : undefined;
       return new TemplateStorageService(loggerInstance, templatesPath);
     },

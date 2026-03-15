@@ -27,7 +27,6 @@ import type {
   GenerationStreamPayload,
   ProjectAnalysisResult,
 } from '@ptah-extension/shared';
-import type * as vscode from 'vscode';
 import {
   ProjectType,
   WorkspaceAnalyzerService,
@@ -56,9 +55,9 @@ import type { MultiCliAgentWriterService } from './cli-agent-transforms/multi-cl
  */
 export interface OrchestratorGenerationOptions {
   /**
-   * Workspace URI to analyze and generate agents for.
+   * Workspace root path to analyze and generate agents for.
    */
-  workspaceUri: vscode.Uri;
+  workspacePath: string;
 
   /**
    * Minimum relevance threshold for agent selection (0-100).
@@ -247,7 +246,7 @@ export class AgentGenerationOrchestratorService {
 
     try {
       this.logger.info('Starting agent generation workflow', {
-        workspace: options.workspaceUri.fsPath,
+        workspace: options.workspacePath,
         threshold: options.threshold ?? 50,
         hasOverrides: !!options.userOverrides,
         isPremium: options.isPremium,
@@ -277,7 +276,7 @@ export class AgentGenerationOrchestratorService {
         }
 
         projectContext = {
-          rootPath: options.workspaceUri.fsPath,
+          rootPath: options.workspacePath,
           projectType: resolveProjectType(analysis.projectType),
           frameworks: analysis.frameworks ?? [],
           monorepoType: undefined,
@@ -289,9 +288,7 @@ export class AgentGenerationOrchestratorService {
             testingFrameworks: projectInfo
               ? this.detectTestingFrameworks(projectInfo.devDependencies)
               : [],
-            packageManager: this.detectPackageManager(
-              options.workspaceUri.fsPath
-            ),
+            packageManager: this.detectPackageManager(options.workspacePath),
           },
           codeConventions: analysis.codeConventions ?? {
             indentation: 'spaces' as const,
@@ -336,7 +333,7 @@ export class AgentGenerationOrchestratorService {
         });
 
         const contextResult = await this.analyzeWorkspace(
-          options.workspaceUri,
+          options.workspacePath,
           progressCallback
         );
 
@@ -532,18 +529,18 @@ export class AgentGenerationOrchestratorService {
    * Integrates with workspace-intelligence library to perform real workspace analysis.
    * Detects project type, frameworks, monorepo configuration, and tech stack.
    *
-   * @param workspaceUri - Workspace URI to analyze
+   * @param workspacePath - Workspace root path to analyze
    * @param progressCallback - Progress callback for updates
    * @returns Result with AgentProjectContext or error
    * @public - Exposed for DeepProjectAnalysisService
    */
   public async analyzeWorkspace(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     progressCallback?: (progress: GenerationProgress) => void
   ): Promise<Result<AgentProjectContext, Error>> {
     try {
       this.logger.debug('Starting workspace analysis', {
-        workspace: workspaceUri.fsPath,
+        workspace: workspacePath,
       });
 
       // Get comprehensive project info from workspace-intelligence
@@ -557,12 +554,12 @@ export class AgentGenerationOrchestratorService {
 
       // Get monorepo detection (services now use string paths)
       const monorepoResult = await this.monorepoDetector.detectMonorepo(
-        workspaceUri.fsPath
+        workspacePath
       );
 
       // Get framework detection (from project type)
       const detectedFramework = await this.frameworkDetector.detectFramework(
-        workspaceUri.fsPath,
+        workspacePath,
         projectInfo.type
       );
 

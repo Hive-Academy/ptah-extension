@@ -699,14 +699,14 @@ export class RpcMethodRegistrationService {
           const setupWizardService = this.container.resolve(
             AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE
           ) as {
-            launchWizard: (uri: vscode.Uri) => Promise<{
+            launchWizard: (workspacePath: string) => Promise<{
               isErr?: () => boolean;
               error?: { message: string };
             }>;
           };
 
           const result = await setupWizardService.launchWizard(
-            workspaceFolder.uri
+            workspaceFolder.uri.fsPath
           );
 
           if (result.isErr && result.isErr()) {

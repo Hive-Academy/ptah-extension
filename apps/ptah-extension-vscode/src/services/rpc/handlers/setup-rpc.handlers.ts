@@ -169,15 +169,17 @@ export class SetupRpcHandlers {
 
         // Resolve SetupStatusService from DI container with validation
         const setupStatusService = this.resolveService<{
-          getStatus: (uri: vscode.Uri) => Promise<{
+          getStatus: (workspacePath: string) => Promise<{
             isErr: () => boolean;
             value?: SetupStatusResponse;
             error?: Error;
           }>;
         }>(AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE, 'SetupStatusService');
 
-        // Get status
-        const result = await setupStatusService.getStatus(workspaceFolder.uri);
+        // Get status (pass string path, not vscode.Uri)
+        const result = await setupStatusService.getStatus(
+          workspaceFolder.uri.fsPath
+        );
 
         // Handle error result
         if (result.isErr()) {
@@ -212,15 +214,15 @@ export class SetupRpcHandlers {
 
         // Resolve SetupWizardService from DI container with validation
         const setupWizardService = this.resolveService<{
-          launchWizard: (uri: vscode.Uri) => Promise<{
+          launchWizard: (workspacePath: string) => Promise<{
             isErr: () => boolean;
             error?: Error;
           }>;
         }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
 
-        // Launch wizard
+        // Launch wizard (pass string path, not vscode.Uri)
         const result = await setupWizardService.launchWizard(
-          workspaceFolder.uri
+          workspaceFolder.uri.fsPath
         );
 
         // Handle error result
@@ -312,7 +314,7 @@ export class SetupRpcHandlers {
 
       const multiPhaseService = this.resolveService<{
         analyzeWorkspace: (
-          uri: vscode.Uri,
+          workspacePath: string,
           options?: {
             model?: string;
             isPremium?: boolean;
@@ -327,7 +329,7 @@ export class SetupRpcHandlers {
       );
 
       const multiPhaseResult = await multiPhaseService.analyzeWorkspace(
-        workspaceFolder.uri,
+        workspaceFolder.uri.fsPath,
         {
           model: currentModel,
           isPremium,

@@ -21,6 +21,9 @@ import {
   type IWebviewHtmlGenerator,
 } from '@ptah-extension/vscode-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+// APPROVED EXCEPTION: vscode import is required for WebviewPanel and Webview types
+// which are VS Code-specific UI constructs with no platform-core abstraction.
+// This service manages VS Code webview panels directly through WebviewManager.
 import type * as vscode from 'vscode';
 import type { WizardStep } from '../../types/wizard.types';
 

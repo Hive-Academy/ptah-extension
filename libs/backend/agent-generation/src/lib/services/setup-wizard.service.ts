@@ -15,7 +15,6 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import type * as vscode from 'vscode';
 import { ISetupWizardService } from '../interfaces/setup-wizard.interface';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 import { WizardWebviewLifecycleService } from './wizard';
@@ -43,8 +42,10 @@ export class SetupWizardService implements ISetupWizardService {
 
   /**
    * Launch the setup wizard webview.
+   *
+   * @param workspacePath - Absolute path to the workspace root
    */
-  async launchWizard(workspaceUri: vscode.Uri): Promise<Result<void, Error>> {
+  async launchWizard(workspacePath: string): Promise<Result<void, Error>> {
     if (this.isLaunching) {
       this.logger.warn(
         'Wizard launch already in progress, ignoring duplicate request'
@@ -55,18 +56,13 @@ export class SetupWizardService implements ISetupWizardService {
     try {
       this.isLaunching = true;
 
-      const workspaceRoot = workspaceUri.fsPath;
-      if (!workspaceRoot || workspaceRoot.trim() === '') {
+      if (!workspacePath || workspacePath.trim() === '') {
         this.logger.error('Cannot launch wizard: No workspace folder open');
-        const vscode = await import('vscode');
-        vscode.window.showErrorMessage(
-          'Setup Wizard requires an open workspace folder. Please open a project folder first.'
-        );
         return Result.err(new Error('No workspace folder open'));
       }
 
       this.logger.info('Launching setup wizard', {
-        workspace: workspaceRoot,
+        workspace: workspacePath,
       });
 
       // Check if panel already exists

@@ -447,7 +447,7 @@ export class WizardGenerationRpcHandlers {
 
         // Build orchestrator options
         const options: OrchestratorGenerationOptions = {
-          workspaceUri: workspaceFolder.uri,
+          workspacePath: workspaceFolder.uri.fsPath,
           userOverrides: params.selectedAgentIds,
           threshold: params.threshold,
           variableOverrides: params.variableOverrides,
@@ -842,7 +842,7 @@ export class WizardGenerationRpcHandlers {
         // (analysis data, premium status, MCP config, enhanced prompts)
         const options: OrchestratorGenerationOptions = {
           ...(this.lastGenerationOptions ?? {}),
-          workspaceUri: workspaceFolder.uri,
+          workspacePath: workspaceFolder.uri.fsPath,
           userOverrides: [params.itemId],
           onStreamEvent,
         };
