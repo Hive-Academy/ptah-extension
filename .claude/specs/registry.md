@@ -8,3 +8,4 @@
 | TASK_2025_197 | Remove copilot-sdk/codex-sdk from bundle - Runtime SDK discovery via sdk-resolver.ts, webpack externalization, ~100MB+ bundle reduction             | ✅ Complete | orchestrator | 2026-03-14 | 2026-03-14 |
 | TASK_2025_198 | Auth Settings UX Redesign - Provider tiles grid replacing dropdown, Claude tile combining API Key + OAuth, tab renamed to "Ptah Providers"          | ✅ Complete | orchestrator | 2026-03-14 | 2026-03-14 |
 | TASK_2025_199 | Platform Abstraction Layer - Decouple backend libs from VS Code APIs with interfaces (IStateStorage, IWorkspaceProvider, IFileSystemProvider, etc.) | 🔄 Active   | orchestrator | 2026-03-15 |            |
+| TASK_2025_200 | Research: Electron Application Architecture - Nx+Electron integration, Angular reuse, platform-electron implementation, IPC architecture            | 🔄 Active   | orchestrator | 2026-03-16 |            |
