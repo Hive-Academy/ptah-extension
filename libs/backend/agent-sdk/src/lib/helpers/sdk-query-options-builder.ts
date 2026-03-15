@@ -521,11 +521,17 @@ export class SdkQueryOptionsBuilder {
           ...process.env,
           ...this.authEnv,
           NO_PROXY: '127.0.0.1,localhost',
-          DEBUG_CLAUDE_AGENT_SDK: '1',
         } as Record<string, string | undefined>,
-        // Capture stderr for debugging CLI failures
+        // Capture stderr — the SDK writes debug/info/warn/error to stderr;
+        // parse the level and route to the appropriate logger method
         stderr: (data: string) => {
-          this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
+          if (data.includes('[ERROR]')) {
+            this.logger.error(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
+          } else if (data.includes('[WARN]')) {
+            this.logger.warn(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
+          } else {
+            this.logger.debug(`[SdkQueryOptionsBuilder] CLI stderr: ${data}`);
+          }
         },
         hooks,
         // Plugins for this session (TASK_2025_153)

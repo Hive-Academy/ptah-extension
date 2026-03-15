@@ -55,8 +55,8 @@ import {
           [viewportConfig]="subheadlineConfig"
           class="text-base sm:text-lg md:text-xl text-base-content/70 mb-8 sm:mb-10 md:mb-12 max-w-2xl mx-auto"
         >
-          14 days free. No credit card required. Works with your existing Claude
-          Code setup.
+          14 days free. No credit card required. Works with OpenAI, Claude,
+          GitHub Copilot, and more.
         </p>
 
         <!-- Primary CTA Button with pulse animation via CSS keyframes -->

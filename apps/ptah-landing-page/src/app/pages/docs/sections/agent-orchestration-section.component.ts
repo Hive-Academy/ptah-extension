@@ -74,9 +74,9 @@ interface ConfigSetting {
         <strong class="text-base-content/70">Codex</strong>, and
         <strong class="text-base-content/70">GitHub Copilot</strong> as headless
         background workers, or connect your own providers via
-        <strong class="text-base-content/70">Ptah CLI Agents</strong>. Claude
-        delegates independent subtasks and checks back for results — a
-        <strong class="text-base-content/70">fire-and-check</strong> pattern
+        <strong class="text-base-content/70">Ptah CLI Agents</strong>. Your
+        primary agent delegates independent subtasks and checks back for results
+        — a <strong class="text-base-content/70">fire-and-check</strong> pattern
         that turns Ptah into a true multi-agent system.
       </p>
 
@@ -170,8 +170,8 @@ interface ConfigSetting {
         <!-- MCP Tools -->
         <ptah-docs-collapsible-card [icon]="ZapIcon" title="Agent MCP Tools">
           <p class="text-sm text-neutral-content mb-4">
-            Six MCP tools give Claude full lifecycle control over background
-            agents.
+            Six MCP tools give your primary agent full lifecycle control over
+            background agents.
           </p>
           <div class="space-y-2">
             @for (tool of agentTools; track tool.name) {
@@ -355,22 +355,22 @@ export class AgentOrchestrationSectionComponent {
     {
       label: 'Spawn',
       detail:
-        'Claude launches an agent with a task description and optional file focus list.',
+        'Your primary agent launches a background agent with a task description and optional file focus list.',
     },
     {
       label: 'Continue',
       detail:
-        'Claude continues its own work while the agent runs in the background.',
+        'The primary agent continues its own work while the background agent runs independently.',
     },
     {
       label: 'Check',
       detail:
-        'Claude periodically checks agent status — running, completed, or failed.',
+        'The primary agent periodically checks agent status — running, completed, or failed.',
     },
     {
       label: 'Read',
       detail:
-        'Once complete, Claude reads the agent output and incorporates the results.',
+        'Once complete, the primary agent reads the output and incorporates the results.',
     },
   ];
 

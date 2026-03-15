@@ -9,7 +9,9 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import * as https from 'https';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { ProviderModelInfo } from '@ptah-extension/shared';
 import { TranslationProxyBase } from '../openai-translation';
 import type { ICopilotAuthService } from './copilot-provider.types';
 import { COPILOT_PROVIDER_ENTRY } from './copilot-provider-entry';
@@ -27,7 +29,7 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
   ) {
     super(logger, {
       name: 'Copilot',
-      modelPrefix: 'capi:',
+      modelPrefix: '',
       completionsPath: '/chat/completions',
     });
   }
@@ -57,8 +59,157 @@ export class CopilotTranslationProxy extends TranslationProxyBase {
 
   /**
    * Return the static model list from the Copilot provider entry.
+   * Used by the base class for the /v1/models proxy endpoint.
    */
   protected getStaticModels(): Array<{ id: string }> {
     return COPILOT_PROVIDER_ENTRY.staticModels ?? [];
   }
+
+  // ---------------------------------------------------------------------------
+  // Copilot-specific routing overrides
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Copilot dual-endpoint routing: GPT-5+ models (except gpt-5-mini)
+   * require the Responses API (/responses) instead of Chat Completions.
+   * Matches the routing logic used by OpenCode (opencode.ai).
+   */
+  protected override shouldUseResponsesApi(modelId: string): boolean {
+    const match = /^gpt-(\d+)/.exec(modelId);
+    if (!match) return false;
+    return Number(match[1]) >= 5 && !modelId.startsWith('gpt-5-mini');
+  }
+
+  /**
+   * Fetch available models from the Copilot REST API's /models endpoint.
+   * Returns only chat-type models with full metadata (context window, tool support, etc.).
+   * Falls back to static models if the API call fails.
+   */
+  async listModels(): Promise<ProviderModelInfo[]> {
+    try {
+      const apiEndpoint = await this.getApiEndpoint();
+      const headers = await this.getHeaders();
+      const url = new URL('/models', apiEndpoint);
+
+      const response = await this.fetchJson<CopilotModelsResponse>(
+        url,
+        headers
+      );
+
+      if (!response?.data?.length) {
+        this.logger.warn(
+          '[CopilotProxy] /models returned no data, using static models'
+        );
+        return this.staticModelsAsFull();
+      }
+
+      // Filter to chat models only (exclude embeddings)
+      const chatModels = response.data.filter(
+        (m) => m.capabilities?.type === 'chat'
+      );
+
+      this.logger.info(
+        `[CopilotProxy] Fetched ${chatModels.length} chat models from Copilot API (${response.data.length} total)`
+      );
+
+      return chatModels.map((m) => ({
+        id: m.id,
+        name: m.name || this.formatModelName(m.id),
+        description: m.capabilities?.family ?? '',
+        contextLength: m.capabilities?.limits?.max_context_window_tokens ?? 0,
+        supportsToolUse: m.capabilities?.supports?.tool_calls ?? false,
+      }));
+    } catch (error) {
+      this.logger.warn(
+        `[CopilotProxy] Failed to fetch /models: ${
+          error instanceof Error ? error.message : String(error)
+        }. Using static models.`
+      );
+      return this.staticModelsAsFull();
+    }
+  }
+
+  /** Convert static models to ProviderModelInfo format */
+  private staticModelsAsFull(): ProviderModelInfo[] {
+    return (COPILOT_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
+      id: m.id,
+      name: m.name,
+      description: m.description ?? '',
+      contextLength: m.contextLength ?? 0,
+      supportsToolUse: m.supportsToolUse ?? false,
+    }));
+  }
+
+  /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */
+  private formatModelName(id: string): string {
+    return id
+      .split('-')
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+      .join(' ');
+  }
+
+  /** Fetch JSON from a URL using HTTPS */
+  private fetchJson<T>(url: URL, headers: Record<string, string>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        url,
+        {
+          method: 'GET',
+          headers: { ...headers, Accept: 'application/json' },
+          timeout: 10_000,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => {
+            if (
+              res.statusCode &&
+              res.statusCode >= 200 &&
+              res.statusCode < 300
+            ) {
+              try {
+                resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+              } catch (e) {
+                reject(new Error('Invalid JSON from /models'));
+              }
+            } else {
+              reject(new Error(`/models returned ${res.statusCode}`));
+            }
+          });
+        }
+      );
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('/models request timed out'));
+      });
+      req.end();
+    });
+  }
+}
+
+/** Shape of the Copilot /models API response */
+interface CopilotModelsResponse {
+  data: Array<{
+    id: string;
+    name?: string;
+    capabilities?: {
+      family?: string;
+      type?: string;
+      limits?: {
+        max_context_window_tokens?: number;
+        max_output_tokens?: number;
+        max_prompt_tokens?: number;
+      };
+      supports?: {
+        tool_calls?: boolean;
+        streaming?: boolean;
+        vision?: boolean;
+        structured_outputs?: boolean;
+        parallel_tool_calls?: boolean;
+        reasoning_effort?: string[];
+        adaptive_thinking?: boolean;
+      };
+    };
+  }>;
 }

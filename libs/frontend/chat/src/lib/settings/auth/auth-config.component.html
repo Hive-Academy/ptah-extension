@@ -1,112 +1,278 @@
 <form class="space-y-2.5">
-  <!-- Auth Method Selection -->
+  <!-- Provider Tile Grid -->
   <div class="form-control">
     <div class="label py-1">
-      <span class="label-text text-xs font-medium">Authentication Method</span>
+      <span class="label-text text-xs font-medium">Select Provider</span>
     </div>
-    <div class="join w-full">
+    <div class="grid grid-cols-3 gap-1.5">
+      <!-- Claude Tile (hardcoded - not from provider registry) -->
       <button
         type="button"
-        class="join-item btn btn-sm flex-1 text-xs font-medium"
-        [class.btn-primary]="authState.authMethod() === 'openrouter'"
-        [class.btn-ghost]="authState.authMethod() !== 'openrouter'"
-        (click)="onAuthMethodChange('openrouter')"
-        [attr.aria-pressed]="authState.authMethod() === 'openrouter'"
+        class="btn btn-sm h-auto py-2 px-1 flex flex-col items-center gap-1 min-h-0 rounded-lg border-2"
+        [class.btn-primary]="selectedTileId() === 'claude'"
+        [class.btn-ghost]="selectedTileId() !== 'claude'"
+        [class.border-base-300]="selectedTileId() !== 'claude'"
+        (click)="onTileSelect('claude')"
+        aria-label="Select Claude as provider"
       >
-        Provider
+        <div class="relative">
+          <lucide-angular [img]="BotIcon" class="w-4 h-4" />
+          @if (authState.hasApiKey() || authState.hasOAuthToken()) {
+          <span class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0" aria-label="Configured"></span>
+          }
+        </div>
+        <span class="text-[10px] font-medium leading-tight text-center">Claude</span>
       </button>
+
+      <!-- Dynamic provider tiles from registry -->
+      @for (provider of authState.availableProviders(); track provider.id) {
       <button
         type="button"
-        class="join-item btn btn-sm flex-1 text-xs font-medium"
-        [class.btn-primary]="authState.authMethod() === 'apiKey'"
-        [class.btn-ghost]="authState.authMethod() !== 'apiKey'"
-        (click)="onAuthMethodChange('apiKey')"
-        [attr.aria-pressed]="authState.authMethod() === 'apiKey'"
+        class="btn btn-sm h-auto py-2 px-1 flex flex-col items-center gap-1 min-h-0 rounded-lg border-2"
+        [class.btn-primary]="selectedTileId() === provider.id"
+        [class.btn-ghost]="selectedTileId() !== provider.id"
+        [class.border-base-300]="selectedTileId() !== provider.id"
+        (click)="onTileSelect(provider.id)"
+        [attr.aria-label]="'Select ' + provider.name + ' as provider'"
       >
-        API Key
+        <div class="relative">
+          @if (provider.id === 'github-copilot') {
+          <lucide-angular [img]="GithubIcon" class="w-4 h-4" />
+          } @else if (provider.id === 'openai-codex') {
+          <lucide-angular [img]="TerminalIcon" class="w-4 h-4" />
+          } @else if (provider.id === 'moonshot') {
+          <lucide-angular [img]="SparklesIcon" class="w-4 h-4" />
+          } @else if (provider.id === 'zai') {
+          <lucide-angular [img]="ZapIcon" class="w-4 h-4" />
+          } @else {
+          <lucide-angular [img]="GlobeIcon" class="w-4 h-4" />
+          }
+          @if (provider.id === 'openai-codex') {
+            @if (authState.codexAuthenticated() && !authState.codexTokenStale()) {
+            <span class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0" aria-label="Authenticated"></span>
+            } @else if (authState.codexAuthenticated() && authState.codexTokenStale()) {
+            <span class="absolute -top-1 -right-1.5 badge badge-warning badge-xs w-2 h-2 p-0" aria-label="Token expired"></span>
+            }
+          } @else if (provider.authType === 'oauth' ? (provider.id === 'github-copilot' ? authState.copilotAuthenticated() : true) : authState.hasProviderKey() && authState.selectedProviderId() === provider.id) {
+          <span class="absolute -top-1 -right-1.5 badge badge-success badge-xs w-2 h-2 p-0" aria-label="Configured"></span>
+          }
+        </div>
+        <span class="text-[10px] font-medium leading-tight text-center">
+          {{ provider.name }}
+        </span>
       </button>
-      <button
-        type="button"
-        class="join-item btn btn-sm flex-1 text-xs font-medium"
-        [class.btn-primary]="authState.authMethod() === 'auto'"
-        [class.btn-ghost]="authState.authMethod() !== 'auto'"
-        (click)="onAuthMethodChange('auto')"
-        [attr.aria-pressed]="authState.authMethod() === 'auto'"
-      >
-        Auto
-      </button>
-      <button
-        type="button"
-        class="join-item btn btn-sm flex-1 text-xs font-medium"
-        [class.btn-error]="authState.authMethod() === 'oauth'"
-        [class.btn-ghost]="authState.authMethod() !== 'oauth'"
-        [class.text-error]="authState.authMethod() !== 'oauth'"
-        [class.opacity-70]="authState.authMethod() !== 'oauth'"
-        (click)="onAuthMethodChange('oauth')"
-        [attr.aria-pressed]="authState.authMethod() === 'oauth'"
-      >
-        OAuth
-      </button>
+      }
     </div>
-    <!-- Active warning when OAuth is selected -->
-    @if (authState.authMethod() === 'oauth') {
-    <div class="flex items-center gap-1.5 mt-1">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="w-3 h-3 text-warning shrink-0"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
+  </div>
+
+  <!-- Claude Auth Config (shown when Claude tile selected) -->
+  @if (selectedTileId() === 'claude') {
+
+  <!-- API Key Input -->
+  <div class="form-control">
+    <label class="label py-1 justify-start gap-2" for="apiKey">
+      <span class="label-text text-xs font-medium">Anthropic API Key</span>
+      @if (authState.isLoading()) {
+      <span
+        class="badge badge-ghost badge-xs"
+        aria-label="Loading authentication status"
       >
-        <path
-          d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
-        />
-        <path d="M12 9v4" />
-        <path d="M12 17h.01" />
-      </svg>
-      <span class="text-[10px] text-warning font-medium">
-        OAuth is restricted by Anthropic — tokens will not work in third-party
-        tools
+        <span class="loading loading-spinner loading-xs"></span>
       </span>
+      } @else if (authState.hasApiKey()) {
+      <span
+        class="badge badge-success badge-xs gap-0.5"
+        aria-label="API key configured"
+      >
+        <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
+        <span>Configured</span>
+      </span>
+      }
+    </label>
+    <!-- Show masked value when configured -->
+    @if (authState.hasApiKey() && !apiKey()) {
+    <div class="flex gap-1.5">
+      <div
+        class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
+      >
+        sk-ant-api03-••••••••••••
+      </div>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs text-info"
+        (click)="isReplacingApiKey.set(true)"
+        [class.hidden]="isReplacingApiKey()"
+        title="Replace API key"
+      >
+        Replace
+      </button>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
+        (click)="deleteApiKey()"
+        [disabled]="authState.isSaving()"
+        title="Remove API key"
+        aria-label="Remove API key"
+      >
+        <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
+      </button>
     </div>
-    }
+    @if (isReplacingApiKey()) {
     <div class="label py-0.5">
       <span class="label-text-alt text-[10px] opacity-70">
-        Auto-detect: Provider → API Key → OAuth (OAuth restricted by Anthropic)
+        Enter a new key below to replace the existing one
+      </span>
+    </div>
+    <input
+      id="apiKey"
+      type="password"
+      [(ngModel)]="apiKey"
+      name="apiKey"
+      class="input input-bordered input-sm w-full text-xs"
+      placeholder="Enter new API key to replace..."
+    />
+    } } @else {
+    <input
+      id="apiKey"
+      type="password"
+      [(ngModel)]="apiKey"
+      name="apiKey"
+      class="input input-bordered input-sm w-full text-xs"
+      placeholder="sk-ant-api03-..."
+    />
+    }
+    <div class="label flex-col items-start gap-0.5 py-1">
+      <span class="label-text-alt text-[10px] opacity-70">
+        <strong>Pay-per-token:</strong> Get API key from
+        <a
+          href="https://console.anthropic.com/settings/keys"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="link link-primary font-semibold"
+          >Anthropic Console</a
+        >
+      </span>
+      <span class="label-text-alt text-[10px] opacity-70">
+        Keys start with <code class="text-[10px]">sk-ant-api</code>
       </span>
     </div>
   </div>
 
-  <!-- Anthropic-Compatible Provider Input (TASK_2025_129 Batch 3) -->
-  @if (authState.authMethod() === 'openrouter' || authState.authMethod() ===
-  'auto') {
-  <!-- Provider Selection Dropdown -->
-  @if (authState.availableProviders().length > 0) {
-  <div class="form-control">
-    <div class="label py-1">
-      <span class="label-text text-xs font-medium">Provider</span>
-    </div>
-    <select
-      class="select select-bordered select-sm w-full text-xs"
-      [ngModel]="authState.selectedProviderId()"
-      (ngModelChange)="onProviderChange($event)"
-      name="providerId"
-      aria-label="Select Anthropic-compatible provider"
+  <!-- Divider between API Key and OAuth -->
+  <div class="divider my-1 text-[10px] opacity-50">or</div>
+
+  <!-- OAuth Token Input -->
+  <!-- OAuth Policy Warning -->
+  <div class="alert alert-warning py-2 px-3 text-[10px]" role="alert">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      class="w-3.5 h-3.5 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
     >
-      @for (provider of authState.availableProviders(); track provider.id) {
-      <option [value]="provider.id">
-        {{ provider.name }} - {{ provider.description }}
-      </option>
-      }
-    </select>
+      <path
+        d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
+      />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </svg>
+    <span>
+      <strong>Restricted:</strong> Anthropic blocks OAuth tokens from Claude
+      subscriptions in third-party tools (Feb 2026). Use
+      <strong>API Key</strong> or <strong>Provider</strong> instead.
+    </span>
   </div>
+  <div class="form-control">
+    <label class="label py-1 justify-start gap-2" for="oauthToken">
+      <span class="label-text text-xs font-medium">Claude OAuth Token</span>
+      @if (authState.isLoading()) {
+      <span
+        class="badge badge-ghost badge-xs"
+        aria-label="Loading authentication status"
+      >
+        <span class="loading loading-spinner loading-xs"></span>
+      </span>
+      } @else if (authState.hasOAuthToken()) {
+      <span
+        class="badge badge-success badge-xs gap-0.5"
+        aria-label="OAuth token configured"
+      >
+        <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
+        <span>Configured</span>
+      </span>
+      }
+    </label>
+    <!-- Show masked value when configured -->
+    @if (authState.hasOAuthToken() && !oauthToken()) {
+    <div class="flex gap-1.5">
+      <div
+        class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
+      >
+        sk-ant-oat01-••••••••••••
+      </div>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs text-info"
+        (click)="isReplacingOAuth.set(true)"
+        [class.hidden]="isReplacingOAuth()"
+        title="Replace OAuth token"
+      >
+        Replace
+      </button>
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
+        (click)="deleteOAuthToken()"
+        [disabled]="authState.isSaving()"
+        title="Remove OAuth token"
+        aria-label="Remove OAuth token"
+      >
+        <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
+      </button>
+    </div>
+    @if (isReplacingOAuth()) {
+    <div class="label py-0.5">
+      <span class="label-text-alt text-[10px] opacity-70">
+        Enter a new token below to replace the existing one
+      </span>
+    </div>
+    <input
+      id="oauthToken"
+      type="password"
+      [(ngModel)]="oauthToken"
+      name="oauthToken"
+      class="input input-bordered input-sm w-full text-xs"
+      placeholder="Enter new token to replace..."
+    />
+    } } @else {
+    <input
+      id="oauthToken"
+      type="password"
+      [(ngModel)]="oauthToken"
+      name="oauthToken"
+      class="input input-bordered input-sm w-full text-xs"
+      placeholder="Enter your OAuth token"
+    />
+    }
+    <div class="label flex-col items-start gap-0.5 py-1">
+      <span class="label-text-alt text-[10px] text-warning/80">
+        <strong>No longer supported:</strong> Anthropic restricts OAuth tokens
+        to Claude Code &amp; Claude.ai only.
+      </span>
+      <span class="label-text-alt text-[10px] opacity-70">
+        Tokens start with <code class="text-[10px]">sk-ant-oat01-</code>
+      </span>
+    </div>
+  </div>
+
   }
 
-  <!-- OAuth Provider UI - TASK_2025_191, TASK_2025_198 -->
-  @if (isOAuthProvider()) {
+  <!-- Provider Auth Config (shown when a provider tile selected) -->
+  @if (selectedTileId() !== 'claude') {
 
   <!-- GitHub Copilot: GitHub OAuth login flow -->
   @if (isCopilotProvider()) {
@@ -179,10 +345,23 @@
       <span class="label-text text-xs font-medium">
         {{ selectedProvider()?.name ?? 'Provider' }} Authentication
       </span>
-      <span class="badge badge-info badge-xs gap-0.5" aria-label="File-based auth">
+      @if (authState.codexTokenStale()) {
+      <span
+        class="badge badge-warning badge-xs gap-0.5"
+        aria-label="Token expired"
+      >
+        <lucide-angular [img]="AlertTriangleIcon" class="w-2.5 h-2.5" />
+        <span>Token Expired</span>
+      </span>
+      } @else if (authState.codexAuthenticated()) {
+      <span
+        class="badge badge-success badge-xs gap-0.5"
+        aria-label="CLI authenticated"
+      >
         <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
         <span>CLI Auth</span>
       </span>
+      }
     </div>
 
     <div
@@ -192,6 +371,24 @@
         Authenticated via <code class="text-[10px]">~/.codex/auth.json</code>
       </span>
     </div>
+
+    <button
+      type="button"
+      class="btn btn-sm btn-outline gap-1.5 text-xs w-full mt-2"
+      (click)="codexLogin()"
+    >
+      <lucide-angular [img]="TerminalIcon" class="w-3.5 h-3.5" />
+      <span>{{ authState.codexTokenStale() ? 'Re-authenticate in Terminal' : 'Open Codex Login' }}</span>
+    </button>
+
+    @if (authState.codexTokenStale()) {
+    <div class="alert alert-warning py-2 px-3 text-[10px] mt-2" role="alert">
+      <span>
+        <strong>Token expired.</strong> Click the button above to re-authenticate,
+        or run <code class="font-semibold">codex login</code> in your terminal.
+      </span>
+    </div>
+    }
 
     <div class="label flex-col items-start gap-0.5 py-1">
       <span class="label-text-alt text-[10px] opacity-70">
@@ -203,8 +400,9 @@
     </div>
   </div>
   }
-  } @else {
-  <!-- Standard API Key Provider Input (existing code) -->
+
+  <!-- Standard API Key Provider Input (OpenRouter, Moonshot, Z.AI) -->
+  @if (!isOAuthProvider()) {
   <div class="form-control">
     <label class="label py-1 justify-start gap-2" for="providerKey">
       <span class="label-text text-xs font-medium">
@@ -225,8 +423,6 @@
         <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
         <span>Configured</span>
       </span>
-      } @if (authState.authMethod() === 'auto') {
-      <span class="label-text-alt text-[10px]">(optional)</span>
       }
     </label>
     <!-- Show masked value when configured -->
@@ -270,7 +466,6 @@
       name="providerKey"
       class="input input-bordered input-sm w-full text-xs"
       placeholder="Enter new key to replace..."
-      [attr.aria-required]="authState.authMethod() === 'openrouter'"
     />
     } } @else {
     <input
@@ -280,7 +475,6 @@
       name="providerKey"
       class="input input-bordered input-sm w-full text-xs"
       [placeholder]="selectedProvider()?.keyPlaceholder ?? 'Enter API key...'"
-      [attr.aria-required]="authState.authMethod() === 'openrouter'"
     />
     }
     <div class="label flex-col items-start gap-0.5 py-1">
@@ -304,222 +498,11 @@
       } }
     </div>
   </div>
-  } }
-
-  <!-- OAuth Token Input -->
-  @if (authState.authMethod() === 'oauth' || authState.authMethod() === 'auto')
-  {
-  <!-- OAuth Policy Warning -->
-  <div class="alert alert-warning py-2 px-3 text-[10px]" role="alert">
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      class="w-3.5 h-3.5 shrink-0"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-    >
-      <path
-        d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"
-      />
-      <path d="M12 9v4" />
-      <path d="M12 17h.01" />
-    </svg>
-    <span>
-      <strong>Restricted:</strong> Anthropic blocks OAuth tokens from Claude
-      subscriptions in third-party tools (Feb 2026). Use
-      <strong>API Key</strong> or <strong>Provider</strong> instead.
-    </span>
-  </div>
-  <div class="form-control">
-    <label class="label py-1 justify-start gap-2" for="oauthToken">
-      <span class="label-text text-xs font-medium">Claude OAuth Token</span>
-      @if (authState.isLoading()) {
-      <span
-        class="badge badge-ghost badge-xs"
-        aria-label="Loading authentication status"
-      >
-        <span class="loading loading-spinner loading-xs"></span>
-      </span>
-      } @else if (authState.hasOAuthToken()) {
-      <span
-        class="badge badge-success badge-xs gap-0.5"
-        aria-label="OAuth token configured"
-      >
-        <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
-        <span>Configured</span>
-      </span>
-      } @if (authState.authMethod() === 'auto') {
-      <span class="label-text-alt text-[10px]">(optional)</span>
-      }
-    </label>
-    <!-- Show masked value when configured -->
-    @if (authState.hasOAuthToken() && !oauthToken()) {
-    <div class="flex gap-1.5">
-      <div
-        class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
-      >
-        sk-ant-oat01-••••••••••••
-      </div>
-      <button
-        type="button"
-        class="btn btn-ghost btn-xs text-info"
-        (click)="isReplacingOAuth.set(true)"
-        [class.hidden]="isReplacingOAuth()"
-        title="Replace OAuth token"
-      >
-        Replace
-      </button>
-      <button
-        type="button"
-        class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
-        (click)="deleteOAuthToken()"
-        [disabled]="authState.isSaving()"
-        title="Remove OAuth token"
-        aria-label="Remove OAuth token"
-      >
-        <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
-      </button>
-    </div>
-    @if (isReplacingOAuth()) {
-    <div class="label py-0.5">
-      <span class="label-text-alt text-[10px] opacity-70">
-        Enter a new token below to replace the existing one
-      </span>
-    </div>
-    <input
-      id="oauthToken"
-      type="password"
-      [(ngModel)]="oauthToken"
-      name="oauthToken"
-      class="input input-bordered input-sm w-full text-xs"
-      placeholder="Enter new token to replace..."
-      [attr.aria-required]="authState.authMethod() === 'oauth'"
-    />
-    } } @else {
-    <input
-      id="oauthToken"
-      type="password"
-      [(ngModel)]="oauthToken"
-      name="oauthToken"
-      class="input input-bordered input-sm w-full text-xs"
-      placeholder="Enter your OAuth token"
-      [attr.aria-required]="authState.authMethod() === 'oauth'"
-    />
-    }
-    <div class="label flex-col items-start gap-0.5 py-1">
-      <span class="label-text-alt text-[10px] text-warning/80">
-        <strong>⚠ No longer supported:</strong> Anthropic restricts OAuth tokens
-        to Claude Code &amp; Claude.ai only.
-      </span>
-      <span class="label-text-alt text-[10px] opacity-70">
-        Tokens start with <code class="text-[10px]">sk-ant-oat01-</code>
-      </span>
-    </div>
-  </div>
   }
 
-  <!-- API Key Input -->
-  @if (authState.authMethod() === 'apiKey' || authState.authMethod() === 'auto')
-  {
-  <div class="form-control">
-    <label class="label py-1 justify-start gap-2" for="apiKey">
-      <span class="label-text text-xs font-medium">Anthropic API Key</span>
-      @if (authState.isLoading()) {
-      <span
-        class="badge badge-ghost badge-xs"
-        aria-label="Loading authentication status"
-      >
-        <span class="loading loading-spinner loading-xs"></span>
-      </span>
-      } @else if (authState.hasApiKey()) {
-      <span
-        class="badge badge-success badge-xs gap-0.5"
-        aria-label="API key configured"
-      >
-        <lucide-angular [img]="CheckIcon" class="w-2.5 h-2.5" />
-        <span>Configured</span>
-      </span>
-      } @if (authState.authMethod() === 'auto') {
-      <span class="label-text-alt text-[10px]">(optional)</span>
-      }
-    </label>
-    <!-- Show masked value when configured -->
-    @if (authState.hasApiKey() && !apiKey()) {
-    <div class="flex gap-1.5">
-      <div
-        class="input input-bordered input-sm flex-1 flex items-center text-xs text-base-content/50 font-mono"
-      >
-        sk-ant-api03-••••••••••••
-      </div>
-      <button
-        type="button"
-        class="btn btn-ghost btn-xs text-info"
-        (click)="isReplacingApiKey.set(true)"
-        [class.hidden]="isReplacingApiKey()"
-        title="Replace API key"
-      >
-        Replace
-      </button>
-      <button
-        type="button"
-        class="btn btn-ghost btn-sm btn-square text-error hover:bg-error/10"
-        (click)="deleteApiKey()"
-        [disabled]="authState.isSaving()"
-        title="Remove API key"
-        aria-label="Remove API key"
-      >
-        <lucide-angular [img]="Trash2Icon" class="w-4 h-4" />
-      </button>
-    </div>
-    @if (isReplacingApiKey()) {
-    <div class="label py-0.5">
-      <span class="label-text-alt text-[10px] opacity-70">
-        Enter a new key below to replace the existing one
-      </span>
-    </div>
-    <input
-      id="apiKey"
-      type="password"
-      [(ngModel)]="apiKey"
-      name="apiKey"
-      class="input input-bordered input-sm w-full text-xs"
-      placeholder="Enter new API key to replace..."
-      [attr.aria-required]="authState.authMethod() === 'apiKey'"
-    />
-    } } @else {
-    <input
-      id="apiKey"
-      type="password"
-      [(ngModel)]="apiKey"
-      name="apiKey"
-      class="input input-bordered input-sm w-full text-xs"
-      placeholder="sk-ant-api03-..."
-      [attr.aria-required]="authState.authMethod() === 'apiKey'"
-    />
-    }
-    <div class="label flex-col items-start gap-0.5 py-1">
-      <span class="label-text-alt text-[10px] opacity-70">
-        <strong>💳 Pay-per-token:</strong> Get API key from
-        <a
-          href="https://console.anthropic.com/settings/keys"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="link link-primary font-semibold"
-          >Anthropic Console</a
-        >
-      </span>
-      <span class="label-text-alt text-[10px] opacity-70">
-        Keys start with <code class="text-[10px]">sk-ant-api</code>
-      </span>
-    </div>
-  </div>
   }
 
-  <!-- Save & Test Button (hidden for OAuth providers which have their own login flow) -->
-  @if (!isOAuthProvider()) {
+  <!-- Save & Test Button -->
   <div class="form-control pt-1">
     <button
       type="button"
@@ -542,7 +525,6 @@
       }
     </button>
   </div>
-  }
 
   <!-- Success Message -->
   @if (authState.connectionStatus() === 'success' && authState.successMessage())
@@ -580,7 +562,7 @@
       authState.errorMessage().toLowerCase().includes('invalid') ||
       authState.errorMessage().toLowerCase().includes('authentication')) {
       <div class="text-[10px] border-t border-error-content/20 pt-1.5 mt-0.5">
-        <strong>💡 Tips:</strong>
+        <strong>Tips:</strong>
         <ul class="list-disc list-inside mt-0.5 space-y-0.5">
           <li>
             <strong>API Key (recommended):</strong> Get key from

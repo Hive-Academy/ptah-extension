@@ -26,7 +26,10 @@ import {
   ProviderModelsService,
   COPILOT_DEFAULT_TIERS,
 } from '@ptah-extension/agent-sdk';
-import type { CopilotAuthService } from '@ptah-extension/agent-sdk';
+import type {
+  CopilotAuthService,
+  ICodexAuthService,
+} from '@ptah-extension/agent-sdk';
 import {
   AuthGetAuthStatusParams,
   AuthGetAuthStatusResponse,
@@ -49,7 +52,9 @@ export class AuthRpcHandlers {
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
-    private readonly copilotAuth: CopilotAuthService
+    private readonly copilotAuth: CopilotAuthService,
+    @inject(SDK_TOKENS.SDK_CODEX_AUTH)
+    private readonly codexAuth: ICodexAuthService
   ) {}
 
   /**
@@ -63,6 +68,7 @@ export class AuthRpcHandlers {
     this.registerCopilotLogin();
     this.registerCopilotLogout();
     this.registerCopilotStatus();
+    this.registerCodexLogin();
 
     this.logger.debug('Auth RPC handlers registered', {
       methods: [
@@ -73,6 +79,7 @@ export class AuthRpcHandlers {
         'auth:copilotLogin',
         'auth:copilotLogout',
         'auth:copilotStatus',
+        'auth:codexLogin',
       ],
     });
   }
@@ -182,6 +189,23 @@ export class AuthRpcHandlers {
           );
         }
 
+        // Check Codex auth status (TASK_2025_199)
+        // Wrapped in try/catch so Codex failures don't crash the entire auth status response
+        let codexAuthenticated = false;
+        let codexTokenStale = false;
+        try {
+          const codexStatus = await this.codexAuth.getTokenStatus();
+          codexAuthenticated = codexStatus.authenticated;
+          codexTokenStale = codexStatus.stale;
+        } catch (codexError) {
+          this.logger.warn(
+            'Codex auth status check failed (non-fatal)',
+            codexError instanceof Error
+              ? codexError
+              : new Error(String(codexError))
+          );
+        }
+
         this.logger.debug('RPC: auth:getAuthStatus result', {
           hasOAuthToken,
           hasApiKey,
@@ -190,6 +214,8 @@ export class AuthRpcHandlers {
           authMethod,
           anthropicProviderId,
           copilotAuthenticated,
+          codexAuthenticated,
+          codexTokenStale,
         });
 
         return {
@@ -202,6 +228,8 @@ export class AuthRpcHandlers {
           availableProviders,
           copilotAuthenticated,
           copilotUsername,
+          codexAuthenticated,
+          codexTokenStale,
         };
       } catch (error) {
         this.logger.error(
@@ -517,6 +545,26 @@ export class AuthRpcHandlers {
         return { authenticated: false };
       }
     });
+  }
+
+  /**
+   * auth:codexLogin - Open a terminal for the user to run `codex login`
+   *
+   * TASK_2025_199: Codex authentication is managed externally via the CLI.
+   * This handler opens a VS Code terminal with `codex login` pre-typed,
+   * making it one-click from the auth settings UI.
+   */
+  private registerCodexLogin(): void {
+    this.rpcHandler.registerMethod<void, { success: boolean }>(
+      'auth:codexLogin',
+      async () => {
+        this.logger.info('RPC: auth:codexLogin - opening terminal');
+        const terminal = vscode.window.createTerminal({ name: 'Codex Login' });
+        terminal.sendText('codex login --device-auth', true);
+        terminal.show();
+        return { success: true };
+      }
+    );
   }
 
   /**

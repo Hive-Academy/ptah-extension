@@ -46,6 +46,9 @@ import {
             Ptah
           </h3>
           <p class="text-base-content/60">Craftsman of AI Development</p>
+          <p class="text-xs text-base-content/40 mt-1">
+            Powered by Claude Agent SDK
+          </p>
         </div>
 
         <!-- Navigation Links -->

@@ -396,7 +396,11 @@
               class="input input-sm input-bordered w-full mb-3 bg-base-100 border-base-content/10 focus:border-primary"
               placeholder="Enter session name (optional)"
               [(ngModel)]="sessionNameInput"
-              (keydown.enter)="handleCreateSession(); $event.preventDefault(); $event.stopPropagation()"
+              (keydown.enter)="
+                handleCreateSession();
+                $event.preventDefault();
+                $event.stopPropagation()
+              "
               (keydown.escape)="handleCancelSession()"
             />
 

@@ -34,7 +34,7 @@ import {
       >
         <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
         <span class="text-sm font-medium text-amber-300/90 tracking-wide"
-          >Powered by Claude Agent SDK</span
+          >Provider-Agnostic AI Orchestration</span
         >
       </div>
 
@@ -53,9 +53,9 @@ import {
         [viewportConfig]="subheadlineConfig"
         class="text-base md:text-lg lg:text-xl text-white/70 mb-12 max-w-2xl leading-relaxed font-light"
       >
-        The AI coding orchestra for VS Code, powered by Claude Agent SDK.
-        Intelligent workspace analysis, Code Execution MCP server, and
-        project-adaptive AI agents.
+        The agentic harness for VS Code that unifies OpenAI, Claude, and GitHub
+        Copilot into one seamless orchestration workflow. Intelligent workspace
+        analysis, project-adaptive agents, and full provider freedom.
       </p>
 
       <!-- CTA Buttons -->

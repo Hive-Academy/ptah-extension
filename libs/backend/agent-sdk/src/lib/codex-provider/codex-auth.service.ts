@@ -5,8 +5,12 @@
  * the auth file written by the Codex CLI (`codex login`).
  *
  * Auth resolution priority:
- * 1. OPENAI_API_KEY field (never expires, highest priority)
+ * 1. openai_api_key field (never expires, highest priority)
  * 2. OAuth tokens.access_token (refreshed proactively when stale)
+ *
+ * API endpoint depends on auth mode:
+ * - ApiKey → https://api.openai.com/v1
+ * - Chatgpt (OAuth) → https://chatgpt.com/backend-api/codex
  *
  * OAuth token refresh is deduplicated to prevent race conditions
  * with single-use refresh tokens. Updated tokens are written atomically
@@ -38,8 +42,11 @@ const OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 /** Max age (ms) before proactive refresh. OAuth tokens last ~1h; refresh at 50 min. */
 const TOKEN_MAX_AGE_MS = 50 * 60 * 1000;
 
-/** Default Codex API endpoint */
-const DEFAULT_API_ENDPOINT = 'https://api.chatgpt.com';
+/** Default Codex API endpoint for API key auth mode */
+const DEFAULT_API_ENDPOINT_APIKEY = 'https://api.openai.com/v1';
+
+/** Default Codex API endpoint for ChatGPT OAuth auth mode */
+const DEFAULT_API_ENDPOINT_CHATGPT = 'https://chatgpt.com/backend-api/codex';
 
 /** Timeout for refresh requests */
 const REFRESH_TIMEOUT_MS = 10_000;
@@ -70,6 +77,15 @@ export class CodexAuthService implements ICodexAuthService {
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
+   * Get the API key from the auth file, checking both snake_case and
+   * SCREAMING_CASE field names for compatibility.
+   */
+  private getApiKey(auth: CodexAuthFile): string | null {
+    // Codex CLI writes snake_case; check both for safety
+    return auth.openai_api_key || auth.OPENAI_API_KEY || null;
+  }
+
+  /**
    * Check whether valid Codex credentials are available.
    * Returns true if an API key or access token is present in ~/.codex/auth.json.
    */
@@ -79,7 +95,7 @@ export class CodexAuthService implements ICodexAuthService {
       if (!auth) return false;
 
       // API key is always valid
-      if (auth.OPENAI_API_KEY) return true;
+      if (this.getApiKey(auth)) return true;
 
       // OAuth token must exist
       return !!auth.tokens?.access_token;
@@ -110,8 +126,12 @@ export class CodexAuthService implements ICodexAuthService {
 
   /**
    * Get the Codex API base endpoint URL.
-   * Uses api_base_url from the auth file if present, otherwise defaults
-   * to https://api.chatgpt.com.
+   *
+   * Resolution order:
+   * 1. api_base_url from auth file (explicit override)
+   * 2. Auth mode-based default:
+   *    - API key → https://api.openai.com/v1
+   *    - ChatGPT OAuth → https://chatgpt.com/backend-api/codex
    */
   getApiEndpoint(): string {
     // Use cached auth if fresh enough; fall back to default if unavailable.
@@ -120,7 +140,41 @@ export class CodexAuthService implements ICodexAuthService {
     if (this.cachedAuth?.api_base_url) {
       return this.cachedAuth.api_base_url;
     }
-    return DEFAULT_API_ENDPOINT;
+
+    // Auth mode determines the default endpoint
+    const authMode = this.cachedAuth?.auth_mode;
+    if (
+      authMode === 'ApiKey' ||
+      (this.cachedAuth && this.getApiKey(this.cachedAuth))
+    ) {
+      return DEFAULT_API_ENDPOINT_APIKEY;
+    }
+    // ChatGPT OAuth mode (default for `codex login`)
+    return DEFAULT_API_ENDPOINT_CHATGPT;
+  }
+
+  /**
+   * Get the current Codex token status for auth UI display.
+   * Used by auth status RPC to show warning badges in the UI.
+   */
+  async getTokenStatus(): Promise<{ authenticated: boolean; stale: boolean }> {
+    const auth = await this.readAuthFile();
+    if (!auth) {
+      return { authenticated: false, stale: false };
+    }
+
+    // API key mode -- never expires
+    if (auth.openai_api_key || auth.OPENAI_API_KEY) {
+      return { authenticated: true, stale: false };
+    }
+
+    // OAuth mode -- check token presence and staleness
+    if (!auth.tokens?.access_token) {
+      return { authenticated: false, stale: false };
+    }
+
+    const stale = this.isTokenStale(auth.last_refresh);
+    return { authenticated: true, stale };
   }
 
   /**
@@ -153,7 +207,7 @@ export class CodexAuthService implements ICodexAuthService {
       // API keys cannot be refreshed. If the key is invalid/revoked, retrying
       // with the same key is pointless. Return false so the proxy does not
       // wastefully retry with the same bad key.
-      if (auth.OPENAI_API_KEY) {
+      if (this.getApiKey(auth)) {
         this.logger.warn(
           '[CodexAuth] ensureTokensFresh called with API key auth -- API keys cannot be refreshed. ' +
             'If you are seeing 401 errors, your API key may be invalid or revoked.'
@@ -201,8 +255,9 @@ export class CodexAuthService implements ICodexAuthService {
       if (!auth) return null;
 
       // API key takes priority -- never expires
-      if (auth.OPENAI_API_KEY) {
-        return auth.OPENAI_API_KEY;
+      const apiKey = this.getApiKey(auth);
+      if (apiKey) {
+        return apiKey;
       }
 
       if (!auth.tokens?.access_token) return null;

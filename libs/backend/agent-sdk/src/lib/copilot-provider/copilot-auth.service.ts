@@ -291,7 +291,6 @@ export class CopilotAuthService implements ICopilotAuthService {
         )}, ` +
           `expires in ${Math.floor(expiresIn / 60)}m, endpoint: ${apiEndpoint})`
       );
-
       return true;
     } catch (error) {
       this.logger.error(

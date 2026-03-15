@@ -674,7 +674,7 @@ export class ChatRpcHandlers {
             options?.model ||
             this.configManager.getWithDefault<string>(
               'model.selected',
-              'claude-sonnet-4-5-20250929'
+              'claude-opus-4-6-20250623'
             );
 
           // TASK_2025_093: tabId is now the primary tracking key
@@ -812,7 +812,7 @@ export class ChatRpcHandlers {
               params.model ||
               this.configManager.getWithDefault<string>(
                 'model.selected',
-                'claude-sonnet-4-5-20250929'
+                'claude-opus-4-6-20250623'
               );
 
             // Resume the session to reconnect to Claude's conversation context
@@ -1090,7 +1090,7 @@ IMPORTANT INSTRUCTIONS:
               params.model ||
               this.configManager.getWithDefault<string>(
                 'model.selected',
-                'claude-sonnet-4-5-20250929'
+                'claude-opus-4-6-20250623'
               ),
             projectPath: workspacePath,
           } as AISessionConfig,

@@ -310,7 +310,7 @@ export class ConfigRpcHandlers {
           // Get saved model preference
           const savedModel = this.configManager.getWithDefault<string>(
             'model.selected',
-            'claude-sonnet-4-5-20250929'
+            'claude-opus-4-6-20250623'
           );
 
           // Fetch models dynamically from SDK
@@ -342,20 +342,31 @@ export class ConfigRpcHandlers {
           }
 
           // Transform to frontend format
+          // Use displayName for tier detection since SDK's 'default' value
+          // can change which tier it points to (was Sonnet, now Opus as of SDK 0.2.25+)
           const models = sdkModels.map((m) => {
             let providerModelId: string | null = null;
             const valueLower = m.value.toLowerCase();
+            const displayLower = (m.displayName || '').toLowerCase();
 
             if (tierOverrides) {
-              // SDK returns 'default' for the sonnet-tier model, so match both
               if (
-                (valueLower.includes('sonnet') || valueLower === 'default') &&
+                (valueLower.includes('sonnet') ||
+                  displayLower.includes('sonnet')) &&
                 tierOverrides.sonnet
               ) {
                 providerModelId = tierOverrides.sonnet;
-              } else if (valueLower.includes('opus') && tierOverrides.opus) {
+              } else if (
+                (valueLower.includes('opus') ||
+                  displayLower.includes('opus')) &&
+                tierOverrides.opus
+              ) {
                 providerModelId = tierOverrides.opus;
-              } else if (valueLower.includes('haiku') && tierOverrides.haiku) {
+              } else if (
+                (valueLower.includes('haiku') ||
+                  displayLower.includes('haiku')) &&
+                tierOverrides.haiku
+              ) {
                 providerModelId = tierOverrides.haiku;
               }
             }
@@ -372,7 +383,8 @@ export class ConfigRpcHandlers {
               apiName: m.value,
               isSelected: m.value === savedModel,
               isRecommended:
-                valueLower.includes('sonnet') || valueLower === 'default',
+                valueLower.includes('sonnet') ||
+                displayLower.includes('sonnet'),
               providerModelId,
             };
           });

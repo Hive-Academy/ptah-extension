@@ -34,6 +34,11 @@ import type {
 } from './openai-translation.types';
 import { translateAnthropicToOpenAI } from './request-translator';
 import { OpenAIResponseTranslator } from './response-translator';
+import {
+  translateAnthropicToResponses,
+  type OpenAIResponsesRequest,
+} from './responses-request-translator';
+import { ResponsesStreamTranslator } from './responses-stream-translator';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -47,6 +52,8 @@ export interface TranslationProxyConfig {
   modelPrefix: string;
   /** Path for the upstream chat completions endpoint (e.g., '/chat/completions', '/v1/chat/completions') */
   completionsPath: string;
+  /** Path for the upstream responses endpoint (e.g., '/responses', '/v1/responses'). Defaults to '/responses'. */
+  responsesPath?: string;
 }
 
 /** Maximum request body size (50 MB) */
@@ -270,9 +277,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   /**
    * Handle POST /v1/messages:
    * 1. Parse Anthropic request body
-   * 2. Translate to OpenAI format
-   * 3. Forward to upstream API with auth headers
-   * 4. Translate response back to Anthropic format
+   * 2. Determine API endpoint (Chat Completions vs Responses API)
+   * 3. Translate to appropriate OpenAI format
+   * 4. Forward to upstream API with auth headers
+   * 5. Translate response back to Anthropic format
    */
   private async handleMessages(
     req: http.IncomingMessage,
@@ -296,48 +304,108 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       return;
     }
 
+    // Normalize model ID (provider-specific — subclasses can override)
+    anthropicRequest.model = this.normalizeModelId(anthropicRequest.model);
+
+    const useResponsesApi = this.shouldUseResponsesApi(anthropicRequest.model);
+
     this.logger.debug(
       `${this.logPrefix} [${requestId}] Translating request for model: ${anthropicRequest.model}, ` +
         `stream: ${!!anthropicRequest.stream}, messages: ${
           anthropicRequest.messages?.length ?? 0
-        }`
+        }, api: ${useResponsesApi ? 'responses' : 'completions'}`
     );
 
-    // Translate Anthropic -> OpenAI format (with provider-specific model prefix)
-    const openaiRequest = translateAnthropicToOpenAI(anthropicRequest, {
-      modelPrefix: this.config.modelPrefix,
-    });
+    if (useResponsesApi) {
+      // GPT-5.3+ models → Responses API
+      const responsesRequest = translateAnthropicToResponses(anthropicRequest, {
+        modelPrefix: this.config.modelPrefix,
+      });
 
-    // Attempt to forward with retry on 401
-    try {
-      await this.forwardToUpstream(
-        openaiRequest,
-        anthropicRequest,
-        res,
-        requestId,
-        false
-      );
-    } catch (error) {
-      if (!res.headersSent) {
-        this.logger.error(
-          `${this.logPrefix} [${requestId}] Forward failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-        this.sendErrorResponse(
+      try {
+        await this.forwardToResponsesApi(
+          responsesRequest,
+          anthropicRequest,
           res,
-          500,
-          'api_error',
-          `Failed to communicate with ${this.config.name} API`
+          requestId,
+          false
         );
+      } catch (error) {
+        if (!res.headersSent) {
+          this.logger.error(
+            `${
+              this.logPrefix
+            } [${requestId}] Forward to Responses API failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          this.sendErrorResponse(
+            res,
+            500,
+            'api_error',
+            `Failed to communicate with ${this.config.name} API`
+          );
+        }
+      }
+    } else {
+      // All other models → Chat Completions API
+      const openaiRequest = translateAnthropicToOpenAI(anthropicRequest, {
+        modelPrefix: this.config.modelPrefix,
+      });
+
+      try {
+        await this.forwardToUpstream(
+          openaiRequest,
+          anthropicRequest,
+          res,
+          requestId,
+          false
+        );
+      } catch (error) {
+        if (!res.headersSent) {
+          this.logger.error(
+            `${this.logPrefix} [${requestId}] Forward failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          this.sendErrorResponse(
+            res,
+            500,
+            'api_error',
+            `Failed to communicate with ${this.config.name} API`
+          );
+        }
       }
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Provider-specific hooks — subclasses may override
+  // ---------------------------------------------------------------------------
+
   /**
-   * Forward the translated request to the upstream API.
-   * On 401, refreshes auth and retries once.
-   * On 429, returns Anthropic overloaded_error format.
+   * Normalize model ID before forwarding to the upstream API.
+   * Default: pass through as-is (no modification).
+   * Subclasses can override for provider-specific normalization.
+   */
+  protected normalizeModelId(modelId: string): string {
+    return modelId;
+  }
+
+  /**
+   * Determine whether a model should use the Responses API (/responses)
+   * instead of Chat Completions (/chat/completions).
+   *
+   * Default: returns false (Chat Completions only).
+   * Subclasses that support dual-endpoint routing should override.
+   */
+  protected shouldUseResponsesApi(_modelId: string): boolean {
+    return false;
+  }
+
+  /**
+   * Forward the translated Chat Completions request to the upstream API.
+   * Delegates to the shared `forwardToApi()` with completions-specific handlers.
    */
   private async forwardToUpstream(
     openaiRequest: OpenAIChatCompletionsRequest,
@@ -346,6 +414,115 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
     requestId: string,
     isRetry: boolean
   ): Promise<void> {
+    return this.forwardToApi({
+      requestBody: JSON.stringify(openaiRequest),
+      path: this.config.completionsPath,
+      originalRequest,
+      res,
+      requestId,
+      isRetry,
+      apiLabel: 'API',
+      onStreamingSuccess: (proxyRes, clientRes, model, reqId) =>
+        this.handleStreamingResponse(proxyRes, clientRes, model, reqId),
+      onNonStreamingSuccess: (proxyRes, clientRes, model, reqId) =>
+        this.handleNonStreamingResponse(proxyRes, clientRes, model, reqId),
+      retryFn: (retry) =>
+        this.forwardToUpstream(
+          openaiRequest,
+          originalRequest,
+          res,
+          requestId,
+          retry
+        ),
+    });
+  }
+
+  /**
+   * Forward a Responses API request to the upstream API.
+   * Delegates to the shared `forwardToApi()` with responses-specific handlers.
+   */
+  private async forwardToResponsesApi(
+    responsesRequest: OpenAIResponsesRequest,
+    originalRequest: AnthropicMessagesRequest,
+    res: http.ServerResponse,
+    requestId: string,
+    isRetry: boolean
+  ): Promise<void> {
+    const responsesPath = this.config.responsesPath ?? '/responses';
+
+    return this.forwardToApi({
+      requestBody: JSON.stringify(responsesRequest),
+      path: responsesPath,
+      originalRequest,
+      res,
+      requestId,
+      isRetry,
+      apiLabel: 'Responses API',
+      onStreamingSuccess: (proxyRes, clientRes, model, reqId) =>
+        this.handleResponsesStreamingResponse(
+          proxyRes,
+          clientRes,
+          model,
+          reqId
+        ),
+      onNonStreamingSuccess: (proxyRes, clientRes, model, reqId) =>
+        this.handleResponsesNonStreamingResponse(
+          proxyRes,
+          clientRes,
+          model,
+          reqId
+        ),
+      retryFn: (retry) =>
+        this.forwardToResponsesApi(
+          responsesRequest,
+          originalRequest,
+          res,
+          requestId,
+          retry
+        ),
+    });
+  }
+
+  /**
+   * Shared forwarding logic for both Chat Completions and Responses API paths.
+   * Handles auth, 401 retry, 429 rate limit, error status codes, timeout,
+   * and dispatches to the appropriate streaming/non-streaming success handler.
+   */
+  private async forwardToApi(params: {
+    requestBody: string;
+    path: string;
+    originalRequest: AnthropicMessagesRequest;
+    res: http.ServerResponse;
+    requestId: string;
+    isRetry: boolean;
+    apiLabel: string;
+    onStreamingSuccess: (
+      proxyRes: http.IncomingMessage,
+      res: http.ServerResponse,
+      model: string,
+      requestId: string
+    ) => void;
+    onNonStreamingSuccess: (
+      proxyRes: http.IncomingMessage,
+      res: http.ServerResponse,
+      model: string,
+      requestId: string
+    ) => Promise<void>;
+    retryFn: (isRetry: boolean) => Promise<void>;
+  }): Promise<void> {
+    const {
+      requestBody,
+      path,
+      originalRequest,
+      res,
+      requestId,
+      isRetry,
+      apiLabel,
+      onStreamingSuccess,
+      onNonStreamingSuccess,
+      retryFn,
+    } = params;
+
     // Get auth headers
     let headers: Record<string, string>;
     try {
@@ -362,15 +539,12 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
       return;
     }
 
-    // Get the API endpoint
+    // Get the API endpoint and build target URL
     const apiEndpoint = await this.getApiEndpoint();
-    const completionsPath = this.config.completionsPath;
+    const targetUrl = this.buildUpstreamUrl(apiEndpoint, path);
 
-    const requestBody = JSON.stringify(openaiRequest);
-    const targetUrl = new URL(completionsPath, apiEndpoint);
-
-    this.logger.debug(
-      `${this.logPrefix} [${requestId}] Forwarding to ${targetUrl.href} (retry: ${isRetry})`
+    this.logger.info(
+      `${this.logPrefix} [${requestId}] Forwarding to ${apiLabel}: ${targetUrl.href}`
     );
 
     return new Promise<void>((resolve, reject) => {
@@ -387,25 +561,17 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         (proxyRes) => {
           const statusCode = proxyRes.statusCode ?? 500;
 
-          // Handle 401 — refresh token and retry once
+          // Handle 401 -- refresh token and retry once
           if (statusCode === 401 && !isRetry) {
             this.logger.warn(
-              `${this.logPrefix} [${requestId}] Got 401, attempting token refresh and retry...`
+              `${this.logPrefix} [${requestId}] Got 401 from ${apiLabel}, attempting token refresh and retry...`
             );
             // Consume the response body to free the socket
             proxyRes.resume();
             this.onAuthFailure()
               .then((success) => {
                 if (success) {
-                  this.forwardToUpstream(
-                    openaiRequest,
-                    originalRequest,
-                    res,
-                    requestId,
-                    true
-                  )
-                    .then(resolve)
-                    .catch(reject);
+                  retryFn(true).then(resolve).catch(reject);
                 } else {
                   this.sendErrorResponse(
                     res,
@@ -430,14 +596,14 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             return;
           }
 
-          // Handle 429 — rate limit
+          // Handle 429 -- rate limit
           if (statusCode === 429) {
             const retryAfter = proxyRes.headers['retry-after'];
             const retryMsg = retryAfter
               ? ` Retry after ${retryAfter} seconds.`
               : '';
             this.logger.warn(
-              `${this.logPrefix} [${requestId}] Rate limited by ${this.config.name} API${retryMsg}`
+              `${this.logPrefix} [${requestId}] Rate limited by ${this.config.name} ${apiLabel}${retryMsg}`
             );
             proxyRes.resume();
             this.sendErrorResponse(
@@ -459,7 +625,10 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
               this.logger.error(
                 `${this.logPrefix} [${requestId}] ${
                   this.config.name
-                } API error ${statusCode}: ${errorBody.substring(0, 500)}`
+                } ${apiLabel} error ${statusCode}: ${errorBody.substring(
+                  0,
+                  500
+                )}`
               );
               this.sendErrorResponse(
                 res,
@@ -474,18 +643,13 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
             return;
           }
 
-          // Success — translate response
+          // Success -- translate response
           if (originalRequest.stream) {
-            this.handleStreamingResponse(
-              proxyRes,
-              res,
-              originalRequest.model,
-              requestId
-            );
+            onStreamingSuccess(proxyRes, res, originalRequest.model, requestId);
             proxyRes.on('end', () => resolve());
             proxyRes.on('error', (err) => reject(err));
           } else {
-            this.handleNonStreamingResponse(
+            onNonStreamingSuccess(
               proxyRes,
               res,
               originalRequest.model,
@@ -499,7 +663,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
       proxyReq.on('timeout', () => {
         this.logger.error(
-          `${this.logPrefix} [${requestId}] Request timed out after 120s`
+          `${this.logPrefix} [${requestId}] ${apiLabel} request timed out after 120s`
         );
         proxyReq.destroy();
         if (!res.headersSent) {
@@ -515,7 +679,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
       proxyReq.on('error', (err) => {
         this.logger.error(
-          `${this.logPrefix} [${requestId}] Request error: ${err.message}`
+          `${this.logPrefix} [${requestId}] ${apiLabel} request error: ${err.message}`
         );
         reject(err);
       });
@@ -528,6 +692,150 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
   // ---------------------------------------------------------------------------
   // Response handling
   // ---------------------------------------------------------------------------
+
+  /**
+   * Handle a streaming response from the upstream Responses API.
+   * Reads Responses SSE events, translates to Anthropic SSE, and writes to client.
+   */
+  private handleResponsesStreamingResponse(
+    proxyRes: http.IncomingMessage,
+    res: http.ServerResponse,
+    model: string,
+    requestId: string
+  ): void {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+      'Transfer-Encoding': 'chunked',
+    });
+
+    const translator = new ResponsesStreamTranslator(model, requestId);
+
+    // Emit the initial message_start event
+    res.write(translator.getInitialEvents());
+
+    proxyRes.setEncoding('utf8');
+
+    proxyRes.on('data', (chunk: string) => {
+      const events = translator.processChunk(chunk);
+      for (const event of events) {
+        res.write(event);
+      }
+    });
+
+    proxyRes.on('end', () => {
+      res.end();
+      this.logger.debug(
+        `${this.logPrefix} [${requestId}] Responses API streaming response complete`
+      );
+    });
+
+    proxyRes.on('error', (err) => {
+      this.logger.error(
+        `${this.logPrefix} [${requestId}] Responses API stream error: ${err.message}`
+      );
+      res.end();
+    });
+  }
+
+  /**
+   * Handle a non-streaming response from the upstream Responses API.
+   * Reads the complete Responses JSON response, translates to Anthropic format.
+   */
+  private async handleResponsesNonStreamingResponse(
+    proxyRes: http.IncomingMessage,
+    res: http.ServerResponse,
+    model: string,
+    requestId: string
+  ): Promise<void> {
+    const chunks: Buffer[] = [];
+
+    return new Promise<void>((resolve) => {
+      proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+      proxyRes.on('end', () => {
+        try {
+          const body = Buffer.concat(chunks).toString('utf8');
+          const responsesResponse = JSON.parse(body);
+
+          // Build an Anthropic-format non-streaming response from Responses API output
+          const content: Array<Record<string, unknown>> = [];
+          let stopReason = 'end_turn';
+
+          if (responsesResponse.output) {
+            for (const outputItem of responsesResponse.output) {
+              if (outputItem.type === 'message' && outputItem.content) {
+                for (const contentItem of outputItem.content) {
+                  if (contentItem.type === 'output_text' && contentItem.text) {
+                    content.push({
+                      type: 'text',
+                      text: contentItem.text,
+                    });
+                  }
+                }
+              } else if (outputItem.type === 'function_call') {
+                stopReason = 'tool_use';
+                content.push({
+                  type: 'tool_use',
+                  id:
+                    outputItem.call_id ??
+                    `toolu_${requestId}_${content.length}`,
+                  name: outputItem.name ?? '',
+                  input: this.safeJsonParse(outputItem.arguments ?? '{}'),
+                });
+              }
+            }
+          }
+
+          const anthropicResponse = {
+            id: `msg_${requestId}`,
+            type: 'message',
+            role: 'assistant',
+            content,
+            model,
+            stop_reason: stopReason,
+            stop_sequence: null,
+            usage: {
+              input_tokens: responsesResponse.usage?.input_tokens ?? 0,
+              output_tokens: responsesResponse.usage?.output_tokens ?? 0,
+            },
+          };
+
+          this.sendJson(res, 200, anthropicResponse);
+          this.logger.debug(
+            `${this.logPrefix} [${requestId}] Responses API non-streaming response sent`
+          );
+        } catch (error) {
+          this.logger.error(
+            `${this.logPrefix} [${requestId}] Failed to translate Responses API non-streaming response: ` +
+              `${error instanceof Error ? error.message : String(error)}`
+          );
+          this.sendErrorResponse(
+            res,
+            500,
+            'api_error',
+            `Failed to translate ${this.config.name} response`
+          );
+        }
+        resolve();
+      });
+
+      proxyRes.on('error', (err) => {
+        this.logger.error(
+          `${this.logPrefix} [${requestId}] Responses API response read error: ${err.message}`
+        );
+        if (!res.headersSent) {
+          this.sendErrorResponse(
+            res,
+            500,
+            'api_error',
+            `Error reading ${this.config.name} response`
+          );
+        }
+        resolve();
+      });
+    });
+  }
 
   /**
    * Handle a streaming response from the upstream API.
@@ -783,6 +1091,20 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         message,
       },
     });
+  }
+
+  /**
+   * Build the full upstream URL by joining the base endpoint and path.
+   * Unlike `new URL(path, base)` which replaces the base path when path
+   * starts with '/', this method properly concatenates them:
+   *   'https://api.openai.com/v1' + '/responses' → 'https://api.openai.com/v1/responses'
+   *   'https://chatgpt.com/backend-api/codex' + '/responses' → 'https://chatgpt.com/backend-api/codex/responses'
+   */
+  private buildUpstreamUrl(baseEndpoint: string, path: string): URL {
+    // Strip trailing slash from base, strip leading slash from path
+    const base = baseEndpoint.replace(/\/+$/, '');
+    const suffix = path.replace(/^\/+/, '');
+    return new URL(`${base}/${suffix}`);
   }
 
   private generateRequestId(): string {

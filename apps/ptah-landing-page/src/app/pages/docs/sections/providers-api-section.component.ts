@@ -39,22 +39,22 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         [viewportConfig]="introConfig"
         class="text-neutral-content mb-4 max-w-2xl"
       >
-        Ptah supports three Anthropic-compatible third-party providers. These
-        let you use Ptah's full coding agent experience
+        Ptah supports multiple AI providers out of the box. Bring your own API
+        key from any supported provider and use Ptah's full agentic coding
+        experience
         <strong class="text-base-content/70"
-          >without a Claude subscription</strong
+          >with the model of your choice</strong
         >
-        — you bring your own API key from the provider and pay through their
-        billing.
+        — pay only through your provider's billing.
       </p>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
         class="text-neutral-content/60 text-sm mb-8 max-w-2xl"
       >
-        Each provider speaks the Anthropic API protocol, so Ptah routes requests
-        seamlessly by setting a custom base URL. Your credentials for each
-        provider are stored independently.
+        Each provider integrates through a compatible API protocol, so Ptah
+        routes requests seamlessly. Your credentials for each provider are
+        stored independently.
       </p>
 
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
@@ -166,9 +166,9 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
           title="Model Tier Mapping"
         >
           <p class="text-sm text-neutral-content mb-4">
-            When using a third-party provider, Ptah maps Claude's model tiers
-            (Opus, Sonnet, Haiku) to the provider's actual models. You can
-            customize which model handles each tier from the settings.
+            When using a third-party provider, Ptah maps capability tiers (Opus,
+            Sonnet, Haiku) to the provider's actual models. You can customize
+            which model handles each tier from the settings.
           </p>
           <div class="space-y-2">
             @for (tier of modelTiers; track tier.name) {
@@ -192,7 +192,7 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
           <p class="text-xs text-neutral-content/40 mt-3">
             Example: Map Opus to
             <code class="text-secondary/60">kimi-k2</code> so when Ptah requests
-            Claude Opus, it uses Kimi K2 via Moonshot.
+            the Opus tier, it uses Kimi K2 via Moonshot.
           </p>
         </ptah-docs-collapsible-card>
       </div>

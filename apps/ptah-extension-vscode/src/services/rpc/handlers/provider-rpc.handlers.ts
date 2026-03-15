@@ -25,6 +25,8 @@ import {
   SDK_TOKENS,
   DEFAULT_PROVIDER_ID,
   getAnthropicProvider,
+  COPILOT_PROVIDER_ENTRY,
+  CODEX_PROVIDER_ENTRY,
 } from '@ptah-extension/agent-sdk';
 import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import {
@@ -61,6 +63,7 @@ export class ProviderRpcHandlers {
    */
   register(): void {
     this.registerCopilotDynamicFetcher();
+    this.registerCodexDynamicFetcher();
     this.registerListModels();
     this.registerSetModelTier();
     this.registerGetModelTiers();
@@ -78,60 +81,137 @@ export class ProviderRpcHandlers {
 
   /**
    * Register a dynamic fetcher for GitHub Copilot models.
-   * Uses vscode.lm.selectChatModels() — the same source as the VS Code LM dropdown —
-   * so users see identical models in both places.
-   * Falls back to the Copilot SDK adapter's listModels() if VS Code LM API fails.
+   *
+   * Uses a unified cascade that matches what the user actually has access to:
+   * 1. VS Code LM API (selectChatModels) — subscription-filtered, most reliable
+   * 2. Copilot CLI SDK (client.listModels) — also subscription-filtered
+   * 3. Static fallback list from COPILOT_PROVIDER_ENTRY
+   *
+   * This ensures the model selector only shows models the user can actually use,
+   * preventing "model not supported" errors at runtime.
    */
   private registerCopilotDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('github-copilot', async () => {
-      // Primary: VS Code LM API (same source as VS Code LM provider dropdown)
+      // 1. Try VS Code LM API — returns only models the user's Copilot subscription covers
       try {
-        const allModels = await vscode.lm.selectChatModels();
-        const copilotModels = allModels.filter((m) => m.vendor === 'copilot');
-        if (copilotModels.length > 0) {
-          return copilotModels.map((m) => ({
+        const vscodeModels = await vscode.lm.selectChatModels({
+          vendor: 'copilot',
+        });
+        if (vscodeModels.length > 0) {
+          this.logger.info(
+            `[ProviderRpc] Fetched ${vscodeModels.length} Copilot models from VS Code LM API`
+          );
+          return vscodeModels.map((m) => ({
             id: m.family,
-            name: this.formatModelDisplayName(m.family),
+            name: this.formatCopilotModelName(m.family),
             description: '',
-            contextLength: 0,
+            contextLength: m.maxInputTokens ?? 0,
             supportsToolUse: true,
           }));
         }
-      } catch {
-        // Fall through to SDK adapter
+      } catch (error) {
+        this.logger.debug(
+          `[ProviderRpc] VS Code LM API unavailable: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
 
-      // Fallback: Copilot SDK adapter's listModels()
-      const copilotAdapter = this.cliDetection.getAdapter('copilot');
-      if (copilotAdapter?.listModels) {
-        const models = await copilotAdapter.listModels();
-        return models.map((m) => ({
-          id: m.id,
-          name: m.name,
-          description: '',
-          contextLength: 0,
-          supportsToolUse: true,
-        }));
+      // 2. Try Copilot CLI SDK — also subscription-filtered
+      try {
+        const copilotAdapter = this.cliDetection.getAdapter('copilot');
+        if (copilotAdapter?.listModels) {
+          const cliModels = await copilotAdapter.listModels();
+          if (cliModels.length > 0) {
+            this.logger.info(
+              `[ProviderRpc] Fetched ${cliModels.length} Copilot models from CLI SDK`
+            );
+            return cliModels.map((m) => ({
+              id: m.id,
+              name: m.name || this.formatCopilotModelName(m.id),
+              description: '',
+              contextLength: 0,
+              supportsToolUse: true,
+            }));
+          }
+        }
+      } catch (error) {
+        this.logger.debug(
+          `[ProviderRpc] Copilot CLI SDK unavailable: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
 
-      return [];
+      // 3. Static fallback
+      this.logger.info(
+        '[ProviderRpc] Using static Copilot model list (VS Code LM and CLI both unavailable)'
+      );
+      return (COPILOT_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description ?? '',
+        contextLength: m.contextLength ?? 0,
+        supportsToolUse: m.supportsToolUse ?? false,
+      }));
     });
   }
 
   /**
-   * Convert a model family slug to a human-readable name.
-   * e.g. "claude-opus-4.6" → "Claude Opus 4.6"
-   *      "gpt-5.3-codex"   → "GPT 5.3 Codex"
+   * Register a dynamic fetcher for OpenAI Codex models.
+   *
+   * Cascade:
+   * 1. VS Code LM API (selectChatModels) — Codex models may not appear here,
+   *    but we check for consistency with the Copilot fetcher pattern.
+   * 2. Static fallback list from CODEX_PROVIDER_ENTRY (primary source).
    */
-  private formatModelDisplayName(family: string): string {
-    return family
+  private registerCodexDynamicFetcher(): void {
+    this.providerModels.registerDynamicFetcher('openai-codex', async () => {
+      // 1. Try VS Code LM API — Codex models may not be listed, but check anyway
+      try {
+        const vscodeModels = await vscode.lm.selectChatModels();
+        // Filter to known Codex model IDs
+        const codexModelIds = new Set(
+          (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id)
+        );
+        const matched = vscodeModels.filter((m) => codexModelIds.has(m.family));
+        if (matched.length > 0) {
+          this.logger.info(
+            `[ProviderRpc] Fetched ${matched.length} Codex models from VS Code LM API`
+          );
+          return matched.map((m) => ({
+            id: m.family,
+            name: this.formatCopilotModelName(m.family),
+            description: '',
+            contextLength: m.maxInputTokens ?? 0,
+            supportsToolUse: true,
+          }));
+        }
+      } catch (error) {
+        this.logger.debug(
+          `[ProviderRpc] VS Code LM API unavailable for Codex: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+
+      // 2. Static fallback (primary source for Codex)
+      this.logger.info('[ProviderRpc] Using static Codex model list');
+      return (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => ({
+        id: m.id,
+        name: m.name,
+        description: m.description ?? '',
+        contextLength: m.contextLength ?? 0,
+        supportsToolUse: m.supportsToolUse ?? false,
+      }));
+    });
+  }
+
+  /** Convert model ID slug to display name: "gpt-5.3-codex" → "GPT 5.3 Codex" */
+  private formatCopilotModelName(id: string): string {
+    return id
       .split('-')
-      .map((part) => {
-        if (/^\d/.test(part)) return part;
-        const upper = part.toUpperCase();
-        if (['GPT', 'AI'].includes(upper)) return upper;
-        return part.charAt(0).toUpperCase() + part.slice(1);
-      })
+      .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
       .join(' ');
   }
 

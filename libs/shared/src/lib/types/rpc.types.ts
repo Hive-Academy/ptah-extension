@@ -549,6 +549,15 @@ export interface AuthCopilotStatusResponse {
   username?: string;
 }
 
+/** Parameters for auth:codexLogin RPC method (TASK_2025_199) */
+export type AuthCodexLoginParams = Record<string, never>;
+
+/** Response from auth:codexLogin RPC method (TASK_2025_199) */
+export interface AuthCodexLoginResponse {
+  success: boolean;
+  error?: string;
+}
+
 /** Parameters for auth:getAuthStatus RPC method */
 export interface AuthGetAuthStatusParams {
   /** Optional provider ID to check key status for (defaults to persisted config value) */
@@ -610,6 +619,10 @@ export interface AuthGetAuthStatusResponse {
   copilotAuthenticated?: boolean;
   /** Connected GitHub username for Copilot (TASK_2025_191) */
   copilotUsername?: string;
+  /** Whether Codex auth file exists and has valid tokens (TASK_2025_199) */
+  codexAuthenticated?: boolean;
+  /** Whether the Codex OAuth token is expired/stale (TASK_2025_199) */
+  codexTokenStale?: boolean;
 }
 
 // ============================================================
@@ -1588,6 +1601,10 @@ export interface RpcMethodRegistry {
     params: AuthCopilotStatusParams;
     result: AuthCopilotStatusResponse;
   };
+  'auth:codexLogin': {
+    params: AuthCodexLoginParams;
+    result: AuthCodexLoginResponse;
+  };
 
   // ---- Setup Methods ----
   'setup-status:get-status': {
@@ -1906,6 +1923,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'auth:copilotLogin',
   'auth:copilotLogout',
   'auth:copilotStatus',
+  'auth:codexLogin',
 
   // Setup Methods
   'setup-status:get-status',

@@ -27,9 +27,14 @@ export const CODEX_OAUTH_SENTINEL = 'codex-oauth';
  * @see codex-cli.adapter.ts for the original definition
  */
 export interface CodexAuthFile {
-  /** Authentication mode (e.g., 'oauth') */
-  auth_mode?: string;
-  /** Direct OpenAI API key (takes priority over OAuth tokens) */
+  /** Authentication mode */
+  auth_mode?: 'ApiKey' | 'Chatgpt' | 'ChatgptAuthTokens';
+  /**
+   * Direct OpenAI API key (takes priority over OAuth tokens).
+   * Codex CLI serializes this as snake_case in the JSON file.
+   */
+  openai_api_key?: string | null;
+  /** @deprecated Legacy uppercase variant — check both for safety */
   OPENAI_API_KEY?: string | null;
   /** OAuth tokens obtained via Codex CLI login */
   tokens?: {
@@ -66,4 +71,9 @@ export interface ICodexAuthService {
   ensureTokensFresh(): Promise<boolean>;
   /** Invalidate the in-memory auth file cache, forcing next read from disk */
   clearCache(): void;
+  /**
+   * Get the current Codex token status for auth UI display.
+   * Returns whether credentials exist and whether OAuth tokens are stale.
+   */
+  getTokenStatus(): Promise<{ authenticated: boolean; stale: boolean }>;
 }

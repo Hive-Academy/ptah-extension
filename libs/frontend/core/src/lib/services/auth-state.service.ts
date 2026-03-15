@@ -97,6 +97,12 @@ export class AuthStateService {
   /** Whether a Copilot login is in progress (TASK_2025_191) */
   private readonly _copilotLoggingIn = signal(false);
 
+  /** Whether Codex CLI auth is authenticated (TASK_2025_199) */
+  private readonly _codexAuthenticated = signal(false);
+
+  /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
+  private readonly _codexTokenStale = signal(false);
+
   /** Guard to ensure loadAuthStatus only fetches once unless refreshed */
   private _isLoaded = false;
 
@@ -144,6 +150,12 @@ export class AuthStateService {
   /** Whether Copilot login is in progress (TASK_2025_191) */
   readonly copilotLoggingIn = this._copilotLoggingIn.asReadonly();
 
+  /** Whether Codex CLI auth is authenticated (TASK_2025_199) */
+  readonly codexAuthenticated = this._codexAuthenticated.asReadonly();
+
+  /** Whether Codex CLI auth token is stale/expired (TASK_2025_199) */
+  readonly codexTokenStale = this._codexTokenStale.asReadonly();
+
   // --- Computed signals ---
 
   /**
@@ -181,10 +193,12 @@ export class AuthStateService {
     const method = this._authMethod();
     if (method !== 'openrouter' && method !== 'auto') return false;
 
-    // OAuth providers (e.g., GitHub Copilot) use OAuth auth, not API keys
+    // OAuth providers use their own auth, not API keys
     const provider = this.selectedProvider();
     if (provider?.authType === 'oauth') {
-      return this._copilotAuthenticated();
+      if (provider.id === 'github-copilot') return this._copilotAuthenticated();
+      if (provider.id === 'openai-codex') return this._codexAuthenticated();
+      return false;
     }
 
     return this.hasProviderKey();
@@ -198,7 +212,9 @@ export class AuthStateService {
   readonly hasProviderCredential = computed(() => {
     const provider = this.selectedProvider();
     if (provider?.authType === 'oauth') {
-      return this._copilotAuthenticated();
+      if (provider.id === 'github-copilot') return this._copilotAuthenticated();
+      if (provider.id === 'openai-codex') return this._codexAuthenticated();
+      return false;
     }
     return this.hasProviderKey();
   });
@@ -591,6 +607,15 @@ export class AuthStateService {
   }
 
   /**
+   * Trigger Codex CLI login via terminal.
+   * Calls auth:codexLogin RPC which opens a terminal running `codex login`.
+   * TASK_2025_199
+   */
+  async codexLogin(): Promise<void> {
+    await this.rpc.call('auth:codexLogin', {});
+  }
+
+  /**
    * Clear connection status messages and reset to idle.
    * Used when user navigates away or starts a new action.
    */
@@ -670,5 +695,9 @@ export class AuthStateService {
     if (response.copilotUsername !== undefined) {
       this._copilotUsername.set(response.copilotUsername ?? null);
     }
+
+    // Populate Codex auth status (TASK_2025_199)
+    this._codexAuthenticated.set(response.codexAuthenticated ?? false);
+    this._codexTokenStale.set(response.codexTokenStale ?? false);
   }
 }

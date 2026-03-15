@@ -61,9 +61,9 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         [viewportConfig]="introConfig"
         class="text-neutral-content/60 text-sm mb-8 max-w-2xl"
       >
-        Instead of Claude manually exploring files and running bash commands, it
-        queries Ptah's APIs to get structured, accurate results in a single
-        call. This is a
+        Instead of your AI agent manually exploring files and running bash
+        commands, it queries Ptah's APIs to get structured, accurate results in
+        a single call. This is a
         <strong class="text-neutral-content">Pro feature</strong> —
         automatically enabled when you have an active license.
       </p>
@@ -89,8 +89,8 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
             tool automatically discovers it and gains access to all Ptah tools.
           </p>
           <p class="text-sm text-neutral-content">
-            Claude receives a system prompt that instructs it to prefer Ptah
-            tools over built-in alternatives — so it uses
+            Your AI agent receives a system prompt that instructs it to prefer
+            Ptah tools over built-in alternatives — so it uses
             <code class="text-secondary/70 text-xs">ptah_get_diagnostics</code>
             instead of running a build to check errors, or
             <code class="text-secondary/70 text-xs">ptah_lsp_references</code>
@@ -168,8 +168,8 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
           <p class="text-sm text-neutral-content mb-4">
             The
             <code class="text-secondary/70 text-xs">execute_code</code> tool
-            gives Claude access to the full
-            <code class="text-secondary/70 text-xs">ptah.*</code> API. Claude
+            gives your AI agent access to the full
+            <code class="text-secondary/70 text-xs">ptah.*</code> API. Agents
             can write TypeScript that queries your workspace, analyzes code
             structure, accesses LSP features, spawns background agents, and even
             calls other AI models.
@@ -201,11 +201,11 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         <!-- Example -->
         <div>
           <h3 class="text-base font-semibold text-base-content/80 mb-3">
-            What Claude Can Do
+            What Your Agent Can Do
           </h3>
           <ptah-docs-code-block
             [code]="exampleCode"
-            label="Claude uses ptah.* APIs autonomously"
+            label="Your agent uses ptah.* APIs autonomously"
           />
         </div>
 
@@ -347,7 +347,7 @@ export class McpServerSectionComponent {
     { name: 'ptah.agent', hint: 'background agents' },
   ];
 
-  public readonly exampleCode = `// Claude autonomously queries your workspace:
+  public readonly exampleCode = `// Your agent autonomously queries your workspace:
 const project = await ptah.workspace.analyze();
 // → { type: "angular-nx", frameworks: ["Angular 20", "NestJS"] }
 
