@@ -320,17 +320,17 @@ function registerSubagentMethods(
         );
 
         if (params?.toolCallId) {
-          const record = registry.getSubagent(params.toolCallId);
+          const record = registry.get(params.toolCallId);
           return { subagents: record ? [record] : [] };
         }
 
         if (params?.sessionId) {
-          const subagents = registry.getResumableSubagents(params.sessionId);
+          const subagents = registry.getResumableBySession(params.sessionId);
           return { subagents };
         }
 
         // Return all resumable subagents
-        const allResumable = registry.getResumableSubagents();
+        const allResumable = registry.getResumable();
         return { subagents: allResumable };
       } catch (error) {
         logger.warn(

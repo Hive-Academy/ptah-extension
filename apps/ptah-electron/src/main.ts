@@ -57,7 +57,10 @@ app.whenReady().then(async () => {
     },
     dialog: {
       showMessageBox: (win: unknown, options: unknown) =>
-        dialog.showMessageBox(win, options),
+        dialog.showMessageBox(
+          win as Electron.BaseWindow,
+          options as Electron.MessageBoxOptions
+        ),
     },
     getWindow: () => {
       const win = mainWindow;
@@ -74,6 +77,49 @@ app.whenReady().then(async () => {
   };
 
   const container = ElectronDIContainer.setup(platformOptions);
+
+  // ========================================
+  // PHASE 2.1: Verify Critical DI Tokens
+  // ========================================
+  // Diagnostic verification: ensure critical tokens resolve after container setup.
+  // Each token is resolved independently so one failure does not mask others.
+  // This block must NOT throw -- it is purely informational.
+  {
+    const tokensToVerify: Array<{ name: string; token: unknown }> = [
+      { name: 'TOKENS.RPC_HANDLER', token: TOKENS.RPC_HANDLER },
+      { name: 'TOKENS.LOGGER', token: TOKENS.LOGGER },
+      {
+        name: 'PLATFORM_TOKENS.WORKSPACE_PROVIDER',
+        token: PLATFORM_TOKENS.WORKSPACE_PROVIDER,
+      },
+      {
+        name: 'PLATFORM_TOKENS.STATE_STORAGE',
+        token: PLATFORM_TOKENS.STATE_STORAGE,
+      },
+      {
+        name: 'PLATFORM_TOKENS.SECRET_STORAGE',
+        token: PLATFORM_TOKENS.SECRET_STORAGE,
+      },
+    ];
+
+    let resolved = 0;
+    for (const { name, token } of tokensToVerify) {
+      try {
+        container.resolve(token as symbol);
+        resolved++;
+        console.log(`[Ptah Electron] DI verify: ${name} -- OK`);
+      } catch (err) {
+        console.error(
+          `[Ptah Electron] DI verify: ${name} -- FAILED:`,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
+    }
+
+    console.log(
+      `[Ptah Electron] DI verification: ${resolved}/${tokensToVerify.length} tokens resolved`
+    );
+  }
 
   // ========================================
   // PHASE 2.5: Setup RPC Handlers
