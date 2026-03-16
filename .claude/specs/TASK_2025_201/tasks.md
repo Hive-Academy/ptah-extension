@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_201
 
-**Total Tasks**: 20 | **Batches**: 5 | **Status**: 3/5 complete
+**Total Tasks**: 20 | **Batches**: 5 | **Status**: 4/5 complete
 
 ---
 
@@ -367,12 +367,13 @@
 
 ---
 
-## Batch 4: QA Fixes -- rpc-handler-setup.ts (Issues 1-5, 7, 10, 11) [IN PROGRESS]
+## Batch 4: QA Fixes -- rpc-handler-setup.ts (Issues 1-5, 7, 10, 11) [COMPLETE]
 
 **Developer**: backend-developer
 **Tasks**: 8 | **Dependencies**: Batches 1-3 complete
+**Commit**: 67d1196e
 
-### Task 4.1: [CRITICAL] Fix chat:continue param name -- `message` to `prompt` [IMPLEMENTED]
+### Task 4.1: [CRITICAL] Fix chat:continue param name -- `message` to `prompt` [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Issue**: #1 -- `chat:continue` reads `params.message` instead of `params.prompt`, mismatching `ChatContinueParams` from rpc.types.ts
@@ -395,7 +396,7 @@
 
 ---
 
-### Task 4.2: [CRITICAL] Add CHAT_COMPLETE broadcast on streaming error [IMPLEMENTED]
+### Task 4.2: [CRITICAL] Add CHAT_COMPLETE broadcast on streaming error [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Issue**: #2 -- `streamEventsToRenderer` catch block does not send `CHAT_COMPLETE`, leaving the frontend in a perpetual "loading" state
@@ -428,7 +429,7 @@
 
 ---
 
-### Task 4.3: [SERIOUS] Fix chat:resume to accept tabId/workspacePath and call missing methods [IMPLEMENTED]
+### Task 4.3: [SERIOUS] Fix chat:resume to accept tabId/workspacePath and call missing methods [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Issue**: #3 -- `chat:resume` ignores `tabId` and `workspacePath` params, never calls `registerFromHistoryEvents()` or `readHistoryAsMessages()`
@@ -460,7 +461,7 @@
 
 ---
 
-### Task 4.4: [SERIOUS] Add subagent context injection to chat:continue [IMPLEMENTED]
+### Task 4.4: [SERIOUS] Add subagent context injection to chat:continue [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Issue**: #4 -- `chat:continue` does not inject interrupted subagent context, so Claude cannot automatically resume interrupted agents
@@ -495,7 +496,7 @@
 
 ---
 
-### Task 4.5: [SERIOUS] Fix chat:continue inline type to match ChatContinueParams [IMPLEMENTED]
+### Task 4.5: [SERIOUS] Fix chat:continue inline type to match ChatContinueParams [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Issue**: #5 -- inline type annotation is wrong and incomplete
@@ -510,7 +511,7 @@
 
 ---
 
-### Task 4.6: [MODERATE] Replace console.error with Logger throughout rpc-handler-setup.ts [IMPLEMENTED]
+### Task 4.6: [MODERATE] Replace console.error with Logger throughout rpc-handler-setup.ts [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Issue**: #7 -- uses `console.error` in multiple places instead of the structured Logger
@@ -536,7 +537,7 @@
 
 ---
 
-### Task 4.7: [MODERATE] Standardize chat:abort to use interruptSession [IMPLEMENTED]
+### Task 4.7: [MODERATE] Standardize chat:abort to use interruptSession [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Issue**: #10 -- `chat:abort` uses `abortSession` while `agent:stop` (in rpc-method-registration.service.ts) uses `interruptSession`. The SDK method is `interruptSession`.
@@ -554,7 +555,7 @@
 
 ---
 
-### Task 4.8: [MODERATE] Extract DEFAULT_MODEL constant [IMPLEMENTED]
+### Task 4.8: [MODERATE] Extract DEFAULT_MODEL constant [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Issue**: #11 -- Default model string `'claude-sonnet-4-20250514'` is hardcoded in multiple places
@@ -588,12 +589,12 @@
 
 ---
 
-## Batch 5: QA Fixes -- rpc-method-registration.service.ts (Issues 6, 8, 9, 11) [PENDING]
+## Batch 5: QA Fixes -- rpc-method-registration.service.ts (Issues 6, 8, 9, 11) [IN PROGRESS]
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 4 (if DEFAULT_MODEL is exported from rpc-handler-setup.ts)
 
-### Task 5.1: [SERIOUS] Fix plugins:save-config field name -- `enabledPlugins` to `enabledPluginIds` [PENDING]
+### Task 5.1: [SERIOUS] Fix plugins:save-config field name -- `enabledPlugins` to `enabledPluginIds` [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Issue**: #6 -- `plugins:save-config` reads `params.enabledPlugins` instead of `params.enabledPluginIds`
@@ -613,7 +614,7 @@
 
 ---
 
-### Task 5.2: [MODERATE] Add staleness timeout to isGenerating guard [PENDING]
+### Task 5.2: [MODERATE] Add staleness timeout to isGenerating guard [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Issue**: #8 -- `isGenerating` flag has no staleness timeout, so a crash during generation permanently blocks new generations
@@ -645,7 +646,7 @@
 
 ---
 
-### Task 5.3: [MODERATE] Add permission handler initialization at startup [PENDING]
+### Task 5.3: [MODERATE] Add permission handler initialization at startup [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Issue**: #9 -- No permission handler initialization at startup. Saved autopilot config is ignored until user toggles it.
@@ -684,7 +685,7 @@
 
 ---
 
-### Task 5.4: [MODERATE] Extract DEFAULT_MODEL constant [PENDING]
+### Task 5.4: [MODERATE] Extract DEFAULT_MODEL constant [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Issue**: #11 -- Default model string `'claude-sonnet-4-20250514'` is hardcoded in multiple places
