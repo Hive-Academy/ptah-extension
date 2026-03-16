@@ -192,6 +192,30 @@ export class ElectronDIContainer {
     );
 
     // ========================================
+    // PHASE 1.3: FILE_SYSTEM_MANAGER shim (required by workspace-intelligence)
+    // ========================================
+    // registerWorkspaceIntelligenceServices() checks container.isRegistered(TOKENS.FILE_SYSTEM_MANAGER)
+    // and throws if missing. The real FileSystemManager imports vscode, so we provide
+    // a shim that delegates to the platform-agnostic IFileSystemProvider already
+    // registered in Phase 0 via platform-electron.
+    try {
+      const fileSystemProvider = container.resolve(
+        PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER
+      );
+      container.register(TOKENS.FILE_SYSTEM_MANAGER, {
+        useValue: fileSystemProvider,
+      });
+      logger.info(
+        '[Electron DI] FILE_SYSTEM_MANAGER shim registered (delegates to IFileSystemProvider)'
+      );
+    } catch (error) {
+      logger.error(
+        '[Electron DI] Failed to register FILE_SYSTEM_MANAGER shim — workspace-intelligence services may fail',
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    }
+
+    // ========================================
     // PHASE 2: Library Services
     // ========================================
 
