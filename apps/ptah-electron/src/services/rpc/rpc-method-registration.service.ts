@@ -36,11 +36,38 @@ import type {
 } from '@ptah-extension/platform-core';
 
 /**
+ * Staleness threshold for the generation guard.
+ * If a generation has been running longer than this, assume it crashed
+ * and allow new generations to proceed.
+ */
+const GENERATION_STALENESS_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
  * Module-level concurrent generation guard.
  * Shared by wizard:submit-selection, wizard:cancel, and wizard:retry-item
  * to prevent duplicate generation runs.
  */
 let isGenerating = false;
+let generationStartedAt: number | null = null;
+
+/**
+ * Check if the isGenerating flag is stale (stuck due to a crash) and reset it.
+ * Called before early-return checks to prevent permanent lockout.
+ */
+function checkAndResetStaleness(logger: Logger): void {
+  if (
+    isGenerating &&
+    generationStartedAt &&
+    Date.now() - generationStartedAt > GENERATION_STALENESS_MS
+  ) {
+    logger.warn('[Electron RPC] Generation guard was stale, resetting');
+    isGenerating = false;
+    generationStartedAt = null;
+  }
+}
+
+/** Default model for SDK operations when no user preference is stored. */
+const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
 
 /**
  * Register extended RPC methods for the Electron app.
@@ -552,16 +579,16 @@ function registerPluginMethods(
   // plugins:save-config - Save plugin configuration
   rpcHandler.registerMethod(
     'plugins:save-config',
-    async (params: { enabledPlugins: string[] } | undefined) => {
+    async (params: { enabledPluginIds: string[] } | undefined) => {
       if (!params) {
-        return { success: false, error: 'enabledPlugins is required' };
+        return { success: false, error: 'enabledPluginIds is required' };
       }
       try {
         const storageService = container.resolve<{
           set<T>(key: string, value: T): Promise<void>;
         }>(TOKENS.STORAGE_SERVICE);
 
-        await storageService.set('plugins.enabled', params.enabledPlugins);
+        await storageService.set('plugins.enabled', params.enabledPluginIds);
         return { success: true };
       } catch (error) {
         return {
@@ -905,10 +932,7 @@ function registerConfigExtendedMethods(
       const storageService = container.resolve<{
         get<T>(key: string, defaultValue: T): T;
       }>(TOKENS.STORAGE_SERVICE);
-      const savedModel = storageService.get(
-        'model.selected',
-        'claude-sonnet-4-20250514'
-      );
+      const savedModel = storageService.get('model.selected', DEFAULT_MODEL);
 
       const sdkAdapter = container.resolve<{
         getSupportedModels(): Promise<
@@ -983,6 +1007,35 @@ function registerConfigExtendedMethods(
       }
     }
   );
+
+  // Initialize permission handler from saved config at startup.
+  // This ensures the saved autopilot permission level is applied immediately
+  // rather than waiting for the user to toggle it in the UI.
+  try {
+    const initStorageService = container.resolve<{
+      get<T>(key: string, defaultValue: T): T;
+    }>(TOKENS.STORAGE_SERVICE);
+    const savedEnabled = initStorageService.get('autopilot.enabled', false);
+    const savedLevel = initStorageService.get(
+      'autopilot.permissionLevel',
+      'ask'
+    );
+    if (savedEnabled && savedLevel !== 'ask') {
+      const permissionHandler = container.resolve<{
+        setPermissionLevel(level: string): void;
+      }>(SDK_TOKENS.SDK_PERMISSION_HANDLER);
+      permissionHandler.setPermissionLevel(savedLevel);
+      logger.info(
+        '[Electron RPC] Initialized permission handler from saved config',
+        { permissionLevel: savedLevel }
+      );
+    }
+  } catch {
+    // Permission handler may not be registered yet -- best-effort
+    logger.debug(
+      '[Electron RPC] Permission handler initialization skipped (best-effort)'
+    );
+  }
 }
 
 // ============================================================
@@ -1213,12 +1266,14 @@ function registerWizardMethods(
         const session = wizardService.getCurrentSession();
         if (!session) {
           isGenerating = false;
+          generationStartedAt = null;
           return { cancelled: false };
         }
 
         const saveProgress = params?.saveProgress ?? true;
         wizardService.cancelWizard(session.sessionId, saveProgress);
         isGenerating = false;
+        generationStartedAt = null;
 
         return {
           cancelled: true,
@@ -1231,6 +1286,7 @@ function registerWizardMethods(
           error instanceof Error ? error : new Error(String(error))
         );
         isGenerating = false;
+        generationStartedAt = null;
         return { cancelled: false };
       }
     }
@@ -1288,12 +1344,9 @@ function registerWizardMethods(
             const storageService = container.resolve<{
               get<T>(key: string, defaultValue: T): T;
             }>(TOKENS.STORAGE_SERVICE);
-            model = storageService.get(
-              'model.selected',
-              'claude-sonnet-4-20250514'
-            );
+            model = storageService.get('model.selected', DEFAULT_MODEL);
           } catch {
-            model = 'claude-sonnet-4-20250514';
+            model = DEFAULT_MODEL;
           }
         }
 
@@ -1592,6 +1645,8 @@ function registerWizardMethods(
         };
       }
 
+      checkAndResetStaleness(logger);
+
       if (isGenerating) {
         return {
           success: false,
@@ -1613,6 +1668,7 @@ function registerWizardMethods(
         }
 
         isGenerating = true;
+        generationStartedAt = Date.now();
 
         const orchestrator = container.resolve<{
           generateAgents(
@@ -1739,11 +1795,13 @@ function registerWizardMethods(
           })
           .finally(() => {
             isGenerating = false;
+            generationStartedAt = null;
           });
 
         return { success: true };
       } catch (error) {
         isGenerating = false;
+        generationStartedAt = null;
         logger.error(
           '[Electron RPC] wizard:submit-selection failed',
           error instanceof Error ? error : new Error(String(error))
@@ -1763,6 +1821,8 @@ function registerWizardMethods(
       if (!params?.itemId) {
         return { success: false, error: 'itemId is required' };
       }
+
+      checkAndResetStaleness(logger);
 
       if (isGenerating) {
         return {
@@ -1785,6 +1845,7 @@ function registerWizardMethods(
         }
 
         isGenerating = true;
+        generationStartedAt = Date.now();
 
         const orchestrator = container.resolve<{
           generateAgents(
@@ -1858,9 +1919,11 @@ function registerWizardMethods(
           };
         } finally {
           isGenerating = false;
+          generationStartedAt = null;
         }
       } catch (error) {
         isGenerating = false;
+        generationStartedAt = null;
         logger.error(
           '[Electron RPC] wizard:retry-item failed',
           error instanceof Error ? error : new Error(String(error))

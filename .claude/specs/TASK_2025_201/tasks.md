@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_201
 
-**Total Tasks**: 20 | **Batches**: 5 | **Status**: 4/5 complete
+**Total Tasks**: 20 | **Batches**: 5 | **Status**: 5/5 complete
 
 ---
 
@@ -589,12 +589,12 @@
 
 ---
 
-## Batch 5: QA Fixes -- rpc-method-registration.service.ts (Issues 6, 8, 9, 11) [IN PROGRESS]
+## Batch 5: QA Fixes -- rpc-method-registration.service.ts (Issues 6, 8, 9, 11) [COMPLETE]
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 4 (if DEFAULT_MODEL is exported from rpc-handler-setup.ts)
 
-### Task 5.1: [SERIOUS] Fix plugins:save-config field name -- `enabledPlugins` to `enabledPluginIds` [IN PROGRESS]
+### Task 5.1: [SERIOUS] Fix plugins:save-config field name -- `enabledPlugins` to `enabledPluginIds` [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Issue**: #6 -- `plugins:save-config` reads `params.enabledPlugins` instead of `params.enabledPluginIds`
@@ -614,7 +614,7 @@
 
 ---
 
-### Task 5.2: [MODERATE] Add staleness timeout to isGenerating guard [IN PROGRESS]
+### Task 5.2: [MODERATE] Add staleness timeout to isGenerating guard [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Issue**: #8 -- `isGenerating` flag has no staleness timeout, so a crash during generation permanently blocks new generations
@@ -646,7 +646,7 @@
 
 ---
 
-### Task 5.3: [MODERATE] Add permission handler initialization at startup [IN PROGRESS]
+### Task 5.3: [MODERATE] Add permission handler initialization at startup [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Issue**: #9 -- No permission handler initialization at startup. Saved autopilot config is ignored until user toggles it.
@@ -685,7 +685,7 @@
 
 ---
 
-### Task 5.4: [MODERATE] Extract DEFAULT_MODEL constant [IN PROGRESS]
+### Task 5.4: [MODERATE] Extract DEFAULT_MODEL constant [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Issue**: #11 -- Default model string `'claude-sonnet-4-20250514'` is hardcoded in multiple places
