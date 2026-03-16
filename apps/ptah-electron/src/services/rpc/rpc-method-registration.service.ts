@@ -58,6 +58,7 @@ export function registerExtendedRpcMethods(
   registerPluginMethods(container, rpcHandler, logger);
   registerWorkspaceMethods(container, rpcHandler, logger);
   registerChatExtendedMethods(container, rpcHandler, logger);
+  registerEditorMethods(container, rpcHandler, logger);
 
   logger.info('[Electron RPC] Extended RPC methods registered', {
     methods: rpcHandler.getRegisteredMethods(),
@@ -660,4 +661,184 @@ function registerChatExtendedMethods(
       }
     }
   );
+}
+
+// ============================================================
+// Editor Methods (Monaco Editor + File Explorer)
+// ============================================================
+
+function registerEditorMethods(
+  container: DependencyContainer,
+  rpcHandler: RpcHandler,
+  logger: Logger
+): void {
+  const fs = container.resolve<{
+    readFile(path: string): Promise<string>;
+    writeFile(path: string, content: string): Promise<void>;
+    readDirectory(path: string): Promise<{ name: string; type: number }[]>;
+    stat(path: string): Promise<{ type: number }>;
+  }>(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER);
+
+  const workspace = container.resolve<{
+    getWorkspaceRoot(): string | undefined;
+  }>(PLATFORM_TOKENS.WORKSPACE_PROVIDER);
+
+  // editor:openFile - Read file content for Monaco editor
+  rpcHandler.registerMethod(
+    'editor:openFile',
+    async (params: { filePath: string } | undefined) => {
+      if (!params?.filePath) {
+        return { success: false, error: 'filePath is required' };
+      }
+      try {
+        const content = await fs.readFile(params.filePath);
+
+        // Notify editor provider of file open
+        try {
+          const editorProvider = container.resolve<{
+            notifyFileOpened(filePath: string): void;
+          }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
+          editorProvider.notifyFileOpened(params.filePath);
+        } catch {
+          // Editor provider may not support notify
+        }
+
+        return { success: true, content, filePath: params.filePath };
+      } catch (error) {
+        logger.error('[Electron RPC] editor:openFile failed', {
+          filePath: params.filePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  // editor:saveFile - Save file content from Monaco editor
+  rpcHandler.registerMethod(
+    'editor:saveFile',
+    async (params: { filePath: string; content: string } | undefined) => {
+      if (!params?.filePath || typeof params.content !== 'string') {
+        return { success: false, error: 'filePath and content are required' };
+      }
+      try {
+        await fs.writeFile(params.filePath, params.content);
+        return { success: true };
+      } catch (error) {
+        logger.error('[Electron RPC] editor:saveFile failed', {
+          filePath: params.filePath,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  // editor:getFileTree - Build recursive file tree from workspace root
+  rpcHandler.registerMethod(
+    'editor:getFileTree',
+    async (params: { rootPath?: string } | undefined) => {
+      const root = params?.rootPath ?? workspace.getWorkspaceRoot();
+      if (!root) {
+        return { success: true, tree: [] };
+      }
+      try {
+        const tree = await buildFileTree(fs, root, 3);
+        return { success: true, tree };
+      } catch (error) {
+        logger.error('[Electron RPC] editor:getFileTree failed', {
+          root,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {
+          success: false,
+          tree: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+}
+
+/**
+ * Recursively build a file tree structure from a directory.
+ * Limits depth to prevent excessive I/O on deep directory structures.
+ */
+async function buildFileTree(
+  fs: {
+    readDirectory(path: string): Promise<{ name: string; type: number }[]>;
+  },
+  dirPath: string,
+  maxDepth: number,
+  currentDepth = 0
+): Promise<
+  {
+    name: string;
+    path: string;
+    type: 'file' | 'directory';
+    children?: unknown[];
+  }[]
+> {
+  if (currentDepth >= maxDepth) return [];
+
+  try {
+    const entries = await fs.readDirectory(dirPath);
+    const result: {
+      name: string;
+      path: string;
+      type: 'file' | 'directory';
+      children?: unknown[];
+    }[] = [];
+
+    // Sort: directories first, then alphabetically
+    const sorted = entries.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 2 ? -1 : 1; // Directory = 2
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const entry of sorted) {
+      // Skip hidden files/dirs and node_modules
+      if (
+        entry.name.startsWith('.') ||
+        entry.name === 'node_modules' ||
+        entry.name === 'dist'
+      ) {
+        continue;
+      }
+
+      const fullPath = dirPath.replace(/\\/g, '/') + '/' + entry.name;
+      const isDir = (entry.type & 2) !== 0; // FileType.Directory = 2
+
+      if (isDir) {
+        const children = await buildFileTree(
+          fs,
+          fullPath,
+          maxDepth,
+          currentDepth + 1
+        );
+        result.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'directory',
+          children,
+        });
+      } else {
+        result.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'file',
+        });
+      }
+    }
+
+    return result;
+  } catch {
+    return [];
+  }
 }

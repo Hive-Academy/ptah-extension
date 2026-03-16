@@ -51,6 +51,13 @@ export interface ElectronPlatformOptions {
   dialog: ElectronDialogApi;
   /** Function to get the current BrowserWindow */
   getWindow: () => ElectronBrowserWindowApi | null;
+  /** Electron's ipcMain module (for QuickPick/InputBox renderer delegation) */
+  ipcMain?: {
+    once(
+      channel: string,
+      listener: (event: unknown, ...args: unknown[]) => void
+    ): void;
+  } | null;
   /** Initial workspace folders (from command line or recent) */
   initialFolders?: string[];
 }
@@ -124,7 +131,11 @@ export function registerPlatformElectronServices(
 
   // User Interaction
   container.register(PLATFORM_TOKENS.USER_INTERACTION, {
-    useValue: new ElectronUserInteraction(options.dialog, options.getWindow),
+    useValue: new ElectronUserInteraction(
+      options.dialog,
+      options.getWindow,
+      options.ipcMain
+    ),
   });
 
   // Output Channel

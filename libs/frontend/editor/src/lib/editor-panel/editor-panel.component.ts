@@ -120,7 +120,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
       if (!data || typeof data !== 'object') return;
 
       // Handle RPC responses for editor methods
-      if (data.type === 'rpc_response' && data.method) {
+      if (data.type === 'rpc:response' && data.method) {
         this.handleRpcResponse(data);
       }
 

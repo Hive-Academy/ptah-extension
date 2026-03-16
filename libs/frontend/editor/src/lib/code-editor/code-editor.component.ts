@@ -48,6 +48,7 @@ import { EditorComponent } from 'ngx-monaco-editor-v2';
           class="h-full"
           [options]="editorOptions()"
           [(ngModel)]="editorContent"
+          (ngModelChange)="onContentChange()"
           (onInit)="onEditorInit($event)"
         />
       </div>

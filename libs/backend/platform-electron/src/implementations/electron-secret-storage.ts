@@ -82,7 +82,10 @@ export class ElectronSecretStorage implements ISecretStorage {
       );
       this.secrets[key] = value;
     }
-    this.writePromise = this.writePromise.then(() => this.persist());
+    this.writePromise = this.writePromise.then(
+      () => this.persist(),
+      () => this.persist()
+    );
     await this.writePromise;
     this.fireChange({ key });
   }
@@ -90,7 +93,10 @@ export class ElectronSecretStorage implements ISecretStorage {
   async delete(key: string): Promise<void> {
     if (!(key in this.secrets)) return;
     delete this.secrets[key];
-    this.writePromise = this.writePromise.then(() => this.persist());
+    this.writePromise = this.writePromise.then(
+      () => this.persist(),
+      () => this.persist()
+    );
     await this.writePromise;
     this.fireChange({ key });
   }

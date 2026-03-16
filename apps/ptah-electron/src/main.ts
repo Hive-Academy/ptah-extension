@@ -1,7 +1,7 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import { app, BrowserWindow, safeStorage, dialog } from 'electron';
+import { app, BrowserWindow, safeStorage, dialog, ipcMain } from 'electron';
 import * as path from 'path';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
@@ -69,6 +69,7 @@ app.whenReady().then(async () => {
         },
       };
     },
+    ipcMain,
     initialFolders,
   };
 
@@ -164,7 +165,11 @@ app.whenReady().then(async () => {
   }
 });
 
-// macOS: re-create window when dock icon is clicked
+// macOS: re-create window when dock icon is clicked.
+// DI container + IPC bridge persist across window close on macOS,
+// so we only need to recreate the BrowserWindow and load the renderer.
+// The IPC bridge's getWindow callback already references `mainWindow`,
+// so it will pick up the new window automatically.
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     mainWindow = createMainWindow();

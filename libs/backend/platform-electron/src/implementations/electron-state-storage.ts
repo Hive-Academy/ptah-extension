@@ -32,8 +32,12 @@ export class ElectronStateStorage implements IStateStorage {
     } else {
       this.data[key] = value;
     }
-    // Serialize writes to prevent corruption from concurrent updates
-    this.writePromise = this.writePromise.then(() => this.persist());
+    // Serialize writes to prevent corruption from concurrent updates.
+    // Catch errors to prevent a single failure from breaking the chain permanently.
+    this.writePromise = this.writePromise.then(
+      () => this.persist(),
+      () => this.persist()
+    );
     await this.writePromise;
   }
 

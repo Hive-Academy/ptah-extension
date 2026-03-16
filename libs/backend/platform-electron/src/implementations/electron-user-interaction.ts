@@ -21,6 +21,7 @@ import type {
   ICancellationToken,
 } from '@ptah-extension/platform-core';
 import { createEvent } from '@ptah-extension/platform-core';
+import { randomUUID } from 'crypto';
 
 /** Minimal Electron dialog interface — avoids importing 'electron' at module level */
 export interface ElectronDialogApi {
@@ -51,20 +52,14 @@ interface IpcMainLike {
 }
 
 export class ElectronUserInteraction implements IUserInteraction {
-  private ipcMain: IpcMainLike | null = null;
+  private readonly ipcMain: IpcMainLike | null;
 
   constructor(
     private readonly dialog: ElectronDialogApi,
-    private readonly getWindow: () => ElectronBrowserWindowApi | null
+    private readonly getWindow: () => ElectronBrowserWindowApi | null,
+    ipcMain?: IpcMainLike | null
   ) {
-    // Lazy-load ipcMain to avoid top-level electron import
-    // This will be available in the Electron runtime but not in tests
-    try {
-      this.ipcMain = require('electron').ipcMain;
-    } catch {
-      // Not in Electron runtime (e.g., tests) — IPC features will return undefined
-      this.ipcMain = null;
-    }
+    this.ipcMain = ipcMain ?? null;
   }
 
   async showErrorMessage(
@@ -116,7 +111,7 @@ export class ElectronUserInteraction implements IUserInteraction {
 
     const ipc = this.ipcMain;
     return new Promise<QuickPickItem | undefined>((resolve) => {
-      const channel = `quick-pick-response-${Date.now()}`;
+      const channel = `quick-pick-response-${randomUUID()}`;
 
       ipc?.once(channel, (_event: unknown, ...args: unknown[]) => {
         const selectedIndex = args[0] as number | null;
@@ -146,7 +141,7 @@ export class ElectronUserInteraction implements IUserInteraction {
 
     const ipc2 = this.ipcMain;
     return new Promise<string | undefined>((resolve) => {
-      const channel = `input-box-response-${Date.now()}`;
+      const channel = `input-box-response-${randomUUID()}`;
 
       ipc2?.once(channel, (_event: unknown, ...args: unknown[]) => {
         const value = args[0] as string | null;
@@ -165,7 +160,7 @@ export class ElectronUserInteraction implements IUserInteraction {
     task: (progress: IProgress, token: ICancellationToken) => Promise<T>
   ): Promise<T> {
     const win = this.getWindow();
-    const progressId = `progress-${Date.now()}`;
+    const progressId = `progress-${randomUUID()}`;
 
     // Create cancellation support
     const [onCancellationRequested, fireCancellation] = createEvent<void>();
