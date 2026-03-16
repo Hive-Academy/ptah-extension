@@ -34,7 +34,11 @@ export default [
             },
             {
               sourceTag: 'scope:electron',
-              onlyDependOnLibsWithTags: ['scope:shared', 'scope:electron'],
+              onlyDependOnLibsWithTags: [
+                'scope:shared',
+                'scope:electron',
+                'scope:extension',
+              ],
             },
             {
               sourceTag: 'type:application',

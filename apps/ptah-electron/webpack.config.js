@@ -8,6 +8,7 @@ const path = require('path');
  * - externals: electron is provided by runtime
  * - libraryTarget: 'commonjs2' - Required for Electron module loading
  * - Bundles @ptah-extension/* libraries (except platform-vscode and vscode-lm-tools)
+ * - Shims 'vscode' module for transitively-imported vscode-core services
  */
 
 /** @type {import('webpack').Configuration} */
@@ -107,6 +108,14 @@ module.exports = {
         __dirname,
         '../../libs/backend/llm-abstraction/src/openrouter.ts'
       ),
+      // TASK_2025_200 Batch 3: Shim the 'vscode' module for Electron.
+      // Some @ptah-extension/vscode-core modules (OutputManager, ErrorHandler,
+      // ConfigManager, etc.) import vscode at module level. Since we import
+      // from the barrel export, webpack includes these modules transitively.
+      // This shim provides empty stubs so the modules load without crashing.
+      // The VS Code-specific classes are NEVER instantiated in Electron --
+      // we register Electron-compatible replacements instead.
+      vscode: path.resolve(__dirname, './src/shims/vscode-shim.ts'),
       // NOTE: Do NOT alias @ptah-extension/platform-vscode - it should not be imported in Electron
       // NOTE: Do NOT alias @ptah-extension/vscode-lm-tools - it's VS Code-specific
     },
