@@ -12,7 +12,10 @@ import { ElectronWebviewManagerAdapter } from './ipc/webview-manager-adapter';
 import { createApplicationMenu } from './menu/application-menu';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { ISecretStorage } from '@ptah-extension/platform-core';
+import type {
+  ISecretStorage,
+  IStateStorage,
+} from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 
 // Prevent multiple instances
@@ -22,6 +25,7 @@ if (!gotLock) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let resolvedStateStorage: IStateStorage | undefined;
 
 app.whenReady().then(async () => {
   // ========================================
@@ -190,9 +194,23 @@ app.whenReady().then(async () => {
   createApplicationMenu(container, () => mainWindow);
 
   // ========================================
+  // PHASE 4.9: Resolve State Storage for Window Persistence
+  // ========================================
+  try {
+    resolvedStateStorage = container.resolve<IStateStorage>(
+      PLATFORM_TOKENS.STATE_STORAGE
+    );
+  } catch (error) {
+    console.warn(
+      '[Ptah Electron] Could not resolve STATE_STORAGE for window persistence:',
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+
+  // ========================================
   // PHASE 5: Create BrowserWindow + Load Renderer
   // ========================================
-  mainWindow = createMainWindow();
+  mainWindow = createMainWindow(resolvedStateStorage);
 
   // Handle second instance (focus existing window)
   app.on('second-instance', () => {
@@ -209,6 +227,23 @@ app.whenReady().then(async () => {
   if (process.env['NODE_ENV'] === 'development') {
     mainWindow.webContents.openDevTools();
   }
+
+  // ========================================
+  // PHASE 6: Auto-Updater (production only)
+  // ========================================
+  // Check for updates after the window is loaded. Failures must NOT crash the app.
+  if (process.env['NODE_ENV'] !== 'development') {
+    try {
+      const { autoUpdater } = await import('electron-updater');
+      await autoUpdater.checkForUpdatesAndNotify();
+      console.log('[Ptah Electron] Auto-updater check completed');
+    } catch (error) {
+      console.error(
+        '[Ptah Electron] Auto-updater failed (non-fatal):',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
 });
 
 // macOS: re-create window when dock icon is clicked.
@@ -218,7 +253,7 @@ app.whenReady().then(async () => {
 // so it will pick up the new window automatically.
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    mainWindow = createMainWindow();
+    mainWindow = createMainWindow(resolvedStateStorage);
     const rendererPath = path.join(__dirname, 'renderer', 'index.html');
     mainWindow.loadFile(rendererPath);
   }

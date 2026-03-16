@@ -216,6 +216,66 @@ export class ElectronDIContainer {
     }
 
     // ========================================
+    // PHASE 1.4: EXTENSION_CONTEXT shim (required by agent-sdk + llm-abstraction)
+    // ========================================
+    // Many services inject TOKENS.EXTENSION_CONTEXT for globalState.get/update
+    // and secrets.get/store/delete. Provide a shim that delegates to platform abstractions.
+    try {
+      const globalState = container.resolve<IStateStorage>(
+        PLATFORM_TOKENS.STATE_STORAGE
+      );
+      const secretStorage = container.resolve<ISecretStorage>(
+        PLATFORM_TOKENS.SECRET_STORAGE
+      );
+      const extensionContextShim = {
+        globalState: {
+          get: <T>(key: string): T | undefined => globalState.get<T>(key),
+          update: async (key: string, value: unknown): Promise<void> => {
+            await globalState.update(key, value);
+          },
+          keys: () => [] as readonly string[],
+          setKeysForSync: () => {
+            /* no-op in Electron */
+          },
+        },
+        secrets: {
+          get: async (key: string): Promise<string | undefined> =>
+            secretStorage.get(key),
+          store: async (key: string, value: string): Promise<void> =>
+            secretStorage.store(key, value),
+          delete: async (key: string): Promise<void> =>
+            secretStorage.delete(key),
+          onDidChange: {
+            event: () => ({
+              dispose: () => {
+                /* no-op: Electron has no secret change events */
+              },
+            }),
+          },
+        },
+        subscriptions: [] as { dispose: () => void }[],
+        extensionUri: { fsPath: options.appPath, scheme: 'file' },
+        globalStorageUri: {
+          fsPath: options.userDataPath,
+          scheme: 'file',
+        },
+        extensionPath: options.appPath,
+        extensionMode: 1, // Production
+      };
+      container.register(TOKENS.EXTENSION_CONTEXT, {
+        useValue: extensionContextShim,
+      });
+      logger.info(
+        '[Electron DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)'
+      );
+    } catch (error) {
+      logger.error(
+        '[Electron DI] Failed to register EXTENSION_CONTEXT shim — agent-sdk/llm services may fail',
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    }
+
+    // ========================================
     // PHASE 2: Library Services
     // ========================================
 

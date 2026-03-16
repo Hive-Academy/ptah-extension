@@ -36,6 +36,11 @@ module.exports = {
         return callback();
       }
 
+      // Bundle 'vscode' — resolved to our shim via resolve.alias (NOT a real module)
+      if (request === 'vscode') {
+        return callback();
+      }
+
       // Bundle all @ptah-extension/* packages (our internal libraries)
       if (request.startsWith('@ptah-extension/')) {
         return callback();
@@ -116,8 +121,13 @@ module.exports = {
       // The VS Code-specific classes are NEVER instantiated in Electron --
       // we register Electron-compatible replacements instead.
       vscode: path.resolve(__dirname, './src/shims/vscode-shim.ts'),
+      // Shim @ptah-extension/vscode-lm-tools: agent-sdk imports PTAH_SYSTEM_PROMPT from it.
+      // Provide a minimal shim that exports the constant as empty string (MCP tools are VS Code-only).
+      '@ptah-extension/vscode-lm-tools': path.resolve(
+        __dirname,
+        './src/shims/vscode-lm-tools-shim.ts'
+      ),
       // NOTE: Do NOT alias @ptah-extension/platform-vscode - it should not be imported in Electron
-      // NOTE: Do NOT alias @ptah-extension/vscode-lm-tools - it's VS Code-specific
     },
   },
 
