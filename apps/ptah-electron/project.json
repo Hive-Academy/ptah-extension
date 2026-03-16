@@ -67,7 +67,7 @@
       "options": {
         "commands": [
           {
-            "command": "node -e \"const fs=require('fs');fs.cpSync('dist/apps/ptah-extension-webview/browser','dist/apps/ptah-electron/renderer',{recursive:true})\""
+            "command": "node apps/ptah-electron/scripts/copy-renderer.js"
           }
         ]
       }
