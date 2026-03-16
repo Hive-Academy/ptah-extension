@@ -79,6 +79,7 @@
 
 **Developer**: backend-developer
 **Tasks**: 5 | **Dependencies**: Batch 1 (FILE_SYSTEM_MANAGER must be registered for workspace-intelligence services)
+**Commit**: 38f3ce7f
 
 ### Task 2.1: Add streamEventsToRenderer() helper function [COMPLETE]
 
@@ -218,7 +219,7 @@
 **Developer**: backend-developer
 **Tasks**: 6 | **Dependencies**: Batch 1 (DI shim must be in place for workspace-intelligence services)
 
-### Task 3.1: Add config extended methods (4 methods) [IN PROGRESS]
+### Task 3.1: Add config extended methods (4 methods) [IMPLEMENTED]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 3 (lines 229-277)
@@ -240,7 +241,7 @@
 - Each method needs its own try/catch with error logging
 - config:autopilot-toggle must validate permissionLevel is one of: 'ask', 'auto-approve', 'auto-deny'
 
-### Task 3.2: Add command:execute and agent:stop methods [IN PROGRESS]
+### Task 3.2: Add command:execute and agent:stop methods [IMPLEMENTED]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Components 4 and 6 (lines 280-397)
@@ -260,7 +261,7 @@
 - agent:stop: DI token SDK_TOKENS.SDK_AGENT_ADAPTER
 - Both are simple methods with minimal logic
 
-### Task 3.3: Add quality:export method [IN PROGRESS]
+### Task 3.3: Add quality:export method [IMPLEMENTED]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 7 (lines 401-452)
@@ -281,7 +282,7 @@
 - Use try/catch with graceful degradation if quality services unavailable
 - Date stamp format: `new Date().toISOString().split('T')[0]`
 
-### Task 3.4: Add wizard methods -- setup-wizard:launch, wizard:cancel, wizard:cancel-analysis (3 methods) [IN PROGRESS]
+### Task 3.4: Add wizard methods -- setup-wizard:launch, wizard:cancel, wizard:cancel-analysis (3 methods) [IMPLEMENTED]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 5, first 3 methods (lines 309-331)
@@ -306,7 +307,7 @@
 - DI tokens: PLATFORM_TOKENS.WORKSPACE_PROVIDER, AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE, AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE
 - Each method gets its own try/catch
 
-### Task 3.5: Add wizard methods -- deep-analyze, list-analyses, load-analysis, recommend-agents (4 methods) [IN PROGRESS]
+### Task 3.5: Add wizard methods -- deep-analyze, list-analyses, load-analysis, recommend-agents (4 methods) [IMPLEMENTED]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 5, middle methods (lines 333-355)
@@ -326,7 +327,7 @@
 - wizard:deep-analyze is the most complex -- must handle streaming progress updates
 - All methods use try/catch with meaningful defaults on failure
 
-### Task 3.6: Add wizard methods -- submit-selection, retry-item (2 methods) [IN PROGRESS]
+### Task 3.6: Add wizard methods -- submit-selection, retry-item (2 methods) [IMPLEMENTED]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 5, last 2 methods (lines 357-369)
