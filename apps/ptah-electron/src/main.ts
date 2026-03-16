@@ -6,9 +6,13 @@ import * as path from 'path';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { setupRpcHandlers } from './services/rpc/rpc-handler-setup';
+import { registerExtendedRpcMethods } from './services/rpc/rpc-method-registration.service';
+import { IpcBridge } from './ipc/ipc-bridge';
+import { ElectronWebviewManagerAdapter } from './ipc/webview-manager-adapter';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ISecretStorage } from '@ptah-extension/platform-core';
+import { TOKENS } from '@ptah-extension/vscode-core';
 
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock();
@@ -97,10 +101,40 @@ app.whenReady().then(async () => {
   }
 
   // ========================================
-  // PHASE 4: Setup IPC Bridge
+  // PHASE 4: Setup IPC Bridge + WebviewManager
   // ========================================
-  // IPC bridge will be wired in Batch 4.
-  // It connects ipcMain to the RpcHandler for renderer <-> main process communication.
+  // The IPC bridge connects ipcMain to the RpcHandler for renderer <-> main communication.
+  // It must be initialized BEFORE loading the renderer so that IPC listeners are ready
+  // when the Angular app boots and starts sending RPC calls.
+  const ipcBridge = new IpcBridge(container, () => {
+    const win = mainWindow;
+    if (!win) return null;
+    return {
+      webContents: {
+        send: (channel: string, ...args: unknown[]) =>
+          win.webContents.send(channel, ...args),
+      },
+    };
+  });
+  ipcBridge.initialize();
+
+  // Register WebviewManager adapter so that backend services (AgentSessionWatcherService,
+  // RpcMethodRegistrationService, etc.) can push events to the renderer via IPC.
+  const webviewManagerAdapter = new ElectronWebviewManagerAdapter(ipcBridge);
+  container.register(TOKENS.WEBVIEW_MANAGER, {
+    useValue: webviewManagerAdapter,
+  });
+
+  // ========================================
+  // PHASE 4.5: Register Extended RPC Methods
+  // ========================================
+  // Now that WebviewManager is registered, add extended RPC methods
+  // (session:load, autocomplete:*, setup-status:*, llm:*, plugins:*, etc.)
+  registerExtendedRpcMethods(container);
+
+  console.log(
+    '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized'
+  );
 
   // ========================================
   // PHASE 5: Create BrowserWindow + Load Renderer

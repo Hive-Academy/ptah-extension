@@ -44,7 +44,7 @@
  * agent-sdk, etc.) which are already platform-agnostic via PLATFORM_TOKENS.
  * The thin RPC "glue" layer is duplicated here rather than shared.
  *
- * Full handler wiring happens in Batch 4 (Task 4.4: RpcMethodRegistrationService).
+ * Extended methods are registered in rpc-method-registration.service.ts (Batch 4, Task 4.4).
  */
 
 import type { DependencyContainer } from 'tsyringe';
