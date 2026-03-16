@@ -593,6 +593,7 @@
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 4 (if DEFAULT_MODEL is exported from rpc-handler-setup.ts)
+**Commit**: b648e39d
 
 ### Task 5.1: [SERIOUS] Fix plugins:save-config field name -- `enabledPlugins` to `enabledPluginIds` [COMPLETE]
 
