@@ -33,6 +33,9 @@
       "@ptah-extension/platform-core": [
         "libs/backend/platform-core/src/index.ts"
       ],
+      "@ptah-extension/platform-electron": [
+        "libs/backend/platform-electron/src/index.ts"
+      ],
       "@ptah-extension/platform-vscode": [
         "libs/backend/platform-vscode/src/index.ts"
       ],

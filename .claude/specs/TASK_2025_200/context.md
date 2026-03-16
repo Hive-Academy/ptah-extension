@@ -1,6 +1,6 @@
 # TASK_2025_200: Research — Electron Application Architecture for Ptah
 
-## Task Type: RESEARCH
+## Task Type: FEATURE
 
 ## Complexity: Medium
 
