@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_200: Electron Application for Ptah
 
-**Total Tasks**: 28 | **Batches**: 7 | **Status**: 0/7 complete
+**Total Tasks**: 28 | **Batches**: 7 | **Status**: 4/7 complete
 
 ---
 
@@ -35,12 +35,13 @@
 
 ---
 
-## Batch 1: Electron Skeleton + Project Scaffolding -- IN PROGRESS
+## Batch 1: Electron Skeleton + Project Scaffolding -- COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 5 | **Dependencies**: None
+**Commit**: adfa6187
 
-### Task 1.1: Create platform-electron library scaffolding -- IMPLEMENTED
+### Task 1.1: Create platform-electron library scaffolding -- COMPLETE
 
 **Files**:
 
@@ -71,7 +72,7 @@
 
 ---
 
-### Task 1.2: Create ptah-electron app scaffolding -- IMPLEMENTED
+### Task 1.2: Create ptah-electron app scaffolding -- COMPLETE
 
 **Files**:
 
@@ -103,7 +104,7 @@
 
 ---
 
-### Task 1.3: Create Electron main process entry point (main.ts) -- IMPLEMENTED
+### Task 1.3: Create Electron main process entry point (main.ts) -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\main.ts`
 **Spec Reference**: implementation-plan.md: Section 5.1
@@ -127,7 +128,7 @@
 
 ---
 
-### Task 1.4: Create BrowserWindow factory and preload script -- IMPLEMENTED
+### Task 1.4: Create BrowserWindow factory and preload script -- COMPLETE
 
 **Files**:
 
@@ -154,7 +155,7 @@
 
 ---
 
-### Task 1.5: Update root config files -- IMPLEMENTED
+### Task 1.5: Update root config files -- COMPLETE
 
 **Files**:
 
@@ -186,12 +187,13 @@
 
 ---
 
-## Batch 2: Platform-Electron Implementations (All 8 Providers + Registration) -- PENDING
+## Batch 2: Platform-Electron Implementations (All 8 Providers + Registration) -- COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 1
+**Commit**: b9a59b74
 
-### Task 2.1: Implement file system, state storage, and secret storage providers -- PENDING
+### Task 2.1: Implement file system, state storage, and secret storage providers -- COMPLETE
 
 **Files**:
 
@@ -221,7 +223,7 @@
 
 ---
 
-### Task 2.2: Implement workspace, user interaction, and output channel providers -- PENDING
+### Task 2.2: Implement workspace, user interaction, and output channel providers -- COMPLETE
 
 **Files**:
 
@@ -248,7 +250,7 @@
 
 ---
 
-### Task 2.3: Implement command registry and editor provider -- PENDING
+### Task 2.3: Implement command registry and editor provider -- COMPLETE
 
 **Files**:
 
@@ -268,7 +270,7 @@
 
 ---
 
-### Task 2.4: Create registration function and library index -- PENDING
+### Task 2.4: Create registration function and library index -- COMPLETE
 
 **Files**:
 
@@ -304,12 +306,13 @@
 
 ---
 
-## Batch 3: DI Container Setup + vscode-core Audit -- PENDING
+## Batch 3: DI Container Setup + vscode-core Audit -- COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 3 | **Dependencies**: Batch 2
+**Commit**: 82c7b493
 
-### Task 3.1: Audit vscode-core services and create Electron DI container -- PENDING
+### Task 3.1: Audit vscode-core services and create Electron DI container -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\di\container.ts`
 **Spec Reference**: implementation-plan.md: Section 5.6
@@ -343,7 +346,7 @@
 
 ---
 
-### Task 3.2: Create RPC handler index for Electron -- PENDING
+### Task 3.2: Create RPC handler index for Electron -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\index.ts`
 **Spec Reference**: implementation-plan.md: Section 5.6 (Phase 4 comment)
@@ -365,7 +368,7 @@
 
 ---
 
-### Task 3.3: Update main.ts to wire DI container -- PENDING
+### Task 3.3: Update main.ts to wire DI container -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\main.ts` (modify from Batch 1)
 **Spec Reference**: implementation-plan.md: Section 5.1
@@ -390,12 +393,13 @@
 
 ---
 
-## Batch 4: IPC Bridge + RPC Integration -- PENDING
+## Batch 4: IPC Bridge + RPC Integration -- COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 3
+**Commit**: ccc93434
 
-### Task 4.1: Create IPC Bridge -- PENDING
+### Task 4.1: Create IPC Bridge -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\ipc\ipc-bridge.ts`
 **Spec Reference**: implementation-plan.md: Section 5.4
@@ -418,7 +422,7 @@
 
 ---
 
-### Task 4.2: Create WebviewManager adapter -- PENDING
+### Task 4.2: Create WebviewManager adapter -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\ipc\webview-manager-adapter.ts`
 **Spec Reference**: implementation-plan.md: Section 5.5
@@ -432,7 +436,7 @@
 
 ---
 
-### Task 4.3: Wire IPC Bridge and WebviewManager in main.ts -- PENDING
+### Task 4.3: Wire IPC Bridge and WebviewManager in main.ts -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\main.ts` (modify)
 **Dependencies**: Task 4.1, Task 4.2, Task 3.3
@@ -447,7 +451,7 @@
 
 ---
 
-### Task 4.4: Create RpcMethodRegistrationService for Electron -- PENDING
+### Task 4.4: Create RpcMethodRegistrationService for Electron -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md: Section 5.6 Phase 4
@@ -473,12 +477,12 @@
 
 ---
 
-## Batch 5: Application Polish + Packaging -- PENDING
+## Batch 5: Application Polish + Packaging -- IN PROGRESS
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 4
 
-### Task 5.1: Create application menu -- PENDING
+### Task 5.1: Create application menu -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\menu\application-menu.ts`
 **Spec Reference**: implementation-plan.md: Phase 4 (referenced in architecture)
@@ -495,7 +499,7 @@
 
 ---
 
-### Task 5.2: Implement API key settings IPC flow -- PENDING
+### Task 5.2: Implement API key settings IPC flow -- IMPLEMENTED
 
 **Files**:
 
@@ -517,7 +521,7 @@
 
 ---
 
-### Task 5.3: Create app icon placeholders -- PENDING
+### Task 5.3: Create app icon placeholders -- IMPLEMENTED
 
 **Files**:
 
@@ -531,7 +535,7 @@
 
 ---
 
-### Task 5.4: Add npm scripts for Electron development -- PENDING
+### Task 5.4: Add npm scripts for Electron development -- IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\package.json` (modify)
 

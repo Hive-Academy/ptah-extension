@@ -9,6 +9,7 @@ import { setupRpcHandlers } from './services/rpc/rpc-handler-setup';
 import { registerExtendedRpcMethods } from './services/rpc/rpc-method-registration.service';
 import { IpcBridge } from './ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from './ipc/webview-manager-adapter';
+import { createApplicationMenu } from './menu/application-menu';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { ISecretStorage } from '@ptah-extension/platform-core';
@@ -135,6 +136,11 @@ app.whenReady().then(async () => {
   console.log(
     '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized'
   );
+
+  // ========================================
+  // PHASE 4.7: Application Menu
+  // ========================================
+  createApplicationMenu(container, () => mainWindow);
 
   // ========================================
   // PHASE 5: Create BrowserWindow + Load Renderer

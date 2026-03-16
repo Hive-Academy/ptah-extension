@@ -60,7 +60,10 @@
     "serve:webview": "nx serve ptah-extension-webview",
     "serve:extension": "nx serve ptah-extension-vscode",
     "prepare": "husky || true",
-    "validate-skill": "npx ts-node scripts/validate-orchestration-skill.ts"
+    "validate-skill": "npx ts-node scripts/validate-orchestration-skill.ts",
+    "electron:serve": "nx serve ptah-electron",
+    "electron:build": "nx build ptah-electron",
+    "electron:package": "nx package ptah-electron"
   },
   "private": true,
   "dependencies": {

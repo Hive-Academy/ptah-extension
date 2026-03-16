@@ -310,6 +310,33 @@ function registerAuthMethods(
       hasApiKey: !!anthropicKey,
     };
   });
+
+  // auth:getApiKeyStatus - Returns per-provider key status without exposing values
+  rpcHandler.registerMethod('auth:getApiKeyStatus', async () => {
+    const secretStorage = container.resolve<ISecretStorage>(
+      PLATFORM_TOKENS.SECRET_STORAGE
+    );
+
+    const anthropicKey = await secretStorage.get('ptah.apiKey.anthropic');
+    const openrouterKey = await secretStorage.get('ptah.apiKey.openrouter');
+
+    return {
+      providers: [
+        {
+          provider: 'anthropic',
+          displayName: 'Anthropic (Claude)',
+          hasApiKey: !!anthropicKey,
+          isDefault: true,
+        },
+        {
+          provider: 'openrouter',
+          displayName: 'OpenRouter',
+          hasApiKey: !!openrouterKey,
+          isDefault: false,
+        },
+      ],
+    };
+  });
 }
 
 /**
