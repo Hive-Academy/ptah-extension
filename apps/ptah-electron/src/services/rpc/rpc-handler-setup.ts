@@ -57,6 +57,7 @@ import type {
   IFileSystemProvider,
   ISecretStorage,
 } from '@ptah-extension/platform-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
 /**
  * Setup core RPC handlers for Electron.
@@ -160,6 +161,71 @@ function registerSessionMethods(
 }
 
 /**
+ * Stream SDK events from an AsyncIterable to the renderer via WEBVIEW_MANAGER.
+ *
+ * Iterates the stream, broadcasting each event as CHAT_CHUNK. When a
+ * message_complete event is detected, sends CHAT_COMPLETE to signal
+ * turn-level completion. A safety-net CHAT_COMPLETE is sent after the
+ * stream ends if no explicit completion was detected.
+ *
+ * Errors are caught and logged -- streaming failures must NOT crash the app.
+ */
+async function streamEventsToRenderer(
+  container: DependencyContainer,
+  sessionId: string,
+  stream: AsyncIterable<unknown>,
+  tabId?: string
+): Promise<void> {
+  const routingId = tabId || sessionId;
+
+  try {
+    const webviewManager = container.resolve<{
+      broadcastMessage(type: string, payload: unknown): Promise<void>;
+    }>(TOKENS.WEBVIEW_MANAGER);
+
+    let turnCompleteSent = false;
+
+    for await (const event of stream) {
+      // Reset turnCompleteSent on new turn start so multi-turn conversations
+      // properly signal completion for each turn
+      if ((event as { eventType?: string }).eventType === 'message_start') {
+        turnCompleteSent = false;
+      }
+
+      await webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
+        tabId: routingId,
+        sessionId: (event as { sessionId?: string }).sessionId || sessionId,
+        event,
+      });
+
+      if (
+        (event as { eventType?: string }).eventType === 'message_complete' &&
+        !turnCompleteSent
+      ) {
+        turnCompleteSent = true;
+        await webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_COMPLETE, {
+          tabId: routingId,
+          sessionId: (event as { sessionId?: string }).sessionId || sessionId,
+        });
+      }
+    }
+
+    // Safety net: ensure CHAT_COMPLETE is always sent
+    if (!turnCompleteSent) {
+      await webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_COMPLETE, {
+        tabId: routingId,
+        sessionId,
+      });
+    }
+  } catch (error) {
+    console.error(
+      `[Electron RPC] streamEventsToRenderer error for session ${sessionId}:`,
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+
+/**
  * Register chat RPC methods with Electron-compatible workspace resolution.
  * In VS Code, workspace comes from vscode.workspace.workspaceFolders.
  * In Electron, it comes from IWorkspaceProvider.
@@ -172,33 +238,84 @@ function registerChatMethods(
     'chat:start',
     async (
       params:
-        | { message: string; contextFiles?: string[]; tabId?: string }
+        | {
+            message: string;
+            contextFiles?: string[];
+            tabId?: string;
+            model?: string;
+          }
         | undefined
     ) => {
       if (!params?.message) {
         return { success: false, error: 'message is required' };
       }
 
-      const workspaceProvider = container.resolve<IWorkspaceProvider>(
-        PLATFORM_TOKENS.WORKSPACE_PROVIDER
-      );
-      const sdkAdapter = container.resolve<{
-        startSession(options: {
-          message: string;
-          workspacePath: string;
-          contextFiles?: string[];
-          tabId?: string;
-        }): Promise<{ sessionId: string }>;
-      }>(SDK_TOKENS.SDK_AGENT_ADAPTER);
+      try {
+        const workspaceProvider = container.resolve<IWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER
+        );
+        const sdkAdapter = container.resolve<{
+          startChatSession(config: {
+            tabId: string;
+            workspaceId: string;
+            projectPath: string;
+            name: string;
+            prompt: string;
+            files?: string[];
+            isPremium?: boolean;
+            mcpServerRunning?: boolean;
+            model?: string;
+          }): Promise<AsyncIterable<unknown>>;
+        }>(SDK_TOKENS.SDK_AGENT_ADAPTER);
 
-      const workspaceRoot = workspaceProvider.getWorkspaceRoot() ?? '';
+        const workspaceRoot = workspaceProvider.getWorkspaceRoot() ?? '';
+        const tabId = params.tabId || `electron-${Date.now()}`;
 
-      return sdkAdapter.startSession({
-        message: params.message,
-        workspacePath: workspaceRoot,
-        contextFiles: params.contextFiles,
-        tabId: params.tabId,
-      });
+        // Get current model from storage if not provided
+        let currentModel = params.model;
+        if (!currentModel) {
+          try {
+            const storageService = container.resolve<{
+              get<T>(key: string, defaultValue: T): T;
+            }>(TOKENS.STORAGE_SERVICE);
+            currentModel = storageService.get(
+              'model.selected',
+              'claude-sonnet-4-20250514'
+            );
+          } catch {
+            currentModel = 'claude-sonnet-4-20250514';
+          }
+        }
+
+        const stream = await sdkAdapter.startChatSession({
+          tabId,
+          workspaceId: workspaceRoot,
+          projectPath: workspaceRoot,
+          name: `Session ${new Date().toLocaleDateString()}`,
+          prompt: params.message,
+          files: params.contextFiles,
+          isPremium: true,
+          mcpServerRunning: false,
+          model: currentModel,
+        });
+
+        // Fire-and-forget: stream events to renderer in background
+        void streamEventsToRenderer(container, tabId, stream, tabId).catch(
+          (err) =>
+            console.error(
+              '[Electron RPC] chat:start streaming error:',
+              err instanceof Error ? err.message : String(err)
+            )
+        );
+
+        // Return immediately -- real sessionId comes via SESSION_ID_RESOLVED in stream
+        return { success: true, sessionId: tabId };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
   );
 
@@ -213,6 +330,193 @@ function registerChatMethods(
       }>(SDK_TOKENS.SDK_AGENT_ADAPTER);
       await sdkAdapter.abortSession(params.sessionId);
       return { success: true };
+    }
+  );
+
+  // chat:continue - Send follow-up message to existing session (with auto-resume)
+  rpcHandler.registerMethod(
+    'chat:continue',
+    async (
+      params:
+        | {
+            sessionId: string;
+            message: string;
+            tabId?: string;
+            contextFiles?: string[];
+            model?: string;
+          }
+        | undefined
+    ) => {
+      if (!params?.sessionId || !params?.message) {
+        return {
+          success: false,
+          error: 'sessionId and message are required',
+        };
+      }
+
+      try {
+        const workspaceProvider = container.resolve<IWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER
+        );
+        const sdkAdapter = container.resolve<{
+          isSessionActive(sessionId: string): boolean;
+          resumeSession(
+            sessionId: string,
+            config: unknown
+          ): Promise<AsyncIterable<unknown>>;
+          sendMessageToSession(
+            sessionId: string,
+            content: string,
+            options?: { files?: string[] }
+          ): Promise<void>;
+        }>(SDK_TOKENS.SDK_AGENT_ADAPTER);
+
+        const workspaceRoot = workspaceProvider.getWorkspaceRoot() ?? '';
+        const isActive = sdkAdapter.isSessionActive(params.sessionId);
+
+        // Auto-resume: if session is not active in memory, resume it first
+        if (!isActive) {
+          const storageService = container.resolve<{
+            get<T>(key: string, defaultValue: T): T;
+          }>(TOKENS.STORAGE_SERVICE);
+          const currentModel =
+            params.model ||
+            storageService.get('model.selected', 'claude-sonnet-4-20250514');
+
+          const stream = await sdkAdapter.resumeSession(params.sessionId, {
+            projectPath: workspaceRoot,
+            model: currentModel,
+            isPremium: true,
+            mcpServerRunning: false,
+            tabId: params.tabId,
+          });
+
+          // Fire-and-forget: stream resumed session events to renderer
+          void streamEventsToRenderer(
+            container,
+            params.sessionId,
+            stream,
+            params.tabId
+          ).catch((err) =>
+            console.error(
+              '[Electron RPC] chat:continue resume streaming error:',
+              err instanceof Error ? err.message : String(err)
+            )
+          );
+        }
+
+        // Send the follow-up message to the (now-active) session
+        await sdkAdapter.sendMessageToSession(
+          params.sessionId,
+          params.message,
+          {
+            files: params.contextFiles ?? [],
+          }
+        );
+
+        return { success: true, sessionId: params.sessionId };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  // chat:resume - Load session history from JSONL files for display
+  rpcHandler.registerMethod(
+    'chat:resume',
+    async (params: { sessionId: string } | undefined) => {
+      if (!params?.sessionId) {
+        return {
+          success: false,
+          error: 'sessionId is required',
+        };
+      }
+
+      try {
+        const workspaceProvider = container.resolve<IWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER
+        );
+        const historyReader = container.resolve<{
+          readSessionHistory(
+            sessionId: string,
+            workspacePath: string
+          ): Promise<{ events: unknown[]; stats: unknown }>;
+        }>(SDK_TOKENS.SDK_SESSION_HISTORY_READER);
+
+        const workspaceRoot = workspaceProvider.getWorkspaceRoot() ?? '';
+        const result = await historyReader.readSessionHistory(
+          params.sessionId,
+          workspaceRoot
+        );
+
+        // Query subagent registry for resumable subagents
+        let resumableSubagents: Array<{
+          agentId: string;
+          agentType: string;
+        }> = [];
+        try {
+          const subagentRegistry = container.resolve<{
+            getRunningBySession(
+              sessionId: string
+            ): Array<{ agentId: string; agentType: string }>;
+          }>(TOKENS.SUBAGENT_REGISTRY_SERVICE);
+          resumableSubagents = subagentRegistry.getRunningBySession(
+            params.sessionId
+          );
+        } catch {
+          // SubagentRegistryService may not be registered -- graceful degradation
+        }
+
+        return {
+          success: true,
+          messages: [],
+          events: result.events,
+          stats: result.stats,
+          resumableSubagents,
+        };
+      } catch (error) {
+        console.error(
+          '[Electron RPC] chat:resume error:',
+          error instanceof Error ? error.message : String(error)
+        );
+        return {
+          success: true,
+          messages: [],
+          events: [],
+          stats: null,
+          resumableSubagents: [],
+        };
+      }
+    }
+  );
+
+  // chat:running-agents - Query running subagents for a session
+  rpcHandler.registerMethod(
+    'chat:running-agents',
+    async (params: { sessionId: string } | undefined) => {
+      if (!params?.sessionId) {
+        return { agents: [] };
+      }
+
+      try {
+        const subagentRegistry = container.resolve<{
+          getRunningBySession(
+            sessionId: string
+          ): Array<{ agentId: string; agentType: string }>;
+        }>(TOKENS.SUBAGENT_REGISTRY_SERVICE);
+        const agents = subagentRegistry.getRunningBySession(params.sessionId);
+        return {
+          agents: agents.map((a) => ({
+            agentId: a.agentId,
+            agentType: a.agentType,
+          })),
+        };
+      } catch {
+        return { agents: [] };
+      }
     }
   );
 }

@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_201
 
-**Total Tasks**: 12 | **Batches**: 3 | **Status**: 0/3 complete
+**Total Tasks**: 12 | **Batches**: 3 | **Status**: 2/3 complete
 
 ---
 
@@ -33,12 +33,13 @@
 
 ---
 
-## Batch 1: DI Gap Fix -- FILE_SYSTEM_MANAGER Shim [IMPLEMENTED]
+## Batch 1: DI Gap Fix -- FILE_SYSTEM_MANAGER Shim [COMPLETE]
 
 **Developer**: backend-developer
 **Tasks**: 1 | **Dependencies**: None
+**Commit**: 92593984
 
-### Task 1.1: Register FILE_SYSTEM_MANAGER shim in Electron DI container [IMPLEMENTED]
+### Task 1.1: Register FILE_SYSTEM_MANAGER shim in Electron DI container [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\di\container.ts`
 **Spec Reference**: implementation-plan.md Component 1 (lines 92-113)
@@ -74,12 +75,12 @@
 
 ---
 
-## Batch 2: Chat Core Methods + Streaming Helper [PENDING]
+## Batch 2: Chat Core Methods + Streaming Helper [COMPLETE]
 
 **Developer**: backend-developer
 **Tasks**: 5 | **Dependencies**: Batch 1 (FILE_SYSTEM_MANAGER must be registered for workspace-intelligence services)
 
-### Task 2.1: Add streamEventsToRenderer() helper function [PENDING]
+### Task 2.1: Add streamEventsToRenderer() helper function [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Spec Reference**: implementation-plan.md Component 8 (lines 456-503)
@@ -105,7 +106,7 @@
 - Broadcast each event as `MESSAGE_TYPES.CHAT_CHUNK` with `{ tabId, sessionId, event }`
 - Detect `event.eventType === 'message_complete'` for completion signal
 
-### Task 2.2: Add chat:continue RPC handler [PENDING]
+### Task 2.2: Add chat:continue RPC handler [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Spec Reference**: implementation-plan.md Component 2, chat:continue section (lines 125-197)
@@ -133,7 +134,7 @@
 - Model default: `storageService.get('model.selected', 'claude-sonnet-4-20250514')`
 - Premium always true in Electron stub
 
-### Task 2.3: Add chat:resume RPC handler [PENDING]
+### Task 2.3: Add chat:resume RPC handler [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Spec Reference**: implementation-plan.md Component 2, chat:resume section (lines 199-226)
@@ -158,7 +159,7 @@
 - DI tokens: PLATFORM_TOKENS.WORKSPACE_PROVIDER, SDK_TOKENS.SDK_SESSION_HISTORY_READER, TOKENS.SUBAGENT_REGISTRY_SERVICE
 - Use try/catch with graceful empty result on failure
 
-### Task 2.4: Add chat:running-agents RPC handler [PENDING]
+### Task 2.4: Add chat:running-agents RPC handler [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Spec Reference**: implementation-plan.md Component 2, chat:running-agents section (lines 218-226)
@@ -177,7 +178,7 @@
 - DI token: TOKENS.SUBAGENT_REGISTRY_SERVICE
 - Simple one-liner delegation with try/catch
 
-### Task 2.5: Update existing chat:start to stream events [PENDING]
+### Task 2.5: Update existing chat:start to stream events [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-handler-setup.ts`
 **Spec Reference**: implementation-plan.md Component 8, last paragraph (lines 502-503)
@@ -212,12 +213,12 @@
 
 ---
 
-## Batch 3: Extended RPC Methods (Config, Command, Wizard, Quality, Agent) [PENDING]
+## Batch 3: Extended RPC Methods (Config, Command, Wizard, Quality, Agent) [IN PROGRESS]
 
 **Developer**: backend-developer
 **Tasks**: 6 | **Dependencies**: Batch 1 (DI shim must be in place for workspace-intelligence services)
 
-### Task 3.1: Add config extended methods (4 methods) [PENDING]
+### Task 3.1: Add config extended methods (4 methods) [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 3 (lines 229-277)
@@ -239,7 +240,7 @@
 - Each method needs its own try/catch with error logging
 - config:autopilot-toggle must validate permissionLevel is one of: 'ask', 'auto-approve', 'auto-deny'
 
-### Task 3.2: Add command:execute and agent:stop methods [PENDING]
+### Task 3.2: Add command:execute and agent:stop methods [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Components 4 and 6 (lines 280-397)
@@ -259,7 +260,7 @@
 - agent:stop: DI token SDK_TOKENS.SDK_AGENT_ADAPTER
 - Both are simple methods with minimal logic
 
-### Task 3.3: Add quality:export method [PENDING]
+### Task 3.3: Add quality:export method [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 7 (lines 401-452)
@@ -280,7 +281,7 @@
 - Use try/catch with graceful degradation if quality services unavailable
 - Date stamp format: `new Date().toISOString().split('T')[0]`
 
-### Task 3.4: Add wizard methods -- setup-wizard:launch, wizard:cancel, wizard:cancel-analysis (3 methods) [PENDING]
+### Task 3.4: Add wizard methods -- setup-wizard:launch, wizard:cancel, wizard:cancel-analysis (3 methods) [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 5, first 3 methods (lines 309-331)
@@ -305,7 +306,7 @@
 - DI tokens: PLATFORM_TOKENS.WORKSPACE_PROVIDER, AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE, AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE
 - Each method gets its own try/catch
 
-### Task 3.5: Add wizard methods -- deep-analyze, list-analyses, load-analysis, recommend-agents (4 methods) [PENDING]
+### Task 3.5: Add wizard methods -- deep-analyze, list-analyses, load-analysis, recommend-agents (4 methods) [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 5, middle methods (lines 333-355)
@@ -325,7 +326,7 @@
 - wizard:deep-analyze is the most complex -- must handle streaming progress updates
 - All methods use try/catch with meaningful defaults on failure
 
-### Task 3.6: Add wizard methods -- submit-selection, retry-item (2 methods) [PENDING]
+### Task 3.6: Add wizard methods -- submit-selection, retry-item (2 methods) [IN PROGRESS]
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Spec Reference**: implementation-plan.md Component 5, last 2 methods (lines 357-369)
