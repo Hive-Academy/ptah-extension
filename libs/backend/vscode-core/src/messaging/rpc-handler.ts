@@ -64,6 +64,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'plugins:', // TASK_2025_153: Plugin configuration (list, get-config, save-config)
   'agent:', // TASK_2025_157: Agent orchestration (getConfig, setConfig, detectClis)
   'ptahCli:', // TASK_2025_170: Ptah CLI agent management (list, create, update, delete, testConnection, listModels)
+  'editor:', // TASK_2025_200: Editor operations (openFile, etc.) for Electron Monaco editor
 ] as const;
 
 /**

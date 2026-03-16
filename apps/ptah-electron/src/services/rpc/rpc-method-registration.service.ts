@@ -722,12 +722,32 @@ function registerEditorMethods(
     getWorkspaceRoot(): string | undefined;
   }>(PLATFORM_TOKENS.WORKSPACE_PROVIDER);
 
+  // Path validation helper: ensures filePath is within workspace root
+  const nodePath = require('path') as typeof import('path');
+  function validatePathInWorkspace(filePath: string): string | null {
+    const wsRoot = workspace.getWorkspaceRoot();
+    if (!wsRoot) return 'No workspace folder open';
+    const resolved = nodePath.resolve(filePath);
+    const resolvedRoot = nodePath.resolve(wsRoot);
+    if (
+      !resolved.startsWith(resolvedRoot + nodePath.sep) &&
+      resolved !== resolvedRoot
+    ) {
+      return 'Path is outside the workspace';
+    }
+    return null;
+  }
+
   // editor:openFile - Read file content for Monaco editor
   rpcHandler.registerMethod(
     'editor:openFile',
     async (params: { filePath: string } | undefined) => {
       if (!params?.filePath) {
         return { success: false, error: 'filePath is required' };
+      }
+      const pathError = validatePathInWorkspace(params.filePath);
+      if (pathError) {
+        return { success: false, error: pathError };
       }
       try {
         const content = await fs.readFile(params.filePath);
@@ -762,6 +782,10 @@ function registerEditorMethods(
     async (params: { filePath: string; content: string } | undefined) => {
       if (!params?.filePath || typeof params.content !== 'string') {
         return { success: false, error: 'filePath and content are required' };
+      }
+      const pathError = validatePathInWorkspace(params.filePath);
+      if (pathError) {
+        return { success: false, error: pathError };
       }
       try {
         await fs.writeFile(params.filePath, params.content);

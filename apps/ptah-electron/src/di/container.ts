@@ -229,9 +229,38 @@ export class ElectronDIContainer {
         get: <T>(key: string): T | undefined => {
           return configStorage.get<T>(`ptah.${key}`);
         },
+        getWithDefault: <T>(key: string, defaultValue: T): T => {
+          const value = configStorage.get<T>(`ptah.${key}`);
+          return value !== undefined ? value : defaultValue;
+        },
+        getTyped: <T>(key: string): T | undefined => {
+          return configStorage.get<T>(`ptah.${key}`);
+        },
+        getTypedWithDefault: <T>(
+          key: string,
+          _schema: unknown,
+          defaultValue: T
+        ): T => {
+          const value = configStorage.get<T>(`ptah.${key}`);
+          return value !== undefined ? value : defaultValue;
+        },
+        set: async <T>(key: string, value: T): Promise<void> => {
+          await configStorage.update(`ptah.${key}`, value);
+        },
+        setTyped: async <T>(key: string, value: T): Promise<void> => {
+          await configStorage.update(`ptah.${key}`, value);
+        },
         update: async (key: string, value: unknown): Promise<void> => {
           await configStorage.update(`ptah.${key}`, value);
         },
+        watch: (
+          _key: string,
+          _callback: (value: unknown) => void
+        ): { dispose: () => void } => ({
+          dispose: () => {
+            /* no-op: Electron has no vscode config change events */
+          },
+        }),
         onDidChangeConfiguration: () => ({
           dispose: () => {
             /* no-op: Electron has no vscode config change events */
@@ -280,13 +309,11 @@ export class ElectronDIContainer {
             secretStorage.store(key, value),
           delete: async (key: string): Promise<void> =>
             secretStorage.delete(key),
-          onDidChange: {
-            event: () => ({
-              dispose: () => {
-                /* no-op: Electron has no secret change events */
-              },
-            }),
-          },
+          onDidChange: (_listener: unknown) => ({
+            dispose: () => {
+              /* no-op: Electron has no secret change events */
+            },
+          }),
         },
         subscriptions: [] as { dispose: () => void }[],
         extensionUri: { fsPath: options.appPath, scheme: 'file' },
@@ -295,7 +322,7 @@ export class ElectronDIContainer {
           scheme: 'file',
         },
         extensionPath: options.appPath,
-        extensionMode: 1, // Production
+        extensionMode: 1, // 1 = Production (matches vscode.ExtensionMode.Production; 0 = Test, 2 = Development)
       };
       container.register(TOKENS.EXTENSION_CONTEXT, {
         useValue: extensionContextShim,
