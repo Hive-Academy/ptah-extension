@@ -12,7 +12,7 @@
  * Gemini's built-in skills.
  */
 
-import { mkdir, readdir, lstat, rm } from 'fs/promises';
+import { mkdir, readdir, lstat, rm, readFile, writeFile } from 'fs/promises';
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import type { CliSkillSyncStatus } from '@ptah-extension/shared';
@@ -31,6 +31,10 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
 
   getSkillsBasePath(): string {
     return join(homedir(), '.gemini', 'skills');
+  }
+
+  getCommandsBasePath(): string {
+    return join(homedir(), '.gemini', 'commands');
   }
 
   async install(pluginPaths: string[]): Promise<CliSkillSyncStatus> {
@@ -119,6 +123,9 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
         }
       }
 
+      // Sync command files from plugins (TASK_2025_201)
+      await this.syncCommands(pluginPaths, errors);
+
       return {
         cli: this.target,
         synced: errors.length === 0,
@@ -135,6 +142,59 @@ export class GeminiSkillInstaller implements ICliSkillInstaller {
           error instanceof Error ? error.message : String(error)
         }`,
       };
+    }
+  }
+
+  private async syncCommands(
+    pluginPaths: string[],
+    errors: string[]
+  ): Promise<void> {
+    const commandsDir = this.getCommandsBasePath();
+    try {
+      await mkdir(commandsDir, { recursive: true });
+    } catch {
+      return;
+    }
+
+    // Clean up old ptah- prefixed command files
+    try {
+      const existing = await readdir(commandsDir);
+      for (const entry of existing) {
+        if (entry.startsWith('ptah-') && entry.endsWith('.md')) {
+          await rm(join(commandsDir, entry), { force: true });
+        }
+      }
+    } catch {
+      // Non-fatal
+    }
+
+    for (const pluginPath of pluginPaths) {
+      const commandsSourceDir = join(pluginPath, 'commands');
+      let entries: string[];
+      try {
+        entries = await readdir(commandsSourceDir);
+      } catch {
+        continue;
+      }
+
+      for (const entry of entries) {
+        if (!entry.endsWith('.md')) continue;
+        try {
+          const content = await readFile(
+            join(commandsSourceDir, entry),
+            'utf8'
+          );
+          // Prefix with ptah- for cleanup identification
+          const targetName = `ptah-${entry}`;
+          await writeFile(join(commandsDir, targetName), content, 'utf8');
+        } catch (err) {
+          errors.push(
+            `Failed to copy command ${entry}: ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        }
+      }
     }
   }
 

@@ -13,6 +13,7 @@ import {
   SDK_TOKENS,
   PluginLoaderService,
   PtahCliRegistry,
+  SkillJunctionService,
 } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
@@ -456,6 +457,55 @@ export async function activate(
     }
     console.log('[Activate] Step 7.1.5: Plugin loader initialized');
 
+    // Step 7.1.5.1: Create workspace skill junctions (TASK_2025_201)
+    // Project skill files from extension assets into workspace .claude/skills/ via junctions
+    // So third-party providers (Copilot, Codex) can find skills via MCP workspace search
+    console.log(
+      '[Activate] Step 7.1.5.1: Creating workspace skill junctions...'
+    );
+    try {
+      const skillJunction = DIContainer.resolve<SkillJunctionService>(
+        SDK_TOKENS.SDK_SKILL_JUNCTION
+      );
+      skillJunction.initialize(context.extensionPath);
+
+      // Reuse the same pluginLoader singleton resolved in Step 7.1.5
+      const junctionPluginLoader = DIContainer.resolve<PluginLoaderService>(
+        SDK_TOKENS.SDK_PLUGIN_LOADER
+      );
+      const junctionPluginConfig =
+        junctionPluginLoader.getWorkspacePluginConfig();
+      const junctionPluginPaths = junctionPluginLoader.resolvePluginPaths(
+        junctionPluginConfig.enabledPluginIds
+      );
+
+      // Always call activate() even with zero plugins, so the workspace change
+      // subscription is registered for future plugin enablement
+      const junctionResult = skillJunction.activate(junctionPluginPaths, () => {
+        const config = junctionPluginLoader.getWorkspacePluginConfig();
+        return junctionPluginLoader.resolvePluginPaths(config.enabledPluginIds);
+      });
+      if (junctionResult.created > 0 || junctionResult.errors.length > 0) {
+        logger.info('Skill junctions created', {
+          created: junctionResult.created,
+          skipped: junctionResult.skipped,
+          removed: junctionResult.removed,
+          errors:
+            junctionResult.errors.length > 0
+              ? junctionResult.errors
+              : undefined,
+        });
+      }
+    } catch (skillJunctionError) {
+      logger.warn('Skill junction creation failed (non-blocking)', {
+        error:
+          skillJunctionError instanceof Error
+            ? skillJunctionError.message
+            : String(skillJunctionError),
+      });
+    }
+    console.log('[Activate] Step 7.1.5.1: Skill junctions ready');
+
     // Step 7.1.6: CLI Skill Sync (TASK_2025_160)
     // Sync Ptah plugin skills to installed CLI agent directories (Copilot, Gemini)
     // Premium-only, non-blocking, fire-and-forget
@@ -466,18 +516,27 @@ export async function activate(
           TOKENS.CLI_PLUGIN_SYNC_SERVICE
         ) as {
           initialize: (
-            globalState: vscode.Memento,
-            extensionPath: string
+            globalState: IStateStorage,
+            extensionPath: string,
+            pluginPathResolver?: (ids: string[]) => string[]
           ) => void;
           syncOnActivation: (enabledPluginIds: string[]) => Promise<unknown[]>;
         };
 
-        // Late-initialize with globalState and extension path
-        cliPluginSync.initialize(context.globalState, context.extensionPath);
-
-        // Resolve enabled plugin IDs
+        // Resolve enabled plugin IDs (pluginLoader must be resolved before initialize
+        // so we can pass its resolvePluginPaths as the validated path resolver)
         const pluginLoader = DIContainer.resolve<PluginLoaderService>(
           SDK_TOKENS.SDK_PLUGIN_LOADER
+        );
+
+        // Late-initialize with global state storage, extension path, and validated path resolver
+        const globalStateStorage = DIContainer.resolve<IStateStorage>(
+          PLATFORM_TOKENS.STATE_STORAGE
+        );
+        cliPluginSync.initialize(
+          globalStateStorage,
+          context.extensionPath,
+          (ids: string[]) => pluginLoader.resolvePluginPaths(ids)
         );
         const pluginConfig = pluginLoader.getWorkspacePluginConfig();
         const enabledPluginIds = pluginConfig.enabledPluginIds || [];
@@ -769,6 +828,16 @@ export function deactivate(): void {
   // NOTE: We intentionally do NOT remove ptah from .mcp.json on deactivation.
   // The MCP config must persist so that resumed Claude sessions can find
   // the permission-prompt-tool. The port gets updated on next activation.
+
+  // TASK_2025_201: Remove workspace skill junctions
+  try {
+    const skillJunction = DIContainer.resolve<SkillJunctionService>(
+      SDK_TOKENS.SDK_SKILL_JUNCTION
+    );
+    skillJunction.deactivateSync();
+  } catch {
+    // Junction service may not be initialized yet - safe to ignore
+  }
 
   // TASK_2025_167: Dispose all Ptah CLI adapters before clearing the container
   try {

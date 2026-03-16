@@ -50,6 +50,7 @@ import {
 } from '../prompt-harness';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
+import { SkillJunctionService } from '../helpers/skill-junction.service';
 import {
   PtahCliRegistry,
   PtahCliConfigPersistence,
@@ -312,6 +313,17 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PLUGIN_LOADER,
     { useClass: PluginLoaderService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Skill Junction Service (TASK_2025_201)
+  // Manages workspace .claude/skills/ junctions to plugin skill directories
+  // So third-party providers (Codex, Copilot) can find skills via MCP search
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_SKILL_JUNCTION,
+    { useClass: SkillJunctionService },
     { lifecycle: Lifecycle.Singleton }
   );
 

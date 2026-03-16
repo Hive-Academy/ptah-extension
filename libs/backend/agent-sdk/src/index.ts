@@ -175,6 +175,12 @@ export {
 } from './lib/helpers';
 
 // ============================================================
+// Skill Junction Service (TASK_2025_201)
+// Manages workspace .claude/skills/ junctions for third-party providers
+// ============================================================
+export { SkillJunctionService, type SkillJunctionResult } from './lib/helpers';
+
+// ============================================================
 // Ptah CLI (TASK_2025_167)
 // User-configured adapters for Anthropic-compatible providers
 // ============================================================

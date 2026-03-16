@@ -106,6 +106,9 @@ export const SDK_TOKENS = {
   /** Codex Provider Services (TASK_2025_193) */
   SDK_CODEX_AUTH: Symbol.for('SdkCodexAuth'),
   SDK_CODEX_PROXY: Symbol.for('SdkCodexProxy'),
+
+  /** Skill Junction Service (TASK_2025_201) */
+  SDK_SKILL_JUNCTION: Symbol.for('SdkSkillJunction'),
 } as const;
 
 /**

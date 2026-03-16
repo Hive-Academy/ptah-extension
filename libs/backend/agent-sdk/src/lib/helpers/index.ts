@@ -88,3 +88,9 @@ export {
   formatSkillsForPrompt,
   type PluginSkillInfo,
 } from './plugin-skill-discovery';
+
+// Skill junction management (TASK_2025_201)
+export {
+  SkillJunctionService,
+  type SkillJunctionResult,
+} from './skill-junction.service';

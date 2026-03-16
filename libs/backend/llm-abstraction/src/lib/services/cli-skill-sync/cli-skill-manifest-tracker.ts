@@ -17,7 +17,7 @@
 import { createHash } from 'crypto';
 import { readdir, lstat } from 'fs/promises';
 import { join, relative } from 'path';
-import type * as vscode from 'vscode';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { CliTarget, CliPluginSyncState } from '@ptah-extension/shared';
 
 /** GlobalState key for CLI skill sync state */
@@ -39,13 +39,13 @@ const SYNC_PIPELINE_VERSION = 2;
  * Late-initialized with globalState from extension context.
  */
 export class CliSkillManifestTracker {
-  private globalState: vscode.Memento | null = null;
+  private globalState: IStateStorage | null = null;
 
   /**
-   * Initialize with VS Code globalState.
+   * Initialize with platform state storage.
    * Must be called before any sync operations.
    */
-  initialize(globalState: vscode.Memento): void {
+  initialize(globalState: IStateStorage): void {
     this.globalState = globalState;
   }
 
