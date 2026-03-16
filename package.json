@@ -62,7 +62,10 @@
     "prepare": "husky || true",
     "validate-skill": "npx ts-node scripts/validate-orchestration-skill.ts",
     "electron:serve": "nx serve ptah-electron",
+    "electron:watch": "nx serve:watch ptah-electron",
+    "electron:launch": "node apps/ptah-electron/scripts/launch.js",
     "electron:build": "nx build ptah-electron",
+    "electron:build:dev": "nx build-dev ptah-electron",
     "electron:package": "nx package ptah-electron"
   },
   "private": true,

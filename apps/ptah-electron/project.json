@@ -51,9 +51,19 @@
       },
       "dependsOn": []
     },
+    "build-dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build-main ptah-electron --configuration=development",
+          "nx build-preload ptah-electron",
+          "nx build ptah-extension-webview --configuration=development"
+        ],
+        "parallel": true
+      }
+    },
     "copy-renderer": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build"],
       "options": {
         "commands": [
           {
@@ -66,11 +76,22 @@
       "executor": "nx:run-commands",
       "options": {
         "commands": [
-          "nx build ptah-electron --configuration=development",
+          "nx build-dev ptah-electron",
           "nx copy-renderer ptah-electron",
-          "electron dist/apps/ptah-electron/main.js"
+          "node apps/ptah-electron/scripts/launch.js"
         ],
         "parallel": false
+      }
+    },
+    "serve:watch": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build-main ptah-electron --configuration=development --watch",
+          "nx build-preload ptah-electron --watch",
+          "nx build ptah-extension-webview --configuration=development --watch"
+        ],
+        "parallel": true
       }
     },
     "package": {

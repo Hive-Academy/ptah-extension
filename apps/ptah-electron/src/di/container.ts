@@ -216,7 +216,42 @@ export class ElectronDIContainer {
     }
 
     // ========================================
-    // PHASE 1.4: EXTENSION_CONTEXT shim (required by agent-sdk + llm-abstraction)
+    // PHASE 1.4: CONFIG_MANAGER shim (required by llm-abstraction, workspace-intelligence, agent-generation)
+    // ========================================
+    // ConfigManager wraps vscode.workspace.getConfiguration('ptah').
+    // Services call config.get<T>(key) and config.update(key, value).
+    // In Electron, we delegate to the workspace state storage.
+    try {
+      const configStorage = container.resolve<IStateStorage>(
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+      );
+      const configManagerShim = {
+        get: <T>(key: string): T | undefined => {
+          return configStorage.get<T>(`ptah.${key}`);
+        },
+        update: async (key: string, value: unknown): Promise<void> => {
+          await configStorage.update(`ptah.${key}`, value);
+        },
+        onDidChangeConfiguration: () => ({
+          dispose: () => {
+            /* no-op: Electron has no vscode config change events */
+          },
+        }),
+      };
+      container.register(TOKENS.CONFIG_MANAGER, {
+        useValue: configManagerShim,
+      });
+      logger.info(
+        '[Electron DI] CONFIG_MANAGER shim registered (delegates to workspace state storage)'
+      );
+    } catch (error) {
+      logger.error('[Electron DI] Failed to register CONFIG_MANAGER shim', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // ========================================
+    // PHASE 1.5: EXTENSION_CONTEXT shim (required by agent-sdk + llm-abstraction)
     // ========================================
     // Many services inject TOKENS.EXTENSION_CONTEXT for globalState.get/update
     // and secrets.get/store/delete. Provide a shim that delegates to platform abstractions.

@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_200: Electron Application for Ptah
 
-**Total Tasks**: 28 | **Batches**: 7 | **Status**: 4/7 complete
+**Total Tasks**: 28 | **Batches**: 7 | **Status**: 6/7 complete (Batch 7 deferred - optional)
 
 ---
 
@@ -477,12 +477,13 @@
 
 ---
 
-## Batch 5: Application Polish + Packaging -- IN PROGRESS
+## Batch 5: Application Polish + Packaging -- COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 4
+**Commit**: df712811
 
-### Task 5.1: Create application menu -- IMPLEMENTED
+### Task 5.1: Create application menu -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\menu\application-menu.ts`
 **Spec Reference**: implementation-plan.md: Phase 4 (referenced in architecture)
@@ -499,7 +500,7 @@
 
 ---
 
-### Task 5.2: Implement API key settings IPC flow -- IMPLEMENTED
+### Task 5.2: Implement API key settings IPC flow -- COMPLETE
 
 **Files**:
 
@@ -521,7 +522,7 @@
 
 ---
 
-### Task 5.3: Create app icon placeholders -- IMPLEMENTED
+### Task 5.3: Create app icon placeholders -- COMPLETE
 
 **Files**:
 
@@ -535,7 +536,7 @@
 
 ---
 
-### Task 5.4: Add npm scripts for Electron development -- IMPLEMENTED
+### Task 5.4: Add npm scripts for Electron development -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\package.json` (modify)
 
@@ -557,12 +558,13 @@
 
 ---
 
-## Batch 6: Monaco Editor + File Explorer -- PENDING
+## Batch 6: Monaco Editor + File Explorer -- COMPLETE
 
 **Developer**: frontend-developer
 **Tasks**: 4 | **Dependencies**: Batch 4
+**Commit**: a4f967e1
 
-### Task 6.1: Install Monaco Editor dependencies -- PENDING
+### Task 6.1: Install Monaco Editor dependencies -- COMPLETE
 
 **File**: `D:\projects\ptah-extension\package.json` (modify)
 
@@ -575,7 +577,7 @@
 
 ---
 
-### Task 6.2: Create File Tree component -- PENDING
+### Task 6.2: Create File Tree component -- COMPLETE
 
 **Files**:
 
@@ -597,7 +599,7 @@
 
 ---
 
-### Task 6.3: Create Code Editor component -- PENDING
+### Task 6.3: Create Code Editor component -- COMPLETE
 
 **Files**:
 
@@ -616,7 +618,7 @@
 
 ---
 
-### Task 6.4: Create editor library scaffolding and exports -- PENDING
+### Task 6.4: Create editor library scaffolding and exports -- COMPLETE
 
 **Files**:
 
@@ -645,12 +647,13 @@
 
 ---
 
-## Batch 7: Auto-Update + CLAUDE.md -- PENDING
+## Batch 7: Auto-Update + CLAUDE.md -- DEFERRED (Optional)
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 5
+**Note**: Auto-update and documentation are optional polish tasks, deferred for later.
 
-### Task 7.1: Create auto-updater module -- PENDING
+### Task 7.1: Create auto-updater module -- DEFERRED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\updater\auto-updater.ts`
 
@@ -664,7 +667,7 @@
 
 ---
 
-### Task 7.2: Wire auto-updater in main.ts -- PENDING
+### Task 7.2: Wire auto-updater in main.ts -- DEFERRED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\main.ts` (modify)
 
@@ -676,7 +679,7 @@
 
 ---
 
-### Task 7.3: Create CLAUDE.md for platform-electron library -- PENDING
+### Task 7.3: Create CLAUDE.md for platform-electron library -- DEFERRED
 
 **File**: `D:\projects\ptah-extension\libs\backend\platform-electron\CLAUDE.md`
 
@@ -691,7 +694,7 @@
 
 ---
 
-### Task 7.4: Create CLAUDE.md for ptah-electron app -- PENDING
+### Task 7.4: Create CLAUDE.md for ptah-electron app -- DEFERRED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\CLAUDE.md`
 

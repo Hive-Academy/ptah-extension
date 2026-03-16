@@ -18,6 +18,8 @@ export interface WebviewConfig {
   initialSessionId?: string | null;
   /** Session name for auto-loaded session tab title. */
   initialSessionName?: string | null;
+  /** Whether the webview is running inside Electron (set by preload script). */
+  isElectron?: boolean;
 }
 
 /**
@@ -76,6 +78,7 @@ export class VSCodeService {
     iconUri: '',
     userIconUri: '',
     panelId: '',
+    isElectron: false,
   });
 
   private readonly _isConnected = signal(false);
