@@ -59,6 +59,17 @@ import type {
 } from '@ptah-extension/platform-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 
+/** Default model used when no model is explicitly selected or stored. */
+export const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+
+/** Logger interface matching the structured Logger from vscode-core. */
+interface ElectronLogger {
+  error(message: string, ...args: unknown[]): void;
+  warn(message: string, ...args: unknown[]): void;
+  info(message: string, ...args: unknown[]): void;
+  debug(message: string, ...args: unknown[]): void;
+}
+
 /**
  * Setup core RPC handlers for Electron.
  *
@@ -74,6 +85,7 @@ import { MESSAGE_TYPES } from '@ptah-extension/shared';
  */
 export function setupRpcHandlers(container: DependencyContainer): void {
   const rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
+  const logger = container.resolve<ElectronLogger>(TOKENS.LOGGER);
 
   // ========================================
   // Session RPC Methods (platform-agnostic)
@@ -83,7 +95,7 @@ export function setupRpcHandlers(container: DependencyContainer): void {
   // ========================================
   // Chat RPC Methods (platform-adapted)
   // ========================================
-  registerChatMethods(container, rpcHandler);
+  registerChatMethods(container, rpcHandler, logger);
 
   // ========================================
   // Config RPC Methods (platform-adapted)
@@ -174,7 +186,8 @@ async function streamEventsToRenderer(
   container: DependencyContainer,
   sessionId: string,
   stream: AsyncIterable<unknown>,
-  tabId?: string
+  tabId: string | undefined,
+  logger: ElectronLogger
 ): Promise<void> {
   const routingId = tabId || sessionId;
 
@@ -218,10 +231,24 @@ async function streamEventsToRenderer(
       });
     }
   } catch (error) {
-    console.error(
+    logger.error(
       `[Electron RPC] streamEventsToRenderer error for session ${sessionId}:`,
-      error instanceof Error ? error.message : String(error)
+      error instanceof Error ? error : new Error(String(error))
     );
+
+    // Best-effort: broadcast CHAT_COMPLETE so the UI doesn't get stuck in loading state
+    try {
+      const webviewManager = container.resolve<{
+        broadcastMessage(type: string, payload: unknown): Promise<void>;
+      }>(TOKENS.WEBVIEW_MANAGER);
+      await webviewManager.broadcastMessage(MESSAGE_TYPES.CHAT_COMPLETE, {
+        tabId: routingId,
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } catch {
+      // Webview manager not available -- nothing more we can do
+    }
   }
 }
 
@@ -232,7 +259,8 @@ async function streamEventsToRenderer(
  */
 function registerChatMethods(
   container: DependencyContainer,
-  rpcHandler: RpcHandler
+  rpcHandler: RpcHandler,
+  logger: ElectronLogger
 ): void {
   rpcHandler.registerMethod(
     'chat:start',
@@ -278,12 +306,9 @@ function registerChatMethods(
             const storageService = container.resolve<{
               get<T>(key: string, defaultValue: T): T;
             }>(TOKENS.STORAGE_SERVICE);
-            currentModel = storageService.get(
-              'model.selected',
-              'claude-sonnet-4-20250514'
-            );
+            currentModel = storageService.get('model.selected', DEFAULT_MODEL);
           } catch {
-            currentModel = 'claude-sonnet-4-20250514';
+            currentModel = DEFAULT_MODEL;
           }
         }
 
@@ -300,12 +325,17 @@ function registerChatMethods(
         });
 
         // Fire-and-forget: stream events to renderer in background
-        void streamEventsToRenderer(container, tabId, stream, tabId).catch(
-          (err) =>
-            console.error(
-              '[Electron RPC] chat:start streaming error:',
-              err instanceof Error ? err.message : String(err)
-            )
+        void streamEventsToRenderer(
+          container,
+          tabId,
+          stream,
+          tabId,
+          logger
+        ).catch((err) =>
+          logger.error(
+            '[Electron RPC] chat:start streaming error:',
+            err instanceof Error ? err : new Error(String(err))
+          )
         );
 
         // Return immediately -- real sessionId comes via SESSION_ID_RESOLVED in stream
@@ -326,9 +356,9 @@ function registerChatMethods(
         return { success: false, error: 'sessionId is required' };
       }
       const sdkAdapter = container.resolve<{
-        abortSession(sessionId: string): Promise<void>;
+        interruptSession(sessionId: string): Promise<void>;
       }>(SDK_TOKENS.SDK_AGENT_ADAPTER);
-      await sdkAdapter.abortSession(params.sessionId);
+      await sdkAdapter.interruptSession(params.sessionId);
       return { success: true };
     }
   );
@@ -340,17 +370,19 @@ function registerChatMethods(
       params:
         | {
             sessionId: string;
-            message: string;
-            tabId?: string;
-            contextFiles?: string[];
+            prompt: string;
+            tabId: string;
+            workspacePath?: string;
             model?: string;
+            files?: string[];
+            images?: unknown[];
           }
         | undefined
     ) => {
-      if (!params?.sessionId || !params?.message) {
+      if (!params?.sessionId || !params?.prompt) {
         return {
           success: false,
-          error: 'sessionId and message are required',
+          error: 'sessionId and prompt are required',
         };
       }
 
@@ -367,11 +399,12 @@ function registerChatMethods(
           sendMessageToSession(
             sessionId: string,
             content: string,
-            options?: { files?: string[] }
+            options?: { files?: string[]; images?: unknown[] }
           ): Promise<void>;
         }>(SDK_TOKENS.SDK_AGENT_ADAPTER);
 
-        const workspaceRoot = workspaceProvider.getWorkspaceRoot() ?? '';
+        const workspaceRoot =
+          params.workspacePath || workspaceProvider.getWorkspaceRoot() || '';
         const isActive = sdkAdapter.isSessionActive(params.sessionId);
 
         // Auto-resume: if session is not active in memory, resume it first
@@ -380,8 +413,7 @@ function registerChatMethods(
             get<T>(key: string, defaultValue: T): T;
           }>(TOKENS.STORAGE_SERVICE);
           const currentModel =
-            params.model ||
-            storageService.get('model.selected', 'claude-sonnet-4-20250514');
+            params.model || storageService.get('model.selected', DEFAULT_MODEL);
 
           const stream = await sdkAdapter.resumeSession(params.sessionId, {
             projectPath: workspaceRoot,
@@ -396,21 +428,92 @@ function registerChatMethods(
             container,
             params.sessionId,
             stream,
-            params.tabId
+            params.tabId,
+            logger
           ).catch((err) =>
-            console.error(
+            logger.error(
               '[Electron RPC] chat:continue resume streaming error:',
-              err instanceof Error ? err.message : String(err)
+              err instanceof Error ? err : new Error(String(err))
             )
           );
+        }
+
+        // TASK_2025_201: Inject interrupted subagent context into prompt
+        // This enables Claude to automatically resume interrupted agents.
+        // Simplified for Electron: skip transcript file existence check.
+        let enhancedPrompt = params.prompt;
+        try {
+          const subagentRegistry = container.resolve<{
+            getResumableBySession(sessionId: string): Array<{
+              agentId: string;
+              agentType: string;
+              toolCallId: string;
+              interruptedAt?: number;
+            }>;
+            remove(toolCallId: string): void;
+          }>(TOKENS.SUBAGENT_REGISTRY_SERVICE);
+
+          const resumableSubagents = subagentRegistry.getResumableBySession(
+            params.sessionId
+          );
+
+          if (resumableSubagents.length > 0) {
+            const agentDetails = resumableSubagents
+              .map((s) => {
+                const interruptedAgo = s.interruptedAt
+                  ? Math.round((Date.now() - s.interruptedAt) / 1000 / 60)
+                  : 0;
+                return `  - ${s.agentType} agent (agentId: ${s.agentId})${
+                  interruptedAgo > 0
+                    ? ` - interrupted ${interruptedAgo} min ago`
+                    : ''
+                }`;
+              })
+              .join('\n');
+
+            const contextPrefix = `[SYSTEM CONTEXT - INTERRUPTED AGENTS]
+The following subagent(s) were interrupted and did not complete their work:
+${agentDetails}
+
+IMPORTANT INSTRUCTIONS:
+1. Your FIRST action should be to resume these interrupted agents using the Task tool with the "resume" parameter set to the agentId shown above (e.g., resume: "${resumableSubagents[0].agentId}").
+2. Resume agents in the order they were interrupted (continue their previous work).
+3. After resuming completes, address the user's current message if it requires additional work.
+4. If the user explicitly asks to start fresh or work on something completely unrelated, you may skip resumption and acknowledge the interrupted work was abandoned.
+
+[END SYSTEM CONTEXT]
+
+`;
+            enhancedPrompt = contextPrefix + params.prompt;
+
+            logger.info(
+              '[Electron RPC] chat:continue - injected subagent context',
+              {
+                sessionId: params.sessionId,
+                resumableCount: resumableSubagents.length,
+                agents: resumableSubagents.map((s) => ({
+                  agentId: s.agentId,
+                  agentType: s.agentType,
+                })),
+              }
+            );
+
+            // Remove injected subagents from registry (one-shot injection)
+            for (const s of resumableSubagents) {
+              subagentRegistry.remove(s.toolCallId);
+            }
+          }
+        } catch {
+          // SubagentRegistryService may not be registered -- best-effort, don't block message sending
         }
 
         // Send the follow-up message to the (now-active) session
         await sdkAdapter.sendMessageToSession(
           params.sessionId,
-          params.message,
+          enhancedPrompt,
           {
-            files: params.contextFiles ?? [],
+            files: params.files ?? [],
+            images: params.images ?? [],
           }
         );
 
@@ -427,7 +530,16 @@ function registerChatMethods(
   // chat:resume - Load session history from JSONL files for display
   rpcHandler.registerMethod(
     'chat:resume',
-    async (params: { sessionId: string } | undefined) => {
+    async (
+      params:
+        | {
+            sessionId: string;
+            tabId: string;
+            workspacePath?: string;
+            model?: string;
+          }
+        | undefined
+    ) => {
       if (!params?.sessionId) {
         return {
           success: false,
@@ -444,13 +556,61 @@ function registerChatMethods(
             sessionId: string,
             workspacePath: string
           ): Promise<{ events: unknown[]; stats: unknown }>;
+          readHistoryAsMessages(
+            sessionId: string,
+            workspacePath: string
+          ): Promise<unknown[]>;
         }>(SDK_TOKENS.SDK_SESSION_HISTORY_READER);
 
-        const workspaceRoot = workspaceProvider.getWorkspaceRoot() ?? '';
+        const workspaceRoot =
+          params.workspacePath || workspaceProvider.getWorkspaceRoot() || '';
         const result = await historyReader.readSessionHistory(
           params.sessionId,
           workspaceRoot
         );
+
+        // Read backward-compatible messages from history
+        let messages: unknown[] = [];
+        try {
+          messages = await historyReader.readHistoryAsMessages(
+            params.sessionId,
+            workspaceRoot
+          );
+        } catch {
+          // readHistoryAsMessages may not be available -- graceful degradation
+        }
+
+        // Register interrupted agents from history into SubagentRegistryService
+        // This enables context injection in chat:continue for cold-loaded sessions.
+        let registeredFromHistory = 0;
+        try {
+          const subagentRegistry = container.resolve<{
+            getResumableBySession(
+              sessionId: string
+            ): Array<{ agentId: string; agentType: string }>;
+            registerFromHistoryEvents(
+              events: unknown[],
+              sessionId: string
+            ): number;
+          }>(TOKENS.SUBAGENT_REGISTRY_SERVICE);
+
+          registeredFromHistory = subagentRegistry.registerFromHistoryEvents(
+            result.events,
+            params.sessionId
+          );
+
+          if (registeredFromHistory > 0) {
+            logger.info(
+              '[Electron RPC] Registered interrupted agents from history',
+              {
+                sessionId: params.sessionId,
+                registeredCount: registeredFromHistory,
+              }
+            );
+          }
+        } catch {
+          // SubagentRegistryService may not be registered -- graceful degradation
+        }
 
         // Query subagent registry for resumable subagents
         let resumableSubagents: Array<{
@@ -459,11 +619,11 @@ function registerChatMethods(
         }> = [];
         try {
           const subagentRegistry = container.resolve<{
-            getRunningBySession(
+            getResumableBySession(
               sessionId: string
             ): Array<{ agentId: string; agentType: string }>;
           }>(TOKENS.SUBAGENT_REGISTRY_SERVICE);
-          resumableSubagents = subagentRegistry.getRunningBySession(
+          resumableSubagents = subagentRegistry.getResumableBySession(
             params.sessionId
           );
         } catch {
@@ -472,15 +632,15 @@ function registerChatMethods(
 
         return {
           success: true,
-          messages: [],
+          messages,
           events: result.events,
           stats: result.stats,
           resumableSubagents,
         };
       } catch (error) {
-        console.error(
+        logger.error(
           '[Electron RPC] chat:resume error:',
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error : new Error(String(error))
         );
         return {
           success: true,
@@ -537,7 +697,7 @@ function registerConfigMethods(
       model: workspaceProvider.getConfiguration<string>(
         'ptah',
         'model.selected',
-        'claude-sonnet-4-20250514'
+        DEFAULT_MODEL
       ),
       autopilot: workspaceProvider.getConfiguration<boolean>(
         'ptah',
