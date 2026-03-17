@@ -37,12 +37,12 @@
 
 ---
 
-## Batch 1: Move Tier 1 Handlers (Zero Refactoring) -- IN PROGRESS
+## Batch 1: Move Tier 1 Handlers (Zero Refactoring) -- IMPLEMENTED
 
 **Developer**: backend-developer
 **Tasks**: 6 | **Dependencies**: None
 
-### Task 1.1: Create shared handler directory and barrel export -- IN PROGRESS
+### Task 1.1: Create shared handler directory and barrel export -- IMPLEMENTED
 
 **Action**: CREATE
 **Files**:
@@ -60,7 +60,7 @@
 
 ---
 
-### Task 1.2: Copy 7 Tier 1 handlers to library -- IN PROGRESS
+### Task 1.2: Copy 7 Tier 1 handlers to library -- IMPLEMENTED
 
 **Action**: CREATE
 **Files**:
@@ -91,7 +91,7 @@
 
 ---
 
-### Task 1.3: Update vscode-core index.ts to export shared handlers -- IN PROGRESS
+### Task 1.3: Update vscode-core index.ts to export shared handlers -- IMPLEMENTED
 
 **Action**: MODIFY
 **Files**:
@@ -109,7 +109,7 @@
 
 ---
 
-### Task 1.4: Update VS Code app to import handlers from library -- IN PROGRESS
+### Task 1.4: Update VS Code app to import handlers from library -- IMPLEMENTED
 
 **Action**: MODIFY + DELETE
 **Files**:
@@ -137,7 +137,7 @@
 
 ---
 
-### Task 1.5: Register shared Tier 1 handlers in Electron DI + orchestrator -- IN PROGRESS
+### Task 1.5: Register shared Tier 1 handlers in Electron DI + orchestrator -- IMPLEMENTED
 
 **Action**: MODIFY
 **Files**:
@@ -162,7 +162,7 @@
 
 ---
 
-### Task 1.6: Verify Batch 1 builds -- IN PROGRESS
+### Task 1.6: Verify Batch 1 builds -- IMPLEMENTED
 
 **Action**: VERIFY
 **Commands**:

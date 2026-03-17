@@ -51,21 +51,36 @@
 
 ### Where Should Shared Handlers Live?
 
-**Decision: Option A - `libs/backend/vscode-core/src/rpc/handlers/`**
+**Decision: Option B - NEW standalone library `libs/backend/rpc-handlers/`**
 
-**Rationale:**
+**Rationale (REVISED after Batch 1 attempt):**
 
-- `vscode-core` already has an `src/rpc/` directory containing `llm-rpc-handlers.ts` (evidence: `libs/backend/vscode-core/src/rpc/llm-rpc-handlers.ts`)
-- `vscode-core` already exports `RpcHandler`, `TOKENS`, `Logger`, and all DI tokens the handlers need
-- The `vscode-core` CLAUDE.md explicitly lists "RPC messaging infrastructure" as belonging here
-- A new library (`libs/backend/rpc-handlers/`) adds unnecessary build complexity for what's essentially a set of classes that depend on existing vscode-core infrastructure
-- The handlers depend on TOKENS from vscode-core, SDK_TOKENS from agent-sdk, and AGENT_GENERATION_TOKENS from agent-generation - all of which are already vscode-core dependencies
+The original plan (Option A: place handlers in `vscode-core`) caused a **circular dependency**:
+`vscode-core -> agent-sdk -> vscode-core`. The handlers import from `@ptah-extension/agent-sdk`,
+`@ptah-extension/workspace-intelligence`, and `@ptah-extension/agent-generation`, all of which
+depend on `vscode-core`. Placing handlers inside `vscode-core` creates a cycle.
 
-**Evidence:**
+A standalone library (`libs/backend/rpc-handlers/`) sits ABOVE `vscode-core` in the dependency graph:
 
-- Existing RPC handler in library: `libs/backend/vscode-core/src/rpc/llm-rpc-handlers.ts` (line 82 in index.ts)
-- RpcHandler class: `libs/backend/vscode-core/src/messaging/rpc-handler.ts`
-- TOKENS namespace: `libs/backend/vscode-core/src/di/tokens.ts`
+```
+Apps (vscode, electron)
+  ↓
+@ptah-extension/rpc-handlers (NEW - shared handler classes)
+  ↓
+agent-sdk, workspace-intelligence, agent-generation, llm-abstraction
+  ↓
+vscode-core (infrastructure only: TOKENS, RpcHandler, Logger)
+  ↓
+shared (foundation types)
+```
+
+**Benefits:**
+
+- Clean dependency graph with no cycles
+- Handlers can freely import from agent-sdk, workspace-intelligence, etc.
+- Both VS Code and Electron apps import from `@ptah-extension/rpc-handlers`
+- No need for secondary entrypoints or webpack alias workarounds
+- Standard Nx library generation with proper project.json
 
 ### Handler Classification for Sharing
 
