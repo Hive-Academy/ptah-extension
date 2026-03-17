@@ -101,6 +101,10 @@ module.exports = {
         __dirname,
         '../../libs/backend/template-generation/src'
       ),
+      '@ptah-extension/rpc-handlers': path.resolve(
+        __dirname,
+        '../../libs/backend/rpc-handlers/src'
+      ),
       '@ptah-extension/llm-abstraction': path.resolve(
         __dirname,
         '../../libs/backend/llm-abstraction/src'

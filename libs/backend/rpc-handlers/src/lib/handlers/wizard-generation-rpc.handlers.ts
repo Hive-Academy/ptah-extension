@@ -7,6 +7,7 @@
  * - wizard:retry-item - Retry a single failed generation item
  *
  * TASK_2025_148: Wire Setup Wizard Generation Pipeline via RPC
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.workspace.workspaceFolders with IWorkspaceProvider)
  *
  * Design decisions:
  * - Uses lazy DI resolution via container (same as SetupRpcHandlers)
@@ -45,7 +46,8 @@ import type {
 } from '@ptah-extension/agent-generation';
 import { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import { Result } from '@ptah-extension/shared';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 /**
  * Progress update callback payload from AgentGenerationOrchestratorService.
@@ -144,6 +146,8 @@ export class WizardGenerationRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
     private readonly container: DependencyContainer
   ) {}
 
@@ -265,8 +269,8 @@ export class WizardGenerationRpcHandlers {
       }
 
       // Get workspace folder
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
         return {
           success: false,
           error:
@@ -281,7 +285,7 @@ export class WizardGenerationRpcHandlers {
         this.logger.info('RPC: wizard:submit-selection started', {
           agentCount: params.selectedAgentIds.length,
           agents: params.selectedAgentIds,
-          workspace: workspaceFolder.uri.fsPath,
+          workspace: workspaceRoot,
         });
 
         // Resolve orchestrator from DI container
@@ -313,7 +317,7 @@ export class WizardGenerationRpcHandlers {
               'EnhancedPromptsService'
             );
           const content = await enhancedPromptsService.getEnhancedPromptContent(
-            workspaceFolder.uri.fsPath
+            workspaceRoot
           );
           if (content) {
             enhancedPromptContent = content;
@@ -447,7 +451,7 @@ export class WizardGenerationRpcHandlers {
 
         // Build orchestrator options
         const options: OrchestratorGenerationOptions = {
-          workspacePath: workspaceFolder.uri.fsPath,
+          workspacePath: workspaceRoot,
           userOverrides: params.selectedAgentIds,
           threshold: params.threshold,
           variableOverrides: params.variableOverrides,
@@ -782,8 +786,8 @@ export class WizardGenerationRpcHandlers {
       }
 
       // Get workspace folder
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
         return {
           success: false,
           error: 'No workspace folder open. Please open a folder first.',
@@ -795,7 +799,7 @@ export class WizardGenerationRpcHandlers {
       try {
         this.logger.info('RPC: wizard:retry-item started', {
           itemId: params.itemId,
-          workspace: workspaceFolder.uri.fsPath,
+          workspace: workspaceRoot,
         });
 
         // Resolve orchestrator
@@ -842,7 +846,7 @@ export class WizardGenerationRpcHandlers {
         // (analysis data, premium status, MCP config, enhanced prompts)
         const options: OrchestratorGenerationOptions = {
           ...(this.lastGenerationOptions ?? {}),
-          workspacePath: workspaceFolder.uri.fsPath,
+          workspacePath: workspaceRoot,
           userOverrides: [params.itemId],
           onStreamEvent,
         };

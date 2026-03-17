@@ -5,8 +5,7 @@ import { app, BrowserWindow, safeStorage, dialog, ipcMain } from 'electron';
 import * as path from 'path';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
-import { setupRpcHandlers } from './services/rpc/rpc-handler-setup';
-import { registerExtendedRpcMethods } from './services/rpc/rpc-method-registration.service';
+import { ElectronRpcMethodRegistrationService } from './services/rpc/rpc-method-registration.service';
 import { IpcBridge } from './ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from './ipc/webview-manager-adapter';
 import { createApplicationMenu } from './menu/application-menu';
@@ -127,11 +126,8 @@ if (!gotLock) {
     }
 
     // ========================================
-    // PHASE 2.5: Setup RPC Handlers
+    // PHASE 2.5: (Deferred) RPC handlers registered after WebviewManager in Phase 4.5
     // ========================================
-    // Register core RPC methods so the Angular frontend can communicate.
-    // Full handler wiring (with IPC bridge) happens in Batch 4.
-    setupRpcHandlers(container);
 
     // ========================================
     // PHASE 3: Load API Key from Secret Storage
@@ -179,11 +175,15 @@ if (!gotLock) {
     });
 
     // ========================================
-    // PHASE 4.5: Register Extended RPC Methods
+    // PHASE 4.5: Register All RPC Methods (TASK_2025_203 Batch 5)
     // ========================================
-    // Now that WebviewManager is registered, add extended RPC methods
-    // (session:load, autocomplete:*, setup-status:*, llm:*, plugins:*, etc.)
-    registerExtendedRpcMethods(container);
+    // Now that WebviewManager is registered, register ALL RPC methods via the
+    // class-based orchestrator. This replaces both setupRpcHandlers() and
+    // registerExtendedRpcMethods() with a single unified registration.
+    const rpcRegistration = container.resolve(
+      ElectronRpcMethodRegistrationService
+    );
+    rpcRegistration.registerAll();
 
     console.log(
       '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized'

@@ -42,25 +42,32 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
 
-import { ChatRpcHandlers } from './handlers/chat-rpc.handlers';
-import { SessionRpcHandlers } from './handlers/session-rpc.handlers';
-import { ContextRpcHandlers } from './handlers/context-rpc.handlers';
-import { AutocompleteRpcHandlers } from './handlers/autocomplete-rpc.handlers';
-import { FileRpcHandlers } from './handlers/file-rpc.handlers';
-import { ConfigRpcHandlers } from './handlers/config-rpc.handlers';
-import { AuthRpcHandlers } from './handlers/auth-rpc.handlers';
-import { SetupRpcHandlers } from './handlers/setup-rpc.handlers';
-import { LicenseRpcHandlers } from './handlers/license-rpc.handlers';
-import { LlmRpcHandlers } from './handlers/llm-rpc.handlers';
-import { ProviderRpcHandlers } from './handlers/provider-rpc.handlers';
-import { SubagentRpcHandlers } from './handlers/subagent-rpc.handlers';
-import { CommandRpcHandlers } from './handlers/command-rpc.handlers';
-import { EnhancedPromptsRpcHandlers } from './handlers/enhanced-prompts-rpc.handlers';
-import { QualityRpcHandlers } from './handlers/quality-rpc.handlers';
-import { WizardGenerationRpcHandlers } from './handlers/wizard-generation-rpc.handlers'; // TASK_2025_148
-import { PluginRpcHandlers } from './handlers/plugin-rpc.handlers'; // TASK_2025_153
-import { AgentRpcHandlers } from './handlers/agent-rpc.handlers'; // TASK_2025_157
-import { PtahCliRpcHandlers } from './handlers/ptah-cli-rpc.handlers'; // TASK_2025_167
+// All handlers imported from barrel (TASK_2025_203 Batch 5: unified imports)
+// Shared handlers come from @ptah-extension/rpc-handlers via the barrel.
+// Tier 3 handlers (File, Command, Agent) are local VS Code-specific files.
+import {
+  // Shared handlers (16 total from @ptah-extension/rpc-handlers)
+  ChatRpcHandlers,
+  SessionRpcHandlers,
+  ContextRpcHandlers,
+  AutocompleteRpcHandlers,
+  ConfigRpcHandlers,
+  AuthRpcHandlers,
+  SetupRpcHandlers,
+  LicenseRpcHandlers,
+  LlmRpcHandlers,
+  ProviderRpcHandlers,
+  SubagentRpcHandlers,
+  EnhancedPromptsRpcHandlers,
+  QualityRpcHandlers,
+  WizardGenerationRpcHandlers,
+  PluginRpcHandlers,
+  PtahCliRpcHandlers,
+  // Tier 3 handlers (local, VS Code-specific)
+  FileRpcHandlers,
+  CommandRpcHandlers,
+  AgentRpcHandlers,
+} from './handlers';
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;

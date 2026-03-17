@@ -11,6 +11,7 @@
  * TASK_2025_069: Setup wizard integration
  * TASK_2025_111: Added deep analysis and recommendation handlers
  * TASK_2025_145: Use shared ProjectAnalysisZodSchema + normalizeAgentOutput (SERIOUS-7, CRITICAL-1)
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.workspace.workspaceFolders with IWorkspaceProvider)
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
@@ -23,7 +24,8 @@ import {
   ConfigManager,
 } from '@ptah-extension/vscode-core';
 import { CodeExecutionMCP } from '@ptah-extension/vscode-lm-tools';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   AgentRecommendation,
   DeepProjectAnalysis,
@@ -67,23 +69,13 @@ export class SetupRpcHandlers {
     private readonly configManager: ConfigManager,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
     private readonly container: DependencyContainer
   ) {}
 
   /**
    * Safely resolve a service from the DI container with validation.
-   *
-   * Provides consistent error handling and logging for dynamic service resolution.
-   * Throws descriptive errors when resolution fails, including the service name
-   * and original error details for debugging.
-   *
-   * @param token - The DI token (symbol or string) identifying the service
-   * @param serviceName - Human-readable name for error messages
-   * @returns The resolved service instance
-   * @throws Error if service is not registered or resolves to null/undefined
-   *
-   * @remarks
-   * TASK_2025_113 T5.5: Added for standardized runtime validation of dynamic service resolution
    */
   private resolveService<T>(token: symbol | string, serviceName: string): T {
     try {
@@ -159,15 +151,13 @@ export class SetupRpcHandlers {
       async () => {
         this.logger.debug('RPC: setup-status:get-status called');
 
-        // Get workspace folder
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+        if (!workspaceRoot) {
           throw new Error(
             'No workspace folder open. Please open a folder to configure agents.'
           );
         }
 
-        // Resolve SetupStatusService from DI container with validation
         const setupStatusService = this.resolveService<{
           getStatus: (workspacePath: string) => Promise<{
             isErr: () => boolean;
@@ -176,12 +166,8 @@ export class SetupRpcHandlers {
           }>;
         }>(AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE, 'SetupStatusService');
 
-        // Get status (pass string path, not vscode.Uri)
-        const result = await setupStatusService.getStatus(
-          workspaceFolder.uri.fsPath
-        );
+        const result = await setupStatusService.getStatus(workspaceRoot);
 
-        // Handle error result
         if (result.isErr()) {
           this.logger.error('Failed to get setup status', result.error);
           throw new Error(
@@ -189,7 +175,6 @@ export class SetupRpcHandlers {
           );
         }
 
-        // Return the status data
         return result.value as SetupStatusResponse;
       }
     );
@@ -204,15 +189,13 @@ export class SetupRpcHandlers {
       async () => {
         this.logger.debug('RPC: setup-wizard:launch called');
 
-        // Get workspace folder
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+        if (!workspaceRoot) {
           throw new Error(
             'No workspace folder open. Please open a folder first.'
           );
         }
 
-        // Resolve SetupWizardService from DI container with validation
         const setupWizardService = this.resolveService<{
           launchWizard: (workspacePath: string) => Promise<{
             isErr: () => boolean;
@@ -220,12 +203,8 @@ export class SetupRpcHandlers {
           }>;
         }>(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, 'SetupWizardService');
 
-        // Launch wizard (pass string path, not vscode.Uri)
-        const result = await setupWizardService.launchWizard(
-          workspaceFolder.uri.fsPath
-        );
+        const result = await setupWizardService.launchWizard(workspaceRoot);
 
-        // Handle error result
         if (result.isErr()) {
           this.logger.error('Failed to launch setup wizard', result.error);
           throw new Error(
@@ -233,7 +212,6 @@ export class SetupRpcHandlers {
           );
         }
 
-        // Return success
         return { success: true };
       }
     );
@@ -241,10 +219,6 @@ export class SetupRpcHandlers {
 
   /**
    * wizard:deep-analyze - Perform deep project analysis
-   *
-   * Premium + MCP required. Uses MultiPhaseAnalysisService to execute
-   * multi-phase workspace analysis. Returns MultiPhaseAnalysisResponse
-   * with manifest + phase markdown contents.
    */
   private registerDeepAnalyze(): void {
     this.rpcHandler.registerMethod<
@@ -253,15 +227,13 @@ export class SetupRpcHandlers {
     >('wizard:deep-analyze', async (params) => {
       this.logger.debug('RPC: wizard:deep-analyze called');
 
-      // Get workspace folder
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
         throw new Error(
           'No workspace folder open. Please open a folder to analyze.'
         );
       }
 
-      // Resolve license + MCP status
       let isPremium = false;
       let mcpServerRunning = false;
       let mcpPort: number | undefined;
@@ -294,14 +266,12 @@ export class SetupRpcHandlers {
         );
       }
 
-      // Premium + MCP required
       if (!isPremium || !mcpServerRunning) {
         throw new Error(
           'Premium license and MCP server required for workspace analysis.'
         );
       }
 
-      // Resolve current model: prefer frontend selection, fall back to config
       const currentModel =
         params?.model ||
         this.configManager.getWithDefault<string>(
@@ -309,7 +279,6 @@ export class SetupRpcHandlers {
           'claude-sonnet-4-5-20250929'
         );
 
-      // Resolve plugin paths for premium users
       const pluginPaths = this.resolvePluginPaths(isPremium);
 
       const multiPhaseService = this.resolveService<{
@@ -329,7 +298,7 @@ export class SetupRpcHandlers {
       );
 
       const multiPhaseResult = await multiPhaseService.analyzeWorkspace(
-        workspaceFolder.uri.fsPath,
+        workspaceRoot,
         {
           model: currentModel,
           isPremium,
@@ -348,16 +317,12 @@ export class SetupRpcHandlers {
 
       const manifest = multiPhaseResult.value;
 
-      // Read completed phase markdown files
       const storageService = this.resolveService<AnalysisStorageService>(
         AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
         'AnalysisStorageService'
       );
 
-      const slugDir = storageService.getSlugDir(
-        workspaceFolder.uri.fsPath,
-        manifest.slug
-      );
+      const slugDir = storageService.getSlugDir(workspaceRoot, manifest.slug);
 
       const phaseContents: Record<string, string> = {};
       for (const [phaseId, phaseResult] of Object.entries(manifest.phases)) {
@@ -400,20 +365,6 @@ export class SetupRpcHandlers {
 
   /**
    * wizard:recommend-agents - Calculate agent recommendations
-   *
-   * Accepts a DeepProjectAnalysis (or multi-phase indicator) and returns
-   * scored recommendations for all 13 agents.
-   *
-   * For multi-phase results: returns all agents with score=100 and
-   * recommended=true since the analysis quality is in the markdown files
-   * that agents will read during generation.
-   *
-   * For legacy results: validates with Zod schema and runs scoring.
-   *
-   * @remarks
-   * TASK_2025_113 T3.3: Added comprehensive Zod input validation
-   * TASK_2025_145: Use shared schema from analysis-schema.ts (SERIOUS-7, CRITICAL-1)
-   * TASK_2025_154: Multi-phase path returns all 13 agents recommended
    */
   private registerRecommendAgents(): void {
     this.rpcHandler.registerMethod<unknown, AgentRecommendation[]>(
@@ -421,21 +372,18 @@ export class SetupRpcHandlers {
       async (rawAnalysis) => {
         this.logger.debug('RPC: wizard:recommend-agents called');
 
-        // Validate input exists
         if (!rawAnalysis) {
           throw new Error(
             'Missing analysis input. Please run wizard:deep-analyze first.'
           );
         }
 
-        // ---- Multi-phase path: all 13 agents recommended ----
         const input = rawAnalysis as Record<string, unknown>;
         if (input['isMultiPhase'] === true) {
           this.logger.info(
             'Multi-phase analysis detected, returning all agents recommended'
           );
 
-          // Get all agents by running with a dummy analysis, then override scores
           const agentCatalog: Array<{ id: string; category: AgentCategory }> = [
             { id: 'project-manager', category: 'planning' },
             { id: 'software-architect', category: 'planning' },
@@ -476,7 +424,6 @@ export class SetupRpcHandlers {
           return recommendations;
         }
 
-        // ---- Legacy path: Zod validation + scoring ----
         const validationResult =
           ProjectAnalysisZodSchema.safeParse(rawAnalysis);
 
@@ -493,7 +440,6 @@ export class SetupRpcHandlers {
           throw new Error(`Invalid analysis input: ${errors}`);
         }
 
-        // Normalize validated data into properly typed DeepProjectAnalysis
         const analysis = normalizeAgentOutput(validationResult.data);
 
         this.logger.debug('Analysis input validated and normalized', {
@@ -543,10 +489,6 @@ export class SetupRpcHandlers {
 
   /**
    * wizard:cancel-analysis - Cancel a running workspace analysis
-   *
-   * TASK_2025_154 wiring: Cancels both MultiPhaseAnalysisService and
-   * AgenticAnalysisService (whichever is active). Safe to call even
-   * if no analysis is running (no-op in that case).
    */
   private registerCancelAnalysis(): void {
     this.rpcHandler.registerMethod<void, { cancelled: boolean }>(
@@ -556,7 +498,6 @@ export class SetupRpcHandlers {
 
         let cancelled = false;
 
-        // Cancel multi-phase analysis (primary path)
         try {
           const multiPhaseService = this.resolveService<{
             cancelAnalysis: () => void;
@@ -577,7 +518,6 @@ export class SetupRpcHandlers {
           );
         }
 
-        // Also cancel legacy agentic analysis (fallback path)
         try {
           const agenticService = this.resolveService<{
             cancelAnalysis: () => void;
@@ -603,10 +543,6 @@ export class SetupRpcHandlers {
     );
   }
 
-  // ============================================================
-  // Analysis History Handlers (Persistent Analysis)
-  // ============================================================
-
   /**
    * wizard:list-analyses - List saved analyses from .claude/analysis/
    */
@@ -617,8 +553,8 @@ export class SetupRpcHandlers {
     >('wizard:list-analyses', async () => {
       this.logger.debug('RPC: wizard:list-analyses called');
 
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
         return { analyses: [] };
       }
 
@@ -627,7 +563,7 @@ export class SetupRpcHandlers {
         'AnalysisStorageService'
       );
 
-      const analyses = await storageService.list(workspaceFolder.uri.fsPath);
+      const analyses = await storageService.list(workspaceRoot);
       return { analyses };
     });
   }
@@ -644,8 +580,8 @@ export class SetupRpcHandlers {
         filename: params.filename,
       });
 
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
         throw new Error('No workspace folder open.');
       }
 
@@ -654,10 +590,7 @@ export class SetupRpcHandlers {
         'AnalysisStorageService'
       );
 
-      return storageService.loadMultiPhase(
-        workspaceFolder.uri.fsPath,
-        params.filename
-      );
+      return storageService.loadMultiPhase(workspaceRoot, params.filename);
     });
   }
 }

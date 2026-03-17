@@ -11,6 +11,7 @@
  *
  * TASK_2025_137: Intelligent Prompt Generation System
  * TASK_2025_149 Batch 5: Added getPromptContent and download handlers
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode APIs with platform abstractions)
  */
 
 /**
@@ -46,7 +47,9 @@ import type {
   EnhancedPromptsRegenerateResponse,
   AnalysisStreamPayload,
 } from '@ptah-extension/shared';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { ISaveDialogProvider } from '../platform-abstractions';
 
 /**
  * RPC handlers for Enhanced Prompts operations
@@ -86,6 +89,10 @@ export class EnhancedPromptsRpcHandlers {
     private readonly licenseService: LicenseService,
     @inject(SDK_TOKENS.SDK_PLUGIN_LOADER)
     private readonly pluginLoader: PluginLoaderService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(TOKENS.SAVE_DIALOG_PROVIDER)
+    private readonly saveDialogProvider: ISaveDialogProvider,
     private readonly container: DependencyContainer
   ) {}
 
@@ -630,31 +637,29 @@ export class EnhancedPromptsRpcHandlers {
           };
         }
 
-        const defaultUri = vscode.Uri.file('enhanced-prompt.md');
-        const saveUri = await vscode.window.showSaveDialog({
-          defaultUri,
+        const contentBytes = Buffer.from(content, 'utf-8');
+        const filePath = await this.saveDialogProvider.showSaveAndWrite({
+          defaultFilename: 'enhanced-prompt.md',
           filters: { Markdown: ['md'] },
           title: 'Save Enhanced Prompt',
+          content: contentBytes,
         });
 
-        if (!saveUri) {
+        if (!filePath) {
           return {
             success: false,
             error: 'Save cancelled by user',
           };
         }
 
-        const contentBytes = Buffer.from(content, 'utf-8');
-        await vscode.workspace.fs.writeFile(saveUri, contentBytes);
-
         this.logger.info('RPC: enhancedPrompts:download completed', {
-          filePath: saveUri.fsPath,
+          filePath,
           contentLength: content.length,
         });
 
         return {
           success: true,
-          filePath: saveUri.fsPath,
+          filePath,
         };
       } catch (error) {
         this.logger.error(
@@ -777,10 +782,11 @@ export class EnhancedPromptsRpcHandlers {
    * Resolve workspace path from frontend value.
    * The frontend may send '.' or './' since it doesn't have access to the
    * real filesystem path. We resolve these to the actual workspace folder.
+   * TASK_2025_203: Uses IWorkspaceProvider instead of vscode.workspace.workspaceFolders
    */
   private resolveWorkspacePath(rawPath: string): string {
     if (rawPath === '.' || rawPath === './') {
-      return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? rawPath;
+      return this.workspaceProvider.getWorkspaceRoot() ?? rawPath;
     }
     return rawPath;
   }

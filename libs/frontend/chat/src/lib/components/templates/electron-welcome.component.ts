@@ -49,10 +49,7 @@ import { ElectronLayoutService, VSCodeService } from '@ptah-extension/core';
         </p>
 
         <!-- Open Folder CTA -->
-        <button
-          class="btn btn-primary btn-lg gap-3 mb-6"
-          (click)="layout.addFolder()"
-        >
+        <button class="btn btn-primary btn-lg gap-3 mb-6" (click)="addFolder()">
           <lucide-angular [img]="FolderOpenIcon" class="w-5 h-5" />
           Open Folder
           <lucide-angular [img]="ArrowRightIcon" class="w-4 h-4" />
@@ -112,4 +109,8 @@ export class ElectronWelcomeComponent {
         'Chat with full awareness of your codebase and dependencies.',
     },
   ];
+
+  public addFolder() {
+    this.layout.addFolder();
+  }
 }

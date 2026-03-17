@@ -95,7 +95,6 @@ export * from './organisms/execution/agent-execution.component';
 export * from './organisms/message-bubble.component';
 export * from './organisms/agent-monitor-panel.component';
 export * from './organisms/workspace-sidebar.component';
-export * from './organisms/editor-panel-placeholder.component';
 
 // ============================================================================
 // TEMPLATES - Page layouts

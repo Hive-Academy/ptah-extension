@@ -5,6 +5,7 @@ import {
   ErrorHandler,
 } from '@angular/core';
 import { provideMarkdown, MARKED_EXTENSIONS, SANITIZE } from 'ngx-markdown';
+import { provideMonacoEditor } from 'ngx-monaco-editor-v2';
 import DOMPurify from 'dompurify';
 import {
   provideVSCodeService,
@@ -133,6 +134,10 @@ export const appConfig: ApplicationConfig = {
       useExisting: AgentMonitorMessageHandler,
       multi: true,
     },
+    // Monaco editor for Electron code editing panel
+    provideMonacoEditor({
+      baseUrl: './assets/monaco',
+    }),
     // Markdown rendering for chat messages (required for ngx-markdown)
     // Includes custom extensions for callout cards and collapsible code blocks
     provideMarkdown({

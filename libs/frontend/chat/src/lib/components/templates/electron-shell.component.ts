@@ -30,7 +30,7 @@ import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import { ElectronResizeHandleComponent } from '../atoms/electron-resize-handle.component';
-import { EditorPanelPlaceholderComponent } from '../organisms/editor-panel-placeholder.component';
+import { EditorPanelComponent } from '@ptah-extension/editor';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 
@@ -42,7 +42,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
     ElectronWelcomeComponent,
     WorkspaceSidebarComponent,
     ElectronResizeHandleComponent,
-    EditorPanelPlaceholderComponent,
+    EditorPanelComponent,
     ThemeToggleComponent,
     NotificationBellComponent,
     LucideAngularModule,
@@ -173,7 +173,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
           class="min-w-[300px] border-l border-base-content/10 overflow-hidden"
           [style.width.px]="layout.editorPanelWidth()"
         >
-          <ptah-editor-panel-placeholder />
+          <ptah-editor-panel />
         </div>
         }
       </div>

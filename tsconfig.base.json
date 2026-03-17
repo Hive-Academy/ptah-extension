@@ -41,6 +41,9 @@
         "libs/backend/platform-vscode/src/index.ts"
       ],
       "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
+      "@ptah-extension/rpc-handlers": [
+        "libs/backend/rpc-handlers/src/index.ts"
+      ],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"
       ],

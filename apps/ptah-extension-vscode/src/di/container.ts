@@ -84,6 +84,14 @@ import { registerTemplateGenerationServices } from '@ptah-extension/template-gen
 import { registerPlatformVscodeServices } from '@ptah-extension/platform-vscode';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
+// Platform abstraction implementations (TASK_2025_203)
+import {
+  VsCodePlatformCommands,
+  VsCodePlatformAuth,
+  VsCodeSaveDialog,
+  VsCodeModelDiscovery,
+} from '../services/platform';
+
 // Import webview support services
 import { WebviewEventQueue } from '../services/webview-event-queue';
 import { AngularWebviewProvider } from '../providers/angular-webview.provider';
@@ -202,6 +210,19 @@ export class DIContainer {
     }
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
 
+    // PHASE 1.4.5: Platform Abstraction Implementations (TASK_2025_203)
+    // Must be registered BEFORE handler classes that depend on these tokens
+    container.registerSingleton(
+      TOKENS.PLATFORM_COMMANDS,
+      VsCodePlatformCommands
+    );
+    container.registerSingleton(
+      TOKENS.PLATFORM_AUTH_PROVIDER,
+      VsCodePlatformAuth
+    );
+    container.registerSingleton(TOKENS.SAVE_DIALOG_PROVIDER, VsCodeSaveDialog);
+    container.registerSingleton(TOKENS.MODEL_DISCOVERY, VsCodeModelDiscovery);
+
     // PHASE 1.5: Register remaining vscode-core infrastructure services
     registerVsCodeCoreServices(container, context, logger);
 
@@ -227,6 +248,7 @@ export class DIContainer {
     container.registerSingleton(LicenseRpcHandlers);
     // SetupRpcHandlers and LlmRpcHandlers require container instance for lazy resolution
     // Must use factory pattern because DependencyContainer is an interface (no reflection metadata)
+    // TASK_2025_203: Added WORKSPACE_PROVIDER injection
     container.register(SetupRpcHandlers, {
       useFactory: (c) =>
         new SetupRpcHandlers(
@@ -234,6 +256,7 @@ export class DIContainer {
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(TOKENS.CONFIG_MANAGER),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c
         ),
     });
@@ -261,6 +284,7 @@ export class DIContainer {
     // TASK_2025_137: Enhanced Prompts RPC handlers
     // Must use factory pattern because DependencyContainer is an interface (no reflection metadata)
     // Same pattern as SetupRpcHandlers and WizardGenerationRpcHandlers
+    // TASK_2025_203: Added WORKSPACE_PROVIDER + SAVE_DIALOG_PROVIDER injections
     container.register(EnhancedPromptsRpcHandlers, {
       useFactory: (c) =>
         new EnhancedPromptsRpcHandlers(
@@ -269,6 +293,8 @@ export class DIContainer {
           c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
           c.resolve(TOKENS.LICENSE_SERVICE),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+          c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
           c
         ),
     });
@@ -286,12 +312,14 @@ export class DIContainer {
     container.registerSingleton(PtahCliRpcHandlers);
 
     // TASK_2025_148: Wizard Generation RPC handlers (requires container for lazy resolution)
+    // TASK_2025_203: Added WORKSPACE_PROVIDER injection
     container.register(WizardGenerationRpcHandlers, {
       useFactory: (c) =>
         new WizardGenerationRpcHandlers(
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c
         ),
     });

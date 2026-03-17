@@ -4,11 +4,11 @@ import {
   output,
   computed,
   signal,
+  effect,
   ChangeDetectionStrategy,
   inject,
   DestroyRef,
   OnInit,
-  OnDestroy,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { EditorComponent } from 'ngx-monaco-editor-v2';
@@ -22,9 +22,10 @@ import { EditorComponent } from 'ngx-monaco-editor-v2';
  * Features:
  * - Monaco editor with vs-dark theme and automatic layout
  * - Language auto-detection from file extension
- * - Ctrl+S / Cmd+S keyboard shortcut for saving
+ * - Ctrl+S / Cmd+S keyboard shortcut for saving (scoped to active file)
  * - Content change events for parent synchronization
  * - Empty state when no file is open
+ * - Reactive content sync via effect() watching content/filePath inputs
  */
 @Component({
   selector: 'ptah-code-editor',
@@ -75,21 +76,18 @@ import { EditorComponent } from 'ngx-monaco-editor-v2';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class CodeEditorComponent implements OnInit, OnDestroy {
+export class CodeEditorComponent implements OnInit {
   readonly filePath = input<string | undefined>(undefined);
   readonly content = input<string>('');
-  readonly language = input<string>('plaintext');
 
   readonly contentChanged = output<string>();
   readonly fileSaved = output<{ filePath: string; content: string }>();
 
-  private editorInstance: unknown = null;
   private keydownHandler: ((e: KeyboardEvent) => void) | null = null;
   private readonly destroyRef = inject(DestroyRef);
 
   protected editorContent = '';
   private lastSavedContent = '';
-  private initialized = false;
 
   readonly isDirty = signal(false);
 
@@ -111,14 +109,27 @@ export class CodeEditorComponent implements OnInit, OnDestroy {
     readOnly: false,
   }));
 
-  ngOnInit(): void {
-    this.editorContent = this.content();
-    this.lastSavedContent = this.content();
+  constructor() {
+    effect(() => {
+      const newContent = this.content();
+      const newPath = this.filePath();
+      // Only update if we have a path (skip initial empty state)
+      if (newPath !== undefined) {
+        this.editorContent = newContent;
+        this.lastSavedContent = newContent;
+        this.isDirty.set(false);
+      }
+    });
+  }
 
+  ngOnInit(): void {
     this.keydownHandler = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 's') {
-        event.preventDefault();
-        this.saveFile();
+        // Only handle save when we have an active file
+        if (this.filePath()) {
+          event.preventDefault();
+          this.saveFile();
+        }
       }
     };
     document.addEventListener('keydown', this.keydownHandler);
@@ -130,21 +141,8 @@ export class CodeEditorComponent implements OnInit, OnDestroy {
     });
   }
 
-  ngOnDestroy(): void {
-    if (this.keydownHandler) {
-      document.removeEventListener('keydown', this.keydownHandler);
-      this.keydownHandler = null;
-    }
-  }
-
-  protected onEditorInit(editor: unknown): void {
-    this.editorInstance = editor;
-    this.initialized = true;
-
-    // Set content when editor initializes
-    this.editorContent = this.content();
-    this.lastSavedContent = this.content();
-    this.isDirty.set(false);
+  protected onEditorInit(_editor: unknown): void {
+    // Editor initialized; content sync is handled by the effect
   }
 
   /**

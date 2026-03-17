@@ -5,6 +5,7 @@
  * Manages model selection and autopilot configuration persistence.
  *
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (removed vscode.ConfigurationTarget)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -33,7 +34,6 @@ import {
   ConfigModelsListResult,
   getModelPricingDescription,
 } from '@ptah-extension/shared';
-import * as vscode from 'vscode';
 
 /**
  * RPC handlers for configuration operations
@@ -106,9 +106,7 @@ export class ConfigRpcHandlers {
         });
 
         // Save the model (now using full API name)
-        await this.configManager.set('model.selected', model, {
-          target: vscode.ConfigurationTarget.Workspace,
-        });
+        await this.configManager.set('model.selected', model);
 
         // Sync to active SDK session if provided
         if (sessionId) {
@@ -205,15 +203,10 @@ export class ConfigRpcHandlers {
           );
         }
 
-        await this.configManager.set('autopilot.enabled', enabled, {
-          target: vscode.ConfigurationTarget.Workspace,
-        });
+        await this.configManager.set('autopilot.enabled', enabled);
         await this.configManager.set(
           'autopilot.permissionLevel',
-          permissionLevel,
-          {
-            target: vscode.ConfigurationTarget.Workspace,
-          }
+          permissionLevel
         );
 
         // Sync permission level to canUseTool callback (defense-in-depth)

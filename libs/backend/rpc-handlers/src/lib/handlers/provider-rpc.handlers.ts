@@ -8,11 +8,11 @@
  * - provider:clearModelTier - Clear a tier override (reset to default)
  *
  * Supports all Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI).
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.lm with IModelDiscovery)
  */
 
 import { injectable, inject } from 'tsyringe';
 import { z } from 'zod';
-import * as vscode from 'vscode';
 import {
   Logger,
   RpcHandler,
@@ -20,6 +20,7 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
+import type { IModelDiscovery } from '../platform-abstractions';
 import {
   ProviderModelsService,
   SDK_TOKENS,
@@ -55,7 +56,9 @@ export class ProviderRpcHandlers {
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetection: CliDetectionService
+    private readonly cliDetection: CliDetectionService,
+    @inject(TOKENS.MODEL_DISCOVERY)
+    private readonly modelDiscovery: IModelDiscovery
   ) {}
 
   /**
@@ -92,26 +95,24 @@ export class ProviderRpcHandlers {
    */
   private registerCopilotDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('github-copilot', async () => {
-      // 1. Try VS Code LM API — returns only models the user's Copilot subscription covers
+      // 1. Try platform model discovery — returns only models the user's subscription covers
       try {
-        const vscodeModels = await vscode.lm.selectChatModels({
-          vendor: 'copilot',
-        });
-        if (vscodeModels.length > 0) {
+        const platformModels = await this.modelDiscovery.getCopilotModels();
+        if (platformModels.length > 0) {
           this.logger.info(
-            `[ProviderRpc] Fetched ${vscodeModels.length} Copilot models from VS Code LM API`
+            `[ProviderRpc] Fetched ${platformModels.length} Copilot models from platform discovery`
           );
-          return vscodeModels.map((m) => ({
-            id: m.family,
-            name: this.formatCopilotModelName(m.family),
+          return platformModels.map((m) => ({
+            id: m.id,
+            name: this.formatCopilotModelName(m.id),
             description: '',
-            contextLength: m.maxInputTokens ?? 0,
+            contextLength: m.contextLength,
             supportsToolUse: true,
           }));
         }
       } catch (error) {
         this.logger.debug(
-          `[ProviderRpc] VS Code LM API unavailable: ${
+          `[ProviderRpc] Platform model discovery unavailable: ${
             error instanceof Error ? error.message : String(error)
           }`
         );
@@ -167,29 +168,29 @@ export class ProviderRpcHandlers {
    */
   private registerCodexDynamicFetcher(): void {
     this.providerModels.registerDynamicFetcher('openai-codex', async () => {
-      // 1. Try VS Code LM API — Codex models may not be listed, but check anyway
+      // 1. Try platform model discovery — Codex models may not be available, but check anyway
       try {
-        const vscodeModels = await vscode.lm.selectChatModels();
+        const platformModels = await this.modelDiscovery.getCodexModels();
         // Filter to known Codex model IDs
         const codexModelIds = new Set(
           (CODEX_PROVIDER_ENTRY.staticModels ?? []).map((m) => m.id)
         );
-        const matched = vscodeModels.filter((m) => codexModelIds.has(m.family));
+        const matched = platformModels.filter((m) => codexModelIds.has(m.id));
         if (matched.length > 0) {
           this.logger.info(
-            `[ProviderRpc] Fetched ${matched.length} Codex models from VS Code LM API`
+            `[ProviderRpc] Fetched ${matched.length} Codex models from platform discovery`
           );
           return matched.map((m) => ({
-            id: m.family,
-            name: this.formatCopilotModelName(m.family),
+            id: m.id,
+            name: this.formatCopilotModelName(m.id),
             description: '',
-            contextLength: m.maxInputTokens ?? 0,
+            contextLength: m.contextLength,
             supportsToolUse: true,
           }));
         }
       } catch (error) {
         this.logger.debug(
-          `[ProviderRpc] VS Code LM API unavailable for Codex: ${
+          `[ProviderRpc] Platform model discovery unavailable for Codex: ${
             error instanceof Error ? error.message : String(error)
           }`
         );

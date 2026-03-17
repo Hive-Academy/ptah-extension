@@ -125,3 +125,8 @@ export type {
 // Feature Gate Service (TASK_2025_121)
 export { FeatureGateService } from './services/feature-gate.service';
 export type { Feature, ProOnlyFeature } from './services/feature-gate.service';
+
+// Platform Abstraction Interfaces (TASK_2025_203)
+// Defined in @ptah-extension/rpc-handlers (import directly from there)
+// NOT re-exported here to avoid circular dependency:
+// vscode-core -> rpc-handlers -> vscode-core

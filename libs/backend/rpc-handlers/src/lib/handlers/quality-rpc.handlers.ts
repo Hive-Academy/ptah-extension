@@ -7,11 +7,14 @@
  * - quality:export - Export quality report in Markdown/JSON/CSV
  *
  * TASK_2025_144: Phase G - Reporting and Visualization
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode APIs with platform abstractions)
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import type { ISaveDialogProvider } from '../platform-abstractions';
 import type {
   QualityGetAssessmentParams,
   QualityGetAssessmentResult,
@@ -46,7 +49,11 @@ export class QualityRpcHandlers {
     @inject(TOKENS.QUALITY_HISTORY_SERVICE)
     private readonly historyService: IQualityHistoryService,
     @inject(TOKENS.QUALITY_EXPORT_SERVICE)
-    private readonly exportService: IQualityExportService
+    private readonly exportService: IQualityExportService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(TOKENS.SAVE_DIALOG_PROVIDER)
+    private readonly saveDialogProvider: ISaveDialogProvider
   ) {}
 
   /**
@@ -86,8 +93,8 @@ export class QualityRpcHandlers {
           forceRefresh: params?.forceRefresh,
         });
 
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
+        const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+        if (!workspaceRoot) {
           throw new Error(
             'No workspace folder open. Please open a folder to analyze.'
           );
@@ -95,14 +102,14 @@ export class QualityRpcHandlers {
 
         // Optionally invalidate cache for fresh analysis
         if (params?.forceRefresh) {
-          this.intelligenceService.invalidateCache(workspaceFolder.uri.fsPath);
+          this.intelligenceService.invalidateCache(workspaceRoot);
         }
 
         // Track timing to detect if result came from cache
         const preCallMs = Date.now();
 
         const intelligence = await this.intelligenceService.getIntelligence(
-          workspaceFolder.uri.fsPath
+          workspaceRoot
         );
 
         // Determine cache status: fresh analysis takes measurable time,
@@ -202,15 +209,15 @@ export class QualityRpcHandlers {
           this.logger.debug('RPC: quality:export called', { format });
 
           // Get latest intelligence (may use cache)
-          const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-          if (!workspaceFolder) {
+          const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+          if (!workspaceRoot) {
             throw new Error(
               'No workspace folder open. Please open a folder to export.'
             );
           }
 
           const intelligence = await this.intelligenceService.getIntelligence(
-            workspaceFolder.uri.fsPath
+            workspaceRoot
           );
 
           // Generate export content based on format
@@ -241,25 +248,20 @@ export class QualityRpcHandlers {
               throw new Error(`Unsupported export format: ${format}`);
           }
 
-          // Save file via VS Code save dialog (webview can't use blob download)
+          // Save file via platform save dialog (webview can't use blob download)
           let saved = false;
           let filePath: string | undefined;
 
-          const defaultUri = vscode.Uri.joinPath(workspaceFolder.uri, filename);
-
-          const saveUri = await vscode.window.showSaveDialog({
-            defaultUri,
+          const savedPath = await this.saveDialogProvider.showSaveAndWrite({
+            defaultFilename: filename,
             filters: this.getFileFilters(format),
             title: 'Save Quality Report',
+            content: Buffer.from(content, 'utf-8'),
           });
 
-          if (saveUri) {
-            await vscode.workspace.fs.writeFile(
-              saveUri,
-              Buffer.from(content, 'utf-8')
-            );
+          if (savedPath) {
             saved = true;
-            filePath = saveUri.fsPath;
+            filePath = savedPath;
           }
 
           this.logger.debug('RPC: quality:export success', {

@@ -289,6 +289,14 @@ export const WEBVIEW_INITIAL_DATA_BUILDER = Symbol.for(
 export const WEBVIEW_HTML_GENERATOR = Symbol.for('WebviewHtmlGenerator');
 export const WEBVIEW_MESSAGE_HANDLER = Symbol.for('WebviewMessageHandler');
 
+// ========================================
+// Platform Abstraction Tokens (TASK_2025_203)
+// ========================================
+export const PLATFORM_COMMANDS = Symbol.for('PlatformCommands');
+export const PLATFORM_AUTH_PROVIDER = Symbol.for('PlatformAuthProvider');
+export const SAVE_DIALOG_PROVIDER = Symbol.for('SaveDialogProvider');
+export const MODEL_DISCOVERY = Symbol.for('ModelDiscovery');
+
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
@@ -453,6 +461,14 @@ export const TOKENS = {
   WEBVIEW_INITIAL_DATA_BUILDER,
   WEBVIEW_HTML_GENERATOR,
   WEBVIEW_MESSAGE_HANDLER,
+
+  // ========================================
+  // Platform Abstraction (TASK_2025_203)
+  // ========================================
+  PLATFORM_COMMANDS,
+  PLATFORM_AUTH_PROVIDER,
+  SAVE_DIALOG_PROVIDER,
+  MODEL_DISCOVERY,
 } as const;
 
 /**

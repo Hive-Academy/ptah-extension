@@ -5,9 +5,9 @@
  *
  * TASK_2025_079: License status exposure for frontend premium feature gating
  * TASK_2025_128: Freemium model (Community + Pro)
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.commands with IPlatformCommands)
  */
 
-import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import {
   Logger,
@@ -16,6 +16,7 @@ import {
   LicenseService,
   LicenseStatus,
 } from '@ptah-extension/vscode-core';
+import type { IPlatformCommands } from '../platform-abstractions';
 import type {
   LicenseGetStatusParams,
   LicenseGetStatusResponse,
@@ -45,7 +46,9 @@ export class LicenseRpcHandlers {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService
+    private readonly licenseService: LicenseService,
+    @inject(TOKENS.PLATFORM_COMMANDS)
+    private readonly platformCommands: IPlatformCommands
   ) {}
 
   /**
@@ -181,11 +184,7 @@ export class LicenseRpcHandlers {
 
             // Schedule window reload to apply license changes
             // Delay allows the RPC response to reach the webview first
-            setTimeout(
-              () =>
-                vscode.commands.executeCommand('workbench.action.reloadWindow'),
-              1500
-            );
+            setTimeout(() => this.platformCommands.reloadWindow(), 1500);
 
             return {
               success: true,

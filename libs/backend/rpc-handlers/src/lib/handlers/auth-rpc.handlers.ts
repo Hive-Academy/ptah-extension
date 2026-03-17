@@ -6,6 +6,7 @@
  *
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
  * TASK_2025_076: SecretStorage integration for secure credential storage
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.window/auth with platform abstractions)
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -17,7 +18,10 @@ import {
   ConfigManager,
   IAuthSecretsService,
 } from '@ptah-extension/vscode-core';
-import * as vscode from 'vscode';
+import type {
+  IPlatformCommands,
+  IPlatformAuthProvider,
+} from '../platform-abstractions';
 import {
   SdkAgentAdapter,
   SDK_TOKENS,
@@ -54,7 +58,11 @@ export class AuthRpcHandlers {
     @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
     private readonly copilotAuth: CopilotAuthService,
     @inject(SDK_TOKENS.SDK_CODEX_AUTH)
-    private readonly codexAuth: ICodexAuthService
+    private readonly codexAuth: ICodexAuthService,
+    @inject(TOKENS.PLATFORM_COMMANDS)
+    private readonly platformCommands: IPlatformCommands,
+    @inject(TOKENS.PLATFORM_AUTH_PROVIDER)
+    private readonly platformAuth: IPlatformAuthProvider
   ) {}
 
   /**
@@ -559,9 +567,10 @@ export class AuthRpcHandlers {
       'auth:codexLogin',
       async () => {
         this.logger.info('RPC: auth:codexLogin - opening terminal');
-        const terminal = vscode.window.createTerminal({ name: 'Codex Login' });
-        terminal.sendText('codex login --device-auth', true);
-        terminal.show();
+        this.platformCommands.openTerminal(
+          'Codex Login',
+          'codex login --device-auth'
+        );
         return { success: true };
       }
     );
@@ -605,29 +614,11 @@ export class AuthRpcHandlers {
   }
 
   /**
-   * Retrieve the GitHub username from VS Code's authentication session.
+   * Retrieve the GitHub username from the platform auth provider.
    * Returns undefined if no active session is found.
+   * TASK_2025_203: Delegates to IPlatformAuthProvider instead of vscode.authentication
    */
   private async getGitHubUsername(): Promise<string | undefined> {
-    try {
-      const session = await vscode.authentication.getSession(
-        'github',
-        ['copilot'],
-        { createIfNone: false }
-      );
-      return session?.account.label;
-    } catch {
-      // Fallback: try read:user scope
-      try {
-        const session = await vscode.authentication.getSession(
-          'github',
-          ['read:user'],
-          { createIfNone: false }
-        );
-        return session?.account.label;
-      } catch {
-        return undefined;
-      }
-    }
+    return this.platformAuth.getGitHubUsername();
   }
 }

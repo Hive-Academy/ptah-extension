@@ -96,6 +96,53 @@ import {
   ElectronAuthSecretsService,
 } from './electron-adapters';
 
+// Electron platform abstraction implementations (TASK_2025_203)
+import {
+  ElectronPlatformCommands,
+  ElectronPlatformAuth,
+  ElectronSaveDialog,
+  ElectronModelDiscovery,
+} from '../services/platform';
+
+// Shared RPC handler classes (TASK_2025_203 Batch 5: all 15 shared handlers)
+// These are platform-agnostic handlers that can be used in both VS Code and Electron.
+// LlmRpcHandlers is excluded: depends on TOKENS.LLM_RPC_HANDLERS not available in Electron.
+import {
+  SessionRpcHandlers,
+  ChatRpcHandlers,
+  ConfigRpcHandlers,
+  AuthRpcHandlers,
+  ContextRpcHandlers,
+  SetupRpcHandlers,
+  LicenseRpcHandlers,
+  WizardGenerationRpcHandlers,
+  AutocompleteRpcHandlers,
+  SubagentRpcHandlers,
+  PluginRpcHandlers,
+  PtahCliRpcHandlers,
+  EnhancedPromptsRpcHandlers,
+  QualityRpcHandlers,
+  ProviderRpcHandlers,
+} from '@ptah-extension/rpc-handlers';
+
+// Electron-specific RPC handler classes (TASK_2025_203 Batch 5)
+import {
+  ElectronWorkspaceRpcHandlers,
+  ElectronEditorRpcHandlers,
+  ElectronFileRpcHandlers,
+  ElectronLlmRpcHandlers,
+  ElectronChatExtendedRpcHandlers,
+  ElectronConfigExtendedRpcHandlers,
+  ElectronSessionExtendedRpcHandlers,
+  ElectronCommandRpcHandlers,
+  ElectronAgentRpcHandlers,
+  ElectronLayoutRpcHandlers,
+  ElectronAuthExtendedRpcHandlers,
+} from '../services/rpc/handlers';
+
+// Electron RPC Method Registration Service (TASK_2025_203 Batch 5)
+import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
+
 /**
  * Electron DI Container Orchestrator
  *
@@ -423,6 +470,172 @@ export class ElectronDIContainer {
       PLATFORM_TOKENS.STATE_STORAGE
     );
     container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
+
+    // ========================================
+    // PHASE 3.5: Platform Abstraction Implementations (TASK_2025_203)
+    // ========================================
+    // Must be registered BEFORE shared handler classes that depend on these tokens.
+    // Each registration is individually wrapped to prevent a single failure from cascading.
+    const platformAbstractions: Array<{
+      token: symbol;
+      impl: new (...args: unknown[]) => unknown;
+      name: string;
+    }> = [
+      {
+        token: TOKENS.PLATFORM_COMMANDS,
+        impl: ElectronPlatformCommands as unknown as new (
+          ...args: unknown[]
+        ) => unknown,
+        name: 'PLATFORM_COMMANDS',
+      },
+      {
+        token: TOKENS.PLATFORM_AUTH_PROVIDER,
+        impl: ElectronPlatformAuth as unknown as new (
+          ...args: unknown[]
+        ) => unknown,
+        name: 'PLATFORM_AUTH_PROVIDER',
+      },
+      {
+        token: TOKENS.SAVE_DIALOG_PROVIDER,
+        impl: ElectronSaveDialog as unknown as new (
+          ...args: unknown[]
+        ) => unknown,
+        name: 'SAVE_DIALOG_PROVIDER',
+      },
+      {
+        token: TOKENS.MODEL_DISCOVERY,
+        impl: ElectronModelDiscovery as unknown as new (
+          ...args: unknown[]
+        ) => unknown,
+        name: 'MODEL_DISCOVERY',
+      },
+    ];
+
+    const registeredAbstractions: string[] = [];
+    for (const { token, impl, name } of platformAbstractions) {
+      try {
+        container.registerSingleton(token, impl);
+        registeredAbstractions.push(name);
+      } catch (error) {
+        logger.error(
+          `[Electron DI] Failed to register platform abstraction: ${name}`,
+          {
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+      }
+    }
+
+    logger.info(
+      '[Electron DI] Platform abstraction implementations registered (TASK_2025_203)',
+      {
+        services: registeredAbstractions,
+      }
+    );
+
+    // ========================================
+    // PHASE 4: CODE_EXECUTION_MCP stub (required by shared ChatRpcHandlers)
+    // ========================================
+    // ChatRpcHandlers injects TOKENS.CODE_EXECUTION_MCP for MCP server port detection.
+    // In Electron, the Code Execution MCP server is not available, so we provide a stub.
+    try {
+      container.register(TOKENS.CODE_EXECUTION_MCP, {
+        useValue: {
+          getPort: () => null,
+          ensureRegisteredForSubagents: () => {
+            /* no-op in Electron */
+          },
+        },
+      });
+      logger.info(
+        '[Electron DI] CODE_EXECUTION_MCP stub registered (Electron has no MCP server)'
+      );
+    } catch (error) {
+      logger.error('[Electron DI] Failed to register CODE_EXECUTION_MCP stub', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    // ========================================
+    // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5)
+    // ========================================
+    // Register all 15 shared handler classes from @ptah-extension/rpc-handlers.
+    // LlmRpcHandlers is excluded: depends on TOKENS.LLM_RPC_HANDLERS not available in Electron.
+    container.registerSingleton(SessionRpcHandlers);
+    container.registerSingleton(ChatRpcHandlers);
+    container.registerSingleton(ConfigRpcHandlers);
+    container.registerSingleton(AuthRpcHandlers);
+    container.registerSingleton(ContextRpcHandlers);
+    container.registerSingleton(SetupRpcHandlers);
+    container.registerSingleton(LicenseRpcHandlers);
+    container.registerSingleton(WizardGenerationRpcHandlers);
+    container.registerSingleton(AutocompleteRpcHandlers);
+    container.registerSingleton(SubagentRpcHandlers);
+    container.registerSingleton(PluginRpcHandlers);
+    container.registerSingleton(PtahCliRpcHandlers);
+    container.registerSingleton(EnhancedPromptsRpcHandlers);
+    container.registerSingleton(QualityRpcHandlers);
+    container.registerSingleton(ProviderRpcHandlers);
+
+    logger.info(
+      '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5)',
+      {
+        handlers: [
+          'SessionRpcHandlers',
+          'ChatRpcHandlers',
+          'ConfigRpcHandlers',
+          'AuthRpcHandlers',
+          'ContextRpcHandlers',
+          'SetupRpcHandlers',
+          'LicenseRpcHandlers',
+          'WizardGenerationRpcHandlers',
+          'AutocompleteRpcHandlers',
+          'SubagentRpcHandlers',
+          'PluginRpcHandlers',
+          'PtahCliRpcHandlers',
+          'EnhancedPromptsRpcHandlers',
+          'QualityRpcHandlers',
+          'ProviderRpcHandlers',
+        ],
+      }
+    );
+
+    // ========================================
+    // PHASE 4.2: Electron-specific RPC Handler Classes (TASK_2025_203 Batch 5)
+    // ========================================
+    container.registerSingleton(ElectronWorkspaceRpcHandlers);
+    container.registerSingleton(ElectronEditorRpcHandlers);
+    container.registerSingleton(ElectronFileRpcHandlers);
+    container.registerSingleton(ElectronLlmRpcHandlers);
+    container.registerSingleton(ElectronChatExtendedRpcHandlers);
+    container.registerSingleton(ElectronConfigExtendedRpcHandlers);
+    container.registerSingleton(ElectronSessionExtendedRpcHandlers);
+    container.registerSingleton(ElectronCommandRpcHandlers);
+    container.registerSingleton(ElectronAgentRpcHandlers);
+    container.registerSingleton(ElectronLayoutRpcHandlers);
+    container.registerSingleton(ElectronAuthExtendedRpcHandlers);
+
+    // Register the orchestrator itself
+    container.registerSingleton(ElectronRpcMethodRegistrationService);
+
+    logger.info(
+      '[Electron DI] Electron-specific RPC handler classes registered (TASK_2025_203 Batch 5)',
+      {
+        handlers: [
+          'ElectronWorkspaceRpcHandlers',
+          'ElectronEditorRpcHandlers',
+          'ElectronFileRpcHandlers',
+          'ElectronLlmRpcHandlers',
+          'ElectronChatExtendedRpcHandlers',
+          'ElectronConfigExtendedRpcHandlers',
+          'ElectronSessionExtendedRpcHandlers',
+          'ElectronCommandRpcHandlers',
+          'ElectronAgentRpcHandlers',
+          'ElectronLayoutRpcHandlers',
+          'ElectronAuthExtendedRpcHandlers',
+        ],
+      }
+    );
 
     logger.info('[Electron DI] All services registered successfully');
 

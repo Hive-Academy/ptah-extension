@@ -5,13 +5,13 @@
  * Manages SDK session lifecycle and streaming ExecutionNodes to webview.
  *
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
+ * TASK_2025_203: Moved to @ptah-extension/rpc-handlers (replaced vscode.workspace.workspaceFolders with IWorkspaceProvider)
  */
 
 import { injectable, inject } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
-import * as vscode from 'vscode';
 import {
   Logger,
   RpcHandler,
@@ -54,6 +54,8 @@ import {
   type CliSessionReference,
   type AgentStartEvent,
 } from '@ptah-extension/shared';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -102,7 +104,9 @@ export class ChatRpcHandlers {
         workspaceId: string,
         name: string
       ): Promise<unknown>;
-    }
+    },
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider
   ) {}
 
   /**
@@ -1474,8 +1478,7 @@ IMPORTANT INSTRUCTIONS:
           event.sessionId !== tabId
         ) {
           childMetadataSaved = true;
-          const workspacePath =
-            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
+          const workspacePath = this.workspaceProvider.getWorkspaceRoot() ?? '';
           const ptahCliAgentId = this.ptahCliSessions.get(tabId);
           const sessionName = ptahCliAgentId
             ? `CLI Agent: ${ptahCliAgentId}`
