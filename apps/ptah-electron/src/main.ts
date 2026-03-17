@@ -22,7 +22,6 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
-   
 } else {
   let mainWindow: BrowserWindow | null = null;
   let resolvedStateStorage: IStateStorage | undefined;

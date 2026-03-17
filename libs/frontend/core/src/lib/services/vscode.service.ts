@@ -20,6 +20,8 @@ export interface WebviewConfig {
   initialSessionName?: string | null;
   /** Whether the webview is running inside Electron (set by preload script). */
   isElectron?: boolean;
+  /** OS platform from Electron main process: 'darwin', 'win32', 'linux'. */
+  platform?: string;
 }
 
 /**
@@ -128,10 +130,21 @@ export class VSCodeService {
 
   getAssetUri(relativePath: string): string {
     const config = this.config();
+    // Electron: assets are co-located with index.html, use relative path
+    if (config.isElectron) {
+      return `./${relativePath}`;
+    }
     if (this.isConnected() && config.extensionUri) {
       return `${config.extensionUri}/${relativePath}`;
     }
     return `/${relativePath}`;
+  }
+
+  /**
+   * Whether the webview is running inside Electron desktop app
+   */
+  get isElectron(): boolean {
+    return this._config().isElectron === true;
   }
 
   /**

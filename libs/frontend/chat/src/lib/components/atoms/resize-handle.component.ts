@@ -21,54 +21,14 @@
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CdkDrag, CdkDragMove } from '@angular/cdk/drag-drop';
 import { PanelResizeService } from '../../services/panel-resize.service';
+import { RESIZE_HANDLE_STYLES } from './resize-handle.styles';
 
 @Component({
   selector: 'ptah-resize-handle',
   standalone: true,
   imports: [CdkDrag],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: `
-    :host {
-      display: block;
-      flex-shrink: 0;
-    }
-
-    .resize-handle {
-      width: 6px;
-      cursor: col-resize;
-      background: transparent;
-      position: relative;
-      height: 100%;
-      z-index: 10;
-      transition: background-color 150ms;
-    }
-
-    .resize-handle:hover {
-      background-color: oklch(var(--p) / 0.3);
-    }
-
-    .resize-handle:active {
-      background-color: oklch(var(--p) / 0.5);
-    }
-
-    /* Grip indicator (thin vertical line) */
-    .resize-handle::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 2px;
-      height: 24px;
-      border-radius: 1px;
-      background-color: oklch(var(--bc) / 0.15);
-      transition: background-color 150ms;
-    }
-
-    .resize-handle:hover::after {
-      background-color: oklch(var(--bc) / 0.4);
-    }
-  `,
+  styles: RESIZE_HANDLE_STYLES,
   template: `
     <div
       class="resize-handle"

@@ -295,7 +295,8 @@
       <!-- Header actions -->
       <div class="flex gap-0.5 items-center">
         <!-- Group 1: View controls -->
-        <!-- Pop out to editor tab (highlights when CLI agents need more space) -->
+        <!-- Pop out to editor tab (VS Code only — Electron has built-in editor panel) -->
+        @if (!isElectron) {
         <button
           class="btn btn-square btn-xs relative"
           [class.btn-ghost]="!agentMonitorStore.shouldSuggestEditorPanel()"
@@ -311,6 +312,7 @@
         >
           <lucide-angular [img]="ExternalLinkIcon" class="w-3.5 h-3.5" />
         </button>
+        }
 
         <!-- Agent monitor toggle (always visible) -->
         <button
@@ -351,15 +353,15 @@
         <ptah-background-agent-badge />
         }
 
-        <!-- Notification bell -->
-        @if (chatStore.licenseStatus(); as license) {
+        <!-- Notification bell (VS Code only — in Electron this is in the global navbar) -->
+        @if (!isElectron) { @if (chatStore.licenseStatus(); as license) {
         <ptah-notification-bell
           [trialActive]="license.trialActive"
           [trialDaysRemaining]="license.trialDaysRemaining"
           [isCommunity]="license.isCommunity"
           [reason]="license.reason"
         />
-        }
+        } }
 
         <!-- New session popover -->
         <ptah-native-popover
@@ -424,10 +426,11 @@
           </div>
         </ptah-native-popover>
 
+        <!-- App-level actions (VS Code only — in Electron these are in the global navbar) -->
+        @if (!isElectron) {
         <!-- Divider between Session and App group -->
         <div class="w-px h-4 bg-base-content/10"></div>
 
-        <!-- Group 3: App -->
         <!-- Theme toggle -->
         <ptah-theme-toggle />
 
@@ -439,6 +442,7 @@
         >
           <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
         </button>
+        }
       </div>
     </div>
 

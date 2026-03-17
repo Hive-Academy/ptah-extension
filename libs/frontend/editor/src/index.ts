@@ -17,7 +17,7 @@
  */
 
 // Models
-export { FileTreeNode } from './lib/models/file-tree.model';
+export type { FileTreeNode } from './lib/models/file-tree.model';
 
 // Components
 export { FileTreeComponent } from './lib/file-tree/file-tree.component';

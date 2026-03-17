@@ -36,9 +36,10 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   workspaceName: '',
   extensionUri: '',
   baseUri: '',
-  iconUri: './assets/ptah-icon.svg',
-  userIconUri: './assets/user-icon.png',
+  iconUri: './images/ptah-icon.png',
+  userIconUri: './images/user-icon.png',
   panelId: 'electron-main',
+  platform: process.platform, // 'darwin', 'win32', 'linux' — reliable in preload context
 });
 
 // Forward messages from main process to renderer

@@ -10,3 +10,5 @@
 | TASK_2025_199 | Platform Abstraction Layer - Decouple backend libs from VS Code APIs with interfaces (IStateStorage, IWorkspaceProvider, IFileSystemProvider, etc.) | ✅ Complete | orchestrator | 2026-03-15 | 2026-03-16 |
 | TASK_2025_200 | Electron Application - platform-electron lib, ptah-electron app, IPC bridge, Monaco editor, file explorer                                           | ✅ Complete | orchestrator | 2026-03-16 | 2026-03-16 |
 | TASK_2025_201 | Electron App Gaps - 19 missing RPC methods, DI registration fixes, chat streaming, build path verification                                          | 📋 Planned  | orchestrator | 2026-03-16 |            |
+| TASK_2025_202 | Landing Page Premium Showcase - Horizontal scroll problem/solution section after hero with 4 feature panels using GSAP HijackedScroll               | 🚧 Active   | orchestrator | 2026-03-16 |            |
+| TASK_2025_203 | Unify RPC Handler Architecture - Make handler classes platform-agnostic, share between VS Code & Electron, eliminate 2200-line duplicate            | 📋 Planned  | orchestrator | 2026-03-17 |            |

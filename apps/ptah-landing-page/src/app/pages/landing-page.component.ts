@@ -6,6 +6,7 @@ import { CTASectionComponent } from '../sections/cta/cta-section.component';
 import { FooterComponent } from '../components/footer.component';
 import { FeaturesHijackedScrollComponent } from '../sections/features/features-hijacked-scroll.component';
 import { HeroComponent } from '../sections/hero/hero.component';
+import { PremiumShowcaseScrollComponent } from '../sections/premium-showcase/premium-showcase-scroll.component';
 
 /**
  * LandingPageComponent - Root page component that composes all landing page sections
@@ -74,6 +75,7 @@ import { HeroComponent } from '../sections/hero/hero.component';
     CommonModule,
     NavigationComponent,
     HeroComponent,
+    PremiumShowcaseScrollComponent,
     FeaturesHijackedScrollComponent,
     ComparisonSectionComponent,
     CTASectionComponent,
@@ -87,6 +89,10 @@ import { HeroComponent } from '../sections/hero/hero.component';
       <!-- Main Content Sections -->
       <main>
         <ptah-hero />
+
+        <section id="premium-showcase" aria-label="Why Ptah">
+          <ptah-premium-showcase-scroll />
+        </section>
 
         <section id="features" aria-label="Features">
           <ptah-features-hijacked-scroll />

@@ -46,6 +46,12 @@ export {
 // Ptah CLI State Service (TASK_2025_167 -> TASK_2025_170)
 export { PtahCliStateService } from './ptah-cli-state.service';
 
+// Electron Layout Service (desktop 3-panel layout)
+export {
+  ElectronLayoutService,
+  type WorkspaceFolder,
+} from './electron-layout.service';
+
 // Discovery Facades (Phase 2 - TASK_2025_019)
 export {
   AgentDiscoveryFacade,

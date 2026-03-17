@@ -26,6 +26,7 @@ export * from './atoms/streaming-text-reveal.component';
 export * from './atoms/typing-cursor.component';
 export * from './atoms/theme-toggle.component';
 export * from './atoms/resize-handle.component';
+export * from './atoms/electron-resize-handle.component';
 
 // ============================================================================
 // MOLECULES - Standalone (ungrouped)
@@ -93,6 +94,8 @@ export * from './organisms/execution/agent-execution.component';
 // ============================================================================
 export * from './organisms/message-bubble.component';
 export * from './organisms/agent-monitor-panel.component';
+export * from './organisms/workspace-sidebar.component';
+export * from './organisms/editor-panel-placeholder.component';
 
 // ============================================================================
 // TEMPLATES - Page layouts
@@ -100,6 +103,8 @@ export * from './organisms/agent-monitor-panel.component';
 export * from './templates/chat-view.component';
 export * from './templates/app-shell.component';
 export * from './templates/welcome.component';
+export * from './templates/electron-shell.component';
+export * from './templates/electron-welcome.component';
 
 // ============================================================================
 // AUTOCOMPLETE COMPONENTS

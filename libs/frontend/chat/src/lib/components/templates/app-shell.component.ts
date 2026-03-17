@@ -121,8 +121,8 @@ export class AppShellComponent {
   // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
 
-  // Sidebar state (default hidden for VS Code sidebar space efficiency)
-  private readonly _sidebarOpen = signal(false);
+  // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
+  private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
 
   // Lucide icons
@@ -140,6 +140,9 @@ export class AppShellComponent {
   readonly Trash2Icon = Trash2;
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
+
+  // Platform detection: in Electron, some icons move to the global navbar
+  readonly isElectron = this.vscodeService.isElectron;
 
   // Ptah icon URI
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();

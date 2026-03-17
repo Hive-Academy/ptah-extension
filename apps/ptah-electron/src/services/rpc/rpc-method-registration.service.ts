@@ -98,6 +98,9 @@ export function registerExtendedRpcMethods(
   registerQualityMethods(container, rpcHandler, logger);
   registerWizardMethods(container, rpcHandler, logger);
   registerAgentMethods(container, rpcHandler, logger);
+  registerLayoutMethods(container, rpcHandler, logger);
+  registerPtahCliMethods(container, rpcHandler, logger);
+  registerAuthExtendedMethods(container, rpcHandler, logger);
 
   logger.info('[Electron RPC] Extended RPC methods registered', {
     methods: rpcHandler.getRegisteredMethods(),
@@ -606,7 +609,7 @@ function registerPluginMethods(
 function registerWorkspaceMethods(
   container: DependencyContainer,
   rpcHandler: RpcHandler,
-  _logger: Logger
+  logger: Logger
 ): void {
   // workspace:getInfo - Get workspace information for the frontend
   rpcHandler.registerMethod('workspace:getInfo', async () => {
@@ -626,6 +629,121 @@ function registerWorkspaceMethods(
       return { folders: [], root: undefined, name: 'No Workspace' };
     }
   });
+
+  // workspace:addFolder - Open native folder picker and add workspace folder
+  rpcHandler.registerMethod('workspace:addFolder', async () => {
+    try {
+      const { dialog } = await import('electron');
+      const result = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        title: 'Add Workspace Folder',
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { path: null, name: null };
+      }
+
+      const folderPath = result.filePaths[0];
+      const folderName = folderPath.split(/[/\\]/).pop() ?? folderPath;
+
+      // Update workspace provider with new folder
+      try {
+        const workspaceProvider = container.resolve<IWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER
+        );
+        if (
+          typeof (workspaceProvider as unknown as Record<string, unknown>)[
+            'addFolder'
+          ] === 'function'
+        ) {
+          (
+            workspaceProvider as unknown as { addFolder(path: string): void }
+          ).addFolder(folderPath);
+        }
+      } catch {
+        // Non-fatal: workspace provider may not support addFolder
+      }
+
+      logger.info('[Electron RPC] workspace:addFolder', { folderPath });
+      return { path: folderPath, name: folderName };
+    } catch (error) {
+      logger.error(
+        '[Electron RPC] workspace:addFolder failed',
+        error instanceof Error ? error : new Error(String(error))
+      );
+      return { path: null, name: null, error: String(error) };
+    }
+  });
+
+  // workspace:removeFolder - Remove a workspace folder by path
+  rpcHandler.registerMethod(
+    'workspace:removeFolder',
+    async (params: { path: string } | undefined) => {
+      if (!params?.path) {
+        return { success: false, error: 'path is required' };
+      }
+
+      try {
+        const workspaceProvider = container.resolve<IWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER
+        );
+        if (
+          typeof (workspaceProvider as unknown as Record<string, unknown>)[
+            'removeFolder'
+          ] === 'function'
+        ) {
+          (
+            workspaceProvider as unknown as { removeFolder(path: string): void }
+          ).removeFolder(params.path);
+        }
+        logger.info('[Electron RPC] workspace:removeFolder', {
+          path: params.path,
+        });
+        return { success: true };
+      } catch (error) {
+        logger.error(
+          '[Electron RPC] workspace:removeFolder failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return { success: false, error: String(error) };
+      }
+    }
+  );
+
+  // workspace:switch - Switch active workspace to a different folder
+  rpcHandler.registerMethod(
+    'workspace:switch',
+    async (params: { path: string } | undefined) => {
+      if (!params?.path) {
+        return { success: false, error: 'path is required' };
+      }
+
+      try {
+        const workspaceProvider = container.resolve<IWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER
+        );
+        if (
+          typeof (workspaceProvider as unknown as Record<string, unknown>)[
+            'setActiveFolder'
+          ] === 'function'
+        ) {
+          (
+            workspaceProvider as unknown as {
+              setActiveFolder(path: string): void;
+            }
+          ).setActiveFolder(params.path);
+        }
+        logger.info('[Electron RPC] workspace:switch', { path: params.path });
+        return { success: true };
+      } catch (error) {
+        logger.error(
+          '[Electron RPC] workspace:switch failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return { success: false, error: String(error) };
+      }
+    }
+  );
 }
 
 /**
@@ -2094,4 +2212,333 @@ async function buildFileTree(
   } catch {
     return [];
   }
+}
+
+/**
+ * Register layout persistence methods for the Electron desktop shell.
+ * Layout state is primarily managed client-side via VSCodeService.setState/getState
+ * (which maps to ipcRenderer get-state/set-state). These RPC methods exist as
+ * optional hooks for server-side persistence or cross-window coordination.
+ */
+function registerLayoutMethods(
+  _container: DependencyContainer,
+  rpcHandler: RpcHandler,
+  logger: Logger
+): void {
+  rpcHandler.registerMethod(
+    'layout:persist',
+    async (params: Record<string, unknown> | undefined) => {
+      logger.debug('[Electron RPC] layout:persist', { params });
+      return { success: true };
+    }
+  );
+
+  rpcHandler.registerMethod('layout:restore', async () => {
+    logger.debug('[Electron RPC] layout:restore');
+    return { success: true };
+  });
+}
+
+/**
+ * Register Ptah CLI agent methods.
+ * Delegates to PtahCliRegistry from agent-sdk for CRUD operations on custom CLI agents.
+ */
+function registerPtahCliMethods(
+  container: DependencyContainer,
+  rpcHandler: RpcHandler,
+  logger: Logger
+): void {
+  // Lazily resolve the registry — it may fail if DI chain is broken
+  const getRegistry = () => {
+    try {
+      return container.resolve<{
+        listAgents(): Promise<unknown[]>;
+        createAgent(config: unknown): Promise<unknown>;
+        updateAgent(id: string, config: unknown): Promise<unknown>;
+        deleteAgent(id: string): Promise<{ success: boolean }>;
+        testConnection(
+          id: string
+        ): Promise<{ success: boolean; error?: string }>;
+        listModels(id: string): Promise<{ models: unknown[] }>;
+      }>(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY);
+    } catch (error) {
+      logger.warn('[Electron RPC] PtahCliRegistry not available', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  };
+
+  rpcHandler.registerMethod('ptahCli:list', async () => {
+    const registry = getRegistry();
+    if (!registry) return { agents: [] };
+    try {
+      const agents = await registry.listAgents();
+      return { agents };
+    } catch (error) {
+      logger.error(
+        '[Electron RPC] ptahCli:list failed',
+        error instanceof Error ? error : new Error(String(error))
+      );
+      return { agents: [] };
+    }
+  });
+
+  rpcHandler.registerMethod(
+    'ptahCli:create',
+    async (params: Record<string, unknown> | undefined) => {
+      const registry = getRegistry();
+      if (!registry) return { success: false, error: 'Registry not available' };
+      try {
+        const agent = await registry.createAgent(params);
+        return { success: true, agent };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  rpcHandler.registerMethod(
+    'ptahCli:update',
+    async (params: { id: string; config: unknown } | undefined) => {
+      const registry = getRegistry();
+      if (!registry || !params?.id)
+        return {
+          success: false,
+          error: 'Missing id or registry not available',
+        };
+      try {
+        const agent = await registry.updateAgent(params.id, params.config);
+        return { success: true, agent };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  rpcHandler.registerMethod(
+    'ptahCli:delete',
+    async (params: { id: string } | undefined) => {
+      const registry = getRegistry();
+      if (!registry || !params?.id)
+        return {
+          success: false,
+          error: 'Missing id or registry not available',
+        };
+      try {
+        return await registry.deleteAgent(params.id);
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  rpcHandler.registerMethod(
+    'ptahCli:testConnection',
+    async (params: { id: string } | undefined) => {
+      const registry = getRegistry();
+      if (!registry || !params?.id)
+        return {
+          success: false,
+          error: 'Missing id or registry not available',
+        };
+      try {
+        return await registry.testConnection(params.id);
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  rpcHandler.registerMethod(
+    'ptahCli:listModels',
+    async (params: { id: string } | undefined) => {
+      const registry = getRegistry();
+      if (!registry || !params?.id) return { models: [] };
+      try {
+        return await registry.listModels(params.id);
+      } catch (error) {
+        logger.error(
+          '[Electron RPC] ptahCli:listModels failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return { models: [] };
+      }
+    }
+  );
+}
+
+/**
+ * Register extended auth RPC methods that mirror VS Code's AuthRpcHandlers.
+ * These are needed by the Settings > Auth Config UI for provider management.
+ */
+function registerAuthExtendedMethods(
+  container: DependencyContainer,
+  rpcHandler: RpcHandler,
+  logger: Logger
+): void {
+  // auth:getHealth - SDK health check
+  rpcHandler.registerMethod('auth:getHealth', async () => {
+    try {
+      const sdkAdapter = container.resolve<{
+        getHealth(): { sdkVersion: string; isInitialized: boolean };
+      }>(SDK_TOKENS.SDK_AGENT_ADAPTER);
+      const health = sdkAdapter.getHealth();
+      return { success: true, health };
+    } catch (error) {
+      return {
+        success: false,
+        health: { sdkVersion: 'unknown', isInitialized: false },
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  // auth:saveSettings - Save auth configuration (API keys, auth method)
+  rpcHandler.registerMethod(
+    'auth:saveSettings',
+    async (
+      params:
+        | {
+            authMethod: string;
+            anthropicApiKey?: string;
+            openrouterApiKey?: string;
+            anthropicProviderId?: string;
+          }
+        | undefined
+    ) => {
+      if (!params) return { success: false, error: 'params required' };
+
+      try {
+        const secretStorage = container.resolve<ISecretStorage>(
+          PLATFORM_TOKENS.SECRET_STORAGE
+        );
+
+        // Store API keys in secret storage
+        if (params.anthropicApiKey !== undefined) {
+          if (params.anthropicApiKey) {
+            await secretStorage.store(
+              'ptah.apiKey.anthropic',
+              params.anthropicApiKey
+            );
+            process.env['ANTHROPIC_API_KEY'] = params.anthropicApiKey;
+          } else {
+            await secretStorage.delete('ptah.apiKey.anthropic');
+            delete process.env['ANTHROPIC_API_KEY'];
+          }
+        }
+
+        if (params.openrouterApiKey !== undefined) {
+          if (params.openrouterApiKey) {
+            await secretStorage.store(
+              'ptah.apiKey.openrouter',
+              params.openrouterApiKey
+            );
+          } else {
+            await secretStorage.delete('ptah.apiKey.openrouter');
+          }
+        }
+
+        logger.info('[Electron RPC] auth:saveSettings completed', {
+          authMethod: params.authMethod,
+          hasAnthropicKey: !!params.anthropicApiKey,
+          hasOpenRouterKey: !!params.openrouterApiKey,
+        });
+
+        return { success: true };
+      } catch (error) {
+        logger.error(
+          '[Electron RPC] auth:saveSettings failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  // auth:testConnection - Test API key validity
+  rpcHandler.registerMethod(
+    'auth:testConnection',
+    async (params: { provider?: string } | undefined) => {
+      try {
+        const secretStorage = container.resolve<ISecretStorage>(
+          PLATFORM_TOKENS.SECRET_STORAGE
+        );
+        const apiKey = await secretStorage.get('ptah.apiKey.anthropic');
+
+        if (!apiKey) {
+          return { success: false, error: 'No API key configured' };
+        }
+
+        // Quick validation: try a minimal API call
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 1,
+            messages: [{ role: 'user', content: 'hi' }],
+          }),
+        });
+
+        if (response.ok || response.status === 200) {
+          return { success: true };
+        }
+
+        const errorBody = await response.text().catch(() => '');
+        return {
+          success: false,
+          error: `API returned ${response.status}: ${errorBody.slice(0, 200)}`,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
+
+  // auth:copilotLogin / auth:copilotLogout / auth:copilotStatus - stubs for Electron
+  rpcHandler.registerMethod('auth:copilotLogin', async () => {
+    return {
+      success: false,
+      error: 'Copilot login is not available in Electron desktop',
+    };
+  });
+
+  rpcHandler.registerMethod('auth:copilotLogout', async () => {
+    return { success: true };
+  });
+
+  rpcHandler.registerMethod('auth:copilotStatus', async () => {
+    return { authenticated: false, username: null };
+  });
+
+  // auth:codexLogin - stub for Electron
+  rpcHandler.registerMethod('auth:codexLogin', async () => {
+    return {
+      success: false,
+      error: 'Codex login is not available in Electron desktop',
+    };
+  });
 }

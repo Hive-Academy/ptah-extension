@@ -1865,6 +1865,34 @@ export interface RpcMethodRegistry {
     params: PtahCliListModelsParams;
     result: PtahCliListModelsResult;
   };
+
+  // ---- Workspace Methods (Electron desktop) ----
+  'workspace:getInfo': {
+    params: Record<string, never>;
+    result: { folders: string[]; root: string | undefined; name: string };
+  };
+  'workspace:addFolder': {
+    params: Record<string, never>;
+    result: { path: string | null; name: string | null; error?: string };
+  };
+  'workspace:removeFolder': {
+    params: { path: string };
+    result: { success: boolean; error?: string };
+  };
+  'workspace:switch': {
+    params: { path: string };
+    result: { success: boolean; error?: string };
+  };
+
+  // ---- Layout Methods (Electron desktop) ----
+  'layout:persist': {
+    params: Record<string, unknown>;
+    result: { success: boolean };
+  };
+  'layout:restore': {
+    params: Record<string, never>;
+    result: { success: boolean };
+  };
 }
 
 /**
@@ -2003,6 +2031,16 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'ptahCli:delete',
   'ptahCli:testConnection',
   'ptahCli:listModels',
+
+  // Workspace Methods (Electron desktop)
+  'workspace:getInfo',
+  'workspace:addFolder',
+  'workspace:removeFolder',
+  'workspace:switch',
+
+  // Layout Methods (Electron desktop)
+  'layout:persist',
+  'layout:restore',
 ] as const;
 
 /**

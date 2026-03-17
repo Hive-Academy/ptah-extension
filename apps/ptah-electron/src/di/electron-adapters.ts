@@ -11,7 +11,11 @@
  * - LicenseService uses vscode.ExtensionContext.secrets -> stub for API key auth model
  */
 
-import type { IOutputChannel } from '@ptah-extension/platform-core';
+import type {
+  IOutputChannel,
+  ISecretStorage,
+} from '@ptah-extension/platform-core';
+import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
 
 /**
  * Electron-compatible OutputManager adapter.
@@ -353,5 +357,80 @@ export class ElectronLicenseServiceStub {
         // No-op
       },
     };
+  }
+}
+
+/**
+ * Electron-compatible AuthSecretsService adapter.
+ *
+ * The VS Code AuthSecretsService uses vscode.ExtensionContext.secrets.
+ * This adapter delegates to the platform-electron ISecretStorage,
+ * providing the same IAuthSecretsService interface.
+ *
+ * Storage key pattern matches VS Code: ptah.auth.{credentialType}
+ * Provider key pattern: ptah.auth.provider.{providerId}
+ */
+type AuthCredentialType = 'oauthToken' | 'apiKey';
+
+export class ElectronAuthSecretsService implements IAuthSecretsService {
+  private readonly SECRET_PREFIX = 'ptah.auth';
+  private readonly KEY_MAP: Record<AuthCredentialType, string> = {
+    oauthToken: 'claudeOAuthToken',
+    apiKey: 'anthropicApiKey',
+  };
+
+  constructor(private readonly secretStorage: ISecretStorage) {}
+
+  private getSecretKey(type: AuthCredentialType): string {
+    return `${this.SECRET_PREFIX}.${this.KEY_MAP[type]}`;
+  }
+
+  private getProviderSecretKey(providerId: string): string {
+    return `${this.SECRET_PREFIX}.provider.${providerId}`;
+  }
+
+  async getCredential(type: AuthCredentialType): Promise<string | undefined> {
+    return this.secretStorage.get(this.getSecretKey(type));
+  }
+
+  async setCredential(type: AuthCredentialType, value: string): Promise<void> {
+    if (!value || value.trim().length === 0) {
+      await this.deleteCredential(type);
+      return;
+    }
+    await this.secretStorage.store(this.getSecretKey(type), value.trim());
+  }
+
+  async deleteCredential(type: AuthCredentialType): Promise<void> {
+    await this.secretStorage.delete(this.getSecretKey(type));
+  }
+
+  async hasCredential(type: AuthCredentialType): Promise<boolean> {
+    const value = await this.getCredential(type);
+    return !!value && value.length > 0;
+  }
+
+  async getProviderKey(providerId: string): Promise<string | undefined> {
+    return this.secretStorage.get(this.getProviderSecretKey(providerId));
+  }
+
+  async setProviderKey(providerId: string, value: string): Promise<void> {
+    if (!value || value.trim().length === 0) {
+      await this.deleteProviderKey(providerId);
+      return;
+    }
+    await this.secretStorage.store(
+      this.getProviderSecretKey(providerId),
+      value.trim()
+    );
+  }
+
+  async deleteProviderKey(providerId: string): Promise<void> {
+    await this.secretStorage.delete(this.getProviderSecretKey(providerId));
+  }
+
+  async hasProviderKey(providerId: string): Promise<boolean> {
+    const value = await this.getProviderKey(providerId);
+    return !!value && value.length > 0;
   }
 }

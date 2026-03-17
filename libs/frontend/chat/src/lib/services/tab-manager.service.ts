@@ -130,10 +130,10 @@ export class TabManagerService {
           }
         );
       }, 0);
-    } else if (this._tabs().length === 0) {
-      // No tabs loaded and no initial session, create default tab
-      this.createTab('New Chat');
     }
+    // No default tab creation — the empty state is shown when there are no tabs.
+    // A tab is created on-demand when the user sends their first message
+    // (ConversationService.startNewConversation auto-creates a tab if none exists).
   }
 
   // ============================================================================

@@ -12,10 +12,12 @@
   </div>
   }
 
-  <!-- Main Content - AppShell includes sidebar and chat view -->
-  @if (isReady() && !appState.isLoading()) {
+  <!-- Main Content - Platform-specific shell -->
+  @if (isReady() && !appState.isLoading()) { @if (isElectron()) {
+  <ptah-electron-shell class="h-full w-full" />
+  } @else {
   <ptah-app-shell class="h-full w-full" />
-  }
+  } }
 
   <!-- Error State -->
   @if (hasError()) {

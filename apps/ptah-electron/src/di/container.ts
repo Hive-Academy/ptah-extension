@@ -93,6 +93,7 @@ import {
   ElectronOutputManagerAdapter,
   ElectronLoggerAdapter,
   ElectronLicenseServiceStub,
+  ElectronAuthSecretsService,
 } from './electron-adapters';
 
 /**
@@ -145,6 +146,30 @@ export class ElectronDIContainer {
     // The stub returns a perpetually valid Pro license.
     const licenseStub = new ElectronLicenseServiceStub();
     container.register(TOKENS.LICENSE_SERVICE, { useValue: licenseStub });
+
+    // ========================================
+    // PHASE 1.1b: Electron-compatible AuthSecretsService
+    // ========================================
+    // AuthSecretsService manages encrypted credential storage (OAuth tokens, API keys).
+    // In VS Code it uses ExtensionContext.secrets; here we delegate to ISecretStorage.
+    // Required by: AuthManager, SdkAgentAdapter, PtahCliRegistry, auth RPC handlers.
+    try {
+      const secretStorage = container.resolve<ISecretStorage>(
+        PLATFORM_TOKENS.SECRET_STORAGE
+      );
+      const authSecretsAdapter = new ElectronAuthSecretsService(secretStorage);
+      container.register(TOKENS.AUTH_SECRETS_SERVICE, {
+        useValue: authSecretsAdapter,
+      });
+      logger.info(
+        '[Electron DI] AUTH_SECRETS_SERVICE registered (delegates to ISecretStorage)'
+      );
+    } catch (error) {
+      logger.error(
+        '[Electron DI] Failed to register AUTH_SECRETS_SERVICE — auth/provider services will fail',
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    }
 
     // ========================================
     // PHASE 1.2: Platform-agnostic vscode-core services

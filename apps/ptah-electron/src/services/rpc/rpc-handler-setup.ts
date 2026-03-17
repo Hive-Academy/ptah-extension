@@ -775,6 +775,28 @@ function registerAuthMethods(
     };
   });
 
+  // auth:getAuthStatus - Returns auth configuration flags (called by AppShellComponent on startup)
+  rpcHandler.registerMethod('auth:getAuthStatus', async () => {
+    const secretStorage = container.resolve<ISecretStorage>(
+      PLATFORM_TOKENS.SECRET_STORAGE
+    );
+
+    const anthropicKey = await secretStorage.get('ptah.apiKey.anthropic');
+    const openrouterKey = await secretStorage.get('ptah.apiKey.openrouter');
+
+    return {
+      hasOAuthToken: false,
+      hasApiKey: !!anthropicKey,
+      hasOpenRouterKey: !!openrouterKey,
+      hasAnyProviderKey: !!anthropicKey || !!openrouterKey,
+      authMethod: 'apiKey' as const,
+      anthropicProviderId: 'anthropic',
+      availableProviders: [],
+      copilotAuthenticated: false,
+      codexAuthenticated: false,
+    };
+  });
+
   // auth:getApiKeyStatus - Returns per-provider key status without exposing values
   rpcHandler.registerMethod('auth:getApiKeyStatus', async () => {
     const secretStorage = container.resolve<ISecretStorage>(
