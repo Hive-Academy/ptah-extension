@@ -49,14 +49,14 @@
     <ptah-license-status-card />
 
     <!-- Tab Bar -->
-    <div class="tabs tabs-boxed bg-base-200/50 p-1 gap-1">
+    <div class="tabs tabs-boxed bg-base-200/50 p-1 gap-1 flex-wrap">
       <button
         class="tab tab-sm flex-1 gap-1.5"
         [class.tab-active]="activeSettingsTab() === 'claude-auth'"
         (click)="setActiveTab('claude-auth')"
       >
         <lucide-angular [img]="KeyIcon" class="w-3 h-3" />
-        <span class="text-xs">Ptah Providers</span>
+        <span class="text-xs">Providers</span>
       </button>
       <button
         class="tab tab-sm flex-1 gap-1.5"
@@ -68,7 +68,7 @@
         } @else {
         <lucide-angular [img]="LockIcon" class="w-3 h-3" />
         }
-        <span class="text-xs">Pro Features</span>
+        <span class="text-xs">Pro</span>
       </button>
       <button
         class="tab tab-sm flex-1 gap-1.5"
@@ -77,6 +77,26 @@
       >
         <lucide-angular [img]="CpuIcon" class="w-3 h-3" />
         <span class="text-xs">Ptah AI</span>
+      </button>
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'ptah-skills'"
+        (click)="setActiveTab('ptah-skills')"
+      >
+        @if (isPremium()) {
+        <lucide-angular [img]="PuzzleIcon" class="w-3 h-3" />
+        } @else {
+        <lucide-angular [img]="LockIcon" class="w-3 h-3" />
+        }
+        <span class="text-xs">Skills</span>
+      </button>
+      <button
+        class="tab tab-sm flex-1 gap-1.5"
+        [class.tab-active]="activeSettingsTab() === 'project-setup'"
+        (click)="setActiveTab('project-setup')"
+      >
+        <lucide-angular [img]="ScanSearchIcon" class="w-3 h-3" />
+        <span class="text-xs">Setup</span>
       </button>
     </div>
 
@@ -205,5 +225,98 @@
       </div>
     </div>
     } }
+
+    <!-- ============================================ -->
+    <!-- Tab 4: Ptah Skills (Plugins)                 -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'ptah-skills') { @if (isPremium()) {
+    <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular [img]="PuzzleIcon" class="w-4 h-4 text-primary" />
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            Ptah Skills
+          </h2>
+          <span class="badge badge-primary badge-xs ml-auto">Pro</span>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          Enhance your sessions with specialized skills for orchestration,
+          frontend patterns, backend architecture, and more.
+        </p>
+        <ptah-plugin-status-widget (configureClicked)="openPluginBrowser()" />
+      </div>
+    </div>
+
+    <!-- Plugin Browser Modal -->
+    <ptah-plugin-browser-modal
+      [isOpen]="isPluginBrowserOpen()"
+      (closed)="closePluginBrowser()"
+      (saved)="onPluginsSaved($event)"
+    />
+    } @else {
+    <!-- Upsell for non-premium users -->
+    <div class="border border-base-300 rounded-md bg-base-200/30 opacity-75">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular
+            [img]="LockIcon"
+            class="w-4 h-4 text-base-content/50"
+          />
+          <h2
+            class="text-xs font-medium uppercase tracking-wide text-base-content/70"
+          >
+            Ptah Skills
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/50 mb-3">
+          Upgrade to access specialized skills for orchestration, frontend
+          patterns, backend architecture, and more.
+        </p>
+        <button class="btn btn-primary btn-xs gap-1.5" (click)="openPricing()">
+          <lucide-angular [img]="SparklesIcon" class="w-3 h-3" />
+          <span>Upgrade to Pro</span>
+        </button>
+      </div>
+    </div>
+    } }
+
+    <!-- ============================================ -->
+    <!-- Tab 5: Project Setup (Setup Wizard)          -->
+    <!-- ============================================ -->
+    @if (activeSettingsTab() === 'project-setup') {
+    <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="p-3">
+        <div class="flex items-center gap-1.5 mb-2">
+          <lucide-angular
+            [img]="ScanSearchIcon"
+            class="w-4 h-4 text-secondary"
+          />
+          <h2 class="text-xs font-medium uppercase tracking-wide">
+            Intelligent Project Setup
+          </h2>
+        </div>
+        <p class="text-xs text-base-content/70 mb-3">
+          MCP-powered scanning analyzes your workspace, detects frameworks, and
+          configures optimal AI agents automatically.
+        </p>
+
+        <!-- Feature Badges -->
+        <div class="flex flex-wrap gap-1.5 mb-3">
+          <span class="badge badge-sm badge-outline badge-secondary gap-1">
+            <span class="text-[10px]">⚡</span> Auto-detect
+          </span>
+          <span class="badge badge-sm badge-outline badge-secondary gap-1">
+            <span class="text-[10px]">🔗</span> VS Code AI
+          </span>
+          <span class="badge badge-sm badge-outline badge-secondary gap-1">
+            <span class="text-[10px]">🛠️</span> MCP Server
+          </span>
+        </div>
+
+        <!-- Setup Status Widget -->
+        <ptah-setup-status-widget />
+      </div>
+    </div>
+    }
   </div>
 </div>

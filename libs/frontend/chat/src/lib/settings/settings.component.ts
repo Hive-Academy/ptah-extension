@@ -14,6 +14,8 @@ import {
   Lock,
   Key,
   Cpu,
+  Puzzle,
+  ScanSearch,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth/auth-config.component';
 import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
@@ -22,10 +24,14 @@ import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
+import { PluginStatusWidgetComponent } from '../components/molecules/setup-plugins/plugin-status-widget.component';
+import { PluginBrowserModalComponent } from '../components/molecules/setup-plugins/plugin-browser-modal.component';
+import { SetupStatusWidgetComponent } from '../components/molecules/setup-plugins/setup-status-widget.component';
 import {
   AppStateManager,
   ClaudeRpcService,
   AuthStateService,
+  CommandDiscoveryFacade,
 } from '@ptah-extension/core';
 import { ChatStore } from '../services/chat.store';
 
@@ -58,6 +64,9 @@ import { ChatStore } from '../services/chat.store';
     VscodeLmConfigComponent,
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
+    PluginStatusWidgetComponent,
+    PluginBrowserModalComponent,
+    SetupStatusWidgetComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -66,6 +75,7 @@ import { ChatStore } from '../services/chat.store';
 export class SettingsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly commandDiscovery = inject(CommandDiscoveryFacade);
 
   // TASK_2025_133 Batch 2: Centralized auth state from AuthStateService
   readonly authState = inject(AuthStateService);
@@ -84,11 +94,16 @@ export class SettingsComponent implements OnInit {
   readonly LockIcon = Lock;
   readonly KeyIcon = Key;
   readonly CpuIcon = Cpu;
+  readonly PuzzleIcon = Puzzle;
+  readonly ScanSearchIcon = ScanSearch;
 
-  // Tab state for settings page (3-tab layout)
+  // Tab state for settings page (5-tab layout)
   readonly activeSettingsTab = signal<
-    'claude-auth' | 'pro-features' | 'ptah-ai'
+    'claude-auth' | 'pro-features' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
   >('claude-auth');
+
+  /** Whether the plugin browser modal is open */
+  readonly isPluginBrowserOpen = signal(false);
 
   // License status computed signals (kept in parent for header badge + tab gating)
   readonly isPremium = computed(
@@ -132,8 +147,31 @@ export class SettingsComponent implements OnInit {
   /**
    * Switch active settings tab
    */
-  setActiveTab(tab: 'claude-auth' | 'pro-features' | 'ptah-ai'): void {
+  setActiveTab(
+    tab:
+      | 'claude-auth'
+      | 'pro-features'
+      | 'ptah-ai'
+      | 'ptah-skills'
+      | 'project-setup'
+  ): void {
     this.activeSettingsTab.set(tab);
+  }
+
+  /** Open the plugin browser modal */
+  openPluginBrowser(): void {
+    this.isPluginBrowserOpen.set(true);
+  }
+
+  /** Close the plugin browser modal */
+  closePluginBrowser(): void {
+    this.isPluginBrowserOpen.set(false);
+  }
+
+  /** Handle plugins saved event from modal */
+  onPluginsSaved(enabledIds: string[]): void {
+    this.isPluginBrowserOpen.set(false);
+    this.commandDiscovery.clearCache();
   }
 
   /**

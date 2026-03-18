@@ -16,6 +16,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
+import type { SessionId } from '@ptah-extension/shared';
 
 @injectable()
 export class ElectronChatExtendedRpcHandlers {
@@ -46,31 +47,12 @@ export class ElectronChatExtendedRpcHandlers {
           };
         }
         try {
-          if (
-            typeof (this.sdkAdapter as Record<string, unknown>)[
-              'continueSession'
-            ] !== 'function'
-          ) {
-            return {
-              success: false,
-              error:
-                'continueSession is not available on the current SDK adapter',
-            };
-          }
-
-          const adapter = this.sdkAdapter as unknown as {
-            continueSession(options: {
-              sessionId: string;
-              message: string;
-              contextFiles?: string[];
-            }): Promise<{ success: boolean }>;
-          };
-
-          return adapter.continueSession({
-            sessionId: params.sessionId,
-            message: params.message,
-            contextFiles: params.contextFiles,
-          });
+          await this.sdkAdapter.sendMessageToSession(
+            params.sessionId as SessionId,
+            params.message,
+            params.contextFiles ? { files: params.contextFiles } : undefined
+          );
+          return { success: true };
         } catch (error) {
           this.logger.error(
             '[Electron RPC] chat:send-message failed',
@@ -93,34 +75,7 @@ export class ElectronChatExtendedRpcHandlers {
           return { success: false, error: 'sessionId is required' };
         }
         try {
-          if (
-            typeof (this.sdkAdapter as Record<string, unknown>)[
-              'abortSession'
-            ] !== 'function'
-          ) {
-            // Fall back to interruptSession if abortSession is not available
-            if (
-              typeof (this.sdkAdapter as Record<string, unknown>)[
-                'interruptSession'
-              ] === 'function'
-            ) {
-              const adapter = this.sdkAdapter as unknown as {
-                interruptSession(sessionId: string): Promise<void>;
-              };
-              await adapter.interruptSession(params.sessionId);
-              return { success: true };
-            }
-            return {
-              success: false,
-              error:
-                'abortSession/interruptSession is not available on the current SDK adapter',
-            };
-          }
-
-          const adapter = this.sdkAdapter as unknown as {
-            abortSession(sessionId: string): Promise<void>;
-          };
-          await adapter.abortSession(params.sessionId);
+          await this.sdkAdapter.interruptSession(params.sessionId as SessionId);
           return { success: true };
         } catch (error) {
           return {

@@ -12,6 +12,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
+import type { SessionId } from '@ptah-extension/shared';
 
 @injectable()
 export class ElectronAgentRpcHandlers {
@@ -30,22 +31,7 @@ export class ElectronAgentRpcHandlers {
           return { success: false, error: 'agentId is required' };
         }
         try {
-          if (
-            typeof (this.sdkAdapter as Record<string, unknown>)[
-              'interruptSession'
-            ] !== 'function'
-          ) {
-            return {
-              success: false,
-              error:
-                'interruptSession is not available on the current SDK adapter',
-            };
-          }
-
-          const adapter = this.sdkAdapter as unknown as {
-            interruptSession(sessionId: string): Promise<void>;
-          };
-          await adapter.interruptSession(params.agentId);
+          await this.sdkAdapter.interruptSession(params.agentId as SessionId);
           return { success: true };
         } catch (error) {
           this.logger.error(
