@@ -66,6 +66,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'ptahCli:', // TASK_2025_170: Ptah CLI agent management (list, create, update, delete, testConnection, listModels)
   'editor:', // TASK_2025_200: Editor operations (openFile, etc.) for Electron Monaco editor
   'layout:', // Electron desktop layout persistence (sidebar/editor panel widths)
+  'skillsSh:', // TASK_2025_204: Skills.sh marketplace (search, install, recommend)
 ] as const;
 
 /**

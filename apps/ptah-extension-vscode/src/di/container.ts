@@ -56,6 +56,7 @@ import {
   PluginRpcHandlers, // TASK_2025_153: Plugin Configuration
   AgentRpcHandlers, // TASK_2025_157: Agent Orchestration
   PtahCliRpcHandlers, // TASK_2025_167: Ptah CLI Management
+  SkillsShRpcHandlers, // TASK_2025_204: Skills.sh Marketplace
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -311,6 +312,9 @@ export class DIContainer {
     // TASK_2025_167: Ptah CLI Management RPC handlers
     container.registerSingleton(PtahCliRpcHandlers);
 
+    // TASK_2025_204: Skills.sh Marketplace RPC handlers
+    container.registerSingleton(SkillsShRpcHandlers);
+
     // TASK_2025_148: Wizard Generation RPC handlers (requires container for lazy resolution)
     // TASK_2025_203: Added WORKSPACE_PROVIDER injection
     container.register(WizardGenerationRpcHandlers, {
@@ -358,6 +362,7 @@ export class DIContainer {
           c.resolve(PluginRpcHandlers), // TASK_2025_153
           c.resolve(AgentRpcHandlers), // TASK_2025_157
           c.resolve(PtahCliRpcHandlers), // TASK_2025_167
+          c.resolve(SkillsShRpcHandlers), // TASK_2025_204
           c // Pass container instance
         );
       },

@@ -16,6 +16,7 @@ import {
   Cpu,
   Puzzle,
   ScanSearch,
+  Download,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth/auth-config.component';
 import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
@@ -27,6 +28,7 @@ import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { PluginStatusWidgetComponent } from '../components/molecules/setup-plugins/plugin-status-widget.component';
 import { PluginBrowserModalComponent } from '../components/molecules/setup-plugins/plugin-browser-modal.component';
 import { SetupStatusWidgetComponent } from '../components/molecules/setup-plugins/setup-status-widget.component';
+import { SkillShBrowserComponent } from '../components/molecules/setup-plugins/skill-sh-browser.component';
 import {
   AppStateManager,
   ClaudeRpcService,
@@ -67,6 +69,7 @@ import { ChatStore } from '../services/chat.store';
     PluginStatusWidgetComponent,
     PluginBrowserModalComponent,
     SetupStatusWidgetComponent,
+    SkillShBrowserComponent,
     LucideAngularModule,
   ],
   templateUrl: './settings.component.html',
@@ -96,6 +99,7 @@ export class SettingsComponent implements OnInit {
   readonly CpuIcon = Cpu;
   readonly PuzzleIcon = Puzzle;
   readonly ScanSearchIcon = ScanSearch;
+  readonly DownloadIcon = Download;
 
   // Tab state for settings page (5-tab layout)
   readonly activeSettingsTab = signal<

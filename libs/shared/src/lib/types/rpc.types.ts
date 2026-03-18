@@ -1326,6 +1326,61 @@ export interface PluginConfigState {
 }
 
 // ============================================================
+// Skills.sh Marketplace Types (TASK_2025_204)
+// ============================================================
+
+/** A skill entry from skills.sh search/browse results */
+export interface SkillShEntry {
+  /** Repository source, e.g. "vercel-labs/skills" */
+  source: string;
+  /** Skill identifier within the repo, e.g. "find-skills" */
+  skillId: string;
+  /** Human-readable display name */
+  name: string;
+  /** Short description of what the skill does */
+  description: string;
+  /** Number of installs (from skills.sh directory) */
+  installs: number;
+  /** Whether this skill is currently installed locally */
+  isInstalled: boolean;
+}
+
+/** Supported agent targets for skills.sh installation */
+export type SkillAgentTarget =
+  | 'Claude Code'
+  | 'GitHub Copilot'
+  | 'OpenAI Codex'
+  | 'Gemini CLI';
+
+/** An installed skill detected on disk */
+export interface InstalledSkill {
+  /** Display name from SKILL.md frontmatter */
+  name: string;
+  /** Skill description from SKILL.md frontmatter */
+  description: string;
+  /** Repository source (owner/repo) or "local" */
+  source: string;
+  /** Absolute path to the skill directory */
+  path: string;
+  /** Installation scope */
+  scope: 'project' | 'global';
+  /** Agent names this skill is installed for */
+  agents: string[];
+}
+
+/** Result of workspace skill detection */
+export interface SkillDetectionResult {
+  /** Technologies detected in the workspace */
+  detectedTechnologies: {
+    frameworks: string[];
+    languages: string[];
+    tools: string[];
+  };
+  /** Recommended skills from skills.sh based on detection */
+  recommendedSkills: SkillShEntry[];
+}
+
+// ============================================================
 // Agent Orchestration RPC Types (TASK_2025_157)
 // ============================================================
 
@@ -1866,6 +1921,37 @@ export interface RpcMethodRegistry {
     result: PtahCliListModelsResult;
   };
 
+  // ---- Skills.sh Marketplace Methods (TASK_2025_204) ----
+  'skillsSh:search': {
+    params: { query: string };
+    result: { skills: SkillShEntry[]; error?: string };
+  };
+  'skillsSh:listInstalled': {
+    params: Record<string, never>;
+    result: { skills: InstalledSkill[] };
+  };
+  'skillsSh:install': {
+    params: {
+      source: string;
+      skillId?: string;
+      scope: 'project' | 'global';
+      agents?: SkillAgentTarget[];
+    };
+    result: { success: boolean; error?: string };
+  };
+  'skillsSh:uninstall': {
+    params: { name: string; scope: 'project' | 'global' };
+    result: { success: boolean; error?: string };
+  };
+  'skillsSh:getPopular': {
+    params: Record<string, never>;
+    result: { skills: SkillShEntry[] };
+  };
+  'skillsSh:detectRecommended': {
+    params: Record<string, never>;
+    result: SkillDetectionResult;
+  };
+
   // ---- Workspace Methods (Electron desktop) ----
   'workspace:getInfo': {
     params: Record<string, never>;
@@ -2031,6 +2117,14 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'ptahCli:delete',
   'ptahCli:testConnection',
   'ptahCli:listModels',
+
+  // Skills.sh Marketplace Methods (TASK_2025_204)
+  'skillsSh:search',
+  'skillsSh:listInstalled',
+  'skillsSh:install',
+  'skillsSh:uninstall',
+  'skillsSh:getPopular',
+  'skillsSh:detectRecommended',
 
   // Workspace Methods (Electron desktop)
   'workspace:getInfo',

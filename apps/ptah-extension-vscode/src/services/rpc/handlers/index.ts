@@ -34,3 +34,4 @@ export {
 export { FileRpcHandlers } from './file-rpc.handlers';
 export { CommandRpcHandlers } from './command-rpc.handlers';
 export { AgentRpcHandlers } from './agent-rpc.handlers';
+export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';

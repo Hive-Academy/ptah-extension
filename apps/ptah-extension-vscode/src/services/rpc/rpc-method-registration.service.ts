@@ -67,6 +67,7 @@ import {
   FileRpcHandlers,
   CommandRpcHandlers,
   AgentRpcHandlers,
+  SkillsShRpcHandlers,
 } from './handlers';
 
 interface WebviewManager {
@@ -113,6 +114,7 @@ export class RpcMethodRegistrationService {
     private readonly pluginHandlers: PluginRpcHandlers, // TASK_2025_153
     private readonly agentHandlers: AgentRpcHandlers, // TASK_2025_157
     private readonly ptahCliHandlers: PtahCliRpcHandlers, // TASK_2025_167
+    private readonly skillsShHandlers: SkillsShRpcHandlers, // TASK_2025_204
     private readonly container: DependencyContainer
   ) {
     // Setup SDK callbacks and listeners
@@ -148,6 +150,7 @@ export class RpcMethodRegistrationService {
     this.pluginHandlers.register(); // TASK_2025_153
     this.agentHandlers.register(); // TASK_2025_157
     this.ptahCliHandlers.register(); // TASK_2025_167
+    this.skillsShHandlers.register(); // TASK_2025_204
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),

@@ -76,6 +76,7 @@ export * from './molecules/notifications/compaction-notification.component';
 export * from './molecules/setup-plugins/setup-status-widget.component';
 export * from './molecules/setup-plugins/plugin-status-widget.component';
 export * from './molecules/setup-plugins/plugin-browser-modal.component';
+export * from './molecules/setup-plugins/skill-sh-browser.component';
 
 // ============================================================================
 // MOLECULES - Agent Card (WIP - separate refactor)
