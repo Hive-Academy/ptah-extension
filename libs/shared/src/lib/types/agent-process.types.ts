@@ -266,4 +266,7 @@ export interface CliSessionReference {
   readonly streamEvents?: readonly FlatStreamEventUnion[];
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
   readonly ptahCliId?: string;
+  /** Real SDK session UUID. Enables the SessionImporterService to cross-reference
+   *  JSONL files against known child sessions and skip re-importing them. */
+  readonly sdkSessionId?: string;
 }

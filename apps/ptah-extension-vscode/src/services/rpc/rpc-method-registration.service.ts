@@ -290,6 +290,12 @@ export class RpcMethodRegistrationService {
         );
       }
 
+      // For ptah-cli sessions, retrieve the resolved SDK UUID for cross-referencing.
+      // This enables SessionImporterService to detect child sessions on restart.
+      const sdkSessionId = info.ptahCliId
+        ? this.chatHandlers.getPtahCliSdkSessionId(info.ptahCliId)
+        : undefined;
+
       const ref: CliSessionReference = {
         cliSessionId: effectiveCliSessionId,
         cli: info.cli,
@@ -305,6 +311,7 @@ export class RpcMethodRegistrationService {
           ? { streamEvents: persistedOutput.streamEvents }
           : {}),
         ...(info.ptahCliId ? { ptahCliId: info.ptahCliId } : {}),
+        ...(sdkSessionId ? { sdkSessionId } : {}),
       };
 
       retryWithBackoff(

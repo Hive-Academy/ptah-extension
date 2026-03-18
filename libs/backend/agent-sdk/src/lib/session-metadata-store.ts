@@ -117,7 +117,20 @@ export class SessionMetadataStore {
     const index = all.findIndex((m) => m.sessionId === metadata.sessionId);
 
     if (index >= 0) {
-      all[index] = metadata;
+      // Preserve isChildSession and cliSessions from existing metadata.
+      // Once a session is marked as a child (by createChild()), it must stay
+      // hidden from the sidebar even if create() is later called without the
+      // flag (e.g., when the main SdkAgentAdapter resumes a ptah-cli session).
+      const existing = all[index];
+      all[index] = {
+        ...metadata,
+        ...(existing.isChildSession && !metadata.isChildSession
+          ? { isChildSession: true }
+          : {}),
+        ...(existing.cliSessions && !metadata.cliSessions
+          ? { cliSessions: existing.cliSessions }
+          : {}),
+      };
     } else {
       all.push(metadata);
     }
@@ -338,6 +351,28 @@ export class SessionMetadataStore {
         `[SessionMetadataStore] Renamed session ${sessionId} to "${newName}"`
       );
     }
+  }
+
+  /**
+   * Check if a given SDK session UUID is referenced as a child session
+   * by any parent session's cliSessions array.
+   *
+   * Used by SessionImporterService to detect child sessions that weren't
+   * properly marked with isChildSession (e.g., createChild failed or
+   * was never called).
+   */
+  async isReferencedAsChildSession(sdkSessionId: string): Promise<boolean> {
+    const all = await this.getAll();
+    for (const session of all) {
+      if (session.cliSessions) {
+        for (const ref of session.cliSessions) {
+          if (ref.sdkSessionId === sdkSessionId) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**

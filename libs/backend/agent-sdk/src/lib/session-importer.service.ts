@@ -79,6 +79,23 @@ export class SessionImporterService {
           continue;
         }
 
+        // Cross-reference: check if any parent session references this UUID
+        // as a child session via cliSessions[].sdkSessionId. If so, this is
+        // a ptah-cli child session that wasn't properly marked by createChild
+        // (e.g., extension crashed before createChild could persist).
+        if (await this.metadataStore.isReferencedAsChildSession(sessionId)) {
+          this.logger.info(
+            '[SessionImporter] Detected child session via cross-reference, creating child metadata',
+            { sessionId }
+          );
+          await this.metadataStore.createChild(
+            sessionId,
+            workspacePath,
+            'CLI Agent Session'
+          );
+          continue;
+        }
+
         // Extract metadata from file content
         const metadata = await this.extractMetadata(
           file.path,

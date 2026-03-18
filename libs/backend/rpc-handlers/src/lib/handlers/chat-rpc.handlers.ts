@@ -243,6 +243,14 @@ export class ChatRpcHandlers {
    */
   private ptahCliSessions = new Map<string, string>();
 
+  /**
+   * Maps tabId -> real SDK session UUID for Ptah CLI sessions.
+   * Populated in streamExecutionNodesToWebview when the SDK UUID is resolved.
+   * Used to set sdkSessionId on CliSessionReference for cross-referencing
+   * in SessionImporterService.
+   */
+  private ptahCliSdkSessionIds = new Map<string, string>();
+
   // ============================================================================
   // CLI SESSION RECOVERY (TASK_2025_186)
   // ============================================================================
@@ -539,6 +547,14 @@ export class ChatRpcHandlers {
     this.ptahCliSessions.delete(sessionId as string);
 
     return { success: true };
+  }
+
+  /**
+   * Get the resolved SDK session UUID for a Ptah CLI session.
+   * Used by persistCliSessionReference to set sdkSessionId on CliSessionReference.
+   */
+  getPtahCliSdkSessionId(tabId: string): string | undefined {
+    return this.ptahCliSdkSessionIds.get(tabId);
   }
 
   /**
@@ -1471,6 +1487,8 @@ IMPORTANT INSTRUCTIONS:
         // Save child session metadata for Ptah CLI sessions once the real
         // SDK session ID is resolved. This prevents SessionImporterService
         // from importing the session as a top-level sidebar entry.
+        // Awaited (not fire-and-forget) to ensure metadata is persisted
+        // before extension shutdown could interrupt.
         if (
           isPtahCliSession &&
           !childMetadataSaved &&
@@ -1483,13 +1501,29 @@ IMPORTANT INSTRUCTIONS:
           const sessionName = ptahCliAgentId
             ? `CLI Agent: ${ptahCliAgentId}`
             : 'CLI Agent Session';
-          this.sessionMetadataStore
-            .createChild(event.sessionId, workspacePath, sessionName)
-            .catch((err: unknown) => {
-              this.logger.debug('[RPC] Failed to save child session metadata', {
-                error: err instanceof Error ? err.message : String(err),
-              });
-            });
+          try {
+            await this.sessionMetadataStore.createChild(
+              event.sessionId,
+              workspacePath,
+              sessionName
+            );
+            // Track SDK UUID for cross-referencing in CliSessionReference.
+            // Store by both tabId and agentId so persistCliSessionReference
+            // can look up by ptahCliId (which is the agentId).
+            this.ptahCliSdkSessionIds.set(tabId, event.sessionId);
+            if (ptahCliAgentId) {
+              this.ptahCliSdkSessionIds.set(ptahCliAgentId, event.sessionId);
+            }
+            this.logger.info(
+              '[RPC] Child session metadata saved for Ptah CLI session',
+              { sessionId: event.sessionId, tabId, agentId: ptahCliAgentId }
+            );
+          } catch (err: unknown) {
+            this.logger.warn(
+              '[RPC] Failed to save child session metadata — session may appear in sidebar',
+              { error: err instanceof Error ? err.message : String(err) }
+            );
+          }
         }
 
         // Include tabId for frontend routing
@@ -1618,6 +1652,8 @@ IMPORTANT INSTRUCTIONS:
       // Clean up Ptah CLI session tracking on stream completion (natural or error)
       this.ptahCliSessions.delete(sessionId as string);
       this.ptahCliSessions.delete(tabId);
+      // Note: ptahCliSdkSessionIds is NOT cleaned up here — it must persist
+      // until persistCliSessionReference reads it (agent may exit later).
     }
   }
 }
