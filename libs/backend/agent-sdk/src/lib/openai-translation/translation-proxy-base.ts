@@ -552,7 +552,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
         targetUrl,
         {
           method: 'POST',
-          timeout: 120_000,
+          timeout: 600_000, // 10 minutes — large repos need time for LLM processing
           headers: {
             ...headers,
             'Content-Length': Buffer.byteLength(requestBody).toString(),
@@ -663,7 +663,7 @@ export abstract class TranslationProxyBase implements ITranslationProxy {
 
       proxyReq.on('timeout', () => {
         this.logger.error(
-          `${this.logPrefix} [${requestId}] ${apiLabel} request timed out after 120s`
+          `${this.logPrefix} [${requestId}] ${apiLabel} request timed out after 600s`
         );
         proxyReq.destroy();
         if (!res.headersSent) {

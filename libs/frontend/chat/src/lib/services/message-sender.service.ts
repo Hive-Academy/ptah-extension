@@ -313,7 +313,7 @@ export class MessageSenderService {
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
         tabId: activeTabId, // Frontend correlation ID
-        name: activeTab?.name, // Send session name to backend
+        name: autoName, // Send message-derived name to backend (not stale activeTab reference)
         workspacePath,
         ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
         options: {

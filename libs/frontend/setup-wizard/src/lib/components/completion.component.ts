@@ -387,7 +387,7 @@ export class CompletionComponent {
    */
   protected onCloseWizard(): void {
     this.vscodeService.postMessage({
-      type: MESSAGE_TYPES.SETUP_WIZARD_START_CHAT,
+      type: MESSAGE_TYPES.SETUP_WIZARD_COMPLETE,
     });
   }
 }

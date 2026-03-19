@@ -302,9 +302,9 @@ export class MultiPhaseAnalysisService {
           // Phase failed -- log and continue to next phase
           const errorMessage =
             error instanceof Error ? error.message : String(error);
-          this.logger.error(`${SERVICE_TAG} Phase ${phaseConfig.id} failed`, {
-            error: errorMessage,
-          });
+          this.logger.error(
+            `${SERVICE_TAG} Phase ${phaseConfig.id} failed: ${errorMessage}`
+          );
           manifest.phases[phaseConfig.id as MultiPhaseId] = {
             status: 'failed',
             file: phaseConfig.file,

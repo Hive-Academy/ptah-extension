@@ -35,6 +35,8 @@ interface ToolCallBuffer {
   arguments: string;
   /** Whether the content_block_start has been emitted for this tool */
   started: boolean;
+  /** Assigned Anthropic block index for this tool (set on buffer creation) */
+  assignedBlockIndex: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +94,9 @@ export class OpenAIResponseTranslator {
 
   /** Accumulated output token count */
   private outputTokens = 0;
+
+  /** Whether any tool calls were seen in this response (for correct stop_reason inference) */
+  private hasToolCalls = false;
 
   /**
    * @param model - The model name to include in Anthropic events
@@ -162,11 +167,16 @@ export class OpenAIResponseTranslator {
       this.inTextBlock = false;
     }
 
+    // Infer stop_reason from content: if tool calls were present, the model
+    // wants tool results back — use 'tool_use' so the SDK continues the
+    // agentic loop instead of terminating the session prematurely.
+    const stopReason = this.hasToolCalls ? 'tool_use' : 'end_turn';
+
     // message_delta with stop reason and final usage
     events.push(
       sseEvent('message_delta', {
         type: 'message_delta',
-        delta: { stop_reason: 'end_turn', stop_sequence: null },
+        delta: { stop_reason: stopReason, stop_sequence: null },
         usage: { output_tokens: this.outputTokens },
       })
     );
@@ -299,14 +309,21 @@ export class OpenAIResponseTranslator {
       this.inTextBlock = false;
     }
 
+    // Track that this response contains tool calls (for stop_reason inference)
+    this.hasToolCalls = true;
+
     let buffer = this.toolCallBuffers.get(idx);
     if (!buffer) {
-      // New tool call — create buffer
+      // New tool call — create buffer with a unique block index.
+      // Each tool_use block needs its own Anthropic content block index
+      // to avoid collisions when multiple tools are called in parallel.
+      const assignedBlockIndex = this.blockIndex + this.toolCallBuffers.size;
       buffer = {
         id: toolDelta.id ?? `toolu_${this.requestId}_${idx}`,
         name: toolDelta.function?.name ?? '',
         arguments: '',
         started: false,
+        assignedBlockIndex,
       };
       this.toolCallBuffers.set(idx, buffer);
     }
@@ -322,12 +339,13 @@ export class OpenAIResponseTranslator {
     }
 
     // Emit content_block_start for this tool once we have the name
+    // Use the assigned block index (unique per tool call)
     if (!buffer.started && buffer.name) {
       buffer.started = true;
       events.push(
         sseEvent('content_block_start', {
           type: 'content_block_start',
-          index: this.blockIndex,
+          index: buffer.assignedBlockIndex,
           content_block: {
             type: 'tool_use',
             id: buffer.id,
@@ -343,7 +361,7 @@ export class OpenAIResponseTranslator {
       events.push(
         sseEvent('content_block_delta', {
           type: 'content_block_delta',
-          index: this.blockIndex,
+          index: buffer.assignedBlockIndex,
           delta: {
             type: 'input_json_delta',
             partial_json: toolDelta.function.arguments,
@@ -368,7 +386,7 @@ export class OpenAIResponseTranslator {
         events.push(
           sseEvent('content_block_start', {
             type: 'content_block_start',
-            index: this.blockIndex,
+            index: buffer.assignedBlockIndex,
             content_block: {
               type: 'tool_use',
               id: buffer.id,
@@ -384,11 +402,15 @@ export class OpenAIResponseTranslator {
         events.push(
           sseEvent('content_block_stop', {
             type: 'content_block_stop',
-            index: this.blockIndex,
+            index: buffer.assignedBlockIndex,
           })
         );
-        this.blockIndex++;
       }
+    }
+
+    // Advance blockIndex past all flushed tool call blocks
+    if (this.toolCallBuffers.size > 0) {
+      this.blockIndex += this.toolCallBuffers.size;
     }
 
     this.toolCallBuffers.clear();
@@ -416,23 +438,32 @@ export class OpenAIResponseTranslator {
       this.inTextBlock = false;
     }
 
-    // Map OpenAI finish reasons to Anthropic stop reasons
+    // Map OpenAI finish reasons to Anthropic stop reasons.
+    // CRITICAL: If tool calls were present in the response, the stop_reason
+    // MUST be 'tool_use' regardless of what the upstream API reports.
+    // Some APIs (e.g., Copilot/GPT) may send finish_reason='stop' even
+    // when the message contains tool_call blocks, which would cause the
+    // Claude Agent SDK to terminate the session instead of executing tools.
     let stopReason: string;
-    switch (finishReason) {
-      case 'stop':
-        stopReason = 'end_turn';
-        break;
-      case 'tool_calls':
-        stopReason = 'tool_use';
-        break;
-      case 'length':
-        stopReason = 'max_tokens';
-        break;
-      case 'content_filter':
-        stopReason = 'end_turn';
-        break;
-      default:
-        stopReason = 'end_turn';
+    if (this.hasToolCalls) {
+      stopReason = 'tool_use';
+    } else {
+      switch (finishReason) {
+        case 'stop':
+          stopReason = 'end_turn';
+          break;
+        case 'tool_calls':
+          stopReason = 'tool_use';
+          break;
+        case 'length':
+          stopReason = 'max_tokens';
+          break;
+        case 'content_filter':
+          stopReason = 'end_turn';
+          break;
+        default:
+          stopReason = 'end_turn';
+      }
     }
 
     // message_delta with stop reason and usage

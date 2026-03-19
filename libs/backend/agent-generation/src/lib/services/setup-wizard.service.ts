@@ -14,7 +14,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { Result } from '@ptah-extension/shared';
+import { MESSAGE_TYPES, Result } from '@ptah-extension/shared';
 import { ISetupWizardService } from '../interfaces/setup-wizard.interface';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 import { WizardWebviewLifecycleService } from './wizard';
@@ -35,7 +35,9 @@ export class SetupWizardService implements ISetupWizardService {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
     @inject(AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE)
-    private readonly webviewLifecycle: WizardWebviewLifecycleService
+    private readonly webviewLifecycle: WizardWebviewLifecycleService,
+    @inject(TOKENS.PLATFORM_COMMANDS)
+    private readonly platformCommands: { reloadWindow(): Promise<void> }
   ) {
     this.logger.debug('SetupWizardService initialized');
   }
@@ -74,11 +76,24 @@ export class SetupWizardService implements ISetupWizardService {
         return Result.ok(undefined);
       }
 
-      // Create webview panel via webviewLifecycle
+      // Create webview panel via webviewLifecycle with close/reload handler
       const panel = await this.webviewLifecycle.createWizardPanel(
         'Ptah Setup Wizard',
         this.WIZARD_VIEW_TYPE,
-        []
+        [
+          async (message: unknown) => {
+            const msg = message as { type?: string };
+            if (msg.type === MESSAGE_TYPES.SETUP_WIZARD_COMPLETE) {
+              this.logger.info(
+                'Wizard complete - closing panel and reloading window'
+              );
+              this.webviewLifecycle.disposeWebview(this.WIZARD_VIEW_TYPE);
+              await this.platformCommands.reloadWindow();
+              return true;
+            }
+            return false;
+          },
+        ]
       );
 
       if (!panel) {
