@@ -494,7 +494,7 @@ export function buildWebSearchTool(): MCPToolDefinition {
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
  */
 function buildExecuteCodeDescription(): string {
-  return `Execute TypeScript/JavaScript code with access to VS Code extension APIs via the global "ptah" object.
+  return `IDE access tool — execute TypeScript/JavaScript code with access to VS Code APIs via the global "ptah" object. Use this for code structure analysis (AST), dependency graphs, LSP operations, and multi-step API workflows.
 
 ${PTAH_SYSTEM_PROMPT}
 
@@ -543,6 +543,24 @@ Relative paths are resolved from workspace root. Absolute paths work as-is.
 - analyzeDependencies(): Promise<{name, version, isDev}[]> - Analyze package dependencies
 ⚠️ NO getMonorepoInfo(). Use detectMonorepo() instead.
 
+### ptah.ast - Code Structure Analysis (Tree-Sitter) — PREFER OVER FULL FILE READS
+- analyze(file): Promise<{functions, classes, imports, exports}> - Full structural analysis with line ranges
+- queryFunctions(file): Promise<{name, parameters, startLine, endLine}[]> - All functions
+- queryClasses(file): Promise<{name, startLine, endLine}[]> - All classes
+- queryImports(file): Promise<{source, importedSymbols}[]> - All imports
+- queryExports(file): Promise<{name, kind}[]> - All exports
+- parse(file): Promise<{ast, nodeCount}> - Raw AST tree
+- getSupportedLanguages(): Promise<string[]> - Supported languages (JS/TS)
+
+Use ptah.ast BEFORE reading files to understand structure at 40-60% token savings.
+
+### ptah.dependencies - Import-Based Dependency Graph
+- buildGraph(filePaths, workspaceRoot): Promise<void> - Build the graph (call once)
+- getDependencies(file): Promise<string[]> - What this file imports
+- getDependents(file): Promise<string[]> - What imports this file
+- getSymbolIndex(): Promise<Record<string, string[]>> - Exported symbols per file
+- isBuilt(): Promise<boolean> - Check if graph exists
+
 ### Other Namespaces (use ptah.help('topic') for details)
 - ptah.ai.* - VS Code LM API (chat, tokens, tools, specialized tasks, invokeAgent)
 - ptah.llm.* - VS Code Language Model API provider
@@ -550,8 +568,6 @@ Relative paths are resolved from workspace root. Absolute paths work as-is.
 - ptah.commands.* - VS Code command execution
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
-- ptah.dependencies.* - Import-based dependency graph: buildGraph(), getDependencies(), getDependents(), getSymbolIndex()
-- ptah.ast.* - Code structure analysis (tree-sitter)
 - ptah.orchestration.* - Workflow state management
 - ptah.agent.* - Agent orchestration (spawn, monitor Gemini CLI / Codex SDK / VS Code LM)
 

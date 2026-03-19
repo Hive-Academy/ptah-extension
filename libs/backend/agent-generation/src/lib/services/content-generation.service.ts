@@ -236,10 +236,7 @@ export class ContentGenerationService implements IContentGenerationService {
       // Resolve model from config
       const model =
         sdkConfig?.model ??
-        this.config.getWithDefault<string>(
-          'model.selected',
-          'claude-sonnet-4-5-20250929'
-        );
+        this.config.getWithDefault<string>('model.selected', 'sonnet');
 
       // Build system prompt with optional enhanced prompt content
       let systemPrompt = `You are a content generation specialist for developer tooling configuration files.

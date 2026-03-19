@@ -46,7 +46,6 @@ import {
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
-import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
 import { PTAH_MCP_PORT } from '../constants';
 
 /**
@@ -225,10 +224,8 @@ export function assembleSystemPrompt(
     topUpParts.push(enhancedPromptsContent);
   }
 
-  // 4. MCP documentation for premium users with MCP server (applies to both paths)
-  if (isPremium && mcpServerRunning) {
-    topUpParts.push(PTAH_SYSTEM_PROMPT);
-  }
+  // Note: MCP documentation (PTAH_SYSTEM_PROMPT) is no longer injected into the system prompt.
+  // It now appears only in MCP tool descriptions (tool-description.builder.ts).
 
   if (usePtahHarness) {
     // Ptah harness: standalone string with PTAH_CORE_SYSTEM_PROMPT as base

@@ -14,9 +14,9 @@ import {
   Settings2,
   Globe,
 } from 'lucide-angular';
-import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
+import { DocsVideoPlayerComponent } from '../components/docs-video-player.component';
 
 interface AgentIntegration {
   name: string;
@@ -51,9 +51,9 @@ interface ConfigSetting {
     CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
-    DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
     DocsCollapsibleCardComponent,
+    DocsVideoPlayerComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="agent-orchestration">
@@ -267,10 +267,8 @@ interface ConfigSetting {
       </div>
 
       <ng-container media>
-        <ptah-docs-media-placeholder
-          title="Agent Orchestration"
-          aspectRatio="16/9"
-          mediaType="gif"
+        <ptah-docs-video-player
+          src="assets/videos/cli-agent-orchestration.mp4"
         />
       </ng-container>
     </ptah-docs-section-shell>

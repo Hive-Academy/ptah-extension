@@ -37,7 +37,7 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah MCP Server - 16 Namespaces:
+  overview: `Ptah IDE Access - 17 Namespaces:
 
 WORKSPACE: workspace, search, symbols, files, diagnostics, git, commands
 ANALYSIS: context, project, relevance, ast
@@ -235,6 +235,51 @@ Orchestration provides specialist agents, quality gates, and structured workflow
 Do NOT fall back to your own plan mode or ad-hoc coding — delegate to orchestration first.
 
 Used for persisting workflow state across sessions (planning, design, implementation, QA, complete).`,
+
+  ast: `ptah.ast - Code Structure Analysis (Tree-Sitter)
+
+- analyze(file) - Full structural analysis: functions, classes, imports, exports with line ranges
+- parse(file) - Raw tree-sitter AST with node tree {type, text, start, end, children}
+- queryFunctions(file) - Extract all functions with name, parameters, startLine/endLine
+- queryClasses(file) - Extract all classes with name, startLine/endLine
+- queryImports(file) - Extract all imports with source module and imported symbols
+- queryExports(file) - Extract all exports with name and kind (class/variable/function)
+- getSupportedLanguages() - List supported languages (currently: javascript, typescript)
+
+Use ptah.ast.analyze() to understand file structure BEFORE reading or editing.
+Prefer ptah.ast over reading full files when you only need structural information (40-60% token savings).`,
+
+  symbols: `ptah.symbols - Code Symbol Search
+
+- find(query) - Search for code symbols by name across the workspace
+  Returns: [{name, kind, file, line, col}]
+
+Use for quick symbol lookup when you know the name but not the file.`,
+
+  dependencies: `ptah.dependencies - Import-Based Dependency Graph
+
+- buildGraph(filePaths, workspaceRoot) - Build dependency graph from file list
+- getDependencies(file) - Get what a file imports (outgoing edges)
+- getDependents(file) - Get what imports this file (incoming edges)
+- getSymbolIndex() - Get exported symbols per file
+- isBuilt() - Check if the dependency graph has been built
+
+Build the graph once, then query it repeatedly. Essential for understanding impact of changes.`,
+
+  git: `ptah.git - Repository Status
+
+- getStatus() - Get git working tree status {branch, modified, staged, untracked}`,
+
+  diagnostics: `ptah.diagnostics - TypeScript Errors & Warnings
+
+- getErrors() - Get all error-level diagnostics {file, message, line}
+- getWarnings() - Get all warning-level diagnostics {file, message, line}
+- getAll() - Get all diagnostics with severity level`,
+
+  commands: `ptah.commands - VS Code Command Execution
+
+- execute(command, ...args) - Execute a VS Code command by ID
+- list() - List available VS Code commands (filtered to ptah.* commands)`,
 
   agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
 

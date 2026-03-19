@@ -661,8 +661,7 @@ import type { Observation, SessionSummary } from './observation.types';
 
 @injectable()
 export class SessionMemoryService {
-  constructor() // @inject(SDK_TOKENS.SDK_MEMORY_QUERY) memoryQuery // @inject(SDK_TOKENS.SDK_CONTEXT_STORAGE) contextStorage
-  {}
+  constructor() {} // @inject(SDK_TOKENS.SDK_MEMORY_QUERY) memoryQuery // @inject(SDK_TOKENS.SDK_CONTEXT_STORAGE) contextStorage
 
   async addObservation(workspacePath: string, sessionId: string, observation: Observation): Promise<void>;
   async flushObservations(workspacePath: string, sessionId: string): Promise<void>;
@@ -906,8 +905,7 @@ import { injectable, inject } from 'tsyringe';
 
 @injectable()
 export class MemoryContextBuilder {
-  constructor() // @inject(SDK_TOKENS.SDK_MEMORY_QUERY) memoryQuery // @inject(SDK_TOKENS.SDK_SESSION_MEMORY) sessionMemory
-  {}
+  constructor() {} // @inject(SDK_TOKENS.SDK_MEMORY_QUERY) memoryQuery // @inject(SDK_TOKENS.SDK_SESSION_MEMORY) sessionMemory
 
   /**
    * Build a <session_memory> block for system prompt injection.

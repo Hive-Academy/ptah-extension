@@ -161,10 +161,7 @@ export class AgenticAnalysisService {
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
     const model =
       options?.model ||
-      this.config.getWithDefault<string>(
-        'model.selected',
-        'claude-sonnet-4-5-20250929'
-      );
+      this.config.getWithDefault<string>('model.selected', 'sonnet');
     const isPremium = options?.isPremium ?? false;
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;

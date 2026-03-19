@@ -49,8 +49,7 @@ import {
   createInitialEnhancedPromptsState,
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
 } from './enhanced-prompts.types';
-import { PTAH_CORE_SYSTEM_PROMPT } from '../ptah-core-prompt';
-import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
+import { PTAH_CORE_SYSTEM_PROMPT_TOKENS } from '../ptah-core-prompt';
 import type { InternalQueryService } from '../../internal-query/internal-query.service';
 import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
 import { SdkStreamProcessor } from '../../stream-processing/sdk-stream-processor';
@@ -280,9 +279,12 @@ export class EnhancedPromptsService {
     let invalidationReason: string | undefined;
 
     if (state.enabled && state.generatedPrompt) {
-      const dependencyHash = await this.cacheService.computeDependencyHash(
+      const baseDependencyHash = await this.cacheService.computeDependencyHash(
         workspacePath
       );
+      const dependencyHash = baseDependencyHash
+        ? `${baseDependencyHash}:pt${PTAH_CORE_SYSTEM_PROMPT_TOKENS}`
+        : null;
       if (dependencyHash && state.configHash === dependencyHash) {
         cacheValid = true;
       } else {
@@ -462,9 +464,12 @@ export class EnhancedPromptsService {
       const generatedPrompt = this.buildCombinedPrompt(output, sdkConfig);
 
       // Step 6: Compute dependency hash for cache validation
-      const configHash = await this.cacheService.computeDependencyHash(
+      const baseHash = await this.cacheService.computeDependencyHash(
         workspacePath
       );
+      const configHash = baseHash
+        ? `${baseHash}:pt${PTAH_CORE_SYSTEM_PROMPT_TOKENS}`
+        : null;
 
       // Step 7: Update state
       const newState: EnhancedPromptsState = {
@@ -553,18 +558,43 @@ export class EnhancedPromptsService {
     onProgress?: (progress: PromptGenerationProgress) => void,
     sdkConfig?: EnhancedPromptsSdkConfig
   ): Promise<RegeneratePromptsResponse> {
+    // Require existing multi-phase analysis — never fall back to lightweight analysis.
+    // The user must run the setup wizard first to produce analysis data.
+    let analysisDir: string | undefined;
+    if (this.analysisReader) {
+      const analysis = await this.analysisReader.findLatestMultiPhaseAnalysis(
+        workspacePath
+      );
+      if (analysis) {
+        analysisDir = analysis.slugDir;
+        this.logger.info(
+          'EnhancedPromptsService: Regenerate using existing analysis',
+          { analysisDir }
+        );
+      }
+    }
+
+    if (!analysisDir) {
+      return {
+        success: false,
+        error:
+          'No existing workspace analysis found. Please run the Setup Wizard first to analyze your workspace, then regenerate.',
+      };
+    }
+
     // Invalidate existing cache if forcing
     if (request?.force) {
       await this.cacheService.invalidate(workspacePath, 'manual');
     }
 
-    // Run wizard again
+    // Run wizard with explicit analysis directory for enrichment
     const result = await this.runWizard(
       workspacePath,
       request?.config,
       onProgress,
       undefined,
-      sdkConfig
+      sdkConfig,
+      analysisDir
     );
 
     if (result.success) {
@@ -713,13 +743,12 @@ export class EnhancedPromptsService {
         progress: 40,
       });
 
-      // 2. Get model: prefer frontend selection, fall back to config
-      const model =
-        sdkConfig?.model ||
-        this.config.getWithDefault<string>(
-          'model.selected',
-          'claude-sonnet-4-5-20250929'
-        );
+      // 2. Resolve model: frontend override > user config > fallback tier.
+      // model.selected is set by SdkAgentAdapter.initialize() from the SDK's
+      // supportedModels() API. We use explicit tier names (opus/sonnet/haiku)
+      // so the user always knows what they're getting — no silent remapping.
+      const configModel = this.config.get<string>('model.selected');
+      const model = sdkConfig?.model || configModel || 'sonnet';
 
       // 3. Execute SDK query with structured output
       const abortController = new AbortController();
@@ -773,8 +802,16 @@ export class EnhancedPromptsService {
         handle.close();
       }
     } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message || error.constructor.name
+          : String(error) || 'unknown error';
       this.logger.error(`${SERVICE_TAG} SDK guidance generation failed`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: errMsg,
+        stack:
+          error instanceof Error
+            ? error.stack?.split('\n')[1]?.trim()
+            : undefined,
       });
     }
 
@@ -1232,11 +1269,11 @@ export class EnhancedPromptsService {
   /**
    * Build combined prompt from PromptDesignerOutput
    *
-   * Combines the PTAH_CORE_SYSTEM_PROMPT with generated guidance,
-   * and injects PTAH_SYSTEM_PROMPT (MCP documentation) for premium users with MCP server enabled.
+   * Builds the project-specific guidance content from PromptDesignerOutput.
+   * MCP documentation now appears only in tool descriptions, not in the system prompt.
    *
    * @param output - PromptDesignerOutput from generation
-   * @param sdkConfig - SDK configuration (isPremium, mcpServerRunning)
+   * @param sdkConfig - SDK configuration (unused after MCP docs removal, kept for API stability)
    * @returns Combined prompt string with all sections
    */
   private buildCombinedPrompt(
@@ -1245,23 +1282,13 @@ export class EnhancedPromptsService {
   ): string {
     const sections: string[] = [];
 
-    // Add core system prompt first
-    sections.push(PTAH_CORE_SYSTEM_PROMPT);
+    // Note: PTAH_CORE_SYSTEM_PROMPT is NOT included here.
+    // assembleSystemPrompt() in sdk-query-options-builder.ts handles adding the
+    // core prompt as the base. This method only produces the project-specific
+    // guidance that gets appended as a top-up.
 
-    // Add MCP documentation for premium users with MCP server enabled
-    if (sdkConfig?.isPremium && sdkConfig?.mcpServerRunning) {
-      sections.push('\n' + PTAH_SYSTEM_PROMPT);
-      this.logger.debug(
-        'EnhancedPromptsService: Added MCP documentation to enhanced prompt',
-        {
-          isPremium: sdkConfig.isPremium,
-          mcpServerRunning: sdkConfig.mcpServerRunning,
-        }
-      );
-    }
-
-    // Add project-specific context
-    sections.push('\n## Project-Specific Guidance\n');
+    // Project-specific context (the premium value)
+    sections.push('## Project-Specific Guidance\n');
 
     if (output.projectContext) {
       sections.push(`### Project Context\n${output.projectContext}\n`);

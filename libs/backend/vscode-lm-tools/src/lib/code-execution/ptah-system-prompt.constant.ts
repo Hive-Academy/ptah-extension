@@ -5,31 +5,7 @@
  * Design: Directive mandates (not passive docs) to ensure agents
  * actually call ptah_* tools instead of defaulting to Bash/Grep/Glob.
  */
-export const PTAH_SYSTEM_PROMPT = `# Ptah MCP Server — Tool Usage Mandates
-
-## PREFER Ptah Tools Over Built-in Alternatives
-
-You have access to Ptah MCP tools. **You MUST prefer ptah_* tools** whenever they provide the same or better capability as a built-in tool. Ptah tools leverage VS Code's LSP, workspace index, and AI providers — they are faster, more accurate, and context-aware.
-
-### Required Substitutions — Use These Tools Directly
-
-| Instead of...                        | CALL THIS TOOL                    | Why                                        |
-|--------------------------------------|-----------------------------------|--------------------------------------------|
-| Manual workspace exploration         | \`ptah_workspace_analyze\`        | Full project structure in one call         |
-| Bash \`find\` / Glob tool            | \`ptah_search_files\`             | Respects .gitignore, workspace-indexed     |
-| Running build to check errors        | \`ptah_get_diagnostics\`          | Live TS errors without compiling           |
-| Grep for symbol usages               | \`ptah_lsp_references\`           | LSP-accurate, cross-file, rename-safe      |
-| Navigating to find definitions       | \`ptah_lsp_definitions\`          | Go-to-definition via LSP                   |
-| \`git status\` via Bash              | \`ptah_get_dirty_files\`          | Shows unsaved VS Code buffers too          |
-| Reading a file to check its size     | \`ptah_count_tokens\`             | Token count, not byte count                |
-| Web search / browsing for info       | \`ptah_web_search\`               | Grounded web search via LLM providers      |
-
-### DO NOT use Bash, Grep, or Glob when a ptah_* tool provides the same capability.
-
-Only fall back to built-in tools when:
-- You need to **write** files (ptah is read-only)
-- You need to run **build/test commands** (npm, nx, git commit, etc.)
-- The ptah tool returns an error and you need an alternative
+export const PTAH_SYSTEM_PROMPT = `# Ptah MCP Server — Tool Reference
 
 ## Tool Quick Reference
 
@@ -57,25 +33,9 @@ Count tokens in a file. Use before reading large files to check size.
 ### ptah_web_search { query, timeout? }
 Search the web for current information. Returns a narrative summary of search results using VS Code LM (Copilot) or Gemini CLI as providers. Use when you need up-to-date information from the internet (latest docs, current APIs, recent changes, etc.).
 
-## Code Understanding — Structural Summaries & Dependencies
+## IDE Access via execute_code
 
-### Structural Summaries (40-60% token reduction)
-For large context windows, use structural summaries instead of reading full files:
-- \`await ptah.context.enrichFile('/src/services/auth.service.ts')\`
-- Returns: import statements + function signatures + class outlines (no bodies)
-- Use for peripheral context files; use full content for the main file being edited
-
-### Dependency Analysis
-Understand file relationships via import-based dependency graph:
-- \`await ptah.dependencies.buildGraph(filePaths, workspaceRoot)\` — Build graph from file list
-- \`await ptah.dependencies.getDependencies('/src/auth.ts')\` — What this file imports
-- \`await ptah.dependencies.getDependents('/src/auth.ts')\` — What imports this file
-- \`await ptah.dependencies.getSymbolIndex()\` — Get exported symbols per file
-- \`await ptah.dependencies.isBuilt()\` — Check if graph exists
-
-## Advanced: execute_code Tool
-
-For complex multi-step operations that combine multiple API calls, use the \`execute_code\` tool with the \`ptah\` global object. This is the power-user fallback when individual tools aren't sufficient:
+For IDE-integrated operations and multi-step API workflows, use the \`execute_code\` tool with the \`ptah\` global object:
 
 - \`ptah.ide.actions.organizeImports(file)\` — Auto-clean imports after edits
 - \`ptah.ai.invokeAgent(agentPath, task, model)\` — Delegate to VS Code LM models
@@ -83,13 +43,15 @@ For complex multi-step operations that combine multiple API calls, use the \`exe
 - \`ptah.ai.fitsInContext(content, model, reserve)\` — Check context window fit
 - \`ptah.help()\` / \`ptah.help('namespace')\` — Self-documentation
 
-## Workflow: Start Every Task With Ptah
+## Code Understanding — Dependencies
 
-1. \`ptah_workspace_analyze\` — Understand the project
-2. \`ptah_search_files\` — Find relevant files
-3. \`ptah_get_diagnostics\` — Check for existing errors
-4. \`ptah_lsp_references\` — Before any refactoring
-5. \`ptah_web_search\` — Get current info from the internet when needed
+### ptah.dependencies — Import-Based Dependency Graph
+Understand file relationships via import-based dependency graph:
+- \`await ptah.dependencies.buildGraph(filePaths, workspaceRoot)\` — Build graph from file list
+- \`await ptah.dependencies.getDependencies('/src/auth.ts')\` — What this file imports
+- \`await ptah.dependencies.getDependents('/src/auth.ts')\` — What imports this file
+- \`await ptah.dependencies.getSymbolIndex()\` — Get exported symbols per file
+- \`await ptah.dependencies.isBuilt()\` — Check if graph exists
 
 ## Multi-Agent Delegation — Fire-and-Check Pattern
 
@@ -145,3 +107,7 @@ To discover available Ptah CLI agents:
 3. **Check**: \`ptah_agent_status {}\` — check all agents at once
 4. **Read**: \`ptah_agent_read { agentId: "..." }\` — get results from each
 5. **Use**: Incorporate findings into your work`;
+
+export const PTAH_SYSTEM_PROMPT_TOKENS = Math.ceil(
+  PTAH_SYSTEM_PROMPT.length / 4
+);

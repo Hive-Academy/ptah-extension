@@ -1,463 +1,476 @@
-# Implementation Plan - TASK_2025_204: Skills.sh Browser Integration
+# Implementation Plan - TASK_2025_204: Enhanced Prompt Engineering Overhaul
 
-## Codebase Investigation Summary
+## Overview
 
-### Libraries & Patterns Discovered
-
-- **RPC Handler Pattern (Tier 3)**: `apps/ptah-extension-vscode/src/services/rpc/handlers/agent-rpc.handlers.ts` - Injectable class with `register()` method, uses `@inject(TOKENS.LOGGER)` and `@inject(TOKENS.RPC_HANDLER)`, registers methods via `this.rpcHandler.registerMethod<TParams, TResult>(name, handler)`
-- **RPC Type Registry**: `libs/shared/src/lib/types/rpc.types.ts` - All RPC methods typed in `RpcMethodRegistry` interface with `params` + `result` types, plus runtime array `RPC_METHOD_NAMES`
-- **DI Registration**: `apps/ptah-extension-vscode/src/di/container.ts:309` - Tier 3 handlers registered as singletons, resolved in `RpcMethodRegistrationService` factory
-- **RPC Orchestrator**: `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts` - Constructor accepts all handler instances, `registerAll()` calls `.register()` on each
-- **Frontend RPC Pattern**: `libs/frontend/chat/src/lib/components/molecules/setup-plugins/plugin-browser-modal.component.ts` - Uses `ClaudeRpcService.call(method, params, options)`, returns `result.isSuccess()`, `result.data`, `result.error`
-- **Settings Tab Layout**: `libs/frontend/chat/src/lib/settings/settings.component.ts:101` - 5-tab layout, Skills tab key is `'ptah-skills'`, currently shows Ptah plugins (premium-gated) with plugin browser modal
-- **Handler Export Barrel**: `apps/ptah-extension-vscode/src/services/rpc/handlers/index.ts` - Exports Tier 3 handlers locally
-
-### Skills.sh CLI Investigation
-
-The skills ecosystem uses the `skills` npm package (formerly `add-skill`) from `vercel-labs/skills`:
-
-- **Install**: `npx skills add owner/repo` or `npx skills add owner/repo --skill specific-skill`
-- **Search**: `npx skills search <query>` - returns top matches with name, description, install count
-- **List installed**: `npx skills list` (or check `.claude/skills/` directory)
-- **Global install**: `npx skills add owner/repo -g`
-- **No REST API**: skills.sh is a web directory; the CLI is the primary interface
-- **Scope**: project-level skills go to `.claude/skills/`, global to `~/.claude/skills/`
-
-### Key Design Decision: CLI Execution
-
-Since `skills.sh` has no public REST API, the backend must shell out to `npx skills` commands. This requires `child_process` access, confirming Tier 3 (VS Code-specific) handler placement.
+Restructure the assembled system prompt (~7,000 tokens) to fix 8 identified issues: conflicting tool routing, execute_code misframing, token budget inversion, primacy/recency misalignment, cache staleness, no conditional loading, cognitive fragmentation, and project guidance truncation.
 
 ---
 
-## Data Models (Shared Library)
+## 1. New Prompt Architecture
 
-Add to `libs/shared/src/lib/types/rpc.types.ts`:
+### Target Section Ordering (Primacy/Recency Optimized)
+
+The assembled prompt follows this structure when `buildCombinedPrompt()` runs:
+
+```
+[PRIMACY ZONE — highest attention]
+  1. Identity & Environment (compact)           ~150 tokens
+  2. Unified Tool Routing Hierarchy             ~600 tokens
+  3. Project-Specific Guidance (LLM-generated)  ~3,300 tokens
+
+[MIDDLE ZONE — reference material]
+  4. Task Execution & Code Discipline           ~500 tokens
+  5. Orchestration & Agent Delegation            ~450 tokens
+
+[RECENCY ZONE — high attention]
+  6. Behavioral Rules (compact)                 ~350 tokens
+  7. Git & PR Workflow (compressed)             ~350 tokens
+  8. Output Formatting                          ~300 tokens
+
+TOTAL                                          ~7,000 tokens
+```
+
+### Token Budget Comparison
+
+| Section                                 | Current    | Target              | Change                                  |
+| --------------------------------------- | ---------- | ------------------- | --------------------------------------- |
+| Identity/Environment/Tone               | ~480       | ~150                | -330                                    |
+| Tool Routing (3 conflicting layers)     | ~950       | ~600                | -350 (unified)                          |
+| AskUserQuestion                         | ~460       | ~0                  | -460 (move to tool description)         |
+| Task Execution                          | ~500       | ~500                | 0                                       |
+| Orchestration/Delegation                | ~700       | ~450                | -250 (compress)                         |
+| Git (safety + commit + PR)              | ~750       | ~350                | -400 (compress)                         |
+| Code References + Formatting            | ~300       | ~300                | 0                                       |
+| Professional Objectivity + No Time Est. | ~250       | ~0                  | -250 (merge into behavioral)            |
+| **Project Guidance (LLM-generated)**    | **~1,509** | **~3,300**          | **+1,791**                              |
+| MCP Tool Docs (PTAH_SYSTEM_PROMPT)      | ~1,823     | ~0 in system prompt | -1,823 (move to execute_code tool desc) |
+| **Total**                               | **~7,000** | **~7,000**          | **net zero**                            |
+
+### Key Architectural Decisions
+
+**Decision 1: Move PTAH_SYSTEM_PROMPT entirely out of the system prompt.**
+The MCP tool documentation (~1,823 tokens) already appears in the `execute_code` tool description via `buildExecuteCodeDescription()`. Having it in both places is pure duplication. Remove it from `buildCombinedPrompt()` and keep it only in tool descriptions where Claude sees it on-demand when the tool is available.
+
+**Decision 2: Move AskUserQuestion to tool description.**
+The AskUserQuestion section (~460 tokens) is only relevant when the tool is called. Move the schema and rules into the `AskUserQuestion` tool's `description` field in the SDK configuration. The system prompt keeps a single line: "Use the AskUserQuestion tool for ALL user choices."
+
+**Decision 3: Unify tool routing into a single hierarchy.**
+Merge the three conflicting layers (PTAH_CORE "Tool Usage Policy", PTAH_CORE "MCP Tool Preference", PTAH_SYSTEM_PROMPT "Required Substitutions") into one section with clear priority rules.
+
+**Decision 4: Reframe execute_code as "IDE Access Tool".**
+Rename "Advanced: execute_code Tool" to "IDE Access via execute_code" and position it within the unified tool routing section, not buried as a "power-user fallback."
+
+**Decision 5: Project guidance moves to position 3 (primacy zone).**
+The premium, LLM-generated project-specific guidance is the most unique and valuable content. It moves right after tool routing so it lands in the primacy zone where attention is highest.
+
+---
+
+## 2. File-by-File Changes
+
+### File 1: `ptah-core-prompt.ts`
+
+**Path**: `libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts`
+
+**Action**: Rewrite PTAH_CORE_SYSTEM_PROMPT from ~3,665 tokens down to ~2,500 tokens.
+
+**New structure** (in order):
+
+#### Section 1: Identity & Environment (~150 tokens)
+
+Replace the current 4-bullet "Environment Context" and 5-line "Tone and Style" with:
+
+```
+# Ptah Extension - AI Assistant for VS Code
+
+You are an AI assistant in the Ptah VS Code Extension. You help developers through a rich webview with enhanced markdown rendering.
+
+**Rules:** No emojis unless asked. Keep responses concise using GitHub-flavored markdown. Never create files unnecessarily — prefer editing. Use tools for tasks; output text for communication. Never use a colon before tool calls.
+```
+
+This replaces: "Environment Context" (4 bullets), "Tone and Style" (5 bullets). Savings: ~330 tokens.
+
+#### Section 2: Unified Tool Routing (~600 tokens)
+
+Replace three conflicting sections with one. This section merges:
+
+- PTAH_CORE lines 184-203 ("Tool Usage Policy" + "Ptah MCP Tool Preference")
+- All of PTAH_SYSTEM_PROMPT's "Required Substitutions" table
+
+New content:
+
+```
+## Tool Routing
+
+### Priority 1: Ptah MCP Tools (when available)
+When ptah_* tools are in your tool list, ALWAYS prefer them:
+| Task | Tool |
+|------|------|
+| Workspace overview | ptah_workspace_analyze |
+| Find files | ptah_search_files |
+| TS/JS errors | ptah_get_diagnostics |
+| Symbol references | ptah_lsp_references |
+| Go to definition | ptah_lsp_definitions |
+| Unsaved files | ptah_get_dirty_files |
+| File token count | ptah_count_tokens |
+| Web search | ptah_web_search |
+
+### IDE Access via execute_code
+Use execute_code with the ptah global object for operations only available through the IDE:
+- **Code structure**: ptah.ast.analyze(file) — functions/classes/imports without reading full files (40-60% token savings)
+- **Dependencies**: ptah.dependencies.getDependencies(file) / getDependents(file)
+- **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
+- **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
+- **AI delegation**: ptah.ai.invokeAgent(agentPath, task, model) — delegate to cheap models
+- **Self-docs**: ptah.help() / ptah.help('namespace')
+
+### Priority 2: Built-in Tools
+Use Read, Edit, Write, Bash, Grep, Glob, Task when:
+- Writing files (ptah.files is read-only)
+- Running build/test commands (npm, nx, git)
+- Ptah tools unavailable or erroring
+
+### Priority 3: Task Tool (Subagents)
+Use Task tool with specialized agents for context-heavy exploration or multi-file implementation work.
+Parallelize independent tool calls. Use Task with subagent_type=Explore for codebase exploration.
+```
+
+This eliminates the "file search -> Task tool" vs "file search -> ptah.search.findFiles()" vs "file search -> ptah_search_files" conflict by establishing a clear 3-tier priority.
+
+#### Section 3: AskUserQuestion (compressed, ~50 tokens)
+
+Replace the 460-token AskUserQuestion section with:
+
+```
+## User Decisions
+Use the AskUserQuestion tool for ALL situations requiring user choices. Never present options as plain text. Include AskUserQuestion instructions when spawning subagents via Task.
+```
+
+The full schema, WRONG/CORRECT examples, and 4 rules move to the AskUserQuestion tool description (handled in SDK configuration, not in these 6 files — note in handoff).
+
+#### Section 4: Task Execution (~500 tokens)
+
+Keep the "Doing Tasks" section mostly as-is. Merge "Professional Objectivity" and "No Time Estimates" into it as compact rules:
+
+```
+## Doing Tasks
+
+Prioritize technical accuracy over validation. Disagree when necessary. Never give time estimates.
+
+[Keep existing bullet points for: read before proposing, security, avoid over-engineering, no backwards-compat hacks]
+```
+
+This saves ~250 tokens by eliminating two standalone sections with their headers and horizontal rules.
+
+#### Section 5: Orchestration & Delegation (~450 tokens)
+
+Compress the current ~700-token orchestration section:
+
+**Keep**: Task Type Detection table, Workflow Depth table (compress to single-line per row), agent table.
+**Remove**: "Orchestration Rules" numbered list (5 items, ~200 tokens). Replace with:
+
+```
+**Rules:** You orchestrate, not implement. Announce your plan. Validate Full workflows with user before coding. Verify after. Parallelize independent agents.
+```
+
+**Remove**: "When NOT to Orchestrate" (redundant — the Workflow Depth table's "Minimal" row covers it).
+
+#### Section 6: Git & PR (compressed, ~350 tokens)
+
+Replace 750 tokens across Git Safety Protocol + Commit Workflow + Important Git Notes + PR Workflow + PR Format with:
+
+```
+## Git & PR
+
+**Safety:** Never update git config. Never force push, reset --hard, checkout ., or skip hooks unless explicitly asked. Always create NEW commits (never amend unless asked). Stage specific files, not git add -A. Only commit when explicitly asked.
+
+**Commit workflow:** git status + git diff in parallel, follow repo's commit message style, draft "why" not "what", use HEREDOC, verify with git status after.
+
+**PRs:** Use gh CLI. Check all branch commits (not just latest). Title under 70 chars. Format: ## Summary + ## Test plan.
+```
+
+#### Section 7: Output Formatting (~300 tokens)
+
+Keep "Code References" and "Rich Formatting Guidelines" as-is — they're already compact and high-value for the webview rendering.
+
+**Remove**: All `---` horizontal rule separators between sections (they consume tokens and add no value for the model). Total savings: ~50 tokens from 11 separators.
+
+### File 2: `ptah-system-prompt.constant.ts`
+
+**Path**: `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-system-prompt.constant.ts`
+
+**Action**: Restructure PTAH_SYSTEM_PROMPT. Since it is no longer included in the system prompt (moved to tool descriptions only), optimize it for that context.
+
+**Changes**:
+
+1. **Remove "Required Substitutions" table** (lines 14-29). This routing is now handled by the unified tool routing section in PTAH_CORE. The remaining PTAH_SYSTEM_PROMPT content focuses purely on MCP tool reference docs.
+
+2. **Remove "DO NOT use Bash, Grep, or Glob" block** (lines 29-34). Redundant with unified routing.
+
+3. **Remove "Workflow: Start Every Task With Ptah"** (lines 104-111). This is redundant with tool routing and adds 100+ tokens of noise.
+
+4. **Remove the ptah.ast and ptah.context sections** (lines 64-93). These are now documented in the unified tool routing in PTAH_CORE and in the execute_code tool description.
+
+5. **Rename "Advanced: execute_code Tool" to "IDE Access via execute_code"** (line 94). Update the description to match the new framing: "For operations that require IDE integration or combine multiple API calls" instead of "power-user fallback."
+
+6. **Keep**: Tool Quick Reference (ptah_workspace_analyze through ptah_web_search), Multi-Agent Delegation section.
+
+7. **Estimated result**: ~1,200 tokens (down from ~1,823). This only appears in tool descriptions now, not the system prompt, so the system prompt savings are the full ~1,823 tokens.
+
+### File 3: `enhanced-prompts.service.ts`
+
+**Path**: `libs/backend/agent-sdk/src/lib/prompt-harness/enhanced-prompts/enhanced-prompts.service.ts`
+
+**Action**: Modify `buildCombinedPrompt()` and add prompt version hashing.
+
+#### Change 3a: Remove PTAH_SYSTEM_PROMPT from buildCombinedPrompt()
+
+In `buildCombinedPrompt()` (line 1242), remove the block that conditionally adds PTAH_SYSTEM_PROMPT:
 
 ```typescript
-// ---- Skills.sh Types (TASK_2025_204) ----
-
-/** A skill entry from skills.sh search results */
-export interface SkillShEntry {
-  /** Repository source, e.g. "vercel-labs/skills" */
-  source: string;
-  /** Skill identifier within the repo, e.g. "find-skills" */
-  skillId: string;
-  /** Human-readable display name */
-  name: string;
-  /** Short description of what the skill does */
-  description: string;
-  /** Number of installs (from skills.sh directory) */
-  installs: number;
-  /** Whether this skill is currently installed locally */
-  isInstalled: boolean;
-}
-
-/** An installed skill detected on disk */
-export interface InstalledSkill {
-  /** Display name from SKILL.md frontmatter */
-  name: string;
-  /** Repository source (owner/repo) or "local" */
-  source: string;
-  /** Absolute path to the skill directory */
-  path: string;
-  /** Installation scope */
-  scope: 'project' | 'global';
-}
-
-/** Result of workspace skill detection */
-export interface SkillDetectionResult {
-  /** Frameworks detected in the workspace */
-  frameworks: string[];
-  /** Languages detected */
-  languages: string[];
-  /** Build tools/runners detected */
-  tools: string[];
-  /** Recommended skills from skills.sh based on detection */
-  recommendedSkills: SkillShEntry[];
+// REMOVE this block (lines 1252-1261):
+if (sdkConfig?.isPremium && sdkConfig?.mcpServerRunning) {
+  sections.push('\n' + PTAH_SYSTEM_PROMPT);
+  ...
 }
 ```
 
----
+The MCP documentation is now only delivered via tool descriptions (execute*code tool description and individual ptah*\* tool descriptions). This eliminates duplication.
 
-## Backend RPC Handlers
+#### Change 3b: Move project guidance to position 2 (after PTAH_CORE)
 
-### New File: `apps/ptah-extension-vscode/src/services/rpc/handlers/skills-sh-rpc.handlers.ts`
-
-**Pattern**: Follows `AgentRpcHandlers` pattern exactly (Tier 3 handler).
+The `buildCombinedPrompt()` currently appends project guidance at the end. Restructure so project guidance comes immediately after PTAH_CORE_SYSTEM_PROMPT:
 
 ```typescript
-@injectable()
-export class SkillsShRpcHandlers {
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger, @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler) {}
+private buildCombinedPrompt(
+  output: PromptDesignerOutput,
+  sdkConfig?: EnhancedPromptsSdkConfig
+): string {
+  const sections: string[] = [];
 
-  register(): void {
-    this.registerSearch();
-    this.registerListInstalled();
-    this.registerInstall();
-    this.registerUninstall();
-    this.registerGetPopular();
-    this.registerDetectRecommended();
+  // 1. Core system prompt (identity, tool routing, tasks, git)
+  sections.push(PTAH_CORE_SYSTEM_PROMPT);
+
+  // 2. Project-specific guidance (primacy zone — right after core)
+  sections.push('\n## Project-Specific Guidance\n');
+  if (output.projectContext) {
+    sections.push(`### Project Context\n${output.projectContext}\n`);
   }
-  // ... handler methods below
-}
-```
-
-### RPC Method Specifications
-
-#### 1. `skillsSh:search`
-
-- **Purpose**: Search skills.sh directory for skills matching a query
-- **Input**: `{ query: string }`
-- **Output**: `{ skills: SkillShEntry[] }`
-- **CLI Command**: `npx skills search "<query>" --json` (if `--json` supported), otherwise parse stdout
-- **Parsing Strategy**: Run `npx skills search "<query>"` and parse the text output. The CLI returns results with name, description, install count. Parse each result line-by-line using regex patterns.
-- **Fallback**: If CLI not installed or fails, return empty array with `error` field
-- **Error Handling**: Catch spawn errors (ENOENT if npx not found), timeout after 15s, return `{ skills: [], error: string }`
-
-#### 2. `skillsSh:listInstalled`
-
-- **Purpose**: List all installed skills (both project-level and global)
-- **Input**: `void`
-- **Output**: `{ skills: InstalledSkill[] }`
-- **Implementation**: Scan filesystem directly (no CLI needed):
-  1. Project skills: Read `{workspaceRoot}/.claude/skills/` directory
-  2. Global skills: Read `~/.claude/skills/` directory
-  3. For each skill directory, read `SKILL.md` frontmatter for `name` and `description`
-  4. Determine `source` from directory structure (owner/repo pattern) or mark as "local"
-- **Error Handling**: If directories don't exist, return empty arrays
-
-#### 3. `skillsSh:install`
-
-- **Purpose**: Install a skill from skills.sh
-- **Input**: `{ source: string; skillId?: string; scope: 'project' | 'global' }`
-- **Output**: `{ success: boolean; error?: string }`
-- **CLI Command**:
-  - Full repo: `npx skills add <source>` (project) or `npx skills add <source> -g` (global)
-  - Specific skill: `npx skills add <source> --skill <skillId>`
-- **Working Directory**: Workspace root (for project-scope installs)
-- **Error Handling**: Parse stderr for error messages, timeout 30s, handle ENOENT (npx not found)
-- **Security**: Validate `source` matches `owner/repo` pattern (no shell injection)
-
-#### 4. `skillsSh:uninstall`
-
-- **Purpose**: Remove an installed skill
-- **Input**: `{ path: string; scope: 'project' | 'global' }`
-- **Output**: `{ success: boolean; error?: string }`
-- **Implementation**: Delete the skill directory from disk using `fs.rm(path, { recursive: true })`
-- **Security**: Validate `path` is within `.claude/skills/` (project or global) - reject any path outside these directories
-- **Error Handling**: Check directory exists before deletion
-
-#### 5. `skillsSh:getPopular`
-
-- **Purpose**: Get popular/trending skills for the browse experience
-- **Input**: `void`
-- **Output**: `{ skills: SkillShEntry[] }`
-- **Implementation**: Two-tier strategy:
-  1. **Try live**: Run `npx skills search "" --json` or `npx skills trending` to fetch popular skills
-  2. **Fallback**: Return curated embedded JSON with ~20 popular skills (hardcoded, updated periodically)
-- **Curated Fallback Data** (embedded in handler): Include well-known skills from repos like `vercel-labs/skills`, `anthropics/skills`, etc. with static install counts
-- **Cache**: Cache results in memory for 10 minutes to avoid repeated CLI calls
-
-#### 6. `skillsSh:detectRecommended`
-
-- **Purpose**: Detect workspace technologies and recommend relevant skills
-- **Input**: `void`
-- **Output**: `SkillDetectionResult`
-- **Implementation**:
-  1. Read workspace root for tech markers: `package.json` (detect frameworks/tools), `Cargo.toml`, `go.mod`, `requirements.txt`, `Gemfile`, `pom.xml`, etc.
-  2. Parse `package.json` dependencies for framework detection (react, angular, vue, next, express, nestjs, etc.)
-  3. Check for config files: `tailwind.config.*`, `tsconfig.json`, `.eslintrc.*`, `docker-compose.yml`, etc.
-  4. Map detected technologies to recommended skill keywords
-  5. For each keyword, check curated fallback data for matching skills
-- **Error Handling**: Return empty detection if workspace scanning fails
-
-### CLI Execution Utility
-
-Create a private helper method in the handler class:
-
-```typescript
-private async runSkillsCli(args: string[], cwd: string, timeout = 15000): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn('npx', ['skills', ...args], {
-      cwd,
-      shell: true, // Required on Windows for npx
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-      timeout,
-    });
-    // Collect stdout/stderr, resolve on close
-  });
-}
-```
-
-**Evidence for shell pattern**: `cli-adapter.utils.ts` `needsShellExecution()` pattern (documented in project memory) - Windows requires `shell: true` for npm-installed CLIs.
-
----
-
-## Frontend Components
-
-### Component 1: `SkillShBrowserComponent`
-
-**Location**: `libs/frontend/chat/src/lib/components/molecules/setup-plugins/skill-sh-browser.component.ts`
-
-**Pattern**: Follows `PluginBrowserModalComponent` (same directory) - signal-based state, `ClaudeRpcService` for backend calls, DaisyUI styling, `ChangeDetectionStrategy.OnPush`.
-
-**Purpose**: Combined inline view (not modal) showing installed skills + search/browse + install/uninstall.
-
-**State Signals**:
-
-```typescript
-readonly searchQuery = signal('');
-readonly searchResults = signal<SkillShEntry[]>([]);
-readonly installedSkills = signal<InstalledSkill[]>([]);
-readonly popularSkills = signal<SkillShEntry[]>([]);
-readonly recommendations = signal<SkillDetectionResult | null>(null);
-readonly isSearching = signal(false);
-readonly isLoadingInstalled = signal(false);
-readonly isLoadingPopular = signal(false);
-readonly installingSkillId = signal<string | null>(null); // tracks which skill is being installed
-readonly error = signal<string | null>(null);
-readonly activeView = signal<'browse' | 'installed'>('browse');
-```
-
-**Template Structure**:
-
-```
-<div class="space-y-3">
-  <!-- View Toggle: Browse | Installed (N) -->
-  <div class="tabs tabs-boxed tabs-xs">...</div>
-
-  <!-- Browse View -->
-  @if (activeView() === 'browse') {
-    <!-- Search Input -->
-    <input class="input input-bordered input-sm w-full" .../>
-
-    <!-- Recommendations Section (if no search query) -->
-    @if (!searchQuery() && recommendations()) {
-      <div class="text-xs text-base-content/60 mb-1">Recommended for your project</div>
-      <!-- Skill cards grid -->
-    }
-
-    <!-- Popular Skills (if no search query) -->
-    @if (!searchQuery()) {
-      <div class="text-xs text-base-content/60 mb-1">Popular Skills</div>
-      <!-- Skill cards grid -->
-    }
-
-    <!-- Search Results (if search query) -->
-    @if (searchQuery()) {
-      <!-- Skill cards grid -->
-    }
+  if (output.frameworkGuidelines) {
+    sections.push(`### Framework Guidelines\n${output.frameworkGuidelines}\n`);
+  }
+  if (output.codingStandards) {
+    sections.push(`### Coding Standards\n${output.codingStandards}\n`);
+  }
+  if (output.architectureNotes) {
+    sections.push(`### Architecture Notes\n${output.architectureNotes}\n`);
   }
 
-  <!-- Installed View -->
-  @if (activeView() === 'installed') {
-    <!-- Project Skills -->
-    <!-- Global Skills -->
-    <!-- Empty state if none -->
-  }
-</div>
-```
-
-**Skill Card Layout** (reusable `@for` block, not a separate component):
-
-```html
-<div class="flex items-start gap-2 p-2 rounded-lg border border-base-300 bg-base-200/30">
-  <div class="flex-1 min-w-0">
-    <div class="flex items-center gap-1.5">
-      <span class="text-xs font-medium">{{ skill.name }}</span>
-      <span class="badge badge-xs badge-ghost">{{ skill.installs }} installs</span>
-    </div>
-    <span class="text-[11px] text-base-content/60 line-clamp-2">{{ skill.description }}</span>
-    <span class="text-[10px] text-base-content/40 font-mono">{{ skill.source }}</span>
-  </div>
-  <!-- Install/Uninstall button -->
-  @if (skill.isInstalled) {
-  <button class="btn btn-ghost btn-xs text-error" (click)="uninstallSkill(skill)">Remove</button>
-  } @else {
-  <button class="btn btn-primary btn-xs" [disabled]="installingSkillId() === skill.skillId" (click)="installSkill(skill)">
-    @if (installingSkillId() === skill.skillId) {
-    <span class="loading loading-spinner loading-xs"></span>
-    } @else { Install }
-  </button>
-  }
-</div>
-```
-
-**Methods**:
-
-- `ngOnInit()`: Load installed skills + popular skills + recommendations in parallel
-- `onSearchInput(event)`: Debounced (300ms) search via `skillsSh:search` RPC
-- `installSkill(skill, scope)`: Call `skillsSh:install`, refresh installed list on success
-- `uninstallSkill(skill)`: Call `skillsSh:uninstall`, refresh installed list on success
-- `loadInstalled()`: Call `skillsSh:listInstalled`
-- `loadPopular()`: Call `skillsSh:getPopular`
-- `loadRecommendations()`: Call `skillsSh:detectRecommended`
-
-### Component 2: Settings Tab Integration
-
-**File**: `libs/frontend/chat/src/lib/settings/settings.component.html`
-
-**Change**: Replace the current Skills tab content (lines 232-281) to include both the existing Ptah plugins section AND the new skills.sh browser below it.
-
-**Updated Tab 4 content**:
-
-```html
-@if (activeSettingsTab() === 'ptah-skills') {
-<!-- Section 1: Ptah Plugins (Premium-only, existing) -->
-@if (isPremium()) {
-<div class="border border-base-300 rounded-md bg-base-200/50">
-  <div class="p-3">
-    <!-- existing Ptah Skills header + plugin-status-widget -->
-  </div>
-</div>
-<ptah-plugin-browser-modal ... />
-} @else {
-<!-- existing upsell block for non-premium -->
-}
-
-<!-- Section 2: Community Skills (skills.sh) - Available to ALL users -->
-<div class="border border-base-300 rounded-md bg-base-200/50">
-  <div class="p-3">
-    <div class="flex items-center gap-1.5 mb-2">
-      <lucide-angular [img]="DownloadIcon" class="w-4 h-4 text-secondary" />
-      <h2 class="text-xs font-medium uppercase tracking-wide">Community Skills</h2>
-      <span class="badge badge-secondary badge-xs ml-auto">Open</span>
-    </div>
-    <p class="text-xs text-base-content/70 mb-3">Browse and install community skills from skills.sh — the open agent skills ecosystem.</p>
-    <ptah-skill-sh-browser />
-  </div>
-</div>
+  return sections.join('\n');
 }
 ```
 
-**Key decision**: Skills.sh section is NOT premium-gated (per user requirement). It appears below the Ptah plugins section for all users.
+#### Change 3c: Add prompt version to cache dependency hash
 
-### Settings Component Changes
+Add a `PROMPT_VERSION` constant that changes whenever PTAH_CORE_SYSTEM_PROMPT is modified. Include it in the dependency hash to invalidate cached prompts when prompt constants change.
 
-**File**: `libs/frontend/chat/src/lib/settings/settings.component.ts`
-
-- Add import: `SkillShBrowserComponent`
-- Add import: `Download` icon from `lucide-angular`
-- Add to `imports` array: `SkillShBrowserComponent`
-- Add icon reference: `readonly DownloadIcon = Download;`
-- Remove Lock icon from Skills tab header (no longer premium-only since community skills are free)
-
----
-
-## RPC Type Registry Updates
-
-### File: `libs/shared/src/lib/types/rpc.types.ts`
-
-#### 1. Add types at top (near other domain type sections)
-
-Add the `SkillShEntry`, `InstalledSkill`, and `SkillDetectionResult` interfaces as defined in the Data Models section above.
-
-#### 2. Add to `RpcMethodRegistry` interface
+In `enhanced-prompts.service.ts`, after the imports, add:
 
 ```typescript
-// ---- Skills.sh Methods (TASK_2025_204) ----
-'skillsSh:search': {
-  params: { query: string };
-  result: { skills: SkillShEntry[]; error?: string };
-};
-'skillsSh:listInstalled': {
-  params: void;
-  result: { skills: InstalledSkill[] };
-};
-'skillsSh:install': {
-  params: { source: string; skillId?: string; scope: 'project' | 'global' };
-  result: { success: boolean; error?: string };
-};
-'skillsSh:uninstall': {
-  params: { path: string; scope: 'project' | 'global' };
-  result: { success: boolean; error?: string };
-};
-'skillsSh:getPopular': {
-  params: void;
-  result: { skills: SkillShEntry[] };
-};
-'skillsSh:detectRecommended': {
-  params: void;
-  result: SkillDetectionResult;
+import { PTAH_CORE_SYSTEM_PROMPT_TOKENS } from '../ptah-core-prompt';
+```
+
+Modify the `computeDependencyHash` call in `runWizard()` to include prompt tokens as a version signal. Specifically, when computing the configHash (line 466), append the prompt token count:
+
+```typescript
+// Step 6: Compute dependency hash for cache validation
+// Include prompt token count as version signal — if PTAH_CORE_SYSTEM_PROMPT changes,
+// the token count changes, invalidating the cache
+const baseHash = await this.cacheService.computeDependencyHash(workspacePath);
+const configHash = baseHash ? `${baseHash}:pt${PTAH_CORE_SYSTEM_PROMPT_TOKENS}` : null;
+```
+
+This is lightweight — no new hashing infrastructure needed. If the prompt constant is edited, the token count estimate changes, which changes the composite hash, which invalidates the cache.
+
+#### Change 3d: Remove PTAH_SYSTEM_PROMPT import
+
+Remove `import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';` (line 53) since it is no longer used in this file.
+
+### File 4: `enhanced-prompts.types.ts`
+
+**Path**: `libs/backend/agent-sdk/src/lib/prompt-harness/enhanced-prompts/enhanced-prompts.types.ts`
+
+**Action**: Increase maxTokens default.
+
+Change `DEFAULT_ENHANCED_PROMPTS_CONFIG`:
+
+```typescript
+export const DEFAULT_ENHANCED_PROMPTS_CONFIG: EnhancedPromptsConfig = {
+  includeStyleGuidelines: true,
+  includeTerminology: true,
+  includeArchitecturePatterns: true,
+  includeTestingGuidelines: true,
+  maxTokens: 4000, // was 2000 — increased to fill reclaimed budget
 };
 ```
 
-#### 3. Add to `RPC_METHOD_NAMES` array
+Rationale: The compressed PTAH_CORE saves ~1,165 tokens. The removed PTAH_SYSTEM_PROMPT from the system prompt saves ~1,823 tokens. The project guidance budget expands from ~1,509 to ~3,300. Setting maxTokens to 4000 gives the LLM generator room to produce up to 4000 tokens, with the final assembled prompt still fitting within ~7,000 total (PTAH_CORE ~2,500 + guidance ~4,000 = ~6,500, with headroom).
 
-```typescript
-// Skills.sh Methods (TASK_2025_204)
-'skillsSh:search',
-'skillsSh:listInstalled',
-'skillsSh:install',
-'skillsSh:uninstall',
-'skillsSh:getPopular',
-'skillsSh:detectRecommended',
+### File 5: `tool-description.builder.ts`
+
+**Path**: `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-handlers/tool-description.builder.ts`
+
+**Action**: Update `buildExecuteCodeDescription()` to reflect the restructured PTAH_SYSTEM_PROMPT.
+
+The function at line 496 currently embeds the full `PTAH_SYSTEM_PROMPT` in the execute_code tool description. After the PTAH_SYSTEM_PROMPT restructuring (File 2 changes), this will automatically pick up the leaner version (~1,200 tokens instead of ~1,823).
+
+**Additional change**: Update the framing text at line 497:
+
+Replace:
+
 ```
+Execute TypeScript/JavaScript code with access to VS Code extension APIs via the global "ptah" object.
+```
+
+With:
+
+```
+IDE access tool — execute TypeScript/JavaScript code with access to VS Code APIs via the global "ptah" object. Use this for code structure analysis (AST), dependency graphs, LSP operations, and multi-step API workflows.
+```
+
+This aligns with the "IDE Access" reframing (Issue 2).
+
+### File 6: `system-namespace.builders.ts`
+
+**Path**: `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts`
+
+**Action**: Update HELP_DOCS overview to match new framing.
+
+In `HELP_DOCS.overview` (line 40), update:
+
+Replace:
+
+```
+Ptah MCP Server - 16 Namespaces:
+```
+
+With:
+
+```
+Ptah IDE Access - 17 Namespaces:
+```
+
+No other changes needed to this file. The HELP_DOCS entries are self-documentation for `ptah.help()` and are already well-structured.
 
 ---
 
-## Curated Popular Skills Fallback Data
+## 3. Cache Invalidation Fix (Issue 5)
 
-Embed in the handler class as a constant (updated periodically with releases):
+### Problem
+
+`PTAH_SYSTEM_PROMPT` and `PTAH_CORE_SYSTEM_PROMPT` are hard-concatenated into the cached `generatedPrompt` string in `buildCombinedPrompt()`. The cache key is `computeDependencyHash()` which only hashes `package.json` contents. When a developer updates the prompt constants and rebuilds, existing cached prompts still contain the old constant text.
+
+### Solution: Composite Hash with Prompt Token Count
+
+**Approach**: Include `PTAH_CORE_SYSTEM_PROMPT_TOKENS` in the cache key computation.
+
+**Why token count instead of a full hash**: The `PTAH_CORE_SYSTEM_PROMPT_TOKENS` constant is already computed at module load time (`Math.ceil(PTAH_CORE_SYSTEM_PROMPT.length / 4)`). Any meaningful change to the prompt will change its character count, which changes the token estimate. This avoids importing a crypto hash function.
+
+**Implementation** (in `enhanced-prompts.service.ts`):
 
 ```typescript
-const CURATED_POPULAR_SKILLS: SkillShEntry[] = [
-  { source: 'vercel-labs/skills', skillId: 'find-skills', name: 'Find Skills', description: 'Search and install skills from the skills.sh directory', installs: 50000, isInstalled: false },
-  { source: 'vercel-labs/skills', skillId: 'next-app-router', name: 'Next.js App Router', description: 'Best practices for Next.js App Router development', installs: 35000, isInstalled: false },
-  { source: 'vercel-labs/skills', skillId: 'react-best-practices', name: 'React Best Practices', description: 'Modern React patterns with hooks and server components', installs: 28000, isInstalled: false },
-  { source: 'anthropics/skills', skillId: 'testing', name: 'Testing', description: 'Write comprehensive tests with best practices', installs: 22000, isInstalled: false },
-  { source: 'anthropics/skills', skillId: 'code-review', name: 'Code Review', description: 'Thorough code review with actionable feedback', installs: 20000, isInstalled: false },
-  // ... ~15 more entries covering TypeScript, Python, Rust, Go, Docker, etc.
-];
+// In runWizard(), replace line 466:
+const configHash = await this.cacheService.computeDependencyHash(workspacePath);
+
+// With:
+const baseHash = await this.cacheService.computeDependencyHash(workspacePath);
+const configHash = baseHash ? `${baseHash}:pt${PTAH_CORE_SYSTEM_PROMPT_TOKENS}` : null;
 ```
 
-The developer implementing this should visit `skills.sh` and populate with the actual top ~20 skills at implementation time.
+**Why this works**:
+
+- If `PTAH_CORE_SYSTEM_PROMPT` changes, `PTAH_CORE_SYSTEM_PROMPT_TOKENS` changes (it's derived from `.length`).
+- The composite hash `"<pkg-hash>:pt<token-count>"` will differ from the stored `configHash`.
+- `getStatus()` compares `state.configHash === dependencyHash` — the mismatch triggers "Project configuration changed".
+- No changes needed to `PromptCacheService` itself.
+
+**PTAH_SYSTEM_PROMPT staleness is automatically resolved**: After Change 3a, `PTAH_SYSTEM_PROMPT` is no longer concatenated into the cached prompt. It is only used in tool descriptions which are not cached.
+
+### Also: Bump CACHE_CONFIG_VERSION
+
+In `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/cache-invalidation.ts`, bump:
+
+```typescript
+export const CACHE_CONFIG_VERSION = '2.0.0'; // was '1.0.0'
+```
+
+This forces a full cache clear for all users on upgrade, ensuring no one runs with stale prompts after this restructuring.
 
 ---
 
-## DI & Registration Wiring
+## 4. Config Changes
 
-### File: `apps/ptah-extension-vscode/src/services/rpc/handlers/index.ts`
+### enhanced-prompts.types.ts
 
-Add export:
+| Field       | Old Value | New Value | Rationale                                                                                   |
+| ----------- | --------- | --------- | ------------------------------------------------------------------------------------------- |
+| `maxTokens` | 2000      | 4000      | Reclaimed ~1,800 tokens from PTAH_SYSTEM_PROMPT removal + ~1,165 from PTAH_CORE compression |
 
-```typescript
-export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
-```
+### cache-invalidation.ts
 
-### File: `apps/ptah-extension-vscode/src/di/container.ts`
+| Field                  | Old Value | New Value | Rationale                                         |
+| ---------------------- | --------- | --------- | ------------------------------------------------- |
+| `CACHE_CONFIG_VERSION` | `'1.0.0'` | `'2.0.0'` | Force cache invalidation for all users on upgrade |
 
-1. Add import: `SkillsShRpcHandlers`
-2. Add singleton registration: `container.registerSingleton(SkillsShRpcHandlers);`
-3. Add to `RpcMethodRegistrationService` factory: `c.resolve(SkillsShRpcHandlers)`
+### No new config fields needed.
 
-### File: `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts`
-
-1. Add import: `SkillsShRpcHandlers` (from `./handlers`)
-2. Add constructor parameter: `private readonly skillsShHandlers: SkillsShRpcHandlers`
-3. Add to `registerAll()`: `this.skillsShHandlers.register();`
+The conditional loading strategy (Issue 6) is achieved through architectural changes (moving content to tool descriptions) rather than new configuration — keeping it simple.
 
 ---
 
-## Files Affected Summary
+## 5. Risk Assessment
 
-### CREATE (4 files)
+### What Could Break
 
-| File                                                                                          | Purpose                                           |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/skills-sh-rpc.handlers.ts`              | Backend RPC handlers for skills.sh CLI operations |
-| `libs/frontend/chat/src/lib/components/molecules/setup-plugins/skill-sh-browser.component.ts` | Frontend skills browser component                 |
+| Risk                                                                                                | Severity | Mitigation                                                                                                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Claude stops using ptah MCP tools** because routing moved from system prompt to tool descriptions | HIGH     | The unified tool routing section in PTAH_CORE still contains the ptah tool preference table. The tool descriptions themselves contain detailed API docs. Test by running a session and verifying ptah_search_files is preferred over Glob. |
+| **AskUserQuestion stops being used** because schema removed from system prompt                      | MEDIUM   | Keep a one-line reminder in system prompt. The SDK already puts tool schemas in the tool list. Test by asking Claude to make a choice and verifying it uses the tool.                                                                      |
+| **Cached prompts become stale for existing users**                                                  | LOW      | CACHE_CONFIG_VERSION bump forces full cache invalidation. Users will auto-regenerate on next session.                                                                                                                                      |
+| **Project guidance truncation persists** if LLM generator doesn't use the new 4000-token budget     | LOW      | The PromptDesignerAgent receives `tokenBudget` from config. Increasing maxTokens to 4000 is sufficient. Verify by checking generated prompt length after regeneration.                                                                     |
+| **execute_code tool description becomes too long** with full PTAH_SYSTEM_PROMPT embedded            | LOW      | After PTAH_SYSTEM_PROMPT compression (File 2), it drops from ~1,823 to ~1,200 tokens. The tool description was already long; this makes it shorter.                                                                                        |
+| **getProjectGuidanceContent() extraction breaks** because project guidance moves position           | LOW      | The method searches for `'## Project-Specific Guidance'` marker (line 650). This marker is preserved in the new structure. No change needed.                                                                                               |
 
-### MODIFY (6 files)
+### Verification Checklist
 
-| File                                                                             | Change                                                                                                                |
-| -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `libs/shared/src/lib/types/rpc.types.ts`                                         | Add SkillShEntry, InstalledSkill, SkillDetectionResult types + RPC method registry entries + RPC_METHOD_NAMES entries |
-| `apps/ptah-extension-vscode/src/services/rpc/handlers/index.ts`                  | Export SkillsShRpcHandlers                                                                                            |
-| `apps/ptah-extension-vscode/src/di/container.ts`                                 | Register SkillsShRpcHandlers singleton + wire into RpcMethodRegistrationService                                       |
-| `apps/ptah-extension-vscode/src/services/rpc/rpc-method-registration.service.ts` | Add SkillsShRpcHandlers parameter + call register()                                                                   |
-| `libs/frontend/chat/src/lib/settings/settings.component.ts`                      | Import SkillShBrowserComponent, add Download icon                                                                     |
-| `libs/frontend/chat/src/lib/settings/settings.component.html`                    | Restructure Skills tab: Ptah plugins at top (premium) + Community Skills below (all users)                            |
+1. **Token counts**: After changes, measure actual token counts of PTAH_CORE_SYSTEM_PROMPT and a full assembled prompt. Verify PTAH_CORE is ~2,500 tokens and total is ~6,500-7,000.
+2. **Tool routing**: Start a new session with MCP enabled. Ask "find all TypeScript files." Verify Claude uses ptah_search_files, not Glob or Bash find.
+3. **execute_code framing**: Ask Claude to analyze a file's structure. Verify it uses `execute_code` with `ptah.ast.analyze()` without hesitation.
+4. **Cache invalidation**: Edit PTAH_CORE_SYSTEM_PROMPT (add a comment). Verify the next session detects cache staleness.
+5. **Project guidance**: Run the setup wizard. Verify the generated prompt's project guidance section is longer than before (~3,000+ tokens vs ~1,500).
+6. **AskUserQuestion**: Ask Claude a question that requires a choice. Verify it uses the AskUserQuestion tool.
+7. **getProjectGuidanceContent()**: Verify CLI agent delegation still extracts project guidance correctly (used by ptah_agent_spawn to pass project context to CLI agents).
+
+---
+
+## 6. Header Count Reduction (Issue 7)
+
+### Current State
+
+59 markdown headers across the assembled prompt (1 header every ~8 lines).
+
+### Target
+
+Reduce to ~25 headers by:
+
+1. **Eliminating standalone 2-line sections**: "Professional Objectivity", "No Time Estimates" become bullet points under "Doing Tasks". (-2 headers)
+2. **Removing horizontal rules**: 11 `---` separators between sections removed. These serve no purpose for the model. (-0 headers, but reduces visual fragmentation)
+3. **Merging Git subsections**: "Git Safety Protocol", "Commit Workflow", "Important Git Notes", "PR Workflow", "PR Format" become a single "Git & PR" section. (-4 headers)
+4. **Removing AskUserQuestion subsections**: "Tool Schema", "WRONG", "CORRECT", "Rules" all move to tool description. (-4 headers)
+5. **Merging Tool Usage subsections**: "Tool Usage Policy", "Ptah MCP Tool Preference" merge into unified "Tool Routing". (-1 header)
+6. **Removing PTAH_SYSTEM_PROMPT from system prompt**: Eliminates ~15 headers from MCP docs. (-15 headers)
+7. **Compressing Orchestration subsections**: "Task Type Detection", "Workflow Depth Selection", "Delegation to Specialist Agents", "Orchestration Rules", "When NOT to Orchestrate" become a single "Orchestration" section with inline tables. (-4 headers)
+
+**Estimated result**: ~25-30 headers (down from 59).
 
 ---
 
@@ -465,45 +478,39 @@ export { SkillsShRpcHandlers } from './skills-sh-rpc.handlers';
 
 ### Developer Type Recommendation
 
-**Recommended Developer**: Both backend-developer AND frontend-developer (can be sequential by one fullstack developer)
+**Recommended Developer**: backend-developer
 
-**Rationale**:
-
-- Backend: Node.js child_process spawning, filesystem scanning, SKILL.md frontmatter parsing
-- Frontend: Angular component with signals, DaisyUI styling, RPC integration
+**Rationale**: All 6 files are TypeScript constants and services in backend libraries. No UI/frontend work. The changes are primarily string constant rewrites and service method modifications.
 
 ### Complexity Assessment
 
 **Complexity**: MEDIUM
-**Estimated Effort**: 6-10 hours
+**Estimated Files**: 6 files modified, 0 created
 
-**Breakdown**:
+### Critical Verification Points
 
-- Shared types (rpc.types.ts): 30 min
-- Backend handler (skills-sh-rpc.handlers.ts): 3-4 hours (CLI integration, parsing, filesystem scanning, fallback data)
-- DI wiring (container.ts, registration service, index.ts): 30 min
-- Frontend component (skill-sh-browser.component.ts): 2-3 hours (browse/installed views, search, install/uninstall UI)
-- Settings integration (settings.component.ts/html): 30 min
-- Testing: 1-2 hours
+1. `PTAH_CORE_SYSTEM_PROMPT` token count must be verified after rewrite (~2,500 target)
+2. `buildCombinedPrompt()` must preserve the `## Project-Specific Guidance` marker for `getProjectGuidanceContent()` extraction
+3. `buildExecuteCodeDescription()` must still embed PTAH_SYSTEM_PROMPT (now leaner)
+4. The PTAH_SYSTEM_PROMPT import must be removed from `enhanced-prompts.service.ts` but NOT from `tool-description.builder.ts` or `sdk-query-options-builder.ts`
+5. `sdk-query-options-builder.ts` also imports PTAH_SYSTEM_PROMPT — check if it needs updates (it may inject PTAH_SYSTEM_PROMPT for non-enhanced-prompt sessions; if so, that injection point should also be reviewed for the same architectural changes)
 
-### Critical Implementation Notes
+### Files Affected Summary
 
-1. **Windows CLI spawning**: Use `shell: true` for `npx` commands on Windows. Set `FORCE_COLOR: '0'`, `NO_COLOR: '1'` env vars to prevent ANSI escape codes in output.
-2. **CLI output parsing**: The `npx skills search` output format may change between versions. Implement defensive parsing with try/catch. If JSON mode (`--json`) is available, prefer it.
-3. **SKILL.md frontmatter**: Use simple regex to parse YAML frontmatter (`---\nname: ...\ndescription: ...\n---`). Do not add a YAML parsing dependency.
-4. **Security - path validation**: The `skillsSh:uninstall` handler MUST validate that the provided `path` is within `.claude/skills/` (either project or global). Reject paths containing `..` or pointing outside these directories.
-5. **Security - source validation**: The `skillsSh:install` handler MUST validate `source` matches `^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$` pattern to prevent shell injection.
-6. **Debounce search**: Frontend should debounce search input by 300ms to avoid excessive CLI invocations.
-7. **Cache popular skills**: Cache `getPopular` results for 10 minutes in the handler instance (simple `Map` with timestamp).
+**MODIFY**:
 
-### Architecture Delivery Checklist
+- `libs/backend/agent-sdk/src/lib/prompt-harness/ptah-core-prompt.ts` (rewrite constant)
+- `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-system-prompt.constant.ts` (restructure constant)
+- `libs/backend/agent-sdk/src/lib/prompt-harness/enhanced-prompts/enhanced-prompts.service.ts` (modify buildCombinedPrompt, add version hash)
+- `libs/backend/agent-sdk/src/lib/prompt-harness/enhanced-prompts/enhanced-prompts.types.ts` (increase maxTokens)
+- `libs/backend/vscode-lm-tools/src/lib/code-execution/mcp-handlers/tool-description.builder.ts` (update framing text)
+- `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/system-namespace.builders.ts` (update help overview)
+- `libs/backend/agent-sdk/src/lib/prompt-harness/prompt-designer/cache-invalidation.ts` (bump version)
 
-- [x] All components specified with codebase evidence
-- [x] All patterns verified from existing handlers (AgentRpcHandlers, PluginBrowserModalComponent)
-- [x] All imports/decorators verified as existing (@injectable, @inject, TOKENS.LOGGER, TOKENS.RPC_HANDLER)
-- [x] Quality requirements defined (security validation, error handling, caching)
-- [x] Integration points documented (DI container, RPC registration service, settings component)
-- [x] Files affected list complete (2 create, 6 modify)
-- [x] Developer type recommended (fullstack)
-- [x] Complexity assessed (MEDIUM, 6-10 hours)
-- [x] Premium gating clarified: skills.sh = all users, Ptah plugins = premium-only
+### Dependency Note: sdk-query-options-builder.ts
+
+The file `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` imports both `PTAH_CORE_SYSTEM_PROMPT` (line 48) and `PTAH_SYSTEM_PROMPT` (line 49). This file builds query options for NON-enhanced-prompt sessions (when the user hasn't run the setup wizard). It likely concatenates these same constants for the base case. The developer should verify this file's behavior and ensure:
+
+- Non-enhanced sessions also benefit from the restructured prompts
+- PTAH_SYSTEM_PROMPT is NOT concatenated into the system prompt in this path either (it should only appear in tool descriptions)
+- If this file does concatenate PTAH_SYSTEM_PROMPT into system prompt, apply the same removal pattern

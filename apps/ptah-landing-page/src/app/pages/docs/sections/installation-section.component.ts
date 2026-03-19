@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ViewportAnimationDirective,
@@ -9,10 +9,10 @@ import {
   Download,
   UserPlus,
   Sparkles,
-  Play,
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
+import { DocsVideoPlayerComponent } from '../components/docs-video-player.component';
 
 @Component({
   selector: 'ptah-docs-installation',
@@ -22,6 +22,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     LucideAngularModule,
     DocsStepCardComponent,
     DocsSectionShellComponent,
+    DocsVideoPlayerComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="installation">
@@ -96,35 +97,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       </div>
 
       <ng-container media>
-        <div
-          class="group relative cursor-pointer"
-          (click)="toggleVideo($event)"
-        >
-          <video
-            muted
-            loop
-            playsinline
-            preload="metadata"
-            class="w-full rounded-xl border border-secondary/10 shadow-2xl"
-          >
-            <source src="assets/videos/install.mp4" type="video/mp4" />
-          </video>
-          <div
-            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/30 transition-opacity duration-300 pointer-events-none"
-            [class.opacity-0]="isPlaying()"
-            [class.opacity-100]="!isPlaying()"
-          >
-            <div
-              class="w-20 h-20 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center shadow-xl"
-            >
-              <lucide-icon
-                [img]="PlayIcon"
-                class="w-10 h-10 text-slate-900 ml-1"
-                [size]="40"
-              />
-            </div>
-          </div>
-        </div>
+        <ptah-docs-video-player src="assets/videos/install.mp4" />
       </ng-container>
     </ptah-docs-section-shell>
   `,
@@ -141,7 +114,6 @@ export class InstallationSectionComponent {
   public readonly DownloadIcon = Download;
   public readonly UserPlusIcon = UserPlus;
   public readonly SparklesIcon = Sparkles;
-  public readonly PlayIcon = Play;
 
   public readonly headingConfig: ViewportAnimationConfig = {
     animation: 'slideUp',
@@ -162,19 +134,4 @@ export class InstallationSectionComponent {
     delay: 0.2,
     threshold: 0.2,
   };
-
-  public readonly isPlaying = signal(false);
-
-  public toggleVideo(event: MouseEvent): void {
-    const container = event.currentTarget as HTMLElement;
-    const video = container.querySelector('video');
-    if (!video) return;
-    if (video.paused) {
-      video.play();
-      this.isPlaying.set(true);
-    } else {
-      video.pause();
-      this.isPlaying.set(false);
-    }
-  }
 }

@@ -19,20 +19,32 @@ import { SdkModuleLoader } from './sdk-module-loader';
 /**
  * Fallback models when SDK call fails
  */
+/**
+ * Fallback models using SDK tier names (not hardcoded model IDs).
+ * The SDK resolves tier names to the latest model version at runtime.
+ * Only used when the SDK's supportedModels() API call fails.
+ */
+/**
+ * Fallback models using SDK tier names (not hardcoded model IDs).
+ * The SDK resolves tier names to the latest model version at runtime.
+ * Using explicit tiers (opus/sonnet/haiku) instead of "default" so the
+ * user always knows exactly which tier they're on — no silent changes
+ * when Anthropic remaps "default" to a different tier.
+ */
 const FALLBACK_MODELS: ModelInfo[] = [
   {
-    value: 'claude-opus-4-6-20250623',
-    displayName: 'Claude Opus 4.6',
+    value: 'opus',
+    displayName: 'Opus',
     description: 'Most capable for complex work',
   },
   {
-    value: 'claude-sonnet-4-5-20250929',
-    displayName: 'Claude Sonnet 4.5',
+    value: 'sonnet',
+    displayName: 'Sonnet',
     description: 'Best for everyday tasks',
   },
   {
-    value: 'claude-haiku-4-5-20251001',
-    displayName: 'Claude Haiku 4.5',
+    value: 'haiku',
+    displayName: 'Haiku',
     description: 'Fastest for quick answers',
   },
 ];
@@ -117,7 +129,7 @@ export class SdkModelService {
    */
   async getDefaultModel(): Promise<string> {
     const models = await this.getSupportedModels();
-    return models[0]?.value || 'claude-opus-4-6-20250623';
+    return models[0]?.value || 'sonnet';
   }
 
   /**

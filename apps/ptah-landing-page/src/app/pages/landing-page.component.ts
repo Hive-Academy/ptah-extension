@@ -6,7 +6,7 @@ import { CTASectionComponent } from '../sections/cta/cta-section.component';
 import { FooterComponent } from '../components/footer.component';
 import { FeaturesHijackedScrollComponent } from '../sections/features/features-hijacked-scroll.component';
 import { HeroComponent } from '../sections/hero/hero.component';
-import { PremiumShowcaseScrollComponent } from '../sections/premium-showcase/premium-showcase-scroll.component';
+import { PremiumShowcaseScrollV2Component } from '../sections/premium-showcase/premium-showcase-scroll-v2.component';
 
 /**
  * LandingPageComponent - Root page component that composes all landing page sections
@@ -75,7 +75,7 @@ import { PremiumShowcaseScrollComponent } from '../sections/premium-showcase/pre
     CommonModule,
     NavigationComponent,
     HeroComponent,
-    PremiumShowcaseScrollComponent,
+    PremiumShowcaseScrollV2Component,
     FeaturesHijackedScrollComponent,
     ComparisonSectionComponent,
     CTASectionComponent,
@@ -91,7 +91,7 @@ import { PremiumShowcaseScrollComponent } from '../sections/premium-showcase/pre
         <ptah-hero />
 
         <section id="premium-showcase" aria-label="Why Ptah">
-          <ptah-premium-showcase-scroll />
+          <ptah-premium-showcase-scroll-v2 />
         </section>
 
         <section id="features" aria-label="Features">

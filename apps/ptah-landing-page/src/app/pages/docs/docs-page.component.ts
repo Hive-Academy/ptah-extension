@@ -27,6 +27,8 @@ import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
+import { DocsVideoModalComponent } from './components/docs-video-modal.component';
+import { DocsVideoModalService } from './services/docs-video-modal.service';
 
 @Component({
   selector: 'ptah-docs-page',
@@ -46,7 +48,9 @@ import {
     OrchestrationSectionComponent,
     FooterComponent,
     ViewportAnimationDirective,
+    DocsVideoModalComponent,
   ],
+  providers: [DocsVideoModalService],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
       <ptah-navigation />
@@ -198,6 +202,8 @@ import {
       </main>
 
       <ptah-footer />
+
+      <ptah-docs-video-modal />
     </div>
   `,
   styles: [

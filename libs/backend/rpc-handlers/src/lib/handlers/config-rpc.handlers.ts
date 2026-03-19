@@ -303,7 +303,7 @@ export class ConfigRpcHandlers {
           // Get saved model preference
           const savedModel = this.configManager.getWithDefault<string>(
             'model.selected',
-            'claude-opus-4-6-20250623'
+            'sonnet'
           );
 
           // Fetch models dynamically from SDK
