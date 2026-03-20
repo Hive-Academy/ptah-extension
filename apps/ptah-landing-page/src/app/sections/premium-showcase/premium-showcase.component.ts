@@ -1,15 +1,8 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  signal,
-  afterNextRender,
-  inject,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
   ScrollTimelineComponent,
   HijackedScrollItemDirective,
-  GsapCoreService,
 } from '@hive-academy/angular-gsap';
 import {
   LucideAngularModule,
@@ -19,7 +12,7 @@ import {
 } from 'lucide-angular';
 
 @Component({
-  selector: 'ptah-premium-showcase-scroll-v2',
+  selector: 'ptah-premium-showcase',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterLink,
@@ -91,17 +84,17 @@ import {
         [fadeIn]="true"
         [scale]="true"
       >
-        <div class="h-screen w-screen relative overflow-hidden">
-          <!-- Full-bleed background image -->
-          <div class="absolute inset-0" aria-hidden="true">
+        <div class="h-screen w-screen relative overflow-hidden bg-slate-950">
+          <!-- Image fills right half only -->
+          <div class="absolute inset-y-0 right-0 w-1/2" aria-hidden="true">
             <img
               src="/assets/images/showcase/panel-orchestration.png"
               alt=""
               class="w-full h-full object-cover"
             />
-            <div class="absolute inset-0 bg-slate-950/70"></div>
+            <div class="absolute inset-0 bg-slate-950/40"></div>
             <div
-              class="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-transparent"
+              class="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/50 to-transparent"
             ></div>
           </div>
 
@@ -206,16 +199,17 @@ import {
         [fadeIn]="true"
         [scale]="true"
       >
-        <div class="h-screen w-screen relative overflow-hidden">
-          <div class="absolute inset-0" aria-hidden="true">
+        <div class="h-screen w-screen relative overflow-hidden bg-slate-950">
+          <!-- Image fills left half only -->
+          <div class="absolute inset-y-0 left-0 w-1/2" aria-hidden="true">
             <img
               src="/assets/images/showcase/panel-plugins.png"
               alt=""
               class="w-full h-full object-cover"
             />
-            <div class="absolute inset-0 bg-slate-950/70"></div>
+            <div class="absolute inset-0 bg-slate-950/40"></div>
             <div
-              class="absolute inset-0 bg-gradient-to-l from-slate-950 via-slate-950/80 to-transparent"
+              class="absolute inset-0 bg-gradient-to-l from-slate-950 via-slate-950/50 to-transparent"
             ></div>
           </div>
 
@@ -318,16 +312,17 @@ import {
         [fadeIn]="true"
         [scale]="true"
       >
-        <div class="h-screen w-screen relative overflow-hidden">
-          <div class="absolute inset-0" aria-hidden="true">
+        <div class="h-screen w-screen relative overflow-hidden bg-slate-950">
+          <!-- Image fills right half only -->
+          <div class="absolute inset-y-0 right-0 w-1/2" aria-hidden="true">
             <img
               src="/assets/images/showcase/panel-providers.png"
               alt=""
               class="w-full h-full object-cover"
             />
-            <div class="absolute inset-0 bg-slate-950/70"></div>
+            <div class="absolute inset-0 bg-slate-950/40"></div>
             <div
-              class="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-transparent"
+              class="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/50 to-transparent"
             ></div>
           </div>
 
@@ -428,16 +423,17 @@ import {
         [fadeIn]="true"
         [scale]="true"
       >
-        <div class="h-screen w-screen relative overflow-hidden">
-          <div class="absolute inset-0" aria-hidden="true">
+        <div class="h-screen w-screen relative overflow-hidden bg-slate-950">
+          <!-- Image fills left half only -->
+          <div class="absolute inset-y-0 left-0 w-1/2" aria-hidden="true">
             <img
               src="/assets/images/showcase/panel-setup-wizard.png"
               alt=""
               class="w-full h-full object-cover"
             />
-            <div class="absolute inset-0 bg-slate-950/70"></div>
+            <div class="absolute inset-0 bg-slate-950/40"></div>
             <div
-              class="absolute inset-0 bg-gradient-to-l from-slate-950 via-slate-950/80 to-transparent"
+              class="absolute inset-0 bg-gradient-to-l from-slate-950 via-slate-950/50 to-transparent"
             ></div>
           </div>
 
@@ -540,22 +536,12 @@ import {
     `,
   ],
 })
-export class PremiumShowcaseScrollV2Component {
-  private readonly gsapCore = inject(GsapCoreService);
-
+export class PremiumShowcaseComponent {
   public readonly SparklesIcon = Sparkles;
   public readonly CheckIcon = Check;
   public readonly ArrowRightIcon = ArrowRight;
 
   public readonly currentStep = signal(0);
-
-  public constructor() {
-    afterNextRender(() => {
-      setTimeout(() => {
-        this.gsapCore.scrollTrigger?.refresh();
-      }, 1000);
-    });
-  }
 
   public onStepChange(step: number): void {
     this.currentStep.set(step);
