@@ -37,7 +37,8 @@
   "activationEvents": [
     "onView:ptah.main",
     "onCommand:ptah.openFullPanel",
-    "onCommand:ptah.setupAgents"
+    "onCommand:ptah.setupAgents",
+    "onCommand:ptah.openDashboard"
   ],
   "license": "SEE LICENSE IN LICENSE",
   "preview": true,
@@ -104,6 +105,12 @@
         "title": "Check License Status",
         "category": "Ptah",
         "icon": "$(info)"
+      },
+      {
+        "command": "ptah.openDashboard",
+        "title": "Open Session Analytics Dashboard",
+        "category": "Ptah",
+        "icon": "$(graph)"
       }
     ],
     "menus": {
@@ -119,6 +126,9 @@
         },
         {
           "command": "ptah.checkLicenseStatus"
+        },
+        {
+          "command": "ptah.openDashboard"
         }
       ],
       "editor/context": [],

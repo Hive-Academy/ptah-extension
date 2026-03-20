@@ -114,12 +114,16 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
   public async createPanel(options?: {
     initialSessionId?: string;
     initialSessionName?: string;
+    initialView?: string;
   }): Promise<void> {
     const panelId = `ptah.panel.${crypto.randomUUID()}`;
 
-    const panelTitle = options?.initialSessionName
-      ? `Ptah - ${options.initialSessionName}`
-      : 'Ptah - AI Coding Orchestra';
+    const panelTitle =
+      options?.initialView === 'analytics'
+        ? 'Ptah - Session Analytics'
+        : options?.initialSessionName
+        ? `Ptah - ${options.initialSessionName}`
+        : 'Ptah - AI Coding Orchestra';
     const panel = vscode.window.createWebviewPanel(
       'ptah-angular-spa',
       panelTitle,
@@ -183,6 +187,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
         panelId,
         initialSessionId: options?.initialSessionId,
         initialSessionName: options?.initialSessionName,
+        initialView: options?.initialView,
       }
     );
 

@@ -14,10 +14,12 @@ import {
   ClaudeRpcService,
   AutopilotStateService,
   AppStateManager,
+  SESSION_DATA_PROVIDER,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
   AgentMonitorMessageHandler,
+  ChatStore,
 } from '@ptah-extension/chat';
 import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
@@ -134,6 +136,9 @@ export const appConfig: ApplicationConfig = {
       useExisting: AgentMonitorMessageHandler,
       multi: true,
     },
+    // Session data provider: breaks circular dependency between dashboard and chat.
+    // ChatStore is already providedIn: 'root', so useExisting reuses the singleton.
+    { provide: SESSION_DATA_PROVIDER, useExisting: ChatStore },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco',

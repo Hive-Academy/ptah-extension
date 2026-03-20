@@ -19,6 +19,7 @@ import {
   PanelRight,
   PanelRightClose,
   Settings,
+  BarChart3,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
@@ -102,6 +103,16 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
 
           <!-- Theme toggle -->
           <ptah-theme-toggle />
+
+          <!-- Dashboard -->
+          <button
+            class="btn btn-square btn-ghost btn-xs"
+            aria-label="Dashboard"
+            title="Session Analytics"
+            (click)="openDashboard()"
+          >
+            <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
+          </button>
 
           <!-- Settings -->
           <button
@@ -194,6 +205,7 @@ export class ElectronShellComponent {
   readonly PanelRightIcon = PanelRight;
   readonly PanelRightCloseIcon = PanelRightClose;
   readonly SettingsIcon = Settings;
+  readonly BarChart3Icon = BarChart3;
 
   // Asset URIs
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -203,5 +215,9 @@ export class ElectronShellComponent {
 
   openSettings(): void {
     this.appState.setCurrentView('settings');
+  }
+
+  openDashboard(): void {
+    this.appState.setCurrentView('analytics');
   }
 }

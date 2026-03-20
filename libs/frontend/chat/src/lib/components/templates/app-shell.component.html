@@ -36,6 +36,13 @@
 </div>
 }
 
+<!-- Analytics: Full-width dashboard layout (no sidebar) -->
+@case ('analytics') {
+<div class="h-full w-full overflow-y-auto">
+  <ptah-session-analytics-dashboard />
+</div>
+}
+
 <!-- Chat (default): Sidebar + Header + Chat layout -->
 @default {
 <div class="flex h-full">
@@ -433,6 +440,16 @@
 
         <!-- Theme toggle -->
         <ptah-theme-toggle />
+
+        <!-- Dashboard -->
+        <button
+          class="btn btn-square btn-ghost btn-xs"
+          aria-label="Dashboard"
+          title="Session Analytics"
+          (click)="openDashboard()"
+        >
+          <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
+        </button>
 
         <button
           class="btn btn-square btn-ghost btn-xs"

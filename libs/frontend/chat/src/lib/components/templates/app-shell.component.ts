@@ -26,6 +26,7 @@ import {
   Settings,
   Trash2,
   X,
+  BarChart3,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
@@ -40,6 +41,7 @@ import { ResizeHandleComponent } from '../atoms/resize-handle.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 import { BackgroundAgentBadgeComponent } from '../molecules/notifications/background-agent-badge.component';
+import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
 import { BackgroundAgentStore } from '../../services/background-agent.store';
@@ -101,6 +103,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     NativePopoverComponent,
     AgentMonitorPanelComponent,
     ResizeHandleComponent,
+    SessionAnalyticsDashboardViewComponent,
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -140,6 +143,7 @@ export class AppShellComponent {
   readonly Trash2Icon = Trash2;
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
+  readonly BarChart3Icon = BarChart3;
 
   // Platform detection: in Electron, some icons move to the global navbar
   readonly isElectron = this.vscodeService.isElectron;
@@ -282,6 +286,13 @@ export class AppShellComponent {
    */
   openSettings(): void {
     this.appState.setCurrentView('settings');
+  }
+
+  /**
+   * Navigate to analytics dashboard view
+   */
+  openDashboard(): void {
+    this.appState.setCurrentView('analytics');
   }
 
   /** Guard to prevent double-click opening multiple panels */

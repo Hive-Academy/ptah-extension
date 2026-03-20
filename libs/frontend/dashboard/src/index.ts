@@ -9,3 +9,17 @@ export { QualityExportButtonComponent } from './lib/components/quality/quality-e
 
 // Quality Dashboard Services (TASK_2025_144 - Phase G Frontend)
 export { QualityDashboardStateService } from './lib/services/quality-dashboard-state.service';
+
+// Session Analytics Components (TASK_2025_206)
+export { SessionAnalyticsDashboardViewComponent } from './lib/components/session-analytics/session-analytics-dashboard-view.component';
+export { MetricsCardsComponent } from './lib/components/session-analytics/metrics-cards.component';
+export { SessionHistoryTableComponent } from './lib/components/session-analytics/session-history-table.component';
+export { TokenUsageBreakdownComponent } from './lib/components/session-analytics/token-usage-breakdown.component';
+
+// Session Analytics Services (TASK_2025_206)
+export {
+  SessionAnalyticsStateService,
+  type SortField,
+  type SessionWithCost,
+  type TokenBreakdownData,
+} from './lib/services/session-analytics-state.service';
