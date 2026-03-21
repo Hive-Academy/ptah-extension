@@ -15,3 +15,6 @@
 | TASK_2025_204 | Add `ptah.ast` Namespace - File parsing, symbol extraction, dependency graph, git status, diagnostics, command execution tools for code analysis    | ✅ Complete | orchestrator | 2026-03-17 |            |
 | TASK_2025_205 | Enhance `execute_code` Tool Description - Promote `ptah.ast` and `ptah.dependencies` to top namespaces with full method signatures in system prompt | ✅ Complete | orchestrator | 2026-03-17 |            |
 | TASK_2025_206 | Session-Based Dashboard with Pricing Analytics - Load real sessions, calculate per-model/provider pricing, display cost/token/session stats         | 🔄 Active   | orchestrator | 2026-03-20 |            |
+| TASK_2025_207 | Remove redundant MCP namespaces (ptah.git, ptah.commands, ptah.symbols) — subsumed by CLI git, ptah.ide.actions, and ptah.ast+ptah.ide.lsp          | 🔄 Active   | orchestrator | 2026-03-21 |            |
+| TASK_2025_209 | Platform Unification — Remove ptah.ai namespace, eliminate vscode.lm dependency, unify Electron RPC handlers into shared platform-agnostic handlers | ✅ Complete | orchestrator | 2026-03-21 | 2026-03-21 |
+| TASK_2025_210 | Settings Export/Import + Session Auto-Discovery — VS Code export command, Electron import, .claude session sync for both platforms                  | 📋 Planned  | orchestrator | 2026-03-21 |            |
