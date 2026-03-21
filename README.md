@@ -247,19 +247,18 @@ Built-in MCP (Model Context Protocol) server runs inside the VS Code extension h
 | `ptah_lsp_definitions`   | Go-to-definition through re-exports and node_modules     |
 | `ptah_get_dirty_files`   | Unsaved files in VS Code editor buffers                  |
 | `ptah_count_tokens`      | Token count for file using model tokenizer               |
-| `execute_code`           | Run TypeScript with access to all 16 `ptah.*` APIs       |
+| `execute_code`           | Run TypeScript with access to all 14 `ptah.*` APIs       |
 
-### 16 API Namespaces
+### 14 API Namespaces
 
 ```
-ptah.workspace    — project info          ptah.context     — token budget
-ptah.search       — file search           ptah.project     — deep analysis
-ptah.symbols      — code symbols          ptah.relevance   — file scoring
-ptah.diagnostics  — errors                ptah.ast         — tree-sitter
-ptah.git          — git status            ptah.ide.lsp     — LSP features
-ptah.ai           — multi-LLM            ptah.ide.editor  — editor state
-ptah.files        — file I/O             ptah.ide.actions  — refactoring
-ptah.commands     — VS Code commands      ptah.agent       — background agents
+ptah.workspace    — project info          ptah.context      — token budget
+ptah.search       — file search           ptah.project      — deep analysis
+ptah.diagnostics  — errors                ptah.relevance    — file scoring
+ptah.ai           — multi-LLM            ptah.ast          — tree-sitter
+ptah.files        — file I/O             ptah.ide.lsp      — LSP features
+ptah.dependencies — dep analysis          ptah.ide.editor   — editor state
+ptah.agent        — background agents     ptah.ide.actions  — refactoring
 ```
 
 ### Example

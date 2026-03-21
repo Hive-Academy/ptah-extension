@@ -1,34 +1,32 @@
 /**
  * System Namespace Builders
  *
- * Provides AI/LM integration, file system access, and command execution.
+ * Provides AI/LM integration and file system access.
  * These namespaces enable system-level interactions.
  *
  * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
  * because buildAINamespace() uses vscode.lm.* (Language Model API),
- * vscode.LanguageModelChatMessage, vscode.CancellationTokenSource, and
- * buildCommandsNamespace() uses vscode.commands.* — these are VS Code-specific
- * IDE APIs with no platform-core equivalent.
+ * vscode.LanguageModelChatMessage, and vscode.CancellationTokenSource — these
+ * are VS Code-specific IDE APIs with no platform-core equivalent.
  * File operations (buildFilesNamespace, resolveWorkspacePath) use platform-core
  * IWorkspaceProvider and IFileSystemProvider for workspace-relative path resolution.
  */
 
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { FileSystemManager, CommandManager } from '@ptah-extension/vscode-core';
+import { FileSystemManager } from '@ptah-extension/vscode-core';
 import { FileType } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
 } from '@ptah-extension/platform-core';
-import { AINamespace, FilesNamespace, CommandsNamespace } from '../types';
+import { AINamespace, FilesNamespace } from '../types';
 
 /**
  * Dependencies required for system namespaces
  */
 export interface SystemNamespaceDependencies {
   fileSystemManager: FileSystemManager;
-  commandManager: CommandManager;
   workspaceProvider: IWorkspaceProvider;
   fileSystemProvider: IFileSystemProvider;
 }
@@ -37,9 +35,9 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah IDE Access - 17 Namespaces:
+  overview: `Ptah IDE Access - 14 Namespaces:
 
-WORKSPACE: workspace, search, symbols, files, diagnostics, git, commands
+WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast
 AI: ptah.ai.* (chat, tokens, tools, specialized tasks)
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
@@ -249,13 +247,6 @@ Used for persisting workflow state across sessions (planning, design, implementa
 Use ptah.ast.analyze() to understand file structure BEFORE reading or editing.
 Prefer ptah.ast over reading full files when you only need structural information (40-60% token savings).`,
 
-  symbols: `ptah.symbols - Code Symbol Search
-
-- find(query) - Search for code symbols by name across the workspace
-  Returns: [{name, kind, file, line, col}]
-
-Use for quick symbol lookup when you know the name but not the file.`,
-
   dependencies: `ptah.dependencies - Import-Based Dependency Graph
 
 - buildGraph(filePaths, workspaceRoot) - Build dependency graph from file list
@@ -266,20 +257,11 @@ Use for quick symbol lookup when you know the name but not the file.`,
 
 Build the graph once, then query it repeatedly. Essential for understanding impact of changes.`,
 
-  git: `ptah.git - Repository Status
-
-- getStatus() - Get git working tree status {branch, modified, staged, untracked}`,
-
   diagnostics: `ptah.diagnostics - TypeScript Errors & Warnings
 
 - getErrors() - Get all error-level diagnostics {file, message, line}
 - getWarnings() - Get all warning-level diagnostics {file, message, line}
 - getAll() - Get all diagnostics with severity level`,
-
-  commands: `ptah.commands - VS Code Command Execution
-
-- execute(command, ...args) - Execute a VS Code command by ID
-- list() - List available VS Code commands (filtered to ptah.* commands)`,
 
   agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
 
@@ -1116,45 +1098,6 @@ export function buildFilesNamespace(
         name: entry.name,
         type: entry.type === FileType.Directory ? 'directory' : 'file',
       }));
-    },
-  };
-}
-
-/**
- * Allowed command prefixes for MCP execution.
- * SECURITY: More restrictive than webview RPC allowlist.
- * No terminal commands, no extension install/uninstall commands.
- */
-const ALLOWED_MCP_COMMAND_PREFIXES = [
-  'ptah.',
-  'editor.',
-  'workbench.action.files.',
-  'vscode.open',
-  'vscode.diff',
-];
-
-/**
- * Build commands namespace
- * Uses VS Code's commands API with security allowlist
- */
-export function buildCommandsNamespace(): CommandsNamespace {
-  return {
-    execute: async (commandId: string, ...args: unknown[]) => {
-      const isAllowed = ALLOWED_MCP_COMMAND_PREFIXES.some((prefix) =>
-        commandId.startsWith(prefix)
-      );
-      if (!isAllowed) {
-        throw new Error(
-          `Command '${commandId}' is not allowed via MCP. Allowed prefixes: ${ALLOWED_MCP_COMMAND_PREFIXES.join(
-            ', '
-          )}`
-        );
-      }
-      return await vscode.commands.executeCommand(commandId, ...args);
-    },
-    list: async () => {
-      const commands = await vscode.commands.getCommands();
-      return commands.filter((c) => c.startsWith('ptah.'));
     },
   };
 }

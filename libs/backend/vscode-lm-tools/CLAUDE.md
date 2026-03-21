@@ -4,7 +4,7 @@
 
 ## Purpose
 
-The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Protocol) server for Ptah API integration. It enables VS Code Language Models and Claude CLI to execute TypeScript/JavaScript code with access to Ptah extension APIs (workspace analysis, search, symbols, diagnostics, git, AI, files, commands). This library powers the `execute_code` MCP tool and system prompt generation.
+The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Protocol) server for Ptah API integration. It enables VS Code Language Models and Claude CLI to execute TypeScript/JavaScript code with access to Ptah extension APIs (workspace analysis, search, diagnostics, AI, files, and more). This library powers the `execute_code` MCP tool and system prompt generation.
 
 ## Boundaries
 
@@ -39,12 +39,9 @@ The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Pro
 │  PtahAPIBuilder (API Namespace Constructor)          │
 │  ├─ ptah.workspace   - Workspace operations          │
 │  ├─ ptah.search      - File search & relevance       │
-│  ├─ ptah.symbols     - Code symbol extraction        │
 │  ├─ ptah.diagnostics - Problem detection             │
-│  ├─ ptah.git         - Git operations                │
 │  ├─ ptah.ai          - AI provider integration       │
-│  ├─ ptah.files       - File operations               │
-│  └─ ptah.commands    - VS Code command execution     │
+│  └─ ptah.files       - File operations               │
 ├──────────────────────────────────────────────────────┤
 │  Permission Management                               │
 │  └─ PermissionPromptService                          │
@@ -84,7 +81,7 @@ The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Pro
 **Internal**:
 
 - `@ptah-extension/shared` - Type definitions (Result, CorrelationId)
-- `@ptah-extension/vscode-core` - Logger, CommandManager, FileSystemManager
+- `@ptah-extension/vscode-core` - Logger, FileSystemManager
 - `@ptah-extension/workspace-intelligence` - Workspace analysis, context orchestration
 
 **External**:
@@ -165,9 +162,7 @@ const ptahAPI = PtahAPIBuilder.build({
 // Use API namespaces
 const workspaceInfo = await ptahAPI.workspace.getInfo();
 const searchResults = await ptahAPI.search.findFiles({ query: 'auth' });
-const symbols = await ptahAPI.symbols.extract('/src/app.ts');
 const diagnostics = await ptahAPI.diagnostics.getProblems();
-const gitStatus = await ptahAPI.git.getStatus();
 ```
 
 ### Permission Prompt Service
@@ -256,25 +251,6 @@ const configFiles = await ptah.search.findFiles({
 });
 ```
 
-### ptah.symbols - Code Symbol Extraction
-
-```typescript
-// Extract symbols from file
-const symbols = await ptah.symbols.extract('/src/app.ts');
-// [
-//   { name: 'AppController', kind: 'class', range: {...} },
-//   { name: 'getHello', kind: 'method', range: {...} }
-// ]
-
-// Find symbol definitions
-const definitions = await ptah.symbols.findDefinitions('UserService');
-// [{ path: '/src/user/user.service.ts', line: 10, column: 14 }]
-
-// Get symbol references
-const references = await ptah.symbols.findReferences('UserRepository');
-// [{ path: '/src/user/user.module.ts', line: 5 }, ...]
-```
-
 ### ptah.diagnostics - Problem Detection
 
 ```typescript
@@ -294,28 +270,6 @@ const fileDiagnostics = await ptah.diagnostics.getProblems({
 const errors = await ptah.diagnostics.getProblems({
   severity: 'error',
 });
-```
-
-### ptah.git - Git Operations
-
-```typescript
-// Get git status
-const status = await ptah.git.getStatus();
-// {
-//   branch: 'feature/authentication',
-//   modified: ['src/auth/auth.service.ts'],
-//   added: ['src/auth/auth.guard.ts'],
-//   deleted: [],
-//   untracked: ['src/auth/auth.dto.ts']
-// }
-
-// Get commit history
-const commits = await ptah.git.getHistory({ maxCount: 10 });
-// [{ hash: 'abc123', message: 'Add auth', author: '...', date: ... }, ...]
-
-// Get file diff
-const diff = await ptah.git.getDiff({ file: '/src/app.ts' });
-// '+import { AuthModule } from "./auth/auth.module";\n...'
 ```
 
 ### ptah.ai - AI Provider Integration
@@ -358,22 +312,6 @@ const exists = await ptah.files.exists('/src/app.ts');
 // List directory contents
 const files = await ptah.files.list('/src');
 // ['app.ts', 'main.ts', 'auth/', 'user/']
-```
-
-### ptah.commands - VS Code Command Execution
-
-```typescript
-// Execute VS Code command
-await ptah.commands.execute('workbench.action.files.save');
-
-// Execute with arguments
-await ptah.commands.execute('editor.action.formatDocument', {
-  uri: vscode.Uri.file('/src/app.ts'),
-});
-
-// Get available commands
-const commands = await ptah.commands.list();
-// ['workbench.action.files.save', 'editor.action.formatDocument', ...]
 ```
 
 ## Guidelines
@@ -434,11 +372,11 @@ const commands = await ptah.commands.list();
      riskLevel: 'high',
    });
 
-   // Git operations
+   // File operations (medium risk)
    const allowed = await permissionService.requestPermission({
      tool: 'execute_code',
-     operation: 'git_commit',
-     target: 'workspace',
+     operation: 'file_write',
+     target: '/src/config.ts',
      riskLevel: 'medium',
    });
    ```
@@ -468,10 +406,10 @@ const commands = await ptah.commands.list();
    riskLevel: 'low'; // workspace.getInfo(), search.findFiles()
 
    // Medium risk: File modifications
-   riskLevel: 'medium'; // files.write(), git.commit()
+   riskLevel: 'medium'; // files.write()
 
    // High risk: Destructive operations
-   riskLevel: 'high'; // files.delete(), git.reset()
+   riskLevel: 'high'; // files.delete()
    ```
 
 ### MCP Tool Integration
@@ -481,7 +419,7 @@ const commands = await ptah.commands.list();
    ```typescript
    {
      name: 'execute_code',
-     description: 'Execute TypeScript/JavaScript code with access to Ptah extension APIs. Available namespaces: workspace, search, symbols, diagnostics, git, ai, files, commands.',
+     description: 'Execute TypeScript/JavaScript code with access to Ptah extension APIs. Available namespaces: workspace, search, diagnostics, ai, files, context, project, relevance, ast, ide, llm, orchestration, agent, dependencies.',
      inputSchema: {
        type: 'object',
        properties: {
@@ -509,13 +447,6 @@ const commands = await ptah.commands.list();
    // Example 2: File search
    const files = await ptah.search.findFiles({ query: 'auth' });
    console.log('Found:', files.length, 'files');
-
-   // Example 3: Symbol extraction
-   const symbols = await ptah.symbols.extract('/src/app.ts');
-   console.log(
-     'Symbols:',
-     symbols.map((s) => s.name)
-   );
    ```
 
 3. **Document API limitations**:
@@ -540,12 +471,9 @@ const commands = await ptah.commands.list();
    const ptahAPI = PtahAPIBuilder.build({
      workspaceAnalyzer: container.resolve(WorkspaceAnalyzerService),
      contextOrchestration: container.resolve(ContextOrchestrationService),
-     symbolExtractor: container.resolve(SymbolExtractorService),
      diagnosticProvider: container.resolve(DiagnosticProviderService),
-     gitService: container.resolve(GitService),
      aiProvider: container.resolve(AIProviderService),
      fileSystem: container.resolve(FileSystemService),
-     commandManager: container.resolve(CommandManager),
      logger: container.resolve(Logger),
    });
    ```
@@ -633,7 +561,7 @@ const commands = await ptah.commands.list();
 
 **Name**: `execute_code`
 
-**Description**: Execute TypeScript/JavaScript code with access to Ptah extension APIs. Available namespaces: workspace, search, symbols, diagnostics, git, ai, files, commands.
+**Description**: Execute TypeScript/JavaScript code with access to Ptah extension APIs. Available namespaces: workspace, search, diagnostics, ai, files, context, project, relevance, ast, ide, llm, orchestration, agent, dependencies.
 
 **Input Schema**:
 
@@ -678,7 +606,6 @@ const commands = await ptah.commands.list();
 **Uses `@ptah-extension/vscode-core`**:
 
 - Logger for structured logging
-- CommandManager for `ptah.commands` namespace
 - FileSystemManager for `ptah.files` namespace
 
 **Consumed by `apps/ptah-extension-vscode`**:

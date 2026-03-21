@@ -21,11 +21,11 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 17 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 14 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
-            '• IIFE (any style): `(async () => { return await ptah.git.getStatus(); })()`\n' +
+            '• IIFE (any style): `(async () => { return await ptah.workspace.getInfo(); })()`\n' +
             '• Direct return: `return "hello"`\n' +
             'Results are automatically extracted from Promises. No special syntax required.',
         },
@@ -498,7 +498,7 @@ function buildExecuteCodeDescription(): string {
 
 ${PTAH_SYSTEM_PROMPT}
 
-## Top Namespaces (17 total — use ptah.help(topic) for full details)
+## Top Namespaces (14 total — use ptah.help(topic) for full details)
 
 ### ptah.workspace - Workspace Analysis
 - analyze(): Promise<{info, structure}> - Full workspace analysis
@@ -514,9 +514,6 @@ ${PTAH_SYSTEM_PROMPT}
 - getErrors(): Promise<{file, message, line}[]> - All error-level diagnostics
 - getWarnings(): Promise<{file, message, line}[]> - All warning-level diagnostics
 - getAll(): Promise<{file, message, line, severity}[]> - All diagnostics with severity
-
-### ptah.git - Repository Status
-- getStatus(): Promise<{branch, modified, staged, untracked}> - Git working tree status
 
 ### ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
 - ide.lsp.getDefinition(file, line, col) - Go to definition
@@ -564,8 +561,6 @@ Use ptah.ast BEFORE reading files to understand structure at 40-60% token saving
 ### Other Namespaces (use ptah.help('topic') for details)
 - ptah.ai.* - VS Code LM API (chat, tokens, tools, specialized tasks, invokeAgent)
 - ptah.llm.* - VS Code Language Model API provider
-- ptah.symbols.* - Code symbol search
-- ptah.commands.* - VS Code command execution
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
 - ptah.orchestration.* - Workflow state management

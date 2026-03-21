@@ -2,7 +2,7 @@
  * Code Execution API Type Definitions
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
- * Supports 11 namespaces exposing VS Code extension capabilities to Claude CLI.
+ * Supports 14 namespaces exposing VS Code extension capabilities to Claude CLI.
  *
  * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
  * because the DiagnosticsNamespace and related types reference
@@ -33,20 +33,17 @@ import type {
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 15 namespaces for comprehensive workspace intelligence
+ * Provides 14 namespaces for comprehensive workspace intelligence
  * TASK_2025_039: Enhanced with ide namespace for LSP and editor superpowers
  * TASK_2025_111: Added orchestration namespace for workflow state management
  */
 export interface PtahAPI {
-  // Original 8 namespaces
+  // Core namespaces
   workspace: WorkspaceNamespace;
   search: SearchNamespace;
-  symbols: SymbolsNamespace;
   diagnostics: DiagnosticsNamespace;
-  git: GitNamespace;
   ai: AINamespace;
   files: FilesNamespace;
-  commands: CommandsNamespace;
 
   // Extended namespaces (TASK_2025_025)
   context: ContextNamespace;
@@ -153,20 +150,6 @@ export interface SearchNamespace {
 }
 
 /**
- * Symbol search capabilities
- * Uses VS Code's workspace symbol provider API
- */
-export interface SymbolsNamespace {
-  /**
-   * Find symbols by name across workspace
-   * @param name - Symbol name to search for
-   * @param type - Optional symbol type filter (class, function, method, interface, variable)
-   * @returns Array of symbol information
-   */
-  find: (name: string, type?: string) => Promise<vscode.SymbolInformation[]>;
-}
-
-/**
  * Diagnostic (errors/warnings) capabilities
  * Uses VS Code's language diagnostics API
  */
@@ -205,35 +188,6 @@ export interface DiagnosticInfo {
 
   /** Severity level (error, warning, info, hint) - only in getAll() */
   severity?: string;
-}
-
-/**
- * Git status capabilities
- * Uses VS Code's git extension API
- */
-export interface GitNamespace {
-  /**
-   * Get current git repository status
-   * @returns Branch name and file changes
-   */
-  getStatus: () => Promise<GitStatus>;
-}
-
-/**
- * Git repository status
- */
-export interface GitStatus {
-  /** Current branch name */
-  branch: string;
-
-  /** Modified files (working tree changes) */
-  modified: string[];
-
-  /** Staged files (index changes) */
-  staged: string[];
-
-  /** Untracked files */
-  untracked: string[];
 }
 
 /**
@@ -510,25 +464,6 @@ export interface FilesNamespace {
   list: (
     directory: string
   ) => Promise<Array<{ name: string; type: 'file' | 'directory' }>>;
-}
-
-/**
- * VS Code command execution capabilities
- */
-export interface CommandsNamespace {
-  /**
-   * Execute a VS Code command
-   * @param commandId - Command identifier
-   * @param args - Command arguments
-   * @returns Command result
-   */
-  execute: (commandId: string, ...args: unknown[]) => Promise<unknown>;
-
-  /**
-   * List all available Ptah commands
-   * @returns Array of command IDs starting with "ptah."
-   */
-  list: () => Promise<string[]>;
 }
 
 // ========================================

@@ -1,14 +1,12 @@
 /**
  * Core Namespace Builders
  *
- * Provides workspace analysis, file search, symbol search, diagnostics, and git status.
+ * Provides workspace analysis, file search, and diagnostics.
  * These are the foundational namespaces for codebase exploration.
  *
  * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
- * because buildSymbolsNamespace() uses vscode.commands.executeCommand for workspace
- * symbol provider, buildDiagnosticsNamespace() uses vscode.languages.getDiagnostics()
- * and vscode.DiagnosticSeverity, and buildGitNamespace() uses
- * vscode.extensions.getExtension('vscode.git'). These are VS Code-specific IDE APIs
+ * because buildDiagnosticsNamespace() uses vscode.languages.getDiagnostics()
+ * and vscode.DiagnosticSeverity. These are VS Code-specific IDE APIs
  * with no platform-core equivalent. The buildWorkspaceNamespace() and
  * buildSearchNamespace() functions are already platform-agnostic (use injected services).
  */
@@ -22,11 +20,8 @@ import { CorrelationId } from '@ptah-extension/shared';
 import {
   WorkspaceNamespace,
   SearchNamespace,
-  SymbolsNamespace,
   DiagnosticsNamespace,
   DiagnosticInfo,
-  GitNamespace,
-  GitStatus,
 } from '../types';
 
 /**
@@ -110,26 +105,6 @@ export function buildSearchNamespace(
 }
 
 /**
- * Build symbol search namespace
- * Uses VS Code's workspace symbol provider API
- */
-export function buildSymbolsNamespace(): SymbolsNamespace {
-  return {
-    find: async (name: string, type?: string) => {
-      const symbols = await vscode.commands.executeCommand<
-        vscode.SymbolInformation[]
-      >('vscode.executeWorkspaceSymbolProvider', name);
-      if (!symbols) return [];
-      if (type) {
-        const symbolKind = parseSymbolKind(type);
-        return symbols.filter((s) => s.kind === symbolKind);
-      }
-      return symbols;
-    },
-  };
-}
-
-/**
  * Build diagnostics namespace
  * Uses VS Code's language diagnostics API
  */
@@ -159,78 +134,9 @@ export function buildDiagnosticsNamespace(): DiagnosticsNamespace {
   };
 }
 
-/** Git extension status code for untracked files */
-const GIT_STATUS_UNTRACKED = 7;
-
-/** Shape of a git extension change object (VS Code git extension API is untyped) */
-interface GitChange {
-  uri?: { fsPath: string };
-  status?: number;
-}
-
-/**
- * Build git status namespace
- * Uses VS Code's git extension API
- */
-export function buildGitNamespace(): GitNamespace {
-  return {
-    getStatus: async () => {
-      try {
-        const gitExtension =
-          vscode.extensions.getExtension('vscode.git')?.exports;
-        if (!gitExtension) {
-          return { branch: 'unknown', modified: [], staged: [], untracked: [] };
-        }
-        const git = gitExtension.getAPI(1);
-        const repo = git.repositories[0];
-        if (!repo) {
-          return { branch: 'unknown', modified: [], staged: [], untracked: [] };
-        }
-
-        const status: GitStatus = {
-          branch: repo.state.HEAD?.name || 'unknown',
-          modified: ((repo.state.workingTreeChanges || []) as GitChange[])
-            .filter((c): c is GitChange & { uri: { fsPath: string } } =>
-              Boolean(c?.uri?.fsPath)
-            )
-            .map((c) => c.uri.fsPath),
-          staged: ((repo.state.indexChanges || []) as GitChange[])
-            .filter((c): c is GitChange & { uri: { fsPath: string } } =>
-              Boolean(c?.uri?.fsPath)
-            )
-            .map((c) => c.uri.fsPath),
-          untracked: ((repo.state.workingTreeChanges || []) as GitChange[])
-            .filter(
-              (c): c is GitChange & { uri: { fsPath: string } } =>
-                c?.status === GIT_STATUS_UNTRACKED && Boolean(c?.uri?.fsPath)
-            )
-            .map((c) => c.uri.fsPath),
-        };
-        return status;
-      } catch {
-        return { branch: 'unknown', modified: [], staged: [], untracked: [] };
-      }
-    },
-  };
-}
-
 // ========================================
 // Helper Functions
 // ========================================
-
-/**
- * Parse string symbol type to VS Code SymbolKind enum
- */
-function parseSymbolKind(type: string): vscode.SymbolKind {
-  const kindMap: Record<string, vscode.SymbolKind> = {
-    class: vscode.SymbolKind.Class,
-    function: vscode.SymbolKind.Function,
-    method: vscode.SymbolKind.Method,
-    interface: vscode.SymbolKind.Interface,
-    variable: vscode.SymbolKind.Variable,
-  };
-  return kindMap[type.toLowerCase()] || vscode.SymbolKind.Variable;
-}
 
 /**
  * Convert VS Code DiagnosticSeverity enum to string

@@ -19,21 +19,18 @@ export {
   type AnalysisNamespaceDependencies,
 } from './analysis-namespace.builders';
 
-// Core namespaces (workspace, search, symbols, diagnostics, git)
+// Core namespaces (workspace, search, diagnostics)
 export {
   buildWorkspaceNamespace,
   buildSearchNamespace,
-  buildSymbolsNamespace,
   buildDiagnosticsNamespace,
-  buildGitNamespace,
   type CoreNamespaceDependencies,
 } from './core-namespace.builders';
 
-// System namespaces (ai, files, commands) + help method
+// System namespaces (ai, files) + help method
 export {
   buildAINamespace,
   buildFilesNamespace,
-  buildCommandsNamespace,
   buildHelpMethod,
   type SystemNamespaceDependencies,
 } from './system-namespace.builders';

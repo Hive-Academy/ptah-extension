@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Ptah MCP server exposes a single powerful tool: `execute_code`. This tool executes TypeScript/JavaScript code with access to 11 API namespaces via the global `ptah` object, providing deep VS Code workspace intelligence.
+The Ptah MCP server exposes a single powerful tool: `execute_code`. This tool executes TypeScript/JavaScript code with access to 14 API namespaces via the global `ptah` object, providing deep VS Code workspace intelligence.
 
 ## Quick Start
 
@@ -25,11 +25,9 @@ return { projectType: info.info.projectType, frameworks: info.info.frameworks };
 
 ### Code & Diagnostics
 
-| Namespace          | Purpose           | Key Methods                                                     |
-| ------------------ | ----------------- | --------------------------------------------------------------- |
-| `ptah.symbols`     | Symbol search     | `find(name, type?)` - types: class, function, method, interface |
-| `ptah.diagnostics` | Errors/warnings   | `getErrors()`, `getWarnings()`, `getAll()`                      |
-| `ptah.git`         | Repository status | `getStatus()` → branch, modified, staged, untracked             |
+| Namespace          | Purpose         | Key Methods                                |
+| ------------------ | --------------- | ------------------------------------------ |
+| `ptah.diagnostics` | Errors/warnings | `getErrors()`, `getWarnings()`, `getAll()` |
 
 ### File Operations
 
@@ -40,10 +38,9 @@ return { projectType: info.info.projectType, frameworks: info.info.frameworks };
 
 ### VS Code Integration
 
-| Namespace       | Purpose          | Key Methods                                     |
-| --------------- | ---------------- | ----------------------------------------------- |
-| `ptah.commands` | VS Code commands | `execute(commandId, ...args)`, `list()`         |
-| `ptah.ai`       | Language models  | `chat(message, model?)`, `selectModel(family?)` |
+| Namespace | Purpose         | Key Methods                                     |
+| --------- | --------------- | ----------------------------------------------- |
+| `ptah.ai` | Language models | `chat(message, model?)`, `selectModel(family?)` |
 
 ## Recommended Workflows
 
@@ -84,14 +81,6 @@ return {
 const errors = await ptah.diagnostics.getErrors();
 const tsErrors = errors.filter((e) => e.file.endsWith('.ts'));
 return { count: tsErrors.length, errors: tsErrors.slice(0, 10) };
-```
-
-### 5. Finding Implementations
-
-```typescript
-// Find all classes/functions matching a name
-const symbols = await ptah.symbols.find('UserService', 'class');
-return symbols.map((s) => ({ name: s.name, file: s.location.uri.fsPath, line: s.location.range.start.line }));
 ```
 
 ## Best Practices

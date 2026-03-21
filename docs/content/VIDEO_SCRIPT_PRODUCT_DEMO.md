@@ -720,7 +720,7 @@ Your AI coding orchestra is ready."
 
 - [x] All feature claims grounded in actual component code
 - [x] MCP tools list matches mcp-server-section.component.ts (8 tools)
-- [x] API namespaces count matches (15 namespaces)
+- [x] API namespaces count matches (14 namespaces)
 - [x] Performance metrics match comparison-split-scroll.component.ts
 - [x] Auth methods match authentication-section.component.ts (4 methods)
 - [x] Setup wizard steps match (6 steps, 4-phase analysis)

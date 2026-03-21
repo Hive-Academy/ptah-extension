@@ -1,20 +1,17 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 15 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 14 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
  * - workspace: analysis, project type, frameworks detection
  * - search: file search and relevance
- * - symbols: workspace symbol search
  * - diagnostics: errors, warnings, all diagnostics
- * - git: repository status
  *
  * System (VS Code integration):
  * - ai: multi-agent VS Code LM API access
  * - files: read, list operations
- * - commands: execute VS Code commands
  *
  * Analysis (workspace intelligence):
  * - context: token budget management and optimization
@@ -28,12 +25,7 @@
  */
 
 import { injectable, inject, container } from 'tsyringe';
-import {
-  TOKENS,
-  Logger,
-  FileSystemManager,
-  CommandManager,
-} from '@ptah-extension/vscode-core';
+import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -60,13 +52,10 @@ import {
   // Core namespace builders
   buildWorkspaceNamespace,
   buildSearchNamespace,
-  buildSymbolsNamespace,
   buildDiagnosticsNamespace,
-  buildGitNamespace,
   // System namespace builders
   buildAINamespace,
   buildFilesNamespace,
-  buildCommandsNamespace,
   buildHelpMethod,
   // Analysis namespace builders
   buildContextNamespace,
@@ -146,9 +135,6 @@ export class PtahAPIBuilder {
     @inject(TOKENS.FILE_SYSTEM_MANAGER)
     private readonly fileSystemManager: FileSystemManager,
 
-    @inject(TOKENS.COMMAND_MANAGER)
-    private readonly commandManager: CommandManager,
-
     // Analysis services
     @inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)
     private readonly contextOptimizer: ContextSizeOptimizerService,
@@ -208,11 +194,11 @@ export class PtahAPIBuilder {
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fileSystemProvider: IFileSystemProvider
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 17 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 14 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 17 namespaces
+   * Build the complete Ptah API object with all 14 namespaces
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -225,7 +211,6 @@ export class PtahAPIBuilder {
 
     const systemDeps = {
       fileSystemManager: this.fileSystemManager,
-      commandManager: this.commandManager,
       workspaceProvider: this.workspaceProvider,
       fileSystemProvider: this.fileSystemProvider,
     };
@@ -267,14 +252,11 @@ export class PtahAPIBuilder {
       // Core namespaces (workspace discovery)
       workspace: buildWorkspaceNamespace(coreDeps),
       search: buildSearchNamespace(coreDeps),
-      symbols: buildSymbolsNamespace(),
       diagnostics: buildDiagnosticsNamespace(),
-      git: buildGitNamespace(),
 
       // System namespaces (VS Code integration)
       ai: buildAINamespace(systemDeps),
       files: buildFilesNamespace(systemDeps),
-      commands: buildCommandsNamespace(),
 
       // Analysis namespaces (workspace intelligence)
       context: buildContextNamespace(analysisDeps),

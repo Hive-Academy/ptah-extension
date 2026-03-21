@@ -165,7 +165,7 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
         <!-- API Namespaces -->
         <ptah-docs-collapsible-card
           [icon]="BrainCircuitIcon"
-          title="16 API Namespaces"
+          title="14 API Namespaces"
         >
           <p class="text-sm text-neutral-content mb-4">
             The
@@ -297,7 +297,7 @@ export class McpServerSectionComponent {
     },
     {
       name: 'execute_code',
-      description: 'Run TypeScript with access to all 16 ptah.* APIs',
+      description: 'Run TypeScript with access to all 14 ptah.* APIs',
       icon: BrainCircuit,
     },
   ];
@@ -329,12 +329,9 @@ export class McpServerSectionComponent {
   public readonly apiNamespaces = [
     { name: 'ptah.workspace', hint: 'project info' },
     { name: 'ptah.search', hint: 'file search' },
-    { name: 'ptah.symbols', hint: 'code symbols' },
     { name: 'ptah.diagnostics', hint: 'errors' },
-    { name: 'ptah.git', hint: 'git status' },
     { name: 'ptah.ai', hint: 'multi-LLM' },
     { name: 'ptah.files', hint: 'file I/O' },
-    { name: 'ptah.commands', hint: 'VS Code cmds' },
     { name: 'ptah.context', hint: 'token budget' },
     { name: 'ptah.project', hint: 'deep analysis' },
     { name: 'ptah.relevance', hint: 'file scoring' },
@@ -343,6 +340,7 @@ export class McpServerSectionComponent {
     { name: 'ptah.ide.editor', hint: 'editor state' },
     { name: 'ptah.ide.actions', hint: 'refactoring' },
     { name: 'ptah.agent', hint: 'background agents' },
+    { name: 'ptah.dependencies', hint: 'dep analysis' },
   ];
 
   public readonly exampleCode = `// Your agent autonomously queries your workspace:
