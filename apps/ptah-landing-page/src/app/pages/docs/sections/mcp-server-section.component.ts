@@ -54,7 +54,7 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
         >
         that runs inside the VS Code extension host. It gives AI subagents
         direct access to VS Code's internal capabilities — LSP, diagnostics,
-        workspace analysis, git, and more.
+        workspace analysis, AST parsing, and more.
       </p>
       <p
         viewportAnimation

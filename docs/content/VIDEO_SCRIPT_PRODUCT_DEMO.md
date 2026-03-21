@@ -18,7 +18,7 @@
 - `libs/frontend/chat/CLAUDE.md` — 48+ components, ExecutionNode architecture
 - `libs/frontend/dashboard/CLAUDE.md` — Real-time metrics, Chart.js
 - `libs/frontend/setup-wizard/CLAUDE.md` — 6-step wizard flow
-- `libs/backend/vscode-lm-tools/CLAUDE.md` — MCP server, 8 API namespaces
+- `libs/backend/vscode-lm-tools/CLAUDE.md` — MCP server, 14 API namespaces
 - `libs/backend/workspace-intelligence/CLAUDE.md` — Project detection, file indexing
 - `libs/backend/agent-sdk/CLAUDE.md` — SDK integration, 10x performance
 - `libs/backend/agent-generation/CLAUDE.md` — Agent generation, plugin system
@@ -89,7 +89,7 @@ _Source: features-hijacked-scroll.component.ts — Feature card 1_
 
 #### Narration — Feature 2: Code Execution MCP Server
 
-"Ptah includes a built-in MCP server with 15 API namespaces. Your AI agents can query workspace structure, search files, check TypeScript diagnostics, access git status, and execute VS Code commands — all in a single call."
+"Ptah includes a built-in MCP server with 14 API namespaces. Your AI agents can query workspace structure, search files, analyze code with tree-sitter AST, check TypeScript diagnostics, and build dependency graphs — all in a single call."
 
 _Source: features-hijacked-scroll.component.ts — Feature card 2_
 
@@ -277,7 +277,7 @@ _Source: setup-wizard-section.component.ts_
 
 #### Visual
 
-_Scroll to MCP Server section. Show the 8 MCP tools grid and 15 API namespace list._
+_Scroll to MCP Server section. Show the MCP tools grid and 14 API namespace list._
 
 #### Narration
 
@@ -565,7 +565,7 @@ _Open a new chat session. Show a request that triggers MCP tools._
 
 "Two MCP calls. One finds every file that references AuthService via the LSP — not grep, not regex, the actual language server. The other pulls live TypeScript diagnostics. No build step. Instant, accurate results.
 
-This is what 15 API namespaces give your agents. They don't guess — they query."
+This is what 14 API namespaces give your agents. They don't guess — they query."
 
 _Source: mcp-server-section.component.ts — ptah_lsp_references, ptah_get_diagnostics_
 
@@ -634,7 +634,7 @@ Your AI coding orchestra is ready."
 | 2:25      | Pricing hero with pyramid background            | pricing-hero.component.ts                 |
 | 2:35      | Pricing cards — Community vs Pro                | pricing-cards.component.ts                |
 | 5:50      | MCP tools grid (8 tools)                        | mcp-server-section.component.ts           |
-| 5:55      | 15 API namespace badges                         | mcp-server-section.component.ts           |
+| 5:55      | 14 API namespace badges                         | mcp-server-section.component.ts           |
 | 7:00      | Settings panel — auth section                   | settings.component.html                   |
 | 7:20      | Provider model selector with search             | provider-model-selector.component.ts      |
 | 7:45      | Setup wizard welcome — 3 feature cards          | welcome.component.ts                      |

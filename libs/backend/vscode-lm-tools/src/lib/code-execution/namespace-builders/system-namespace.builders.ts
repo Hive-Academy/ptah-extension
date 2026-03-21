@@ -38,7 +38,7 @@ export const HELP_DOCS: Record<string, string> = {
   overview: `Ptah IDE Access - 14 Namespaces:
 
 WORKSPACE: workspace, search, files, diagnostics
-ANALYSIS: context, project, relevance, ast
+ANALYSIS: context, project, relevance, ast, dependencies
 AI: ptah.ai.* (chat, tokens, tools, specialized tasks)
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
 LLM: ptah.llm.* (VS Code Language Model API)

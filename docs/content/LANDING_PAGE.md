@@ -85,7 +85,7 @@ Generic chat interfaces hide the magic. Ptah visualizes the entire thought proce
 **Headline**: "Your Claude Agent Just Got Superpowers"
 
 **Description**:
-Ptah includes a Code Execution MCP server that exposes 8 powerful API namespaces to Claude agents. Your AI can now query your workspace structure, search files semantically, extract code symbols, check diagnostics, access git status, and execute VS Code commands - all from within a conversation.
+Ptah includes a Code Execution MCP server that exposes 14 powerful API namespaces to Claude agents. Your AI can now query your workspace structure, search files semantically, analyze code with tree-sitter AST, check diagnostics, build dependency graphs, and access LSP superpowers - all from within a conversation.
 
 **Evidence**:
 
