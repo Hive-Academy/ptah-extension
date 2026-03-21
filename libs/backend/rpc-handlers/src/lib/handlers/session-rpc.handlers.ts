@@ -96,6 +96,16 @@ export class SessionRpcHandlers {
             createdAt: s.createdAt,
             messageCount: 0, // SDK handles messages - count not stored in metadata
             isActive: false, // Listed sessions are not currently active
+            // Pass through token usage from metadata if available
+            ...(s.totalTokens &&
+            (s.totalTokens.input > 0 || s.totalTokens.output > 0)
+              ? {
+                  tokenUsage: {
+                    input: s.totalTokens.input,
+                    output: s.totalTokens.output,
+                  },
+                }
+              : {}),
           }));
 
           return { sessions, total, hasMore };

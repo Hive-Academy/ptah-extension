@@ -12,7 +12,7 @@ import { MetricsCardsComponent } from './metrics-cards.component';
 import { SessionHistoryTableComponent } from './session-history-table.component';
 import { TokenUsageBreakdownComponent } from './token-usage-breakdown.component';
 import { AppStateManager } from '@ptah-extension/core';
-import { LucideAngularModule, ChartColumn } from 'lucide-angular';
+import { LucideAngularModule, ChartColumn, ArrowLeft } from 'lucide-angular';
 
 /**
  * SessionAnalyticsDashboardViewComponent
@@ -44,20 +44,27 @@ import { LucideAngularModule, ChartColumn } from 'lucide-angular';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="session-analytics-dashboard p-4 space-y-6">
+    <div class="bg-base-100 min-h-full p-4 space-y-6">
       <!-- Header -->
       <div class="flex justify-between items-center">
         <div class="flex items-center gap-3">
           <h2 class="text-xl font-bold">Session Analytics</h2>
-          <span class="badge badge-outline badge-sm text-xs">
+          <span
+            class="badge badge-outline badge-sm gap-1 text-[10px] text-base-content/50 border-base-content/20"
+          >
             Estimated costs (default pricing)
           </span>
         </div>
         <button
-          class="btn btn-sm btn-outline"
+          class="btn btn-sm btn-ghost gap-1"
           (click)="navigateBack()"
           aria-label="Back to chat"
         >
+          <lucide-angular
+            [img]="ArrowLeftIcon"
+            class="w-4 h-4"
+            aria-hidden="true"
+          ></lucide-angular>
           Back
         </button>
       </div>
@@ -126,8 +133,9 @@ export class SessionAnalyticsDashboardViewComponent implements OnInit {
   private readonly analyticsState = inject(SessionAnalyticsStateService);
   private readonly appState = inject(AppStateManager);
 
-  // Lucide icon reference
+  // Lucide icon references
   readonly ChartColumnIcon = ChartColumn;
+  readonly ArrowLeftIcon = ArrowLeft;
 
   // Local signal delegates from state service
   readonly isLoading = this.analyticsState.isLoading;

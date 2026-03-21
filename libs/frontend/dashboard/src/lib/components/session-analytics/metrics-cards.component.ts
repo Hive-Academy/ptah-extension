@@ -17,37 +17,69 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      class="grid grid-cols-2 lg:grid-cols-5 gap-3"
+      class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3"
       role="region"
       aria-label="Usage metrics"
     >
-      <div class="stat bg-base-200 rounded-lg p-3">
-        <div class="stat-title text-xs">Total Est. Cost</div>
-        <div class="stat-value text-lg">{{ formatCost(totalCost()) }}</div>
+      <div
+        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+        >
+          Total Est. Cost
+        </div>
+        <div class="text-lg font-semibold text-success tabular-nums">
+          {{ formatCost(totalCost()) }}
+        </div>
       </div>
 
-      <div class="stat bg-base-200 rounded-lg p-3">
-        <div class="stat-title text-xs">Input Tokens</div>
-        <div class="stat-value text-lg">
+      <div
+        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-cyan-600/20"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+        >
+          Input Tokens
+        </div>
+        <div class="text-lg font-semibold text-cyan-400 tabular-nums">
           {{ formatTokenCount(totalInputTokens()) }}
         </div>
       </div>
 
-      <div class="stat bg-base-200 rounded-lg p-3">
-        <div class="stat-title text-xs">Output Tokens</div>
-        <div class="stat-value text-lg">
+      <div
+        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-purple-600/20"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+        >
+          Output Tokens
+        </div>
+        <div class="text-lg font-semibold text-purple-400 tabular-nums">
           {{ formatTokenCount(totalOutputTokens()) }}
         </div>
       </div>
 
-      <div class="stat bg-base-200 rounded-lg p-3">
-        <div class="stat-title text-xs">Sessions</div>
-        <div class="stat-value text-lg">{{ sessionCount() }}</div>
+      <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-info/20">
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+        >
+          Sessions
+        </div>
+        <div class="text-lg font-semibold text-info tabular-nums">
+          {{ sessionCount() }}
+        </div>
       </div>
 
-      <div class="stat bg-base-200 rounded-lg p-3">
-        <div class="stat-title text-xs">Avg Cost/Session</div>
-        <div class="stat-value text-lg">
+      <div
+        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+        >
+          Avg Cost/Session
+        </div>
+        <div class="text-lg font-semibold text-success tabular-nums">
           {{ formatCost(avgCostPerSession()) }}
         </div>
       </div>

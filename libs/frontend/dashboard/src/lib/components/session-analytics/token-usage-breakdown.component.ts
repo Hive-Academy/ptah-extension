@@ -19,7 +19,7 @@ import { formatTokenCount } from '../../utils/format.utils';
   imports: [DecimalPipe],
   template: `
     <div
-      class="card bg-base-200 p-4"
+      class="bg-base-200/50 rounded-lg p-4 border border-base-300"
       role="region"
       aria-label="Token usage breakdown"
     >
