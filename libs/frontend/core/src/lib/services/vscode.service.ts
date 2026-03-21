@@ -141,6 +141,22 @@ export class VSCodeService {
   }
 
   /**
+   * Update the workspace root and name in the config signal.
+   * Called by ElectronLayoutService after workspace:switch RPC succeeds.
+   * All consumers reading config().workspaceRoot will reactively see the new value.
+   *
+   * @param newPath - The new workspace folder path
+   */
+  updateWorkspaceRoot(newPath: string): void {
+    const workspaceName = newPath.split(/[/\\]/).pop() ?? 'Workspace';
+    this._config.update((current) => ({
+      ...current,
+      workspaceRoot: newPath,
+      workspaceName,
+    }));
+  }
+
+  /**
    * Whether the webview is running inside Electron desktop app
    */
   get isElectron(): boolean {

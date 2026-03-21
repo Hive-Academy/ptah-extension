@@ -28,6 +28,7 @@ import {
   calculateMessageCost,
   EventSource,
   AuthEnv,
+  isAgentDispatchTool,
 } from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { resolveActualModelForPricing } from './helpers/anthropic-provider-registry';
@@ -482,7 +483,7 @@ export class SdkMessageTransformer {
           contentBlock?.id &&
           contentBlock?.name
         ) {
-          const isTaskTool = contentBlock.name === 'Task';
+          const isTaskTool = isAgentDispatchTool(contentBlock.name);
 
           // Track Skill tool_use IDs for filtering injected skill content messages
           if (contentBlock.name === 'Skill') {
@@ -736,7 +737,7 @@ export class SdkMessageTransformer {
         textBlockIndex++;
       } else if (isToolUseBlock(block)) {
         // Emit tool_start event
-        const isTaskTool = block.name === 'Task';
+        const isTaskTool = isAgentDispatchTool(block.name);
 
         // Extract agent-specific fields for Task tools using safe property access
         // block.input is Record<string, unknown>, so we check properties exist

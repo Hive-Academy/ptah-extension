@@ -27,7 +27,7 @@ import * as vscode from 'vscode';
 import {
   Logger,
   OutputManager,
-  LlmRpcHandlers,
+  ConfigManager,
   SubagentRegistryService,
   TOKENS,
   registerVsCodeCoreServices,
@@ -146,9 +146,16 @@ export class DIContainer {
     container.registerSingleton(TOKENS.LOGGER, Logger);
 
     // ========================================
+    // PHASE 1.5: ConfigManager (required by LicenseService)
+    // ========================================
+    // ConfigManager wraps vscode.workspace.getConfiguration('ptah').
+    // LicenseService depends on it for reading license config.
+    container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
+
+    // ========================================
     // PHASE 2: License Service for verification
     // ========================================
-    // License Service only depends on EXTENSION_CONTEXT and LOGGER
+    // LicenseService depends on EXTENSION_CONTEXT, LOGGER, and CONFIG_MANAGER
 
     container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
 
@@ -429,9 +436,8 @@ export class DIContainer {
     // This registration function was created but NEVER called in container.ts
     registerLlmAbstractionServices(container, logger);
 
-    // Register LlmRpcHandlers (TASK_2025_073 Batch 5)
-    // Must come AFTER llm-abstraction (depends on LLM_SECRETS_SERVICE, LLM_CONFIGURATION_SERVICE)
-    container.registerSingleton(TOKENS.LLM_RPC_HANDLERS, LlmRpcHandlers);
+    // TASK_2025_209: TOKENS.LLM_RPC_HANDLERS deleted. Shared LlmRpcHandlers (from @ptah-extension/rpc-handlers)
+    // is now platform-agnostic and registered in Phase 2.5 as AppLlmRpcHandlers.
 
     // ========================================
     // PHASE 2.10: Template Generation Services (TASK_2025_071)

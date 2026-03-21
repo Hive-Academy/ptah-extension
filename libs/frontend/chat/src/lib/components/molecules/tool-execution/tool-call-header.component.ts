@@ -26,6 +26,7 @@ import {
   isGlobToolInput,
   isWebFetchToolInput,
   isWebSearchToolInput,
+  isAgentDispatchTool,
 } from '@ptah-extension/shared';
 
 /**
@@ -403,7 +404,7 @@ export class ToolCallHeaderComponent {
     if (isWebSearchToolInput(input)) {
       return `Searching "${this.truncate(input.query, 15)}"...`;
     }
-    if (toolName === 'Task') {
+    if (isAgentDispatchTool(toolName)) {
       return 'Invoking agent...';
     }
     return `Executing ${toolName}...`;

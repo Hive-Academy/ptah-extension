@@ -6,6 +6,10 @@
  *
  * Workspace folders are set programmatically when the user opens a folder
  * via the Electron dialog or command line arguments.
+ *
+ * TASK_2025_208 Batch 1, Task 1.2: Added workspace lifecycle methods
+ * (addFolder, removeFolder, setActiveFolder, getActiveFolder) so the
+ * RPC handler can use typed calls instead of duck-typing.
  */
 
 import * as fs from 'fs';
@@ -26,6 +30,7 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
   private readonly fireFoldersChange: (data: void) => void;
 
   private folders: string[] = [];
+  private activeFolder: string | undefined;
   private config: Record<string, Record<string, unknown>> = {};
   private readonly configFilePath: string;
 
@@ -43,6 +48,7 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
 
     if (initialFolders && initialFolders.length > 0) {
       this.folders = [...initialFolders];
+      this.activeFolder = this.folders[0];
     }
   }
 
@@ -50,8 +56,12 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
     return [...this.folders];
   }
 
+  /**
+   * Get the primary workspace root path.
+   * Returns the active folder if set, otherwise falls back to the first folder.
+   */
   getWorkspaceRoot(): string | undefined {
-    return this.folders[0];
+    return this.activeFolder ?? this.folders[0];
   }
 
   getConfiguration<T>(
@@ -71,7 +81,101 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
    */
   setWorkspaceFolders(folders: string[]): void {
     this.folders = [...folders];
+    // Update activeFolder if the current active is no longer in the list
+    if (
+      this.activeFolder &&
+      !this.folders.some(
+        (f) => path.resolve(f) === path.resolve(this.activeFolder!)
+      )
+    ) {
+      this.activeFolder = this.folders[0];
+    }
     this.fireFoldersChange(undefined as unknown as void);
+  }
+
+  /**
+   * Add a folder to the workspace. Deduplicates by resolved path.
+   * Fires onDidChangeWorkspaceFolders event if the folder was actually added.
+   *
+   * TASK_2025_208 Batch 1, Task 1.2
+   */
+  addFolder(folderPath: string): void {
+    const resolved = path.resolve(folderPath);
+
+    // Deduplicate: check if already present (by resolved path)
+    const alreadyExists = this.folders.some(
+      (existing) => path.resolve(existing) === resolved
+    );
+    if (alreadyExists) {
+      return;
+    }
+
+    this.folders.push(resolved);
+
+    // If this is the first folder, make it active by default
+    if (this.folders.length === 1) {
+      this.activeFolder = resolved;
+    }
+
+    this.fireFoldersChange(undefined as unknown as void);
+  }
+
+  /**
+   * Remove a folder from the workspace.
+   * If the removed folder was the active folder, updates activeFolder
+   * to the first remaining folder (or undefined if none remain).
+   * Fires onDidChangeWorkspaceFolders event if the folder was actually removed.
+   *
+   * TASK_2025_208 Batch 1, Task 1.2
+   */
+  removeFolder(folderPath: string): void {
+    const resolved = path.resolve(folderPath);
+    const index = this.folders.findIndex(
+      (existing) => path.resolve(existing) === resolved
+    );
+
+    if (index === -1) {
+      return;
+    }
+
+    this.folders.splice(index, 1);
+
+    // Update activeFolder if the removed folder was active
+    if (this.activeFolder && path.resolve(this.activeFolder) === resolved) {
+      this.activeFolder = this.folders[0] ?? undefined;
+    }
+
+    this.fireFoldersChange(undefined as unknown as void);
+  }
+
+  /**
+   * Set the active (primary) workspace folder.
+   * The path must already exist in the folders array.
+   * Fires onDidChangeWorkspaceFolders event on success.
+   *
+   * TASK_2025_208 Batch 1, Task 1.2
+   */
+  setActiveFolder(folderPath: string): void {
+    const resolved = path.resolve(folderPath);
+    const exists = this.folders.some(
+      (existing) => path.resolve(existing) === resolved
+    );
+
+    if (!exists) {
+      return;
+    }
+
+    this.activeFolder = resolved;
+    this.fireFoldersChange(undefined as unknown as void);
+  }
+
+  /**
+   * Get the currently active workspace folder.
+   *
+   * TASK_2025_208 Batch 1, Task 1.2
+   */
+  getActiveFolder(): string | undefined {
+    return this.activeFolder;
   }
 
   /**

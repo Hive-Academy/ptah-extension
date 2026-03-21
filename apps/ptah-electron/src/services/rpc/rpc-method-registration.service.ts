@@ -6,25 +6,22 @@
  * and Electron-specific handlers from ./handlers/.
  *
  * TASK_2025_203 Batch 5: Rewritten from ~2300-line procedural file to ~200-line class orchestrator.
+ * TASK_2025_209: Unified LlmRpcHandlers, ChatRpcHandlers (chat:send-message, chat:stop),
+ *   removed ElectronLlmRpcHandlers, ElectronChatExtendedRpcHandlers, ElectronAgentRpcHandlers.
  *
  * Handler registration order:
- * 1. Shared handlers (15 handlers from @ptah-extension/rpc-handlers)
+ * 1. Shared handlers (16 handlers from @ptah-extension/rpc-handlers)
  *    - Session, Chat, Config, Auth, Context, Setup, License, WizardGeneration,
- *      Autocomplete, Subagent, Plugin, PtahCli, EnhancedPrompts, Quality, Provider
- * 2. Electron-specific handlers (11 handlers from ./handlers/)
- *    - Workspace, Editor, File, LLM, ChatExtended, ConfigExtended, SessionExtended,
- *      Command, Agent, Layout, AuthExtended
- *
- * NOTE: The shared LlmRpcHandlers is NOT used because it depends on TOKENS.LLM_RPC_HANDLERS
- * which is not registered in Electron. Electron uses ElectronLlmRpcHandlers instead
- * (direct API key management via ISecretStorage).
+ *      Autocomplete, Subagent, Plugin, PtahCli, EnhancedPrompts, Quality, Provider, LLM
+ * 2. Electron-specific handlers (6 handlers from ./handlers/)
+ *    - Workspace, Editor, File, ConfigExtended, Command, AuthExtended
  */
 
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, verifyRpcRegistration } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 
-// Shared handler classes (15 of 16 - LlmRpcHandlers excluded)
+// Shared handler classes (all 16)
 import {
   SessionRpcHandlers,
   ChatRpcHandlers,
@@ -41,6 +38,7 @@ import {
   EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,
   ProviderRpcHandlers,
+  LlmRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific handler classes
@@ -48,13 +46,8 @@ import {
   ElectronWorkspaceRpcHandlers,
   ElectronEditorRpcHandlers,
   ElectronFileRpcHandlers,
-  ElectronLlmRpcHandlers,
-  ElectronChatExtendedRpcHandlers,
   ElectronConfigExtendedRpcHandlers,
-  ElectronSessionExtendedRpcHandlers,
   ElectronCommandRpcHandlers,
-  ElectronAgentRpcHandlers,
-  ElectronLayoutRpcHandlers,
   ElectronAuthExtendedRpcHandlers,
 } from './handlers';
 
@@ -63,13 +56,14 @@ import {
  *
  * TASK_2025_203 Batch 5: Reduced from ~2300 lines (two procedural files)
  * to a class-based orchestrator matching the VS Code pattern.
+ * TASK_2025_209: Unified LLM/Chat/Agent handlers into shared.
  */
 @injectable()
 export class ElectronRpcMethodRegistrationService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    // Shared handlers (15 of 16)
+    // Shared handlers (all 16)
     private readonly sessionHandlers: SessionRpcHandlers,
     private readonly chatHandlers: ChatRpcHandlers,
     private readonly configHandlers: ConfigRpcHandlers,
@@ -85,17 +79,13 @@ export class ElectronRpcMethodRegistrationService {
     private readonly enhancedPromptsHandlers: EnhancedPromptsRpcHandlers,
     private readonly qualityHandlers: QualityRpcHandlers,
     private readonly providerHandlers: ProviderRpcHandlers,
+    private readonly llmHandlers: LlmRpcHandlers,
     // Electron-specific handlers
     private readonly workspaceHandlers: ElectronWorkspaceRpcHandlers,
     private readonly editorHandlers: ElectronEditorRpcHandlers,
     private readonly fileHandlers: ElectronFileRpcHandlers,
-    private readonly llmHandlers: ElectronLlmRpcHandlers,
-    private readonly chatExtendedHandlers: ElectronChatExtendedRpcHandlers,
     private readonly configExtendedHandlers: ElectronConfigExtendedRpcHandlers,
-    private readonly sessionExtendedHandlers: ElectronSessionExtendedRpcHandlers,
     private readonly commandHandlers: ElectronCommandRpcHandlers,
-    private readonly agentHandlers: ElectronAgentRpcHandlers,
-    private readonly layoutHandlers: ElectronLayoutRpcHandlers,
     private readonly authExtendedHandlers: ElectronAuthExtendedRpcHandlers
   ) {}
 
@@ -146,6 +136,7 @@ export class ElectronRpcMethodRegistrationService {
       },
       { name: 'QualityRpcHandlers', handler: this.qualityHandlers },
       { name: 'ProviderRpcHandlers', handler: this.providerHandlers },
+      { name: 'LlmRpcHandlers', handler: this.llmHandlers },
     ];
 
     for (const { name, handler } of sharedHandlers) {
@@ -171,22 +162,11 @@ export class ElectronRpcMethodRegistrationService {
       { name: 'ElectronWorkspaceRpcHandlers', handler: this.workspaceHandlers },
       { name: 'ElectronEditorRpcHandlers', handler: this.editorHandlers },
       { name: 'ElectronFileRpcHandlers', handler: this.fileHandlers },
-      { name: 'ElectronLlmRpcHandlers', handler: this.llmHandlers },
-      {
-        name: 'ElectronChatExtendedRpcHandlers',
-        handler: this.chatExtendedHandlers,
-      },
       {
         name: 'ElectronConfigExtendedRpcHandlers',
         handler: this.configExtendedHandlers,
       },
-      {
-        name: 'ElectronSessionExtendedRpcHandlers',
-        handler: this.sessionExtendedHandlers,
-      },
       { name: 'ElectronCommandRpcHandlers', handler: this.commandHandlers },
-      { name: 'ElectronAgentRpcHandlers', handler: this.agentHandlers },
-      { name: 'ElectronLayoutRpcHandlers', handler: this.layoutHandlers },
       {
         name: 'ElectronAuthExtendedRpcHandlers',
         handler: this.authExtendedHandlers,

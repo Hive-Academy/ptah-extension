@@ -91,9 +91,10 @@ const STORAGE_KEY = 'ptah.sessionMetadata';
 export class SessionMetadataStore {
   /**
    * TASK_2025_199: Dependencies are now resolved via @inject() decorators.
-   * IStateStorage is injected via PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
-   * (registered in Phase 0.5 of container.ts as VscodeStateStorage wrapping
-   * context.workspaceState).
+   * TASK_2025_208: Uses WORKSPACE_STATE_STORAGE. In Electron, this resolves to
+   * WorkspaceAwareStateStorage which delegates to per-workspace storage based
+   * on the active workspace. In VS Code, it resolves to the single workspace
+   * state storage as before.
    */
 
   /**
@@ -110,9 +111,19 @@ export class SessionMetadataStore {
   ) {}
 
   /**
-   * Save or update session metadata
+   * Save or update session metadata.
+   * Serialized through writeQueue to prevent concurrent read-modify-write races.
    */
   async save(metadata: SessionMetadata): Promise<void> {
+    return this.enqueueWrite(() => this._saveInternal(metadata));
+  }
+
+  /**
+   * Internal save implementation (NOT serialized).
+   * Called directly by addStats()/addCliSession() which already enqueue their own writes.
+   * Public callers must use save() which wraps this in enqueueWrite().
+   */
+  private async _saveInternal(metadata: SessionMetadata): Promise<void> {
     const all = await this.getAll();
     const index = all.findIndex((m) => m.sessionId === metadata.sessionId);
 
@@ -199,7 +210,7 @@ export class SessionMetadataStore {
     return this.enqueueWrite(async () => {
       const metadata = await this.get(sessionId);
       if (metadata) {
-        await this.save({
+        await this._saveInternal({
           ...metadata,
           lastActiveAt: Date.now(),
           totalCost: metadata.totalCost + stats.cost,
@@ -208,8 +219,47 @@ export class SessionMetadataStore {
             output: metadata.totalTokens.output + stats.tokens.output,
           },
         });
+
+        // If this is a child session, propagate stats to the parent
+        if (metadata.isChildSession) {
+          await this.propagateStatsToParent(sessionId, stats);
+        }
       }
     });
+  }
+
+  /**
+   * Propagate child session stats to the parent session.
+   * Finds the parent by scanning all sessions' cliSessions arrays for a reference
+   * whose sdkSessionId matches the child's sessionId.
+   *
+   * Called within enqueueWrite, so concurrent updates are safe.
+   * Silently skips if no parent is found (orphan child or timing issue).
+   */
+  private async propagateStatsToParent(
+    childSessionId: string,
+    stats: { cost: number; tokens: { input: number; output: number } }
+  ): Promise<void> {
+    const all = await this.getAll();
+    for (const session of all) {
+      if (
+        session.cliSessions?.some((ref) => ref.sdkSessionId === childSessionId)
+      ) {
+        await this._saveInternal({
+          ...session,
+          lastActiveAt: Date.now(),
+          totalCost: session.totalCost + stats.cost,
+          totalTokens: {
+            input: session.totalTokens.input + stats.tokens.input,
+            output: session.totalTokens.output + stats.tokens.output,
+          },
+        });
+        this.logger.debug(
+          `[SessionMetadataStore] Propagated subagent stats to parent ${session.sessionId}`
+        );
+        break;
+      }
+    }
   }
 
   /**
@@ -255,7 +305,7 @@ export class SessionMetadataStore {
         );
       }
 
-      await this.save({
+      await this._saveInternal({
         ...metadata,
         lastActiveAt: Date.now(),
         cliSessions: updated,
@@ -264,9 +314,18 @@ export class SessionMetadataStore {
   }
 
   /**
-   * Delete session metadata
+   * Delete session metadata.
+   * Serialized through writeQueue to prevent concurrent read-modify-write races.
    */
   async delete(sessionId: string): Promise<void> {
+    return this.enqueueWrite(() => this._deleteInternal(sessionId));
+  }
+
+  /**
+   * Internal delete implementation (NOT serialized).
+   * Public callers must use delete() which wraps this in enqueueWrite().
+   */
+  private async _deleteInternal(sessionId: string): Promise<void> {
     const all = await this.getAll();
     const filtered = all.filter((m) => m.sessionId !== sessionId);
 

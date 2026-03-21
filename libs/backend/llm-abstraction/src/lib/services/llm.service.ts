@@ -105,16 +105,18 @@ export class LlmService implements ILlmService {
           }
         );
       } else {
-        this.logger.warn(
-          '[LlmService.initializeDefaultProvider] Failed to initialize default provider',
+        // Downgrade from warn to debug - no provider is expected after SDK-only migration (TASK_2025_209)
+        this.logger.debug(
+          '[LlmService.initializeDefaultProvider] No provider available (expected in SDK-only mode)',
           {
             error: result.error?.message,
           }
         );
       }
     } catch (error) {
-      this.logger.warn(
-        '[LlmService.initializeDefaultProvider] Exception during initialization',
+      // Downgrade from warn to debug - initialization failure is expected when import map is empty
+      this.logger.debug(
+        '[LlmService.initializeDefaultProvider] Initialization skipped (expected in SDK-only mode)',
         {
           error: error instanceof Error ? error.message : String(error),
         }

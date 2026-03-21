@@ -494,6 +494,13 @@ export class AgentSessionWatcherService extends EventEmitter {
         if (eventType === 'rename' && filename?.startsWith('agent-')) {
           this.handleNewAgentFile(sessionsDir, filename);
         }
+
+        // When a session directory is created (e.g., UUID-named dir), re-check
+        // for subagent directories that we couldn't watch earlier.
+        if (eventType === 'rename' && filename && !filename.includes('.')) {
+          // UUID-like directory name (no extension) — could be a session dir
+          this.watchSubagentDirectories(sessionsDir);
+        }
       });
 
       this.directoryWatcher.on('error', (error) => {
@@ -552,6 +559,20 @@ export class AgentSessionWatcherService extends EventEmitter {
       Array.from(this.activeWatches.values()).map((w) => w.sessionId)
     );
 
+    // Also scan the sessions directory for UUID-named directories.
+    // This catches the first subagent whose session ID isn't in activeWatches yet.
+    try {
+      const entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && this.isUuidLike(entry.name)) {
+          sessionIds.add(entry.name);
+        }
+      }
+    } catch {
+      // Directory scan failed (e.g., sessionsDir doesn't exist yet) -
+      // proceed with activeWatches only
+    }
+
     for (const sessionId of sessionIds) {
       const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
 
@@ -601,6 +622,17 @@ export class AgentSessionWatcherService extends EventEmitter {
         );
       }
     }
+  }
+
+  /**
+   * Check if a directory name looks like a UUID or hex session identifier.
+   * Matches both standard UUID format (with hyphens) and hex-only format.
+   */
+  private isUuidLike(name: string): boolean {
+    return (
+      /^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i.test(name) ||
+      /^[0-9a-f]{12,64}$/i.test(name)
+    );
   }
 
   /**

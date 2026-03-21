@@ -583,6 +583,9 @@ export class ChatRpcHandlers {
     this.registerChatResume();
     this.registerChatAbort();
     this.registerChatRunningAgents();
+    this.registerChatSendMessage();
+    this.registerChatStop();
+    this.registerAgentStop();
     this.registerBackgroundAgentHandlers();
     this.subscribeToBackgroundAgentEvents();
 
@@ -593,9 +596,111 @@ export class ChatRpcHandlers {
         'chat:resume',
         'chat:abort',
         'chat:running-agents',
+        'chat:send-message',
+        'chat:stop',
+        'agent:stop',
         'agent:backgroundList',
         'agent:backgroundStop',
       ],
+    });
+  }
+
+  /**
+   * chat:send-message - Alias for sending a continuation message to an existing session.
+   * TASK_2025_209: Moved from ElectronChatExtendedRpcHandlers to shared handler.
+   */
+  private registerChatSendMessage(): void {
+    this.rpcHandler.registerMethod<
+      { sessionId: string; message: string; contextFiles?: string[] },
+      { success: boolean; error?: string }
+    >(
+      'chat:send-message',
+      async (
+        params:
+          | { sessionId: string; message: string; contextFiles?: string[] }
+          | undefined
+      ) => {
+        if (!params?.sessionId || !params?.message) {
+          return {
+            success: false,
+            error: 'sessionId and message are required',
+          };
+        }
+        try {
+          await this.sdkAdapter.sendMessageToSession(
+            params.sessionId as SessionId,
+            params.message,
+            params.contextFiles ? { files: params.contextFiles } : undefined
+          );
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: chat:send-message failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+  }
+
+  /**
+   * agent:stop - Stop a running agent by session ID.
+   * TASK_2025_209: Moved from ElectronAgentRpcHandlers to shared handler.
+   * Uses the same sdkAdapter.interruptSession() as chat:stop.
+   */
+  private registerAgentStop(): void {
+    this.rpcHandler.registerMethod<
+      { agentId: string },
+      { success: boolean; error?: string }
+    >('agent:stop', async (params: { agentId: string } | undefined) => {
+      if (!params?.agentId) {
+        return { success: false, error: 'agentId is required' };
+      }
+      try {
+        await this.sdkAdapter.interruptSession(params.agentId as SessionId);
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: agent:stop failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
+  }
+
+  /**
+   * chat:stop - Stop an active chat session via SDK.
+   * TASK_2025_209: Moved from ElectronChatExtendedRpcHandlers to shared handler.
+   */
+  private registerChatStop(): void {
+    this.rpcHandler.registerMethod<
+      { sessionId: string },
+      { success: boolean; error?: string }
+    >('chat:stop', async (params: { sessionId: string } | undefined) => {
+      if (!params?.sessionId) {
+        return { success: false, error: 'sessionId is required' };
+      }
+      try {
+        await this.sdkAdapter.interruptSession(params.sessionId as SessionId);
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: chat:stop failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     });
   }
 

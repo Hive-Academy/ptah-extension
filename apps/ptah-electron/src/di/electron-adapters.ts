@@ -8,14 +8,12 @@
  * Why these exist:
  * - OutputManager uses vscode.window.createOutputChannel -> replace with IOutputChannel wrapper
  * - Logger depends on OutputManager -> create adapter that works with our wrapper
- * - LicenseService uses vscode.ExtensionContext.secrets -> stub for API key auth model
+ *
+ * Note: LicenseService and AuthSecretsService now use `import type` for vscode,
+ * so they have no runtime vscode dependency and can be used directly in Electron.
  */
 
-import type {
-  IOutputChannel,
-  ISecretStorage,
-} from '@ptah-extension/platform-core';
-import type { IAuthSecretsService } from '@ptah-extension/vscode-core';
+import type { IOutputChannel } from '@ptah-extension/platform-core';
 
 /**
  * Electron-compatible OutputManager adapter.
@@ -282,155 +280,5 @@ export class ElectronLoggerAdapter {
     }
 
     this.logWithContext(level, inlinedMessage, {});
-  }
-}
-
-/**
- * License status type matching vscode-core LicenseService's LicenseStatus.
- */
-interface LicenseStatus {
-  valid: boolean;
-  tier: 'community' | 'pro' | 'trial_pro';
-  reason?: string;
-  expiresAt?: number;
-  email?: string;
-}
-
-/**
- * License events interface matching vscode-core LicenseService.
- */
-interface LicenseEvents {
-  on(event: 'status-changed', handler: (status: LicenseStatus) => void): void;
-}
-
-/**
- * Electron-compatible LicenseService stub.
- *
- * In Electron, authentication is via API key (no Paddle subscriptions).
- * This stub always returns a valid Pro license so that:
- * - RpcHandler's license middleware allows all RPC methods
- * - FeatureGateService enables all Pro features
- *
- * When a real licensing model is needed for Electron, this stub
- * should be replaced with a proper implementation.
- */
-export class ElectronLicenseServiceStub {
-  private readonly status: LicenseStatus = {
-    valid: true,
-    tier: 'pro',
-  };
-
-  /**
-   * Get cached license status. Always returns valid Pro.
-   */
-  getCachedStatus(): LicenseStatus | null {
-    return this.status;
-  }
-
-  /**
-   * Verify license. No-op for Electron stub.
-   */
-  async verifyLicense(): Promise<LicenseStatus> {
-    return this.status;
-  }
-
-  /**
-   * Get license key. Returns undefined (Electron uses API key, not license key).
-   */
-  async getLicenseKey(): Promise<string | undefined> {
-    return undefined;
-  }
-
-  /**
-   * Set license key. No-op for Electron stub.
-   */
-  async setLicenseKey(_key: string): Promise<void> {
-    // No-op: Electron uses API key auth, not license keys
-  }
-
-  /**
-   * Events interface. Returns a no-op event emitter.
-   */
-  get events(): LicenseEvents {
-    return {
-      on: () => {
-        // No-op
-      },
-    };
-  }
-}
-
-/**
- * Electron-compatible AuthSecretsService adapter.
- *
- * The VS Code AuthSecretsService uses vscode.ExtensionContext.secrets.
- * This adapter delegates to the platform-electron ISecretStorage,
- * providing the same IAuthSecretsService interface.
- *
- * Storage key pattern matches VS Code: ptah.auth.{credentialType}
- * Provider key pattern: ptah.auth.provider.{providerId}
- */
-type AuthCredentialType = 'oauthToken' | 'apiKey';
-
-export class ElectronAuthSecretsService implements IAuthSecretsService {
-  private readonly SECRET_PREFIX = 'ptah.auth';
-  private readonly KEY_MAP: Record<AuthCredentialType, string> = {
-    oauthToken: 'claudeOAuthToken',
-    apiKey: 'anthropicApiKey',
-  };
-
-  constructor(private readonly secretStorage: ISecretStorage) {}
-
-  private getSecretKey(type: AuthCredentialType): string {
-    return `${this.SECRET_PREFIX}.${this.KEY_MAP[type]}`;
-  }
-
-  private getProviderSecretKey(providerId: string): string {
-    return `${this.SECRET_PREFIX}.provider.${providerId}`;
-  }
-
-  async getCredential(type: AuthCredentialType): Promise<string | undefined> {
-    return this.secretStorage.get(this.getSecretKey(type));
-  }
-
-  async setCredential(type: AuthCredentialType, value: string): Promise<void> {
-    if (!value || value.trim().length === 0) {
-      await this.deleteCredential(type);
-      return;
-    }
-    await this.secretStorage.store(this.getSecretKey(type), value.trim());
-  }
-
-  async deleteCredential(type: AuthCredentialType): Promise<void> {
-    await this.secretStorage.delete(this.getSecretKey(type));
-  }
-
-  async hasCredential(type: AuthCredentialType): Promise<boolean> {
-    const value = await this.getCredential(type);
-    return !!value && value.length > 0;
-  }
-
-  async getProviderKey(providerId: string): Promise<string | undefined> {
-    return this.secretStorage.get(this.getProviderSecretKey(providerId));
-  }
-
-  async setProviderKey(providerId: string, value: string): Promise<void> {
-    if (!value || value.trim().length === 0) {
-      await this.deleteProviderKey(providerId);
-      return;
-    }
-    await this.secretStorage.store(
-      this.getProviderSecretKey(providerId),
-      value.trim()
-    );
-  }
-
-  async deleteProviderKey(providerId: string): Promise<void> {
-    await this.secretStorage.delete(this.getProviderSecretKey(providerId));
-  }
-
-  async hasProviderKey(providerId: string): Promise<boolean> {
-    const value = await this.getProviderKey(providerId);
-    return !!value && value.length > 0;
   }
 }

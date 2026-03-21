@@ -59,7 +59,7 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
     ...(useSavedBounds ? { x: savedBounds.x, y: savedBounds.y } : {}),
     minWidth: 800,
     minHeight: 600,
-    title: 'Ptah',
+    title: 'Ptah - Coding Orchestra',
     icon: path.join(__dirname, 'assets', 'icons', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

@@ -121,7 +121,7 @@ export const LLM_SERVICE = Symbol.for('LlmService');
 export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
 export const LLM_SECRETS_SERVICE = Symbol.for('LlmSecretsService');
 export const LLM_CONFIGURATION_SERVICE = Symbol.for('LlmConfigurationService');
-export const LLM_RPC_HANDLERS = Symbol.for('LlmRpcHandlers');
+// LLM_RPC_HANDLERS - DELETED in TASK_2025_209 (shared LlmRpcHandlers rewritten to be platform-agnostic)
 
 // ========================================
 // Agent Orchestration Tokens (TASK_2025_157)
@@ -297,6 +297,11 @@ export const PLATFORM_AUTH_PROVIDER = Symbol.for('PlatformAuthProvider');
 export const SAVE_DIALOG_PROVIDER = Symbol.for('SaveDialogProvider');
 export const MODEL_DISCOVERY = Symbol.for('ModelDiscovery');
 
+// ========================================
+// Workspace Context Management (TASK_2025_208)
+// ========================================
+export const WORKSPACE_CONTEXT_MANAGER = Symbol.for('WorkspaceContextManager');
+
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
@@ -383,7 +388,7 @@ export const TOKENS = {
   PROVIDER_REGISTRY,
   LLM_SECRETS_SERVICE,
   LLM_CONFIGURATION_SERVICE,
-  LLM_RPC_HANDLERS,
+  // LLM_RPC_HANDLERS - DELETED in TASK_2025_209
 
   // Agent Orchestration (TASK_2025_157)
   AGENT_PROCESS_MANAGER,
@@ -469,6 +474,11 @@ export const TOKENS = {
   PLATFORM_AUTH_PROVIDER,
   SAVE_DIALOG_PROVIDER,
   MODEL_DISCOVERY,
+
+  // ========================================
+  // Workspace Context Management (TASK_2025_208)
+  // ========================================
+  WORKSPACE_CONTEXT_MANAGER,
 } as const;
 
 /**

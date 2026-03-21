@@ -21,6 +21,7 @@
  */
 
 import { z } from 'zod';
+import { isAgentDispatchTool } from '../type-guards/tool-input-guards';
 
 // ============================================================================
 // EXECUTION NODE TYPES
@@ -686,10 +687,10 @@ export function isStreaming(node: ExecutionNode): boolean {
 }
 
 /**
- * Check if JSONL message is a Task tool (agent spawn)
+ * Check if JSONL message is a Task/Agent tool (agent spawn)
  */
 export function isTaskToolMessage(msg: JSONLMessage): boolean {
-  return msg.type === 'tool' && msg.tool === 'Task';
+  return msg.type === 'tool' && isAgentDispatchTool(msg.tool ?? '');
 }
 
 /**

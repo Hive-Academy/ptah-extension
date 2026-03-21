@@ -1,7 +1,7 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 14 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 13 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
@@ -10,7 +10,6 @@
  * - diagnostics: errors, warnings, all diagnostics
  *
  * System (VS Code integration):
- * - ai: multi-agent VS Code LM API access
  * - files: read, list operations
  *
  * Analysis (workspace intelligence):
@@ -54,7 +53,6 @@ import {
   buildSearchNamespace,
   buildDiagnosticsNamespace,
   // System namespace builders
-  buildAINamespace,
   buildFilesNamespace,
   buildHelpMethod,
   // Analysis namespace builders
@@ -194,11 +192,11 @@ export class PtahAPIBuilder {
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fileSystemProvider: IFileSystemProvider
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 14 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 13 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 14 namespaces
+   * Build the complete Ptah API object with all 13 namespaces
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -255,7 +253,6 @@ export class PtahAPIBuilder {
       diagnostics: buildDiagnosticsNamespace(),
 
       // System namespaces (VS Code integration)
-      ai: buildAINamespace(systemDeps),
       files: buildFilesNamespace(systemDeps),
 
       // Analysis namespaces (workspace intelligence)

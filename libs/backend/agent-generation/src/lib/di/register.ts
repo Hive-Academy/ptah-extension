@@ -28,7 +28,6 @@ import { ContentGenerationService } from '../services/content-generation.service
 import { AgentFileWriterService } from '../services/file-writer.service';
 import { MultiCliAgentWriterService } from '../services/cli-agent-transforms/multi-cli-agent-writer.service';
 import { OutputValidationService } from '../services/output-validation.service';
-import { VsCodeLmService } from '../services/vscode-lm.service';
 import {
   WizardWebviewLifecycleService,
   AgenticAnalysisService,
@@ -112,13 +111,6 @@ export function registerAgentGenerationServices(
     { lifecycle: Lifecycle.Singleton }
   );
 
-  // VS Code LM service - LLM integration with retry logic
-  container.register(
-    AGENT_GENERATION_TOKENS.VSCODE_LM_SERVICE,
-    { useClass: VsCodeLmService },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
   // Agent selection service - scores and selects agents
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_SELECTION_SERVICE,
@@ -187,7 +179,6 @@ export function registerAgentGenerationServices(
       'AGENTIC_ANALYSIS_SERVICE',
       'MULTI_PHASE_ANALYSIS_SERVICE',
       'WIZARD_WEBVIEW_LIFECYCLE',
-      'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
       'AGENT_RECOMMENDATION_SERVICE',
       'CONTENT_GENERATION_SERVICE',

@@ -187,20 +187,35 @@ export class SkillJunctionService {
               this.managedJunctions.add(linkPath);
               continue;
             }
-            // Points elsewhere — remove and recreate
+            // Symlink points elsewhere — check if the target is valid (e.g., SDK-created)
+            // If the symlink resolves to a valid directory, skip it rather than replacing
+            try {
+              const resolvedStat = statSync(linkPath); // follows symlink
+              if (resolvedStat.isDirectory()) {
+                this.logger.debug(
+                  `[SkillJunctionService] Skipping ${skillName}: valid symlink already exists (likely SDK-created)`,
+                  { linkPath, existingTarget }
+                );
+                result.skipped++;
+                continue;
+              }
+            } catch {
+              // Symlink is broken (dangling) — remove and recreate
+            }
+            // Broken or non-directory symlink — remove and recreate
             // Use unlinkSync (not rmSync) to safely remove the link without following it
             unlinkSync(linkPath);
           } else if (existingStat.isDirectory()) {
-            // Real directory exists — DO NOT touch it
-            this.logger.info(
-              `[SkillJunctionService] Skipping ${skillName}: real directory exists`,
+            // Real directory exists — DO NOT touch it (likely SDK-created via pluginPaths)
+            this.logger.debug(
+              `[SkillJunctionService] Skipping ${skillName}: real directory exists (likely SDK-created)`,
               { linkPath }
             );
             result.skipped++;
             continue;
           } else {
             // Regular file or other entry — skip with clear message
-            this.logger.info(
+            this.logger.debug(
               `[SkillJunctionService] Skipping ${skillName}: non-directory entry exists`,
               { linkPath }
             );
@@ -432,10 +447,27 @@ export class SkillJunctionService {
                 this.managedJunctions.add(targetPath);
                 continue; // Already correct
               }
-              // Points elsewhere — remove and recreate
+              // Symlink points elsewhere — check if it resolves to a valid file (e.g., SDK-created)
+              try {
+                const resolvedStat = statSync(targetPath); // follows symlink
+                if (resolvedStat.isFile()) {
+                  this.logger.debug(
+                    `[SkillJunctionService] Skipping command ${entry}: valid symlink already exists (likely SDK-created)`,
+                    { targetPath, existingTarget }
+                  );
+                  result.skipped++;
+                  continue;
+                }
+              } catch {
+                // Symlink is broken (dangling) — remove and recreate
+              }
               unlinkSync(targetPath);
             } else if (!this.managedJunctions.has(targetPath)) {
-              // Real file exists that we didn't create — don't overwrite
+              // Real file exists that we didn't create — don't overwrite (likely SDK-created)
+              this.logger.debug(
+                `[SkillJunctionService] Skipping command ${entry}: file already exists (likely SDK-created)`,
+                { targetPath }
+              );
               result.skipped++;
               continue;
             } else {

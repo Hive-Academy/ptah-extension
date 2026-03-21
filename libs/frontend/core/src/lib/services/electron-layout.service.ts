@@ -4,6 +4,9 @@
  * Signal-based state management for the Electron desktop 3-panel layout.
  * Manages workspace sidebar width, editor panel width/visibility,
  * workspace folders, and layout persistence via state storage.
+ *
+ * TASK_2025_208 Batch 4: Workspace switch coordination, active streams
+ * confirmation on close, and initial workspace:switch RPC on renderer load.
  */
 
 import {
@@ -13,8 +16,10 @@ import {
   inject,
   DestroyRef,
 } from '@angular/core';
+import { SessionId } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
 import { ClaudeRpcService } from './claude-rpc.service';
+import { WORKSPACE_COORDINATOR } from '../tokens/workspace-coordinator.token';
 
 export interface WorkspaceFolder {
   path: string;
@@ -30,11 +35,20 @@ const MIN_EDITOR_WIDTH = 300;
 /** Dynamic max: capped at 50% of viewport to prevent chat panel collapse below its 400px CSS min-width */
 const MAX_EDITOR_WIDTH_RATIO = 0.5;
 
+/**
+ * Debounce delay for workspace switch RPC calls (ms).
+ * Prevents rapid-fire RPC when user clicks through workspaces quickly.
+ */
+const SWITCH_DEBOUNCE_MS = 100;
+
 @Injectable({ providedIn: 'root' })
 export class ElectronLayoutService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly coordinator = inject(WORKSPACE_COORDINATOR, {
+    optional: true,
+  });
 
   // Layout dimensions
   private readonly _workspaceSidebarWidth = signal(DEFAULT_SIDEBAR_WIDTH);
@@ -46,6 +60,10 @@ export class ElectronLayoutService {
   // Workspace state
   private readonly _workspaceFolders = signal<WorkspaceFolder[]>([]);
   private readonly _activeWorkspaceIndex = signal(0);
+
+  // TASK_2025_208: Workspace switch coordination state
+  private _switchId = 0;
+  private _switchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Public readonly signals
   readonly workspaceSidebarWidth = this._workspaceSidebarWidth.asReadonly();
@@ -170,19 +188,70 @@ export class ElectronLayoutService {
       ]);
       // Auto-switch to the new folder
       const newIndex = this._workspaceFolders().length - 1;
-      this._activeWorkspaceIndex.set(newIndex);
-      this.persistLayout();
+      this.switchWorkspace(newIndex);
     } catch (error) {
       console.error('[ElectronLayout] Failed to add folder:', error);
     }
   }
 
-  removeFolder(index: number): void {
+  /**
+   * Remove a workspace folder by index.
+   *
+   * TASK_2025_208: Before removal, checks for streaming tabs in the workspace.
+   * If streaming tabs exist, shows a confirmation dialog. On confirm, sends
+   * chat:abort RPC for each streaming session before proceeding with removal.
+   * After removal, cleans up TabManagerService and EditorService state.
+   *
+   * Handles edge case: removing the only workspace resets to "no workspace" state.
+   */
+  async removeFolder(index: number): Promise<void> {
     const folders = this._workspaceFolders();
     if (index < 0 || index >= folders.length) return;
 
     const removedFolder = folders[index];
 
+    // TASK_2025_208: Check for streaming tabs before removal
+    if (this.coordinator) {
+      const streamingSessionIds = this.coordinator.getStreamingSessionIds(
+        removedFolder.path
+      );
+
+      if (streamingSessionIds.length > 0) {
+        const confirmed = await this.coordinator.confirm({
+          title: 'Close Workspace?',
+          message: `This workspace has ${
+            streamingSessionIds.length
+          } active streaming session${
+            streamingSessionIds.length > 1 ? 's' : ''
+          }. Closing it will abort ${
+            streamingSessionIds.length > 1 ? 'them' : 'it'
+          }. Continue?`,
+          confirmLabel: 'Close Workspace',
+          cancelLabel: 'Cancel',
+          confirmStyle: 'error',
+        });
+
+        if (!confirmed) {
+          return;
+        }
+
+        // Abort all streaming sessions before removal
+        await Promise.allSettled(
+          streamingSessionIds.map((sessionId) =>
+            this.rpcService
+              .call('chat:abort', { sessionId: sessionId as SessionId })
+              .catch((error) => {
+                console.error(
+                  `[ElectronLayout] Failed to abort session ${sessionId}:`,
+                  error
+                );
+              })
+          )
+        );
+      }
+    }
+
+    // Remove the folder from the list
     this._workspaceFolders.update((f) => f.filter((_, i) => i !== index));
 
     // Adjust active index
@@ -203,40 +272,171 @@ export class ElectronLayoutService {
         );
       });
 
-    // If we still have folders, notify backend of the new active workspace
+    // TASK_2025_208: Clean up frontend state for the removed workspace
+    this.cleanupWorkspaceState(removedFolder.path);
+
+    // If we still have folders, coordinate switch to the new active workspace
     const newActive = this.activeWorkspace();
     if (newActive) {
-      this.rpcService
-        .call('workspace:switch', { path: newActive.path })
-        .catch((error) => {
-          console.error(
-            '[ElectronLayout] Failed to switch workspace after removal:',
-            error
-          );
-        });
+      this.coordinateWorkspaceSwitch(
+        newActive.path,
+        this._activeWorkspaceIndex()
+      );
+    } else {
+      // No workspaces left -- update VSCodeService to empty state
+      this.vscodeService.updateWorkspaceRoot('');
     }
 
     this.persistLayout();
   }
 
+  /**
+   * Switch to a workspace by index.
+   *
+   * TASK_2025_208: Implements debounced workspace switching with stale-response
+   * protection. The UI updates immediately (signal set before RPC) for instant
+   * perceived switch. The backend RPC is debounced by 100ms to handle rapid
+   * clicking. A switchId counter ensures stale RPC responses are discarded.
+   *
+   * After RPC success: coordinates TabManagerService, EditorService, and
+   * VSCodeService updates for the new workspace.
+   */
   switchWorkspace(index: number): void {
     const folders = this._workspaceFolders();
     if (index < 0 || index >= folders.length) return;
 
+    // No-op if already on this workspace
+    if (this._activeWorkspaceIndex() === index) return;
+
+    // Capture previous index BEFORE updating signal so rollback can revert correctly
+    const previousIndex = this._activeWorkspaceIndex();
+
+    // Update UI immediately for instant perceived switch
     this._activeWorkspaceIndex.set(index);
     this.persistLayout();
 
-    // Notify backend of workspace switch
+    // Debounced backend coordination
     const folder = folders[index];
-    this.rpcService
-      .call('workspace:switch', { path: folder.path })
-      .catch((error) => {
-        console.error('[ElectronLayout] Failed to switch workspace:', error);
-      });
+    this.debouncedWorkspaceSwitch(folder.path, previousIndex);
   }
 
   setWorkspaceFolders(folders: WorkspaceFolder[]): void {
     this._workspaceFolders.set(folders);
+  }
+
+  // ── Workspace switch coordination (TASK_2025_208) ─────────────────
+
+  /**
+   * Debounce workspace switch RPC calls. If called again within SWITCH_DEBOUNCE_MS,
+   * the previous pending switch is cancelled and replaced with the new one.
+   * Uses a switchId counter to discard stale RPC responses.
+   */
+  private debouncedWorkspaceSwitch(
+    newPath: string,
+    previousIndex: number
+  ): void {
+    // Cancel any pending debounced switch
+    if (this._switchDebounceTimer !== null) {
+      clearTimeout(this._switchDebounceTimer);
+      this._switchDebounceTimer = null;
+    }
+
+    // Increment switch ID -- stale responses will have a lower ID and be discarded
+    const currentSwitchId = ++this._switchId;
+
+    this._switchDebounceTimer = setTimeout(async () => {
+      this._switchDebounceTimer = null;
+
+      try {
+        // Send workspace:switch RPC
+        const result = await this.rpcService.call('workspace:switch', {
+          path: newPath,
+        });
+
+        // Discard stale response: a newer switch has been initiated since this RPC started
+        if (this._switchId !== currentSwitchId) {
+          return;
+        }
+
+        if (!result.isSuccess()) {
+          console.error(
+            '[ElectronLayout] workspace:switch RPC failed:',
+            result
+          );
+          return;
+        }
+
+        // Coordinate frontend services for the new workspace
+        this.coordinateWorkspaceSwitch(newPath, previousIndex);
+      } catch (error) {
+        // Only log if this switch is still the latest
+        if (this._switchId === currentSwitchId) {
+          console.error('[ElectronLayout] Failed to switch workspace:', error);
+        }
+      }
+    }, SWITCH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Coordinate all frontend services after a workspace switch.
+   * Called after workspace:switch RPC succeeds or during removeFolder when
+   * switching to a new active workspace.
+   *
+   * Uses WORKSPACE_COORDINATOR DI token (provided by chat library) to avoid
+   * circular dependencies between core and chat/editor.
+   *
+   * TASK_2025_208 Fix 5: Improved error handling. If coordination fails,
+   * reverts _activeWorkspaceIndex to the previous value to prevent leaving
+   * the UI in an inconsistent state (sidebar showing workspace A, but chat
+   * showing workspace B's tabs).
+   */
+  private coordinateWorkspaceSwitch(
+    newPath: string,
+    previousIndex: number
+  ): void {
+    try {
+      if (this.coordinator) {
+        this.coordinator.switchWorkspace(newPath);
+      }
+
+      // Update VSCodeService config so all consumers see the new workspaceRoot
+      this.vscodeService.updateWorkspaceRoot(newPath);
+    } catch (error) {
+      console.error(
+        '[ElectronLayout] Failed to coordinate workspace switch:',
+        error
+      );
+
+      // Revert the active workspace index to prevent inconsistent UI state
+      const targetIndex = this._workspaceFolders().findIndex(
+        (f) => f.path === newPath
+      );
+      if (targetIndex >= 0 && this._activeWorkspaceIndex() === targetIndex) {
+        this._activeWorkspaceIndex.set(previousIndex);
+        this.persistLayout();
+        console.warn(
+          `[ElectronLayout] Reverted activeWorkspaceIndex from ${targetIndex} to ${previousIndex} after coordination failure`
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  /**
+   * Clean up workspace state via the coordinator.
+   */
+  private cleanupWorkspaceState(workspacePath: string): void {
+    if (this.coordinator) {
+      try {
+        this.coordinator.removeWorkspaceState(workspacePath);
+      } catch (error) {
+        console.error(
+          '[ElectronLayout] Failed to clean up workspace state:',
+          error
+        );
+      }
+    }
   }
 
   // ── Persistence ────────────────────────────────────────────────────
@@ -252,6 +452,14 @@ export class ElectronLayoutService {
     this.vscodeService.setState(LAYOUT_STATE_KEY, state);
   }
 
+  /**
+   * Restore layout from persisted webview state.
+   *
+   * TASK_2025_208 (Task 4.4): After restoring workspace folders and active index,
+   * sends an initial workspace:switch RPC for the active workspace to ensure the
+   * backend activates the correct child container on renderer load. Also
+   * coordinates TabManagerService and EditorService for the restored workspace.
+   */
   private restoreLayout(): void {
     const state = this.vscodeService.getState<{
       sidebarWidth?: number;
@@ -289,6 +497,40 @@ export class ElectronLayoutService {
       this._activeWorkspaceIndex.set(
         Math.min(Math.max(0, state.activeWorkspaceIndex), maxIndex)
       );
+    }
+
+    // TASK_2025_208 (Task 4.4): Send initial workspace:switch RPC for the
+    // restored active workspace so the backend activates the correct child container.
+    //
+    // Fix 2: Await RPC before coordinating frontend services to prevent
+    // race condition where frontend switches before backend is ready.
+    const restoredFolders = this._workspaceFolders();
+    const restoredIndex = this._activeWorkspaceIndex();
+
+    if (restoredFolders.length > 0 && restoredFolders[restoredIndex]) {
+      const activePath = restoredFolders[restoredIndex].path;
+
+      // Send workspace:switch RPC and AWAIT before coordinating (no debounce on initial load)
+      this.rpcService
+        .call('workspace:switch', { path: activePath })
+        .then((result) => {
+          if (!result.isSuccess()) {
+            console.error(
+              '[ElectronLayout] Initial workspace:switch RPC failed:',
+              result
+            );
+            return;
+          }
+
+          // Only coordinate frontend services AFTER backend confirms the switch
+          this.coordinateWorkspaceSwitch(activePath, restoredIndex);
+        })
+        .catch((error) => {
+          console.error(
+            '[ElectronLayout] Failed to send initial workspace:switch:',
+            error
+          );
+        });
     }
   }
 

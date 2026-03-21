@@ -40,7 +40,6 @@ The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Pro
 │  ├─ ptah.workspace   - Workspace operations          │
 │  ├─ ptah.search      - File search & relevance       │
 │  ├─ ptah.diagnostics - Problem detection             │
-│  ├─ ptah.ai          - AI provider integration       │
 │  └─ ptah.files       - File operations               │
 ├──────────────────────────────────────────────────────┤
 │  Permission Management                               │
@@ -269,29 +268,6 @@ const fileDiagnostics = await ptah.diagnostics.getProblems({
 // Get only errors
 const errors = await ptah.diagnostics.getProblems({
   severity: 'error',
-});
-```
-
-### ptah.ai - AI Provider Integration
-
-Uses the VS Code Language Model API for AI operations. No API keys required -- authentication is handled by VS Code (e.g., GitHub Copilot subscription).
-
-```typescript
-// Generate content with AI
-const response = await ptah.ai.generate({
-  prompt: 'Explain this code',
-  model: 'claude-3-5-sonnet-20241022',
-  temperature: 0.7,
-});
-// { content: 'This code implements...', tokens: 150 }
-
-// Stream AI responses
-await ptah.ai.generateStream({
-  prompt: 'Write a tutorial',
-  model: 'claude-3-5-sonnet-20241022',
-  onChunk: (chunk) => {
-    console.log(chunk.content);
-  },
 });
 ```
 

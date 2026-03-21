@@ -51,7 +51,6 @@ Use execute_code with the ptah global object for operations only available throu
 - **Dependencies**: ptah.dependencies.getDependencies(file) / getDependents(file)
 - **Structural summaries**: ptah.context.enrichFile(file) — import signatures + class outlines
 - **LSP actions**: ptah.ide.actions.organizeImports(file), ptah.ide.actions.rename(file, line, col, newName)
-- **AI delegation**: ptah.ai.invokeAgent(agentPath, task, model) — delegate to cheap models
 - **Self-docs**: ptah.help() / ptah.help('namespace')
 
 ### Priority 2: Built-in Tools

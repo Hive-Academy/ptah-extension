@@ -79,14 +79,8 @@ export {
 export type { RpcVerificationResult } from './messaging/rpc-verification';
 
 // RPC handlers (TASK_2025_073 Batch 5)
-export { LlmRpcHandlers } from './rpc/llm-rpc-handlers';
-export type {
-  LlmProviderName,
-  LlmProviderStatus,
-  SetApiKeyRequest,
-  SetApiKeyResponse,
-  VsCodeModelInfo,
-} from './rpc/llm-rpc-handlers';
+// TASK_2025_209: LlmRpcHandlers deleted from vscode-core (moved to platform-agnostic @ptah-extension/rpc-handlers)
+// LlmProviderName, LlmProviderStatus, SetApiKeyRequest, SetApiKeyResponse, VsCodeModelInfo - all removed
 
 // Agent Session Watcher (real-time summary streaming)
 export { AgentSessionWatcherService } from './services/agent-session-watcher.service';

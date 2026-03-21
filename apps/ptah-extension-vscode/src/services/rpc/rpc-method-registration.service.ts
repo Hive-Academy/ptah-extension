@@ -157,9 +157,19 @@ export class RpcMethodRegistrationService {
     });
 
     // Verify all expected RPC methods have handlers
+    // Exclude Electron-only methods (workspace/layout) that are not applicable in VS Code
+    const ELECTRON_ONLY_METHODS = [
+      'workspace:getInfo',
+      'workspace:addFolder',
+      'workspace:removeFolder',
+      'workspace:switch',
+      'layout:persist',
+      'layout:restore',
+    ];
     const verificationResult = verifyRpcRegistration(
       this.rpcHandler,
-      this.logger
+      this.logger,
+      ELECTRON_ONLY_METHODS
     );
 
     if (!verificationResult.valid) {

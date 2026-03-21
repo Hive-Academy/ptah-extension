@@ -15,7 +15,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import { isTaskToolInput } from '@ptah-extension/shared';
+import { isTaskToolInput, isAgentDispatchTool } from '@ptah-extension/shared';
 import type {
   SessionHistoryMessage,
   AgentSessionData,
@@ -140,7 +140,11 @@ export class AgentCorrelationService {
       if (!Array.isArray(content)) continue;
 
       for (const block of content as ContentBlock[]) {
-        if (block.type === 'tool_use' && block.name === 'Task' && block.id) {
+        if (
+          block.type === 'tool_use' &&
+          isAgentDispatchTool(block.name || '') &&
+          block.id
+        ) {
           let subagentType = 'unknown';
           let resumeAgentId: string | undefined;
           if (block.input && isTaskToolInput(block.input)) {

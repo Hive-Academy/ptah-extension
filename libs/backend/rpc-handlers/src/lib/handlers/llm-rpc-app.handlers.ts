@@ -1,31 +1,68 @@
 /**
- * LLM RPC Handlers
+ * LLM RPC Handlers (Platform-Agnostic)
  *
  * Handles LLM provider management RPC methods: llm:getProviderStatus, llm:setApiKey,
  * llm:removeApiKey, llm:getDefaultProvider, llm:validateApiKeyFormat, llm:listVsCodeModels
  *
  * TASK_2025_074: Extracted from monolithic RpcMethodRegistrationService
- * TASK_2025_073: LLM provider management integration
- * SDK-only migration: Removed CLI auth, simplified to vscode-lm only
+ * TASK_2025_209: Rewritten to be platform-agnostic. Uses ISecretStorage directly
+ * instead of delegating to vscode-core's LlmRpcHandlers interface.
  */
 
 import { injectable, inject, DependencyContainer } from 'tsyringe';
-import {
-  Logger,
-  RpcHandler,
-  TOKENS,
-  LlmRpcHandlers as LlmRpcHandlersInterface,
-  SetApiKeyRequest,
-  SetApiKeyResponse,
-  LlmProviderName,
-} from '@ptah-extension/vscode-core';
+import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { ISecretStorage } from '@ptah-extension/platform-core';
 import type {
   LlmListProviderModelsParams,
   LlmListProviderModelsResponse,
 } from '@ptah-extension/shared';
+import type { IModelDiscovery } from '../platform-abstractions';
+
+/** Secret storage key prefix for provider API keys */
+const API_KEY_PREFIX = 'ptah.apiKey';
+
+/** Provider display information and env var mappings */
+interface ProviderInfo {
+  displayName: string;
+  envVar: string;
+  keyPrefix?: string;
+  minLength: number;
+}
+
+const PROVIDER_INFO: Record<string, ProviderInfo> = {
+  anthropic: {
+    displayName: 'Anthropic (Claude)',
+    envVar: 'ANTHROPIC_API_KEY',
+    keyPrefix: 'sk-ant-',
+    minLength: 20,
+  },
+  openrouter: {
+    displayName: 'OpenRouter',
+    envVar: 'OPENROUTER_API_KEY',
+    keyPrefix: 'sk-or-',
+    minLength: 20,
+  },
+  moonshot: {
+    displayName: 'Moonshot AI',
+    envVar: 'MOONSHOT_API_KEY',
+    minLength: 10,
+  },
+  'z-ai': {
+    displayName: 'Z.AI',
+    envVar: 'Z_AI_API_KEY',
+    minLength: 10,
+  },
+};
+
+/** Providers shown in the status UI */
+const STATUS_PROVIDERS = ['anthropic', 'openrouter'];
 
 /**
- * RPC handlers for LLM provider operations
+ * RPC handlers for LLM provider operations (platform-agnostic)
+ *
+ * Uses ISecretStorage directly for API key management and IModelDiscovery
+ * for platform-specific model listing. Works on both VS Code and Electron.
  */
 @injectable()
 export class LlmRpcHandlers {
@@ -65,6 +102,34 @@ export class LlmRpcHandlers {
   }
 
   /**
+   * Lazily resolve ISecretStorage from the DI container.
+   * Uses lazy resolution because the container may not have all registrations
+   * at construction time (factory pattern).
+   */
+  private getSecretStorage(): ISecretStorage {
+    return this.container.resolve<ISecretStorage>(
+      PLATFORM_TOKENS.SECRET_STORAGE
+    );
+  }
+
+  /**
+   * Lazily resolve IModelDiscovery from the DI container.
+   */
+  private getModelDiscovery(): IModelDiscovery {
+    return this.container.resolve<IModelDiscovery>(TOKENS.MODEL_DISCOVERY);
+  }
+
+  /**
+   * Get the config manager shim for reading/writing settings.
+   */
+  private getConfigManager(): {
+    get<T>(key: string): T | undefined;
+    set<T>(key: string, value: T): Promise<void>;
+  } {
+    return this.container.resolve(TOKENS.CONFIG_MANAGER);
+  }
+
+  /**
    * llm:getProviderStatus - Get status of all LLM providers (without exposing API keys)
    */
   private registerGetProviderStatus(): void {
@@ -74,18 +139,33 @@ export class LlmRpcHandlers {
         try {
           this.logger.debug('RPC: llm:getProviderStatus called');
 
-          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-            TOKENS.LLM_RPC_HANDLERS
-          );
-          const statuses = await handlers.getProviderStatus();
+          const secretStorage = this.getSecretStorage();
+          const configManager = this.getConfigManager();
+          const defaultProvider =
+            configManager.get<string>('llm.defaultProvider') ?? 'anthropic';
 
-          return statuses;
+          const providers = await Promise.all(
+            STATUS_PROVIDERS.map(async (provider) => {
+              const key = await secretStorage.get(
+                `${API_KEY_PREFIX}.${provider}`
+              );
+              const info = PROVIDER_INFO[provider];
+              return {
+                name: provider,
+                displayName: info.displayName,
+                hasApiKey: !!key,
+                isDefault: provider === defaultProvider,
+              };
+            })
+          );
+
+          return { providers, defaultProvider };
         } catch (error) {
           this.logger.error(
             'RPC: llm:getProviderStatus failed',
             error instanceof Error ? error : new Error(String(error))
           );
-          throw error;
+          return { providers: [] };
         }
       }
     );
@@ -95,21 +175,36 @@ export class LlmRpcHandlers {
    * llm:setApiKey - Set API key for a provider
    */
   private registerSetApiKey(): void {
-    this.rpcHandler.registerMethod<SetApiKeyRequest, SetApiKeyResponse>(
+    this.rpcHandler.registerMethod<
+      { provider: string; apiKey: string },
+      { success: boolean; error?: string }
+    >(
       'llm:setApiKey',
-      async (request: SetApiKeyRequest) => {
+      async (params: { provider: string; apiKey: string } | undefined) => {
+        if (!params?.provider || !params?.apiKey) {
+          return {
+            success: false,
+            error: 'provider and apiKey are required',
+          };
+        }
+
         try {
           // SECURITY: Never log the actual API key
           this.logger.debug('RPC: llm:setApiKey called', {
-            provider: request.provider,
+            provider: params.provider,
           });
 
-          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-            TOKENS.LLM_RPC_HANDLERS
-          );
-          const result = await handlers.setApiKey(request);
+          const secretStorage = this.getSecretStorage();
+          const storageKey = `${API_KEY_PREFIX}.${params.provider}`;
+          await secretStorage.store(storageKey, params.apiKey);
 
-          return result;
+          // Set in environment for SDK adapters
+          const providerInfo = PROVIDER_INFO[params.provider];
+          if (providerInfo) {
+            process.env[providerInfo.envVar] = params.apiKey;
+          }
+
+          return { success: true };
         } catch (error) {
           this.logger.error(
             'RPC: llm:setApiKey failed',
@@ -128,54 +223,61 @@ export class LlmRpcHandlers {
    * llm:removeApiKey - Remove API key for a provider
    */
   private registerRemoveApiKey(): void {
-    this.rpcHandler.registerMethod<LlmProviderName, SetApiKeyResponse>(
-      'llm:removeApiKey',
-      async (provider: LlmProviderName) => {
-        try {
-          this.logger.debug('RPC: llm:removeApiKey called', { provider });
-
-          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-            TOKENS.LLM_RPC_HANDLERS
-          );
-          const result = await handlers.removeApiKey(provider);
-
-          return result;
-        } catch (error) {
-          this.logger.error(
-            'RPC: llm:removeApiKey failed',
-            error instanceof Error ? error : new Error(String(error))
-          );
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
+    this.rpcHandler.registerMethod<
+      { provider: string },
+      { success: boolean; error?: string }
+    >('llm:removeApiKey', async (params: { provider: string } | undefined) => {
+      if (!params?.provider) {
+        return { success: false, error: 'provider is required' };
       }
-    );
+
+      try {
+        this.logger.debug('RPC: llm:removeApiKey called', {
+          provider: params.provider,
+        });
+
+        const secretStorage = this.getSecretStorage();
+        await secretStorage.delete(`${API_KEY_PREFIX}.${params.provider}`);
+
+        // Clear from environment
+        const providerInfo = PROVIDER_INFO[params.provider];
+        if (providerInfo) {
+          delete process.env[providerInfo.envVar];
+        }
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: llm:removeApiKey failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    });
   }
 
   /**
    * llm:getDefaultProvider - Get default provider from settings
    */
   private registerGetDefaultProvider(): void {
-    this.rpcHandler.registerMethod<void, LlmProviderName>(
+    this.rpcHandler.registerMethod<void, { provider: string }>(
       'llm:getDefaultProvider',
       async () => {
         try {
           this.logger.debug('RPC: llm:getDefaultProvider called');
-
-          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-            TOKENS.LLM_RPC_HANDLERS
-          );
-          const provider = handlers.getDefaultProvider();
-
-          return provider;
+          const configManager = this.getConfigManager();
+          const provider =
+            configManager.get<string>('llm.defaultProvider') ?? 'anthropic';
+          return { provider };
         } catch (error) {
           this.logger.error(
             'RPC: llm:getDefaultProvider failed',
             error instanceof Error ? error : new Error(String(error))
           );
-          throw error;
+          return { provider: 'anthropic' };
         }
       }
     );
@@ -186,22 +288,23 @@ export class LlmRpcHandlers {
    */
   private registerSetDefaultProvider(): void {
     this.rpcHandler.registerMethod<
-      { provider: LlmProviderName },
+      { provider: string },
       { success: boolean; error?: string }
     >(
       'llm:setDefaultProvider',
-      async (params: { provider: LlmProviderName }) => {
+      async (params: { provider: string } | undefined) => {
         try {
           this.logger.debug('RPC: llm:setDefaultProvider called', {
-            provider: params.provider,
+            provider: params?.provider,
           });
 
-          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-            TOKENS.LLM_RPC_HANDLERS
+          const configManager = this.getConfigManager();
+          await configManager.set(
+            'llm.defaultProvider',
+            params?.provider ?? 'anthropic'
           );
-          const result = await handlers.setDefaultProvider(params.provider);
 
-          return result;
+          return { success: true };
         } catch (error) {
           this.logger.error(
             'RPC: llm:setDefaultProvider failed',
@@ -221,23 +324,25 @@ export class LlmRpcHandlers {
    */
   private registerSetDefaultModel(): void {
     this.rpcHandler.registerMethod<
-      { provider: LlmProviderName; model: string },
+      { provider: string; model: string },
       { success: boolean; error?: string }
     >(
       'llm:setDefaultModel',
-      async (params: { provider: LlmProviderName; model: string }) => {
+      async (params: { provider: string; model: string } | undefined) => {
         try {
           this.logger.debug('RPC: llm:setDefaultModel called', {
-            provider: params.provider,
-            model: params.model,
+            provider: params?.provider,
+            model: params?.model,
           });
 
-          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-            TOKENS.LLM_RPC_HANDLERS
+          const configManager = this.getConfigManager();
+          const settingsKey = params?.provider ?? 'anthropic';
+          await configManager.set(
+            `llm.${settingsKey}.model`,
+            params?.model ?? ''
           );
-          const result = await handlers.setDefaultModel(params);
 
-          return result;
+          return { success: true };
         } catch (error) {
           this.logger.error(
             'RPC: llm:setDefaultModel failed',
@@ -257,26 +362,42 @@ export class LlmRpcHandlers {
    */
   private registerValidateApiKeyFormat(): void {
     this.rpcHandler.registerMethod<
-      { provider: LlmProviderName; apiKey: string },
+      { provider: string; apiKey: string },
       { valid: boolean; error?: string }
     >(
       'llm:validateApiKeyFormat',
-      async (params: { provider: LlmProviderName; apiKey: string }) => {
+      async (params: { provider: string; apiKey: string } | undefined) => {
+        if (!params?.provider || !params?.apiKey) {
+          return {
+            valid: false,
+            error: 'provider and apiKey are required',
+          };
+        }
+
         try {
           // SECURITY: Never log the actual API key
           this.logger.debug('RPC: llm:validateApiKeyFormat called', {
             provider: params.provider,
           });
 
-          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-            TOKENS.LLM_RPC_HANDLERS
-          );
-          const result = handlers.validateApiKeyFormat(
-            params.provider,
-            params.apiKey
-          );
+          const key = params.apiKey.trim();
+          const providerInfo = PROVIDER_INFO[params.provider];
 
-          return result;
+          if (providerInfo) {
+            const valid = providerInfo.keyPrefix
+              ? key.startsWith(providerInfo.keyPrefix) &&
+                key.length > providerInfo.minLength
+              : key.length > providerInfo.minLength;
+            return valid
+              ? { valid: true }
+              : {
+                  valid: false,
+                  error: `API key should start with '${providerInfo.keyPrefix}' and be at least ${providerInfo.minLength} characters`,
+                };
+          }
+
+          // Generic fallback for unknown providers
+          return { valid: key.length > 10 };
         } catch (error) {
           this.logger.error(
             'RPC: llm:validateApiKeyFormat failed',
@@ -292,7 +413,9 @@ export class LlmRpcHandlers {
   }
 
   /**
-   * llm:listVsCodeModels - List available VS Code language models
+   * llm:listVsCodeModels - List available VS Code language models.
+   * Delegates to IModelDiscovery.getCopilotModels() which returns real models
+   * in VS Code and empty array in Electron.
    */
   private registerListVsCodeModels(): void {
     this.rpcHandler.registerMethod<void, unknown[]>(
@@ -301,18 +424,19 @@ export class LlmRpcHandlers {
         try {
           this.logger.debug('RPC: llm:listVsCodeModels called');
 
-          const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-            TOKENS.LLM_RPC_HANDLERS
-          );
-          const models = await handlers.listVsCodeModels();
+          const modelDiscovery = this.getModelDiscovery();
+          const models = await modelDiscovery.getCopilotModels();
 
-          return models;
+          return models.map((m) => ({
+            id: m.id,
+            displayName: m.name,
+            contextLength: m.contextLength,
+          }));
         } catch (error) {
           this.logger.error(
             'RPC: llm:listVsCodeModels failed',
             error instanceof Error ? error : new Error(String(error))
           );
-          // Return empty array on error
           return [];
         }
       }
@@ -326,28 +450,43 @@ export class LlmRpcHandlers {
     this.rpcHandler.registerMethod<
       LlmListProviderModelsParams,
       LlmListProviderModelsResponse
-    >('llm:listProviderModels', async (params: LlmListProviderModelsParams) => {
-      try {
-        this.logger.debug('RPC: llm:listProviderModels called', {
-          provider: params.provider,
-        });
+    >(
+      'llm:listProviderModels',
+      async (params: LlmListProviderModelsParams | undefined) => {
+        if (!params?.provider) {
+          return { models: [], error: 'provider is required' };
+        }
 
-        const handlers = this.container.resolve<LlmRpcHandlersInterface>(
-          TOKENS.LLM_RPC_HANDLERS
-        );
-        const result = await handlers.listProviderModels(params.provider);
+        try {
+          this.logger.debug('RPC: llm:listProviderModels called', {
+            provider: params.provider,
+          });
 
-        return result;
-      } catch (error) {
-        this.logger.error(
-          'RPC: llm:listProviderModels failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        return {
-          models: [],
-          error: error instanceof Error ? error.message : String(error),
-        };
+          const modelDiscovery = this.getModelDiscovery();
+
+          // Route to appropriate discovery method based on provider
+          const models =
+            params.provider === 'copilot'
+              ? await modelDiscovery.getCopilotModels()
+              : await modelDiscovery.getCodexModels();
+
+          return {
+            models: models.map((m) => ({
+              id: m.id,
+              displayName: m.name,
+            })),
+          };
+        } catch (error) {
+          this.logger.error(
+            'RPC: llm:listProviderModels failed',
+            error instanceof Error ? error : new Error(String(error))
+          );
+          return {
+            models: [],
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
       }
-    });
+    );
   }
 }

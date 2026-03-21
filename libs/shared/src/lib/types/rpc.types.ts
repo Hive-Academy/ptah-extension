@@ -1149,8 +1149,15 @@ export interface CommandExecuteResponse {
 // LLM Provider RPC Types (SDK-only migration: vscode-lm only)
 // ============================================================
 
-/** LLM Provider names (SDK-only migration: only vscode-lm remains) */
-export type LlmProviderName = 'vscode-lm';
+/** LLM Provider names for API key management (TASK_2025_209: platform-agnostic) */
+export type LlmProviderName =
+  | 'anthropic'
+  | 'openrouter'
+  | 'moonshot'
+  | 'z-ai'
+  | 'github-copilot'
+  | 'openai-codex'
+  | string; // Allow future providers without type updates
 
 /** LLM Provider capability flags */
 export type LlmProviderCapability = 'text-chat' | 'structured-output';

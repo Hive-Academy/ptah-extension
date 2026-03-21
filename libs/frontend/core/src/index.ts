@@ -9,3 +9,8 @@ export {
   SESSION_DATA_PROVIDER,
   type ISessionDataProvider,
 } from './lib/tokens/session-data.token';
+
+export {
+  WORKSPACE_COORDINATOR,
+  type IWorkspaceCoordinator,
+} from './lib/tokens/workspace-coordinator.token';

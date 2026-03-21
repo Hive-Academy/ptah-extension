@@ -8,7 +8,7 @@
  * - DOES NOT call registerVsCodeCoreServices() (it imports the vscode module)
  * - Manually registers platform-agnostic vscode-core services
  * - Uses platform-electron providers instead of VS Code API wrappers
- * - Provides an Electron-compatible LicenseService stub (API key auth, no Paddle)
+ * - Uses real LicenseService & AuthSecretsService (no runtime vscode dependency via `import type`)
  * - Provides an Electron-compatible OutputManager that delegates to IOutputChannel
  *
  * Phase-based registration order mirrors VS Code container:
@@ -21,14 +21,16 @@
  *
  * vscode-core Audit Results:
  *
- * INCLUDED (no vscode import):
+ * INCLUDED (no runtime vscode import):
  *   - RpcHandler           - RPC method routing (depends on LicenseService)
  *   - MessageValidatorService - Zod-based message validation
  *   - AgentSessionWatcherService - Real-time summary streaming (uses fs/events)
  *   - SubagentRegistryService    - In-memory subagent lifecycle tracking
  *   - FeatureGateService         - License tier feature gating
+ *   - LicenseService      - Uses `import type` for vscode (no runtime dep)
+ *   - AuthSecretsService  - Uses `import type` for vscode (no runtime dep)
  *
- * EXCLUDED (imports vscode directly):
+ * EXCLUDED (imports vscode at runtime):
  *   - OutputManager       - Uses vscode.window.createOutputChannel
  *   - Logger              - Depends on OutputManager (vscode.ExtensionContext)
  *   - ErrorHandler        - Uses vscode.window.showErrorMessage
@@ -37,18 +39,16 @@
  *   - WebviewManager      - Uses webview panel APIs
  *   - StatusBarManager    - Uses status bar APIs
  *   - FileSystemManager   - Uses vscode.workspace.fs
- *   - AuthSecretsService  - Uses vscode.ExtensionContext.secrets
- *   - LicenseService      - Uses vscode.ExtensionContext
  *   - WebviewMessageHandlerService - Uses vscode webview messaging
  *   - PreferencesStorageService    - Uses vscode.ExtensionContext.workspaceState
  *
  * REPLACED (Electron-compatible alternatives):
  *   - OutputManager -> ElectronOutputManagerAdapter (wraps IOutputChannel)
  *   - Logger -> Standard Logger class (works with adapter)
- *   - LicenseService -> ElectronLicenseServiceStub (always valid, API key auth)
  */
 
 import 'reflect-metadata';
+import * as path from 'path';
 import { container, DependencyContainer } from 'tsyringe';
 
 import {
@@ -62,29 +62,24 @@ import type {
   ISecretStorage,
 } from '@ptah-extension/platform-core';
 
-// vscode-core: TOKENS only (no service class imports that pull in vscode)
+// vscode-core: TOKENS + service classes (LicenseService & AuthSecretsService
+// use `import type` for vscode — no runtime vscode dependency)
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 
-// Platform-agnostic vscode-core services (verified: no vscode imports)
+// Platform-agnostic vscode-core services (verified: no runtime vscode imports)
 import { RpcHandler } from '@ptah-extension/vscode-core';
 import { MessageValidatorService } from '@ptah-extension/vscode-core';
 import { AgentSessionWatcherService } from '@ptah-extension/vscode-core';
 import { SubagentRegistryService } from '@ptah-extension/vscode-core';
 import { FeatureGateService } from '@ptah-extension/vscode-core';
+import { LicenseService } from '@ptah-extension/vscode-core';
+import { AuthSecretsService } from '@ptah-extension/vscode-core';
 
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
-import {
-  registerSdkServices,
-  SDK_TOKENS,
-  EnhancedPromptsService,
-} from '@ptah-extension/agent-sdk';
-import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
-import {
-  registerAgentGenerationServices,
-  AGENT_GENERATION_TOKENS,
-} from '@ptah-extension/agent-generation';
+import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import { registerAgentGenerationServices } from '@ptah-extension/agent-generation';
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 
@@ -92,9 +87,11 @@ import { registerTemplateGenerationServices } from '@ptah-extension/template-gen
 import {
   ElectronOutputManagerAdapter,
   ElectronLoggerAdapter,
-  ElectronLicenseServiceStub,
-  ElectronAuthSecretsService,
 } from './electron-adapters';
+
+// Workspace context management (TASK_2025_208)
+import { WorkspaceContextManager } from '../services/workspace-context-manager';
+import { WorkspaceAwareStateStorage } from '../services/workspace-aware-state-storage';
 
 // Electron platform abstraction implementations (TASK_2025_203)
 import {
@@ -104,9 +101,9 @@ import {
   ElectronModelDiscovery,
 } from '../services/platform';
 
-// Shared RPC handler classes (TASK_2025_203 Batch 5: all 15 shared handlers)
+// Shared RPC handler classes (TASK_2025_203 Batch 5: all 16 shared handlers)
 // These are platform-agnostic handlers that can be used in both VS Code and Electron.
-// LlmRpcHandlers is excluded: depends on TOKENS.LLM_RPC_HANDLERS not available in Electron.
+// TASK_2025_209: LlmRpcHandlers now included (rewritten to be platform-agnostic).
 import {
   SessionRpcHandlers,
   ChatRpcHandlers,
@@ -123,20 +120,17 @@ import {
   EnhancedPromptsRpcHandlers,
   QualityRpcHandlers,
   ProviderRpcHandlers,
+  LlmRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5)
+// TASK_2025_209: ElectronLlmRpcHandlers, ElectronChatExtendedRpcHandlers, ElectronAgentRpcHandlers removed
 import {
   ElectronWorkspaceRpcHandlers,
   ElectronEditorRpcHandlers,
   ElectronFileRpcHandlers,
-  ElectronLlmRpcHandlers,
-  ElectronChatExtendedRpcHandlers,
   ElectronConfigExtendedRpcHandlers,
-  ElectronSessionExtendedRpcHandlers,
   ElectronCommandRpcHandlers,
-  ElectronAgentRpcHandlers,
-  ElectronLayoutRpcHandlers,
   ElectronAuthExtendedRpcHandlers,
 } from '../services/rpc/handlers';
 
@@ -186,37 +180,25 @@ export class ElectronDIContainer {
     logger.info('[Electron DI] Starting service registration...');
 
     // ========================================
-    // PHASE 1.1: Electron-compatible LicenseService stub
+    // PHASE 1.1: LicenseService (real implementation)
     // ========================================
     // RpcHandler depends on LicenseService for license validation middleware.
-    // In Electron, we use API key auth instead of Paddle subscriptions.
-    // The stub returns a perpetually valid Pro license.
-    const licenseStub = new ElectronLicenseServiceStub();
-    container.register(TOKENS.LICENSE_SERVICE, { useValue: licenseStub });
+    // LicenseService uses `import type` for vscode — no runtime vscode dependency.
+    // It resolves EXTENSION_CONTEXT (shimmed in Phase 1.5), LOGGER, and CONFIG_MANAGER.
+    // Must be registered AFTER Phase 1.5 (EXTENSION_CONTEXT shim) — resolved lazily via singleton.
+    container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
 
     // ========================================
-    // PHASE 1.1b: Electron-compatible AuthSecretsService
+    // PHASE 1.1b: AuthSecretsService (real implementation)
     // ========================================
     // AuthSecretsService manages encrypted credential storage (OAuth tokens, API keys).
-    // In VS Code it uses ExtensionContext.secrets; here we delegate to ISecretStorage.
+    // Uses `import type` for vscode — no runtime vscode dependency.
+    // Resolves EXTENSION_CONTEXT (shimmed in Phase 1.5) which provides secrets storage.
     // Required by: AuthManager, SdkAgentAdapter, PtahCliRegistry, auth RPC handlers.
-    try {
-      const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE
-      );
-      const authSecretsAdapter = new ElectronAuthSecretsService(secretStorage);
-      container.register(TOKENS.AUTH_SECRETS_SERVICE, {
-        useValue: authSecretsAdapter,
-      });
-      logger.info(
-        '[Electron DI] AUTH_SECRETS_SERVICE registered (delegates to ISecretStorage)'
-      );
-    } catch (error) {
-      logger.error(
-        '[Electron DI] Failed to register AUTH_SECRETS_SERVICE — auth/provider services will fail',
-        { error: error instanceof Error ? error.message : String(error) }
-      );
-    }
+    container.registerSingleton(
+      TOKENS.AUTH_SECRETS_SERVICE,
+      AuthSecretsService
+    );
 
     // ========================================
     // PHASE 1.2: Platform-agnostic vscode-core services
@@ -410,6 +392,90 @@ export class ElectronDIContainer {
     }
 
     // ========================================
+    // PHASE 1.6: WorkspaceAwareStateStorage + WorkspaceContextManager (TASK_2025_208)
+    // ========================================
+    // WorkspaceAwareStateStorage is a proxy implementing IStateStorage that
+    // delegates to per-workspace ElectronStateStorage instances based on the
+    // active workspace. This replaces the child container approach which didn't
+    // work because RPC handler singletons inject WORKSPACE_STATE_STORAGE at
+    // construction time.
+    //
+    // By registering this proxy as PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+    // (overriding Phase 0's plain ElectronStateStorage), all services that
+    // inject workspace-scoped storage automatically get workspace-aware routing.
+    const defaultWorkspaceStoragePath = path.join(
+      options.userDataPath,
+      'workspace-storage',
+      'default'
+    );
+    const workspaceAwareStorage = new WorkspaceAwareStateStorage(
+      defaultWorkspaceStoragePath
+    );
+
+    // Override Phase 0's WORKSPACE_STATE_STORAGE with the workspace-aware proxy
+    container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
+      useValue: workspaceAwareStorage,
+    });
+
+    const workspaceContextManager = new WorkspaceContextManager(
+      options.userDataPath,
+      workspaceAwareStorage
+    );
+    container.register(TOKENS.WORKSPACE_CONTEXT_MANAGER, {
+      useValue: workspaceContextManager,
+    });
+
+    // Create initial workspace context for the startup workspace folder (if provided).
+    // NOTE: createWorkspace/switchWorkspace are async (TASK_2025_208 Batch 5).
+    // Container setup is synchronous, so we fire-and-forget with error logging.
+    // The workspace will be available before any RPC calls arrive because
+    // the IPC bridge + renderer are initialized later in main.ts.
+    if (options.initialFolders && options.initialFolders.length > 0) {
+      const initialPath = options.initialFolders[0];
+      workspaceContextManager.createWorkspace(initialPath).then(
+        (result) => {
+          if (result.success) {
+            workspaceContextManager.switchWorkspace(initialPath).then(
+              () => {
+                logger.info(
+                  '[Electron DI] Initial workspace created and activated',
+                  { path: initialPath }
+                );
+              },
+              (err: unknown) => {
+                logger.warn(
+                  '[Electron DI] Failed to switch to initial workspace',
+                  {
+                    path: initialPath,
+                    error: err instanceof Error ? err.message : String(err),
+                  }
+                );
+              }
+            );
+          } else {
+            logger.warn(
+              '[Electron DI] Failed to create initial workspace — using default storage',
+              { path: initialPath, error: result.error }
+            );
+          }
+        },
+        (err: unknown) => {
+          logger.warn(
+            '[Electron DI] Failed to create initial workspace — using default storage',
+            {
+              path: initialPath,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          );
+        }
+      );
+    }
+
+    logger.info(
+      '[Electron DI] WorkspaceAwareStateStorage and WorkspaceContextManager registered (TASK_2025_208)'
+    );
+
+    // ========================================
     // PHASE 2: Library Services
     // ========================================
 
@@ -424,20 +490,10 @@ export class ElectronDIContainer {
     registerAgentGenerationServices(container, logger);
 
     // Phase 2.4: Wire multi-phase analysis reader into EnhancedPromptsService
-    try {
-      const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE
-      );
-      const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
-        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE
-      );
-      enhancedPrompts.setAnalysisReader(analysisStorage);
-    } catch (error) {
-      logger.warn(
-        '[Electron DI] Failed to wire multi-phase analysis reader into EnhancedPromptsService',
-        { error: error instanceof Error ? error.message : String(error) }
-      );
-    }
+    // DEFERRED to main.ts Phase 4.6 (after WebviewManager registration)
+    // Resolving EnhancedPromptsService here fails because the dependency chain
+    // reaches SdkPermissionHandler which requires TOKENS.WEBVIEW_MANAGER,
+    // and that is only registered in main.ts after IPC bridge initialization.
 
     // Phase 2.5: LLM Abstraction (multi-provider LLM)
     registerLlmAbstractionServices(container, logger);
@@ -557,28 +613,74 @@ export class ElectronDIContainer {
     }
 
     // ========================================
-    // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5)
+    // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209)
     // ========================================
-    // Register all 15 shared handler classes from @ptah-extension/rpc-handlers.
-    // LlmRpcHandlers is excluded: depends on TOKENS.LLM_RPC_HANDLERS not available in Electron.
+    // Register all 16 shared handler classes from @ptah-extension/rpc-handlers.
+    // TASK_2025_209: LlmRpcHandlers now included (rewritten to be platform-agnostic).
     container.registerSingleton(SessionRpcHandlers);
     container.registerSingleton(ChatRpcHandlers);
     container.registerSingleton(ConfigRpcHandlers);
     container.registerSingleton(AuthRpcHandlers);
     container.registerSingleton(ContextRpcHandlers);
-    container.registerSingleton(SetupRpcHandlers);
+    // SetupRpcHandlers requires container instance for lazy resolution of agent-generation services.
+    // Must use factory pattern because DependencyContainer is an interface (no reflection metadata).
+    container.register(SetupRpcHandlers, {
+      useFactory: (c) =>
+        new SetupRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(TOKENS.CONFIG_MANAGER),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+          c
+        ),
+    });
     container.registerSingleton(LicenseRpcHandlers);
-    container.registerSingleton(WizardGenerationRpcHandlers);
+    // WizardGenerationRpcHandlers requires container instance for lazy resolution.
+    // Same factory pattern as SetupRpcHandlers.
+    container.register(WizardGenerationRpcHandlers, {
+      useFactory: (c) =>
+        new WizardGenerationRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+          c
+        ),
+    });
     container.registerSingleton(AutocompleteRpcHandlers);
     container.registerSingleton(SubagentRpcHandlers);
     container.registerSingleton(PluginRpcHandlers);
     container.registerSingleton(PtahCliRpcHandlers);
-    container.registerSingleton(EnhancedPromptsRpcHandlers);
+    // EnhancedPromptsRpcHandlers requires container instance for lazy resolution.
+    // Same factory pattern as SetupRpcHandlers.
+    container.register(EnhancedPromptsRpcHandlers, {
+      useFactory: (c) =>
+        new EnhancedPromptsRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
+          c.resolve(TOKENS.LICENSE_SERVICE),
+          c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+          c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
+          c
+        ),
+    });
     container.registerSingleton(QualityRpcHandlers);
     container.registerSingleton(ProviderRpcHandlers);
+    // TASK_2025_209: LlmRpcHandlers now platform-agnostic, uses DependencyContainer for lazy resolution
+    container.register(LlmRpcHandlers, {
+      useFactory: (c) =>
+        new LlmRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c
+        ),
+    });
 
     logger.info(
-      '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5)',
+      '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
       {
         handlers: [
           'SessionRpcHandlers',
@@ -596,6 +698,7 @@ export class ElectronDIContainer {
           'EnhancedPromptsRpcHandlers',
           'QualityRpcHandlers',
           'ProviderRpcHandlers',
+          'LlmRpcHandlers',
         ],
       }
     );
@@ -604,34 +707,46 @@ export class ElectronDIContainer {
     // PHASE 4.2: Electron-specific RPC Handler Classes (TASK_2025_203 Batch 5)
     // ========================================
     container.registerSingleton(ElectronWorkspaceRpcHandlers);
-    container.registerSingleton(ElectronEditorRpcHandlers);
+    // ElectronEditorRpcHandlers requires container for lazy resolution.
+    // Must use factory pattern because DependencyContainer is an interface (no reflection metadata).
+    container.register(ElectronEditorRpcHandlers, {
+      useFactory: (c) =>
+        new ElectronEditorRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+          c
+        ),
+    });
     container.registerSingleton(ElectronFileRpcHandlers);
-    container.registerSingleton(ElectronLlmRpcHandlers);
-    container.registerSingleton(ElectronChatExtendedRpcHandlers);
-    container.registerSingleton(ElectronConfigExtendedRpcHandlers);
-    container.registerSingleton(ElectronSessionExtendedRpcHandlers);
+    // TASK_2025_209: ElectronLlmRpcHandlers, ElectronChatExtendedRpcHandlers, ElectronAgentRpcHandlers
+    // removed (unified into shared LlmRpcHandlers and ChatRpcHandlers)
+    // ElectronConfigExtendedRpcHandlers requires container for lazy resolution.
+    // Same factory pattern as above.
+    container.register(ElectronConfigExtendedRpcHandlers, {
+      useFactory: (c) =>
+        new ElectronConfigExtendedRpcHandlers(
+          c.resolve(TOKENS.LOGGER),
+          c.resolve(TOKENS.RPC_HANDLER),
+          c
+        ),
+    });
     container.registerSingleton(ElectronCommandRpcHandlers);
-    container.registerSingleton(ElectronAgentRpcHandlers);
-    container.registerSingleton(ElectronLayoutRpcHandlers);
     container.registerSingleton(ElectronAuthExtendedRpcHandlers);
 
     // Register the orchestrator itself
     container.registerSingleton(ElectronRpcMethodRegistrationService);
 
     logger.info(
-      '[Electron DI] Electron-specific RPC handler classes registered (TASK_2025_203 Batch 5)',
+      '[Electron DI] Electron-specific RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
       {
         handlers: [
           'ElectronWorkspaceRpcHandlers',
           'ElectronEditorRpcHandlers',
           'ElectronFileRpcHandlers',
-          'ElectronLlmRpcHandlers',
-          'ElectronChatExtendedRpcHandlers',
           'ElectronConfigExtendedRpcHandlers',
-          'ElectronSessionExtendedRpcHandlers',
           'ElectronCommandRpcHandlers',
-          'ElectronAgentRpcHandlers',
-          'ElectronLayoutRpcHandlers',
           'ElectronAuthExtendedRpcHandlers',
         ],
       }

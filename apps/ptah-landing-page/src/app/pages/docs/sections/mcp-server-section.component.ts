@@ -330,7 +330,6 @@ export class McpServerSectionComponent {
     { name: 'ptah.workspace', hint: 'project info' },
     { name: 'ptah.search', hint: 'file search' },
     { name: 'ptah.diagnostics', hint: 'errors' },
-    { name: 'ptah.ai', hint: 'multi-LLM' },
     { name: 'ptah.files', hint: 'file I/O' },
     { name: 'ptah.context', hint: 'token budget' },
     { name: 'ptah.project', hint: 'deep analysis' },

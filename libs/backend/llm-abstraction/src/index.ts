@@ -6,12 +6,11 @@
  * This is the core entry point for the LLM abstraction library.
  * It exports interfaces, errors, base classes, services, and DI registration.
  *
- * Only the VS Code Language Model provider is supported.
- * The vscode-lm provider is loaded via its secondary entry point for tree-shaking.
+ * TASK_2025_209: VsCodeLmProvider removed (platform unification).
+ * LLM calls now go through Agent SDK's InternalQueryService or CLI adapters.
  *
  * @example
  * ```typescript
- * // Core imports (always safe, no heavy deps)
  * import {
  *   LlmService,
  *   ProviderRegistry,
@@ -19,9 +18,6 @@
  *   LlmConfigurationService,
  *   registerLlmAbstractionServices
  * } from '@ptah-extension/llm-abstraction';
- *
- * // Provider import (only loads vscode-lm deps)
- * import { createVsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
  * ```
  */
 
@@ -90,9 +86,7 @@ export { CliPluginSyncService } from './lib/services/cli-skill-sync';
 export type { ICliSkillInstaller } from './lib/services/cli-skill-sync';
 
 // ========================================
-// PROVIDERS - Use secondary entry point
+// PROVIDERS
 // ========================================
-// The vscode-lm provider is intentionally NOT exported here to enable tree-shaking.
-// Import from the secondary entry point:
-//
-// import { VsCodeLmProvider, createVsCodeLmProvider } from '@ptah-extension/llm-abstraction/vscode-lm';
+// TASK_2025_209: VsCodeLmProvider removed (platform unification).
+// LLM calls now go through Agent SDK (InternalQueryService) or CLI adapters.

@@ -25,7 +25,11 @@
  */
 
 import type { FlatStreamEventUnion } from '@ptah-extension/shared';
-import { calculateMessageCost, AuthEnv } from '@ptah-extension/shared';
+import {
+  calculateMessageCost,
+  AuthEnv,
+  isAgentDispatchTool,
+} from '@ptah-extension/shared';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { inject, injectable } from 'tsyringe';
 import { SDK_TOKENS } from '../../di/tokens';
@@ -310,8 +314,8 @@ export class SessionReplayService {
                 ? allToolResults.get(block.id)
                 : undefined;
 
-              if (block.name === 'Task' && block.input) {
-                // Agent spawn - create tool_start first (Task is a tool call)
+              if (isAgentDispatchTool(block.name || '') && block.input) {
+                // Agent spawn - create tool_start first (Agent/Task is a tool call)
                 const toolCallId = block.id || this.eventFactory.generateId();
 
                 events.push(
@@ -319,7 +323,7 @@ export class SessionReplayService {
                     sessionId,
                     currentMessageId,
                     toolCallId,
-                    'Task',
+                    block.name || 'Agent',
                     block.input,
                     eventIndex++,
                     currentMessageTimestamp + messageSequence++ * 0.001
@@ -379,7 +383,7 @@ export class SessionReplayService {
                   );
                 }
               } else {
-                // Regular tool (not Task)
+                // Regular tool (not Agent/Task)
                 events.push(
                   this.eventFactory.createToolStart(
                     sessionId,

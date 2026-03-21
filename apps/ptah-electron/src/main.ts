@@ -9,13 +9,19 @@ import { ElectronRpcMethodRegistrationService } from './services/rpc/rpc-method-
 import { IpcBridge } from './ipc/ipc-bridge';
 import { ElectronWebviewManagerAdapter } from './ipc/webview-manager-adapter';
 import { createApplicationMenu } from './menu/application-menu';
+import * as fs from 'fs';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
+import { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   ISecretStorage,
   IStateStorage,
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS, EnhancedPromptsService } from '@ptah-extension/agent-sdk';
+import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
+import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
+import type { WorkspaceContextManager } from './services/workspace-context-manager';
 
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock();
@@ -126,7 +132,148 @@ if (!gotLock) {
     }
 
     // ========================================
-    // PHASE 2.5: (Deferred) RPC handlers registered after WebviewManager in Phase 4.5
+    // PHASE 2.5: Workspace Restoration (TASK_2025_208 Batch 2, Tasks 2.2 & 2.3)
+    // ========================================
+    // Restore persisted workspace list from global state storage.
+    // If workspaces were persisted from a previous session, restore them
+    // (validating each path still exists on disk). CLI arg workspace
+    // takes priority and is always made active.
+    //
+    // Also subscribes to workspace folder changes to persist the workspace
+    // list on every change (debounced at 500ms to avoid rapid writes).
+    try {
+      const globalStateStorage = container.resolve<IStateStorage>(
+        PLATFORM_TOKENS.STATE_STORAGE
+      );
+      const workspaceContextManager =
+        container.resolve<WorkspaceContextManager>(
+          TOKENS.WORKSPACE_CONTEXT_MANAGER
+        );
+      const workspaceProviderForRestore =
+        container.resolve<ElectronWorkspaceProvider>(
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER
+        );
+
+      // Read persisted workspace list
+      const persisted = globalStateStorage.get<{
+        folders: string[];
+        activeIndex: number;
+      }>('ptah.workspaces');
+
+      // Determine the CLI workspace path (already resolved above)
+      const cliWorkspacePath = initialFolders?.[0];
+
+      if (persisted && persisted.folders && persisted.folders.length > 0) {
+        // Filter out stale paths that no longer exist on disk (async)
+        const validFolders: string[] = [];
+        for (const folder of persisted.folders) {
+          try {
+            await fs.promises.access(folder);
+            validFolders.push(folder);
+          } catch {
+            console.warn(
+              `[Ptah Electron] Skipping stale workspace path (no longer exists): ${folder}`
+            );
+          }
+        }
+
+        if (validFolders.length > 0) {
+          // Clamp activeIndex to valid range
+          const activeIndex = Math.min(
+            Math.max(persisted.activeIndex ?? 0, 0),
+            validFolders.length - 1
+          );
+
+          if (cliWorkspacePath) {
+            // CLI arg takes priority: ensure it's in the list, make it active
+            const cliResolved = path.resolve(cliWorkspacePath);
+            if (!validFolders.includes(cliResolved)) {
+              validFolders.push(cliResolved);
+            }
+            // Restore workspaces with CLI path as active
+            await workspaceContextManager.restoreWorkspaces(
+              validFolders,
+              cliResolved
+            );
+            // Sync the provider's folder list
+            workspaceProviderForRestore.setWorkspaceFolders(validFolders);
+            workspaceProviderForRestore.setActiveFolder(cliResolved);
+          } else {
+            // No CLI arg: use persisted active index
+            const activePath = validFolders[activeIndex];
+            await workspaceContextManager.restoreWorkspaces(
+              validFolders,
+              activePath
+            );
+            // Sync the provider's folder list
+            workspaceProviderForRestore.setWorkspaceFolders(validFolders);
+            workspaceProviderForRestore.setActiveFolder(activePath);
+          }
+
+          console.log(
+            `[Ptah Electron] Restored ${validFolders.length} workspace(s) from persisted state`
+          );
+        }
+      } else if (cliWorkspacePath) {
+        // No persisted workspaces, but CLI arg provided.
+        // Container setup already created the initial workspace context
+        // (in container.ts Phase 1.6), so no extra restore needed.
+        console.log(
+          '[Ptah Electron] No persisted workspaces; using CLI workspace'
+        );
+      } else {
+        // No persisted workspaces, no CLI arg — app opens with no workspace
+        console.log(
+          '[Ptah Electron] No persisted workspaces and no CLI arg — starting without workspace'
+        );
+      }
+
+      // --- Workspace list persistence on change (Task 2.3) ---
+      // Subscribe to folder change events and persist the current workspace
+      // list to global state storage. Debounced at 500ms to avoid rapid
+      // writes during bulk operations (e.g., restoring multiple folders).
+      let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const persistWorkspaceList = () => {
+        const currentFolders =
+          workspaceProviderForRestore.getWorkspaceFolders();
+        const activeFolder = workspaceProviderForRestore.getActiveFolder();
+        const activeIndex = activeFolder
+          ? currentFolders.indexOf(activeFolder)
+          : 0;
+
+        globalStateStorage
+          .update('ptah.workspaces', {
+            folders: currentFolders,
+            activeIndex: activeIndex >= 0 ? activeIndex : 0,
+          })
+          .catch((err: unknown) => {
+            console.error(
+              '[Ptah Electron] Failed to persist workspace list:',
+              err instanceof Error ? err.message : String(err)
+            );
+          });
+      };
+
+      workspaceProviderForRestore.onDidChangeWorkspaceFolders(() => {
+        // Debounce: clear any pending write, schedule a new one
+        if (persistDebounceTimer !== null) {
+          clearTimeout(persistDebounceTimer);
+        }
+        persistDebounceTimer = setTimeout(() => {
+          persistDebounceTimer = null;
+          persistWorkspaceList();
+        }, 500);
+      });
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Workspace restoration failed (non-fatal):',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+
+    // ========================================
+    // PHASE 2.6: (Deferred) RPC handlers registered after WebviewManager in Phase 4.5
     // ========================================
 
     // ========================================
@@ -173,6 +320,27 @@ if (!gotLock) {
     container.register(TOKENS.WEBVIEW_MANAGER, {
       useValue: webviewManagerAdapter,
     });
+
+    // ========================================
+    // PHASE 4.45: Wire multi-phase analysis reader into EnhancedPromptsService
+    // ========================================
+    // Deferred from container.ts Phase 2.4 because the dependency chain
+    // (EnhancedPromptsService → SdkPermissionHandler → WebviewManager)
+    // requires TOKENS.WEBVIEW_MANAGER which was just registered above.
+    try {
+      const enhancedPrompts = container.resolve<EnhancedPromptsService>(
+        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE
+      );
+      const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE
+      );
+      enhancedPrompts.setAnalysisReader(analysisStorage);
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Failed to wire multi-phase analysis reader:',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
 
     // ========================================
     // PHASE 4.5: Register All RPC Methods (TASK_2025_203 Batch 5)

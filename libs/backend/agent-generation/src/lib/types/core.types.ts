@@ -256,7 +256,7 @@ export interface LlmSection {
 
   /**
    * Maximum number of tokens for the LLM response.
-   * If undefined, uses the default limit from VsCodeLmService.
+   * If undefined, uses the default limit from the LLM service.
    * Typical values: 500-2000 depending on section complexity.
    */
   maxTokens?: number;

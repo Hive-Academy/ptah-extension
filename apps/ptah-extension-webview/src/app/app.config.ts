@@ -15,11 +15,13 @@ import {
   AutopilotStateService,
   AppStateManager,
   SESSION_DATA_PROVIDER,
+  WORKSPACE_COORDINATOR,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
   AgentMonitorMessageHandler,
   ChatStore,
+  WorkspaceCoordinatorService,
 } from '@ptah-extension/chat';
 import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
@@ -139,6 +141,12 @@ export const appConfig: ApplicationConfig = {
     // Session data provider: breaks circular dependency between dashboard and chat.
     // ChatStore is already providedIn: 'root', so useExisting reuses the singleton.
     { provide: SESSION_DATA_PROVIDER, useExisting: ChatStore },
+    // Workspace coordinator: breaks circular dependency between core and chat/editor.
+    // WorkspaceCoordinatorService orchestrates TabManager + Editor during workspace ops.
+    {
+      provide: WORKSPACE_COORDINATOR,
+      useExisting: WorkspaceCoordinatorService,
+    },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco',

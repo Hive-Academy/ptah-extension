@@ -4,13 +4,7 @@ import {
   ScrollTimelineComponent,
   HijackedScrollItemDirective,
 } from '@hive-academy/angular-gsap';
-import {
-  LucideAngularModule,
-  ArrowRight,
-  Check,
-  Sparkles,
-} from 'lucide-angular';
-
+import { LucideAngularModule, ArrowRight, Check } from 'lucide-angular';
 @Component({
   selector: 'ptah-premium-showcase',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -32,51 +26,6 @@ import {
       [stepIndicatorPosition]="'left'"
       (currentStepChange)="onStepChange($event)"
     >
-      <!-- ======== INTRO SLIDE ======== -->
-      <div
-        hijackedScrollItem
-        slideDirection="up"
-        [fadeIn]="true"
-        [scale]="true"
-      >
-        <div
-          class="h-screen w-screen flex items-center justify-center bg-slate-950 relative overflow-hidden"
-        >
-          <div
-            class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-[#d4af37]/[0.04] rounded-full blur-[120px] pointer-events-none"
-            aria-hidden="true"
-          ></div>
-
-          <div class="relative z-10 text-center px-4 max-w-4xl mx-auto">
-            <span
-              class="inline-flex items-center gap-2 px-5 py-2 mb-8 bg-[#d4af37]/10 border border-[#d4af37]/30 rounded-full text-sm font-semibold text-[#f4d47c]"
-            >
-              <lucide-angular
-                [img]="SparklesIcon"
-                class="w-4 h-4"
-                aria-hidden="true"
-              />
-              WHAT PTAH OFFERS
-            </span>
-
-            <h2
-              class="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-white mb-8 leading-tight"
-            >
-              Everything You Need to
-              <span
-                class="bg-gradient-to-r from-[#d4af37] via-[#f4d47c] to-[#8a6d10] bg-clip-text text-transparent"
-              >
-                Ship Faster
-              </span>
-            </h2>
-
-            <p class="text-xl sm:text-2xl text-gray-400 max-w-2xl mx-auto">
-              Scroll to explore how Ptah supercharges your development workflow
-            </p>
-          </div>
-        </div>
-      </div>
-
       <!-- ======== SLIDE 1: Agent Orchestration (content left, image right) ======== -->
       <div
         hijackedScrollItem
@@ -537,7 +486,6 @@ import {
   ],
 })
 export class PremiumShowcaseComponent {
-  public readonly SparklesIcon = Sparkles;
   public readonly CheckIcon = Check;
   public readonly ArrowRightIcon = ArrowRight;
 

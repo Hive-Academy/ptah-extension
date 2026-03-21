@@ -19,9 +19,8 @@ import { ProvidersApiSectionComponent } from './sections/providers-api-section.c
 import { PluginsSectionComponent } from './sections/plugins-section.component';
 import { SetupWizardSectionComponent } from './sections/setup-wizard-section.component';
 import { AgentOrchestrationSectionComponent } from './sections/agent-orchestration-section.component';
-import { OrchestrationSectionComponent } from './sections/orchestration-section.component';
 import { McpServerSectionComponent } from './sections/mcp-server-section.component';
-import { ChatDashboardSectionComponent } from './sections/chat-dashboard-section.component';
+import { DocsCtaSectionComponent } from './sections/docs-cta-section.component';
 import { FooterComponent } from '../../components/footer.component';
 import {
   ViewportAnimationDirective,
@@ -44,8 +43,7 @@ import { DocsVideoModalService } from './services/docs-video-modal.service';
     SetupWizardSectionComponent,
     AgentOrchestrationSectionComponent,
     McpServerSectionComponent,
-    ChatDashboardSectionComponent,
-    OrchestrationSectionComponent,
+    DocsCtaSectionComponent,
     FooterComponent,
     ViewportAnimationDirective,
     DocsVideoModalComponent,
@@ -185,19 +183,7 @@ import { DocsVideoModalService } from './services/docs-video-modal.service';
             ></div>
           </div>
 
-          <ptah-docs-chat-dashboard />
-
-          <div
-            viewportAnimation
-            [viewportConfig]="sectionDividerConfig"
-            class="overflow-hidden my-8 sm:my-12"
-          >
-            <div
-              class="h-[1px] w-full bg-gradient-to-r from-transparent via-secondary/40 to-transparent"
-            ></div>
-          </div>
-
-          <ptah-docs-orchestration />
+          <ptah-docs-cta />
         </div>
       </main>
 
@@ -243,8 +229,6 @@ export class DocsPageComponent {
     { id: 'setup-wizard', label: 'Setup Wizard' },
     { id: 'agent-orchestration', label: 'Agent Orchestration' },
     { id: 'mcp-server', label: 'MCP Server' },
-    { id: 'chat-dashboard', label: 'Chat & Dashboard' },
-    { id: 'orchestration', label: 'Orchestration' },
   ];
 
   private observer: IntersectionObserver | null = null;

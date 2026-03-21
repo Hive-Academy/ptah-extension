@@ -21,7 +21,7 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 14 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 13 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
@@ -498,7 +498,7 @@ function buildExecuteCodeDescription(): string {
 
 ${PTAH_SYSTEM_PROMPT}
 
-## Top Namespaces (14 total — use ptah.help(topic) for full details)
+## Top Namespaces (13 total — use ptah.help(topic) for full details)
 
 ### ptah.workspace - Workspace Analysis
 - analyze(): Promise<{info, structure}> - Full workspace analysis
@@ -559,7 +559,6 @@ Use ptah.ast BEFORE reading files to understand structure at 40-60% token saving
 - isBuilt(): Promise<boolean> - Check if graph exists
 
 ### Other Namespaces (use ptah.help('topic') for details)
-- ptah.ai.* - VS Code LM API (chat, tokens, tools, specialized tasks, invokeAgent)
 - ptah.llm.* - VS Code Language Model API provider
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
@@ -598,9 +597,6 @@ return files.filter(f => f.endsWith('.ts'));
 // Find references before refactoring
 const refs = await ptah.ide.lsp.getReferences('src/app.ts', 10, 5);
 return refs.map(r => r.file + ':' + r.line);
-
-// Delegate routine task to cheap model (150x cheaper)
-const review = await ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', 'gpt-4o-mini');
 
 // Check for TypeScript errors
 const errors = await ptah.diagnostics.getErrors();

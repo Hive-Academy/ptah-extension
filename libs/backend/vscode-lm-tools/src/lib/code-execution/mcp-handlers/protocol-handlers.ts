@@ -316,7 +316,8 @@ async function handleIndividualTool(
 
       case 'ptah_count_tokens': {
         const { file } = args as { file: string };
-        const tokenCount = await ptahAPI.ai.countFileTokens(file);
+        const fileContent = await ptahAPI.files.read(file);
+        const tokenCount = await ptahAPI.context.countTokens(fileContent);
         return createToolSuccessResponse(
           request,
           formatTokenCount({ file, tokens: tokenCount }),

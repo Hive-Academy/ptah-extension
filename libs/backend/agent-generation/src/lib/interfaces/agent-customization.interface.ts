@@ -31,7 +31,7 @@ export interface CustomizationRequest {
  * Agent Customization Service Interface
  *
  * Provides LLM-powered content customization for agent generation.
- * Uses ptah.ai.invokeAgent() for cost-effective model invocation.
+ * Uses InternalQueryService for cost-effective model invocation.
  *
  * **Reliability Guarantees**:
  * - Retry logic with exponential backoff

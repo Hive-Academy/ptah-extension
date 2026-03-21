@@ -36,12 +36,6 @@ return { projectType: info.info.projectType, frameworks: info.info.frameworks };
 | `ptah.search` | File discovery | `findFiles(pattern)`, `getRelevantFiles(query)` |
 | `ptah.files`  | File I/O       | `read(path)`, `list(directory)`                 |
 
-### VS Code Integration
-
-| Namespace | Purpose         | Key Methods                                     |
-| --------- | --------------- | ----------------------------------------------- |
-| `ptah.ai` | Language models | `chat(message, model?)`, `selectModel(family?)` |
-
 ## Recommended Workflows
 
 ### 1. Understanding a Codebase

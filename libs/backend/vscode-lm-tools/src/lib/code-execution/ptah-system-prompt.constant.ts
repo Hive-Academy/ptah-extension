@@ -38,9 +38,7 @@ Search the web for current information. Returns a narrative summary of search re
 For IDE-integrated operations and multi-step API workflows, use the \`execute_code\` tool with the \`ptah\` global object:
 
 - \`ptah.ide.actions.organizeImports(file)\` — Auto-clean imports after edits
-- \`ptah.ai.invokeAgent(agentPath, task, model)\` — Delegate to VS Code LM models
 - \`ptah.project.detectMonorepo()\` — Detect monorepo structure
-- \`ptah.ai.fitsInContext(content, model, reserve)\` — Check context window fit
 - \`ptah.help()\` / \`ptah.help('namespace')\` — Self-documentation
 
 ## Code Understanding — Dependencies

@@ -2,17 +2,12 @@
  * Code Execution API Type Definitions
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
- * Supports 14 namespaces exposing VS Code extension capabilities to Claude CLI.
- *
- * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
- * because the DiagnosticsNamespace and related types reference
- * vscode.DiagnosticSeverity for type definitions. These are VS Code-specific
- * type enums with no platform-core equivalent.
+ * Supports 13 namespaces exposing VS Code extension capabilities to Claude CLI.
  *
  * TASK_2025_025: Expanded API surface for better Claude discoverability
+ * TASK_2025_209: Removed AINamespace (ptah.ai) — obsolete, replaced by CLI tools + MCP agent spawn
  */
 
-import * as vscode from 'vscode';
 import type {
   SpawnAgentRequest,
   SpawnAgentResult,
@@ -33,7 +28,7 @@ import type {
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 14 namespaces for comprehensive workspace intelligence
+ * Provides 13 namespaces for comprehensive workspace intelligence
  * TASK_2025_039: Enhanced with ide namespace for LSP and editor superpowers
  * TASK_2025_111: Added orchestration namespace for workflow state management
  */
@@ -42,7 +37,6 @@ export interface PtahAPI {
   workspace: WorkspaceNamespace;
   search: SearchNamespace;
   diagnostics: DiagnosticsNamespace;
-  ai: AINamespace;
   files: FilesNamespace;
 
   // Extended namespaces (TASK_2025_025)
@@ -190,252 +184,8 @@ export interface DiagnosticInfo {
   severity?: string;
 }
 
-/**
- * AI/LLM capabilities (MULTI-AGENT SUPPORT)
- * Exposes VS Code Language Model API for Claude CLI → VS Code LM delegation
- * TASK_2025_039: Enhanced with advanced LLM chat, token intelligence, and specialized AI tasks
- */
-export interface AINamespace {
-  // ========================================
-  // Basic Chat (Existing)
-  // ========================================
-
-  /**
-   * Send a chat message to VS Code language model
-   * @param message - User message to send
-   * @param model - Optional model family filter (e.g., "claude-3.5-sonnet")
-   * @returns Complete model response text
-   */
-  chat: (message: string, model?: string) => Promise<string>;
-
-  /**
-   * Select available language models with full metadata
-   * @param family - Optional family filter
-   * @returns Array of available model metadata including maxInputTokens, vendor, version
-   */
-  selectModel: (family?: string) => Promise<
-    Array<{
-      id: string;
-      family: string;
-      name: string;
-      maxInputTokens: number;
-      vendor: string;
-      version: string;
-    }>
-  >;
-
-  // ========================================
-  // Chat Enhancements (TASK_2025_039)
-  // ========================================
-
-  /**
-   * Multi-turn conversation with message history
-   * @param messages - Array of chat messages with roles (user/assistant)
-   * @param model - Optional model family filter
-   * @returns Complete model response text
-   */
-  chatWithHistory: (messages: ChatMessage[], model?: string) => Promise<string>;
-
-  /**
-   * Streaming chat with chunk-by-chunk callback
-   * @param message - User message to send
-   * @param onChunk - Callback invoked for each response chunk
-   * @param model - Optional model family filter
-   * @returns Promise that resolves when streaming is complete
-   */
-  chatStream: (
-    message: string,
-    onChunk: (chunk: string) => void,
-    model?: string
-  ) => Promise<void>;
-
-  /**
-   * Chat with custom system prompt for task-specific behavior
-   * Uses XML-delimited format for clear instruction boundaries
-   * @param message - User message to send
-   * @param systemPrompt - System prompt defining behavior/role
-   * @param model - Optional model family filter
-   * @returns Complete model response text
-   */
-  chatWithSystem: (
-    message: string,
-    systemPrompt: string,
-    model?: string
-  ) => Promise<string>;
-
-  /**
-   * Invoke an agent with .md file as system prompt
-   * Enables Claude CLI to delegate tasks to cheaper models (gpt-4o-mini, haiku)
-   * @param agentPath - Path to agent .md file (e.g., ".claude/agents/senior-tester.md")
-   * @param task - Task description for the agent
-   * @param model - Optional model to use (default: cost-optimized model)
-   * @returns Agent's response
-   */
-  invokeAgent: (
-    agentPath: string,
-    task: string,
-    model?: string
-  ) => Promise<string>;
-
-  // ========================================
-  // Token Intelligence (TASK_2025_039)
-  // ========================================
-
-  /**
-   * Count tokens in text using model-specific tokenizer
-   * @param text - Text to count tokens for
-   * @param model - Optional model family filter (default: active model)
-   * @returns Token count
-   */
-  countTokens: (text: string, model?: string) => Promise<number>;
-
-  /**
-   * Count tokens in a file using model-specific tokenizer
-   * @param filePath - Absolute or relative file path
-   * @param model - Optional model family filter (default: active model)
-   * @returns Token count
-   */
-  countFileTokens: (filePath: string, model?: string) => Promise<number>;
-
-  /**
-   * Check if content fits in model's context window
-   * @param content - Content to check
-   * @param model - Optional model family filter (default: active model)
-   * @param reserve - Reserved tokens for response (default: 4000)
-   * @returns True if content fits in context window
-   */
-  fitsInContext: (
-    content: string,
-    model?: string,
-    reserve?: number
-  ) => Promise<boolean>;
-
-  // ========================================
-  // Tool Integration (TASK_2025_039)
-  // ========================================
-
-  /**
-   * List all registered VS Code LM tools
-   * @returns Array of tool information (name, description, schema)
-   */
-  getTools: () => Promise<ToolInfo[]>;
-
-  /**
-   * Invoke a VS Code LM tool directly
-   * @param name - Tool name
-   * @param input - Tool input parameters (must match tool's schema)
-   * @returns Tool execution result
-   */
-  invokeTool: (
-    name: string,
-    input: Record<string, unknown>
-  ) => Promise<vscode.LanguageModelToolResult>;
-
-  /**
-   * Chat with access to specific VS Code tools
-   * @param message - User message to send
-   * @param toolNames - Array of tool names to make available
-   * @param model - Optional model family filter
-   * @returns Complete model response text
-   */
-  chatWithTools: (
-    message: string,
-    toolNames: string[],
-    model?: string
-  ) => Promise<string>;
-
-  // ========================================
-  // Specialized AI Tasks (TASK_2025_039)
-  // ========================================
-
-  /**
-   * Summarize content using VS Code LM
-   * @param content - Content to summarize
-   * @param options - Task options (model, maxLength, format)
-   * @returns Summary text
-   */
-  summarize: (content: string, options?: AITaskOptions) => Promise<string>;
-
-  /**
-   * Explain code with context awareness
-   * @param code - Code to explain
-   * @param options - Task options (model, maxLength, format)
-   * @returns Explanation text
-   */
-  explain: (code: string, options?: AITaskOptions) => Promise<string>;
-
-  /**
-   * Code review via VS Code LM
-   * @param code - Code to review
-   * @param options - Task options (model, maxLength, format)
-   * @returns Review feedback text
-   */
-  review: (code: string, options?: AITaskOptions) => Promise<string>;
-
-  /**
-   * Transform code by instruction
-   * @param code - Code to transform
-   * @param instruction - Transformation instruction
-   * @param model - Optional model family filter
-   * @returns Transformed code
-   */
-  transform: (
-    code: string,
-    instruction: string,
-    model?: string
-  ) => Promise<string>;
-
-  /**
-   * Generate code from description
-   * @param description - Description of code to generate
-   * @param options - Task options (model, maxLength, format)
-   * @returns Generated code
-   */
-  generate: (description: string, options?: AITaskOptions) => Promise<string>;
-}
-
-// ========================================
-// AI Namespace Supporting Types (TASK_2025_039)
-// ========================================
-
-/**
- * Chat message structure for multi-turn conversations
- */
-export interface ChatMessage {
-  /** Message role (user or assistant) */
-  role: 'user' | 'assistant';
-
-  /** Message content text */
-  content: string;
-}
-
-/**
- * Options for specialized AI tasks (summarize, explain, review, generate)
- */
-export interface AITaskOptions {
-  /** Optional model family filter */
-  model?: string;
-
-  /** Maximum length for response (in characters) */
-  maxLength?: number;
-
-  /** Output format preference */
-  format?: 'text' | 'markdown' | 'code';
-}
-
-/**
- * VS Code LM tool information
- */
-export interface ToolInfo {
-  /** Tool name (unique identifier) */
-  name: string;
-
-  /** Human-readable description */
-  description: string;
-
-  /** JSON Schema for tool input parameters */
-  inputSchema: Record<string, unknown> | undefined;
-}
+// AINamespace removed in TASK_2025_209 — ptah.ai namespace is obsolete,
+// replaced by CLI tools + MCP agent spawn (ptah.agent.*).
 
 /**
  * File system capabilities

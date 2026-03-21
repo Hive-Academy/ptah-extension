@@ -7,6 +7,7 @@ import { FooterComponent } from '../components/footer.component';
 import { FeaturesHijackedScrollComponent } from '../sections/features/features-hijacked-scroll.component';
 import { HeroComponent } from '../sections/hero/hero.component';
 import { PremiumShowcaseComponent } from '../sections/premium-showcase/premium-showcase.component';
+import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcase.component';
 
 /**
  * LandingPageComponent - Root page component that composes all landing page sections
@@ -75,6 +76,7 @@ import { PremiumShowcaseComponent } from '../sections/premium-showcase/premium-s
     CommonModule,
     NavigationComponent,
     HeroComponent,
+    VideoShowcaseComponent,
     PremiumShowcaseComponent,
     FeaturesHijackedScrollComponent,
     ComparisonSectionComponent,
@@ -89,6 +91,10 @@ import { PremiumShowcaseComponent } from '../sections/premium-showcase/premium-s
       <!-- Main Content Sections -->
       <main>
         <ptah-hero />
+
+        <section id="video-showcase" aria-label="Video Showcase">
+          <ptah-video-showcase />
+        </section>
 
         <section id="premium-showcase" aria-label="Why Ptah">
           <ptah-premium-showcase />
