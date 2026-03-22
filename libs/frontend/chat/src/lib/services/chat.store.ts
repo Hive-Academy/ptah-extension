@@ -7,7 +7,6 @@ import {
   PermissionResponse,
   SessionId,
   MESSAGE_TYPES,
-  SubagentRecord,
   LicenseGetStatusResponse,
 } from '@ptah-extension/shared';
 import type {
@@ -161,9 +160,8 @@ export class ChatStore {
   // TASK_2025_136: Question requests for AskUserQuestion tool
   readonly questionRequests = this.permissionHandler.questionRequests;
 
-  // Resumable subagents signals (TASK_2025_103)
-  private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
-  readonly resumableSubagents = this._resumableSubagents.asReadonly();
+  // Resumable subagents signal (TASK_2025_213: delegated to SessionLoaderService)
+  readonly resumableSubagents = this.sessionLoader.resumableSubagents;
 
   // License status signal (TASK_2025_142)
   private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
@@ -439,29 +437,18 @@ export class ChatStore {
   }
 
   // ============================================================================
-  // SUBAGENT RESUME METHODS (TASK_2025_103)
+  // SUBAGENT RESUME METHODS (TASK_2025_213)
   // ============================================================================
 
   /**
-   * Refresh the list of resumable subagents from the backend registry
-   * Should be called when entering a session or after session events
+   * Clear the resumable subagents signal.
+   * Delegates to SessionLoaderService.
+   *
+   * Called when the user triggers a resume action, so the banner
+   * dismisses immediately while the backend processes the request.
    */
-  async refreshResumableSubagents(): Promise<void> {
-    try {
-      const result = await this._claudeRpcService.querySubagents();
-      if (result.isSuccess()) {
-        this._resumableSubagents.set(result.data.subagents);
-        console.log('[ChatStore] Resumable subagents refreshed:', {
-          count: result.data.subagents.length,
-        });
-      } else {
-        console.error('[ChatStore] Failed to query subagents:', result.error);
-        this._resumableSubagents.set([]);
-      }
-    } catch (error) {
-      console.error('[ChatStore] Error refreshing resumable subagents:', error);
-      this._resumableSubagents.set([]);
-    }
+  clearResumableSubagents(): void {
+    this.sessionLoader.clearResumableSubagents();
   }
 
   // TASK_2025_109: handleSubagentResume method removed - now uses context injection

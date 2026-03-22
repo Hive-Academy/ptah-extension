@@ -20,6 +20,7 @@ import {
   ChatSessionSummary,
   SessionId,
   FlatStreamEventUnion,
+  SubagentRecord,
 } from '@ptah-extension/shared';
 import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
@@ -45,6 +46,7 @@ export class SessionLoaderService {
   private readonly _totalSessions = signal(0);
   private readonly _sessionsOffset = signal(0);
   private readonly _isLoadingMoreSessions = signal(false);
+  private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
 
   // Page size constant
   private static readonly SESSIONS_PAGE_SIZE = 30;
@@ -61,6 +63,7 @@ export class SessionLoaderService {
   readonly hasMoreSessions = this._hasMoreSessions.asReadonly();
   readonly totalSessions = this._totalSessions.asReadonly();
   readonly isLoadingMoreSessions = this._isLoadingMoreSessions.asReadonly();
+  readonly resumableSubagents = this._resumableSubagents.asReadonly();
 
   constructor() {
     // React to pop-out panel session load requests from TabManagerService.
@@ -315,6 +318,9 @@ export class SessionLoaderService {
 
         this.sessionManager.setStatus('loaded');
 
+        // TASK_2025_213: Populate resumableSubagents signal for the banner UI
+        this._resumableSubagents.set(resumableSubagents ?? []);
+
         // TASK_2025_168: Load CLI sessions into agent monitor panel
         if (cliSessions && cliSessions.length > 0) {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
@@ -339,6 +345,9 @@ export class SessionLoaderService {
         });
         this.sessionManager.setStatus('loaded');
 
+        // TASK_2025_213: Clear resumableSubagents for simple-message sessions
+        this._resumableSubagents.set(resumableSubagents ?? []);
+
         // TASK_2025_168: Also load CLI sessions in fallback branch
         if (cliSessions && cliSessions.length > 0) {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
@@ -354,6 +363,9 @@ export class SessionLoaderService {
           streamingState: null,
         });
         this.sessionManager.setStatus('loaded');
+
+        // TASK_2025_213: No resumable subagents on error/empty session
+        this._resumableSubagents.set([]);
       }
     } catch (error) {
       console.error('[SessionLoaderService] Failed to switch session:', error);
@@ -392,6 +404,22 @@ export class SessionLoaderService {
         error
       );
     }
+  }
+
+  // ============================================================================
+  // RESUMABLE SUBAGENTS (TASK_2025_213)
+  // ============================================================================
+
+  /**
+   * Clear the resumable subagents signal.
+   *
+   * Called when the user sends a message that triggers context injection
+   * (chat:continue), so the banner dismisses immediately at turn start.
+   * The backend auto-injects interrupted agent context into the prompt
+   * and clears them from the registry, so the frontend should mirror this.
+   */
+  clearResumableSubagents(): void {
+    this._resumableSubagents.set([]);
   }
 
   // ============================================================================
