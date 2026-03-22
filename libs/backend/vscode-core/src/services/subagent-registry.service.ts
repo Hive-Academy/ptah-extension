@@ -67,6 +67,16 @@ export class SubagentRegistryService {
   private readonly registry = new Map<string, SubagentRecord>();
 
   /**
+   * TASK_2025_213 (Bug 1): Tracks toolCallIds that have been injected into
+   * context and removed from the registry. Prevents registerFromHistoryEvents()
+   * from re-registering these agents on session reload, breaking the cycle:
+   * inject context -> remove from registry -> reload session -> re-register -> inject again.
+   *
+   * Typical size: 0-5 entries per extension session. Cleared on clear().
+   */
+  private readonly clearedToolCallIds = new Set<string>();
+
+  /**
    * TTL for subagent records: 24 hours
    * After this time, records are automatically cleaned up
    */
@@ -490,6 +500,32 @@ export class SubagentRegistryService {
   }
 
   /**
+   * TASK_2025_213 (Bug 1): Mark a toolCallId as having been injected into
+   * context. Call this BEFORE remove() so the ID is recorded before the
+   * registry entry is deleted.
+   *
+   * @param toolCallId - The toolCallId that was injected into context
+   */
+  markAsInjected(toolCallId: string): void {
+    this.clearedToolCallIds.add(toolCallId);
+    this.logger.debug(
+      '[SubagentRegistryService.markAsInjected] Marked toolCallId as injected',
+      { toolCallId, clearedSetSize: this.clearedToolCallIds.size }
+    );
+  }
+
+  /**
+   * TASK_2025_213 (Bug 1): Check if a toolCallId was previously injected
+   * into context and should not be re-registered from history.
+   *
+   * @param toolCallId - The toolCallId to check
+   * @returns true if the toolCallId was previously injected
+   */
+  wasInjected(toolCallId: string): boolean {
+    return this.clearedToolCallIds.has(toolCallId);
+  }
+
+  /**
    * Remove all subagents for a parent session.
    *
    * Called when a session is permanently deleted (not just aborted).
@@ -540,7 +576,10 @@ export class SubagentRegistryService {
    */
   clear(): void {
     this.registry.clear();
-    this.logger.debug('[SubagentRegistryService.clear] Registry cleared');
+    this.clearedToolCallIds.clear();
+    this.logger.debug('[SubagentRegistryService.clear] Registry cleared', {
+      clearedToolCallIdsAlsoCleared: true,
+    });
   }
 
   /**
@@ -707,6 +746,17 @@ export class SubagentRegistryService {
       if (this.registry.has(toolCallId)) {
         this.logger.debug(
           '[SubagentRegistryService.registerFromHistoryEvents] Agent already registered, skipping',
+          { toolCallId, agentType }
+        );
+        continue;
+      }
+
+      // TASK_2025_213 (Bug 1): Skip agents whose context was already injected
+      // and removed from the registry. This breaks the re-registration cycle:
+      // inject context -> remove from registry -> reload session -> re-register -> inject again
+      if (this.clearedToolCallIds.has(toolCallId)) {
+        this.logger.debug(
+          '[SubagentRegistryService.registerFromHistoryEvents] Agent already injected into context, skipping',
           { toolCallId, agentType }
         );
         continue;
