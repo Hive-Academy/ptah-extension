@@ -134,16 +134,39 @@ export class AppStateManager implements MessageHandler {
   private initializeState(): void {
     const windowWithState = window as Window & {
       initialView?: ViewType;
-      ptahConfig?: { isLicensed?: boolean; initialView?: string };
+      ptahConfig?: {
+        isLicensed?: boolean;
+        initialView?: string;
+        workspaceRoot?: string;
+        workspaceName?: string;
+      };
     };
 
     // Read license status from ptahConfig (set by backend)
     const isLicensed = windowWithState.ptahConfig?.isLicensed ?? true;
     this._isLicensed.set(isLicensed);
 
+    // Read workspace info from ptahConfig (injected by webview HTML generator)
+    const workspaceRoot = windowWithState.ptahConfig?.workspaceRoot;
+    const workspaceName = windowWithState.ptahConfig?.workspaceName;
+    if (
+      workspaceRoot &&
+      workspaceRoot !== 'undefined' &&
+      workspaceRoot !== ''
+    ) {
+      this._workspaceInfo.set({
+        name:
+          workspaceName && workspaceName !== 'undefined' ? workspaceName : '',
+        path: workspaceRoot,
+        type: 'workspace',
+      });
+    }
+
     const initialView = windowWithState.initialView || 'chat';
     console.log(
-      `[AppStateManager] Initializing with view: ${initialView}, isLicensed: ${isLicensed}`
+      `[AppStateManager] Initializing with view: ${initialView}, isLicensed: ${isLicensed}, workspace: ${
+        workspaceRoot || 'none'
+      }`
     );
     this._currentView.set(initialView);
   }
