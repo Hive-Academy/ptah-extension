@@ -20,3 +20,5 @@
 | TASK_2025_210 | Settings Export/Import + Session Auto-Discovery — VS Code export command, Electron import, .claude session sync for both platforms                  | 📋 Planned  | orchestrator | 2026-03-21 |            |
 | TASK_2025_211 | Fix Pre-Existing Extension Bugs — Cost aggregation, plugin dedup, session abort, watcher race, provider init, subagent UI, SDK Task→Agent rename    | 🔄 Active   | orchestrator | 2026-03-22 |            |
 | TASK_2025_212 | Cleanup Post-Unification Residuals — Remove vestigial LLM abstraction, fix RPC orphans, add sonnet-4-6 pricing, disk state storage, MCP 500         | 🔄 Active   | orchestrator | 2026-03-22 |            |
+| TASK_2025_213 | Subagent Interruption & Resume State — Stale interrupted records in registry, context injection re-injects completed work, permission deny timing   | ✅ Complete | orchestrator | 2026-03-22 | 2026-03-22 |
+| TASK_2025_214 | Electron Plugin & Setup Wizard Integration — Shared plugin assets, Electron DI wiring, wizard lifecycle, skill junction events                      | ✅ Complete | orchestrator | 2026-03-22 | 2026-03-22 |

@@ -19,7 +19,11 @@ import type {
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS, EnhancedPromptsService } from '@ptah-extension/agent-sdk';
-import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
+import type {
+  IMultiPhaseAnalysisReader,
+  PluginLoaderService,
+  SkillJunctionService,
+} from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import type { WorkspaceContextManager } from './services/workspace-context-manager';
 
@@ -30,6 +34,7 @@ if (!gotLock) {
 } else {
   let mainWindow: BrowserWindow | null = null;
   let resolvedStateStorage: IStateStorage | undefined;
+  let skillJunctionRef: { deactivateSync: () => void } | null = null;
 
   app.whenReady().then(async () => {
     // ========================================
@@ -358,6 +363,95 @@ if (!gotLock) {
     );
 
     // ========================================
+    // PHASE 4.55: Plugin Loader Initialization (TASK_2025_214)
+    // ========================================
+    // Initialize PluginLoaderService with app path and workspace state storage.
+    // This enables plugin path resolution for the SDK and slash command autocomplete.
+    // Must run AFTER Phase 4.5 (RPC registration) and BEFORE Phase 4.6 (session discovery).
+    // Failure is non-fatal: the app works without plugins, just logs a warning.
+    try {
+      const pluginLoader = container.resolve<PluginLoaderService>(
+        SDK_TOKENS.SDK_PLUGIN_LOADER
+      );
+      const workspaceStateStorage = container.resolve<IStateStorage>(
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+      );
+      pluginLoader.initialize(app.getAppPath(), workspaceStateStorage);
+
+      const pluginConfig = pluginLoader.getWorkspacePluginConfig();
+      const pluginPaths = pluginLoader.resolvePluginPaths(
+        pluginConfig.enabledPluginIds
+      );
+
+      // Wire into command discovery for slash command autocomplete.
+      // COMMAND_DISCOVERY_SERVICE is NOT registered in Electron container,
+      // so we guard with isRegistered() to avoid resolution failure.
+      if (container.isRegistered(TOKENS.COMMAND_DISCOVERY_SERVICE)) {
+        const cmdDiscovery = container.resolve(
+          TOKENS.COMMAND_DISCOVERY_SERVICE
+        ) as { setPluginPaths: (paths: string[]) => void };
+        cmdDiscovery.setPluginPaths(pluginPaths);
+      } else {
+        console.log(
+          '[Ptah Electron] COMMAND_DISCOVERY_SERVICE not registered, skipping plugin path wiring'
+        );
+      }
+
+      console.log(
+        `[Ptah Electron] Plugin loader initialized (${pluginPaths.length} plugin paths)`
+      );
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Plugin loader initialization failed (non-fatal):',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+
+    // ========================================
+    // PHASE 4.56: Skill Junction Activation (TASK_2025_214)
+    // ========================================
+    // Initialize SkillJunctionService and create junctions in workspace .claude/skills/
+    // for enabled plugins. This makes plugin skills discoverable by third-party AI
+    // providers (Copilot, Codex) via MCP workspace search.
+    // Always call activate() even with zero plugins so the workspace change subscription
+    // is registered for future plugin enablement.
+    // Failure is non-fatal: the app works without junctions, just logs a warning.
+    try {
+      const skillJunction = container.resolve<SkillJunctionService>(
+        SDK_TOKENS.SDK_SKILL_JUNCTION
+      );
+      skillJunction.initialize(app.getAppPath());
+
+      // Re-resolve plugin loader (singleton) and get current paths
+      const pluginLoader = container.resolve<PluginLoaderService>(
+        SDK_TOKENS.SDK_PLUGIN_LOADER
+      );
+      const config = pluginLoader.getWorkspacePluginConfig();
+      const paths = pluginLoader.resolvePluginPaths(config.enabledPluginIds);
+
+      const junctionResult = skillJunction.activate(paths, () => {
+        const c = pluginLoader.getWorkspacePluginConfig();
+        return pluginLoader.resolvePluginPaths(c.enabledPluginIds);
+      });
+
+      // Store reference for cleanup in will-quit handler
+      skillJunctionRef = skillJunction;
+
+      if (junctionResult.created > 0 || junctionResult.errors.length > 0) {
+        console.log(
+          `[Ptah Electron] Skill junctions: ${junctionResult.created} created, ${junctionResult.skipped} skipped, ${junctionResult.removed} removed, ${junctionResult.errors.length} errors`
+        );
+      } else {
+        console.log('[Ptah Electron] Skill junctions activated');
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Skill junction activation failed (non-fatal):',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+
+    // ========================================
     // PHASE 4.6: Session Auto-Discovery (TASK_2025_210)
     // ========================================
     // Import existing Claude sessions from ~/.claude/projects/ for the active
@@ -467,6 +561,20 @@ if (!gotLock) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
       app.quit();
+    }
+  });
+
+  // Clean up skill junctions on app quit (TASK_2025_214)
+  // deactivateSync() removes all managed junctions/symlinks and unsubscribes
+  // from workspace folder changes. Must be synchronous (will-quit is sync).
+  app.on('will-quit', () => {
+    try {
+      skillJunctionRef?.deactivateSync();
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Skill junction cleanup failed (non-fatal):',
+        error instanceof Error ? error.message : String(error)
+      );
     }
   });
 } // end of gotLock guard

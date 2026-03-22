@@ -72,12 +72,23 @@
         ]
       }
     },
+    "copy-assets": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          {
+            "command": "node apps/ptah-electron/scripts/copy-assets.js"
+          }
+        ]
+      }
+    },
     "serve": {
       "executor": "nx:run-commands",
       "options": {
         "commands": [
           "nx build-dev ptah-electron",
           "nx copy-renderer ptah-electron",
+          "nx copy-assets ptah-electron",
           "node apps/ptah-electron/scripts/launch.js"
         ],
         "parallel": false
@@ -96,7 +107,7 @@
     },
     "package": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build", "copy-renderer"],
+      "dependsOn": ["build", "copy-renderer", "copy-assets"],
       "options": {
         "command": "electron-builder --config apps/ptah-electron/electron-builder.yml --project dist/apps/ptah-electron"
       }

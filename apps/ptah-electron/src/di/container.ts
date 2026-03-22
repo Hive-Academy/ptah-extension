@@ -79,7 +79,10 @@ import { AuthSecretsService } from '@ptah-extension/vscode-core';
 // Library registration functions (all accept container + logger, no vscode)
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 import { registerSdkServices, SDK_TOKENS } from '@ptah-extension/agent-sdk';
-import { registerAgentGenerationServices } from '@ptah-extension/agent-generation';
+import {
+  registerAgentGenerationServices,
+  AGENT_GENERATION_TOKENS,
+} from '@ptah-extension/agent-generation';
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
 
@@ -88,6 +91,9 @@ import {
   ElectronOutputManagerAdapter,
   ElectronLoggerAdapter,
 } from './electron-adapters';
+
+// Electron setup wizard service (TASK_2025_214)
+import { ElectronSetupWizardService } from '../services/electron-setup-wizard.service';
 
 // Workspace context management (TASK_2025_208)
 import { WorkspaceContextManager } from '../services/workspace-context-manager';
@@ -487,8 +493,37 @@ export class ElectronDIContainer {
     // NOTE: registerVsCodeLmToolsServices is SKIPPED (VS Code-specific MCP server)
     registerSdkServices(container, logger);
 
+    // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs (TASK_2025_214)
+    // These tokens are required by WizardWebviewLifecycleService which is registered
+    // unconditionally inside registerAgentGenerationServices(). In Electron, the wizard
+    // uses ElectronSetupWizardService instead, so these are no-op stubs to prevent
+    // DI resolution failures.
+    try {
+      container.register(TOKENS.WEBVIEW_MESSAGE_HANDLER, { useValue: {} });
+      container.register(TOKENS.WEBVIEW_HTML_GENERATOR, { useValue: {} });
+      logger.info(
+        '[Electron DI] WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs registered (TASK_2025_214)'
+      );
+    } catch (error) {
+      logger.error(
+        '[Electron DI] Failed to register webview stubs for WizardWebviewLifecycleService',
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+    }
+
     // Phase 2.3: Agent Generation (template storage, setup wizard)
     registerAgentGenerationServices(container, logger);
+
+    // Phase 2.3.5: Override SETUP_WIZARD_SERVICE with Electron-specific implementation (TASK_2025_214)
+    // ElectronSetupWizardService uses IPC navigation (broadcastMessage) instead of
+    // VS Code webview panels. Registered AFTER registerAgentGenerationServices() so
+    // it overrides the default SetupWizardService at AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE.
+    container.register(AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE, {
+      useClass: ElectronSetupWizardService,
+    });
+    logger.info(
+      '[Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)'
+    );
 
     // Phase 2.4: Wire multi-phase analysis reader into EnhancedPromptsService
     // DEFERRED to main.ts Phase 4.6 (after WebviewManager registration)

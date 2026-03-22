@@ -491,7 +491,11 @@ export class AgentSessionWatcherService extends EventEmitter {
           isAgentFile: filename?.startsWith('agent-'),
         });
 
-        if (eventType === 'rename' && filename?.startsWith('agent-')) {
+        if (
+          eventType === 'rename' &&
+          filename?.startsWith('agent-') &&
+          filename.endsWith('.jsonl')
+        ) {
           this.handleNewAgentFile(sessionsDir, filename);
         }
 
@@ -653,7 +657,11 @@ export class AgentSessionWatcherService extends EventEmitter {
           }
         );
 
-        if (eventType === 'rename' && filename?.startsWith('agent-')) {
+        if (
+          eventType === 'rename' &&
+          filename?.startsWith('agent-') &&
+          filename.endsWith('.jsonl')
+        ) {
           // handleNewAgentFile expects the file to be in sessionsDir,
           // but for nested layout we need to provide the full path.
           // We pass the subagentsDir as the base directory.
@@ -844,7 +852,9 @@ export class AgentSessionWatcherService extends EventEmitter {
     const scanDir = async (dir: string) => {
       try {
         const files = await fs.promises.readdir(dir);
-        const agentFiles = files.filter((f) => f.startsWith('agent-'));
+        const agentFiles = files.filter(
+          (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
+        );
 
         for (const filename of agentFiles) {
           const filenameAgentId = filename
