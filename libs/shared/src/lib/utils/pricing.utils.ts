@@ -63,12 +63,39 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     provider: 'anthropic',
   },
 
+  // Claude 4.6 Opus (short alias)
+  'claude-opus-4-6': {
+    inputCostPerToken: 5e-6,
+    outputCostPerToken: 25e-6,
+    cacheReadCostPerToken: 5e-7,
+    cacheCreationCostPerToken: 6.25e-6,
+    provider: 'anthropic',
+  },
+
   // Claude 4.5 Opus (previous flagship)
   'claude-opus-4-5-20251101': {
     inputCostPerToken: 5e-6, // $5.00 per 1M tokens
     outputCostPerToken: 25e-6, // $25.00 per 1M tokens
     cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
     cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // Claude 4.6 Sonnet (latest balanced)
+  'claude-sonnet-4-6-20250514': {
+    inputCostPerToken: 3e-6, // $3.00 per 1M tokens
+    outputCostPerToken: 15e-6, // $15.00 per 1M tokens
+    cacheReadCostPerToken: 3e-7, // $0.30 per 1M tokens
+    cacheCreationCostPerToken: 3.75e-6, // $3.75 per 1M tokens
+    provider: 'anthropic',
+  },
+
+  // Claude 4.6 Sonnet (short alias — avoids O(n) partial scan on every lookup)
+  'claude-sonnet-4-6': {
+    inputCostPerToken: 3e-6,
+    outputCostPerToken: 15e-6,
+    cacheReadCostPerToken: 3e-7,
+    cacheCreationCostPerToken: 3.75e-6,
     provider: 'anthropic',
   },
 
@@ -377,6 +404,8 @@ export function formatModelDisplayName(modelId: string): string {
   }
 
   if (withoutDate.includes('sonnet')) {
+    if (withoutDate.includes('4.6') || withoutDate.includes('4-6'))
+      return 'Sonnet 4.6';
     if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
       return 'Sonnet 4.5';
     if (withoutDate.includes('sonnet-4') || withoutDate.includes('sonnet 4'))

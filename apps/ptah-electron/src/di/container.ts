@@ -495,7 +495,7 @@ export class ElectronDIContainer {
     // reaches SdkPermissionHandler which requires TOKENS.WEBVIEW_MANAGER,
     // and that is only registered in main.ts after IPC bridge initialization.
 
-    // Phase 2.5: LLM Abstraction (multi-provider LLM)
+    // Phase 2.5: CLI Abstraction (TASK_2025_212: vestigial LLM services removed, CLI services only)
     registerLlmAbstractionServices(container, logger);
 
     // Phase 2.6: Template Generation

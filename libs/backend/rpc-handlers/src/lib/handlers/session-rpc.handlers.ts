@@ -410,9 +410,16 @@ export class SessionRpcHandlers {
       try {
         const { sessionId } = params;
         const metadata = await this.metadataStore.get(sessionId);
-        const cliSessions = metadata?.cliSessions
-          ? [...metadata.cliSessions]
-          : [];
+        const raw = metadata?.cliSessions ?? [];
+
+        // Filter out ghost entries synthesized by the old (now-removed)
+        // recoverMissingCliSessions() method. That code incorrectly labeled
+        // SDK internal subagents (agent_start history events) as ptah-cli
+        // CLI sessions. Real ptah-cli CLI sessions persisted by
+        // persistCliSessionReference() always have a ptahCliId set.
+        const cliSessions = raw.filter(
+          (ref) => ref.cli !== 'ptah-cli' || ref.ptahCliId
+        );
 
         return { cliSessions };
       } catch (error) {

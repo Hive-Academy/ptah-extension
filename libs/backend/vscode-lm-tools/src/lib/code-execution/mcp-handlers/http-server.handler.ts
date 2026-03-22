@@ -128,8 +128,8 @@ async function handleHttpRequest(
     return;
   }
 
-  // Handle health check
-  if (req.method === 'GET' && req.url === '/health') {
+  // Handle health check (supports both /health and / root probe)
+  if (req.method === 'GET' && (req.url === '/health' || req.url === '/')) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
     return;

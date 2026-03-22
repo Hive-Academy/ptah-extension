@@ -32,7 +32,11 @@ import {
   ConfigAutopilotToggleResult,
   ConfigAutopilotGetResult,
   ConfigModelsListResult,
+  ConfigEffortSetParams,
+  ConfigEffortSetResult,
+  ConfigEffortGetResult,
   getModelPricingDescription,
+  type EffortLevel,
 } from '@ptah-extension/shared';
 
 /**
@@ -62,6 +66,8 @@ export class ConfigRpcHandlers {
     this.registerAutopilotToggle();
     this.registerAutopilotGet();
     this.registerModelsList();
+    this.registerEffortGet();
+    this.registerEffortSet();
 
     // Initialize permission handler with saved autopilot config
     // This ensures canUseTool callback respects the permission level
@@ -84,6 +90,8 @@ export class ConfigRpcHandlers {
         'config:autopilot-toggle',
         'config:autopilot-get',
         'config:models-list',
+        'config:effort-get',
+        'config:effort-set',
       ],
       initialPermissionLevel: effectiveLevel,
     });
@@ -396,6 +404,59 @@ export class ConfigRpcHandlers {
         }
       }
     );
+  }
+
+  /**
+   * config:effort-get - Get saved reasoning effort level
+   */
+  private registerEffortGet(): void {
+    this.rpcHandler.registerMethod<
+      Record<string, never>,
+      ConfigEffortGetResult
+    >('config:effort-get', async () => {
+      try {
+        this.logger.debug('RPC: config:effort-get called');
+        const effort = this.configManager.getWithDefault<string>(
+          'reasoningEffort',
+          ''
+        );
+        return {
+          effort: (effort || undefined) as EffortLevel | undefined,
+        };
+      } catch (error) {
+        this.logger.error(
+          'RPC: config:effort-get failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * config:effort-set - Save reasoning effort level
+   */
+  private registerEffortSet(): void {
+    this.rpcHandler.registerMethod<
+      ConfigEffortSetParams,
+      ConfigEffortSetResult
+    >('config:effort-set', async (params) => {
+      try {
+        const { effort } = params;
+        this.logger.debug('RPC: config:effort-set called', { effort });
+
+        await this.configManager.set('reasoningEffort', effort || '');
+
+        this.logger.info('Reasoning effort saved', { effort });
+        return { effort };
+      } catch (error) {
+        this.logger.error(
+          'RPC: config:effort-set failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        throw error;
+      }
+    });
   }
 
   /**

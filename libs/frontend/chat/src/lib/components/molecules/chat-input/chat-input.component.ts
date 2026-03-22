@@ -28,6 +28,7 @@ import {
   AutopilotStateService,
   CommandDiscoveryFacade,
   ClaudeRpcService,
+  EffortStateService,
 } from '@ptah-extension/core';
 import { ModelSelectorComponent } from './model-selector.component';
 import { AutopilotPopoverComponent } from './autopilot-popover.component';
@@ -264,6 +265,7 @@ export class ChatInputComponent implements OnInit {
   readonly tabManager = inject(TabManagerService);
   readonly autopilotState = inject(AutopilotStateService);
   private readonly rpcService = inject(ClaudeRpcService);
+  private readonly effortState = inject(EffortStateService);
 
   // Autocomplete service injections
   readonly filePicker = inject(FilePickerService);
@@ -309,9 +311,6 @@ export class ChatInputComponent implements OnInit {
   readonly ClockIcon = Clock;
   readonly XIcon = X;
   readonly ImageIconRef = ImageIcon;
-
-  // TASK_2025_184: Track selected reasoning effort level
-  private readonly _selectedEffort = signal<EffortLevel | undefined>(undefined);
 
   // Session tracking for proper change detection (avoid clearing cache on every stream event)
   private _lastSessionId: string | null = null;
@@ -587,10 +586,12 @@ export class ChatInputComponent implements OnInit {
 
   /**
    * TASK_2025_184: Handle effort level change from EffortSelectorComponent.
-   * Stores the selected effort level for inclusion in message sends.
+   * The EffortSelectorComponent now persists directly via EffortStateService,
+   * so this handler is kept for any additional side-effects if needed.
    */
-  onEffortChange(effort: EffortLevel | undefined): void {
-    this._selectedEffort.set(effort);
+  onEffortChange(_effort: EffortLevel | undefined): void {
+    // No-op: EffortSelectorComponent saves via EffortStateService directly.
+    // ChatInputComponent reads from effortState.currentEffort() at send time.
   }
 
   /**
@@ -797,7 +798,7 @@ export class ChatInputComponent implements OnInit {
         {
           files: filePaths.length > 0 ? filePaths : undefined,
           images: inlineImages.length > 0 ? inlineImages : undefined,
-          effort: this._selectedEffort(),
+          effort: this.effortState.currentEffort(),
         }
       );
 

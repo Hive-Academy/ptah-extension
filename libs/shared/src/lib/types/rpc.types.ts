@@ -425,6 +425,22 @@ export interface ConfigModelGetResult {
   model: string;
 }
 
+/** Parameters for config:effort-set RPC method */
+export interface ConfigEffortSetParams {
+  /** Effort level to save, or undefined to clear (use SDK default) */
+  effort: EffortLevel | undefined;
+}
+
+/** Response from config:effort-set RPC method */
+export interface ConfigEffortSetResult {
+  effort: EffortLevel | undefined;
+}
+
+/** Response from config:effort-get RPC method */
+export interface ConfigEffortGetResult {
+  effort: EffortLevel | undefined;
+}
+
 /** Parameters for config:autopilot-toggle RPC method */
 export interface ConfigAutopilotToggleParams {
   /** Whether autopilot is enabled */
@@ -1632,6 +1648,14 @@ export interface RpcMethodRegistry {
   'config:models-list': {
     params: Record<string, never>;
     result: ConfigModelsListResult;
+  };
+  'config:effort-get': {
+    params: Record<string, never>;
+    result: ConfigEffortGetResult;
+  };
+  'config:effort-set': {
+    params: ConfigEffortSetParams;
+    result: ConfigEffortSetResult;
   };
 
   // ---- Auth Methods ----

@@ -31,7 +31,7 @@ List files with unsaved changes in VS Code editor.
 Count tokens in a file. Use before reading large files to check size.
 
 ### ptah_web_search { query, timeout? }
-Search the web for current information. Returns a narrative summary of search results using VS Code LM (Copilot) or Gemini CLI as providers. Use when you need up-to-date information from the internet (latest docs, current APIs, recent changes, etc.).
+Search the web for current information. Returns a narrative summary of search results using Gemini CLI (native google_web_search). Requires Gemini CLI installed. Use when you need up-to-date information from the internet (latest docs, current APIs, recent changes, etc.).
 
 ## IDE Access via execute_code
 

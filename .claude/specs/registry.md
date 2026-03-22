@@ -18,3 +18,5 @@
 | TASK_2025_207 | Remove redundant MCP namespaces (ptah.git, ptah.commands, ptah.symbols) — subsumed by CLI git, ptah.ide.actions, and ptah.ast+ptah.ide.lsp          | 🔄 Active   | orchestrator | 2026-03-21 |            |
 | TASK_2025_209 | Platform Unification — Remove ptah.ai namespace, eliminate vscode.lm dependency, unify Electron RPC handlers into shared platform-agnostic handlers | ✅ Complete | orchestrator | 2026-03-21 | 2026-03-21 |
 | TASK_2025_210 | Settings Export/Import + Session Auto-Discovery — VS Code export command, Electron import, .claude session sync for both platforms                  | 📋 Planned  | orchestrator | 2026-03-21 |            |
+| TASK_2025_211 | Fix Pre-Existing Extension Bugs — Cost aggregation, plugin dedup, session abort, watcher race, provider init, subagent UI, SDK Task→Agent rename    | 🔄 Active   | orchestrator | 2026-03-22 |            |
+| TASK_2025_212 | Cleanup Post-Unification Residuals — Remove vestigial LLM abstraction, fix RPC orphans, add sonnet-4-6 pricing, disk state storage, MCP 500         | 🔄 Active   | orchestrator | 2026-03-22 |            |

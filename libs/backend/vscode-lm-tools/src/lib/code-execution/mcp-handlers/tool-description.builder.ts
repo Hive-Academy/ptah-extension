@@ -21,7 +21,7 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 13 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 12 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
@@ -466,9 +466,9 @@ export function buildWebSearchTool(): MCPToolDefinition {
   return {
     name: 'ptah_web_search',
     description:
-      'Search the web for information using available LLM providers. ' +
+      'Search the web for information using Gemini CLI (native google_web_search). ' +
       'Returns a narrative summary of search results. ' +
-      'Uses VS Code LM API (Copilot) as primary provider, falls back to Gemini CLI. ' +
+      'Requires Gemini CLI installed on PATH. ' +
       'Use this when you need current information from the internet.',
     inputSchema: {
       type: 'object',
@@ -559,7 +559,6 @@ Use ptah.ast BEFORE reading files to understand structure at 40-60% token saving
 - isBuilt(): Promise<boolean> - Check if graph exists
 
 ### Other Namespaces (use ptah.help('topic') for details)
-- ptah.llm.* - VS Code Language Model API provider
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
 - ptah.orchestration.* - Workflow state management

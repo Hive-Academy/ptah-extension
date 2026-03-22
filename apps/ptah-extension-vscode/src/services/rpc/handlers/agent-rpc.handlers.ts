@@ -649,6 +649,7 @@ export class AgentRpcHandlers {
             resumeSessionId: cliSessionExists ? params.cliSessionId : undefined,
             parentSessionId: params.parentSessionId,
             ptahCliId: params.ptahCliId,
+            resumedFromAgentId: params.previousAgentId,
           });
         }
 

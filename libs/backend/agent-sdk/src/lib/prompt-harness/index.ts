@@ -19,6 +19,7 @@
 export {
   PTAH_CORE_SYSTEM_PROMPT,
   PTAH_CORE_SYSTEM_PROMPT_TOKENS,
+  PTAH_MCP_MANDATE_PROMPT,
 } from './ptah-core-prompt';
 
 // Prompt Designer Agent (TASK_2025_137 Batch 2)

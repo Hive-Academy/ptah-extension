@@ -33,16 +33,15 @@ import { AuthMode } from '../models/auth.types';
       routerLink="/"
       viewportAnimation
       [viewportConfig]="logoConfig"
-      class="flex items-center gap-3 mb-12 group"
+      class="flex items-center gap-3 mb-12 "
     >
       <img
         ngSrc="/assets/icons/ptah-icon.png"
         alt="Ptah Extension Logo"
-        width="40"
-        height="40"
-        class="w-10 h-10 transition-transform duration-300 group-hover:scale-110"
+        width="128"
+        height="128"
+        class="w-32 h-32 transition-transform duration-300 "
       />
-      <span class="font-display font-bold text-2xl text-secondary">Ptah</span>
     </a>
 
     <!-- Title -->

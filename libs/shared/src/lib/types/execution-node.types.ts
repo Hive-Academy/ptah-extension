@@ -54,6 +54,7 @@ export type ExecutionStatus =
   | 'streaming' // Currently receiving content
   | 'complete' // Successfully finished
   | 'interrupted' // User aborted/stopped (TASK_2025_098)
+  | 'resumed' // Previously interrupted, now resumed in a new agent (TASK_2025_211)
   | 'error'; // Failed with error
 
 /**
@@ -491,6 +492,8 @@ export const ExecutionStatusSchema = z.enum([
   'pending',
   'streaming',
   'complete',
+  'interrupted',
+  'resumed',
   'error',
 ]);
 

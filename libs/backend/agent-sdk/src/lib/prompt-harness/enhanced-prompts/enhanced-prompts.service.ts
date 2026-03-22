@@ -49,7 +49,10 @@ import {
   createInitialEnhancedPromptsState,
   DEFAULT_ENHANCED_PROMPTS_CONFIG,
 } from './enhanced-prompts.types';
-import { PTAH_CORE_SYSTEM_PROMPT_TOKENS } from '../ptah-core-prompt';
+import {
+  PTAH_CORE_SYSTEM_PROMPT,
+  PTAH_CORE_SYSTEM_PROMPT_TOKENS,
+} from '../ptah-core-prompt';
 import type { InternalQueryService } from '../../internal-query/internal-query.service';
 import type { SDKMessage } from '../../types/sdk-types/claude-sdk.types';
 import { SdkStreamProcessor } from '../../stream-processing/sdk-stream-processor';
@@ -646,6 +649,28 @@ export class EnhancedPromptsService {
       { workspacePath }
     );
     return null;
+  }
+
+  /**
+   * Get the full combined system prompt as it appears at runtime.
+   *
+   * Combines PTAH_CORE_SYSTEM_PROMPT (base behavioral guidance) with the
+   * project-specific enhanced prompt content. This is what the settings UI
+   * shows for preview and what gets exported on download.
+   *
+   * @param workspacePath - Workspace to get prompt for
+   * @returns Full combined prompt, or null if disabled or no generated prompt exists
+   */
+  async getFullCombinedPromptContent(
+    workspacePath: string
+  ): Promise<string | null> {
+    const enhancedContent = await this.getEnhancedPromptContent(workspacePath);
+
+    if (!enhancedContent) {
+      return null;
+    }
+
+    return `${PTAH_CORE_SYSTEM_PROMPT}\n\n${enhancedContent}`;
   }
 
   /**

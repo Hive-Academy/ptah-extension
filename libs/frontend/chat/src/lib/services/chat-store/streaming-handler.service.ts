@@ -34,6 +34,7 @@ import { BatchedUpdateService } from './batched-update.service';
 import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
 import { BackgroundAgentStore } from '../background-agent.store';
+import { AgentMonitorStore } from '../agent-monitor.store';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -46,6 +47,7 @@ export class StreamingHandlerService {
   private readonly finalization = inject(MessageFinalizationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
 
   /**
    * Clean up deduplication state for a session.
@@ -393,6 +395,13 @@ export class StreamingHandlerService {
             agentId: event.agentId,
             agentType: event.agentType,
           });
+
+          // TASK_2025_211: Detect SDK subagent resume — if a new agent of the
+          // same type as a previously interrupted agent is spawned, mark the old
+          // agent type as "resumed" so inline bubbles update their badge.
+          if (event.agentType) {
+            this.detectAndMarkResumedAgent(event.agentType, targetTab);
+          }
 
           const pendingDeltas = this.sessionManager.registerAgent(
             event.toolCallId,
@@ -770,5 +779,55 @@ export class StreamingHandlerService {
       '[StreamingHandlerService] Stats applied to last assistant message'
     );
     return null;
+  }
+
+  /**
+   * TASK_2025_211: Check if there's a previously interrupted agent of the same
+   * agentType in the tab's finalized messages. If so, mark those SPECIFIC
+   * agent node IDs as "resumed" in the AgentMonitorStore.
+   *
+   * Tracks by node ID (not agentType) to avoid false positives when multiple
+   * agents of the same type exist — only the specific interrupted agent(s)
+   * that were superseded show "Resumed", not newly interrupted ones.
+   */
+  private detectAndMarkResumedAgent(agentType: string, tab: TabState): void {
+    const interruptedNodeIds: string[] = [];
+
+    // Collect IDs of all interrupted agents of the same type in finalized messages
+    for (const msg of tab.messages) {
+      if (!msg.streamingState) continue;
+      // msg.streamingState is an ExecutionNode tree (finalized)
+      this.collectInterruptedAgentIds(
+        msg.streamingState,
+        agentType,
+        interruptedNodeIds
+      );
+    }
+
+    if (interruptedNodeIds.length > 0) {
+      this.agentMonitorStore.markAgentNodesResumed(interruptedNodeIds);
+    }
+  }
+
+  /**
+   * Recursively collect node IDs (id + toolCallId) of interrupted agents
+   * matching the given agentType.
+   */
+  private collectInterruptedAgentIds(
+    node: ExecutionNode,
+    agentType: string,
+    out: string[]
+  ): void {
+    if (
+      node.type === 'agent' &&
+      node.status === 'interrupted' &&
+      node.agentType === agentType
+    ) {
+      out.push(node.id);
+      if (node.toolCallId) out.push(node.toolCallId);
+    }
+    for (const child of node.children) {
+      this.collectInterruptedAgentIds(child, agentType, out);
+    }
   }
 }

@@ -128,6 +128,8 @@ export interface SpawnAgentRequest {
   readonly pluginPaths?: string[];
   /** Ptah CLI agent ID from PtahCliRegistry. When set, spawns via Ptah CLI agent instead of CLI. */
   readonly ptahCliId?: string;
+  /** When set, this agent is resuming a previous agent. Frontend replaces the old card in-place. */
+  readonly resumedFromAgentId?: string;
 }
 
 // ========================================

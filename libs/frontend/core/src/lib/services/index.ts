@@ -23,6 +23,9 @@ export {
 } from './model-state.service';
 export { AutopilotStateService } from './autopilot-state.service';
 
+// Effort State Service (reasoning effort persistence)
+export { EffortStateService } from './effort-state.service';
+
 // Auth State Service (TASK_2025_133)
 export { AuthStateService } from './auth-state.service';
 

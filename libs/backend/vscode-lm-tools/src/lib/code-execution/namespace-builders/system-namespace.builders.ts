@@ -30,12 +30,11 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah IDE Access - 13 Namespaces:
+  overview: `Ptah IDE Access - 12 Namespaces:
 
 WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast, dependencies
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
-LLM: ptah.llm.* (VS Code Language Model API)
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, steer)
 
@@ -130,23 +129,6 @@ NOTE: There is NO getMonorepoInfo(). Use detectMonorepo() instead.`,
 Paths can be relative to workspace root (e.g., 'package.json') or absolute.
 This namespace is READ-ONLY. There is NO write(), delete(), or exists() method.
 Use readJson() for config files like tsconfig.json, package.json which may have comments.`,
-
-  llm: `ptah.llm - VS Code Language Model API
-
-PROVIDERS:
-- ptah.llm.vscodeLm - VS Code Language Model API (always available)
-
-Provider methods:
-- chat(message, options?) - Send message
-- isAvailable() - Check availability
-- getDefaultModel() - Get default model name
-- getDisplayName() - Get provider display name
-
-TOP-LEVEL:
-- ptah.llm.chat(message, options?) - Use default provider
-- ptah.llm.getConfiguredProviders() - List available providers
-- ptah.llm.getDefaultProvider() - Get default provider name
-- ptah.llm.getConfiguration() - Get full config state`,
 
   orchestration: `ptah.orchestration - Development Workflow Orchestration
 

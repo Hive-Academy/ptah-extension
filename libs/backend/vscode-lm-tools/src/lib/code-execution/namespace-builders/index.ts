@@ -37,12 +37,6 @@ export {
 // IDE namespace (lsp, editor, actions, testing)
 export { buildIDENamespace } from './ide-namespace.builder';
 
-// LLM namespace (VS Code LM provider)
-export {
-  buildLLMNamespace,
-  type LlmNamespaceDependencies,
-} from './llm-namespace.builder';
-
 // Orchestration namespace (TASK_2025_111 - workflow state management)
 export {
   buildOrchestrationNamespace,

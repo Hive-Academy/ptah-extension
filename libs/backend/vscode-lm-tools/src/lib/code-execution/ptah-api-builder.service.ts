@@ -20,7 +20,7 @@
  * AST (code structure):
  * - ast: tree-sitter based code analysis
  *
- * TASK_2025_025: Expanded from 8 to 12 namespaces for better Claude discoverability
+ * TASK_2025_025: Expanded from 8 to 13 namespaces for better Claude discoverability
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -64,20 +64,16 @@ import {
   buildAstNamespace,
   // IDE namespace builder (TASK_2025_039)
   buildIDENamespace,
-  // LLM namespace builder (VS Code LM provider)
-  buildLLMNamespace,
   // Orchestration namespace builder (TASK_2025_111)
   buildOrchestrationNamespace,
   // Agent namespace builder (TASK_2025_157)
   buildAgentNamespace,
 } from './namespace-builders';
 import {
-  LlmService,
-  LlmConfigurationService,
-  ILlmSecretsService,
   AgentProcessManager,
   CliDetectionService,
 } from '@ptah-extension/llm-abstraction';
+
 /**
  * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency
  * between vscode-lm-tools -> agent-sdk. Must match the string in:
@@ -169,16 +165,6 @@ export class PtahAPIBuilder {
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
 
-    // LLM services
-    @inject(TOKENS.LLM_SERVICE)
-    private readonly llmService: LlmService,
-
-    @inject(TOKENS.LLM_CONFIGURATION_SERVICE)
-    private readonly llmConfigService: LlmConfigurationService,
-
-    @inject(TOKENS.LLM_SECRETS_SERVICE)
-    private readonly llmSecretsService: ILlmSecretsService,
-
     // Agent orchestration services (TASK_2025_157)
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,
@@ -234,12 +220,6 @@ export class PtahAPIBuilder {
       workspaceProvider: this.workspaceProvider,
     };
 
-    const llmDeps = {
-      llmService: this.llmService,
-      configService: this.llmConfigService,
-      secretsService: this.llmSecretsService,
-    };
-
     // Get workspace root for orchestration namespace
     const workspaceRoot = this.getWorkspaceRoot();
     const orchestrationDeps = {
@@ -268,9 +248,6 @@ export class PtahAPIBuilder {
 
       // IDE namespace (TASK_2025_039 - LSP, editor, actions, testing)
       ide: buildIDENamespace(),
-
-      // LLM namespace (VS Code LM provider)
-      llm: buildLLMNamespace(llmDeps),
 
       // Orchestration namespace (TASK_2025_111 - workflow state management)
       orchestration: buildOrchestrationNamespace(orchestrationDeps),
@@ -415,10 +392,8 @@ export class PtahAPIBuilder {
         },
       }),
 
-      // Web search namespace (TASK_2025_189 - VS Code LM + Gemini CLI fallback)
+      // Web search namespace (TASK_2025_189 - Gemini CLI web search)
       webSearch: new WebSearchService({
-        llmService: this.llmService,
-        configService: this.llmConfigService,
         cliDetectionService: this.cliDetectionService,
         logger: this.logger,
       }),

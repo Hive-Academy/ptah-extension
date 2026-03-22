@@ -430,10 +430,11 @@ export class DIContainer {
     }
 
     // ========================================
-    // PHASE 2.9: LLM Abstraction Services (TASK_2025_071 - CRITICAL FIX)
+    // PHASE 2.9: CLI Abstraction Services (TASK_2025_071, TASK_2025_212)
     // ========================================
-    // FIXES: LlmService was never registered before this task
-    // This registration function was created but NEVER called in container.ts
+    // TASK_2025_212: Vestigial LLM provider services (LlmSecretsService,
+    // LlmConfigurationService, ProviderRegistry, LlmService) removed.
+    // Only CLI detection/management services remain.
     registerLlmAbstractionServices(container, logger);
 
     // TASK_2025_209: TOKENS.LLM_RPC_HANDLERS deleted. Shared LlmRpcHandlers (from @ptah-extension/rpc-handlers)

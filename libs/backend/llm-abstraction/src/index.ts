@@ -3,19 +3,19 @@
  *
  * @packageDocumentation
  *
- * This is the core entry point for the LLM abstraction library.
- * It exports interfaces, errors, base classes, services, and DI registration.
- *
  * TASK_2025_209: VsCodeLmProvider removed (platform unification).
- * LLM calls now go through Agent SDK's InternalQueryService or CLI adapters.
+ * TASK_2025_212: Vestigial LLM provider services removed (LlmService,
+ * ProviderRegistry, LlmSecretsService, LlmConfigurationService).
+ * These had no working providers and produced startup errors.
+ *
+ * Remaining exports: CLI agent detection/management, interfaces, errors,
+ * and DI registration for CLI services only.
  *
  * @example
  * ```typescript
  * import {
- *   LlmService,
- *   ProviderRegistry,
- *   LlmSecretsService,
- *   LlmConfigurationService,
+ *   CliDetectionService,
+ *   AgentProcessManager,
  *   registerLlmAbstractionServices
  * } from '@ptah-extension/llm-abstraction';
  * ```
@@ -32,32 +32,15 @@ export * from './lib/interfaces/llm-provider.interface';
 export * from './lib/errors/llm-provider.error';
 
 // ========================================
-// Base Provider (for extension only)
+// Vestigial Service Types (DELETED in TASK_2025_212)
 // ========================================
-export { BaseLlmProvider } from './lib/providers/base-llm.provider';
+// LlmService, ILlmSecretsService, LlmConfigurationService — all removed.
+// LLM abstraction layer is fully vestigial. All AI queries go through Agent SDK.
+// LlmProviderName kept as it's used by CliDetectionService adapters.
+export type { LlmProviderName } from './lib/services/llm-secrets.service';
 
 // ========================================
-// Registry
-// ========================================
-export { ProviderRegistry } from './lib/registry/provider-registry';
-
-// ========================================
-// Services
-// ========================================
-export { LlmService } from './lib/services/llm.service';
-export {
-  LlmSecretsService,
-  type LlmProviderName,
-  type ILlmSecretsService,
-  API_KEY_PROVIDERS,
-} from './lib/services/llm-secrets.service';
-export {
-  LlmConfigurationService,
-  type LlmProviderConfig,
-  type LlmConfiguration,
-} from './lib/services/llm-configuration.service';
-// ========================================
-// DI Registration
+// DI Registration (CLI services only - TASK_2025_212)
 // ========================================
 export { registerLlmAbstractionServices } from './lib/di';
 

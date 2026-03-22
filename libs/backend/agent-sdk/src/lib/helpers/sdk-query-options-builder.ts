@@ -171,16 +171,18 @@ export interface SystemPromptAssemblyResult {
 /**
  * Assemble the system prompt from its constituent parts.
  *
- * Two distinct paths based on user's preset selection:
+ * Two distinct paths based on premium status:
  *
- * **claude_code path** (preset='claude_code' or default without enhanced prompts):
- *   SDK's built-in claude_code preset is the base. Only premium top-ups are appended:
- *   identity + user prompt + enhanced prompts (premium) + MCP docs (premium).
- *   PTAH_CORE_SYSTEM_PROMPT is NOT included (it would duplicate claude_code).
+ * **Ptah harness path** (all premium users, or preset='enhanced'):
+ *   PTAH_CORE_SYSTEM_PROMPT is the standalone base — includes full behavioral guidance,
+ *   MCP tool mandates, formatting rules, AskUserQuestion enforcement, orchestration,
+ *   and git/PR workflows. Top-ups layered on: identity + user prompt + enhanced prompts.
+ *   This ensures every premium user gets the complete Ptah experience regardless of
+ *   whether they've run the setup wizard to generate enhanced prompts.
  *
- * **Ptah harness path** (preset='enhanced' or default with enhanced prompts):
- *   PTAH_CORE_SYSTEM_PROMPT is the standalone base (inspired by but independent of claude_code).
- *   Premium top-ups layered on top: identity + user prompt + enhanced prompts + MCP docs.
+ * **claude_code path** (free tier only):
+ *   SDK's built-in claude_code preset is the base. Only basic top-ups appended:
+ *   identity + user prompt. PTAH_CORE_SYSTEM_PROMPT is NOT included.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
  *
@@ -200,10 +202,11 @@ export function assembleSystemPrompt(
     preset,
   } = input;
 
-  // Determine path: Ptah harness when preset='enhanced' or when enhanced content
-  // is available and no explicit preset is set (auto-select prefers Ptah harness)
-  const usePtahHarness =
-    preset === 'enhanced' || (!preset && !!enhancedPromptsContent?.trim());
+  // Determine path: Ptah harness for all premium users (full behavioral guidance,
+  // MCP mandates, formatting rules, AskUserQuestion enforcement, etc.) or when
+  // explicitly selected via preset='enhanced'.
+  // Free tier falls back to claude_code preset (SDK's built-in behavioral guidance).
+  const usePtahHarness = isPremium || preset === 'enhanced';
 
   // Build common top-up parts (shared by both paths)
   const topUpParts: string[] = [];
@@ -224,18 +227,18 @@ export function assembleSystemPrompt(
     topUpParts.push(enhancedPromptsContent);
   }
 
-  // Note: MCP documentation (PTAH_SYSTEM_PROMPT) is no longer injected into the system prompt.
-  // It now appears only in MCP tool descriptions (tool-description.builder.ts).
-
   if (usePtahHarness) {
-    // Ptah harness: standalone string with PTAH_CORE_SYSTEM_PROMPT as base
+    // Ptah harness (all premium users): PTAH_CORE_SYSTEM_PROMPT as standalone base.
+    // Includes full behavioral guidance, MCP mandates, formatting, AskUserQuestion,
+    // orchestration, git/PR workflows — the complete Ptah experience regardless of
+    // whether enhanced prompts have been generated via the setup wizard.
     const parts = [PTAH_CORE_SYSTEM_PROMPT, ...topUpParts];
     return {
       mode: 'standalone',
       content: parts.join('\n\n'),
     };
   } else {
-    // claude_code preset: only top-ups get appended (no PTAH_CORE_SYSTEM_PROMPT)
+    // claude_code preset (free tier): SDK's built-in preset + optional top-ups only
     return {
       mode: 'preset-append',
       content: topUpParts.length > 0 ? topUpParts.join('\n\n') : undefined,
@@ -554,13 +557,11 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build system prompt configuration
    *
-   * Two distinct paths based on user's preset selection:
+   * **Premium users**: Always uses Ptah harness path — PTAH_CORE_SYSTEM_PROMPT as standalone
+   * base with full behavioral guidance, MCP mandates, and formatting rules.
+   * Enhanced prompts (project-specific guidance) layered on top when available.
    *
-   * **claude_code path**: Returns `{ type: 'preset', preset: 'claude_code', append }` —
-   *   SDK's built-in preset is the base. Only premium top-ups appended.
-   *
-   * **Ptah harness path**: Returns standalone string —
-   *   PTAH_CORE_SYSTEM_PROMPT is the base (independent of claude_code), with premium top-ups.
+   * **Free tier**: Uses claude_code preset as base with minimal top-ups.
    *
    * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
    * @param isPremium - Whether user has premium features enabled

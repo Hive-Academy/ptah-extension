@@ -575,7 +575,7 @@ export class EnhancedPromptsRpcHandlers {
         });
 
         const content =
-          await this.enhancedPromptsService.getEnhancedPromptContent(
+          await this.enhancedPromptsService.getFullCombinedPromptContent(
             workspacePath
           );
 
@@ -625,7 +625,7 @@ export class EnhancedPromptsRpcHandlers {
         });
 
         const content =
-          await this.enhancedPromptsService.getEnhancedPromptContent(
+          await this.enhancedPromptsService.getFullCombinedPromptContent(
             workspacePath
           );
 

@@ -115,13 +115,12 @@ export const CONTEXT_ENRICHMENT_SERVICE = Symbol.for(
 export const DEPENDENCY_GRAPH_SERVICE = Symbol.for('DependencyGraphService');
 
 // ========================================
-// LLM Abstraction Service Tokens
+// LLM Abstraction Service Tokens (DELETED)
+// TASK_2025_212: LLM_SERVICE, PROVIDER_REGISTRY, LLM_SECRETS_SERVICE,
+// LLM_CONFIGURATION_SERVICE all removed. LLM abstraction layer is fully
+// vestigial — all AI queries go through Agent SDK now.
+// LLM_RPC_HANDLERS - DELETED in TASK_2025_209
 // ========================================
-export const LLM_SERVICE = Symbol.for('LlmService');
-export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
-export const LLM_SECRETS_SERVICE = Symbol.for('LlmSecretsService');
-export const LLM_CONFIGURATION_SERVICE = Symbol.for('LlmConfigurationService');
-// LLM_RPC_HANDLERS - DELETED in TASK_2025_209 (shared LlmRpcHandlers rewritten to be platform-agnostic)
 
 // ========================================
 // Agent Orchestration Tokens (TASK_2025_157)
@@ -382,12 +381,12 @@ export const TOKENS = {
   QUALITY_EXPORT_SERVICE,
 
   // ========================================
-  // LLM Abstraction
+  // LLM Abstraction (DELETED in TASK_2025_212)
   // ========================================
-  LLM_SERVICE,
-  PROVIDER_REGISTRY,
-  LLM_SECRETS_SERVICE,
-  LLM_CONFIGURATION_SERVICE,
+  // LLM_SERVICE - DELETED
+  // PROVIDER_REGISTRY - DELETED
+  // LLM_SECRETS_SERVICE - DELETED
+  // LLM_CONFIGURATION_SERVICE - DELETED
   // LLM_RPC_HANDLERS - DELETED in TASK_2025_209
 
   // Agent Orchestration (TASK_2025_157)

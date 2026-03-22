@@ -2,7 +2,7 @@
  * Code Execution API Type Definitions
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
- * Supports 13 namespaces exposing VS Code extension capabilities to Claude CLI.
+ * Supports 12 namespaces exposing VS Code extension capabilities to Claude CLI.
  *
  * TASK_2025_025: Expanded API surface for better Claude discoverability
  * TASK_2025_209: Removed AINamespace (ptah.ai) — obsolete, replaced by CLI tools + MCP agent spawn
@@ -50,9 +50,6 @@ export interface PtahAPI {
   // IDE superpowers namespace (TASK_2025_039)
   ide: IDENamespace;
 
-  // LLM provider namespace (VS Code LM API)
-  llm: LLMNamespace;
-
   // Orchestration workflow state management (TASK_2025_111)
   orchestration: OrchestrationNamespace;
 
@@ -70,7 +67,7 @@ export interface PtahAPI {
     ): Promise<{
       query: string;
       summary: string;
-      provider: 'vscode-lm' | 'gemini-cli';
+      provider: 'gemini-cli';
       durationMs: number;
     }>;
   };
@@ -1260,113 +1257,6 @@ export interface CoverageInfo {
 
   /** Branch coverage */
   branches: { covered: number; total: number };
-}
-
-// ========================================
-// LLM Namespace (Native SDK Abstraction)
-// ========================================
-
-/**
- * LLM provider namespace
- * Enables Claude CLI to delegate tasks to other AI models via VS Code LM API.
- */
-export interface LLMNamespace {
-  /** VS Code Language Model API (always available) */
-  vscodeLm: LLMProviderNamespace;
-
-  /**
-   * Chat with the default configured provider
-   * @param message - User message to send
-   * @param options - Optional chat configuration
-   * @returns Complete model response text
-   */
-  chat: (message: string, options?: LLMChatOptions) => Promise<string>;
-
-  /**
-   * Get list of configured providers (those with API keys)
-   * @returns Array of configured provider info
-   */
-  getConfiguredProviders: () => Promise<LLMConfiguredProvider[]>;
-
-  /**
-   * Get the default provider name from settings
-   * @returns Default provider identifier
-   */
-  getDefaultProvider: () => string;
-
-  /**
-   * Get full configuration state for all providers
-   * @returns Configuration including default provider and all provider configs
-   */
-  getConfiguration: () => Promise<{
-    defaultProvider: string;
-    providers: LLMConfiguredProvider[];
-  }>;
-}
-
-/**
- * Provider-specific namespace (e.g., ptah.llm.anthropic)
- */
-export interface LLMProviderNamespace {
-  /**
-   * Send a chat message to this provider
-   * @param message - User message to send
-   * @param options - Optional chat configuration
-   * @returns Complete model response text
-   */
-  chat: (message: string, options?: LLMChatOptions) => Promise<string>;
-
-  /**
-   * Check if this provider is available (has API key configured)
-   * @returns true if provider can be used
-   */
-  isAvailable: () => Promise<boolean>;
-
-  /**
-   * Get the default model for this provider
-   * @returns Default model identifier
-   */
-  getDefaultModel: () => string;
-
-  /**
-   * Get display name for this provider
-   * @returns Human-readable provider name
-   */
-  getDisplayName: () => string;
-}
-
-/**
- * Options for LLM chat requests
- */
-export interface LLMChatOptions {
-  /** Specific model to use (overrides default) */
-  model?: string;
-
-  /** System prompt to use (overrides default) */
-  systemPrompt?: string;
-
-  /** Temperature for response generation (0-1) */
-  temperature?: number;
-
-  /** Maximum tokens in response */
-  maxTokens?: number;
-}
-
-/**
- * Information about a configured LLM provider
- */
-export interface LLMConfiguredProvider {
-  /** Provider identifier (e.g., 'vscode-lm') */
-  name: string;
-
-  /** Human-readable display name */
-  displayName: string;
-
-  /** Default model for this provider */
-  defaultModel: string;
-
-  /** Whether provider has API key configured */
-  isConfigured: boolean;
 }
 
 // ========================================
