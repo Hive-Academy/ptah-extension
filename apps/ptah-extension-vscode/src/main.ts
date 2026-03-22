@@ -670,7 +670,7 @@ export async function activate(
         ) as {
           scanAndImport: (path: string, limit?: number) => Promise<number>;
         };
-        const imported = await sessionImporter.scanAndImport(workspacePath, 5);
+        const imported = await sessionImporter.scanAndImport(workspacePath, 50);
         if (imported > 0) {
           logger.info(`Imported ${imported} existing Claude sessions`);
         }

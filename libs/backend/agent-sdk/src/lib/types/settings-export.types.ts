@@ -147,3 +147,24 @@ export interface SettingsImportResult {
   /** Keys that failed to import (with error descriptions) */
   errors: string[];
 }
+
+// ============================================================
+// Utility Functions
+// ============================================================
+
+/**
+ * Count the number of populated secret fields in the export data.
+ * Useful for summary display in both VS Code and Electron UIs.
+ *
+ * SECURITY: Counts only — never accesses actual secret values.
+ */
+export function countPopulatedSecrets(data: PtahSettingsExport): number {
+  let count = 0;
+  if (data.licenseKey) count++;
+  if (data.auth.oauthToken) count++;
+  if (data.auth.apiKey) count++;
+  if (data.auth.providerKeys) {
+    count += Object.keys(data.auth.providerKeys).length;
+  }
+  return count;
+}

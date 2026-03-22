@@ -21,6 +21,7 @@ import {
   KNOWN_PROVIDER_IDS,
   KNOWN_CONFIG_KEYS,
   providerSecretKey,
+  countPopulatedSecrets,
   type PtahSettingsExport,
 } from './types/settings-export.types';
 
@@ -75,7 +76,7 @@ export class SettingsExportService {
       exportData.licenseKey = licenseKey;
     }
 
-    const secretCount = this.countPopulatedSecrets(exportData);
+    const secretCount = countPopulatedSecrets(exportData);
     const configCount = Object.keys(config).length;
 
     this.logger.info('[SettingsExport] Collection complete', {
@@ -164,19 +165,5 @@ export class SettingsExportService {
     }
 
     return config;
-  }
-
-  /**
-   * Count populated secret fields for summary logging (never logs values).
-   */
-  private countPopulatedSecrets(data: PtahSettingsExport): number {
-    let count = 0;
-    if (data.licenseKey) count++;
-    if (data.auth.oauthToken) count++;
-    if (data.auth.apiKey) count++;
-    if (data.auth.providerKeys) {
-      count += Object.keys(data.auth.providerKeys).length;
-    }
-    return count;
   }
 }

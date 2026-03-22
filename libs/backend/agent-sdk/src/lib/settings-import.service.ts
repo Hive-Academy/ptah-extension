@@ -2,10 +2,13 @@
  * Settings Import Service
  * TASK_2025_210: Imports a PtahSettingsExport object into the current platform's storage.
  *
- * Platform-agnostic — uses ISecretStorage and IWorkspaceProvider via PLATFORM_TOKENS.
+ * Platform-agnostic — uses ISecretStorage via PLATFORM_TOKENS for secret import.
+ * Config values are not imported because IWorkspaceProvider is read-only;
+ * config keys are reported as skipped so the user knows to reconfigure manually.
  *
  * Import rules:
  * - Validates schema version before processing (rejects unknown versions)
+ * - Validates provider IDs against KNOWN_PROVIDER_IDS (skips unknown)
  * - Never overwrites existing credentials unless explicitly requested
  * - Graceful failure: if one key fails, continues with remaining keys
  * - Returns a detailed SettingsImportResult summary
@@ -15,17 +18,16 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
-import type {
-  ISecretStorage,
-  IWorkspaceProvider,
-} from '@ptah-extension/platform-core';
+import type { ISecretStorage } from '@ptah-extension/platform-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import {
   SETTINGS_EXPORT_VERSION,
   SECRET_KEYS,
+  KNOWN_PROVIDER_IDS,
   providerSecretKey,
   type PtahSettingsExport,
   type SettingsImportResult,
+  type KnownProviderId,
 } from './types/settings-export.types';
 
 /** Options controlling import behavior */
@@ -42,9 +44,7 @@ export class SettingsImportService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
-    private readonly secretStorage: ISecretStorage,
-    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly secretStorage: ISecretStorage
   ) {}
 
   /**
@@ -105,30 +105,35 @@ export class SettingsImportService {
       result
     );
 
-    // Step 3: Import per-provider keys
+    // Step 3: Import per-provider keys (validated against known provider IDs)
     if (data.auth.providerKeys) {
       for (const [providerId, value] of Object.entries(
         data.auth.providerKeys
       )) {
+        if (!KNOWN_PROVIDER_IDS.includes(providerId as KnownProviderId)) {
+          result.skipped.push(`provider:${providerId} (unknown provider ID)`);
+          this.logger.warn('[SettingsImport] Skipped unknown provider ID', {
+            providerId,
+          });
+          continue;
+        }
         const secretKey = providerSecretKey(providerId);
         await this.importSecret(secretKey, value, overwrite, result);
       }
     }
 
-    // Step 4: Import configuration values
-    // Config keys are non-sensitive; we import them via workspace config update.
-    // Note: IWorkspaceProvider only has getConfiguration, not setConfiguration.
-    // Config values are stored back into ISecretStorage is not appropriate here;
-    // instead we store them as state. For now, config import stores config
-    // values as prefixed keys in ISecretStorage with a config: prefix so
-    // they survive cross-platform transfer. The consuming app can read them
-    // back on startup.
-    // UPDATE: Since IWorkspaceProvider doesn't expose a write method, and
-    // the config values are non-sensitive display preferences, we store them
-    // in a single serialized key in secret storage for the consuming platform
-    // to apply on its own.
+    // Step 4: Skip config values (IWorkspaceProvider is read-only)
+    // Config import is not supported because IWorkspaceProvider does not
+    // expose a write/update method. Config keys are reported as skipped
+    // so the user is aware they need to reconfigure manually.
     if (data.config && Object.keys(data.config).length > 0) {
-      await this.importConfigBundle(data.config, overwrite, result);
+      const configKeys = Object.keys(data.config);
+      for (const key of configKeys) {
+        result.skipped.push(`config:${key} (config import not supported)`);
+      }
+      this.logger.info('[SettingsImport] Config keys skipped (read-only)', {
+        keyCount: configKeys.length,
+      });
     }
 
     this.logger.info('[SettingsImport] Import complete', {
@@ -171,6 +176,15 @@ export class SettingsImportService {
 
     if (!obj['auth'] || typeof obj['auth'] !== 'object') {
       return 'Missing or invalid auth section';
+    }
+
+    if (
+      obj['config'] !== undefined &&
+      (typeof obj['config'] !== 'object' ||
+        obj['config'] === null ||
+        Array.isArray(obj['config']))
+    ) {
+      return 'Invalid config section: expected a plain object';
     }
 
     return undefined;
@@ -218,60 +232,6 @@ export class SettingsImportService {
       result.errors.push(errorMsg);
       this.logger.warn('[SettingsImport] Failed to import secret', {
         key,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // Config import
-  // ------------------------------------------------------------------
-
-  /**
-   * Store the configuration bundle as a serialized JSON string in secret storage
-   * under a well-known key. The consuming platform reads this key on startup
-   * and applies the values to its workspace configuration.
-   *
-   * This approach is necessary because IWorkspaceProvider does not expose a
-   * write/update method — it is read-only by design. The platform-specific
-   * startup code (VS Code main.ts or Electron main.ts) is responsible for
-   * reading this key and applying it to the actual configuration store.
-   */
-  private async importConfigBundle(
-    config: Record<string, unknown>,
-    overwrite: boolean,
-    result: SettingsImportResult
-  ): Promise<void> {
-    const configKey = 'ptah.importedConfig';
-
-    try {
-      const existing = await this.secretStorage.get(configKey);
-
-      if (existing && !overwrite) {
-        result.skipped.push('config (bundle)');
-        this.logger.debug('[SettingsImport] Skipped config bundle', {
-          reason: 'already exists',
-        });
-        return;
-      }
-
-      const serialized = JSON.stringify(config);
-      await this.secretStorage.store(configKey, serialized);
-
-      const configKeys = Object.keys(config);
-      for (const key of configKeys) {
-        result.imported.push(`config:${key}`);
-      }
-
-      this.logger.info('[SettingsImport] Config bundle stored', {
-        keyCount: configKeys.length,
-      });
-    } catch (error) {
-      const errorMsg = `config (bundle): ${
-        error instanceof Error ? error.message : String(error)
-      }`;
-      result.errors.push(errorMsg);
-      this.logger.warn('[SettingsImport] Failed to store config bundle', {
         error: error instanceof Error ? error.message : String(error),
       });
     }

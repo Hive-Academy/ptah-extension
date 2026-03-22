@@ -18,9 +18,12 @@
 
 import * as vscode from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { SettingsExportService } from '@ptah-extension/agent-sdk';
-import type { SettingsImportService } from '@ptah-extension/agent-sdk';
-import type { PtahSettingsExport } from '@ptah-extension/agent-sdk';
+import type {
+  SettingsExportService,
+  SettingsImportService,
+  PtahSettingsExport,
+} from '@ptah-extension/agent-sdk';
+import { countPopulatedSecrets } from '@ptah-extension/agent-sdk';
 
 /**
  * Settings Commands Implementation
@@ -127,7 +130,7 @@ export class SettingsCommands {
     }
 
     // Step 5: Success message with count of exported items
-    const secretCount = this.countExportedSecrets(exportData);
+    const secretCount = countPopulatedSecrets(exportData);
     const configCount = Object.keys(exportData.config).length;
     const totalCount = secretCount + configCount;
 
@@ -249,19 +252,5 @@ export class SettingsCommands {
     if (deleteWarning === 'Reload Window') {
       await vscode.commands.executeCommand('workbench.action.reloadWindow');
     }
-  }
-
-  /**
-   * Count populated secret fields in the export data (never logs values).
-   */
-  private countExportedSecrets(data: PtahSettingsExport): number {
-    let count = 0;
-    if (data.licenseKey) count++;
-    if (data.auth.oauthToken) count++;
-    if (data.auth.apiKey) count++;
-    if (data.auth.providerKeys) {
-      count += Object.keys(data.auth.providerKeys).length;
-    }
-    return count;
   }
 }

@@ -17,10 +17,11 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import {
   SDK_TOKENS,
+  countPopulatedSecrets,
   type SettingsExportService,
   type SettingsImportService,
+  type PtahSettingsExport,
 } from '@ptah-extension/agent-sdk';
-import type { PtahSettingsExport } from '@ptah-extension/agent-sdk';
 
 @injectable()
 export class ElectronSettingsRpcHandlers {
@@ -50,13 +51,33 @@ export class ElectronSettingsRpcHandlers {
   private registerExport(): void {
     this.rpcHandler.registerMethod('settings:export', async () => {
       try {
-        // Step 1: Collect settings from platform-agnostic service
+        // Step 1: Security warning -- user must explicitly proceed
+        const { dialog: electronDialog } = await import('electron');
+
+        const warningResult = await electronDialog.showMessageBox({
+          type: 'warning',
+          title: 'Export Settings',
+          message:
+            'This will export your API keys and tokens in PLAINTEXT to a JSON file. ' +
+            'Only use this file on trusted devices and delete it after importing.',
+          buttons: ['Export Settings', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+        });
+
+        if (warningResult.response !== 0) {
+          this.logger.info(
+            '[Electron RPC] settings:export cancelled by user (warning)'
+          );
+          return { exported: false, cancelled: true };
+        }
+
+        // Step 2: Collect settings from platform-agnostic service
         const exportData = await this.settingsExportService.collectSettings(
           'electron'
         );
 
-        // Step 2: Show native save dialog
-        const { dialog: electronDialog } = await import('electron');
+        // Step 3: Show native save dialog
         const fs = await import('node:fs/promises');
 
         const result = await electronDialog.showSaveDialog({
@@ -70,11 +91,11 @@ export class ElectronSettingsRpcHandlers {
           return { exported: false, cancelled: true };
         }
 
-        // Step 3: Write pretty-printed JSON
+        // Step 4: Write pretty-printed JSON
         const jsonContent = JSON.stringify(exportData, null, 2);
         await fs.writeFile(result.filePath, jsonContent, 'utf-8');
 
-        const secretCount = this.countExportedSecrets(exportData);
+        const secretCount = countPopulatedSecrets(exportData);
         const configCount = Object.keys(exportData.config).length;
 
         this.logger.info('[Electron RPC] settings:export completed', {
@@ -221,20 +242,5 @@ export class ElectronSettingsRpcHandlers {
         };
       }
     });
-  }
-
-  /**
-   * Count the number of populated secret fields in the export data.
-   * Used for summary logging -- never logs actual values.
-   */
-  private countExportedSecrets(data: PtahSettingsExport): number {
-    let count = 0;
-    if (data.licenseKey) count++;
-    if (data.auth.oauthToken) count++;
-    if (data.auth.apiKey) count++;
-    if (data.auth.providerKeys) {
-      count += Object.keys(data.auth.providerKeys).length;
-    }
-    return count;
   }
 }

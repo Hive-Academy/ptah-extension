@@ -249,6 +249,7 @@ export {
   KNOWN_CONFIG_KEYS,
   SECRET_KEYS,
   providerSecretKey,
+  countPopulatedSecrets,
 } from './lib/types/settings-export.types';
 export type {
   PtahSettingsExport,
