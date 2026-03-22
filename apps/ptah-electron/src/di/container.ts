@@ -132,6 +132,7 @@ import {
   ElectronConfigExtendedRpcHandlers,
   ElectronCommandRpcHandlers,
   ElectronAuthExtendedRpcHandlers,
+  ElectronSettingsRpcHandlers,
 } from '../services/rpc/handlers';
 
 // Electron RPC Method Registration Service (TASK_2025_203 Batch 5)
@@ -734,6 +735,7 @@ export class ElectronDIContainer {
     });
     container.registerSingleton(ElectronCommandRpcHandlers);
     container.registerSingleton(ElectronAuthExtendedRpcHandlers);
+    container.registerSingleton(ElectronSettingsRpcHandlers);
 
     // Register the orchestrator itself
     container.registerSingleton(ElectronRpcMethodRegistrationService);
@@ -748,6 +750,7 @@ export class ElectronDIContainer {
           'ElectronConfigExtendedRpcHandlers',
           'ElectronCommandRpcHandlers',
           'ElectronAuthExtendedRpcHandlers',
+          'ElectronSettingsRpcHandlers',
         ],
       }
     );
