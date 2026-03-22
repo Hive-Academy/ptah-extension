@@ -87,6 +87,11 @@ export class ElectronLayoutService {
   constructor() {
     // Only restore layout in Electron context (avoids wasteful side effects in VS Code)
     if (this.vscodeService.isElectron) {
+      if (!this.coordinator) {
+        console.warn(
+          '[ElectronLayout] Running in Electron without WORKSPACE_COORDINATOR — workspace coordination disabled'
+        );
+      }
       this.restoreLayout();
       this.setupWindowResizeHandler();
     }
@@ -238,14 +243,12 @@ export class ElectronLayoutService {
         // Abort all streaming sessions before removal
         await Promise.allSettled(
           streamingSessionIds.map((sessionId) =>
-            this.rpcService
-              .call('chat:abort', { sessionId: sessionId as SessionId })
-              .catch((error) => {
-                console.error(
-                  `[ElectronLayout] Failed to abort session ${sessionId}:`,
-                  error
-                );
-              })
+            this.rpcService.call('chat:abort', { sessionId }).catch((error) => {
+              console.error(
+                `[ElectronLayout] Failed to abort session ${sessionId}:`,
+                error
+              );
+            })
           )
         );
       }
@@ -418,8 +421,6 @@ export class ElectronLayoutService {
           `[ElectronLayout] Reverted activeWorkspaceIndex from ${targetIndex} to ${previousIndex} after coordination failure`
         );
       }
-
-      throw error;
     }
   }
 

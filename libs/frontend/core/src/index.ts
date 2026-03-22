@@ -13,4 +13,5 @@ export {
 export {
   WORKSPACE_COORDINATOR,
   type IWorkspaceCoordinator,
+  type ConfirmDialogOptions,
 } from './lib/tokens/workspace-coordinator.token';

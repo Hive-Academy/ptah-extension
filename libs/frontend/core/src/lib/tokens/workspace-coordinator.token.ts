@@ -1,4 +1,17 @@
 import { InjectionToken } from '@angular/core';
+import { SessionId } from '@ptah-extension/shared';
+
+/**
+ * Options for confirmation dialog.
+ * Extracted here so both the token contract and implementations reference the same type.
+ */
+export interface ConfirmDialogOptions {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  confirmStyle?: 'primary' | 'error' | 'warning';
+}
 
 /**
  * Contract for workspace coordination across feature libraries.
@@ -12,35 +25,17 @@ import { InjectionToken } from '@angular/core';
  *   instead of: core → chat (circular)
  */
 export interface IWorkspaceCoordinator {
-  /**
-   * Coordinate all frontend services after a workspace switch.
-   * Updates tab state, editor state, etc. for the new workspace.
-   */
+  /** Coordinate tab and editor state after a workspace switch. */
   switchWorkspace(newPath: string): void;
 
-  /**
-   * Clean up frontend state for a removed workspace.
-   * Removes tab partitions, editor state, etc.
-   */
+  /** Clean up tab and editor state for a removed workspace. */
   removeWorkspaceState(workspacePath: string): void;
 
-  /**
-   * Get session IDs of actively streaming tabs in a workspace.
-   * Used to warn before closing a workspace with active streams.
-   */
-  getStreamingSessionIds(workspacePath: string): string[];
+  /** Get session IDs of actively streaming tabs in a workspace. */
+  getStreamingSessionIds(workspacePath: string): SessionId[];
 
-  /**
-   * Show a confirmation dialog and wait for user response.
-   * Returns true if confirmed, false if cancelled.
-   */
-  confirm(options: {
-    title: string;
-    message: string;
-    confirmLabel?: string;
-    cancelLabel?: string;
-    confirmStyle?: 'primary' | 'error' | 'warning';
-  }): Promise<boolean>;
+  /** Show a confirmation dialog. Returns true if confirmed. */
+  confirm(options: ConfirmDialogOptions): Promise<boolean>;
 }
 
 export const WORKSPACE_COORDINATOR = new InjectionToken<IWorkspaceCoordinator>(

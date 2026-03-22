@@ -1,25 +1,18 @@
 import { Injectable, inject } from '@angular/core';
-import { type IWorkspaceCoordinator } from '@ptah-extension/core';
+import {
+  type IWorkspaceCoordinator,
+  type ConfirmDialogOptions,
+} from '@ptah-extension/core';
+import { type SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
 import { EditorService } from '@ptah-extension/editor';
-import {
-  ConfirmationDialogService,
-  type ConfirmationDialogOptions,
-} from './confirmation-dialog.service';
+import { ConfirmationDialogService } from './confirmation-dialog.service';
 
 /**
- * WorkspaceCoordinatorService - Orchestrates workspace operations across feature libraries.
+ * Orchestrates workspace operations across TabManagerService (chat),
+ * EditorService (editor), and ConfirmationDialogService.
  *
- * Implements the IWorkspaceCoordinator contract defined in core. This service
- * coordinates TabManagerService (chat), EditorService (editor), and
- * ConfirmationDialogService during workspace switch/remove operations.
- *
- * This breaks the circular dependency: core defines the interface (IWorkspaceCoordinator),
- * chat provides the implementation, and the app wires them together via DI.
- *
- * Dependency flow:
- *   core (defines token) ← chat (provides implementation) → editor
- *   No circular dependency: chat depends on core and editor, not vice versa.
+ * @see IWorkspaceCoordinator for the contract and dependency inversion rationale.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
@@ -37,17 +30,14 @@ export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
     this.editorService.removeWorkspaceState(workspacePath);
   }
 
-  getStreamingSessionIds(workspacePath: string): string[] {
+  getStreamingSessionIds(workspacePath: string): SessionId[] {
     const tabs = this.tabManager.getWorkspaceTabs(workspacePath);
     return tabs
-      .filter(
-        (tab: { status: string; claudeSessionId: string | null }) =>
-          tab.status === 'streaming' && tab.claudeSessionId
-      )
-      .map((tab: { claudeSessionId: string | null }) => tab.claudeSessionId!);
+      .filter((tab) => tab.status === 'streaming' && tab.claudeSessionId)
+      .map((tab) => tab.claudeSessionId as SessionId);
   }
 
-  confirm(options: ConfirmationDialogOptions): Promise<boolean> {
+  confirm(options: ConfirmDialogOptions): Promise<boolean> {
     return this.confirmDialog.confirm(options);
   }
 }
