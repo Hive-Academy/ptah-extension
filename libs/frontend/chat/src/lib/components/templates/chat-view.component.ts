@@ -18,7 +18,7 @@ import { PermissionBadgeComponent } from '../molecules/permissions/permission-ba
 import { QuestionCardComponent } from '../molecules/question-card.component';
 import { ChatEmptyStateComponent } from '../molecules/setup-plugins/chat-empty-state.component';
 import { SessionStatsSummaryComponent } from '../molecules/session/session-stats-summary.component';
-// TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection
+import { ResumeNotificationBannerComponent } from '../molecules/notifications/resume-notification-banner.component';
 import { CompactionNotificationComponent } from '../molecules/notifications/compaction-notification.component';
 import { ChatStore } from '../../services/chat.store';
 import { VSCodeService } from '@ptah-extension/core';
@@ -26,6 +26,7 @@ import {
   createExecutionChatMessage,
   ExecutionChatMessage,
 } from '@ptah-extension/shared';
+import type { SubagentRecord } from '@ptah-extension/shared';
 
 /**
  * ChatViewComponent - Main chat view with message list and Egyptian themed welcome
@@ -61,7 +62,7 @@ import {
     QuestionCardComponent,
     ChatEmptyStateComponent,
     SessionStatsSummaryComponent,
-    // TASK_2025_109: ResumeNotificationBannerComponent removed - now uses context injection
+    ResumeNotificationBannerComponent,
     CompactionNotificationComponent,
   ],
   templateUrl: './chat-view.component.html',
@@ -215,8 +216,16 @@ export class ChatViewComponent {
     console.log('[ChatViewComponent] Queued content cancelled by user');
   }
 
-  // TASK_2025_109: onResumeAll method removed - Resume banner no longer needed
-  // Subagent resumption is now handled via context injection in chat:continue RPC.
+  /**
+   * Handle per-agent resume action from the resume notification banner.
+   * Builds a structured resume prompt and sends it via ChatStore,
+   * then clears the resumable subagents to dismiss the banner.
+   */
+  handleResumeAgent(agent: SubagentRecord): void {
+    const prompt = `Resume the interrupted ${agent.agentType} agent (agentId: ${agent.agentId}) using the Task tool with resume parameter set to "${agent.agentId}".`;
+    this.chatStore.sendMessage(prompt);
+    this.chatStore.clearResumableSubagents();
+  }
 
   private scrollToBottom(): void {
     const containerRef = this.messageContainerRef();

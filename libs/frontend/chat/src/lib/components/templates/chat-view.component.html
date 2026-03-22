@@ -11,7 +11,6 @@
   </div>
   }
 
-  <!-- TASK_2025_109: Resume Notification Banner removed - now uses context injection -->
   <!-- TASK_2025_142/143: Trial & community banners moved to header notification bell -->
 
   <!-- TASK_2025_098: Compaction Notification Banner -->
@@ -67,6 +66,16 @@
     <ptah-chat-empty-state (promptSelected)="handlePromptSelected($event)" />
     }
   </div>
+
+  <!-- Resume Notification Banner -->
+  @if (chatStore.resumableSubagents().length > 0) {
+  <div class="px-2 py-1">
+    <ptah-resume-notification-banner
+      [resumableSubagents]="chatStore.resumableSubagents()"
+      (resumeRequested)="handleResumeAgent($event)"
+    />
+  </div>
+  }
 
   <!-- Collapsed Permission Badge (doesn't block chat area) -->
   <ptah-permission-badge
