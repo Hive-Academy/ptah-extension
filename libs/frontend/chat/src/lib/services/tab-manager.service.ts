@@ -182,11 +182,16 @@ export class TabManagerService {
       const injector = this.injector;
       const sid = initialSessionId;
       setTimeout(() => {
-        import('./chat-store/session-loader.service').then(
-          ({ SessionLoaderService }) => {
+        import('./chat-store/session-loader.service')
+          .then(({ SessionLoaderService }) => {
             injector.get(SessionLoaderService).switchSession(sid);
-          }
-        );
+          })
+          .catch((err) => {
+            console.error(
+              '[TabManager] Failed to load session for initial tab:',
+              err
+            );
+          });
       }, 0);
     }
     // No default tab creation -- the empty state is shown when there are no tabs.

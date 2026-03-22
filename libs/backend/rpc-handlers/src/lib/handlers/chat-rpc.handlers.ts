@@ -25,6 +25,7 @@ import {
 import {
   SdkAgentAdapter,
   SessionHistoryReaderService,
+  SessionMetadataStore,
   SDK_TOKENS,
   PluginLoaderService,
   PtahCliRegistry,
@@ -52,7 +53,6 @@ import {
   MESSAGE_TYPES,
   AgentId,
   type CliSessionReference,
-  type AgentStartEvent,
 } from '@ptah-extension/shared';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
@@ -95,16 +95,7 @@ export class ChatRpcHandlers {
     @inject(SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR)
     private readonly slashCommandInterceptor: SlashCommandInterceptor,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
-    private readonly sessionMetadataStore: {
-      get(sessionId: string): Promise<{
-        cliSessions?: readonly CliSessionReference[] | undefined;
-      } | null>;
-      createChild(
-        sessionId: string,
-        workspaceId: string,
-        name: string
-      ): Promise<unknown>;
-    },
+    private readonly sessionMetadataStore: SessionMetadataStore,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider
   ) {}
@@ -250,111 +241,6 @@ export class ChatRpcHandlers {
    * in SessionImporterService.
    */
   private ptahCliSdkSessionIds = new Map<string, string>();
-
-  // ============================================================================
-  // CLI SESSION RECOVERY (TASK_2025_186)
-  // ============================================================================
-
-  /**
-   * Recover missing CLI session references from history events.
-   *
-   * When the metadata store lost entries (e.g., concurrent write race before
-   * the write-queue fix), agent_start events in the history still contain
-   * agent info for all subagents. This method scans events for agent_start
-   * entries not present in the existing cliSessions array and synthesizes
-   * minimal CliSessionReference entries so they appear in the agent monitor.
-   *
-   * Handles two categories:
-   * 1. SDK subagents WITH JSONL files (ptah-cli) — have agentId in event
-   * 2. CLI subprocess agents WITHOUT JSONL files (gemini/codex/copilot) —
-   *    have toolCallId only, agentId is null. Uses toolCallId as unique key.
-   */
-  private recoverMissingCliSessions(
-    events: FlatStreamEventUnion[],
-    existing: CliSessionReference[] | undefined,
-    sessionId: string
-  ): CliSessionReference[] | undefined {
-    // Extract all agent_start events
-    const agentStarts = events.filter(
-      (e): e is AgentStartEvent => e.eventType === 'agent_start'
-    );
-
-    if (agentStarts.length === 0) return existing;
-
-    // Build matching sets from existing metadata
-    const knownIds = new Set<string>();
-    const knownTimestamps: number[] = [];
-    for (const ref of existing ?? []) {
-      knownIds.add(ref.agentId as string);
-      knownIds.add(ref.cliSessionId);
-      knownTimestamps.push(new Date(ref.startedAt).getTime());
-    }
-
-    // Find agent_start events not covered by existing metadata.
-    // Match by ID (agentId or cliSessionId) OR by timestamp proximity (±60s).
-    // Timestamp matching handles CLI subprocess agents where the metadata agentId
-    // (from AgentProcessManager) differs from the event's toolCallId.
-    const TIMESTAMP_MATCH_WINDOW = 60_000;
-    const missing = agentStarts.filter((e) => {
-      const key = e.agentId || e.toolCallId;
-      if (key && knownIds.has(key)) return false;
-
-      // Check timestamp proximity against existing agents
-      for (const ts of knownTimestamps) {
-        if (Math.abs(e.timestamp - ts) < TIMESTAMP_MATCH_WINDOW) return false;
-      }
-      return true;
-    });
-
-    if (missing.length === 0) return existing;
-
-    // Check which agents have tool_result events (completed vs interrupted)
-    const completedToolCallIds = new Set(
-      events
-        .filter((e) => e.eventType === 'tool_result')
-        .map((e) => (e as { toolCallId?: string }).toolCallId)
-        .filter(Boolean)
-    );
-
-    // Synthesize CliSessionReferences from history events
-    const recovered: CliSessionReference[] = missing.map((evt) => {
-      const uniqueId = evt.agentId || evt.toolCallId;
-      const hasResult = completedToolCallIds.has(evt.toolCallId);
-      // Agents with JSONL files (agentId present) are ptah-cli SDK subagents.
-      // Agents without (agentId null) are CLI subprocess agents — cli type unknown.
-      const cli = evt.agentId ? 'ptah-cli' : 'ptah-cli';
-
-      return {
-        cliSessionId: uniqueId,
-        cli: cli as CliSessionReference['cli'],
-        agentId: uniqueId as unknown as AgentId,
-        task:
-          evt.agentDescription ||
-          evt.agentPrompt?.slice(0, 200) ||
-          `${evt.agentType} agent`,
-        startedAt: new Date(evt.timestamp).toISOString(),
-        status: (hasResult
-          ? 'completed'
-          : 'failed') as CliSessionReference['status'],
-      };
-    });
-
-    this.logger.info(
-      '[RPC] Recovered missing CLI sessions from history events',
-      {
-        sessionId,
-        recoveredCount: recovered.length,
-        existingCount: existing?.length ?? 0,
-        agents: recovered.map((r) => ({
-          id: r.cliSessionId,
-          task: r.task.slice(0, 60),
-          status: r.status,
-        })),
-      }
-    );
-
-    return [...(existing ?? []), ...recovered];
-  }
 
   // ============================================================================
   // PTAH CLI DISPATCH METHODS (TASK_2025_167)
@@ -583,9 +469,6 @@ export class ChatRpcHandlers {
     this.registerChatResume();
     this.registerChatAbort();
     this.registerChatRunningAgents();
-    this.registerChatSendMessage();
-    this.registerChatStop();
-    this.registerAgentStop();
     this.registerBackgroundAgentHandlers();
     this.subscribeToBackgroundAgentEvents();
 
@@ -596,111 +479,9 @@ export class ChatRpcHandlers {
         'chat:resume',
         'chat:abort',
         'chat:running-agents',
-        'chat:send-message',
-        'chat:stop',
-        'agent:stop',
         'agent:backgroundList',
         'agent:backgroundStop',
       ],
-    });
-  }
-
-  /**
-   * chat:send-message - Alias for sending a continuation message to an existing session.
-   * TASK_2025_209: Moved from ElectronChatExtendedRpcHandlers to shared handler.
-   */
-  private registerChatSendMessage(): void {
-    this.rpcHandler.registerMethod<
-      { sessionId: string; message: string; contextFiles?: string[] },
-      { success: boolean; error?: string }
-    >(
-      'chat:send-message',
-      async (
-        params:
-          | { sessionId: string; message: string; contextFiles?: string[] }
-          | undefined
-      ) => {
-        if (!params?.sessionId || !params?.message) {
-          return {
-            success: false,
-            error: 'sessionId and message are required',
-          };
-        }
-        try {
-          await this.sdkAdapter.sendMessageToSession(
-            params.sessionId as SessionId,
-            params.message,
-            params.contextFiles ? { files: params.contextFiles } : undefined
-          );
-          return { success: true };
-        } catch (error) {
-          this.logger.error(
-            'RPC: chat:send-message failed',
-            error instanceof Error ? error : new Error(String(error))
-          );
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          };
-        }
-      }
-    );
-  }
-
-  /**
-   * agent:stop - Stop a running agent by session ID.
-   * TASK_2025_209: Moved from ElectronAgentRpcHandlers to shared handler.
-   * Uses the same sdkAdapter.interruptSession() as chat:stop.
-   */
-  private registerAgentStop(): void {
-    this.rpcHandler.registerMethod<
-      { agentId: string },
-      { success: boolean; error?: string }
-    >('agent:stop', async (params: { agentId: string } | undefined) => {
-      if (!params?.agentId) {
-        return { success: false, error: 'agentId is required' };
-      }
-      try {
-        await this.sdkAdapter.interruptSession(params.agentId as SessionId);
-        return { success: true };
-      } catch (error) {
-        this.logger.error(
-          'RPC: agent:stop failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    });
-  }
-
-  /**
-   * chat:stop - Stop an active chat session via SDK.
-   * TASK_2025_209: Moved from ElectronChatExtendedRpcHandlers to shared handler.
-   */
-  private registerChatStop(): void {
-    this.rpcHandler.registerMethod<
-      { sessionId: string },
-      { success: boolean; error?: string }
-    >('chat:stop', async (params: { sessionId: string } | undefined) => {
-      if (!params?.sessionId) {
-        return { success: false, error: 'sessionId is required' };
-      }
-      try {
-        await this.sdkAdapter.interruptSession(params.sessionId as SessionId);
-        return { success: true };
-      } catch (error) {
-        this.logger.error(
-          'RPC: chat:stop failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
     });
   }
 
@@ -1326,17 +1107,6 @@ IMPORTANT INSTRUCTIONS:
               error: error instanceof Error ? error.message : String(error),
             });
           }
-
-          // TASK_2025_186: Recover missing CLI sessions from history events.
-          // When multiple CLI agents exit simultaneously, the metadata store
-          // race condition (now fixed with write queue) may have caused some
-          // references to be lost. Scan agent_start events as a fallback to
-          // reconstruct CliSessionReferences for agents with JSONL files.
-          cliSessions = this.recoverMissingCliSessions(
-            events,
-            cliSessions,
-            sessionId
-          );
 
           this.logger.info('[RPC] Session history loaded from JSONL', {
             sessionId,

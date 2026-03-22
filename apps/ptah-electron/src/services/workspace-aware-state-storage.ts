@@ -124,6 +124,11 @@ export class WorkspaceAwareStateStorage implements IStateStorage {
       if (storage) {
         return storage;
       }
+      // Active workspace path is set but no storage found — indicates a bug
+      // in workspace lifecycle (removal without resetting active path).
+      console.warn(
+        `[WorkspaceAwareStateStorage] Active workspace "${this.activeWorkspacePath}" has no registered storage — falling back to default`
+      );
     }
     return this.defaultStorage;
   }
