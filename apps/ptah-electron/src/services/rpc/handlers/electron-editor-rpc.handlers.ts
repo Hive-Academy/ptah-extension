@@ -39,7 +39,8 @@ export class ElectronEditorRpcHandlers {
   ) {}
 
   register(): void {
-    this.registerOpenFile();
+    this.registerFileOpen(); // file:open (registry standard name)
+    this.registerOpenFile(); // editor:openFile (Electron-specific)
     this.registerSaveFile();
     this.registerGetFileTree();
   }
@@ -57,6 +58,47 @@ export class ElectronEditorRpcHandlers {
       return 'Path is outside the workspace';
     }
     return null;
+  }
+
+  /**
+   * Register file:open (standard registry name used by the frontend).
+   * In VS Code this opens the file in the editor; in Electron it reads file content
+   * and notifies the editor provider (same as editor:openFile).
+   */
+  private registerFileOpen(): void {
+    this.rpcHandler.registerMethod(
+      'file:open',
+      async (params: { filePath: string; line?: number } | undefined) => {
+        if (!params?.filePath) {
+          return { success: false, error: 'filePath is required' };
+        }
+        const pathError = this.validatePathInWorkspace(params.filePath);
+        if (pathError) {
+          return { success: false, error: pathError };
+        }
+        try {
+          const content = await this.fs.readFile(params.filePath);
+          try {
+            const editorProvider = this.container.resolve<{
+              notifyFileOpened(filePath: string): void;
+            }>(PLATFORM_TOKENS.EDITOR_PROVIDER);
+            editorProvider.notifyFileOpened(params.filePath);
+          } catch {
+            // Editor provider may not be registered
+          }
+          return { success: true, content, filePath: params.filePath };
+        } catch (error) {
+          this.logger.error('[Electron RPC] file:open failed', {
+            filePath: params.filePath,
+            error: error instanceof Error ? error.message : String(error),
+          } as unknown as Error);
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
   }
 
   private registerOpenFile(): void {

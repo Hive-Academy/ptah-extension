@@ -6,15 +6,17 @@
  * and Electron-specific handlers from ./handlers/.
  *
  * TASK_2025_203 Batch 5: Rewritten from ~2300-line procedural file to ~200-line class orchestrator.
- * TASK_2025_209: Unified LlmRpcHandlers, ChatRpcHandlers (chat:send-message, chat:stop),
- *   removed ElectronLlmRpcHandlers, ElectronChatExtendedRpcHandlers, ElectronAgentRpcHandlers.
+ * TASK_2025_209: Unified LlmRpcHandlers, ChatRpcHandlers (chat:send-message, chat:stop).
+ * Re-added ElectronAgentRpcHandlers, ElectronSkillsShRpcHandlers, ElectronLayoutRpcHandlers
+ * with proper Electron-specific implementations using platform-agnostic services.
  *
  * Handler registration order:
  * 1. Shared handlers (16 handlers from @ptah-extension/rpc-handlers)
  *    - Session, Chat, Config, Auth, Context, Setup, License, WizardGeneration,
  *      Autocomplete, Subagent, Plugin, PtahCli, EnhancedPrompts, Quality, Provider, LLM
- * 2. Electron-specific handlers (7 handlers from ./handlers/)
- *    - Workspace, Editor, File, ConfigExtended, Command, AuthExtended, Settings
+ * 2. Electron-specific handlers (10 handlers from ./handlers/)
+ *    - Workspace, Editor, File, ConfigExtended, Command, AuthExtended, Settings,
+ *      Agent, SkillsSh, Layout
  */
 
 import { injectable, inject } from 'tsyringe';
@@ -50,6 +52,9 @@ import {
   ElectronCommandRpcHandlers,
   ElectronAuthExtendedRpcHandlers,
   ElectronSettingsRpcHandlers,
+  ElectronAgentRpcHandlers,
+  ElectronSkillsShRpcHandlers,
+  ElectronLayoutRpcHandlers,
 } from './handlers';
 
 /**
@@ -57,7 +62,7 @@ import {
  *
  * TASK_2025_203 Batch 5: Reduced from ~2300 lines (two procedural files)
  * to a class-based orchestrator matching the VS Code pattern.
- * TASK_2025_209: Unified LLM/Chat/Agent handlers into shared.
+ * TASK_2025_209: Unified LLM/Chat handlers into shared.
  */
 @injectable()
 export class ElectronRpcMethodRegistrationService {
@@ -88,7 +93,10 @@ export class ElectronRpcMethodRegistrationService {
     private readonly configExtendedHandlers: ElectronConfigExtendedRpcHandlers,
     private readonly commandHandlers: ElectronCommandRpcHandlers,
     private readonly authExtendedHandlers: ElectronAuthExtendedRpcHandlers,
-    private readonly settingsHandlers: ElectronSettingsRpcHandlers
+    private readonly settingsHandlers: ElectronSettingsRpcHandlers,
+    private readonly agentHandlers: ElectronAgentRpcHandlers,
+    private readonly skillsShHandlers: ElectronSkillsShRpcHandlers,
+    private readonly layoutHandlers: ElectronLayoutRpcHandlers
   ) {}
 
   /**
@@ -176,6 +184,18 @@ export class ElectronRpcMethodRegistrationService {
       {
         name: 'ElectronSettingsRpcHandlers',
         handler: this.settingsHandlers,
+      },
+      {
+        name: 'ElectronAgentRpcHandlers',
+        handler: this.agentHandlers,
+      },
+      {
+        name: 'ElectronSkillsShRpcHandlers',
+        handler: this.skillsShHandlers,
+      },
+      {
+        name: 'ElectronLayoutRpcHandlers',
+        handler: this.layoutHandlers,
       },
     ];
 

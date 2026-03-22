@@ -7,8 +7,9 @@
  *
  * TASK_2025_203 Batch 5: Electron RPC handler extraction
  * TASK_2025_209: Removed ElectronLlmRpcHandlers (unified into shared LlmRpcHandlers),
- *   ElectronChatExtendedRpcHandlers (unified into shared ChatRpcHandlers),
- *   ElectronAgentRpcHandlers (agent:stop handled platform-specifically)
+ *   ElectronChatExtendedRpcHandlers (unified into shared ChatRpcHandlers)
+ * Re-added ElectronAgentRpcHandlers, ElectronSkillsShRpcHandlers, ElectronLayoutRpcHandlers
+ * with proper Electron-specific implementations.
  */
 
 export { ElectronWorkspaceRpcHandlers } from './electron-workspace-rpc.handlers';
@@ -18,3 +19,6 @@ export { ElectronConfigExtendedRpcHandlers } from './electron-config-extended-rp
 export { ElectronCommandRpcHandlers } from './electron-command-rpc.handlers';
 export { ElectronAuthExtendedRpcHandlers } from './electron-auth-extended-rpc.handlers';
 export { ElectronSettingsRpcHandlers } from './electron-settings-rpc.handlers';
+export { ElectronAgentRpcHandlers } from './electron-agent-rpc.handlers';
+export { ElectronSkillsShRpcHandlers } from './electron-skills-sh-rpc.handlers';
+export { ElectronLayoutRpcHandlers } from './electron-layout-rpc.handlers';

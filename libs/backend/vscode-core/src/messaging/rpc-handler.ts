@@ -67,6 +67,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'editor:', // TASK_2025_200: Editor operations (openFile, etc.) for Electron Monaco editor
   'layout:', // Electron desktop layout persistence (sidebar/editor panel widths)
   'skillsSh:', // TASK_2025_204: Skills.sh marketplace (search, install, recommend)
+  'settings:', // TASK_2025_210: Settings export/import (Electron desktop)
 ] as const;
 
 /**

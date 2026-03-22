@@ -130,7 +130,8 @@ import {
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5)
-// TASK_2025_209: ElectronLlmRpcHandlers, ElectronChatExtendedRpcHandlers, ElectronAgentRpcHandlers removed
+// TASK_2025_209: ElectronLlmRpcHandlers, ElectronChatExtendedRpcHandlers removed (unified into shared)
+// Re-added: ElectronAgentRpcHandlers, ElectronSkillsShRpcHandlers, ElectronLayoutRpcHandlers
 import {
   ElectronWorkspaceRpcHandlers,
   ElectronEditorRpcHandlers,
@@ -139,6 +140,9 @@ import {
   ElectronCommandRpcHandlers,
   ElectronAuthExtendedRpcHandlers,
   ElectronSettingsRpcHandlers,
+  ElectronAgentRpcHandlers,
+  ElectronSkillsShRpcHandlers,
+  ElectronLayoutRpcHandlers,
 } from '../services/rpc/handlers';
 
 // Electron RPC Method Registration Service (TASK_2025_203 Batch 5)
@@ -771,6 +775,9 @@ export class ElectronDIContainer {
     container.registerSingleton(ElectronCommandRpcHandlers);
     container.registerSingleton(ElectronAuthExtendedRpcHandlers);
     container.registerSingleton(ElectronSettingsRpcHandlers);
+    container.registerSingleton(ElectronAgentRpcHandlers);
+    container.registerSingleton(ElectronSkillsShRpcHandlers);
+    container.registerSingleton(ElectronLayoutRpcHandlers);
 
     // Register the orchestrator itself
     container.registerSingleton(ElectronRpcMethodRegistrationService);
@@ -786,6 +793,9 @@ export class ElectronDIContainer {
           'ElectronCommandRpcHandlers',
           'ElectronAuthExtendedRpcHandlers',
           'ElectronSettingsRpcHandlers',
+          'ElectronAgentRpcHandlers',
+          'ElectronSkillsShRpcHandlers',
+          'ElectronLayoutRpcHandlers',
         ],
       }
     );

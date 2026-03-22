@@ -157,7 +157,7 @@ export class RpcMethodRegistrationService {
     });
 
     // Verify all expected RPC methods have handlers
-    // Exclude Electron-only methods (workspace/layout) that are not applicable in VS Code
+    // Exclude Electron-only methods (workspace/layout/editor/file/config/auth/settings) that are not applicable in VS Code
     const ELECTRON_ONLY_METHODS = [
       'workspace:getInfo',
       'workspace:addFolder',
@@ -165,6 +165,23 @@ export class RpcMethodRegistrationService {
       'workspace:switch',
       'layout:persist',
       'layout:restore',
+      // Electron editor methods (Monaco-based)
+      'editor:openFile',
+      'editor:saveFile',
+      'editor:getFileTree',
+      // Electron file methods (IFileSystemProvider-based)
+      'file:read',
+      'file:exists',
+      'file:save-dialog',
+      // Electron config extended methods
+      'config:model-set',
+      // Electron auth extended methods
+      'auth:setApiKey',
+      'auth:getStatus',
+      'auth:getApiKeyStatus',
+      // Electron settings export/import
+      'settings:export',
+      'settings:import',
     ];
     const verificationResult = verifyRpcRegistration(
       this.rpcHandler,
