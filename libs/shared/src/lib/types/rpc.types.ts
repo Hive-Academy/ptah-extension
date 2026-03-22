@@ -2059,6 +2059,8 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'config:autopilot-toggle',
   'config:autopilot-get',
   'config:models-list',
+  'config:effort-get',
+  'config:effort-set',
 
   // Auth Methods
   'auth:getHealth',
