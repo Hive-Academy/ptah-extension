@@ -699,22 +699,32 @@ export class StreamingHandlerService {
 
       const queuedContent = targetTab.queuedContent;
 
-      // Check if a hard permission deny occurred
-      const wasHardDeny = this.permissionHandler.consumeHardDenyFlag();
+      // TASK_2025_213: Check if hard permission deny occurred — now returns specific toolUseIds
+      const hardDenyToolUseIds =
+        this.permissionHandler.consumeHardDenyToolUseIds();
 
       console.log(
         '[StreamingHandlerService] Finalizing streaming on stats received for tab:',
         targetTabId,
-        { wasHardDeny }
+        { hardDenyToolUseIds: [...hardDenyToolUseIds] }
       );
       this.finalization.finalizeCurrentMessage(targetTabId);
 
       // For hard deny: the SDK sends all completion events before exiting,
       // so markStreamingNodesAsInterrupted (used by isAborted) finds nothing
       // to change. Instead, post-process the finalized message to mark the
-      // last agent node as interrupted.
-      if (wasHardDeny) {
-        this.finalization.markLastAgentAsInterrupted(targetTabId);
+      // specific denied agent node(s) as interrupted.
+      if (hardDenyToolUseIds.size > 0) {
+        if (hardDenyToolUseIds.has('__unknown__')) {
+          // Fallback: no specific toolUseId available, mark last agent (legacy behavior)
+          this.finalization.markLastAgentAsInterrupted(targetTabId);
+        } else {
+          // Targeted: mark only the specific denied agent(s) by their toolCallIds
+          this.finalization.markAgentsAsInterruptedByToolCallIds(
+            targetTabId,
+            hardDenyToolUseIds
+          );
+        }
       }
 
       this.tabManager.markTabIdle(targetTabId);

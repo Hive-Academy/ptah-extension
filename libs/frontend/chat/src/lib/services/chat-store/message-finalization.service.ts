@@ -489,6 +489,96 @@ export class MessageFinalizationService {
   }
 
   /**
+   * TASK_2025_213: Mark specific agent nodes as interrupted by their toolCallIds.
+   *
+   * Used when a hard permission deny identifies the exact agent(s) that were denied.
+   * More precise than markLastAgentAsInterrupted (which guesses the last one).
+   * Handles multiple concurrent denies via Set-based toolCallIds.
+   *
+   * @param tabId - Tab containing the finalized message to update
+   * @param toolCallIds - Set of toolCallIds (from permission deny toolUseIds) to match
+   */
+  markAgentsAsInterruptedByToolCallIds(
+    tabId: string,
+    toolCallIds: Set<string>
+  ): void {
+    const tab = this.tabManager.tabs().find((t) => t.id === tabId);
+    if (!tab || tab.messages.length === 0) return;
+
+    // Find the last assistant message (just finalized)
+    const messages = tab.messages;
+    let lastAssistantIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].streamingState) {
+        lastAssistantIndex = i;
+        break;
+      }
+    }
+    if (lastAssistantIndex === -1) return;
+
+    const msg = messages[lastAssistantIndex];
+    const tree = msg.streamingState;
+    if (!tree) return;
+
+    const updatedTree = this.markMatchingAgentsAsInterrupted(tree, toolCallIds);
+    if (updatedTree === tree) return; // No matching agents found
+
+    const updatedMessages = [...messages];
+    updatedMessages[lastAssistantIndex] = {
+      ...msg,
+      streamingState: updatedTree,
+    };
+
+    this.tabManager.updateTab(tabId, { messages: updatedMessages });
+    console.log(
+      '[MessageFinalizationService] Marked agents as interrupted by toolCallIds',
+      { toolCallIds: [...toolCallIds] }
+    );
+  }
+
+  /**
+   * TASK_2025_213: Recursively find and mark agent nodes whose toolCallId matches
+   * any in the provided set. Returns the same node reference if no change was needed.
+   *
+   * Unlike findAndMarkLastAgent (which stops at the first match), this marks ALL
+   * matching agents — handling the case where multiple agents had permissions denied.
+   */
+  private markMatchingAgentsAsInterrupted(
+    node: ExecutionNode,
+    toolCallIds: Set<string>
+  ): ExecutionNode {
+    // Recursively process children first
+    let childrenChanged = false;
+    const updatedChildren = node.children.map((child) => {
+      const updated = this.markMatchingAgentsAsInterrupted(child, toolCallIds);
+      if (updated !== child) childrenChanged = true;
+      return updated;
+    });
+
+    // Check if THIS node is an agent that should be marked as interrupted
+    if (
+      node.type === 'agent' &&
+      node.status === 'complete' &&
+      node.toolCallId &&
+      toolCallIds.has(node.toolCallId)
+    ) {
+      return {
+        ...node,
+        status: 'interrupted',
+        children: childrenChanged ? updatedChildren : node.children,
+      };
+    }
+
+    // If children changed, return new node with updated children
+    if (childrenChanged) {
+      return { ...node, children: updatedChildren };
+    }
+
+    // No changes needed
+    return node;
+  }
+
+  /**
    * TASK_2025_103 FIX: Recursively mark agent nodes with matching toolCallIds as 'interrupted'
    *
    * When loading a session from history, the tree is rebuilt but the 'interrupted' status

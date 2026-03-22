@@ -47,11 +47,14 @@ export class PermissionHandlerService {
   private readonly _permissionRequests = signal<PermissionRequest[]>([]);
 
   /**
-   * Tracks whether the last permission deny was a hard "deny" (not deny_with_message).
-   * Used by StreamingHandlerService to pass isAborted=true on finalization,
-   * which marks streaming nodes as "interrupted" in the UI.
+   * Tracks toolUseIds of hard permission denies (not deny_with_message).
+   * Used by StreamingHandlerService to mark specific agent nodes as "interrupted".
+   * Set-based to handle multiple concurrent denies correctly.
+   *
+   * TASK_2025_213: Changed from boolean signal to Set<string> for targeted marking.
+   * When toolUseId is unavailable, sentinel '__unknown__' triggers legacy fallback.
    */
-  private readonly _lastDenyWasHardInterrupt = signal(false);
+  private readonly _hardDenyToolUseIds = signal<Set<string>>(new Set());
 
   /**
    * Public readonly access to permission requests
@@ -291,9 +294,18 @@ export class PermissionHandlerService {
   handlePermissionResponse(response: PermissionResponse): void {
     console.log('[PermissionHandlerService] Permission response:', response);
 
-    // Track hard deny for interrupted badge display
+    // Track hard deny toolUseId for targeted interrupted badge display
+    // TASK_2025_213: Look up original request to get toolUseId before removing
     if (response.decision === 'deny') {
-      this._lastDenyWasHardInterrupt.set(true);
+      const originalRequest = this._permissionRequests().find(
+        (r) => r.id === response.id
+      );
+      const toolUseId = originalRequest?.toolUseId ?? '__unknown__';
+      this._hardDenyToolUseIds.update((ids) => {
+        const next = new Set(ids);
+        next.add(toolUseId);
+        return next;
+      });
     }
 
     // Remove from pending requests
@@ -309,18 +321,21 @@ export class PermissionHandlerService {
   }
 
   /**
-   * Consume the hard-deny flag (read and reset).
+   * Consume the hard-deny toolUseIds (read and reset).
    * Called by StreamingHandlerService when session stats arrive to determine
-   * whether to finalize with isAborted=true (shows "interrupted" badge).
+   * which specific agent nodes to mark as "interrupted".
    *
-   * @returns true if a hard deny occurred since last consumption
+   * TASK_2025_213: Returns Set of toolUseIds instead of boolean.
+   * If Set contains '__unknown__', caller should fall back to markLastAgentAsInterrupted.
+   *
+   * @returns Set of toolUseIds that were hard-denied since last consumption (empty if none)
    */
-  consumeHardDenyFlag(): boolean {
-    const wasDenied = this._lastDenyWasHardInterrupt();
-    if (wasDenied) {
-      this._lastDenyWasHardInterrupt.set(false);
+  consumeHardDenyToolUseIds(): Set<string> {
+    const ids = this._hardDenyToolUseIds();
+    if (ids.size > 0) {
+      this._hardDenyToolUseIds.set(new Set());
     }
-    return wasDenied;
+    return ids;
   }
 
   /**
