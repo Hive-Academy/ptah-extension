@@ -782,6 +782,24 @@ export class ChatRpcHandlers {
           const allResumable =
             this.subagentRegistry.getResumableBySession(sessionId);
 
+          // DIAGNOSTIC: Log registry state for debugging context injection
+          this.logger.info(
+            'RPC: chat:continue - subagent context injection check',
+            {
+              sessionId,
+              registrySize: this.subagentRegistry.size,
+              allResumableCount: allResumable.length,
+              allResumableAgents: allResumable.map((s) => ({
+                toolCallId: s.toolCallId,
+                agentId: s.agentId,
+                agentType: s.agentType,
+                status: s.status,
+                parentSessionId: s.parentSessionId,
+              })),
+              workspacePath,
+            }
+          );
+
           // Filter to only agents whose transcript files exist on disk.
           // Without a transcript, the SDK can't resume — it reports "transcript was lost".
           const resumableSubagents: typeof allResumable = [];

@@ -22,3 +22,4 @@
 | TASK_2025_212 | Cleanup Post-Unification Residuals — Remove vestigial LLM abstraction, fix RPC orphans, add sonnet-4-6 pricing, disk state storage, MCP 500         | 🔄 Active   | orchestrator | 2026-03-22 |            |
 | TASK_2025_213 | Subagent Interruption & Resume State — Stale interrupted records in registry, context injection re-injects completed work, permission deny timing   | ✅ Complete | orchestrator | 2026-03-22 | 2026-03-22 |
 | TASK_2025_214 | Electron Plugin & Setup Wizard Integration — Shared plugin assets, Electron DI wiring, wizard lifecycle, skill junction events                      | ✅ Complete | orchestrator | 2026-03-22 | 2026-03-22 |
+| TASK_2025_215 | Remove Permission/Question 5-min Timeout — Block indefinitely like Claude CLI, use SDK AbortSignal for cancellation instead of setTimeout           | ✅ Complete | orchestrator | 2026-03-22 | 2026-03-23 |

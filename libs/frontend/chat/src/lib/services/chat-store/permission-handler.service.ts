@@ -85,9 +85,10 @@ export class PermissionHandlerService {
       if (requests.length === 0) return;
 
       // Schedule cleanup check
+      // Guard: timeoutAt === 0 means "no timeout — block indefinitely" (TASK_2025_215)
       const now = Date.now();
       const expiredIds = requests
-        .filter((r) => r.timeoutAt <= now)
+        .filter((r) => r.timeoutAt > 0 && r.timeoutAt <= now)
         .map((r) => r.id);
 
       if (expiredIds.length > 0) {
@@ -96,7 +97,7 @@ export class PermissionHandlerService {
           expiredIds
         );
         this._questionRequests.update((reqs) =>
-          reqs.filter((r) => r.timeoutAt > now)
+          reqs.filter((r) => r.timeoutAt <= 0 || r.timeoutAt > now)
         );
       }
     });

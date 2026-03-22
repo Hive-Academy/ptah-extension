@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_213 (Resume Notification Banner Feature)
 
-**Total Tasks**: 5 | **Batches**: 2 | **Status**: 0/2 complete
+**Total Tasks**: 5 | **Batches**: 2 + Code Review | **Status**: ALL COMPLETE
 
 ---
 
@@ -35,12 +35,13 @@
 
 ---
 
-## Batch 1: Data Flow - Populate resumableSubagents signal at the right times [IMPLEMENTED]
+## Batch 1: Data Flow - Populate resumableSubagents signal at the right times [COMPLETE]
 
 **Developer**: frontend-developer
 **Tasks**: 3 | **Dependencies**: None
+**Commit**: 4fd21ac4
 
-### Task 1.1: Populate \_resumableSubagents after session load in SessionLoaderService [IMPLEMENTED]
+### Task 1.1: Populate \_resumableSubagents after session load in SessionLoaderService [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.ts`
 **Pattern to Follow**: How `cliSessions` is handled in the same method (lines 286-321)
@@ -74,7 +75,7 @@
 
 ---
 
-### Task 1.2: Wire ChatStore facade to delegate resumableSubagents from SessionLoaderService [IMPLEMENTED]
+### Task 1.2: Wire ChatStore facade to delegate resumableSubagents from SessionLoaderService [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat.store.ts`
 **Dependencies**: Task 1.1
@@ -95,7 +96,7 @@
 
 ---
 
-### Task 1.3: Clear resumableSubagents when a new turn starts (streaming begins) [IMPLEMENTED]
+### Task 1.3: Clear resumableSubagents when a new turn starts (streaming begins) [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\services\chat-store\session-loader.service.ts`
 **Dependencies**: Task 1.1
@@ -134,12 +135,13 @@
 
 ---
 
-## Batch 2: UI Component - Enhanced resume banner with per-agent resume buttons [PENDING]
+## Batch 2: UI Component - Enhanced resume banner with per-agent resume buttons [COMPLETE]
 
 **Developer**: frontend-developer
 **Tasks**: 2 | **Dependencies**: Batch 1
+**Commit**: 9560c016
 
-### Task 2.1: Enhance ResumeNotificationBannerComponent with per-agent display and individual resume buttons [PENDING]
+### Task 2.1: Enhance ResumeNotificationBannerComponent with per-agent display and individual resume buttons [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\molecules\notifications\resume-notification-banner.component.ts`
 **Pattern to Follow**: Existing DaisyUI alert styling in the component, agent-card-header.component.ts for agent type display
@@ -181,7 +183,7 @@
 
 ---
 
-### Task 2.2: Re-integrate banner into ChatViewComponent and wire resume action [PENDING]
+### Task 2.2: Re-integrate banner into ChatViewComponent and wire resume action [COMPLETE]
 
 **File**: `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\chat-view.component.ts` AND `D:\projects\ptah-extension\libs\frontend\chat\src\lib\components\templates\chat-view.component.html`
 
@@ -239,3 +241,18 @@
 - Banner dismisses when agents list is cleared
 - Manual dismiss (X button) works
 - Banner auto-reappears when new interrupted agents arrive
+
+---
+
+## Code Review Fixes [COMPLETE]
+
+**Commit**: 0ba056ec
+
+### Fixes Applied
+
+1. **MUST FIX**: Added `removeResumableSubagent(toolCallId)` to SessionLoaderService + ChatStore facade. `handleResumeAgent` now removes only the resumed agent instead of clearing all.
+2. **MUST FIX**: Added `this._resumableSubagents.set([])` in catch block of `switchSession()` to clear stale banner on session switch failure.
+3. **Style**: Changed `getTimeSince()` to `protected getTimeSince()` in banner component.
+4. **Style**: Removed redundant outer `@if` guard from chat-view.component.html.
+5. **Style**: Fixed misleading comment in session-loader.service.ts.
+6. **Style**: Removed dead `resetDismissed()` method and `resumeAllRequested` output.

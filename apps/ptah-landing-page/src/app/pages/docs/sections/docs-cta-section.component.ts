@@ -97,7 +97,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
               </p>
             </div>
             <a
-              href="https://ptah.live/download"
+              href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               class="cta-glow-button block relative overflow-hidden w-full px-6 py-3 rounded-xl text-white font-semibold text-sm text-center"

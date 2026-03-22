@@ -66,7 +66,7 @@ export interface PermissionRequest {
   /** Human-readable description of the permission request */
   readonly description: string;
 
-  /** Timeout deadline (Unix epoch milliseconds) - auto-deny after this time */
+  /** Timeout deadline (Unix epoch milliseconds). 0 means no timeout — block indefinitely until user responds. */
   readonly timeoutAt: number;
 
   /** Session ID this permission belongs to (for UI routing to correct tab) */
@@ -173,7 +173,7 @@ export interface AskUserQuestionRequest {
   readonly toolUseId?: string;
   /** Request timestamp (Unix epoch milliseconds) */
   readonly timestamp: number;
-  /** Timeout deadline (Unix epoch milliseconds) */
+  /** Timeout deadline (Unix epoch milliseconds). 0 means no timeout — block indefinitely until user responds. */
   readonly timeoutAt: number;
   /** Session ID this question belongs to (for UI routing to correct tab) */
   readonly sessionId?: string;
