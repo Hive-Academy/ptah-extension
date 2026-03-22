@@ -46,10 +46,11 @@ export class SessionImporterService {
    * parses the first few KB of the most recent files to extract metadata.
    *
    * @param workspacePath - The workspace path to find sessions for
-   * @param limit - Maximum number of sessions to import (default: 5)
+   * @param limit - Maximum number of sessions to import (default: 50)
    * @returns Number of sessions imported
    */
-  async scanAndImport(workspacePath: string, limit = 5): Promise<number> {
+  // TASK_2025_210: Increased default from 5 to 50 for cross-platform session discovery
+  async scanAndImport(workspacePath: string, limit = 50): Promise<number> {
     this.logger.info('[SessionImporter] Scanning for existing sessions', {
       workspacePath,
       limit,

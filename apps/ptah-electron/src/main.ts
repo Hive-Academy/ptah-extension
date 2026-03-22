@@ -358,6 +358,41 @@ if (!gotLock) {
     );
 
     // ========================================
+    // PHASE 4.6: Session Auto-Discovery (TASK_2025_210)
+    // ========================================
+    // Import existing Claude sessions from ~/.claude/projects/ for the active
+    // workspace. Non-fatal: failures are logged as warnings but do not block
+    // application startup.
+    {
+      const workspaceRoot = initialFolders?.[0];
+      if (workspaceRoot) {
+        try {
+          const sessionImporter = container.resolve(
+            SDK_TOKENS.SDK_SESSION_IMPORTER
+          ) as {
+            scanAndImport: (path: string, limit?: number) => Promise<number>;
+          };
+          const imported = await sessionImporter.scanAndImport(
+            workspaceRoot,
+            50
+          );
+          if (imported > 0) {
+            console.log(
+              `[Ptah Electron] Imported ${imported} existing Claude session(s)`
+            );
+          }
+        } catch (importError) {
+          console.warn(
+            '[Ptah Electron] Session import skipped (non-fatal):',
+            importError instanceof Error
+              ? importError.message
+              : String(importError)
+          );
+        }
+      }
+    }
+
+    // ========================================
     // PHASE 4.7: Application Menu
     // ========================================
     createApplicationMenu(container, () => mainWindow);
