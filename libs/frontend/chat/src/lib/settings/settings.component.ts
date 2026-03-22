@@ -17,12 +17,15 @@ import {
   Puzzle,
   ScanSearch,
   Download,
+  Upload,
+  ArrowLeftRight,
 } from 'lucide-angular';
 import { AuthConfigComponent } from './auth/auth-config.component';
 import { ProviderModelSelectorComponent } from './auth/provider-model-selector.component';
 import { LicenseStatusCardComponent } from './license/license-status-card.component';
 import { EnhancedPromptsConfigComponent } from './pro-features/enhanced-prompts-config.component';
 import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.component';
+import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
 import { PluginStatusWidgetComponent } from '../components/molecules/setup-plugins/plugin-status-widget.component';
@@ -34,6 +37,7 @@ import {
   ClaudeRpcService,
   AuthStateService,
   CommandDiscoveryFacade,
+  VSCodeService,
 } from '@ptah-extension/core';
 import { ChatStore } from '../services/chat.store';
 
@@ -64,6 +68,7 @@ import { ChatStore } from '../services/chat.store';
     LicenseStatusCardComponent,
     EnhancedPromptsConfigComponent,
     VscodeLmConfigComponent,
+    McpPortConfigComponent,
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
     PluginStatusWidgetComponent,
@@ -79,6 +84,7 @@ export class SettingsComponent implements OnInit {
   private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly commandDiscovery = inject(CommandDiscoveryFacade);
+  private readonly vscodeService = inject(VSCodeService);
 
   // TASK_2025_133 Batch 2: Centralized auth state from AuthStateService
   readonly authState = inject(AuthStateService);
@@ -100,11 +106,22 @@ export class SettingsComponent implements OnInit {
   readonly PuzzleIcon = Puzzle;
   readonly ScanSearchIcon = ScanSearch;
   readonly DownloadIcon = Download;
+  readonly UploadIcon = Upload;
+  readonly ArrowLeftRightIcon = ArrowLeftRight;
 
-  // Tab state for settings page (5-tab layout)
+  // Loading states for export/import actions
+  readonly isExporting = signal(false);
+  readonly isImporting = signal(false);
+
+  // Tab state for settings page (4-tab layout; Pro content merged into Ptah AI sub-tabs)
   readonly activeSettingsTab = signal<
-    'claude-auth' | 'pro-features' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
+    'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
   >('claude-auth');
+
+  // Sub-tab state for Ptah AI tab
+  readonly activePtahAiSubTab = signal<'orchestration' | 'pro-features'>(
+    'orchestration'
+  );
 
   /** Whether the plugin browser modal is open */
   readonly isPluginBrowserOpen = signal(false);
@@ -152,14 +169,16 @@ export class SettingsComponent implements OnInit {
    * Switch active settings tab
    */
   setActiveTab(
-    tab:
-      | 'claude-auth'
-      | 'pro-features'
-      | 'ptah-ai'
-      | 'ptah-skills'
-      | 'project-setup'
+    tab: 'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
   ): void {
     this.activeSettingsTab.set(tab);
+  }
+
+  /**
+   * Switch active Ptah AI sub-tab
+   */
+  setPtahAiSubTab(subTab: 'orchestration' | 'pro-features'): void {
+    this.activePtahAiSubTab.set(subTab);
   }
 
   /** Open the plugin browser modal */
@@ -176,6 +195,46 @@ export class SettingsComponent implements OnInit {
   onPluginsSaved(enabledIds: string[]): void {
     this.isPluginBrowserOpen.set(false);
     this.commandDiscovery.clearCache();
+  }
+
+  /**
+   * Export settings to a JSON file.
+   * Uses platform-aware RPC: command:execute for VS Code, settings:export for Electron.
+   */
+  async exportSettings(): Promise<void> {
+    if (this.isExporting()) return;
+    this.isExporting.set(true);
+    try {
+      if (this.vscodeService.isElectron) {
+        await this.rpcService.call('settings:export' as never, {} as never);
+      } else {
+        await this.rpcService.call('command:execute', {
+          command: 'ptah.exportSettings',
+        });
+      }
+    } finally {
+      this.isExporting.set(false);
+    }
+  }
+
+  /**
+   * Import settings from a JSON file.
+   * Uses platform-aware RPC: command:execute for VS Code, settings:import for Electron.
+   */
+  async importSettings(): Promise<void> {
+    if (this.isImporting()) return;
+    this.isImporting.set(true);
+    try {
+      if (this.vscodeService.isElectron) {
+        await this.rpcService.call('settings:import' as never, {} as never);
+      } else {
+        await this.rpcService.call('command:execute', {
+          command: 'ptah.importSettings',
+        });
+      }
+    } finally {
+      this.isImporting.set(false);
+    }
   }
 
   /**
