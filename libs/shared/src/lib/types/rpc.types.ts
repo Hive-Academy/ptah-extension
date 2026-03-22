@@ -317,6 +317,8 @@ export interface SessionStatsEntry {
   };
   /** Number of assistant messages */
   readonly messageCount: number;
+  /** Whether stats were successfully read from JSONL */
+  readonly status: 'ok' | 'error' | 'empty';
 }
 
 /** Parameters for session:stats-batch RPC method */

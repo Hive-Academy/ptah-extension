@@ -457,75 +457,103 @@ export class SessionRpcHandlers {
       SessionStatsBatchParams,
       SessionStatsBatchResult
     >('session:stats-batch', async (params: SessionStatsBatchParams) => {
-      try {
-        const { sessionIds, workspacePath } = params;
-        this.logger.debug('RPC: session:stats-batch called', {
-          sessionCount: sessionIds.length,
-          workspacePath,
-        });
+      const { sessionIds, workspacePath } = params;
+      this.logger.debug('RPC: session:stats-batch called', {
+        sessionCount: sessionIds.length,
+        workspacePath,
+      });
 
-        const sessionStats: SessionStatsEntry[] = [];
+      // Process with limited concurrency (5 at a time) to avoid
+      // overwhelming file system while staying well within RPC timeout
+      const CONCURRENCY_LIMIT = 5;
+      const sessionStats: SessionStatsEntry[] = [];
 
-        // Process sessions sequentially to avoid overwhelming file system
-        for (const sessionId of sessionIds) {
-          try {
-            const { stats } = await this.historyReader.readSessionHistory(
-              sessionId,
-              workspacePath
-            );
+      for (let i = 0; i < sessionIds.length; i += CONCURRENCY_LIMIT) {
+        const batch = sessionIds.slice(i, i + CONCURRENCY_LIMIT);
+        const results = await Promise.allSettled(
+          batch.map(async (sessionId) => {
+            try {
+              const { stats } = await this.historyReader.readSessionHistory(
+                sessionId,
+                workspacePath
+              );
 
-            sessionStats.push({
-              sessionId,
-              model: stats?.model ?? null,
-              totalCost: stats?.totalCost ?? 0,
-              tokens: stats?.tokens ?? {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheCreation: 0,
-              },
-              messageCount: stats?.messageCount ?? 0,
-            });
-          } catch (error) {
-            // Individual session failure should not break the batch
-            this.logger.warn('RPC: session:stats-batch - failed for session', {
-              sessionId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            sessionStats.push({
-              sessionId,
-              model: null,
-              totalCost: 0,
-              tokens: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheCreation: 0,
-              },
-              messageCount: 0,
-            });
-          }
+              if (!stats) {
+                return {
+                  sessionId,
+                  model: null,
+                  totalCost: 0,
+                  tokens: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheCreation: 0,
+                  },
+                  messageCount: 0,
+                  status: 'empty' as const,
+                };
+              }
+
+              return {
+                sessionId,
+                model: stats.model ?? null,
+                totalCost: stats.totalCost,
+                tokens: stats.tokens,
+                messageCount: stats.messageCount,
+                status: 'ok' as const,
+              };
+            } catch (error) {
+              this.logger.warn('RPC: session:stats-batch failed for session', {
+                sessionId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return {
+                sessionId,
+                model: null,
+                totalCost: 0,
+                tokens: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheCreation: 0,
+                },
+                messageCount: 0,
+                status: 'error' as const,
+              };
+            }
+          })
+        );
+
+        for (let j = 0; j < results.length; j++) {
+          const result = results[j];
+          sessionStats.push(
+            result.status === 'fulfilled'
+              ? result.value
+              : {
+                  sessionId: batch[j],
+                  model: null,
+                  totalCost: 0,
+                  tokens: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheCreation: 0,
+                  },
+                  messageCount: 0,
+                  status: 'error' as const,
+                }
+          );
         }
-
-        this.logger.debug('RPC: session:stats-batch completed', {
-          sessionCount: sessionIds.length,
-          successCount: sessionStats.filter(
-            (s) => s.totalCost > 0 || s.messageCount > 0
-          ).length,
-        });
-
-        return { sessionStats };
-      } catch (error) {
-        this.logger.error(
-          'RPC: session:stats-batch failed',
-          error instanceof Error ? error : new Error(String(error))
-        );
-        throw new Error(
-          `Failed to fetch session stats batch: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
       }
+
+      this.logger.debug('RPC: session:stats-batch completed', {
+        total: sessionIds.length,
+        ok: sessionStats.filter((s) => s.status === 'ok').length,
+        empty: sessionStats.filter((s) => s.status === 'empty').length,
+        error: sessionStats.filter((s) => s.status === 'error').length,
+      });
+
+      return { sessionStats };
     });
   }
 

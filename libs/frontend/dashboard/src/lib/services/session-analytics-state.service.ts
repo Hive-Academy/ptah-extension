@@ -26,6 +26,8 @@ export interface DashboardSessionEntry {
     readonly cacheCreation: number;
   };
   readonly messageCount: number;
+  /** Whether stats were successfully read from JSONL ('ok' | 'error' | 'empty'). */
+  readonly status: 'ok' | 'error' | 'empty';
 }
 
 /**
@@ -87,11 +89,13 @@ export class SessionAnalyticsStateService {
   });
 
   /**
-   * Aggregate totals across displayed sessions.
+   * Aggregate totals across ALL sessions (not just the displayed subset).
+   * This ensures "Total Cost" and other aggregates remain stable when
+   * toggling the display count between 5 and 10.
    * Single-pass loop for efficiency -- avoids multiple array iterations.
    */
   readonly aggregates = computed<AggregateTotals>(() => {
-    const sessions = this.displayedSessions();
+    const sessions = this._allSessions();
     let totalCost = 0,
       totalInput = 0,
       totalOutput = 0;
@@ -146,6 +150,13 @@ export class SessionAnalyticsStateService {
     try {
       const workspacePath = this.appState.workspaceInfo()?.path || '';
 
+      if (!workspacePath) {
+        this._loadError.set(
+          'No workspace detected. Open a folder to view analytics.'
+        );
+        return;
+      }
+
       // Step 1: Get session list (metadata: ids, names, dates)
       const listResult = await this.rpc.call('session:list', {
         workspacePath,
@@ -199,6 +210,7 @@ export class SessionAnalyticsStateService {
             cacheCreation: 0,
           },
           messageCount: stats?.messageCount ?? 0,
+          status: stats?.status ?? 'empty',
         };
       });
 

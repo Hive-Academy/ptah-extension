@@ -22,16 +22,26 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [],
   template: `
-    <div class="bg-base-200/50 rounded-lg p-3 border border-base-300 space-y-2">
+    <div
+      role="article"
+      [attr.aria-label]="'Session: ' + session().name"
+      class="bg-base-200/50 rounded-lg p-3 border border-base-300 space-y-2"
+    >
       <!-- Header: Name + Model Badge + Date -->
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0 flex-1">
-          <div class="text-sm font-semibold truncate" [title]="session().name">
+          <h3 class="text-sm font-semibold truncate" [title]="session().name">
             {{ session().name }}
-          </div>
+          </h3>
           <div class="text-[10px] text-base-content/50 mt-0.5">
             {{ formatDate(session().lastActivityAt) }}
           </div>
+          @if (session().status === 'error') {
+          <div class="text-[10px] text-warning flex items-center gap-1">
+            <span aria-hidden="true">&#9888;</span>
+            <span>Stats unavailable</span>
+          </div>
+          }
         </div>
         @if (session().model) {
         <span
@@ -139,11 +149,14 @@ export class SessionStatsCardComponent {
 
   /**
    * Format a timestamp to a readable date string with time.
+   * Returns 'Unknown' for falsy, NaN, or epoch-zero timestamps.
    * Example: "Mar 15, 2026, 2:30 PM"
    */
   formatDate(timestamp: number): string {
+    if (!timestamp || isNaN(timestamp)) return 'Unknown';
     const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
+    if (isNaN(date.getTime())) return 'Unknown';
+    return date.toLocaleDateString(undefined, {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
