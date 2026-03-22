@@ -23,6 +23,7 @@ import {
   PermissionResponse,
   ExecutionNode,
   MESSAGE_TYPES,
+  UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
 import {
   type AskUserQuestionRequest,
@@ -52,7 +53,7 @@ export class PermissionHandlerService {
    * Set-based to handle multiple concurrent denies correctly.
    *
    * TASK_2025_213: Changed from boolean signal to Set<string> for targeted marking.
-   * When toolUseId is unavailable, sentinel '__unknown__' triggers legacy fallback.
+   * When agentToolCallId is UNKNOWN_AGENT_TOOL_CALL_ID, triggers legacy fallback.
    */
   private readonly _hardDenyToolUseIds = signal<Set<string>>(new Set());
 
@@ -294,16 +295,25 @@ export class PermissionHandlerService {
   handlePermissionResponse(response: PermissionResponse): void {
     console.log('[PermissionHandlerService] Permission response:', response);
 
-    // Track hard deny toolUseId for targeted interrupted badge display
-    // TASK_2025_213: Look up original request to get toolUseId before removing
+    // Track hard deny IDs for targeted interrupted badge display.
+    // TASK_2025_213: Prefer agentToolCallId (the parent Task tool's ID) over
+    // toolUseId (the denied tool's own ID). The frontend's markAgentsAsInterruptedByToolCallIds
+    // matches against agent node toolCallIds, which are Task tool IDs.
+    // - agentToolCallId set & not sentinel: use it (targeted marking)
+    // - agentToolCallId is sentinel: use sentinel (legacy fallback)
+    // - agentToolCallId unset: no subagent context, use sentinel (legacy fallback)
     if (response.decision === 'deny') {
       const originalRequest = this._permissionRequests().find(
         (r) => r.id === response.id
       );
-      const toolUseId = originalRequest?.toolUseId ?? '__unknown__';
+      const denyId =
+        originalRequest?.agentToolCallId &&
+        originalRequest.agentToolCallId !== UNKNOWN_AGENT_TOOL_CALL_ID
+          ? originalRequest.agentToolCallId
+          : UNKNOWN_AGENT_TOOL_CALL_ID;
       this._hardDenyToolUseIds.update((ids) => {
         const next = new Set(ids);
-        next.add(toolUseId);
+        next.add(denyId);
         return next;
       });
     }
@@ -325,8 +335,8 @@ export class PermissionHandlerService {
    * Called by StreamingHandlerService when session stats arrive to determine
    * which specific agent nodes to mark as "interrupted".
    *
-   * TASK_2025_213: Returns Set of toolUseIds instead of boolean.
-   * If Set contains '__unknown__', caller should fall back to markLastAgentAsInterrupted.
+   * TASK_2025_213: Returns Set of agent toolCallIds (or UNKNOWN_AGENT_TOOL_CALL_ID sentinel).
+   * If Set contains UNKNOWN_AGENT_TOOL_CALL_ID, caller should fall back to markLastAgentAsInterrupted.
    *
    * @returns Set of toolUseIds that were hard-denied since last consumption (empty if none)
    */

@@ -16,7 +16,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  TOKENS,
+  type SubagentRegistryService,
+} from '@ptah-extension/vscode-core';
 import {
   isBashToolInput,
   isEditToolInput,
@@ -28,6 +32,7 @@ import {
   isAskUserQuestionToolInput,
   isExitPlanModeToolInput,
   MESSAGE_TYPES,
+  UNKNOWN_AGENT_TOOL_CALL_ID,
   type QuestionItem,
   type PermissionRequest,
   type PermissionResponse,
@@ -215,7 +220,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager
+    private readonly webviewManager: WebviewManager,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry: SubagentRegistryService
   ) {
     // Initialize permission emitter on construction
     this.initializePermissionEmitter();
@@ -273,6 +280,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       payloadId: payload.id,
       payloadToolName: payload.toolName,
       payloadToolUseId: payload.toolUseId,
+      payloadAgentToolCallId: payload.agentToolCallId,
     });
 
     // Send to webview - fire and forget (async but we don't await)
@@ -435,7 +443,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           toolName,
           input,
           options.toolUseID,
-          sessionId
+          sessionId,
+          options.agentID
         );
       }
 
@@ -448,7 +457,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           toolName,
           input,
           options.toolUseID,
-          sessionId
+          sessionId,
+          options.agentID
         );
       }
 
@@ -472,7 +482,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           toolName,
           input,
           options.toolUseID,
-          sessionId
+          sessionId,
+          options.agentID
         );
       }
 
@@ -485,7 +496,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         toolName,
         input,
         options.toolUseID,
-        sessionId
+        sessionId,
+        options.agentID
       );
     };
   }
@@ -499,12 +511,15 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    * @param toolName - Name of the tool requiring permission
    * @param input - Tool input parameters
    * @param toolUseId - SDK's tool_use ID for correlation with ExecutionNode
+   * @param sessionId - Session ID for routing to correct tab
+   * @param agentID - Sub-agent's short hex ID from SDK (if tool runs inside a subagent)
    */
   private async requestUserPermission(
     toolName: string,
     input: Record<string, unknown>,
     toolUseId?: string,
-    sessionId?: string
+    sessionId?: string,
+    agentID?: string
   ): Promise<PermissionResult> {
     // TASK_2025_097: Timing diagnostics - capture start time for latency measurement
     const startTime = Date.now();
@@ -522,6 +537,25 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     // Generate human-readable description based on tool type
     const description = this.generateDescription(toolName, sanitizedInput);
 
+    // TASK_2025_213 (Bug 2): Resolve the parent agent's toolCallId from
+    // the sub-agent's agentID. The SDK's canUseTool provides agentID (short hex
+    // like "a329b32") when the tool runs inside a subagent. The frontend needs
+    // the Task tool's toolCallId to identify the agent ExecutionNode.
+    let agentToolCallId: string | undefined;
+    if (agentID) {
+      const resolvedToolCallId =
+        this.subagentRegistry.getToolCallIdByAgentId(agentID);
+      agentToolCallId = resolvedToolCallId ?? UNKNOWN_AGENT_TOOL_CALL_ID;
+      this.logger.info(
+        `[SdkPermissionHandler] Resolved agentID to agentToolCallId`,
+        {
+          agentID,
+          agentToolCallId,
+          resolved: resolvedToolCallId !== null,
+        }
+      );
+    }
+
     // Emit permission request event
     // Note: All fields match shared/permission.types.ts PermissionRequest interface
     // toolUseId is critical for correlating permission with ExecutionNode.toolCallId
@@ -529,7 +563,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       id: requestId,
       toolName,
       toolInput: sanitizedInput,
-      toolUseId, // CRITICAL: Enables frontend to show permission inline with tool node
+      toolUseId, // The denied tool's own tool_use_id
+      agentToolCallId, // TASK_2025_213: The parent agent's toolCallId for frontend matching
       timestamp: now,
       description,
       timeoutAt,
@@ -548,6 +583,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         requestId,
         toolName,
         toolUseId,
+        agentToolCallId,
         messageType: MESSAGE_TYPES.PERMISSION_REQUEST,
       }
     );
@@ -607,17 +643,21 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     // TASK_2025_102: deny_with_message allows Claude to continue execution with feedback
     if (response.decision === 'deny_with_message') {
       // Deny with message - provide feedback but don't interrupt execution
+      const userReason = response.reason || 'No explanation given';
       this.logger.info(
         `[SdkPermissionHandler] Permission request ${requestId} denied with message for tool ${toolName}`,
         {
           decision: 'deny_with_message',
-          reason: response.reason || 'User denied without explanation',
+          reason: userReason,
           interrupt: false,
         }
       );
+      // Prefix with clear context so the model understands this is a deliberate
+      // user decision, not a transient tool error. Without this prefix the model
+      // may retry the same tool or ignore the feedback entirely.
       return {
         behavior: 'deny' as const,
-        message: response.reason || 'User denied without explanation',
+        message: `Permission denied by user for tool "${toolName}". The user reviewed this tool call and explicitly chose to deny it. User's message: "${userReason}". You MUST respect this decision — do NOT retry the same tool call. Adjust your approach based on the user's feedback.`,
         interrupt: false, // Continue execution, just skip this tool
       };
     }

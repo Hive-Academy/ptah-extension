@@ -237,6 +237,27 @@ export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
 
 // ============================================================
+// Settings Export/Import (TASK_2025_210)
+// Cross-platform settings portability
+// ============================================================
+export { SettingsExportService } from './lib/settings-export.service';
+export { SettingsImportService } from './lib/settings-import.service';
+export type { SettingsImportOptions } from './lib/settings-import.service';
+export {
+  SETTINGS_EXPORT_VERSION,
+  KNOWN_PROVIDER_IDS,
+  KNOWN_CONFIG_KEYS,
+  SECRET_KEYS,
+  providerSecretKey,
+} from './lib/types/settings-export.types';
+export type {
+  PtahSettingsExport,
+  SettingsImportResult,
+  KnownProviderId,
+  KnownConfigKey,
+} from './lib/types/settings-export.types';
+
+// ============================================================
 // Stream Processing (shared SDK stream processor)
 // ============================================================
 export { SdkStreamProcessor } from './lib/stream-processing';

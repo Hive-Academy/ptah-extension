@@ -51,6 +51,8 @@ import {
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
 import { SkillJunctionService } from '../helpers/skill-junction.service';
+import { SettingsExportService } from '../settings-export.service';
+import { SettingsImportService } from '../settings-import.service';
 import {
   PtahCliRegistry,
   PtahCliConfigPersistence,
@@ -324,6 +326,22 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SKILL_JUNCTION,
     { useClass: SkillJunctionService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Settings Export/Import Services (TASK_2025_210)
+  // Platform-agnostic settings portability between VS Code and Electron
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_SETTINGS_EXPORT,
+    { useClass: SettingsExportService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SETTINGS_IMPORT,
+    { useClass: SettingsImportService },
     { lifecycle: Lifecycle.Singleton }
   );
 

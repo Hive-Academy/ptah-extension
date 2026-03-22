@@ -18,6 +18,7 @@ import {
   FlatStreamEventUnion,
   assertNever,
   ExecutionChatMessage,
+  UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
@@ -715,14 +716,21 @@ export class StreamingHandlerService {
       // to change. Instead, post-process the finalized message to mark the
       // specific denied agent node(s) as interrupted.
       if (hardDenyToolUseIds.size > 0) {
-        if (hardDenyToolUseIds.has('__unknown__')) {
-          // Fallback: no specific toolUseId available, mark last agent (legacy behavior)
+        if (hardDenyToolUseIds.has(UNKNOWN_AGENT_TOOL_CALL_ID)) {
+          // Fallback: no specific agentToolCallId available, mark last agent (legacy behavior)
           this.finalization.markLastAgentAsInterrupted(targetTabId);
-        } else {
-          // Targeted: mark only the specific denied agent(s) by their toolCallIds
+        }
+
+        // Targeted: mark only the specific denied agent(s) by their toolCallIds (excluding sentinel)
+        const specificIds = new Set(
+          [...hardDenyToolUseIds].filter(
+            (id) => id !== UNKNOWN_AGENT_TOOL_CALL_ID
+          )
+        );
+        if (specificIds.size > 0) {
           this.finalization.markAgentsAsInterruptedByToolCallIds(
             targetTabId,
-            hardDenyToolUseIds
+            specificIds
           );
         }
       }

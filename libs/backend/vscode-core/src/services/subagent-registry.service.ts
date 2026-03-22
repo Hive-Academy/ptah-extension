@@ -477,6 +477,41 @@ export class SubagentRegistryService {
   }
 
   /**
+   * TASK_2025_213 (Bug 2): Look up the Task tool's toolCallId by the
+   * sub-agent's short hex ID (agentId).
+   *
+   * The SDK's canUseTool callback provides agentID (e.g., "a329b32") when
+   * the tool runs inside a subagent. The frontend needs the Task tool's
+   * toolCallId (e.g., "toolu_Task456") to identify the agent ExecutionNode.
+   * This method bridges that gap by scanning the registry for a matching
+   * agentId and returning the corresponding toolCallId.
+   *
+   * Returns the first running match (most relevant for permission denies).
+   * If no running match, returns the first match of any status.
+   *
+   * @param agentId - The sub-agent's short hex ID from SDK (e.g., "a329b32")
+   * @returns The Task tool's toolCallId, or null if not found
+   */
+  getToolCallIdByAgentId(agentId: string): string | null {
+    let fallback: string | null = null;
+
+    for (const [toolCallId, record] of this.registry) {
+      if (record.agentId === agentId) {
+        // Prefer running agents (most relevant for in-flight permission denies)
+        if (record.status === 'running') {
+          return toolCallId;
+        }
+        // Keep first match as fallback
+        if (!fallback) {
+          fallback = toolCallId;
+        }
+      }
+    }
+
+    return fallback;
+  }
+
+  /**
    * Remove a specific subagent from the registry.
    *
    * Called when a subagent is successfully resumed (to prevent double-resume)

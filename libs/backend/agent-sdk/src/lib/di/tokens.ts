@@ -109,6 +109,10 @@ export const SDK_TOKENS = {
 
   /** Skill Junction Service (TASK_2025_201) */
   SDK_SKILL_JUNCTION: Symbol.for('SdkSkillJunction'),
+
+  /** Settings Export/Import Services (TASK_2025_210) */
+  SDK_SETTINGS_EXPORT: Symbol.for('SdkSettingsExport'),
+  SDK_SETTINGS_IMPORT: Symbol.for('SdkSettingsImport'),
 } as const;
 
 /**
