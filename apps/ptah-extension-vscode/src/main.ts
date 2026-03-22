@@ -14,12 +14,15 @@ import {
   PluginLoaderService,
   PtahCliRegistry,
   SkillJunctionService,
+  type SettingsExportService,
+  type SettingsImportService,
 } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
+import { SettingsCommands } from './commands/settings-commands';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -681,6 +684,32 @@ export async function activate(
       }
     }
     console.log('[Activate] Step 8: Session import complete');
+
+    // Step 8.1: Register Settings Export/Import commands (TASK_2025_210)
+    console.log('[Activate] Step 8.1: Registering settings commands...');
+    try {
+      const settingsExportService = DIContainer.getContainer().resolve(
+        SDK_TOKENS.SDK_SETTINGS_EXPORT
+      ) as SettingsExportService;
+      const settingsImportService = DIContainer.getContainer().resolve(
+        SDK_TOKENS.SDK_SETTINGS_IMPORT
+      ) as SettingsImportService;
+
+      const settingsCommands = new SettingsCommands(
+        settingsExportService,
+        settingsImportService,
+        logger
+      );
+      settingsCommands.registerCommands(context);
+    } catch (settingsError) {
+      logger.debug('Settings commands registration failed (non-blocking)', {
+        error:
+          settingsError instanceof Error
+            ? settingsError.message
+            : String(settingsError),
+      });
+    }
+    console.log('[Activate] Step 8.1: Settings commands registered');
 
     // Initialize main extension controller
     console.log('[Activate] Step 9: Creating PtahExtension instance...');

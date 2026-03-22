@@ -111,6 +111,18 @@
         "title": "Open Session Analytics Dashboard",
         "category": "Ptah",
         "icon": "$(graph)"
+      },
+      {
+        "command": "ptah.exportSettings",
+        "title": "Export Settings",
+        "category": "Ptah",
+        "icon": "$(export)"
+      },
+      {
+        "command": "ptah.importSettings",
+        "title": "Import Settings",
+        "category": "Ptah",
+        "icon": "$(import)"
       }
     ],
     "menus": {
@@ -129,6 +141,12 @@
         },
         {
           "command": "ptah.openDashboard"
+        },
+        {
+          "command": "ptah.exportSettings"
+        },
+        {
+          "command": "ptah.importSettings"
         }
       ],
       "editor/context": [],
@@ -357,6 +375,13 @@
           ],
           "default": "",
           "description": "Default reasoning effort level for the main Claude Agent SDK chat. Leave empty for SDK default."
+        },
+        "ptah.mcpPort": {
+          "type": "number",
+          "default": 51820,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Port for Ptah's MCP server (code execution tools). Must be between 1024-65535. Default: 51820."
         },
         "ptah.agentOrchestration.defaultCli": {
           "type": "string",
