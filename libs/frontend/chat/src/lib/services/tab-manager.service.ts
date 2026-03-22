@@ -52,6 +52,14 @@ export class TabManagerService {
    */
   private readonly _streamingTabIds = signal<Set<string>>(new Set());
 
+  /**
+   * Signal emitted when a pop-out panel needs to load a specific session.
+   * SessionLoaderService listens to this to trigger session loading,
+   * breaking the circular dependency (TabManager → SessionLoader → TabManager).
+   */
+  private readonly _pendingSessionLoad = signal<string | null>(null);
+  readonly pendingSessionLoad = this._pendingSessionLoad.asReadonly();
+
   // Debounce timer for localStorage saves (reduces spam during streaming)
   private _saveTimeout: ReturnType<typeof setTimeout> | null = null;
   private readonly SAVE_DEBOUNCE_MS = 500;
@@ -177,26 +185,18 @@ export class TabManagerService {
         ptahConfig?.initialSessionName || undefined
       );
 
-      // Defer session loading -- SessionLoaderService loads messages via chat:resume RPC.
-      // Uses dynamic import() to avoid circular dependency (SessionLoader -> TabManager).
-      const injector = this.injector;
-      const sid = initialSessionId;
-      setTimeout(() => {
-        import('./chat-store/session-loader.service')
-          .then(({ SessionLoaderService }) => {
-            injector.get(SessionLoaderService).switchSession(sid);
-          })
-          .catch((err) => {
-            console.error(
-              '[TabManager] Failed to load session for initial tab:',
-              err
-            );
-          });
-      }, 0);
+      // Signal that a session needs loading. SessionLoaderService listens to this
+      // signal via effect() — no circular dependency needed.
+      this._pendingSessionLoad.set(initialSessionId);
     }
     // No default tab creation -- the empty state is shown when there are no tabs.
     // A tab is created on-demand when the user sends their first message
     // (ConversationService.startNewConversation auto-creates a tab if none exists).
+  }
+
+  /** Clear the pending session load signal after it has been consumed. */
+  clearPendingSessionLoad(): void {
+    this._pendingSessionLoad.set(null);
   }
 
   // ============================================================================

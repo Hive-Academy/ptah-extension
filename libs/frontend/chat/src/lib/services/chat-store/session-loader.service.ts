@@ -14,7 +14,7 @@
  * all message reconstruction.
  */
 
-import { Injectable, signal, inject } from '@angular/core';
+import { Injectable, signal, inject, effect } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
@@ -61,6 +61,19 @@ export class SessionLoaderService {
   readonly hasMoreSessions = this._hasMoreSessions.asReadonly();
   readonly totalSessions = this._totalSessions.asReadonly();
   readonly isLoadingMoreSessions = this._isLoadingMoreSessions.asReadonly();
+
+  constructor() {
+    // React to pop-out panel session load requests from TabManagerService.
+    // This effect breaks the circular dependency: TabManager emits a signal,
+    // SessionLoader consumes it — no import from SessionLoader in TabManager.
+    effect(() => {
+      const sessionId = this.tabManager.pendingSessionLoad();
+      if (sessionId) {
+        this.tabManager.clearPendingSessionLoad();
+        this.switchSession(sessionId);
+      }
+    });
+  }
 
   // ============================================================================
   // SESSION LOADING & PAGINATION
