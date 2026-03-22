@@ -451,6 +451,17 @@ export class ChatStore {
     this.sessionLoader.clearResumableSubagents();
   }
 
+  /**
+   * Remove a single resumable subagent by toolCallId.
+   * Delegates to SessionLoaderService.
+   *
+   * Called when the user resumes one specific agent so that only that
+   * agent is removed from the banner while others remain visible.
+   */
+  removeResumableSubagent(toolCallId: string): void {
+    this.sessionLoader.removeResumableSubagent(toolCallId);
+  }
+
   // TASK_2025_109: handleSubagentResume method removed - now uses context injection
   // Subagent resumption is handled via context injection in chat:continue RPC.
   // When a parent session continues, interrupted subagent context is injected

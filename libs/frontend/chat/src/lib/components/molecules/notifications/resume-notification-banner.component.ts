@@ -133,12 +133,6 @@ export class ResumeNotificationBannerComponent {
   readonly resumeRequested = output<SubagentRecord>();
 
   /**
-   * Emits when user clicks "Resume All" button.
-   * @deprecated Use resumeRequested for per-agent resume. Kept for backward compatibility.
-   */
-  readonly resumeAllRequested = output<void>();
-
-  /**
    * Icons
    */
   protected readonly PlayCircleIcon = PlayCircle;
@@ -168,7 +162,7 @@ export class ResumeNotificationBannerComponent {
    * Compute a human-readable relative time string from a timestamp.
    * Returns "just now", "X min ago", or "X hr ago" depending on elapsed time.
    */
-  getTimeSince(timestamp: number | undefined): string {
+  protected getTimeSince(timestamp: number | undefined): string {
     if (timestamp == null) {
       return '';
     }
@@ -194,14 +188,5 @@ export class ResumeNotificationBannerComponent {
 
     const hours = Math.floor(minutes / 60);
     return `${hours} hr ago`;
-  }
-
-  /**
-   * Reset dismissed state manually
-   * @deprecated No longer needed - the component auto-resets via effect when new subagents arrive.
-   * Kept for backward compatibility.
-   */
-  public resetDismissed(): void {
-    this.dismissed.set(false);
   }
 }

@@ -345,7 +345,7 @@ export class SessionLoaderService {
         });
         this.sessionManager.setStatus('loaded');
 
-        // TASK_2025_213: Clear resumableSubagents for simple-message sessions
+        // TASK_2025_213: Set resumableSubagents from chat:resume response (empty for simple-message sessions)
         this._resumableSubagents.set(resumableSubagents ?? []);
 
         // TASK_2025_168: Also load CLI sessions in fallback branch
@@ -369,6 +369,8 @@ export class SessionLoaderService {
       }
     } catch (error) {
       console.error('[SessionLoaderService] Failed to switch session:', error);
+      // Clear stale resumable subagents from previous session on switch failure
+      this._resumableSubagents.set([]);
     }
   }
 
@@ -420,6 +422,18 @@ export class SessionLoaderService {
    */
   clearResumableSubagents(): void {
     this._resumableSubagents.set([]);
+  }
+
+  /**
+   * Remove a single resumable subagent by toolCallId.
+   *
+   * Called when the user resumes one specific agent so that only that
+   * agent is removed from the banner while others remain visible.
+   */
+  removeResumableSubagent(toolCallId: string): void {
+    this._resumableSubagents.update((agents) =>
+      agents.filter((a) => a.toolCallId !== toolCallId)
+    );
   }
 
   // ============================================================================

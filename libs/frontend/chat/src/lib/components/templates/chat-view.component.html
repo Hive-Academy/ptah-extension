@@ -68,14 +68,12 @@
   </div>
 
   <!-- Resume Notification Banner -->
-  @if (chatStore.resumableSubagents().length > 0) {
   <div class="px-2 py-1">
     <ptah-resume-notification-banner
       [resumableSubagents]="chatStore.resumableSubagents()"
       (resumeRequested)="handleResumeAgent($event)"
     />
   </div>
-  }
 
   <!-- Collapsed Permission Badge (doesn't block chat area) -->
   <ptah-permission-badge

@@ -224,7 +224,7 @@ export class ChatViewComponent {
   handleResumeAgent(agent: SubagentRecord): void {
     const prompt = `Resume the interrupted ${agent.agentType} agent (agentId: ${agent.agentId}) using the Task tool with resume parameter set to "${agent.agentId}".`;
     this.chatStore.sendMessage(prompt);
-    this.chatStore.clearResumableSubagents();
+    this.chatStore.removeResumableSubagent(agent.toolCallId);
   }
 
   private scrollToBottom(): void {
