@@ -297,6 +297,43 @@ export interface SessionCliSessionsResult {
 }
 
 // ============================================================
+// Session Stats Batch RPC Types (TASK_2025_206 v2)
+// ============================================================
+
+/** Per-session stats returned from JSONL reading */
+export interface SessionStatsEntry {
+  /** Session ID */
+  readonly sessionId: string;
+  /** Detected model from JSONL init message */
+  readonly model: string | null;
+  /** Total cost in USD (calculated with model-aware pricing) */
+  readonly totalCost: number;
+  /** Token breakdown */
+  readonly tokens: {
+    readonly input: number;
+    readonly output: number;
+    readonly cacheRead: number;
+    readonly cacheCreation: number;
+  };
+  /** Number of assistant messages */
+  readonly messageCount: number;
+}
+
+/** Parameters for session:stats-batch RPC method */
+export interface SessionStatsBatchParams {
+  /** Session IDs to fetch stats for */
+  readonly sessionIds: string[];
+  /** Workspace path (for locating JSONL files) */
+  readonly workspacePath: string;
+}
+
+/** Response from session:stats-batch RPC method */
+export interface SessionStatsBatchResult {
+  /** Stats for each requested session (order matches sessionIds) */
+  readonly sessionStats: SessionStatsEntry[];
+}
+
+// ============================================================
 // Context RPC Types
 // ============================================================
 
@@ -1431,6 +1468,8 @@ export interface AgentOrchestrationConfig {
   codexAutoApprove: boolean;
   /** Auto-approve all Copilot tool calls without user prompt (default: true) */
   copilotAutoApprove: boolean;
+  /** MCP server port (default: 51820) */
+  mcpPort: number;
 }
 
 /** CLI model option for agent:listCliModels */
@@ -1470,6 +1509,8 @@ export interface AgentSetConfigParams {
   codexReasoningEffort?: string;
   /** Copilot reasoning effort override */
   copilotReasoningEffort?: string;
+  /** MCP server port (1024-65535, default: 51820) */
+  mcpPort?: number;
 }
 
 // ============================================================
@@ -1603,6 +1644,10 @@ export interface RpcMethodRegistry {
   'session:cli-sessions': {
     params: SessionCliSessionsParams;
     result: SessionCliSessionsResult;
+  };
+  'session:stats-batch': {
+    params: SessionStatsBatchParams;
+    result: SessionStatsBatchResult;
   };
 
   // ---- Context Methods ----
@@ -2041,6 +2086,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'session:delete',
   'session:validate',
   'session:cli-sessions',
+  'session:stats-batch',
 
   // Context Methods
   'context:getAllFiles',

@@ -1,14 +1,17 @@
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
+import { AggregateTotals } from '../../services/session-analytics-state.service';
 import { formatCost, formatTokenCount } from '../../utils/format.utils';
 
 /**
  * MetricsCardsComponent
  *
- * Presentational component displaying 5 stat cards for session analytics:
- * Total Estimated Cost, Input Tokens, Output Tokens, Sessions, and Avg Cost/Session.
+ * Presentational component displaying 4 aggregate stat cards:
+ * Total Cost, Total Tokens, Messages, and Sessions.
  *
- * Uses DaisyUI stat classes in a responsive grid layout.
- * No service injection -- purely presentational.
+ * Accepts a single `AggregateTotals` input (from SessionAnalyticsStateService).
+ * Uses the same design system as SessionStatsSummaryComponent.
+ *
+ * TASK_2025_206 v2: Simplified from 5 individual inputs to single aggregate object.
  */
 @Component({
   selector: 'ptah-session-metrics-cards',
@@ -17,81 +20,68 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
-      class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3"
+      class="grid grid-cols-2 sm:grid-cols-4 gap-3"
       role="region"
-      aria-label="Usage metrics"
+      aria-label="Aggregate session metrics"
     >
+      <!-- Total Cost -->
       <div
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20"
       >
         <div
           class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
         >
-          Total Est. Cost
+          Total Cost
         </div>
         <div class="text-lg font-semibold text-success tabular-nums">
-          {{ formatCost(totalCost()) }}
+          {{ formatCost(aggregates().totalCost) }}
         </div>
       </div>
 
+      <!-- Total Tokens -->
       <div
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-cyan-600/20"
       >
         <div
           class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
         >
-          Input Tokens
+          Total Tokens
         </div>
         <div class="text-lg font-semibold text-cyan-400 tabular-nums">
-          {{ formatTokenCount(totalInputTokens()) }}
+          {{ formatTokenCount(aggregates().totalTokens) }}
         </div>
       </div>
 
+      <!-- Total Messages -->
+      <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-info/20">
+        <div
+          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
+        >
+          Messages
+        </div>
+        <div class="text-lg font-semibold text-info tabular-nums">
+          {{ aggregates().totalMessages }}
+        </div>
+      </div>
+
+      <!-- Sessions Shown -->
       <div
         class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-purple-600/20"
       >
         <div
           class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
         >
-          Output Tokens
-        </div>
-        <div class="text-lg font-semibold text-purple-400 tabular-nums">
-          {{ formatTokenCount(totalOutputTokens()) }}
-        </div>
-      </div>
-
-      <div class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-info/20">
-        <div
-          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
-        >
           Sessions
         </div>
-        <div class="text-lg font-semibold text-info tabular-nums">
-          {{ sessionCount() }}
-        </div>
-      </div>
-
-      <div
-        class="bg-base-200/50 rounded-lg px-3 py-2.5 border border-success/20"
-      >
-        <div
-          class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1"
-        >
-          Avg Cost/Session
-        </div>
-        <div class="text-lg font-semibold text-success tabular-nums">
-          {{ formatCost(avgCostPerSession()) }}
+        <div class="text-lg font-semibold text-purple-400 tabular-nums">
+          {{ aggregates().sessionCount }}
         </div>
       </div>
     </div>
   `,
 })
 export class MetricsCardsComponent {
-  readonly totalCost = input.required<number>();
-  readonly totalInputTokens = input.required<number>();
-  readonly totalOutputTokens = input.required<number>();
-  readonly sessionCount = input.required<number>();
-  readonly avgCostPerSession = input.required<number>();
+  readonly aggregates = input.required<AggregateTotals>();
 
   readonly formatCost = formatCost;
   readonly formatTokenCount = formatTokenCount;

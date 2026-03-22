@@ -11,7 +11,11 @@
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, RpcHandler, TOKENS } from '@ptah-extension/vscode-core';
-import { SessionMetadataStore, SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import {
+  SessionMetadataStore,
+  SDK_TOKENS,
+  SessionHistoryReaderService,
+} from '@ptah-extension/agent-sdk';
 import {
   SessionId,
   SessionListParams,
@@ -19,6 +23,9 @@ import {
   SessionLoadParams,
   SessionLoadResult,
   CliSessionReference,
+  SessionStatsBatchParams,
+  SessionStatsBatchResult,
+  SessionStatsEntry,
 } from '@ptah-extension/shared';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -38,7 +45,9 @@ export class SessionRpcHandlers {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
-    private readonly metadataStore: SessionMetadataStore
+    private readonly metadataStore: SessionMetadataStore,
+    @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
+    private readonly historyReader: SessionHistoryReaderService
   ) {}
 
   /**
@@ -50,6 +59,7 @@ export class SessionRpcHandlers {
     this.registerSessionDelete();
     this.registerSessionValidate();
     this.registerSessionCliSessions();
+    this.registerSessionStatsBatch();
 
     this.logger.debug('Session RPC handlers registered', {
       methods: [
@@ -58,6 +68,7 @@ export class SessionRpcHandlers {
         'session:delete',
         'session:validate',
         'session:cli-sessions',
+        'session:stats-batch',
       ],
     });
   }
@@ -428,6 +439,92 @@ export class SessionRpcHandlers {
           error instanceof Error ? error : new Error(String(error))
         );
         return { cliSessions: [] };
+      }
+    });
+  }
+
+  /**
+   * session:stats-batch - Batch fetch real stats for multiple sessions from JSONL files
+   *
+   * Reads JSONL files via SessionHistoryReaderService to get accurate per-session
+   * stats (cost, tokens, model, message count). This bypasses the broken metadata
+   * pipeline (addStats never called) and reads directly from source of truth.
+   *
+   * TASK_2025_206 v2: Dashboard redesign with per-session stats cards
+   */
+  private registerSessionStatsBatch(): void {
+    this.rpcHandler.registerMethod<
+      SessionStatsBatchParams,
+      SessionStatsBatchResult
+    >('session:stats-batch', async (params: SessionStatsBatchParams) => {
+      try {
+        const { sessionIds, workspacePath } = params;
+        this.logger.debug('RPC: session:stats-batch called', {
+          sessionCount: sessionIds.length,
+          workspacePath,
+        });
+
+        const sessionStats: SessionStatsEntry[] = [];
+
+        // Process sessions sequentially to avoid overwhelming file system
+        for (const sessionId of sessionIds) {
+          try {
+            const { stats } = await this.historyReader.readSessionHistory(
+              sessionId,
+              workspacePath
+            );
+
+            sessionStats.push({
+              sessionId,
+              model: stats?.model ?? null,
+              totalCost: stats?.totalCost ?? 0,
+              tokens: stats?.tokens ?? {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheCreation: 0,
+              },
+              messageCount: stats?.messageCount ?? 0,
+            });
+          } catch (error) {
+            // Individual session failure should not break the batch
+            this.logger.warn('RPC: session:stats-batch - failed for session', {
+              sessionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            sessionStats.push({
+              sessionId,
+              model: null,
+              totalCost: 0,
+              tokens: {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheCreation: 0,
+              },
+              messageCount: 0,
+            });
+          }
+        }
+
+        this.logger.debug('RPC: session:stats-batch completed', {
+          sessionCount: sessionIds.length,
+          successCount: sessionStats.filter(
+            (s) => s.totalCost > 0 || s.messageCount > 0
+          ).length,
+        });
+
+        return { sessionStats };
+      } catch (error) {
+        this.logger.error(
+          'RPC: session:stats-batch failed',
+          error instanceof Error ? error : new Error(String(error))
+        );
+        throw new Error(
+          `Failed to fetch session stats batch: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
       }
     });
   }

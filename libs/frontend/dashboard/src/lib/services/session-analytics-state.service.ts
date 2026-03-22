@@ -1,298 +1,214 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
+import { ClaudeRpcService, AppStateManager } from '@ptah-extension/core';
 import {
-  SESSION_DATA_PROVIDER,
-  type ISessionDataProvider,
-} from '@ptah-extension/core';
-import {
-  calculateMessageCost,
-  ChatSessionSummary,
-  MessageTokenUsage,
+  SessionStatsEntry,
+  formatModelDisplayName,
 } from '@ptah-extension/shared';
 
 /**
- * Sort fields available for session table sorting.
+ * Merged session data: metadata from session:list + stats from session:stats-batch.
+ *
+ * Combines trusted metadata (name, dates) from SessionMetadataStore with
+ * real per-session stats (cost, tokens, model, messageCount) read from JSONL files.
  */
-export type SortField =
-  | 'name'
-  | 'createdAt'
-  | 'lastActivityAt'
-  | 'inputTokens'
-  | 'outputTokens'
-  | 'estimatedCost'
-  | 'messageCount';
-
-/**
- * Session summary enriched with an estimated cost value.
- * Cost is null when tokenUsage data is unavailable.
- */
-export interface SessionWithCost extends ChatSessionSummary {
-  readonly estimatedCost: number | null;
+export interface DashboardSessionEntry {
+  readonly sessionId: string;
+  readonly name: string;
+  readonly createdAt: number;
+  readonly lastActivityAt: number;
+  readonly model: string | null;
+  readonly modelDisplayName: string;
+  readonly totalCost: number;
+  readonly tokens: {
+    readonly input: number;
+    readonly output: number;
+    readonly cacheRead: number;
+    readonly cacheCreation: number;
+  };
+  readonly messageCount: number;
 }
 
 /**
- * Breakdown of token usage across categories with absolute counts and percentages.
+ * Aggregate totals computed from displayed sessions.
+ * Single-pass computation for efficiency.
  */
-export interface TokenBreakdownData {
-  readonly input: number;
-  readonly output: number;
-  readonly cacheRead: number;
-  readonly cacheCreation: number;
-  readonly total: number;
-  readonly inputPercent: number;
-  readonly outputPercent: number;
-  readonly cacheReadPercent: number;
-  readonly cacheCreationPercent: number;
+export interface AggregateTotals {
+  readonly totalCost: number;
+  readonly totalTokens: number;
+  readonly totalInput: number;
+  readonly totalOutput: number;
+  readonly totalCacheRead: number;
+  readonly totalCacheCreation: number;
+  readonly totalMessages: number;
+  readonly sessionCount: number;
 }
 
 /**
- * SessionAnalyticsStateService
+ * SessionAnalyticsStateService (v2)
  *
- * Signal-based state service for session analytics dashboard.
- * Consumes ChatStore sessions and computes all analytics metrics reactively.
+ * Signal-based state service for the session analytics dashboard.
+ * Makes direct RPC calls to fetch session metadata and real stats from JSONL files.
  *
- * Responsibilities:
- * - Enrich sessions with estimated cost using default model pricing
- * - Compute aggregate token and cost metrics (single-pass)
- * - Provide sorted sessions with configurable sort field/direction
- * - Manage loading/error states for session data
- * - Delegate session loading to ChatStore
+ * Data flow:
+ * 1. Calls `session:list` to get session metadata (names, dates, IDs)
+ * 2. Calls `session:stats-batch` with session IDs to get real stats from JSONL files
+ * 3. Merges metadata + stats into DashboardSessionEntry[]
+ * 4. Exposes computed signals for displayed sessions, aggregates, and display toggle
+ *
+ * TASK_2025_206 v2: Replaces v1 service that depended on broken ChatStore metadata pipeline.
  */
 @Injectable({ providedIn: 'root' })
 export class SessionAnalyticsStateService {
-  /** Using empty string triggers default pricing (Sonnet 4.5 rates) via findModelPricing fallback */
-  private static readonly DEFAULT_MODEL_FOR_ESTIMATION = '';
+  private readonly rpc = inject(ClaudeRpcService);
+  private readonly appState = inject(AppStateManager);
 
-  private readonly sessionProvider = inject(SESSION_DATA_PROVIDER);
-
-  // Private writable signals for sort state
-  private readonly _sortField = signal<SortField>('lastActivityAt');
-  private readonly _sortDirection = signal<'asc' | 'desc'>('desc');
-
-  // Private writable signals for loading/error state
+  // -- Private writable signals --
+  private readonly _allSessions = signal<DashboardSessionEntry[]>([]);
+  private readonly _displayCount = signal<5 | 10>(5);
   private readonly _isLoading = signal(false);
   private readonly _loadError = signal<string | null>(null);
 
-  // Public readonly signals delegated from ChatStore
-  readonly sessions = this.sessionProvider.sessions;
-  readonly hasMoreSessions = this.sessionProvider.hasMoreSessions;
-  readonly isLoadingMore = this.sessionProvider.isLoadingMoreSessions;
-
-  // Public readonly loading/error signals
+  // -- Public readonly signals --
   readonly isLoading = this._isLoading.asReadonly();
   readonly loadError = this._loadError.asReadonly();
+  readonly displayCount = this._displayCount.asReadonly();
 
-  // Public readonly sort signals
-  readonly sortField = this._sortField.asReadonly();
-  readonly sortDirection = this._sortDirection.asReadonly();
+  /** All sessions with merged metadata and stats. */
+  readonly allSessions = this._allSessions.asReadonly();
 
-  /**
-   * Sessions enriched with estimated cost.
-   * Uses default model pricing (Sonnet 4.5 fallback via DEFAULT_MODEL_FOR_ESTIMATION).
-   * Sessions without tokenUsage get estimatedCost: null.
-   */
-  readonly sessionsWithCost = computed<SessionWithCost[]>(() => {
-    return this.sessions().map((session) => {
-      if (!session.tokenUsage) {
-        return { ...session, estimatedCost: null };
-      }
-
-      const tokenUsage: MessageTokenUsage = session.tokenUsage;
-      const estimatedCost = calculateMessageCost(
-        SessionAnalyticsStateService.DEFAULT_MODEL_FOR_ESTIMATION,
-        {
-          input: tokenUsage.input,
-          output: tokenUsage.output,
-          cacheHit: tokenUsage.cacheRead,
-          cacheCreation: tokenUsage.cacheCreation,
-        }
-      );
-
-      return { ...session, estimatedCost };
-    });
+  /** Sessions to display, sliced by the current displayCount (5 or 10). */
+  readonly displayedSessions = computed(() => {
+    return this._allSessions().slice(0, this._displayCount());
   });
 
-  /** Total number of sessions currently loaded. */
-  readonly totalSessions = computed(() => this.sessions().length);
+  /** Whether there are more sessions available than currently displayed. */
+  readonly hasMoreToShow = computed(() => {
+    return this._allSessions().length > this._displayCount();
+  });
 
   /**
-   * Single-pass aggregation of token data across all sessions.
-   * Avoids six separate array iterations by computing all token totals in one loop.
+   * Aggregate totals across displayed sessions.
+   * Single-pass loop for efficiency -- avoids multiple array iterations.
    */
-  private readonly aggregates = computed(() => {
-    const sessions = this.sessions();
-    let totalInput = 0;
-    let totalOutput = 0;
-    let totalCacheRead = 0;
-    let totalCacheCreation = 0;
-    let withTokenData = 0;
+  readonly aggregates = computed<AggregateTotals>(() => {
+    const sessions = this.displayedSessions();
+    let totalCost = 0,
+      totalInput = 0,
+      totalOutput = 0;
+    let totalCacheRead = 0,
+      totalCacheCreation = 0,
+      totalMessages = 0;
 
     for (const s of sessions) {
-      if (s.tokenUsage) {
-        withTokenData++;
-        totalInput += s.tokenUsage.input;
-        totalOutput += s.tokenUsage.output;
-        totalCacheRead += s.tokenUsage.cacheRead ?? 0;
-        totalCacheCreation += s.tokenUsage.cacheCreation ?? 0;
-      }
+      totalCost += s.totalCost;
+      totalInput += s.tokens.input;
+      totalOutput += s.tokens.output;
+      totalCacheRead += s.tokens.cacheRead;
+      totalCacheCreation += s.tokens.cacheCreation;
+      totalMessages += s.messageCount;
     }
 
     return {
+      totalCost,
+      totalTokens:
+        totalInput + totalOutput + totalCacheRead + totalCacheCreation,
       totalInput,
       totalOutput,
       totalCacheRead,
       totalCacheCreation,
-      withTokenData,
+      totalMessages,
+      sessionCount: sessions.length,
     };
   });
 
-  /** Sum of all estimated costs across sessions with token data. */
-  readonly totalEstimatedCost = computed(() => {
-    return this.sessionsWithCost().reduce((sum, session) => {
-      return sum + (session.estimatedCost ?? 0);
-    }, 0);
-  });
+  // -- Actions --
 
-  /** Sum of input tokens across all sessions. */
-  readonly totalInputTokens = computed(() => this.aggregates().totalInput);
-
-  /** Sum of output tokens across all sessions. */
-  readonly totalOutputTokens = computed(() => this.aggregates().totalOutput);
-
-  /** Sum of cache read tokens across all sessions. */
-  readonly totalCacheReadTokens = computed(
-    () => this.aggregates().totalCacheRead
-  );
-
-  /** Sum of cache creation tokens across all sessions. */
-  readonly totalCacheCreationTokens = computed(
-    () => this.aggregates().totalCacheCreation
-  );
-
-  /** Count of sessions that have token usage data. */
-  readonly sessionsWithTokenData = computed(
-    () => this.aggregates().withTokenData
-  );
-
-  /** Average estimated cost per session (only sessions with token data). */
-  readonly avgCostPerSession = computed(() => {
-    const count = this.sessionsWithTokenData();
-    if (count === 0) return 0;
-    return this.totalEstimatedCost() / count;
-  });
-
-  /** Token breakdown with absolute counts and percentages. */
-  readonly tokenBreakdown = computed<TokenBreakdownData>(() => {
-    const input = this.totalInputTokens();
-    const output = this.totalOutputTokens();
-    const cacheRead = this.totalCacheReadTokens();
-    const cacheCreation = this.totalCacheCreationTokens();
-    const total = input + output + cacheRead + cacheCreation;
-
-    if (total === 0) {
-      return {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheCreation: 0,
-        total: 0,
-        inputPercent: 0,
-        outputPercent: 0,
-        cacheReadPercent: 0,
-        cacheCreationPercent: 0,
-      };
-    }
-
-    return {
-      input,
-      output,
-      cacheRead,
-      cacheCreation,
-      total,
-      inputPercent: (input / total) * 100,
-      outputPercent: (output / total) * 100,
-      cacheReadPercent: (cacheRead / total) * 100,
-      cacheCreationPercent: (cacheCreation / total) * 100,
-    };
-  });
-
-  /** Sessions with cost, sorted by the active sort field and direction. */
-  readonly sortedSessions = computed<SessionWithCost[]>(() => {
-    const sessions = [...this.sessionsWithCost()];
-    const field = this._sortField();
-    const direction = this._sortDirection();
-    const multiplier = direction === 'asc' ? 1 : -1;
-
-    return sessions.sort((a, b) => {
-      switch (field) {
-        case 'name':
-          return multiplier * a.name.localeCompare(b.name);
-
-        case 'createdAt':
-          return multiplier * (a.createdAt - b.createdAt);
-
-        case 'lastActivityAt':
-          return multiplier * (a.lastActivityAt - b.lastActivityAt);
-
-        case 'inputTokens':
-          return (
-            multiplier *
-            ((a.tokenUsage?.input ?? 0) - (b.tokenUsage?.input ?? 0))
-          );
-
-        case 'outputTokens':
-          return (
-            multiplier *
-            ((a.tokenUsage?.output ?? 0) - (b.tokenUsage?.output ?? 0))
-          );
-
-        case 'estimatedCost':
-          return multiplier * ((a.estimatedCost ?? 0) - (b.estimatedCost ?? 0));
-
-        case 'messageCount':
-          return multiplier * (a.messageCount - b.messageCount);
-
-        default:
-          return 0;
-      }
-    });
-  });
-
-  /**
-   * Set or toggle the sort field.
-   * If the same field is clicked, toggles direction.
-   * If a new field is selected, sets it with ascending direction.
-   */
-  setSortField(field: SortField): void {
-    if (this._sortField() === field) {
-      this._sortDirection.set(this._sortDirection() === 'asc' ? 'desc' : 'asc');
-    } else {
-      this._sortField.set(field);
-      this._sortDirection.set('asc');
-    }
-  }
-
-  /** Delegate to ChatStore to load the next page of sessions. */
-  loadMoreSessions(): Promise<void> {
-    return this.sessionProvider.loadMoreSessions();
+  /** Toggle between showing 5 and 10 sessions. */
+  setDisplayCount(count: 5 | 10): void {
+    this._displayCount.set(count);
   }
 
   /**
-   * Load sessions if none are currently loaded.
-   * Manages loading/error state so the UI can show appropriate feedback.
+   * Load dashboard data: session list + batch stats from JSONL files.
+   *
+   * Two-step process:
+   * 1. `session:list` for metadata (names, dates, IDs) -- trusted source
+   * 2. `session:stats-batch` for real stats (cost, tokens, model) -- from JSONL files
+   *
+   * Called on dashboard mount via ngOnInit.
    */
-  async ensureSessionsLoaded(): Promise<void> {
-    if (this.sessions().length === 0 && !this._isLoading()) {
-      this._isLoading.set(true);
-      this._loadError.set(null);
-      try {
-        await this.sessionProvider.loadSessions();
-      } catch (err) {
-        this._loadError.set(
-          err instanceof Error ? err.message : 'Failed to load sessions'
-        );
-      } finally {
-        this._isLoading.set(false);
+  async loadDashboardData(): Promise<void> {
+    if (this._isLoading()) return;
+
+    this._isLoading.set(true);
+    this._loadError.set(null);
+
+    try {
+      const workspacePath = this.appState.workspaceInfo()?.path || '';
+
+      // Step 1: Get session list (metadata: ids, names, dates)
+      const listResult = await this.rpc.call('session:list', {
+        workspacePath,
+        limit: 30,
+        offset: 0,
+      });
+
+      if (!listResult.isSuccess() || !listResult.data) {
+        throw new Error(listResult.error || 'Failed to load session list');
       }
+
+      const sessionList = listResult.data.sessions;
+      if (sessionList.length === 0) {
+        this._allSessions.set([]);
+        return;
+      }
+
+      // Step 2: Get real stats for all sessions from JSONL files
+      const sessionIds = sessionList.map((s) => s.id);
+      const statsResult = await this.rpc.call('session:stats-batch', {
+        sessionIds,
+        workspacePath,
+      });
+
+      if (!statsResult.isSuccess() || !statsResult.data) {
+        throw new Error(statsResult.error || 'Failed to load session stats');
+      }
+
+      // Step 3: Merge metadata + stats using Map for O(1) lookups
+      const statsMap = new Map<string, SessionStatsEntry>();
+      for (const stat of statsResult.data.sessionStats) {
+        statsMap.set(stat.sessionId, stat);
+      }
+
+      const merged: DashboardSessionEntry[] = sessionList.map((session) => {
+        const stats = statsMap.get(session.id);
+        return {
+          sessionId: session.id,
+          name: session.name,
+          createdAt: session.createdAt,
+          lastActivityAt: session.lastActivityAt,
+          model: stats?.model ?? null,
+          modelDisplayName: stats?.model
+            ? formatModelDisplayName(stats.model)
+            : 'Unknown',
+          totalCost: stats?.totalCost ?? 0,
+          tokens: stats?.tokens ?? {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheCreation: 0,
+          },
+          messageCount: stats?.messageCount ?? 0,
+        };
+      });
+
+      this._allSessions.set(merged);
+    } catch (err) {
+      this._loadError.set(
+        err instanceof Error ? err.message : 'Failed to load dashboard data'
+      );
+    } finally {
+      this._isLoading.set(false);
     }
   }
 }

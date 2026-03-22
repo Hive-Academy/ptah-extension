@@ -3,43 +3,35 @@ import {
   ChangeDetectionStrategy,
   inject,
   OnInit,
+  computed,
 } from '@angular/core';
-import {
-  SessionAnalyticsStateService,
-  SortField,
-} from '../../services/session-analytics-state.service';
+import { SessionAnalyticsStateService } from '../../services/session-analytics-state.service';
 import { MetricsCardsComponent } from './metrics-cards.component';
-import { SessionHistoryTableComponent } from './session-history-table.component';
-import { TokenUsageBreakdownComponent } from './token-usage-breakdown.component';
+import { SessionStatsCardComponent } from './session-stats-card.component';
 import { AppStateManager } from '@ptah-extension/core';
 import { LucideAngularModule, ChartColumn, ArrowLeft } from 'lucide-angular';
 
 /**
  * SessionAnalyticsDashboardViewComponent
  *
- * Main layout component for the session analytics dashboard. Composes all
- * child components into a responsive layout and wires the state service.
+ * Main layout component for the session analytics dashboard. Composes:
+ * - Aggregate MetricsCards (top summary row)
+ * - Display count toggle (5 / 10 sessions)
+ * - Per-session SessionStatsCard grid
  *
- * Responsibilities:
- * - Initialize session loading on mount
- * - Compose MetricsCards, TokenUsageBreakdown, and SessionHistoryTable
- * - Provide navigation back to chat view
- * - Wire sort/loadMore events to state service
- * - Display loading/error states during data fetch
+ * Data flow:
+ * - ngOnInit calls analyticsState.loadDashboardData() to fetch session:list + session:stats-batch
+ * - All display data comes from SessionAnalyticsStateService computed signals
+ * - No sort logic needed (sessions pre-sorted by lastActiveAt desc from backend)
  *
- * Component Hierarchy:
- *   SessionAnalyticsDashboardViewComponent
- *   +-- MetricsCardsComponent (5 stat cards)
- *   +-- TokenUsageBreakdownComponent (progress bars)
- *   +-- SessionHistoryTableComponent (sortable table)
+ * TASK_2025_206 v2: Replaces flat table layout with card-based per-session display.
  */
 @Component({
   selector: 'ptah-session-analytics-dashboard',
   standalone: true,
   imports: [
     MetricsCardsComponent,
-    SessionHistoryTableComponent,
-    TokenUsageBreakdownComponent,
+    SessionStatsCardComponent,
     LucideAngularModule,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -52,7 +44,7 @@ import { LucideAngularModule, ChartColumn, ArrowLeft } from 'lucide-angular';
           <span
             class="badge badge-outline badge-sm gap-1 text-[10px] text-base-content/50 border-base-content/20"
           >
-            Estimated costs (default pricing)
+            Real costs from JSONL
           </span>
         </div>
         <button
@@ -76,7 +68,9 @@ import { LucideAngularModule, ChartColumn, ArrowLeft } from 'lucide-angular';
         aria-label="Loading session analytics"
       >
         <span class="loading loading-spinner loading-lg"></span>
-        <p class="text-sm text-base-content/50 mt-4">Loading session data...</p>
+        <p class="text-sm text-base-content/50 mt-4">
+          Reading session history...
+        </p>
       </div>
       } @else if (loadError()) {
       <!-- Error state -->
@@ -90,7 +84,7 @@ import { LucideAngularModule, ChartColumn, ArrowLeft } from 'lucide-angular';
           Retry
         </button>
       </div>
-      } @else if (sessions().length === 0) {
+      } @else if (displayedSessions().length === 0) {
       <!-- Empty state -->
       <div
         class="flex flex-col items-center justify-center p-12 text-base-content/50"
@@ -103,28 +97,39 @@ import { LucideAngularModule, ChartColumn, ArrowLeft } from 'lucide-angular';
         <p class="text-sm">No sessions found. Start a chat to see analytics.</p>
       </div>
       } @else {
-      <!-- Metrics Cards -->
-      <ptah-session-metrics-cards
-        [totalCost]="totalEstimatedCost()"
-        [totalInputTokens]="totalInputTokens()"
-        [totalOutputTokens]="totalOutputTokens()"
-        [sessionCount]="totalSessions()"
-        [avgCostPerSession]="avgCostPerSession()"
-      />
+      <!-- Aggregate Metrics Cards -->
+      <ptah-session-metrics-cards [aggregates]="aggregates()" />
 
-      <!-- Token Usage Breakdown -->
-      <ptah-token-usage-breakdown [breakdown]="tokenBreakdown()" />
+      <!-- Display Count Toggle -->
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-base-content/50">Show:</span>
+        <div class="join">
+          <button
+            class="join-item btn btn-xs"
+            [class.btn-active]="displayCount() === 5"
+            (click)="setDisplayCount(5)"
+          >
+            5
+          </button>
+          <button
+            class="join-item btn btn-xs"
+            [class.btn-active]="displayCount() === 10"
+            (click)="setDisplayCount(10)"
+          >
+            10
+          </button>
+        </div>
+        <span class="text-[10px] text-base-content/40">
+          of {{ allSessionCount() }} sessions
+        </span>
+      </div>
 
-      <!-- Session History Table -->
-      <ptah-session-history-table
-        [sessions]="sortedSessions()"
-        [sortField]="sortField()"
-        [sortDirection]="sortDirection()"
-        [hasMore]="hasMoreSessions()"
-        [isLoadingMore]="isLoadingMore()"
-        (sortChanged)="onSortChanged($event)"
-        (loadMore)="onLoadMore()"
-      />
+      <!-- Session Stats Cards Grid -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        @for (session of displayedSessions(); track session.sessionId) {
+        <ptah-session-stats-card [session]="session" />
+        }
+      </div>
       }
     </div>
   `,
@@ -140,21 +145,15 @@ export class SessionAnalyticsDashboardViewComponent implements OnInit {
   // Local signal delegates from state service
   readonly isLoading = this.analyticsState.isLoading;
   readonly loadError = this.analyticsState.loadError;
-  readonly sessions = this.analyticsState.sessions;
-  readonly totalEstimatedCost = this.analyticsState.totalEstimatedCost;
-  readonly totalInputTokens = this.analyticsState.totalInputTokens;
-  readonly totalOutputTokens = this.analyticsState.totalOutputTokens;
-  readonly totalSessions = this.analyticsState.totalSessions;
-  readonly avgCostPerSession = this.analyticsState.avgCostPerSession;
-  readonly tokenBreakdown = this.analyticsState.tokenBreakdown;
-  readonly sortedSessions = this.analyticsState.sortedSessions;
-  readonly sortField = this.analyticsState.sortField;
-  readonly sortDirection = this.analyticsState.sortDirection;
-  readonly hasMoreSessions = this.analyticsState.hasMoreSessions;
-  readonly isLoadingMore = this.analyticsState.isLoadingMore;
+  readonly displayedSessions = this.analyticsState.displayedSessions;
+  readonly aggregates = this.analyticsState.aggregates;
+  readonly displayCount = this.analyticsState.displayCount;
+  readonly allSessionCount = computed(
+    () => this.analyticsState.allSessions().length
+  );
 
   ngOnInit(): void {
-    this.analyticsState.ensureSessionsLoaded();
+    this.analyticsState.loadDashboardData();
   }
 
   navigateBack(): void {
@@ -162,18 +161,10 @@ export class SessionAnalyticsDashboardViewComponent implements OnInit {
   }
 
   retry(): void {
-    this.analyticsState.ensureSessionsLoaded();
+    this.analyticsState.loadDashboardData();
   }
 
-  onSortChanged(field: SortField): void {
-    this.analyticsState.setSortField(field);
-  }
-
-  async onLoadMore(): Promise<void> {
-    try {
-      await this.analyticsState.loadMoreSessions();
-    } catch {
-      // ChatStore handles errors internally
-    }
+  setDisplayCount(count: 5 | 10): void {
+    this.analyticsState.setDisplayCount(count);
   }
 }
