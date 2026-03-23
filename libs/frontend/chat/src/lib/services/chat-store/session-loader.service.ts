@@ -14,7 +14,7 @@
  * all message reconstruction.
  */
 
-import { Injectable, signal, inject, effect } from '@angular/core';
+import { Injectable, signal, inject, effect, untracked } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
@@ -65,6 +65,9 @@ export class SessionLoaderService {
   readonly isLoadingMoreSessions = this._isLoadingMoreSessions.asReadonly();
   readonly resumableSubagents = this._resumableSubagents.asReadonly();
 
+  /** Guard to ensure the restored-session check runs only once */
+  private restoredSessionChecked = false;
+
   constructor() {
     // React to pop-out panel session load requests from TabManagerService.
     // This effect breaks the circular dependency: TabManager emits a signal,
@@ -74,6 +77,29 @@ export class SessionLoaderService {
       if (sessionId) {
         this.tabManager.clearPendingSessionLoad();
         this.switchSession(sessionId);
+      }
+    });
+
+    // TASK_2025_213: Check for resumable subagents on restored sessions.
+    // When VS Code restores the webview from localStorage, TabManager restores
+    // tabs + messages without calling switchSession() (no chat:resume fires).
+    // This means the backend registry is empty and resumableSubagents is never
+    // populated. This one-shot effect fires chat:resume in the background to
+    // populate the signal without reloading messages (those are already cached).
+    effect(() => {
+      const activeTab = this.tabManager.activeTab();
+      if (
+        !this.restoredSessionChecked &&
+        activeTab?.claudeSessionId &&
+        activeTab.status === 'loaded'
+      ) {
+        this.restoredSessionChecked = true;
+        untracked(() =>
+          this.refreshResumableSubagentsForSession(
+            activeTab.claudeSessionId!,
+            activeTab.id
+          )
+        );
       }
     });
   }
@@ -434,6 +460,39 @@ export class SessionLoaderService {
     this._resumableSubagents.update((agents) =>
       agents.filter((a) => a.toolCallId !== toolCallId)
     );
+  }
+
+  /**
+   * TASK_2025_213: Lightweight check for resumable subagents on a restored session.
+   * Calls chat:resume to populate the backend registry and extract resumableSubagents
+   * without reloading the tab's messages (already cached from localStorage).
+   */
+  private async refreshResumableSubagentsForSession(
+    sessionId: string,
+    tabId: string
+  ): Promise<void> {
+    try {
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      const result = await this.claudeRpcService.call('chat:resume', {
+        sessionId: sessionId as SessionId,
+        tabId,
+        workspacePath,
+      });
+
+      const resumableSubagents = result.data?.resumableSubagents;
+      if (resumableSubagents && resumableSubagents.length > 0) {
+        this._resumableSubagents.set(resumableSubagents);
+        console.log(
+          '[SessionLoaderService] Populated resumableSubagents for restored session',
+          { sessionId, count: resumableSubagents.length }
+        );
+      }
+    } catch (error) {
+      console.warn(
+        '[SessionLoaderService] Failed to check resumable subagents for restored session',
+        error
+      );
+    }
   }
 
   // ============================================================================
