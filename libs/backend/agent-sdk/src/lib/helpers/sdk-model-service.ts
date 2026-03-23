@@ -125,11 +125,30 @@ export class SdkModelService {
   /**
    * Get default model - first from supported models
    *
-   * @returns Model ID string (e.g., 'claude-sonnet-4-20250514')
+   * Resolves SDK's 'default' tier to an explicit tier name based on the model's
+   * description, since the SDK's query() API doesn't always resolve 'default'
+   * to the model advertised by supportedModels().
+   *
+   * @returns Model tier string (e.g., 'opus', 'sonnet', 'haiku')
    */
   async getDefaultModel(): Promise<string> {
     const models = await this.getSupportedModels();
-    return models[0]?.value || 'default';
+    const first = models[0];
+    if (!first) return 'default';
+
+    // If SDK returns 'default' as the value, resolve to explicit tier
+    if (first.value.toLowerCase() === 'default') {
+      const desc = (
+        (first.displayName || '') +
+        ' ' +
+        (first.description || '')
+      ).toLowerCase();
+      if (desc.includes('opus')) return 'opus';
+      if (desc.includes('sonnet')) return 'sonnet';
+      if (desc.includes('haiku')) return 'haiku';
+    }
+
+    return first.value;
   }
 
   /**

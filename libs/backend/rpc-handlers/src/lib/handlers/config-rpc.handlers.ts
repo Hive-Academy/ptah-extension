@@ -345,6 +345,35 @@ export class ConfigRpcHandlers {
             let providerModelId: string | null = null;
             const valueLower = m.value.toLowerCase();
             const displayLower = (m.displayName || '').toLowerCase();
+            const descLower = (m.description || '').toLowerCase();
+
+            // Resolve SDK's 'default' tier to an explicit tier name.
+            // The SDK's query() API doesn't always resolve 'default' to the model
+            // advertised by supportedModels(). Using the explicit tier ('opus', 'sonnet')
+            // guarantees the correct model is used.
+            let resolvedValue = m.value;
+            if (valueLower === 'default') {
+              if (displayLower.includes('opus') || descLower.includes('opus')) {
+                resolvedValue = 'opus';
+              } else if (
+                displayLower.includes('sonnet') ||
+                descLower.includes('sonnet')
+              ) {
+                resolvedValue = 'sonnet';
+              } else if (
+                displayLower.includes('haiku') ||
+                descLower.includes('haiku')
+              ) {
+                resolvedValue = 'haiku';
+              }
+              this.logger.info(
+                `Resolved SDK 'default' tier to '${resolvedValue}' based on description`,
+                {
+                  displayName: m.displayName,
+                  description: m.description,
+                }
+              );
+            }
 
             if (tierOverrides) {
               if (
@@ -374,11 +403,11 @@ export class ConfigRpcHandlers {
               : m.description;
 
             return {
-              id: m.value,
+              id: resolvedValue,
               name: m.displayName,
               description,
-              apiName: m.value,
-              isSelected: m.value === savedModel,
+              apiName: resolvedValue,
+              isSelected: resolvedValue === savedModel,
               isRecommended:
                 valueLower.includes('sonnet') ||
                 displayLower.includes('sonnet'),
