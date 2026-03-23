@@ -21,7 +21,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
  * Patterns Applied:
  * - Signal-based inputs/outputs (Angular 20+)
  * - ChangeDetectionStrategy.OnPush for performance
- * - DaisyUI alert-warning styling (interrupted = warning state)
+ * - Permission-card styling (bg-base-300/30, border-l-2 border-warning)
  *
  * SOLID Principles:
  * - Single Responsibility: Display resumable agent notification and handle per-agent resume actions
@@ -32,63 +32,70 @@ import type { SubagentRecord } from '@ptah-extension/shared';
   template: `
     @if (resumableSubagents().length > 0 && !dismissed()) {
     <div
-      class="alert alert-warning shadow-lg mb-4 py-2 px-3"
+      class="relative bg-base-300/30 rounded border-l-2 border-warning"
       role="alert"
       aria-label="Interrupted agents that can be resumed"
     >
-      <div class="flex flex-col gap-1 flex-1 min-w-0">
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex items-center gap-2">
-            <lucide-angular
-              [img]="PlayCircleIcon"
-              class="w-5 h-5 flex-shrink-0"
-              aria-hidden="true"
-            />
-            <h3 class="font-bold text-sm">Interrupted Agents</h3>
-          </div>
-          <button
-            type="button"
-            class="btn btn-sm btn-ghost btn-square"
-            (click)="onDismiss()"
-            title="Dismiss notification"
-            aria-label="Dismiss interrupted agents notification"
-          >
-            <lucide-angular [img]="XIcon" class="w-4 h-4" />
-          </button>
-        </div>
-        @for (agent of resumableSubagents(); track agent.toolCallId) {
-        <div class="flex items-center justify-between gap-2 py-1">
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="badge badge-sm badge-outline">{{
-              agent.agentType
-            }}</span>
-            <span
-              class="text-xs opacity-70 font-mono truncate max-w-[8ch]"
-              [title]="agent.agentId"
-              >{{ agent.agentId }}</span
-            >
-            <span class="text-xs opacity-50">{{
-              getTimeSince(agent.interruptedAt)
-            }}</span>
-          </div>
-          <button
-            type="button"
-            class="btn btn-xs btn-primary gap-1"
-            (click)="onResume(agent)"
-            [attr.aria-label]="
-              'Resume ' + agent.agentType + ' agent ' + agent.agentId
-            "
-          >
-            <lucide-angular
-              [img]="PlayCircleIcon"
-              class="w-3 h-3"
-              aria-hidden="true"
-            />
-            Resume
-          </button>
-        </div>
-        }
+      <!-- Header row - compact, matching permission card style -->
+      <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
+        <lucide-angular
+          [img]="PlayCircleIcon"
+          class="w-3 h-3 text-warning flex-shrink-0"
+          aria-hidden="true"
+        />
+        <span class="font-semibold text-base-content/80">Interrupted</span>
+        <span class="badge badge-xs badge-warning font-mono px-1.5">
+          {{ resumableSubagents().length }}
+        </span>
+        <span class="flex-1"></span>
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0"
+          (click)="onDismiss()"
+          title="Dismiss"
+          aria-label="Dismiss interrupted agents notification"
+        >
+          <lucide-angular [img]="XIcon" class="w-3 h-3 opacity-50" />
+        </button>
       </div>
+
+      <!-- Agent list - separated by subtle divider -->
+      @for (agent of resumableSubagents(); track agent.toolCallId) {
+      <div
+        class="flex items-center gap-1.5 px-2 py-1.5 border-t border-base-300/30 bg-base-100/20"
+      >
+        <span
+          class="badge badge-xs font-mono px-1.5 badge-warning badge-outline"
+        >
+          {{ agent.agentType }}
+        </span>
+        <span
+          class="text-[10px] text-base-content/50 font-mono truncate max-w-[8ch]"
+          [title]="agent.agentId"
+        >
+          {{ agent.agentId }}
+        </span>
+        <span class="text-[10px] text-base-content/40">
+          {{ getTimeSince(agent.interruptedAt) }}
+        </span>
+        <span class="flex-1"></span>
+        <button
+          type="button"
+          class="btn btn-xs btn-primary gap-0.5 px-2"
+          (click)="onResume(agent)"
+          [attr.aria-label]="
+            'Resume ' + agent.agentType + ' agent ' + agent.agentId
+          "
+        >
+          <lucide-angular
+            [img]="PlayCircleIcon"
+            class="w-3 h-3"
+            aria-hidden="true"
+          />
+          Resume
+        </button>
+      </div>
+      }
     </div>
     }
   `,
