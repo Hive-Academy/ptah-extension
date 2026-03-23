@@ -111,6 +111,8 @@ export interface SessionStatsEntry {
   };
   /** Number of assistant messages */
   readonly messageCount: number;
+  /** Number of agent/subagent JSONL files found for this session */
+  readonly agentSessionCount?: number;
   /** Whether stats were successfully read from JSONL */
   readonly status: 'ok' | 'error' | 'empty';
 }

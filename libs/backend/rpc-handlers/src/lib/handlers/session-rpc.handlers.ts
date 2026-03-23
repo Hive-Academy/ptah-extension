@@ -500,6 +500,7 @@ export class SessionRpcHandlers {
                 totalCost: stats.totalCost,
                 tokens: stats.tokens,
                 messageCount: stats.messageCount,
+                agentSessionCount: stats.agentSessionCount ?? 0,
                 status: 'ok' as const,
               };
             } catch (error) {

@@ -98,6 +98,8 @@ export class SessionHistoryReaderService {
       };
       messageCount: number;
       model?: string;
+      /** Number of agent/subagent JSONL files found for this session */
+      agentSessionCount?: number;
     } | null;
   }> {
     try {
@@ -281,6 +283,7 @@ export class SessionHistoryReaderService {
     };
     messageCount: number;
     model?: string;
+    agentSessionCount?: number;
   } | null {
     let totalInput = 0;
     let totalOutput = 0;
@@ -359,6 +362,7 @@ export class SessionHistoryReaderService {
       },
       messageCount,
       model: detectedModel,
+      agentSessionCount: agentSessions.length,
     };
   }
 }

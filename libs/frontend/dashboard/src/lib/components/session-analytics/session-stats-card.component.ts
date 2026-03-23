@@ -117,11 +117,18 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         </div>
       </div>
 
-      <!-- Cache stats row (conditional - only show if cache > 0) -->
-      @if ( session().tokens.cacheRead > 0 || session().tokens.cacheCreation > 0
-      ) {
-      <div class="flex gap-3 text-[10px] text-base-content/50 px-1">
-        @if (session().tokens.cacheRead > 0) {
+      <!-- Footer: cache stats + agent count -->
+      @if (session().tokens.cacheRead > 0 || session().tokens.cacheCreation > 0
+      || session().agentSessionCount > 0) {
+      <div
+        class="flex items-center gap-3 text-[10px] text-base-content/50 px-1"
+      >
+        @if (session().agentSessionCount > 0) {
+        <span class="text-info"
+          >{{ session().agentSessionCount }}
+          {{ session().agentSessionCount === 1 ? 'agent' : 'agents' }}</span
+        >
+        } @if (session().tokens.cacheRead > 0) {
         <span
           >Cache Read:
           <span class="text-base-content/70 tabular-nums">{{

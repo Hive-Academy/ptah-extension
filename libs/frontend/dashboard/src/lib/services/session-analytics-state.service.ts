@@ -26,6 +26,8 @@ export interface DashboardSessionEntry {
     readonly cacheCreation: number;
   };
   readonly messageCount: number;
+  /** Number of agent/subagent sessions (from agent-*.jsonl files). */
+  readonly agentSessionCount: number;
   /** Whether stats were successfully read from JSONL ('ok' | 'error' | 'empty'). */
   readonly status: 'ok' | 'error' | 'empty';
 }
@@ -210,6 +212,7 @@ export class SessionAnalyticsStateService {
             cacheCreation: 0,
           },
           messageCount: stats?.messageCount ?? 0,
+          agentSessionCount: stats?.agentSessionCount ?? 0,
           status: stats?.status ?? 'empty',
         };
       });
