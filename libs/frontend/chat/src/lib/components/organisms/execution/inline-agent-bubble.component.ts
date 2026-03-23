@@ -592,8 +592,4 @@ export class InlineAgentBubbleComponent {
   protected toggleCollapse(): void {
     this.isCollapsed.update((v) => !v);
   }
-
-  // TASK_2025_109: onResumeClick method removed - Resume button no longer needed
-  // Subagent resumption is now handled via context injection in chat:continue RPC.
-  // Users can resume interrupted agents by typing "resume agent {agentId}" in chat.
 }

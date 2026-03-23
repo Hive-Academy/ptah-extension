@@ -80,3 +80,4 @@ generated-prisma-client
 # Google OAuth Client Secrets
 # ============================================
 client_secret_*.json
+ptah-settings-export.json

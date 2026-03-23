@@ -78,7 +78,7 @@
     "@angular/platform-browser-dynamic": "~20.1.0",
     "@angular/router": "~20.1.0",
     "@angular/youtube-player": "^20.2.14",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.42",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "@floating-ui/dom": "^1.7.4",
     "@github/copilot-sdk": "^0.1.25",
     "@hive-academy/angular-gsap": "^1.1.0",

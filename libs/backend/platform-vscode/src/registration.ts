@@ -12,6 +12,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 
 import { VscodeFileSystemProvider } from './implementations/vscode-file-system-provider';
 import { VscodeStateStorage } from './implementations/vscode-state-storage';
+import { VscodeDiskStateStorage } from './implementations/vscode-disk-state-storage';
 import { VscodeSecretStorage } from './implementations/vscode-secret-storage';
 import { VscodeWorkspaceProvider } from './implementations/vscode-workspace-provider';
 import { VscodeUserInteraction } from './implementations/vscode-user-interaction';
@@ -50,12 +51,15 @@ export function registerPlatformVscodeServices(
     useValue: new VscodeFileSystemProvider(),
   });
 
-  // State Storage (global = globalState, workspace = workspaceState)
+  // State Storage (global = in-memory Memento, workspace = disk-based JSON)
   container.register(PLATFORM_TOKENS.STATE_STORAGE, {
     useValue: new VscodeStateStorage(context.globalState),
   });
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
-    useValue: new VscodeStateStorage(context.workspaceState),
+    useValue: new VscodeDiskStateStorage(
+      context.storageUri?.fsPath ?? context.globalStorageUri.fsPath,
+      'workspace-state.json'
+    ),
   });
 
   // Secret Storage (holds event subscriptions — register for disposal)
