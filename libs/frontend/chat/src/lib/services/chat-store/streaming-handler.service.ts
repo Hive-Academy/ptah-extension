@@ -519,6 +519,16 @@ export class StreamingHandlerService {
 
       // Schedule batched UI update
       this.batchedUpdate.scheduleUpdate(targetTab.id, state);
+
+      // Structural events that change the execution tree layout must flush immediately.
+      // In VS Code webviews, requestAnimationFrame can be throttled/delayed when the
+      // webview isn't actively rendering. Without an immediate flush, agent_start events
+      // stay invisible until an unrelated signal update (e.g. permission request) forces
+      // Angular change detection.
+      if (event.eventType === 'agent_start') {
+        this.batchedUpdate.flushSync();
+      }
+
       return null;
     } catch (error) {
       console.error(

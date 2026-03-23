@@ -279,6 +279,12 @@ export class StreamTransformer {
                   for (const [model, usage] of Object.entries(
                     sdkMessage.modelUsage
                   )) {
+                    // Skip SDK internal synthetic model entries (e.g., "<synthetic>")
+                    // These represent meta/system messages with no real billing cost
+                    if (model.startsWith('<') && model.endsWith('>')) {
+                      continue;
+                    }
+
                     // Resolve actual model for accurate pricing (e.g., "claude-opus-4-..." → "kimi-k2.5")
                     // TASK_2025_164: Pass authEnv for provider-aware resolution
                     const resolvedModel = resolveActualModelForPricing(

@@ -32,7 +32,7 @@ export type PreferenceKey =
  * Default values for preferences
  */
 const PREFERENCE_DEFAULTS: Record<PreferenceKey, unknown> = {
-  'model.selected': 'sonnet',
+  'model.selected': undefined, // Resolved by SDK's getDefaultModel() on first init
   'autopilot.enabled': false,
   'autopilot.permissionLevel': 'ask',
 };

@@ -160,8 +160,7 @@ export class AgenticAnalysisService {
   ): Promise<Result<DeepProjectAnalysis, Error>> {
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
     const model =
-      options?.model ||
-      this.config.getWithDefault<string>('model.selected', 'sonnet');
+      options?.model || this.config.get<string>('model.selected') || 'default';
     const isPremium = options?.isPremium ?? false;
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;

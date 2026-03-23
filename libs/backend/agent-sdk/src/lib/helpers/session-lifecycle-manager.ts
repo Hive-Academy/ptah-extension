@@ -912,7 +912,18 @@ export class SessionLifecycleManager {
    * @param model - Model ID to set
    */
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId as string);
+    let session = this.activeSessions.get(sessionId as string);
+
+    // Reverse lookup: frontend sends real SDK UUID but activeSessions is keyed by tab ID
+    if (!session) {
+      for (const [tabId, realId] of this.tabIdToRealId.entries()) {
+        if (realId === (sessionId as string)) {
+          session = this.activeSessions.get(tabId);
+          if (session) break;
+        }
+      }
+    }
+
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }

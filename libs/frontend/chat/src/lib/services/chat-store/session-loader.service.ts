@@ -21,6 +21,7 @@ import {
   SessionId,
   FlatStreamEventUnion,
   SubagentRecord,
+  getModelContextWindow,
 } from '@ptah-extension/shared';
 import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
@@ -321,6 +322,26 @@ export class SessionLoaderService {
           preloadedStats: stats,
           sessionModel: stats.model ?? null,
         });
+
+        // Populate liveModelStats for context usage display.
+        // During live streaming this comes from SDK's modelUsage, but when loading
+        // from JSONL we compute it from aggregate stats + known context window sizes.
+        if (stats.model) {
+          const contextUsed = stats.tokens.input + stats.tokens.output;
+          const contextWindow = getModelContextWindow(stats.model);
+          const contextPercent =
+            contextWindow > 0
+              ? Math.round((contextUsed / contextWindow) * 1000) / 10
+              : 0;
+          this.tabManager.updateTab(activeTabId, {
+            liveModelStats: {
+              model: stats.model,
+              contextUsed,
+              contextWindow,
+              contextPercent,
+            },
+          });
+        }
       }
 
       // TASK_2025_092 FIX: Process events to build execution tree with tool calls

@@ -157,10 +157,8 @@ export class ConfigRpcHandlers {
         try {
           this.logger.debug('RPC: config:model-get called');
 
-          const model = this.configManager.getWithDefault<ClaudeModel>(
-            'model.selected',
-            'sonnet'
-          );
+          const model =
+            this.configManager.get<ClaudeModel>('model.selected') || 'default';
 
           return { model };
         } catch (error) {
@@ -309,10 +307,8 @@ export class ConfigRpcHandlers {
           this.logger.debug('RPC: config:models-list called');
 
           // Get saved model preference
-          const savedModel = this.configManager.getWithDefault<string>(
-            'model.selected',
-            'sonnet'
-          );
+          const savedModel =
+            this.configManager.get<string>('model.selected') || 'default';
 
           // Fetch models dynamically from SDK
           const sdkModels = await this.sdkAdapter.getSupportedModels();

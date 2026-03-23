@@ -129,7 +129,7 @@ export class SdkModelService {
    */
   async getDefaultModel(): Promise<string> {
     const models = await this.getSupportedModels();
-    return models[0]?.value || 'sonnet';
+    return models[0]?.value || 'default';
   }
 
   /**

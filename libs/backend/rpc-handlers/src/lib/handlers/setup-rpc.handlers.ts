@@ -274,7 +274,8 @@ export class SetupRpcHandlers {
 
       const currentModel =
         params?.model ||
-        this.configManager.getWithDefault<string>('model.selected', 'sonnet');
+        this.configManager.get<string>('model.selected') ||
+        'default';
 
       const pluginPaths = this.resolvePluginPaths(isPremium);
 

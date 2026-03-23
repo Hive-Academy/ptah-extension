@@ -17,8 +17,9 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
 
-/** Default model for SDK operations when no user preference is stored. */
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
+/** Last-resort fallback when no user preference is stored and SDK init hasn't run.
+ *  'default' lets the SDK resolve to its current default model dynamically. */
+const DEFAULT_MODEL = 'default';
 
 @injectable()
 export class ElectronConfigExtendedRpcHandlers {

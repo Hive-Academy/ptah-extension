@@ -773,7 +773,7 @@ export class EnhancedPromptsService {
       // supportedModels() API. We use explicit tier names (opus/sonnet/haiku)
       // so the user always knows what they're getting — no silent remapping.
       const configModel = this.config.get<string>('model.selected');
-      const model = sdkConfig?.model || configModel || 'sonnet';
+      const model = sdkConfig?.model || configModel || 'default';
 
       // 3. Execute SDK query with structured output
       const abortController = new AbortController();

@@ -578,10 +578,8 @@ export class ChatRpcHandlers {
           // Get current model: prefer frontend-provided model, then config, then hardcoded fallback
           const currentModel =
             options?.model ||
-            this.configManager.getWithDefault<string>(
-              'model.selected',
-              'sonnet'
-            );
+            this.configManager.get<string>('model.selected') ||
+            'default';
 
           // TASK_2025_093: tabId is now the primary tracking key
           // SDK generates real UUID in system init message

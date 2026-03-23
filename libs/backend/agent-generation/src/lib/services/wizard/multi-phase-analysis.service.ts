@@ -65,7 +65,7 @@ const SERVICE_TAG = '[MultiPhaseAnalysis]';
 const DEFAULT_TIMEOUT_MS = 3_600_000; // 1 hour total pipeline
 const PER_PHASE_TIMEOUT_MS = 900_000; // 15 minutes per phase
 const MAX_AGENT_TURNS = 50;
-const DEFAULT_MODEL = 'sonnet';
+const DEFAULT_MODEL = 'default';
 const LLM_PHASE_COUNT = 4; // Phases 1-4 are LLM-based
 
 /**

@@ -183,8 +183,7 @@
         },
         "ptah.model.selected": {
           "type": "string",
-          "default": "claude-sonnet-4-20250514",
-          "description": "Default Claude model for new chat sessions."
+          "description": "Claude model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
         },
         "ptah.autopilot.enabled": {
           "type": "boolean",
