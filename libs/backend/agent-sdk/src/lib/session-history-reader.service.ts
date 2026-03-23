@@ -296,10 +296,10 @@ export class SessionHistoryReaderService {
       if (
         !detectedModel &&
         msg.type === 'system' &&
-        msg['subtype'] === 'init' &&
-        msg['model']
+        msg.subtype === 'init' &&
+        msg.model
       ) {
-        detectedModel = String(msg['model']);
+        detectedModel = String(msg.model);
       }
 
       if (msg.usage) {

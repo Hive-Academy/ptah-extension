@@ -26,6 +26,8 @@ export interface JsonlMessageLine {
   type?: string;
   /** Subtype for system messages (e.g., 'init', 'compact_boundary', 'status') */
   subtype?: string;
+  /** Model identifier from system init messages (e.g., 'claude-sonnet-4-20250514') */
+  model?: string;
   message?: {
     role: string;
     content: string | ContentBlock[];
@@ -59,6 +61,8 @@ export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
   readonly timestamp?: string;
   readonly isMeta?: boolean;
   readonly slug?: string;
+  /** Model identifier from system init messages (e.g., 'claude-sonnet-4-20250514') */
+  readonly model?: string;
   /** Claude API usage data from assistant messages */
   readonly usage?: ClaudeApiUsage;
   /** Message with role field - actual JSONL format */
