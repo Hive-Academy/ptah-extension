@@ -113,6 +113,8 @@ export interface SessionStatsEntry {
   readonly messageCount: number;
   /** Number of agent/subagent JSONL files found for this session */
   readonly agentSessionCount?: number;
+  /** CLI agent types used in this session (e.g., ['gemini', 'copilot']) */
+  readonly cliAgents?: readonly string[];
   /** Whether stats were successfully read from JSONL */
   readonly status: 'ok' | 'error' | 'empty';
 }

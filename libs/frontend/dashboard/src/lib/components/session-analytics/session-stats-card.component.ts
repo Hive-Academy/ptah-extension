@@ -117,16 +117,22 @@ import { formatCost, formatTokenCount } from '../../utils/format.utils';
         </div>
       </div>
 
-      <!-- Footer: cache stats + agent count -->
-      @if (session().tokens.cacheRead > 0 || session().tokens.cacheCreation > 0
-      || session().agentSessionCount > 0) {
+      <!-- Footer: CLI agents + cache stats + subagent count -->
+      @if (session().cliAgents.length > 0 || session().tokens.cacheRead > 0 ||
+      session().tokens.cacheCreation > 0 || session().agentSessionCount > 0) {
       <div
-        class="flex items-center gap-3 text-[10px] text-base-content/50 px-1"
+        class="flex items-center flex-wrap gap-2 text-[10px] text-base-content/50 px-1"
       >
-        @if (session().agentSessionCount > 0) {
+        @for (cli of session().cliAgents; track cli) {
+        <span class="badge badge-xs border-info/30 text-info bg-info/10">{{
+          cli
+        }}</span>
+        } @if (session().agentSessionCount > 0) {
         <span class="text-info"
           >{{ session().agentSessionCount }}
-          {{ session().agentSessionCount === 1 ? 'agent' : 'agents' }}</span
+          {{
+            session().agentSessionCount === 1 ? 'subagent' : 'subagents'
+          }}</span
         >
         } @if (session().tokens.cacheRead > 0) {
         <span

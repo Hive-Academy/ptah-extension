@@ -478,6 +478,12 @@ export class SessionRpcHandlers {
                 workspacePath
               );
 
+              // Get CLI agent types from metadata (gemini, codex, copilot, ptah-cli)
+              const metadata = await this.metadataStore.get(sessionId);
+              const cliAgents = metadata?.cliSessions
+                ? [...new Set(metadata.cliSessions.map((ref) => ref.cli))]
+                : [];
+
               if (!stats) {
                 return {
                   sessionId,
@@ -490,6 +496,7 @@ export class SessionRpcHandlers {
                     cacheCreation: 0,
                   },
                   messageCount: 0,
+                  cliAgents,
                   status: 'empty' as const,
                 };
               }
@@ -501,6 +508,7 @@ export class SessionRpcHandlers {
                 tokens: stats.tokens,
                 messageCount: stats.messageCount,
                 agentSessionCount: stats.agentSessionCount ?? 0,
+                cliAgents,
                 status: 'ok' as const,
               };
             } catch (error) {

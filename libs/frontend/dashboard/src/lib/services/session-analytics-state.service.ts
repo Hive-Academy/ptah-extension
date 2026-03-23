@@ -28,6 +28,8 @@ export interface DashboardSessionEntry {
   readonly messageCount: number;
   /** Number of agent/subagent sessions (from agent-*.jsonl files). */
   readonly agentSessionCount: number;
+  /** CLI agent types used in this session (e.g., ['gemini', 'copilot']). */
+  readonly cliAgents: readonly string[];
   /** Whether stats were successfully read from JSONL ('ok' | 'error' | 'empty'). */
   readonly status: 'ok' | 'error' | 'empty';
 }
@@ -213,6 +215,7 @@ export class SessionAnalyticsStateService {
           },
           messageCount: stats?.messageCount ?? 0,
           agentSessionCount: stats?.agentSessionCount ?? 0,
+          cliAgents: stats?.cliAgents ?? [],
           status: stats?.status ?? 'empty',
         };
       });
