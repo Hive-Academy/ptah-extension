@@ -32,7 +32,7 @@ import type { SubagentRecord } from '@ptah-extension/shared';
   template: `
     @if (resumableSubagents().length > 0 && !dismissed()) {
     <div
-      class="relative bg-base-300/30 rounded border-l-2 border-warning"
+      class="relative bg-base-300/30 rounded border border-warning/40"
       role="alert"
       aria-label="Interrupted agents that can be resumed"
     >
