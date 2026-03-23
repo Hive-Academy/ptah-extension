@@ -293,6 +293,7 @@ export class ProviderModelsService {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          'User-Agent': 'Ptah-Extension/1.0',
         },
         signal: AbortSignal.timeout(10_000),
       });
@@ -563,52 +564,75 @@ export class ProviderModelsService {
         .length;
     }
 
-    try {
-      this.logger.info(
-        '[ProviderModelsService] Pre-fetching pricing from OpenRouter (no auth)'
-      );
+    // Delay initial fetch to let VS Code networking initialize fully.
+    // Extension activation fires early; network stack may not be ready.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
-      // OpenRouter model listing does not require authentication
-      const response = await fetch(openRouter.modelsEndpoint, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        this.logger.warn(
-          `[ProviderModelsService] OpenRouter pricing pre-fetch failed: ${response.status}`
+    // Attempt with one retry — network may be transiently unavailable at startup
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        this.logger.info(
+          '[ProviderModelsService] Pre-fetching pricing from OpenRouter (no auth)',
+          { attempt }
         );
-        return 0;
+
+        const response = await fetch(openRouter.modelsEndpoint, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Ptah-Extension/1.0',
+          },
+          signal: AbortSignal.timeout(15_000),
+        });
+
+        if (!response.ok) {
+          this.logger.warn(
+            `[ProviderModelsService] OpenRouter pricing pre-fetch failed: ${response.status}`
+          );
+          return 0;
+        }
+
+        const data = (await response.json()) as ModelsApiResponse;
+        if (!data.data || !Array.isArray(data.data)) {
+          return 0;
+        }
+
+        const models = this.transformApiModels(data.data);
+
+        // Cache under pricing-specific key (separate from authenticated model list)
+        this.modelCache.set(PREFETCH_CACHE_KEY, {
+          models,
+          timestamp: Date.now(),
+        });
+
+        const pricedCount = this.feedPricingMap(models);
+
+        this.logger.info(
+          '[ProviderModelsService] Pre-fetched pricing from OpenRouter',
+          { totalModels: models.length, modelsWithPricing: pricedCount }
+        );
+
+        return pricedCount;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+
+        if (attempt < maxAttempts) {
+          this.logger.info(
+            `[ProviderModelsService] Pricing pre-fetch attempt ${attempt} failed, retrying in 5s`,
+            { error: errorMsg }
+          );
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+        } else {
+          this.logger.warn(
+            '[ProviderModelsService] Pricing pre-fetch failed after retries (will use bundled fallback)',
+            { error: errorMsg, attempts: maxAttempts }
+          );
+        }
       }
-
-      const data = (await response.json()) as ModelsApiResponse;
-      if (!data.data || !Array.isArray(data.data)) {
-        return 0;
-      }
-
-      const models = this.transformApiModels(data.data);
-
-      // Cache under pricing-specific key (separate from authenticated model list)
-      this.modelCache.set(PREFETCH_CACHE_KEY, {
-        models,
-        timestamp: Date.now(),
-      });
-
-      const pricedCount = this.feedPricingMap(models);
-
-      this.logger.info(
-        '[ProviderModelsService] Pre-fetched pricing from OpenRouter',
-        { totalModels: models.length, modelsWithPricing: pricedCount }
-      );
-
-      return pricedCount;
-    } catch (error) {
-      this.logger.warn(
-        '[ProviderModelsService] Pricing pre-fetch failed (will use bundled fallback)',
-        { error: error instanceof Error ? error.message : String(error) }
-      );
-      return 0;
     }
+
+    return 0;
   }
 
   /**

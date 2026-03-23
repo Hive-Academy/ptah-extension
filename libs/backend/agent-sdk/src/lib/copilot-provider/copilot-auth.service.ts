@@ -246,6 +246,7 @@ export class CopilotAuthService implements ICopilotAuthService {
           Accept: 'application/json',
           'User-Agent': `ptah-extension/${getExtensionVersion()}`,
         },
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (!response.ok) {
