@@ -8,7 +8,10 @@
    falls back to Anubis theme (Electron desktop) via global styles.css */
 :host ::ng-deep .overflow-y-auto {
   scrollbar-width: thin;
-  scrollbar-color: var(--vscode-scrollbarSlider-background, oklch(var(--s) / 0.3))
+  scrollbar-color: var(
+      --vscode-scrollbarSlider-background,
+      oklch(var(--s) / 0.3)
+    )
     var(--vscode-scrollbar-shadow, transparent);
 }
 
@@ -22,10 +25,7 @@
 }
 
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: var(
-    --vscode-scrollbarSlider-background,
-    oklch(var(--s) / 0.3)
-  );
+  background: var(--vscode-scrollbarSlider-background, oklch(var(--s) / 0.3));
   border-radius: 4px;
 }
 
