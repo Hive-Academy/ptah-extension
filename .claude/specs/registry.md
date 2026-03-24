@@ -24,3 +24,5 @@
 | TASK_2025_214 | Electron Plugin & Setup Wizard Integration — Shared plugin assets, Electron DI wiring, wizard lifecycle, skill junction events                      | ✅ Complete | orchestrator | 2026-03-22 | 2026-03-22 |
 | TASK_2025_215 | Remove Permission/Question 5-min Timeout — Block indefinitely like Claude CLI, use SDK AbortSignal for cancellation instead of setTimeout           | ✅ Complete | orchestrator | 2026-03-22 | 2026-03-23 |
 | TASK_2025_216 | VS Code Disk-Based State Storage — Replace Memento wrapper with disk-backed JSON file (atomic writes), eliminating 9MB in-memory state warning      | ✅ Complete | orchestrator | 2026-03-23 | 2026-03-23 |
+| TASK_2025_217 | Fix Background Agent Issues — Unknown agent type in completed events, auto-approve Write/Edit for background agents, move badge from header to chat | ✅ Complete | orchestrator | 2026-03-24 | 2026-03-24 |
+| TASK_2025_218 | Early Adopter 2-Month Free Subscription — New Paddle prices with 60-day trial, dedicated pricing card, backend trial cron guard clause              | 📋 Planned  | orchestrator | 2026-03-24 |            |
