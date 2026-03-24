@@ -30,7 +30,11 @@ import {
   AuthEnv,
   isAgentDispatchTool,
 } from '@ptah-extension/shared';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  TOKENS,
+  type SubagentRegistryService,
+} from '@ptah-extension/vscode-core';
 import { resolveActualModelForPricing } from './helpers/anthropic-provider-registry';
 import { SDK_TOKENS } from './di/tokens';
 import {
@@ -91,6 +95,14 @@ export class SdkMessageTransformer {
   private currentMessageIdByContext: Map<string, string> = new Map();
 
   /**
+   * TASK_2025_217: Per-context model tracking for streaming.
+   * Captures model from message_start event so it can be included
+   * in the message_complete event at message_stop time.
+   * Key: parentToolUseId || '' (same as currentMessageIdByContext)
+   */
+  private currentModelByContext: Map<string, string> = new Map();
+
+  /**
    * Maps blockIndex to real contentBlock.id from tool_use blocks.
    * Used to associate tool_delta events with correct toolCallId.
    * Cleared on message boundaries.
@@ -127,7 +139,9 @@ export class SdkMessageTransformer {
 
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry: SubagentRegistryService
   ) {}
 
   /**
@@ -136,7 +150,11 @@ export class SdkMessageTransformer {
    * (e.g., each Ptah CLI headless agent needs its own state scope).
    */
   createIsolated(): SdkMessageTransformer {
-    return new SdkMessageTransformer(this.logger, this.authEnv);
+    return new SdkMessageTransformer(
+      this.logger,
+      this.authEnv,
+      this.subagentRegistry
+    );
   }
 
   /**
@@ -321,7 +339,8 @@ export class SdkMessageTransformer {
         // 3. Tree building: events for same message scattered across multiple messageIds
         //
         // Priority: Anthropic message.id > SDK uuid > generated fallback
-        const message = (event as { message?: { id?: string } }).message;
+        const message = (event as { message?: { id?: string; model?: string } })
+          .message;
         const messageId =
           message?.id || sdkMessage.uuid || `stream-msg-${Date.now()}`;
 
@@ -330,6 +349,11 @@ export class SdkMessageTransformer {
         // This prevents main agent and subagent streams from interfering with each other.
         const context = parentToolUseId || '';
         this.currentMessageIdByContext.set(context, messageId);
+
+        // TASK_2025_217: Track model for this context so message_complete includes it
+        if (message?.model) {
+          this.currentModelByContext.set(context, message.model);
+        }
 
         // Clear tool call ID tracking for this context's new message
         // Only clear entries for this context, not all entries
@@ -408,6 +432,8 @@ export class SdkMessageTransformer {
         const events: FlatStreamEventUnion[] = [];
 
         if (currentMessageId) {
+          // TASK_2025_217: Include model captured from message_start
+          const contextModel = this.currentModelByContext.get(context);
           const messageCompleteEvent: MessageCompleteEvent = {
             id: generateEventId(),
             eventType: 'message_complete',
@@ -417,12 +443,14 @@ export class SdkMessageTransformer {
             messageId: currentMessageId,
             // Note: token usage comes from message_delta events, not message_stop
             parentToolUseId,
+            ...(contextModel && { model: contextModel }),
           };
           events.push(messageCompleteEvent);
         }
 
         // TASK_2025_096 FIX: Clear tracking for this context only
         this.currentMessageIdByContext.delete(context);
+        this.currentModelByContext.delete(context);
         for (const key of this.toolCallIdByContextAndBlock.keys()) {
           if (key.startsWith(`${context}:`)) {
             this.toolCallIdByContextAndBlock.delete(key);
@@ -768,6 +796,10 @@ export class SdkMessageTransformer {
             block.input['run_in_background'] === true;
           if (isBackground) {
             this.backgroundTaskToolUseIds.add(block.id);
+            // TASK_2025_217: Pre-mark in registry so register() auto-sets isBackground.
+            // This eliminates the race condition where the agent starts executing tools
+            // before the background_agent_started stream event arrives.
+            this.subagentRegistry.markPendingBackground(block.id);
             this.logger.info(
               '[SdkMessageTransformer] Detected background Task tool_use',
               {
@@ -1186,6 +1218,7 @@ export class SdkMessageTransformer {
    */
   clearStreamingState(): void {
     this.currentMessageIdByContext.clear();
+    this.currentModelByContext.clear();
     this.toolCallIdByContextAndBlock.clear();
     this.backgroundTaskToolUseIds.clear();
     this.activeSkillToolUseIds.clear();

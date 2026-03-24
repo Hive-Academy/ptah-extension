@@ -211,11 +211,13 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
       <!-- Agent Stats Footer (shown when stats available and not streaming) -->
       @if (hasStats() && !isStreaming()) {
       <div
-        class="flex items-center gap-1.5 px-3 py-1.5 border-t border-base-300/30 text-base-content/60"
+        class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
+        [style.background-color]="footerBgColor()"
       >
         @if (modelDisplayName()) {
         <span
-          class="badge badge-xs badge-outline text-[9px] opacity-70 flex-shrink-0"
+          class="badge badge-xs text-[9px] font-medium flex-shrink-0 border-white/20 text-white/80"
+          [style.background-color]="agentColor()"
           [title]="rawModelId() || ''"
         >
           {{ modelDisplayName() }}
@@ -508,6 +510,21 @@ export class InlineAgentBubbleComponent {
     return `oklch(0.55 0.15 ${hue})`;
   }
 
+  /**
+   * Computed: footer background color — a subtle tint derived from agentColor().
+   * Converts the oklch agent color to a low-opacity version for the stats footer.
+   */
+  readonly footerBgColor = computed(() => {
+    const color = this.agentColor();
+    // Extract oklch values and return at 10% opacity for a subtle tint
+    const match = color.match(/oklch\(([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\)/);
+    if (match) {
+      return `oklch(${match[1]} ${match[2]} ${match[3]} / 0.1)`;
+    }
+    // Fallback for theme-aware colors like oklch(var(--bc) / 0.5)
+    return 'oklch(var(--bc) / 0.05)';
+  });
+
   // Computed: agent initial letter
   readonly agentInitial = computed(() => {
     const agentType = this.node().agentType || '';
@@ -569,6 +586,7 @@ export class InlineAgentBubbleComponent {
   /**
    * Computed: aggregated duration for the agent in milliseconds
    * Returns null if no duration data is available.
+   * Note: DurationBadgeComponent handles unit normalization (seconds vs ms).
    */
   readonly agentDuration = computed(() => this.node().duration ?? null);
 

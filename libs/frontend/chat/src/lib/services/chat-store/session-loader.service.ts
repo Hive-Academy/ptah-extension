@@ -342,6 +342,18 @@ export class SessionLoaderService {
             },
           });
         }
+
+        // TASK_2025_217: Populate modelUsageList from backend per-model breakdown.
+        // This enables the per-model breakdown table in SessionStatsSummary for old sessions.
+        if (stats.modelUsageList && stats.modelUsageList.length > 0) {
+          const backendModelList = stats.modelUsageList;
+          this.tabManager.updateTab(activeTabId, {
+            modelUsageList: backendModelList.map((entry) => ({
+              ...entry,
+              contextWindow: getModelContextWindow(entry.model),
+            })),
+          });
+        }
       }
 
       // TASK_2025_092 FIX: Process events to build execution tree with tool calls

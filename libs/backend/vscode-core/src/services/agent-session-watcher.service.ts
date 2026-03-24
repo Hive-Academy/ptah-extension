@@ -441,6 +441,9 @@ export class AgentSessionWatcherService extends EventEmitter {
       agentType: agentType || 'unknown',
       duration,
       summaryContent: watch?.summaryContent || '',
+      // TASK_2025_217: Include sessionId so the frontend store can properly
+      // associate the agent with a session even if the start event was missed
+      sessionId: watch?.sessionId || '',
     });
   }
 

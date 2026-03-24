@@ -138,6 +138,12 @@ const NETWORK_TOOLS = ['WebFetch', 'WebSearch'];
 const SUBAGENT_TOOLS = ['Task'];
 
 /**
+ * File editing tools that are auto-approved in 'auto-edit' mode
+ * and for background sub-agents (matching SDK acceptEdits semantics)
+ */
+const AUTO_EDIT_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
+
+/**
  * Check if a tool name is an MCP tool (prefixed with "mcp__")
  * MCP tools should always require user approval as they can execute arbitrary code
  */
@@ -414,7 +420,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // 'auto-edit' mode: auto-approve file editing tools (Write, Edit, NotebookEdit)
       // Bash is NOT auto-approved — it's code execution, not file editing
       if (this._permissionLevel === 'auto-edit') {
-        const AUTO_EDIT_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
         if (AUTO_EDIT_TOOLS.includes(toolName)) {
           this.logger.info(
             `[SdkPermissionHandler] Auto-edit mode: auto-approved file tool: ${toolName}`
@@ -423,6 +428,36 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
             behavior: 'allow' as const,
             updatedInput: input,
           };
+        }
+      }
+
+      // Background agent auto-approval: auto-approve Write/Edit/NotebookEdit for
+      // background sub-agents. Background agents can't show interactive permission
+      // prompts (the main turn has completed), so file operations are auto-approved
+      // matching the SDK's acceptEdits semantics. Bash still requires user approval
+      // and will surface a permission request to the chat UI.
+      if (options.agentID) {
+        const bgToolCallId = this.subagentRegistry.getToolCallIdByAgentId(
+          options.agentID
+        );
+        if (bgToolCallId) {
+          const bgRecord = this.subagentRegistry.get(bgToolCallId);
+          if (bgRecord?.isBackground) {
+            if (AUTO_EDIT_TOOLS.includes(toolName)) {
+              this.logger.info(
+                `[SdkPermissionHandler] Background agent auto-approved: ${toolName}`,
+                {
+                  agentID: options.agentID,
+                  toolCallId: bgToolCallId,
+                  agentType: bgRecord.agentType,
+                }
+              );
+              return {
+                behavior: 'allow' as const,
+                updatedInput: input,
+              };
+            }
+          }
         }
       }
 

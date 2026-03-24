@@ -68,6 +68,8 @@ export interface SessionHistoryMessage extends Omit<JSONLMessage, 'message'> {
   /** Message with role field - actual JSONL format */
   readonly message?: {
     readonly role?: string;
+    /** Model identifier from Claude API response (e.g., 'claude-sonnet-4-20250514') */
+    readonly model?: string;
     readonly content?: readonly ContentBlock[] | string;
     readonly stop_reason?: string;
     readonly usage?: {

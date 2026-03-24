@@ -77,6 +77,18 @@ export class SubagentRegistryService {
   private readonly clearedToolCallIds = new Set<string>();
 
   /**
+   * TASK_2025_217: Tracks toolCallIds that have been detected as background
+   * tasks by SdkMessageTransformer (run_in_background: true in Task input)
+   * BEFORE the SubagentStart hook fires. This bridges the race condition
+   * where the agent starts executing tools before the background_agent_started
+   * stream event sets isBackground on the registry record.
+   *
+   * Flow: SdkMessageTransformer.detectBackground() → markPendingBackground()
+   *       → SubagentHookHandler.register() checks this Set → isBackground: true
+   */
+  private readonly pendingBackgroundToolCallIds = new Set<string>();
+
+  /**
    * TTL for subagent records: 24 hours
    * After this time, records are automatically cleaned up
    */
@@ -125,9 +137,26 @@ export class SubagentRegistryService {
     // Run lazy cleanup periodically
     this.lazyCleanup();
 
+    // TASK_2025_217: Check if this toolCallId was pre-marked as background
+    // by SdkMessageTransformer (detected run_in_background: true in Task input).
+    // This eliminates the race condition where the agent starts executing tools
+    // before the background_agent_started stream event arrives.
+    const isPendingBackground = this.pendingBackgroundToolCallIds.has(
+      registration.toolCallId
+    );
+    if (isPendingBackground) {
+      this.pendingBackgroundToolCallIds.delete(registration.toolCallId);
+    }
+
     const record: SubagentRecord = {
       ...registration,
-      status: 'running' as SubagentStatus,
+      status: isPendingBackground
+        ? ('background' as SubagentStatus)
+        : ('running' as SubagentStatus),
+      ...(isPendingBackground && {
+        isBackground: true,
+        backgroundStartedAt: Date.now(),
+      }),
     };
 
     this.registry.set(registration.toolCallId, record);
@@ -535,6 +564,22 @@ export class SubagentRegistryService {
   }
 
   /**
+   * TASK_2025_217: Pre-mark a toolCallId as a background task.
+   * Called by SdkMessageTransformer when it detects run_in_background: true
+   * in a Task tool_use input. The subsequent register() call will auto-set
+   * isBackground: true and status: 'background' on the SubagentRecord.
+   *
+   * @param toolCallId - The Task tool_use ID that will run in background
+   */
+  markPendingBackground(toolCallId: string): void {
+    this.pendingBackgroundToolCallIds.add(toolCallId);
+    this.logger.debug(
+      '[SubagentRegistryService.markPendingBackground] Marked toolCallId as pending background',
+      { toolCallId, pendingCount: this.pendingBackgroundToolCallIds.size }
+    );
+  }
+
+  /**
    * TASK_2025_213 (Bug 1): Mark a toolCallId as having been injected into
    * context. Call this BEFORE remove() so the ID is recorded before the
    * registry entry is deleted.
@@ -612,6 +657,7 @@ export class SubagentRegistryService {
   clear(): void {
     this.registry.clear();
     this.clearedToolCallIds.clear();
+    this.pendingBackgroundToolCallIds.clear();
     this.logger.debug('[SubagentRegistryService.clear] Registry cleared', {
       clearedToolCallIdsAlsoCleared: true,
     });
@@ -624,6 +670,12 @@ export class SubagentRegistryService {
    * @returns true if expired
    */
   private isExpired(record: SubagentRecord): boolean {
+    // TASK_2025_217: Background agents are exempt from TTL cleanup —
+    // they can run for extended periods and must remain in the registry
+    // for permission auto-approval to work correctly.
+    if (record.isBackground || record.status === 'background') {
+      return false;
+    }
     const age = Date.now() - record.startedAt;
     return age > SubagentRegistryService.TTL_MS;
   }

@@ -175,6 +175,15 @@ export interface ChatResumeResult {
     };
     messageCount: number;
     model?: string;
+    /** Number of agent/subagent JSONL files found for this session */
+    agentSessionCount?: number;
+    /** Per-model token and cost breakdown for multi-model sessions */
+    modelUsageList?: Array<{
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      costUSD: number;
+    }>;
   } | null;
   /**
    * Resumable subagents for this session (TASK_2025_103 FIX)

@@ -1254,6 +1254,7 @@ IMPORTANT INSTRUCTIONS:
         agentType: string;
         duration?: number;
         summaryContent?: string;
+        sessionId?: string;
       }) => {
         this.logger.info('[RPC] Background agent completed event received', {
           agentId: data.agentId,
@@ -1267,10 +1268,11 @@ IMPORTANT INSTRUCTIONS:
             .substring(2, 9)}`,
           eventType: 'background_agent_completed',
           timestamp: Date.now(),
-          sessionId: '',
+          sessionId: data.sessionId || '',
           messageId: `bg-complete-${data.agentId}`,
           toolCallId: data.toolCallId,
           agentId: data.agentId,
+          agentType: data.agentType,
           result: data.summaryContent,
           duration: data.duration,
         };

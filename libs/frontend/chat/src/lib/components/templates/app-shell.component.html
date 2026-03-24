@@ -355,10 +355,6 @@
         <div class="w-px h-4 bg-base-content/10"></div>
 
         <!-- Group 2: Session -->
-        <!-- Background agent badge -->
-        @if (backgroundAgentStore.totalCount() > 0) {
-        <ptah-background-agent-badge />
-        }
 
         <!-- Notification bell (VS Code only — in Electron this is in the global navbar) -->
         @if (!isElectron) { @if (chatStore.licenseStatus(); as license) {

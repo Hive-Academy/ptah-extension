@@ -115,6 +115,13 @@ export interface SessionStatsEntry {
   readonly agentSessionCount?: number;
   /** CLI agent types used in this session (e.g., ['gemini', 'copilot']) */
   readonly cliAgents?: readonly string[];
+  /** Per-model usage breakdown (model, input/output tokens, cost) */
+  readonly modelUsageList?: ReadonlyArray<{
+    readonly model: string;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly costUSD: number;
+  }>;
   /** Whether stats were successfully read from JSONL */
   readonly status: 'ok' | 'error' | 'empty';
 }

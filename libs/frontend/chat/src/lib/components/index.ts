@@ -67,7 +67,6 @@ export * from './molecules/trial-billing/community-upgrade-banner.component';
 // MOLECULES - Notifications
 // ============================================================================
 export * from './molecules/notifications/notification-bell.component';
-export * from './molecules/notifications/background-agent-badge.component';
 export * from './molecules/notifications/compaction-notification.component';
 
 // ============================================================================

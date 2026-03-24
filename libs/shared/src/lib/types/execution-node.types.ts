@@ -1003,6 +1003,8 @@ export interface BackgroundAgentCompletedEvent extends FlatStreamEvent {
   readonly toolCallId: string;
   /** Short agent identifier */
   readonly agentId: string;
+  /** Agent type (e.g., 'software-architect', 'Explore') for display when start event was missed */
+  readonly agentType?: string;
   /** Final result text from the agent */
   readonly result?: string;
   /** Total cost in USD */
@@ -1026,6 +1028,8 @@ export interface BackgroundAgentStoppedEvent extends FlatStreamEvent {
   readonly toolCallId: string;
   /** Short agent identifier */
   readonly agentId: string;
+  /** Agent type for display when start event was missed */
+  readonly agentType?: string;
   /** Tab ID for routing */
   readonly tabId?: string;
 }

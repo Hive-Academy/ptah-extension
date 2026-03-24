@@ -244,7 +244,7 @@ export class SessionReplayService {
           readonly cache_creation_input_tokens: number;
         };
         // Extract model from JSONL assistant message for accurate pricing
-        const msgModel = (msg.message as { model?: string })?.model || '';
+        const msgModel = msg.message.model || '';
 
         if (msgUsage) {
           const tokenUsage = extractTokenUsage(msgUsage);
@@ -267,6 +267,7 @@ export class SessionReplayService {
                   output: tokenUsage.output,
                 },
                 cost,
+                model: msgModel || undefined,
               };
             } else {
               // Accumulate tokens and cost for multi-block messages
@@ -551,11 +552,11 @@ export class SessionReplayService {
       if (agentMsgUsage) {
         const tokenUsage = extractTokenUsage(agentMsgUsage);
         if (tokenUsage) {
-          const agentMsgModel =
-            (msg.message as { model?: string })?.model || '';
+          const agentMsgModel = msg.message.model || '';
           // TASK_2025_164: Pass authEnv for provider-aware model resolution
           agentMessageUsage = {
             tokenUsage: { input: tokenUsage.input, output: tokenUsage.output },
+            model: agentMsgModel || undefined,
             cost: calculateMessageCost(
               resolveActualModelForPricing(agentMsgModel, this.authEnv),
               {

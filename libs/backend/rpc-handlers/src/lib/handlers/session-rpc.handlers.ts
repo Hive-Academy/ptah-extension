@@ -508,6 +508,7 @@ export class SessionRpcHandlers {
                 tokens: stats.tokens,
                 messageCount: stats.messageCount,
                 agentSessionCount: stats.agentSessionCount ?? 0,
+                modelUsageList: stats.modelUsageList,
                 cliAgents,
                 status: 'ok' as const,
               };
