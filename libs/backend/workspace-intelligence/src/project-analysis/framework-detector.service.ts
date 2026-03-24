@@ -1,5 +1,5 @@
 import { injectable } from 'tsyringe';
-import * as vscode from 'vscode';
+import * as path from 'path';
 import { Framework, ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
 
@@ -23,12 +23,12 @@ export class FrameworkDetectorService {
    * Detect framework(s) in a workspace folder.
    * Returns the primary framework or undefined if none detected.
    *
-   * @param workspaceUri - URI of the workspace folder to analyze
+   * @param workspacePath - Path of the workspace folder to analyze
    * @param projectType - Already detected project type (helps narrow detection)
    * @returns Detected framework or undefined
    */
   async detectFramework(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     projectType: ProjectType
   ): Promise<Framework | undefined> {
     // Only detect frameworks for relevant project types
@@ -39,7 +39,7 @@ export class FrameworkDetectorService {
     try {
       // Check for framework-specific config files first (most reliable)
       const frameworkFromConfig = await this.detectFromConfigFiles(
-        workspaceUri
+        workspacePath
       );
       if (frameworkFromConfig) {
         return frameworkFromConfig;
@@ -50,22 +50,22 @@ export class FrameworkDetectorService {
         projectType === ProjectType.Node ||
         projectType === ProjectType.React
       ) {
-        return await this.detectFromPackageJson(workspaceUri);
+        return await this.detectFromPackageJson(workspacePath);
       }
 
       // Python framework detection
       if (projectType === ProjectType.Python) {
-        return await this.detectPythonFramework(workspaceUri);
+        return await this.detectPythonFramework(workspacePath);
       }
 
       // PHP framework detection
       if (projectType === ProjectType.PHP) {
-        return await this.detectPHPFramework(workspaceUri);
+        return await this.detectPHPFramework(workspacePath);
       }
 
       // Ruby framework detection
       if (projectType === ProjectType.Ruby) {
-        return await this.detectRubyFramework(workspaceUri);
+        return await this.detectRubyFramework(workspacePath);
       }
 
       return undefined;
@@ -80,7 +80,7 @@ export class FrameworkDetectorService {
    * Detect framework from config files (most reliable method).
    */
   private async detectFromConfigFiles(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<Framework | undefined> {
     const configChecks: Array<{ file: string; framework: Framework }> = [
       { file: 'angular.json', framework: Framework.Angular },
@@ -93,7 +93,7 @@ export class FrameworkDetectorService {
 
     for (const { file, framework } of configChecks) {
       const exists = await this.fileSystem.exists(
-        vscode.Uri.joinPath(workspaceUri, file)
+        path.join(workspacePath, file)
       );
       if (exists) {
         return framework;
@@ -107,17 +107,17 @@ export class FrameworkDetectorService {
    * Detect framework from package.json dependencies.
    */
   private async detectFromPackageJson(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<Framework | undefined> {
-    const packageJsonUri = vscode.Uri.joinPath(workspaceUri, 'package.json');
-    const exists = await this.fileSystem.exists(packageJsonUri);
+    const packageJsonPath = path.join(workspacePath, 'package.json');
+    const exists = await this.fileSystem.exists(packageJsonPath);
 
     if (!exists) {
       return undefined;
     }
 
     try {
-      const content = await this.fileSystem.readFile(packageJsonUri);
+      const content = await this.fileSystem.readFile(packageJsonPath);
       const packageJson = JSON.parse(content) as {
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
@@ -165,26 +165,23 @@ export class FrameworkDetectorService {
    * Detect Python framework from requirements.txt or project structure.
    */
   private async detectPythonFramework(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<Framework | undefined> {
     // Check for Django-specific files
     const manageExists = await this.fileSystem.exists(
-      vscode.Uri.joinPath(workspaceUri, 'manage.py')
+      path.join(workspacePath, 'manage.py')
     );
     if (manageExists) {
       return Framework.Django;
     }
 
     // Check requirements.txt for framework dependencies
-    const requirementsUri = vscode.Uri.joinPath(
-      workspaceUri,
-      'requirements.txt'
-    );
-    const requirementsExist = await this.fileSystem.exists(requirementsUri);
+    const requirementsPath = path.join(workspacePath, 'requirements.txt');
+    const requirementsExist = await this.fileSystem.exists(requirementsPath);
 
     if (requirementsExist) {
       try {
-        const content = await this.fileSystem.readFile(requirementsUri);
+        const content = await this.fileSystem.readFile(requirementsPath);
         const lowerContent = content.toLowerCase();
 
         if (lowerContent.includes('django')) {
@@ -203,23 +200,23 @@ export class FrameworkDetectorService {
    * Detect PHP framework from composer.json or project structure.
    */
   private async detectPHPFramework(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<Framework | undefined> {
     // Check for Laravel-specific files
     const artisanExists = await this.fileSystem.exists(
-      vscode.Uri.joinPath(workspaceUri, 'artisan')
+      path.join(workspacePath, 'artisan')
     );
     if (artisanExists) {
       return Framework.Laravel;
     }
 
     // Check composer.json
-    const composerUri = vscode.Uri.joinPath(workspaceUri, 'composer.json');
-    const composerExists = await this.fileSystem.exists(composerUri);
+    const composerPath = path.join(workspacePath, 'composer.json');
+    const composerExists = await this.fileSystem.exists(composerPath);
 
     if (composerExists) {
       try {
-        const content = await this.fileSystem.readFile(composerUri);
+        const content = await this.fileSystem.readFile(composerPath);
         const composer = JSON.parse(content) as {
           require?: Record<string, string>;
         };
@@ -240,23 +237,23 @@ export class FrameworkDetectorService {
    * Detect Ruby framework from Gemfile or project structure.
    */
   private async detectRubyFramework(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<Framework | undefined> {
     // Check for Rails-specific files
     const railsAppExists = await this.fileSystem.exists(
-      vscode.Uri.joinPath(workspaceUri, 'config', 'application.rb')
+      path.join(workspacePath, 'config', 'application.rb')
     );
     if (railsAppExists) {
       return Framework.Rails;
     }
 
     // Check Gemfile
-    const gemfileUri = vscode.Uri.joinPath(workspaceUri, 'Gemfile');
-    const gemfileExists = await this.fileSystem.exists(gemfileUri);
+    const gemfilePath = path.join(workspacePath, 'Gemfile');
+    const gemfileExists = await this.fileSystem.exists(gemfilePath);
 
     if (gemfileExists) {
       try {
-        const content = await this.fileSystem.readFile(gemfileUri);
+        const content = await this.fileSystem.readFile(gemfilePath);
         if (content.includes('rails')) {
           return Framework.Rails;
         }
@@ -271,19 +268,19 @@ export class FrameworkDetectorService {
 
   /**
    * Detect all frameworks in a multi-root workspace.
-   * Returns a map of workspace URI to detected framework.
+   * Returns a map of workspace path to detected framework.
    *
-   * @param projectTypes - Map of workspace URIs to project types
-   * @returns Map of workspace URIs to detected frameworks
+   * @param projectTypes - Map of workspace paths to project types
+   * @returns Map of workspace paths to detected frameworks
    */
   async detectFrameworks(
-    projectTypes: Map<vscode.Uri, ProjectType>
-  ): Promise<Map<vscode.Uri, Framework | undefined>> {
-    const frameworks = new Map<vscode.Uri, Framework | undefined>();
+    projectTypes: Map<string, ProjectType>
+  ): Promise<Map<string, Framework | undefined>> {
+    const frameworks = new Map<string, Framework | undefined>();
 
-    for (const [uri, projectType] of projectTypes) {
-      const framework = await this.detectFramework(uri, projectType);
-      frameworks.set(uri, framework);
+    for (const [workspacePath, projectType] of projectTypes) {
+      const framework = await this.detectFramework(workspacePath, projectType);
+      frameworks.set(workspacePath, framework);
     }
 
     return frameworks;

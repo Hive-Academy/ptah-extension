@@ -80,6 +80,7 @@ The Ptah workspace is organized as an Nx monorepo with **6 apps + 12 libraries**
 |  Applications Layer                                  |
 |  - ptah-extension-vscode (VS Code extension)        |
 |  - ptah-extension-webview (Angular SPA)             |
+|  - ptah-electron (Standalone desktop app)           |
 |  - ptah-landing-page (Marketing site)               |
 |  - ptah-license-server (NestJS + Prisma)            |
 +-----------------------------------------------------+
@@ -110,6 +111,7 @@ Each library has a dedicated `CLAUDE.md` file with architecture details, usage p
 
 - **[ptah-extension-vscode](apps/ptah-extension-vscode/CLAUDE.md)** - Main VS Code extension with command handlers, webview providers, and DI orchestration
 - **[ptah-extension-webview](apps/ptah-extension-webview/CLAUDE.md)** - Angular 20+ SPA with signal-based navigation and zoneless change detection
+- **[ptah-electron](apps/ptah-electron/project.json)** - Standalone Electron desktop app (cross-platform: Win/Mac/Linux), distributed via GitHub Releases
 - **[ptah-landing-page](apps/ptah-landing-page/CLAUDE.md)** - Marketing landing page (Angular) with 3D scenes and GSAP animations
 - **[ptah-license-server](apps/ptah-license-server/CLAUDE.md)** - License management API (NestJS + Prisma + PostgreSQL) with Paddle subscriptions and WorkOS auth
 - **[ptah-license-server-e2e](apps/ptah-license-server-e2e/CLAUDE.md)** - End-to-end tests for the license server
@@ -217,7 +219,7 @@ For detailed information about any library:
 
 ### Workspace Stats
 
-- **Total Projects**: 18 (6 apps + 12 libraries)
+- **Total Projects**: 19 (7 apps + 12 libraries)
 - **Total Components**: 48+ Angular components
 - **Total Services**: 40+ backend/frontend services
 - **TypeScript Files**: 280+ source files

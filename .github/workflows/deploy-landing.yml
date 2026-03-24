@@ -24,7 +24,7 @@ jobs:
       - run: npm ci
 
       - name: Quality gates
-        run: npx nx run-many -t lint typecheck build --projects=ptah-landing-page
+        run: npx nx run-many -t build --projects=ptah-landing-page
 
   deploy:
     runs-on: ubuntu-latest

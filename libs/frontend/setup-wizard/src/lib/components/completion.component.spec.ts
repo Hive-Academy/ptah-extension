@@ -234,12 +234,12 @@ describe.skip('CompletionComponent', () => {
       });
     });
 
-    it('should send message to start new chat', () => {
+    it('should send message to complete wizard', () => {
       const button = fixture.nativeElement.querySelector('.btn-ghost');
       button.click();
 
       expect(mockVSCodeService.postMessage).toHaveBeenCalledWith({
-        type: 'setup-wizard:start-chat',
+        type: 'setup-wizard:complete',
       });
     });
 

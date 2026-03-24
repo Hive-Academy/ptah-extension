@@ -58,3 +58,16 @@ export { PanelResizeService } from './panel-resize.service';
 
 // AgentMonitorTreeBuilderService - Builds ExecutionNode tree for agent monitor panel (TASK_2025_173)
 export { AgentMonitorTreeBuilderService } from './agent-monitor-tree-builder.service';
+
+// TabManagerService - Multi-session tab state management with workspace partitioning (TASK_2025_208)
+export { TabManagerService } from './tab-manager.service';
+
+// WorkspaceCoordinatorService - Cross-library workspace coordination (breaks core→chat circular dep)
+export { WorkspaceCoordinatorService } from './workspace-coordinator.service';
+
+// TabWorkspacePartitionService - Workspace-partitioned tab state management (TASK_2025_208 Batch 6)
+export {
+  TabWorkspacePartitionService,
+  type WorkspaceTabSet,
+  type TabLookupResult,
+} from './tab-workspace-partition.service';

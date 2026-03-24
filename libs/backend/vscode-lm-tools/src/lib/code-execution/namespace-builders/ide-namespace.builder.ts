@@ -4,6 +4,14 @@
  * Builds the IDE namespace with LSP, Editor, Actions, and Testing sub-namespaces.
  * Provides VS Code-exclusive capabilities impossible to access from outside VS Code.
  *
+ * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
+ * because it uses vscode.languages.* (LSP providers, diagnostics),
+ * vscode.window.activeTextEditor, vscode.window.visibleTextEditors,
+ * vscode.workspace.textDocuments, vscode.commands.executeCommand (for LSP),
+ * and vscode.CodeActionKind. These are VS Code-specific IDE APIs with no
+ * platform-core equivalent and represent the core value proposition of
+ * the IDE namespace.
+ *
  * TASK_2025_039 - Phase 4: LSP Namespace Implementation (COMPLETE)
  * - getDefinition(): Go to definition via LSP
  * - getReferences(): Find all references

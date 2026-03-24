@@ -1,3 +1,4 @@
+import { NgOptimizedImage } from '@angular/common';
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import {
@@ -18,7 +19,7 @@ import {
  */
 @Component({
   selector: 'ptah-footer',
-  imports: [RouterLink, ViewportAnimationDirective],
+  imports: [RouterLink, ViewportAnimationDirective, NgOptimizedImage],
   template: `
     <!-- Golden Divider with scaleX animation -->
     <div
@@ -40,12 +41,17 @@ import {
       <div class="container mx-auto px-4 sm:px-6 text-center">
         <!-- Brand -->
         <div class="mb-8">
-          <h3
-            class="text-xl sm:text-2xl font-display font-bold text-secondary mb-2"
-          >
-            Ptah
-          </h3>
+          <img
+            ngSrc="/assets/icons/ptah-icon.png"
+            alt="Ptah Extension Logo"
+            width="96"
+            height="96"
+            class="w-24 h-24 items-center mx-auto mb-4"
+          />
           <p class="text-base-content/60">Craftsman of AI Development</p>
+          <p class="text-xs text-base-content/40 mt-1">
+            Powered by Claude Agent SDK
+          </p>
         </div>
 
         <!-- Navigation Links -->

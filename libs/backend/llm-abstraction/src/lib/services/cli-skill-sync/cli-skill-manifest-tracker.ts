@@ -17,11 +17,18 @@
 import { createHash } from 'crypto';
 import { readdir, lstat } from 'fs/promises';
 import { join, relative } from 'path';
-import type * as vscode from 'vscode';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { CliTarget, CliPluginSyncState } from '@ptah-extension/shared';
 
 /** GlobalState key for CLI skill sync state */
 const SYNC_STATE_KEY = 'ptah.cliSkillSync';
+
+/**
+ * Sync pipeline version — bump this when the copy/transform logic changes
+ * (e.g., adding rewriteSkillName, sanitizeYamlDescriptions) to force a
+ * re-sync even when source files haven't changed.
+ */
+const SYNC_PIPELINE_VERSION = 2;
 
 /**
  * Tracks which plugins have been synced to which CLIs.
@@ -32,13 +39,13 @@ const SYNC_STATE_KEY = 'ptah.cliSkillSync';
  * Late-initialized with globalState from extension context.
  */
 export class CliSkillManifestTracker {
-  private globalState: vscode.Memento | null = null;
+  private globalState: IStateStorage | null = null;
 
   /**
-   * Initialize with VS Code globalState.
+   * Initialize with platform state storage.
    * Must be called before any sync operations.
    */
-  initialize(globalState: vscode.Memento): void {
+  initialize(globalState: IStateStorage): void {
     this.globalState = globalState;
   }
 
@@ -130,8 +137,10 @@ export class CliSkillManifestTracker {
     }
 
     // SHA-256 hash for collision resistance
+    // Include pipeline version so code-level changes to copy/transform
+    // logic (e.g., rewriteSkillName) invalidate the hash and force re-sync
     return createHash('sha256')
-      .update(entries.join('|'))
+      .update(`v${SYNC_PIPELINE_VERSION}|${entries.join('|')}`)
       .digest('hex')
       .substring(0, 16); // 16 hex chars = 64 bits, more than sufficient
   }

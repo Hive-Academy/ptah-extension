@@ -185,23 +185,16 @@ import type {
                 }
               </select>
 
-              <!-- Auto-approve toggle -->
+              <!-- Codex always runs in full-auto headless mode (no permission hooks in SDK) -->
               <div class="flex items-center justify-between mt-2">
                 <div>
                   <span class="text-[10px] text-base-content/50"
-                    >Auto-approve tools</span
+                    >Permissions</span
                   >
                   <p class="text-[9px] text-base-content/30">
-                    Skip permission prompts for all tool calls
+                    Full auto — Codex runs headless with full access
                   </p>
                 </div>
-                <input
-                  type="checkbox"
-                  class="toggle toggle-xs toggle-success"
-                  [checked]="agentConfig()!.codexAutoApprove"
-                  (change)="toggleAutoApprove('codex')"
-                  aria-label="Auto-approve Codex tool calls"
-                />
               </div>
             </div>
             }

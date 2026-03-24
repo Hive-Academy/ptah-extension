@@ -2,7 +2,6 @@ import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import type {
@@ -85,15 +84,11 @@ export class SetupStatusService {
    * 5. Get last modified timestamp of .claude/agents/ directory
    * 6. Cache result with timestamp
    *
-   * @param workspaceUri - Workspace root URI
+   * @param workspacePath - Workspace root path
    * @returns Result with SetupStatus or Error
    */
-  async getStatus(
-    workspaceUri: vscode.Uri
-  ): Promise<Result<SetupStatus, Error>> {
+  async getStatus(workspacePath: string): Promise<Result<SetupStatus, Error>> {
     try {
-      const workspacePath = workspaceUri.fsPath;
-
       // Check cache validity
       if (this.isCacheValid(workspacePath)) {
         this.logger.debug('Returning cached setup status');

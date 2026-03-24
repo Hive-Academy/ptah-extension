@@ -18,6 +18,7 @@ import {
   X,
   Search,
   RefreshCw,
+  Wrench,
 } from 'lucide-angular';
 import { NativeAutocompleteComponent } from '@ptah-extension/ui';
 import { ClaudeRpcService, ModelStateService } from '@ptah-extension/core';
@@ -231,7 +232,7 @@ const TIER_CONFIGS: TierConfig[] = [
         </div>
         @if (model.supportsToolUse) {
         <lucide-angular
-          [img]="CheckIcon"
+          [img]="WrenchIcon"
           class="w-4 h-4 text-success flex-shrink-0"
           title="Supports tool use"
         />
@@ -253,6 +254,7 @@ export class ProviderModelSelectorComponent implements OnInit {
   // Icons
   readonly AlertTriangleIcon = AlertTriangle;
   readonly CheckIcon = Check;
+  readonly WrenchIcon = Wrench;
   readonly XIcon = X;
   readonly SearchIcon = Search;
   readonly RefreshCwIcon = RefreshCw;

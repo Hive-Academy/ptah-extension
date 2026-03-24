@@ -10,7 +10,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
 

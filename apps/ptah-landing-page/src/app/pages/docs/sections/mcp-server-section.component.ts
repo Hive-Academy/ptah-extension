@@ -19,9 +19,9 @@ import {
   Eye,
 } from 'lucide-angular';
 import { DocsCodeBlockComponent } from '../components/docs-code-block.component';
-import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
+import { DocsVideoPlayerComponent } from '../components/docs-video-player.component';
 
 @Component({
   selector: 'ptah-docs-mcp-server',
@@ -30,9 +30,9 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsCodeBlockComponent,
-    DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
     DocsCollapsibleCardComponent,
+    DocsVideoPlayerComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="mcp-server">
@@ -54,16 +54,16 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         >
         that runs inside the VS Code extension host. It gives AI subagents
         direct access to VS Code's internal capabilities — LSP, diagnostics,
-        workspace analysis, git, and more.
+        workspace analysis, AST parsing, and more.
       </p>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
         class="text-neutral-content/60 text-sm mb-8 max-w-2xl"
       >
-        Instead of Claude manually exploring files and running bash commands, it
-        queries Ptah's APIs to get structured, accurate results in a single
-        call. This is a
+        Instead of your AI agent manually exploring files and running bash
+        commands, it queries Ptah's APIs to get structured, accurate results in
+        a single call. This is a
         <strong class="text-neutral-content">Pro feature</strong> —
         automatically enabled when you have an active license.
       </p>
@@ -89,8 +89,8 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
             tool automatically discovers it and gains access to all Ptah tools.
           </p>
           <p class="text-sm text-neutral-content">
-            Claude receives a system prompt that instructs it to prefer Ptah
-            tools over built-in alternatives — so it uses
+            Your AI agent receives a system prompt that instructs it to prefer
+            Ptah tools over built-in alternatives — so it uses
             <code class="text-secondary/70 text-xs">ptah_get_diagnostics</code>
             instead of running a build to check errors, or
             <code class="text-secondary/70 text-xs">ptah_lsp_references</code>
@@ -98,11 +98,13 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
           </p>
         </ptah-docs-collapsible-card>
 
-        <!-- MCP Tools Grid -->
-        <div>
-          <h3 class="text-base font-semibold text-base-content/80 mb-4">
-            Available MCP Tools
-          </h3>
+        <!-- Available MCP Tools -->
+        <ptah-docs-collapsible-card
+          [icon]="SearchIcon"
+          title="Available MCP Tools"
+          subtitle="8 workspace tools + 6 agent orchestration tools"
+          [expanded]="true"
+        >
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             @for (tool of mcpTools; track tool.name) {
             <div
@@ -158,18 +160,18 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
             >
             for detailed usage and the fire-and-check workflow.
           </p>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- API Namespaces -->
         <ptah-docs-collapsible-card
           [icon]="BrainCircuitIcon"
-          title="16 API Namespaces"
+          title="14 API Namespaces"
         >
           <p class="text-sm text-neutral-content mb-4">
             The
             <code class="text-secondary/70 text-xs">execute_code</code> tool
-            gives Claude access to the full
-            <code class="text-secondary/70 text-xs">ptah.*</code> API. Claude
+            gives your AI agent access to the full
+            <code class="text-secondary/70 text-xs">ptah.*</code> API. Agents
             can write TypeScript that queries your workspace, analyzes code
             structure, accesses LSP features, spawns background agents, and even
             calls other AI models.
@@ -199,15 +201,15 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         </ptah-docs-collapsible-card>
 
         <!-- Example -->
-        <div>
-          <h3 class="text-base font-semibold text-base-content/80 mb-3">
-            What Claude Can Do
-          </h3>
+        <ptah-docs-collapsible-card
+          [icon]="TerminalIcon"
+          title="What Your Agent Can Do"
+        >
           <ptah-docs-code-block
             [code]="exampleCode"
-            label="Claude uses ptah.* APIs autonomously"
+            label="Your agent uses ptah.* APIs autonomously"
           />
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- Security -->
         <div
@@ -230,11 +232,7 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
       </div>
 
       <ng-container media>
-        <ptah-docs-media-placeholder
-          title="MCP Server in Action"
-          aspectRatio="16/9"
-          mediaType="gif"
-        />
+        <ptah-docs-video-player src="assets/videos/ptah-mcp-server.mp4" />
       </ng-container>
     </ptah-docs-section-shell>
   `,
@@ -299,7 +297,7 @@ export class McpServerSectionComponent {
     },
     {
       name: 'execute_code',
-      description: 'Run TypeScript with access to all 16 ptah.* APIs',
+      description: 'Run TypeScript with access to all 14 ptah.* APIs',
       icon: BrainCircuit,
     },
   ];
@@ -331,12 +329,8 @@ export class McpServerSectionComponent {
   public readonly apiNamespaces = [
     { name: 'ptah.workspace', hint: 'project info' },
     { name: 'ptah.search', hint: 'file search' },
-    { name: 'ptah.symbols', hint: 'code symbols' },
     { name: 'ptah.diagnostics', hint: 'errors' },
-    { name: 'ptah.git', hint: 'git status' },
-    { name: 'ptah.ai', hint: 'multi-LLM' },
     { name: 'ptah.files', hint: 'file I/O' },
-    { name: 'ptah.commands', hint: 'VS Code cmds' },
     { name: 'ptah.context', hint: 'token budget' },
     { name: 'ptah.project', hint: 'deep analysis' },
     { name: 'ptah.relevance', hint: 'file scoring' },
@@ -345,9 +339,10 @@ export class McpServerSectionComponent {
     { name: 'ptah.ide.editor', hint: 'editor state' },
     { name: 'ptah.ide.actions', hint: 'refactoring' },
     { name: 'ptah.agent', hint: 'background agents' },
+    { name: 'ptah.dependencies', hint: 'dep analysis' },
   ];
 
-  public readonly exampleCode = `// Claude autonomously queries your workspace:
+  public readonly exampleCode = `// Your agent autonomously queries your workspace:
 const project = await ptah.workspace.analyze();
 // → { type: "angular-nx", frameworks: ["Angular 20", "NestJS"] }
 

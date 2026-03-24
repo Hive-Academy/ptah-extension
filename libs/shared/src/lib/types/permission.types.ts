@@ -12,6 +12,19 @@ import type { PermissionLevel } from './model-autopilot.types';
 import type { QuestionItem } from '../type-guards/tool-input-guards';
 
 /**
+ * Sentinel value for when the parent agent's toolCallId cannot be resolved.
+ *
+ * Used in PermissionRequest.agentToolCallId when the permission handler
+ * knows the tool is running inside a subagent (agentID is present) but
+ * cannot map it to a registry record (e.g., registry entry expired or
+ * agent hasn't been registered yet).
+ *
+ * The frontend uses this sentinel to fall back to markLastAgentAsInterrupted()
+ * instead of targeted marking.
+ */
+export const UNKNOWN_AGENT_TOOL_CALL_ID = '__unknown__' as const;
+
+/**
  * Permission request sent from MCP server to webview
  *
  * Represents a pending permission request that requires user approval.
@@ -30,13 +43,30 @@ export interface PermissionRequest {
   /** Claude's tool_use_id for correlation (optional) */
   readonly toolUseId?: string;
 
+  /**
+   * The toolCallId of the Task tool that spawned the subagent whose tool
+   * is being denied. This is the ID the frontend uses to identify the
+   * agent ExecutionNode in the streaming state tree.
+   *
+   * - Set when a tool inside a subagent requires permission and the backend
+   *   can resolve the sub-agent's ID to the parent Task tool's toolCallId
+   *   via the SubagentRegistryService.
+   * - Set to UNKNOWN_AGENT_TOOL_CALL_ID when the agent context is known
+   *   but the registry lookup fails.
+   * - Undefined when the tool is not running inside a subagent.
+   *
+   * TASK_2025_213: Fixes the semantic mismatch where toolUseId is the
+   * denied tool's ID but the frontend needs the agent's toolCallId.
+   */
+  readonly agentToolCallId?: string;
+
   /** Request timestamp (Unix epoch milliseconds) */
   readonly timestamp: number;
 
   /** Human-readable description of the permission request */
   readonly description: string;
 
-  /** Timeout deadline (Unix epoch milliseconds) - auto-deny after this time */
+  /** Timeout deadline (Unix epoch milliseconds). 0 means no timeout — block indefinitely until user responds. */
   readonly timeoutAt: number;
 
   /** Session ID this permission belongs to (for UI routing to correct tab) */
@@ -143,7 +173,7 @@ export interface AskUserQuestionRequest {
   readonly toolUseId?: string;
   /** Request timestamp (Unix epoch milliseconds) */
   readonly timestamp: number;
-  /** Timeout deadline (Unix epoch milliseconds) */
+  /** Timeout deadline (Unix epoch milliseconds). 0 means no timeout — block indefinitely until user responds. */
   readonly timeoutAt: number;
   /** Session ID this question belongs to (for UI routing to correct tab) */
   readonly sessionId?: string;
@@ -169,6 +199,7 @@ export const PermissionRequestSchema = z.object({
   toolName: z.string().min(1),
   toolInput: z.record(z.string(), z.unknown()),
   toolUseId: z.string().optional(),
+  agentToolCallId: z.string().optional(),
   timestamp: z.number(),
   description: z.string(),
   timeoutAt: z.number(),

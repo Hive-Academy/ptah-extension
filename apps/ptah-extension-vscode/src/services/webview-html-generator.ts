@@ -41,6 +41,8 @@ export class WebviewHtmlGenerator {
           initialView?: string;
           isLicensed?: boolean;
           panelId?: string;
+          initialSessionId?: string;
+          initialSessionName?: string;
         }
       | Record<string, unknown>
   ): string {
@@ -50,13 +52,16 @@ export class WebviewHtmlGenerator {
       let initialView: string | undefined;
       let isLicensed = true; // Default to licensed for normal activation
       let panelId: string | undefined;
+      let initialSessionId: string | undefined;
+      let initialSessionName: string | undefined;
 
       if (options) {
         if (
           'initialView' in options ||
           'workspaceInfo' in options ||
           'isLicensed' in options ||
-          'panelId' in options
+          'panelId' in options ||
+          'initialSessionId' in options
         ) {
           // New format with explicit options
           workspaceInfo = (
@@ -65,6 +70,10 @@ export class WebviewHtmlGenerator {
           initialView = (options as { initialView?: string }).initialView;
           isLicensed = (options as { isLicensed?: boolean }).isLicensed ?? true;
           panelId = (options as { panelId?: string }).panelId;
+          initialSessionId = (options as { initialSessionId?: string })
+            .initialSessionId;
+          initialSessionName = (options as { initialSessionName?: string })
+            .initialSessionName;
         } else {
           // Legacy format - treat as workspaceInfo directly
           workspaceInfo = options as Record<string, unknown>;
@@ -76,7 +85,9 @@ export class WebviewHtmlGenerator {
         workspaceInfo,
         initialView,
         isLicensed,
-        panelId
+        panelId,
+        initialSessionId,
+        initialSessionName
       );
       return htmlContent;
     } catch (error) {
@@ -98,7 +109,9 @@ export class WebviewHtmlGenerator {
     workspaceInfo?: Record<string, unknown>,
     initialView?: string,
     isLicensed = true,
-    panelId?: string
+    panelId?: string,
+    initialSessionId?: string,
+    initialSessionName?: string
   ): string {
     // CRITICAL: Validate initialView to prevent invalid views from crashing navigation
     const VALID_VIEWS = [
@@ -162,7 +175,9 @@ export class WebviewHtmlGenerator {
       webview,
       initialView,
       isLicensed,
-      panelId
+      panelId,
+      initialSessionId,
+      initialSessionName
     );
     const themeStyles = this.getThemeStyles();
 
@@ -423,7 +438,9 @@ export class WebviewHtmlGenerator {
     webview?: vscode.Webview,
     initialView?: string,
     isLicensed = true,
-    panelId?: string
+    panelId?: string,
+    initialSessionId?: string,
+    initialSessionName?: string
   ): string {
     // Generate proper webview URIs for assets
     const appDistPath = path.join(
@@ -469,7 +486,17 @@ export class WebviewHtmlGenerator {
         initialView: ${
           initialView ? `'${this.escapeJsString(initialView)}'` : 'null'
         },
-        panelId: '${this.escapeJsString(panelId || '')}'
+        panelId: '${this.escapeJsString(panelId || '')}',
+        initialSessionId: ${
+          initialSessionId
+            ? `'${this.escapeJsString(initialSessionId)}'`
+            : 'null'
+        },
+        initialSessionName: ${
+          initialSessionName
+            ? `'${this.escapeJsString(initialSessionName)}'`
+            : 'null'
+        }
       };
 
 

@@ -23,6 +23,7 @@ import {
   PermissionResponse,
   ExecutionNode,
   MESSAGE_TYPES,
+  UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
 import {
   type AskUserQuestionRequest,
@@ -47,11 +48,14 @@ export class PermissionHandlerService {
   private readonly _permissionRequests = signal<PermissionRequest[]>([]);
 
   /**
-   * Tracks whether the last permission deny was a hard "deny" (not deny_with_message).
-   * Used by StreamingHandlerService to pass isAborted=true on finalization,
-   * which marks streaming nodes as "interrupted" in the UI.
+   * Tracks toolUseIds of hard permission denies (not deny_with_message).
+   * Used by StreamingHandlerService to mark specific agent nodes as "interrupted".
+   * Set-based to handle multiple concurrent denies correctly.
+   *
+   * TASK_2025_213: Changed from boolean signal to Set<string> for targeted marking.
+   * When agentToolCallId is UNKNOWN_AGENT_TOOL_CALL_ID, triggers legacy fallback.
    */
-  private readonly _lastDenyWasHardInterrupt = signal(false);
+  private readonly _hardDenyToolUseIds = signal<Set<string>>(new Set());
 
   /**
    * Public readonly access to permission requests
@@ -81,9 +85,10 @@ export class PermissionHandlerService {
       if (requests.length === 0) return;
 
       // Schedule cleanup check
+      // Guard: timeoutAt === 0 means "no timeout — block indefinitely" (TASK_2025_215)
       const now = Date.now();
       const expiredIds = requests
-        .filter((r) => r.timeoutAt <= now)
+        .filter((r) => r.timeoutAt > 0 && r.timeoutAt <= now)
         .map((r) => r.id);
 
       if (expiredIds.length > 0) {
@@ -92,7 +97,7 @@ export class PermissionHandlerService {
           expiredIds
         );
         this._questionRequests.update((reqs) =>
-          reqs.filter((r) => r.timeoutAt > now)
+          reqs.filter((r) => r.timeoutAt <= 0 || r.timeoutAt > now)
         );
       }
     });
@@ -291,9 +296,27 @@ export class PermissionHandlerService {
   handlePermissionResponse(response: PermissionResponse): void {
     console.log('[PermissionHandlerService] Permission response:', response);
 
-    // Track hard deny for interrupted badge display
+    // Track hard deny IDs for targeted interrupted badge display.
+    // TASK_2025_213: Prefer agentToolCallId (the parent Task tool's ID) over
+    // toolUseId (the denied tool's own ID). The frontend's markAgentsAsInterruptedByToolCallIds
+    // matches against agent node toolCallIds, which are Task tool IDs.
+    // - agentToolCallId set & not sentinel: use it (targeted marking)
+    // - agentToolCallId is sentinel: use sentinel (legacy fallback)
+    // - agentToolCallId unset: no subagent context, use sentinel (legacy fallback)
     if (response.decision === 'deny') {
-      this._lastDenyWasHardInterrupt.set(true);
+      const originalRequest = this._permissionRequests().find(
+        (r) => r.id === response.id
+      );
+      const denyId =
+        originalRequest?.agentToolCallId &&
+        originalRequest.agentToolCallId !== UNKNOWN_AGENT_TOOL_CALL_ID
+          ? originalRequest.agentToolCallId
+          : UNKNOWN_AGENT_TOOL_CALL_ID;
+      this._hardDenyToolUseIds.update((ids) => {
+        const next = new Set(ids);
+        next.add(denyId);
+        return next;
+      });
     }
 
     // Remove from pending requests
@@ -309,18 +332,21 @@ export class PermissionHandlerService {
   }
 
   /**
-   * Consume the hard-deny flag (read and reset).
+   * Consume the hard-deny toolUseIds (read and reset).
    * Called by StreamingHandlerService when session stats arrive to determine
-   * whether to finalize with isAborted=true (shows "interrupted" badge).
+   * which specific agent nodes to mark as "interrupted".
    *
-   * @returns true if a hard deny occurred since last consumption
+   * TASK_2025_213: Returns Set of agent toolCallIds (or UNKNOWN_AGENT_TOOL_CALL_ID sentinel).
+   * If Set contains UNKNOWN_AGENT_TOOL_CALL_ID, caller should fall back to markLastAgentAsInterrupted.
+   *
+   * @returns Set of toolUseIds that were hard-denied since last consumption (empty if none)
    */
-  consumeHardDenyFlag(): boolean {
-    const wasDenied = this._lastDenyWasHardInterrupt();
-    if (wasDenied) {
-      this._lastDenyWasHardInterrupt.set(false);
+  consumeHardDenyToolUseIds(): Set<string> {
+    const ids = this._hardDenyToolUseIds();
+    if (ids.size > 0) {
+      this._hardDenyToolUseIds.set(new Set());
     }
-    return wasDenied;
+    return ids;
   }
 
   /**

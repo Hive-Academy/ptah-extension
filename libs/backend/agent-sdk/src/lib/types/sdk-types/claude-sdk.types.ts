@@ -5,8 +5,8 @@
  * These are TYPE-ONLY definitions - no runtime code, not included in production bundle.
  *
  * Source: node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts
- * Last Updated: 2026-02-01
- * SDK Version: 0.2.25 (installed)
+ * Last Updated: 2026-03-23
+ * SDK Version: 0.2.81 (installed)
  *
  * MAINTENANCE: Update this file when upgrading the SDK version.
  * Run: diff node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts libs/backend/agent-sdk/src/lib/types/sdk-types/claude-sdk.types.ts
@@ -89,7 +89,7 @@ export type OutputFormat = JsonSchemaOutputFormat;
 /**
  * API key source
  */
-export type ApiKeySource = 'user' | 'project' | 'org' | 'temporary';
+export type ApiKeySource = 'user' | 'project' | 'org' | 'temporary' | 'oauth';
 
 /**
  * Configuration scope for settings
@@ -124,10 +124,41 @@ export type SdkPluginConfig = {
  */
 export type ExitReason =
   | 'clear'
+  | 'resume'
   | 'logout'
   | 'prompt_input_exit'
   | 'other'
   | 'bypass_permissions_disabled';
+
+/**
+ * Fast mode state: off, in cooldown after rate limit, or actively enabled.
+ */
+export type FastModeState = 'off' | 'cooldown' | 'on';
+
+/**
+ * Thinking configuration types
+ */
+export type ThinkingAdaptive = {
+  type: 'adaptive';
+};
+
+export type ThinkingEnabled = {
+  type: 'enabled';
+  budgetTokens?: number;
+};
+
+export type ThinkingDisabled = {
+  type: 'disabled';
+};
+
+/**
+ * Controls Claude's thinking/reasoning behavior.
+ * When set, takes precedence over the deprecated maxThinkingTokens.
+ */
+export type ThinkingConfig =
+  | ThinkingAdaptive
+  | ThinkingEnabled
+  | ThinkingDisabled;
 
 // =============================================================================
 // ANTHROPIC API MESSAGE TYPES (Inlined from @anthropic-ai/sdk)
@@ -392,13 +423,17 @@ export interface SDKUserMessage {
   message: APIUserMessage;
   parent_tool_use_id: string | null;
   /** Synthetic/meta message - should NOT be displayed in the UI.
-   * The SDK maps internal isMeta → isSynthetic when emitting.
+   * The SDK maps internal isMeta -> isSynthetic when emitting.
    * True for: skill .md content, reminders, system injections, etc. */
   isSynthetic?: boolean;
-  /** @deprecated SDK 0.2.25+ maps isMeta → isSynthetic on emission.
-   * Kept for backwards compatibility with older SDK versions. */
+  /** @deprecated SDK 0.2.25+ maps isMeta -> isSynthetic on emission.
+   * Kept for backwards compatibility with older SDK versions and JSONL data. */
   isMeta?: boolean;
   tool_use_result?: unknown;
+  /** Message priority for async scheduling */
+  priority?: 'now' | 'next' | 'later';
+  /** ISO timestamp when the message was created on the originating process */
+  timestamp?: string;
   uuid?: UUID;
   session_id: string;
 }
@@ -412,6 +447,10 @@ export interface SDKUserMessageReplay {
   parent_tool_use_id: string | null;
   isSynthetic?: boolean;
   tool_use_result?: unknown;
+  /** Message priority for async scheduling */
+  priority?: 'now' | 'next' | 'later';
+  /** ISO timestamp when the message was created on the originating process */
+  timestamp?: string;
   uuid: UUID;
   session_id: string;
   /** True if this is a replay - DON'T store these! */
@@ -427,7 +466,8 @@ export type SDKAssistantMessageError =
   | 'rate_limit'
   | 'invalid_request'
   | 'server_error'
-  | 'unknown';
+  | 'unknown'
+  | 'max_output_tokens';
 
 /**
  * SDK Assistant Message (complete message)
@@ -452,11 +492,13 @@ export interface SDKResultMessageSuccess {
   is_error: boolean;
   num_turns: number;
   result: string;
+  stop_reason: string | null;
   total_cost_usd: number;
   usage: NonNullableUsage;
   modelUsage: Record<string, ModelUsage>;
   permission_denials: SDKPermissionDenial[];
   structured_output?: unknown;
+  fast_mode_state?: FastModeState;
   uuid: UUID;
   session_id: string;
 }
@@ -475,11 +517,13 @@ export interface SDKResultMessageError {
   duration_api_ms: number;
   is_error: boolean;
   num_turns: number;
+  stop_reason: string | null;
   total_cost_usd: number;
   usage: NonNullableUsage;
   modelUsage: Record<string, ModelUsage>;
   permission_denials: SDKPermissionDenial[];
   errors: string[];
+  fast_mode_state?: FastModeState;
   uuid: UUID;
   session_id: string;
 }
@@ -508,6 +552,7 @@ export interface SDKSystemMessage {
   output_style: string;
   skills: string[];
   plugins: Array<{ name: string; path: string }>;
+  fast_mode_state?: FastModeState;
   uuid: UUID;
   session_id: string;
 }
@@ -532,6 +577,16 @@ export interface SDKCompactBoundaryMessage {
   compact_metadata: {
     trigger: 'manual' | 'auto';
     pre_tokens: number;
+    /**
+     * Relink info for messagesToKeep. Loaders splice the preserved segment
+     * at anchor_uuid so resume includes preserved content.
+     * Unset when compaction summarizes everything (no messagesToKeep).
+     */
+    preserved_segment?: {
+      head_uuid: UUID;
+      anchor_uuid: UUID;
+      tail_uuid: UUID;
+    };
   };
   uuid: UUID;
   session_id: string;
@@ -549,6 +604,7 @@ export interface SDKStatusMessage {
   type: 'system';
   subtype: 'status';
   status: SDKStatus;
+  permissionMode?: PermissionMode;
   uuid: UUID;
   session_id: string;
 }
@@ -609,6 +665,7 @@ export interface SDKToolProgressMessage {
   tool_name: string;
   parent_tool_use_id: string | null;
   elapsed_time_seconds: number;
+  task_id?: string;
   uuid: UUID;
   session_id: string;
 }
@@ -632,9 +689,50 @@ export interface SDKTaskNotificationMessage {
   type: 'system';
   subtype: 'task_notification';
   task_id: string;
+  tool_use_id?: string;
   status: 'completed' | 'failed' | 'stopped';
   output_file: string;
   summary: string;
+  usage?: {
+    total_tokens: number;
+    tool_uses: number;
+    duration_ms: number;
+  };
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Task Started Message
+ */
+export interface SDKTaskStartedMessage {
+  type: 'system';
+  subtype: 'task_started';
+  task_id: string;
+  tool_use_id?: string;
+  description: string;
+  task_type?: string;
+  prompt?: string;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Task Progress Message
+ */
+export interface SDKTaskProgressMessage {
+  type: 'system';
+  subtype: 'task_progress';
+  task_id: string;
+  tool_use_id?: string;
+  description: string;
+  usage: {
+    total_tokens: number;
+    tool_uses: number;
+    duration_ms: number;
+  };
+  last_tool_name?: string;
+  summary?: string;
   uuid: UUID;
   session_id: string;
 }
@@ -669,6 +767,103 @@ export interface SDKToolUseSummaryMessage {
   session_id: string;
 }
 
+/**
+ * SDK API Retry Message
+ * Emitted when an API request fails with a retryable error and will be retried after a delay.
+ */
+export interface SDKAPIRetryMessage {
+  type: 'system';
+  subtype: 'api_retry';
+  attempt: number;
+  max_retries: number;
+  retry_delay_ms: number;
+  error_status: number | null;
+  error: SDKAssistantMessageError;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Local Command Output Message
+ * Output from a local slash command (e.g. /voice, /cost).
+ */
+export interface SDKLocalCommandOutputMessage {
+  type: 'system';
+  subtype: 'local_command_output';
+  content: string;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Rate Limit Info
+ * Rate limit information for claude.ai subscription users.
+ */
+export interface SDKRateLimitInfo {
+  status: 'allowed' | 'allowed_warning' | 'rejected';
+  resetsAt?: number;
+  rateLimitType?:
+    | 'five_hour'
+    | 'seven_day'
+    | 'seven_day_opus'
+    | 'seven_day_sonnet'
+    | 'overage';
+  utilization?: number;
+  overageStatus?: 'allowed' | 'allowed_warning' | 'rejected';
+  overageResetsAt?: number;
+  overageDisabledReason?:
+    | 'overage_not_provisioned'
+    | 'org_level_disabled'
+    | 'org_level_disabled_until'
+    | 'out_of_credits'
+    | 'seat_tier_level_disabled'
+    | 'member_level_disabled'
+    | 'seat_tier_zero_credit_limit'
+    | 'group_zero_credit_limit'
+    | 'member_zero_credit_limit'
+    | 'org_service_level_disabled'
+    | 'org_service_zero_credit_limit'
+    | 'no_limits_configured'
+    | 'unknown';
+  isUsingOverage?: boolean;
+  surpassedThreshold?: number;
+}
+
+/**
+ * SDK Rate Limit Event
+ * Emitted when rate limit info changes.
+ */
+export interface SDKRateLimitEvent {
+  type: 'rate_limit_event';
+  rate_limit_info: SDKRateLimitInfo;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Prompt Suggestion Message
+ * Predicted next user prompt, emitted after each turn when promptSuggestions is enabled.
+ */
+export interface SDKPromptSuggestionMessage {
+  type: 'prompt_suggestion';
+  suggestion: string;
+  uuid: UUID;
+  session_id: string;
+}
+
+/**
+ * SDK Elicitation Complete Message
+ * Emitted when an MCP server confirms that a URL-mode elicitation is complete.
+ */
+export interface SDKElicitationCompleteMessage {
+  type: 'system';
+  subtype: 'elicitation_complete';
+  mcp_server_name: string;
+  elicitation_id: string;
+  uuid: UUID;
+  session_id: string;
+}
+
 // =============================================================================
 // DISCRIMINATED UNION - THE MAIN TYPE
 // =============================================================================
@@ -695,14 +890,21 @@ export type SDKMessage =
   | SDKPartialAssistantMessage
   | SDKCompactBoundaryMessage
   | SDKStatusMessage
+  | SDKAPIRetryMessage
+  | SDKLocalCommandOutputMessage
   | SDKHookStartedMessage
   | SDKHookProgressMessage
   | SDKHookResponseMessage
   | SDKToolProgressMessage
   | SDKAuthStatusMessage
   | SDKTaskNotificationMessage
+  | SDKTaskStartedMessage
+  | SDKTaskProgressMessage
   | SDKFilesPersistedEvent
-  | SDKToolUseSummaryMessage;
+  | SDKToolUseSummaryMessage
+  | SDKRateLimitEvent
+  | SDKElicitationCompleteMessage
+  | SDKPromptSuggestionMessage;
 
 // =============================================================================
 // TYPE GUARDS - Use these instead of type casts!
@@ -797,6 +999,49 @@ export function isToolUseSummary(
   msg: SDKMessage
 ): msg is SDKToolUseSummaryMessage {
   return msg.type === 'tool_use_summary';
+}
+
+/**
+ * Check if message is a rate limit event
+ */
+export function isRateLimitEvent(msg: SDKMessage): msg is SDKRateLimitEvent {
+  return msg.type === 'rate_limit_event';
+}
+
+/**
+ * Check if message is a prompt suggestion
+ */
+export function isPromptSuggestion(
+  msg: SDKMessage
+): msg is SDKPromptSuggestionMessage {
+  return msg.type === 'prompt_suggestion';
+}
+
+/**
+ * Check if message is an API retry message
+ */
+export function isAPIRetryMessage(msg: SDKMessage): msg is SDKAPIRetryMessage {
+  return (
+    msg.type === 'system' && 'subtype' in msg && msg.subtype === 'api_retry'
+  );
+}
+
+/**
+ * Check if message is a task started message
+ */
+export function isTaskStarted(msg: SDKMessage): msg is SDKTaskStartedMessage {
+  return (
+    msg.type === 'system' && 'subtype' in msg && msg.subtype === 'task_started'
+  );
+}
+
+/**
+ * Check if message is a task progress message
+ */
+export function isTaskProgress(msg: SDKMessage): msg is SDKTaskProgressMessage {
+  return (
+    msg.type === 'system' && 'subtype' in msg && msg.subtype === 'task_progress'
+  );
 }
 
 // =============================================================================
@@ -1044,6 +1289,22 @@ export type CanUseTool = (
     /** Explains why this permission request was triggered. */
     decisionReason?: string;
     /**
+     * Full permission prompt sentence rendered by the bridge (e.g.
+     * "Claude wants to read foo.txt"). Use this as the primary prompt
+     * text when present instead of reconstructing from toolName+input.
+     */
+    title?: string;
+    /**
+     * Short noun phrase for the tool action (e.g. "Read file"), suitable
+     * for button labels or compact UI.
+     */
+    displayName?: string;
+    /**
+     * Human-readable subtitle from the bridge (e.g. "Claude will have
+     * read and write access to files in ~/Downloads").
+     */
+    description?: string;
+    /**
      * Unique identifier for this specific tool call within the assistant message.
      * Multiple tool calls in the same assistant message will have different toolUseIDs.
      */
@@ -1069,11 +1330,21 @@ export type HookEvent =
   | 'SessionStart'
   | 'SessionEnd'
   | 'Stop'
+  | 'StopFailure'
   | 'SubagentStart'
   | 'SubagentStop'
   | 'PreCompact'
+  | 'PostCompact'
   | 'PermissionRequest'
-  | 'Setup';
+  | 'Setup'
+  | 'TeammateIdle'
+  | 'TaskCompleted'
+  | 'Elicitation'
+  | 'ElicitationResult'
+  | 'ConfigChange'
+  | 'WorktreeCreate'
+  | 'WorktreeRemove'
+  | 'InstructionsLoaded';
 
 /**
  * Async hook output (for hooks that need more time)
@@ -1102,6 +1373,7 @@ export type UserPromptSubmitHookSpecificOutput = {
 export type SessionStartHookSpecificOutput = {
   hookEventName: 'SessionStart';
   additionalContext?: string;
+  initialUserMessage?: string;
 };
 
 export type SetupHookSpecificOutput = {
@@ -1145,6 +1417,18 @@ export type PermissionRequestHookSpecificOutput = {
       };
 };
 
+export type ElicitationHookSpecificOutput = {
+  hookEventName: 'Elicitation';
+  action?: 'accept' | 'decline' | 'cancel';
+  content?: Record<string, unknown>;
+};
+
+export type ElicitationResultHookSpecificOutput = {
+  hookEventName: 'ElicitationResult';
+  action?: 'accept' | 'decline' | 'cancel';
+  content?: Record<string, unknown>;
+};
+
 /**
  * Sync hook output (most common case)
  */
@@ -1164,7 +1448,9 @@ export interface SyncHookJSONOutput {
     | PostToolUseHookSpecificOutput
     | PostToolUseFailureHookSpecificOutput
     | NotificationHookSpecificOutput
-    | PermissionRequestHookSpecificOutput;
+    | PermissionRequestHookSpecificOutput
+    | ElicitationHookSpecificOutput
+    | ElicitationResultHookSpecificOutput;
 }
 
 /**
@@ -1201,6 +1487,17 @@ export interface BaseHookInput {
   transcript_path: string;
   cwd: string;
   permission_mode?: string;
+  /**
+   * Subagent identifier. Present only when the hook fires from within a subagent.
+   * Absent for the main thread, even in --agent sessions.
+   */
+  agent_id?: string;
+  /**
+   * Agent type name (e.g., "general-purpose", "code-reviewer").
+   * Present when the hook fires from within a subagent (alongside agent_id),
+   * or on the main thread of a session started with --agent (without agent_id).
+   */
+  agent_type?: string;
 }
 
 /**
@@ -1280,6 +1577,18 @@ export interface SessionStartHookInput extends BaseHookInput {
 export interface StopHookInput extends BaseHookInput {
   hook_event_name: 'Stop';
   stop_hook_active: boolean;
+  /** Text content of the last assistant message before stopping */
+  last_assistant_message?: string;
+}
+
+/**
+ * StopFailure hook input
+ */
+export interface StopFailureHookInput extends BaseHookInput {
+  hook_event_name: 'StopFailure';
+  error: SDKAssistantMessageError;
+  error_details?: string;
+  last_assistant_message?: string;
 }
 
 /**
@@ -1303,6 +1612,10 @@ export interface SubagentStopHookInput extends BaseHookInput {
   agent_id: string;
   /** Path to the subagent's transcript JSONL file */
   agent_transcript_path: string;
+  /** Type of agent (e.g., "software-architect", "backend-developer") */
+  agent_type: string;
+  /** Text content of the last assistant message before stopping */
+  last_assistant_message?: string;
 }
 
 /**
@@ -1312,6 +1625,16 @@ export interface PreCompactHookInput extends BaseHookInput {
   hook_event_name: 'PreCompact';
   trigger: 'manual' | 'auto';
   custom_instructions: string | null;
+}
+
+/**
+ * PostCompact hook input
+ */
+export interface PostCompactHookInput extends BaseHookInput {
+  hook_event_name: 'PostCompact';
+  trigger: 'manual' | 'auto';
+  /** The conversation summary produced by compaction */
+  compact_summary: string;
 }
 
 /**
@@ -1331,6 +1654,100 @@ export interface SetupHookInput extends BaseHookInput {
 }
 
 /**
+ * TeammateIdle hook input
+ */
+export interface TeammateIdleHookInput extends BaseHookInput {
+  hook_event_name: 'TeammateIdle';
+  teammate_name: string;
+  team_name: string;
+}
+
+/**
+ * TaskCompleted hook input
+ */
+export interface TaskCompletedHookInput extends BaseHookInput {
+  hook_event_name: 'TaskCompleted';
+  task_id: string;
+  task_subject: string;
+  task_description?: string;
+  teammate_name?: string;
+  team_name?: string;
+}
+
+/**
+ * Elicitation hook input - fires when an MCP server requests user input
+ */
+export interface ElicitationHookInput extends BaseHookInput {
+  hook_event_name: 'Elicitation';
+  mcp_server_name: string;
+  message: string;
+  mode?: 'form' | 'url';
+  url?: string;
+  elicitation_id?: string;
+  requested_schema?: Record<string, unknown>;
+}
+
+/**
+ * ElicitationResult hook input - fires after the user responds to an MCP elicitation
+ */
+export interface ElicitationResultHookInput extends BaseHookInput {
+  hook_event_name: 'ElicitationResult';
+  mcp_server_name: string;
+  elicitation_id?: string;
+  mode?: 'form' | 'url';
+  action: 'accept' | 'decline' | 'cancel';
+  content?: Record<string, unknown>;
+}
+
+/**
+ * ConfigChange hook input
+ */
+export interface ConfigChangeHookInput extends BaseHookInput {
+  hook_event_name: 'ConfigChange';
+  source:
+    | 'user_settings'
+    | 'project_settings'
+    | 'local_settings'
+    | 'policy_settings'
+    | 'skills';
+  file_path?: string;
+}
+
+/**
+ * InstructionsLoaded hook input
+ */
+export interface InstructionsLoadedHookInput extends BaseHookInput {
+  hook_event_name: 'InstructionsLoaded';
+  file_path: string;
+  memory_type: 'User' | 'Project' | 'Local' | 'Managed';
+  load_reason:
+    | 'session_start'
+    | 'nested_traversal'
+    | 'path_glob_match'
+    | 'include'
+    | 'compact';
+  globs?: string[];
+  trigger_file_path?: string;
+  parent_file_path?: string;
+}
+
+/**
+ * WorktreeCreate hook input
+ */
+export interface WorktreeCreateHookInput extends BaseHookInput {
+  hook_event_name: 'WorktreeCreate';
+  name: string;
+}
+
+/**
+ * WorktreeRemove hook input
+ */
+export interface WorktreeRemoveHookInput extends BaseHookInput {
+  hook_event_name: 'WorktreeRemove';
+  worktree_path: string;
+}
+
+/**
  * Hook input union - all possible hook input types
  */
 export type HookInput =
@@ -1342,11 +1759,21 @@ export type HookInput =
   | SessionStartHookInput
   | SessionEndHookInput
   | StopHookInput
+  | StopFailureHookInput
   | SubagentStartHookInput
   | SubagentStopHookInput
   | PreCompactHookInput
+  | PostCompactHookInput
   | PermissionRequestHookInput
-  | SetupHookInput;
+  | SetupHookInput
+  | TeammateIdleHookInput
+  | TaskCompletedHookInput
+  | ElicitationHookInput
+  | ElicitationResultHookInput
+  | ConfigChangeHookInput
+  | InstructionsLoadedHookInput
+  | WorktreeCreateHookInput
+  | WorktreeRemoveHookInput;
 
 // =============================================================================
 // HOOK TYPE GUARDS
@@ -1436,8 +1863,8 @@ export type AgentDefinition = {
   disallowedTools?: string[];
   /** The agent's system prompt */
   prompt: string;
-  /** Model to use for this agent. If omitted or 'inherit', uses the main model */
-  model?: 'sonnet' | 'opus' | 'haiku' | 'inherit';
+  /** Model alias (e.g. 'sonnet', 'opus', 'haiku') or full model ID. If omitted or 'inherit', uses the main model */
+  model?: string;
   /** MCP servers for this agent */
   mcpServers?: AgentMcpServerSpec[];
   /** Experimental: Critical reminder added to system prompt */
@@ -1447,6 +1874,18 @@ export type AgentDefinition = {
   /** Maximum number of agentic turns (API round-trips) before stopping */
   maxTurns?: number;
 };
+
+/**
+ * Information about an available subagent that can be invoked via the Task tool.
+ */
+export interface AgentInfo {
+  /** Agent type identifier (e.g., "Explore") */
+  name: string;
+  /** Description of when to use this agent */
+  description: string;
+  /** Model alias this agent uses. If omitted, inherits the parent's model */
+  model?: string;
+}
 
 // =============================================================================
 // ACCOUNT & SERVER STATUS TYPES
@@ -1474,6 +1913,16 @@ export interface ModelInfo {
   displayName: string;
   /** Description of the model's capabilities */
   description: string;
+  /** Whether this model supports effort levels */
+  supportsEffort?: boolean;
+  /** Available effort levels for this model */
+  supportedEffortLevels?: ('low' | 'medium' | 'high' | 'max')[];
+  /** Whether this model supports adaptive thinking (Claude decides when and how much to think) */
+  supportsAdaptiveThinking?: boolean;
+  /** Whether this model supports fast mode */
+  supportsFastMode?: boolean;
+  /** Whether this model supports auto mode */
+  supportsAutoMode?: boolean;
 }
 
 /**
@@ -1485,6 +1934,12 @@ export interface AccountInfo {
   subscriptionType?: string;
   tokenSource?: string;
   apiKeySource?: string;
+  /**
+   * Active API backend. Anthropic OAuth login only applies when "firstParty";
+   * for 3P providers the other fields are absent and auth is external
+   * (AWS creds, gcloud ADC, etc.).
+   */
+  apiProvider?: 'firstParty' | 'bedrock' | 'vertex' | 'foundry';
 }
 
 /**
@@ -1527,6 +1982,107 @@ export type RewindFilesResult = {
   filesChanged?: string[];
   insertions?: number;
   deletions?: number;
+};
+
+/**
+ * Session metadata returned by listSessions and getSessionInfo.
+ */
+export interface SDKSessionInfo {
+  /** Unique session identifier (UUID) */
+  sessionId: string;
+  /** Display title for the session: custom title, auto-generated summary, or first prompt */
+  summary: string;
+  /** Last modified time in milliseconds since epoch */
+  lastModified: number;
+  /** File size in bytes. Only populated for local JSONL storage */
+  fileSize?: number;
+  /** User-set session title via /rename */
+  customTitle?: string;
+  /** First meaningful user prompt in the session */
+  firstPrompt?: string;
+  /** Git branch at the end of the session */
+  gitBranch?: string;
+  /** Working directory for the session */
+  cwd?: string;
+  /** User-set session tag */
+  tag?: string;
+  /** Creation time in milliseconds since epoch */
+  createdAt?: number;
+}
+
+/**
+ * Prompt request option
+ */
+export interface PromptRequestOption {
+  /** Unique key for this option, returned in the response */
+  key: string;
+  /** Display text for this option */
+  label: string;
+  /** Optional description shown below the label */
+  description?: string;
+}
+
+/**
+ * Prompt request
+ */
+export interface PromptRequest {
+  /** Request ID. Presence of this key marks the line as a prompt request */
+  prompt: string;
+  /** The prompt message to display to the user */
+  message: string;
+  /** Available options for the user to choose from */
+  options: PromptRequestOption[];
+}
+
+/**
+ * Prompt response
+ */
+export interface PromptResponse {
+  /** The request ID from the corresponding prompt request */
+  prompt_response: string;
+  /** The key of the selected option */
+  selected: string;
+}
+
+/**
+ * Elicitation request from an MCP server, asking the SDK consumer for user input.
+ */
+export interface ElicitationRequest {
+  /** Name of the MCP server requesting elicitation */
+  serverName: string;
+  /** Message to display to the user */
+  message: string;
+  /** Elicitation mode: 'form' for structured input, 'url' for browser-based auth */
+  mode?: 'form' | 'url';
+  /** URL to open (only for 'url' mode) */
+  url?: string;
+  /** Elicitation ID for correlating URL elicitations with completion notifications */
+  elicitationId?: string;
+  /** JSON Schema for the requested input (only for 'form' mode) */
+  requestedSchema?: Record<string, unknown>;
+}
+
+/**
+ * Callback for handling MCP elicitation requests.
+ * Called when an MCP server requests user input and no hook handles it.
+ */
+export type OnElicitation = (
+  request: ElicitationRequest,
+  options: { signal: AbortSignal }
+) => Promise<unknown>;
+
+/**
+ * Per-tool configuration for built-in tools.
+ */
+export type ToolConfig = {
+  askUserQuestion?: {
+    /**
+     * Content format for the `preview` field on question options.
+     * - 'markdown' - Markdown/ASCII content (CLI default)
+     * - 'html' - Self-contained HTML fragments (for web-based SDK consumers)
+     */
+    previewFormat?: 'markdown' | 'html';
+  };
 };
 
 // =============================================================================
@@ -1574,22 +2130,23 @@ export interface Options {
   fallbackModel?: string;
   /** Enable file checkpointing for rewind support */
   enableFileCheckpointing?: boolean;
+  /** Per-tool configuration for built-in tools */
+  toolConfig?: ToolConfig;
   /** Fork to a new session ID when resuming */
   forkSession?: boolean;
   /** Enable beta features */
   betas?: SdkBeta[];
   /** Hook callbacks for responding to various events */
   hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  /** Callback for handling MCP elicitation requests */
+  onElicitation?: OnElicitation;
   /** When false, disables session persistence to disk */
   persistSession?: boolean;
   /** Include partial/streaming message events in the output */
   includePartialMessages?: boolean;
-  /** Thinking/reasoning mode configuration (TASK_2025_184) */
-  thinking?:
-    | { type: 'adaptive' }
-    | { type: 'enabled'; budgetTokens: number }
-    | { type: 'disabled' };
-  /** Effort level for reasoning depth (TASK_2025_184) */
+  /** Thinking/reasoning mode configuration */
+  thinking?: ThinkingConfig;
+  /** Effort level for reasoning depth */
   effort?: 'low' | 'medium' | 'high' | 'max';
   /** Maximum number of tokens for thinking/reasoning (deprecated: use thinking instead) */
   maxThinkingTokens?: number;
@@ -1613,14 +2170,26 @@ export interface Options {
   permissionPromptToolName?: string;
   /** Load plugins for this session */
   plugins?: SdkPluginConfig[];
+  /** Enable prompt suggestions after each turn */
+  promptSuggestions?: boolean;
+  /** Enable periodic AI-generated progress summaries for running subagents */
+  agentProgressSummaries?: boolean;
   /** Session ID to resume */
   resume?: string;
+  /** Use a specific session ID for the conversation instead of an auto-generated one */
+  sessionId?: string;
   /** When resuming, only resume up to this message UUID */
   resumeSessionAt?: string;
   /** Sandbox settings for command execution isolation */
   sandbox?: Record<string, unknown>;
+  /** Additional settings to apply (path or settings object) */
+  settings?: string | Record<string, unknown>;
   /** Control which filesystem settings to load */
   settingSources?: SettingSource[];
+  /** Enable debug mode */
+  debug?: boolean;
+  /** Write debug logs to a specific file path */
+  debugFile?: string;
   /** Callback for stderr output */
   stderr?: (data: string) => void;
   /** Enforce strict validation of MCP server configurations */
@@ -1659,10 +2228,16 @@ export interface Query extends AsyncGenerator<SDKMessage, void> {
   setModel(model?: string): Promise<void>;
   /** Set the maximum number of thinking tokens */
   setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
+  /** Merge settings into the flag settings layer */
+  applyFlagSettings(settings: Record<string, unknown>): Promise<void>;
+  /** Get the full initialization result */
+  initializationResult(): Promise<unknown>;
   /** Get the list of available slash commands */
   supportedCommands(): Promise<SlashCommand[]>;
   /** Get the list of available models */
   supportedModels(): Promise<ModelInfo[]>;
+  /** Get the list of available subagents */
+  supportedAgents(): Promise<AgentInfo[]>;
   /** Get the current status of all configured MCP servers */
   mcpServerStatus(): Promise<McpServerStatus[]>;
   /** Get information about the authenticated account */
@@ -1682,6 +2257,8 @@ export interface Query extends AsyncGenerator<SDKMessage, void> {
   ): Promise<McpSetServersResult>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
+  /** Stop a running task */
+  stopTask(taskId: string): Promise<void>;
   /** Close the query and terminate the underlying process */
   close(): void;
 }
@@ -1694,3 +2271,110 @@ export type QueryFunction = (params: {
   prompt: string | AsyncIterable<SDKUserMessage>;
   options?: Options;
 }) => Query;
+
+// =============================================================================
+// FLAT STREAM EVENT UNION - Custom type for UI rendering
+// (NOT from SDK - this is our custom type for flattened event processing)
+// =============================================================================
+
+/**
+ * Flattened stream event types used by the UI layer.
+ * These are custom Ptah types, NOT from the SDK.
+ */
+export type FlatStreamEventType =
+  | 'message_start'
+  | 'text_delta'
+  | 'tool_use_start'
+  | 'tool_use_delta'
+  | 'tool_result'
+  | 'thinking_start'
+  | 'thinking_delta'
+  | 'message_complete'
+  | 'user_message'
+  | 'error'
+  | 'cost_update';
+
+export interface FlatStreamEventBase {
+  type: FlatStreamEventType;
+  timestamp: number;
+  sessionId?: string;
+}
+
+export interface FlatMessageStartEvent extends FlatStreamEventBase {
+  type: 'message_start';
+  messageId: string;
+  model: string;
+}
+
+export interface FlatTextDeltaEvent extends FlatStreamEventBase {
+  type: 'text_delta';
+  text: string;
+}
+
+export interface FlatToolUseStartEvent extends FlatStreamEventBase {
+  type: 'tool_use_start';
+  toolUseId: string;
+  toolName: string;
+}
+
+export interface FlatToolUseDeltaEvent extends FlatStreamEventBase {
+  type: 'tool_use_delta';
+  toolUseId: string;
+  partialJson: string;
+}
+
+export interface FlatToolResultEvent extends FlatStreamEventBase {
+  type: 'tool_result';
+  toolUseId: string;
+  content: string;
+  isError: boolean;
+}
+
+export interface FlatThinkingStartEvent extends FlatStreamEventBase {
+  type: 'thinking_start';
+}
+
+export interface FlatThinkingDeltaEvent extends FlatStreamEventBase {
+  type: 'thinking_delta';
+  thinking: string;
+}
+
+export interface FlatMessageCompleteEvent extends FlatStreamEventBase {
+  type: 'message_complete';
+  stopReason?: string;
+}
+
+export interface FlatUserMessageEvent extends FlatStreamEventBase {
+  type: 'user_message';
+  content: string;
+  isSynthetic?: boolean;
+}
+
+export interface FlatErrorEvent extends FlatStreamEventBase {
+  type: 'error';
+  error: string;
+  errorType?: SDKAssistantMessageError;
+}
+
+export interface FlatCostUpdateEvent extends FlatStreamEventBase {
+  type: 'cost_update';
+  totalCostUsd: number;
+  usage?: NonNullableUsage;
+  modelUsage?: Record<string, ModelUsage>;
+}
+
+/**
+ * Union of all flat stream events
+ */
+export type FlatStreamEventUnion =
+  | FlatMessageStartEvent
+  | FlatTextDeltaEvent
+  | FlatToolUseStartEvent
+  | FlatToolUseDeltaEvent
+  | FlatToolResultEvent
+  | FlatThinkingStartEvent
+  | FlatThinkingDeltaEvent
+  | FlatMessageCompleteEvent
+  | FlatUserMessageEvent
+  | FlatErrorEvent
+  | FlatCostUpdateEvent;

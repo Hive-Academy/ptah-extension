@@ -163,7 +163,7 @@ export class BackgroundAgentStore implements OnDestroy {
         next.set(event.toolCallId, {
           toolCallId: event.toolCallId,
           agentId: event.agentId,
-          agentType: 'unknown',
+          agentType: event.agentType || 'unknown',
           sessionId: event.sessionId,
           status: 'completed',
           startedAt: event.timestamp,
@@ -195,7 +195,7 @@ export class BackgroundAgentStore implements OnDestroy {
         next.set(event.toolCallId, {
           toolCallId: event.toolCallId,
           agentId: event.agentId,
-          agentType: 'unknown',
+          agentType: event.agentType || 'unknown',
           sessionId: event.sessionId,
           status: 'stopped',
           startedAt: event.timestamp,

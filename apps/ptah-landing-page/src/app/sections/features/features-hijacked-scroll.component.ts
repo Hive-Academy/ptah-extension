@@ -340,14 +340,14 @@ export class FeaturesHijackedScrollComponent {
       step: 2,
       title: 'Code Execution MCP Server',
       description:
-        'Ptah includes a Code Execution MCP server that exposes 8 powerful API namespaces to Claude agents. Your AI can now query your workspace structure, search files semantically, extract code symbols, check diagnostics, access git status, and execute VS Code commands.',
+        'Ptah includes a Code Execution MCP server that exposes 14 powerful API namespaces to any connected AI agent. Your provider of choice can query your workspace structure, search files semantically, analyze code with tree-sitter AST, check diagnostics, build dependency graphs, and access LSP superpowers.',
       image: '/assets/images/showcase/ptah-mcp-server.png',
       layout: 'right',
       notes: [
-        '8 Ptah API namespaces',
+        '14 Ptah API namespaces',
         'Semantic file search',
-        'Symbol extraction',
-        'Git status & diffs',
+        'Tree-sitter AST analysis',
+        'LSP & dependency graphs',
       ],
     },
     {
@@ -368,15 +368,15 @@ export class FeaturesHijackedScrollComponent {
     {
       id: 'model-control',
       step: 4,
-      title: 'OpenRouter Model Control',
+      title: 'Multi-Provider Model Control',
       description:
-        'Need pure logic? Use Claude 3.5 Sonnet. Need cost-effective speed? Switch to Haiku. Or override default tiers with any of 200+ OpenRouter models like DeepSeek V3 or Gemini. Complete model freedom with local persistence.',
+        'Bring your own provider. Use OpenAI GPT-4o for reasoning, Claude Sonnet for coding, GitHub Copilot for completions, or tap into 200+ models via OpenRouter. One unified interface, complete model freedom with local persistence.',
       image: '/assets/images/showcase/ptah-openrouter.png',
       layout: 'right',
       notes: [
-        '200+ Models via OpenRouter',
-        'Tier overriding (Sonnet/Haiku)',
-        'DeepSeek & Gemini support',
+        'OpenAI, Claude, Copilot & more',
+        '200+ models via OpenRouter',
+        'Seamless provider switching',
         'Real-time cost tracking',
       ],
     },

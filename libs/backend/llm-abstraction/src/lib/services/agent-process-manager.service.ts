@@ -158,11 +158,12 @@ export class AgentProcessManager {
   }
 
   private resolveAutoApprove(cli: CliType): boolean | undefined {
-    if (cli !== 'codex' && cli !== 'copilot') return undefined;
-    const key = cli === 'codex' ? 'codexAutoApprove' : 'copilotAutoApprove';
+    // Codex always runs in full-auto headless mode (SDK has no permission hooks)
+    if (cli === 'codex') return undefined;
+    if (cli !== 'copilot') return undefined;
     return vscode.workspace
       .getConfiguration('ptah.agentOrchestration')
-      .get<boolean>(key, true);
+      .get<boolean>('copilotAutoApprove', true);
   }
 
   /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
@@ -353,6 +354,7 @@ export class AgentProcessManager {
       parentSessionId: request.parentSessionId,
       displayName: adapter.displayName,
       model: cliModel,
+      resumedFromAgentId: request.resumedFromAgentId,
     };
 
     // Use resolved binary path from detection.

@@ -34,7 +34,7 @@ import {
       >
         <span class="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
         <span class="text-sm font-medium text-amber-300/90 tracking-wide"
-          >Powered by Claude Agent SDK</span
+          >Provider-Agnostic AI Orchestration</span
         >
       </div>
 
@@ -53,31 +53,50 @@ import {
         [viewportConfig]="subheadlineConfig"
         class="text-base md:text-lg lg:text-xl text-white/70 mb-12 max-w-2xl leading-relaxed font-light"
       >
-        The AI coding orchestra for VS Code, powered by Claude Agent SDK.
-        Intelligent workspace analysis, Code Execution MCP server, and
-        project-adaptive AI agents.
+        The agentic harness for VS Code that unifies OpenAI, Claude, and GitHub
+        Copilot into one seamless orchestration workflow. Intelligent workspace
+        analysis, project-adaptive agents, and full provider freedom.
       </p>
 
       <!-- CTA Buttons -->
       <div
         viewportAnimation
         [viewportConfig]="ctaConfig"
-        class="flex flex-col sm:flex-row gap-3 sm:gap-4 mb-12 sm:mb-16 w-full sm:w-auto px-2 sm:px-0"
+        class="flex flex-col sm:flex-row gap-5 sm:gap-6 mb-12 sm:mb-16 w-full sm:w-auto px-2 sm:px-0"
       >
-        <a
-          href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
-          target="_blank"
-          rel="noopener"
-          class="px-5 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-semibold text-slate-900 bg-gradient-to-r from-amber-400 to-amber-500 rounded-lg hover:from-amber-300 hover:to-amber-400 transform hover:-translate-y-0.5 transition-all duration-200 shadow-lg shadow-amber-500/25 text-center"
-        >
-          Try 14 Days Free — Install Now
-        </a>
-        <a
-          href="#demo"
-          class="px-5 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-medium text-white/90 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 hover:border-white/20 transition-all duration-200 text-center"
-        >
-          Watch 3-Minute Demo
-        </a>
+        <!-- VS Code Extension -->
+        <div class="relative">
+          <span
+            class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
+          >
+            14 DAYS TRIAL
+          </span>
+          <a
+            href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
+            target="_blank"
+            rel="noopener"
+            class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
+          >
+            <span class="relative z-[1]">Install VS Code Extension</span>
+          </a>
+        </div>
+
+        <!-- Desktop App -->
+        <div class="relative">
+          <span
+            class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
+          >
+            14 DAYS TRIAL
+          </span>
+          <a
+            href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
+            target="_blank"
+            rel="noopener"
+            class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
+          >
+            <span class="relative z-[1]">Download Desktop App</span>
+          </a>
+        </div>
       </div>
 
       <!-- Social Proof Stats -->
@@ -102,15 +121,83 @@ import {
       :host {
         display: block;
       }
+
+      .cta-glow-button {
+        background: linear-gradient(
+          135deg,
+          rgba(212, 175, 55, 0.15) 0%,
+          rgba(212, 175, 55, 0.05) 50%,
+          rgba(212, 175, 55, 0.15) 100%
+        );
+        border: 1px solid rgba(212, 175, 55, 0.3);
+        box-shadow: 0 0 15px rgba(212, 175, 55, 0.15),
+          0 0 30px rgba(212, 175, 55, 0.05),
+          inset 0 1px 0 rgba(244, 212, 124, 0.1);
+        transition: all 0.3s ease;
+      }
+
+      .cta-glow-button:hover {
+        transform: translateY(-2px);
+        border-color: rgba(212, 175, 55, 0.5);
+        box-shadow: 0 0 20px rgba(212, 175, 55, 0.3),
+          0 0 50px rgba(212, 175, 55, 0.1),
+          inset 0 1px 0 rgba(244, 212, 124, 0.2);
+      }
+
+      /* Rotating beam element — sits behind the border */
+      .cta-glow-button::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 200%;
+        height: 200%;
+        background: conic-gradient(
+          from 0deg,
+          transparent 0%,
+          transparent 65%,
+          rgba(244, 212, 124, 0.7) 75%,
+          rgba(212, 175, 55, 1) 80%,
+          rgba(244, 212, 124, 0.7) 85%,
+          transparent 95%,
+          transparent 100%
+        );
+        animation: beam-spin 4s linear infinite;
+        z-index: 0;
+      }
+
+      /* Mask that reveals beam only on the border edge */
+      .cta-glow-button::after {
+        content: '';
+        position: absolute;
+        inset: 1px;
+        border-radius: 10px;
+        background: linear-gradient(
+          135deg,
+          rgba(15, 23, 42, 0.95) 0%,
+          rgba(15, 23, 42, 0.98) 50%,
+          rgba(15, 23, 42, 0.95) 100%
+        );
+        z-index: 0;
+      }
+
+      @keyframes beam-spin {
+        from {
+          transform: translate(-50%, -50%) rotate(0deg);
+        }
+        to {
+          transform: translate(-50%, -50%) rotate(360deg);
+        }
+      }
     `,
   ],
 })
 export class HeroContentOverlayComponent {
   public readonly stats = [
-    { value: '12', label: 'libraries' },
-    { value: '48+', label: 'components' },
-    { value: '60+', label: 'DI tokens' },
-    { value: '94', label: 'message types' },
+    { value: '13', label: 'AI agents' },
+    { value: '200+', label: 'LLM models' },
+    { value: '14', label: 'MCP tools' },
+    { value: '4', label: 'agent runtimes' },
   ];
 
   /**

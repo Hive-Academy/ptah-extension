@@ -28,6 +28,7 @@ import {
   resolveCliPath,
   spawnCli,
 } from './cli-adapter.utils';
+import { resolveAndImportSdk } from './sdk-resolver';
 
 /** Valid reasoning effort values for the Codex SDK. */
 const CODEX_REASONING_EFFORTS = [
@@ -140,25 +141,21 @@ let codexSdkModule: CodexSdkModule | null = null;
  * Lazily import the ESM-only @openai/codex-sdk package.
  * Only caches successful imports so a failed import can be retried.
  *
- * The package is ESM-only ("type": "module", exports only "import" condition).
- * Webpack bundles it into the extension output (configured in webpack.config.js)
- * so the dynamic import resolves to the bundled module at runtime.
+ * The package is NOT bundled with the extension. It is resolved at runtime
+ * from the user's system via resolveAndImportSdk(), which tries standard
+ * Node.js resolution first, then falls back to locating the package
+ * relative to the CLI binary's install location.
  */
-async function getCodexSdk(): Promise<CodexSdkModule> {
+async function getCodexSdk(binaryPath?: string): Promise<CodexSdkModule> {
   if (codexSdkModule) {
     return codexSdkModule;
   }
-  try {
-    const mod = (await import('@openai/codex-sdk')) as CodexSdkModule;
-    codexSdkModule = mod;
-    return mod;
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Failed to load @openai/codex-sdk: ${message}. ` +
-        `Ensure the package is installed: npm install @openai/codex-sdk`
-    );
-  }
+  const mod = await resolveAndImportSdk<CodexSdkModule>(
+    '@openai/codex-sdk',
+    binaryPath
+  );
+  codexSdkModule = mod;
+  return mod;
 }
 
 /** Shape of ~/.codex/auth.json */
@@ -443,13 +440,22 @@ export class CodexCliAdapter implements CliAdapter {
    * reasoning→thinking mapping.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    const sdk = await getCodexSdk();
+    const sdk = await getCodexSdk(options.binaryPath);
 
-    // Pass MCP server config and codexPathOverride through Codex SDK
+    // Pass MCP server config, env vars, and codexPathOverride through Codex SDK
     const codexOptions: {
       config?: Record<string, unknown>;
       codexPathOverride?: string;
-    } = {};
+      env?: Record<string, string>;
+    } = {
+      // Spread process.env to preserve PATH, API keys, etc.
+      // The SDK does NOT inherit process.env when `env` is provided.
+      env: {
+        ...(process.env as Record<string, string>),
+        FORCE_COLOR: '0',
+        NO_COLOR: '1',
+      },
+    };
     // Build config: MCP servers + feature flags for skill/agent discovery
     const config: Record<string, unknown> = {
       features: {
@@ -478,10 +484,13 @@ export class CodexCliAdapter implements CliAdapter {
 
     const codex = new sdk.Codex(codexOptions);
 
-    // Thread options with model and approval policy
+    // Thread options: always headless with full permissions.
+    // Codex SDK has no runtime permission hooks (unlike Copilot), so
+    // approvalPolicy + sandboxMode are set upfront and cannot be changed mid-session.
     const threadOptions: CodexThreadOptions = {
       workingDirectory: options.workingDirectory,
-      approvalPolicy: options.autoApprove === false ? 'on-failure' : 'never',
+      approvalPolicy: 'never',
+      sandboxMode: 'danger-full-access',
       skipGitRepoCheck: true,
     };
     if (options.model) {
@@ -567,11 +576,23 @@ export class CodexCliAdapter implements CliAdapter {
     };
 
     // Start streamed execution and iterate events
+    const STARTUP_TIMEOUT_MS = 30_000;
     const done = (async (): Promise<number> => {
       try {
-        const streamedTurn = await thread.runStreamed(taskPrompt, {
-          signal: abortController.signal,
-        });
+        // Startup timeout: catch cases where the Codex subprocess fails to
+        // start or connect. The overall session timeout is handled by
+        // AgentProcessManager separately.
+        const streamedTurn = await Promise.race([
+          thread.runStreamed(taskPrompt, {
+            signal: abortController.signal,
+          }),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error('Codex SDK startup timed out after 30s')),
+              STARTUP_TIMEOUT_MS
+            )
+          ),
+        ]);
 
         for await (const event of streamedTurn.events) {
           if (abortController.signal.aborted) {

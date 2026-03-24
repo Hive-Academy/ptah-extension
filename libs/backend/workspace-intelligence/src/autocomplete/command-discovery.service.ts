@@ -1,10 +1,14 @@
 import { injectable, inject } from 'tsyringe';
-import { TOKENS } from '@ptah-extension/vscode-core';
-import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import matter from 'gray-matter';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+  IDisposable,
+} from '@ptah-extension/platform-core';
 
 /**
  * Command information
@@ -50,11 +54,14 @@ export interface CommandSearchRequest {
 @injectable()
 export class CommandDiscoveryService {
   private cache: CommandInfo[] = [];
-  private watchers: vscode.FileSystemWatcher[] = [];
+  private watchers: IDisposable[] = [];
   private pluginPaths: string[] = [];
 
   constructor(
-    @inject(TOKENS.EXTENSION_CONTEXT) private context: vscode.ExtensionContext
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fsProvider: IFileSystemProvider
   ) {}
 
   /**
@@ -74,7 +81,7 @@ export class CommandDiscoveryService {
    */
   async discoverCommands(): Promise<CommandDiscoveryResult> {
     try {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         return { success: false, error: 'No workspace folder open' };
       }
@@ -156,12 +163,12 @@ export class CommandDiscoveryService {
    * Initialize file watchers
    */
   initializeWatchers(): void {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (!workspaceRoot) return;
 
-    // Watch project commands
-    const projectWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(workspaceRoot, '.claude/commands/**/*.md')
+    // Watch project commands using platform file watcher
+    const projectWatcher = this.fsProvider.createFileWatcher(
+      '.claude/commands/**/*.md'
     );
 
     const refreshCache = () => {
@@ -170,12 +177,16 @@ export class CommandDiscoveryService {
       });
     };
 
-    projectWatcher.onDidCreate(refreshCache);
-    projectWatcher.onDidChange(refreshCache);
-    projectWatcher.onDidDelete(refreshCache);
+    const createDisposable = projectWatcher.onDidCreate(refreshCache);
+    const changeDisposable = projectWatcher.onDidChange(refreshCache);
+    const deleteDisposable = projectWatcher.onDidDelete(refreshCache);
 
-    this.watchers.push(projectWatcher);
-    this.context.subscriptions.push(projectWatcher);
+    this.watchers.push(
+      projectWatcher,
+      createDisposable,
+      changeDisposable,
+      deleteDisposable
+    );
   }
 
   /**
@@ -333,7 +344,7 @@ export class CommandDiscoveryService {
       ) {
         continue;
       }
-      // Found first paragraph — use it as description (truncate at 120 chars)
+      // Found first paragraph -- use it as description (truncate at 120 chars)
       return trimmed.length > 120 ? trimmed.substring(0, 117) + '...' : trimmed;
     }
     return null;

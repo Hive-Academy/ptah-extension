@@ -5,17 +5,21 @@
  * Responsibilities:
  * - Create and track pending permission requests
  * - Apply "Always Allow" rules for automatic approval
- * - Handle timeouts (auto-deny after 5 minutes)
+ * - Block indefinitely until user responds or session cleanup resolves
  * - Persist permission rules to workspace state
  *
  * TASK_2025_026: MCP Permission Prompt Integration
+ * TASK_2025_215: Removed 5-minute setTimeout-based timeout. Permission requests
+ * now block indefinitely until the user responds or cleanup resolves them
+ * (matching Claude Code CLI behavior).
  */
 
 import { injectable, inject } from 'tsyringe';
 import { minimatch } from 'minimatch';
-import type { ExtensionContext } from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import {
   isBashToolInput,
   isEditToolInput,
@@ -37,19 +41,11 @@ import type { ApprovalPromptParams } from '../code-execution/types';
 const RULES_STORAGE_KEY = 'ptah.permission.rules';
 
 /**
- * Default timeout for permission requests (5 minutes)
- */
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
-/**
- * Pending request state with Promise resolver and timeout
+ * Pending request state with Promise resolver
  */
 interface PendingRequest {
   /** Promise resolver for the request */
   resolve: (response: PermissionResponse) => void;
-
-  /** Timeout handle for auto-deny */
-  timeout: NodeJS.Timeout;
 
   /** Original request data for rule creation */
   request: PermissionRequest;
@@ -59,13 +55,14 @@ interface PendingRequest {
 export class PermissionPromptService {
   /**
    * Map of pending permission requests by request ID
-   * Each request has a Promise resolver and timeout handle
+   * Each request has a Promise resolver for the pending response
    */
   private readonly pendingRequests = new Map<string, PendingRequest>();
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.EXTENSION_CONTEXT) private readonly context: ExtensionContext
+    @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
+    private readonly workspaceState: IStateStorage
   ) {}
 
   /**
@@ -109,12 +106,11 @@ export class PermissionPromptService {
    * Create a new permission request
    *
    * @param params - Approval prompt parameters from Claude CLI
-   * @returns Permission request with unique ID and timeout
+   * @returns Permission request with unique ID (blocks indefinitely until user responds)
    */
   createRequest(params: ApprovalPromptParams): PermissionRequest {
     const requestId = crypto.randomUUID();
     const timestamp = Date.now();
-    const timeoutAt = timestamp + DEFAULT_TIMEOUT_MS;
 
     // Build human-readable description
     const description = this.buildDescription(
@@ -129,13 +125,12 @@ export class PermissionPromptService {
       toolUseId: params.tool_use_id,
       timestamp,
       description,
-      timeoutAt,
+      timeoutAt: 0,
     };
 
     this.logger.info('Permission request created', {
       id: requestId,
       toolName: params.tool_name,
-      timeoutAt: new Date(timeoutAt).toISOString(),
     });
 
     return request;
@@ -145,7 +140,8 @@ export class PermissionPromptService {
    * Store a pending request resolver for later resolution
    *
    * Called by MCP server after creating request and sending to webview.
-   * The resolver will be invoked when the user responds or timeout occurs.
+   * The resolver will be invoked when the user responds or cleanup resolves it.
+   * Blocks indefinitely -- there is no timeout.
    *
    * @param id - Request ID
    * @param resolve - Promise resolver function
@@ -156,32 +152,17 @@ export class PermissionPromptService {
     resolve: (response: PermissionResponse) => void,
     request: PermissionRequest
   ): void {
-    // Set timeout for auto-deny
-    const timeout = setTimeout(() => {
-      this.logger.warn('Permission request timed out', { id });
+    // Store resolver (no timeout -- blocks until user responds or cleanup)
+    this.pendingRequests.set(id, { resolve, request });
 
-      // Remove from pending
-      this.pendingRequests.delete(id);
-
-      // Auto-deny
-      resolve({
-        id,
-        decision: 'deny',
-        reason: 'Request timed out after 5 minutes',
-      });
-    }, DEFAULT_TIMEOUT_MS);
-
-    // Store resolver and timeout
-    this.pendingRequests.set(id, { resolve, timeout, request });
-
-    this.logger.debug('Pending resolver stored', { id });
+    this.logger.debug('Pending resolver stored (blocks indefinitely)', { id });
   }
 
   /**
    * Resolve a pending permission request with user response
    *
    * Called when the webview sends back the user's decision.
-   * Clears timeout, removes from pending map, and resolves the Promise.
+   * Removes from pending map and resolves the Promise.
    *
    * @param response - User's permission decision
    * @returns true if request was found and resolved, false if not found
@@ -195,9 +176,6 @@ export class PermissionPromptService {
       });
       return false;
     }
-
-    // Clear timeout
-    clearTimeout(pending.timeout);
 
     // Remove from pending map
     this.pendingRequests.delete(response.id);
@@ -260,9 +238,7 @@ export class PermissionPromptService {
    * @returns Array of permission rules (empty array if none exist)
    */
   getRules(): PermissionRule[] {
-    return (
-      this.context.workspaceState.get<PermissionRule[]>(RULES_STORAGE_KEY) ?? []
-    );
+    return this.workspaceState.get<PermissionRule[]>(RULES_STORAGE_KEY) ?? [];
   }
 
   /**
@@ -304,7 +280,7 @@ export class PermissionPromptService {
    * @param rules - Rules array to persist
    */
   private saveRules(rules: PermissionRule[]): void {
-    this.context.workspaceState.update(RULES_STORAGE_KEY, rules);
+    this.workspaceState.update(RULES_STORAGE_KEY, rules);
   }
 
   /**

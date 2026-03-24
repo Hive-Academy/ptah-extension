@@ -111,12 +111,22 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
    * Uses shared WebviewMessageHandlerService for unified message handling
    * TASK_2025_117: Supports multiple independent panels with unique IDs
    */
-  public async createPanel(): Promise<void> {
+  public async createPanel(options?: {
+    initialSessionId?: string;
+    initialSessionName?: string;
+    initialView?: string;
+  }): Promise<void> {
     const panelId = `ptah.panel.${crypto.randomUUID()}`;
 
+    const panelTitle =
+      options?.initialView === 'analytics'
+        ? 'Ptah - Session Analytics'
+        : options?.initialSessionName
+        ? `Ptah - ${options.initialSessionName}`
+        : 'Ptah - AI Coding Orchestra';
     const panel = vscode.window.createWebviewPanel(
       'ptah-angular-spa',
-      'Ptah - AI Coding Orchestra',
+      panelTitle,
       vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -166,7 +176,7 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
       panelDisposables
     );
 
-    // Generate HTML with panelId in ptahConfig
+    // Generate HTML with panelId and optional initial session in ptahConfig
     panel.webview.html = this.htmlGenerator.generateAngularWebviewContent(
       panel.webview,
       {
@@ -175,6 +185,9 @@ export class AngularWebviewProvider implements vscode.WebviewViewProvider {
           unknown
         >,
         panelId,
+        initialSessionId: options?.initialSessionId,
+        initialSessionName: options?.initialSessionName,
+        initialView: options?.initialView,
       }
     );
 

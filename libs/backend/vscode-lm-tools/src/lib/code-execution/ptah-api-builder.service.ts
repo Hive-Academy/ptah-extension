@@ -1,20 +1,16 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 15 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 13 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
  * - workspace: analysis, project type, frameworks detection
  * - search: file search and relevance
- * - symbols: workspace symbol search
  * - diagnostics: errors, warnings, all diagnostics
- * - git: repository status
  *
  * System (VS Code integration):
- * - ai: multi-agent VS Code LM API access
  * - files: read, list operations
- * - commands: execute VS Code commands
  *
  * Analysis (workspace intelligence):
  * - context: token budget management and optimization
@@ -24,17 +20,16 @@
  * AST (code structure):
  * - ast: tree-sitter based code analysis
  *
- * TASK_2025_025: Expanded from 8 to 12 namespaces for better Claude discoverability
+ * TASK_2025_025: Expanded from 8 to 13 namespaces for better Claude discoverability
  */
 
-import * as vscode from 'vscode';
 import { injectable, inject, container } from 'tsyringe';
-import {
-  TOKENS,
-  Logger,
-  FileSystemManager,
-  CommandManager,
-} from '@ptah-extension/vscode-core';
+import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+} from '@ptah-extension/platform-core';
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
@@ -56,13 +51,9 @@ import {
   // Core namespace builders
   buildWorkspaceNamespace,
   buildSearchNamespace,
-  buildSymbolsNamespace,
   buildDiagnosticsNamespace,
-  buildGitNamespace,
   // System namespace builders
-  buildAINamespace,
   buildFilesNamespace,
-  buildCommandsNamespace,
   buildHelpMethod,
   // Analysis namespace builders
   buildContextNamespace,
@@ -73,20 +64,16 @@ import {
   buildAstNamespace,
   // IDE namespace builder (TASK_2025_039)
   buildIDENamespace,
-  // LLM namespace builder (VS Code LM provider)
-  buildLLMNamespace,
   // Orchestration namespace builder (TASK_2025_111)
   buildOrchestrationNamespace,
   // Agent namespace builder (TASK_2025_157)
   buildAgentNamespace,
 } from './namespace-builders';
 import {
-  LlmService,
-  LlmConfigurationService,
-  ILlmSecretsService,
   AgentProcessManager,
   CliDetectionService,
 } from '@ptah-extension/llm-abstraction';
+
 /**
  * Duplicated from SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER to avoid circular dependency
  * between vscode-lm-tools -> agent-sdk. Must match the string in:
@@ -142,9 +129,6 @@ export class PtahAPIBuilder {
     @inject(TOKENS.FILE_SYSTEM_MANAGER)
     private readonly fileSystemManager: FileSystemManager,
 
-    @inject(TOKENS.COMMAND_MANAGER)
-    private readonly commandManager: CommandManager,
-
     // Analysis services
     @inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)
     private readonly contextOptimizer: ContextSizeOptimizerService,
@@ -181,28 +165,24 @@ export class PtahAPIBuilder {
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
 
-    // LLM services
-    @inject(TOKENS.LLM_SERVICE)
-    private readonly llmService: LlmService,
-
-    @inject(TOKENS.LLM_CONFIGURATION_SERVICE)
-    private readonly llmConfigService: LlmConfigurationService,
-
-    @inject(TOKENS.LLM_SECRETS_SERVICE)
-    private readonly llmSecretsService: ILlmSecretsService,
-
     // Agent orchestration services (TASK_2025_157)
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,
 
     @inject(TOKENS.CLI_DETECTION_SERVICE)
-    private readonly cliDetectionService: CliDetectionService
+    private readonly cliDetectionService: CliDetectionService,
+
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
+
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fileSystemProvider: IFileSystemProvider
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 17 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 13 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 17 namespaces
+   * Build the complete Ptah API object with all 13 namespaces
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -215,7 +195,8 @@ export class PtahAPIBuilder {
 
     const systemDeps = {
       fileSystemManager: this.fileSystemManager,
-      commandManager: this.commandManager,
+      workspaceProvider: this.workspaceProvider,
+      fileSystemProvider: this.fileSystemProvider,
     };
 
     const analysisDeps = {
@@ -229,18 +210,14 @@ export class PtahAPIBuilder {
       workspaceAnalyzer: this.workspaceAnalyzer,
       contextEnrichment: this.contextEnrichment,
       dependencyGraph: this.dependencyGraph,
+      workspaceProvider: this.workspaceProvider,
     };
 
     const astDeps = {
       treeSitterParser: this.treeSitterParser,
       astAnalysis: this.astAnalysis,
-      fileSystemManager: this.fileSystemManager,
-    };
-
-    const llmDeps = {
-      llmService: this.llmService,
-      configService: this.llmConfigService,
-      secretsService: this.llmSecretsService,
+      fileSystemProvider: this.fileSystemProvider,
+      workspaceProvider: this.workspaceProvider,
     };
 
     // Get workspace root for orchestration namespace
@@ -253,14 +230,10 @@ export class PtahAPIBuilder {
       // Core namespaces (workspace discovery)
       workspace: buildWorkspaceNamespace(coreDeps),
       search: buildSearchNamespace(coreDeps),
-      symbols: buildSymbolsNamespace(),
       diagnostics: buildDiagnosticsNamespace(),
-      git: buildGitNamespace(),
 
       // System namespaces (VS Code integration)
-      ai: buildAINamespace(),
       files: buildFilesNamespace(systemDeps),
-      commands: buildCommandsNamespace(),
 
       // Analysis namespaces (workspace intelligence)
       context: buildContextNamespace(analysisDeps),
@@ -276,9 +249,6 @@ export class PtahAPIBuilder {
       // IDE namespace (TASK_2025_039 - LSP, editor, actions, testing)
       ide: buildIDENamespace(),
 
-      // LLM namespace (VS Code LM provider)
-      llm: buildLLMNamespace(llmDeps),
-
       // Orchestration namespace (TASK_2025_111 - workflow state management)
       orchestration: buildOrchestrationNamespace(orchestrationDeps),
 
@@ -286,7 +256,7 @@ export class PtahAPIBuilder {
       agent: buildAgentNamespace({
         agentProcessManager: this.agentProcessManager,
         cliDetectionService: this.cliDetectionService,
-        workspaceRoot: workspaceRoot.fsPath,
+        workspaceRoot,
         getActiveSessionId: () => {
           // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
           // In single-session mode (current), there's at most one.
@@ -317,7 +287,7 @@ export class PtahAPIBuilder {
                 workspacePath: string
               ): Promise<string | null>;
             }>(SDK_ENHANCED_PROMPTS_SERVICE);
-            const workspacePath = this.getWorkspaceRoot().fsPath;
+            const workspacePath = this.getWorkspaceRoot();
             const content = await service.getProjectGuidanceContent(
               workspacePath
             );
@@ -339,7 +309,7 @@ export class PtahAPIBuilder {
                 workspacePath: string
               ): Promise<string | null>;
             }>(SDK_ENHANCED_PROMPTS_SERVICE);
-            const workspacePath = this.getWorkspaceRoot().fsPath;
+            const workspacePath = this.getWorkspaceRoot();
             const content = await service.getEnhancedPromptContent(
               workspacePath
             );
@@ -422,10 +392,8 @@ export class PtahAPIBuilder {
         },
       }),
 
-      // Web search namespace (TASK_2025_189 - VS Code LM + Gemini CLI fallback)
+      // Web search namespace (TASK_2025_189 - Gemini CLI web search)
       webSearch: new WebSearchService({
-        llmService: this.llmService,
-        configService: this.llmConfigService,
         cliDetectionService: this.cliDetectionService,
         logger: this.logger,
       }),
@@ -436,15 +404,15 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Get the workspace root URI
+   * Get the workspace root path
    * Falls back to current working directory if no workspace is open
    */
-  private getWorkspaceRoot(): vscode.Uri {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (workspaceFolders && workspaceFolders.length > 0) {
-      return workspaceFolders[0].uri;
+  private getWorkspaceRoot(): string {
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (workspaceRoot) {
+      return workspaceRoot;
     }
     // Fallback to current working directory
-    return vscode.Uri.file(process.cwd());
+    return process.cwd();
   }
 }

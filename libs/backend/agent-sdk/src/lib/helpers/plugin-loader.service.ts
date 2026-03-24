@@ -19,7 +19,7 @@ import * as fs from 'fs';
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type { PluginInfo, PluginConfigState } from '@ptah-extension/shared';
-import type * as vscode from 'vscode';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 
 /** VS Code workspaceState key for plugin configuration */
 const PLUGIN_CONFIG_KEY = 'ptah.plugins.config';
@@ -121,7 +121,7 @@ export class PluginLoaderService {
   private extensionPath: string | null = null;
 
   /** VS Code Memento for per-workspace persistent state */
-  private workspaceState: vscode.Memento | null = null;
+  private workspaceState: IStateStorage | null = null;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
@@ -135,7 +135,7 @@ export class PluginLoaderService {
    * @param extensionPath - Absolute path to the extension directory (from context.extensionPath)
    * @param workspaceState - VS Code Memento for per-workspace state (from context.workspaceState)
    */
-  initialize(extensionPath: string, workspaceState: vscode.Memento): void {
+  initialize(extensionPath: string, workspaceState: IStateStorage): void {
     this.extensionPath = extensionPath;
     this.workspaceState = workspaceState;
 

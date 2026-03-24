@@ -19,14 +19,15 @@ import { ProvidersApiSectionComponent } from './sections/providers-api-section.c
 import { PluginsSectionComponent } from './sections/plugins-section.component';
 import { SetupWizardSectionComponent } from './sections/setup-wizard-section.component';
 import { AgentOrchestrationSectionComponent } from './sections/agent-orchestration-section.component';
-import { OrchestrationSectionComponent } from './sections/orchestration-section.component';
 import { McpServerSectionComponent } from './sections/mcp-server-section.component';
-import { ChatDashboardSectionComponent } from './sections/chat-dashboard-section.component';
+import { DocsCtaSectionComponent } from './sections/docs-cta-section.component';
 import { FooterComponent } from '../../components/footer.component';
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
 } from '@hive-academy/angular-gsap';
+import { DocsVideoModalComponent } from './components/docs-video-modal.component';
+import { DocsVideoModalService } from './services/docs-video-modal.service';
 
 @Component({
   selector: 'ptah-docs-page',
@@ -42,11 +43,12 @@ import {
     SetupWizardSectionComponent,
     AgentOrchestrationSectionComponent,
     McpServerSectionComponent,
-    ChatDashboardSectionComponent,
-    OrchestrationSectionComponent,
+    DocsCtaSectionComponent,
     FooterComponent,
     ViewportAnimationDirective,
+    DocsVideoModalComponent,
   ],
+  providers: [DocsVideoModalService],
   template: `
     <div class="min-h-screen bg-base-100 text-base-content">
       <ptah-navigation />
@@ -181,23 +183,13 @@ import {
             ></div>
           </div>
 
-          <ptah-docs-chat-dashboard />
-
-          <div
-            viewportAnimation
-            [viewportConfig]="sectionDividerConfig"
-            class="overflow-hidden my-8 sm:my-12"
-          >
-            <div
-              class="h-[1px] w-full bg-gradient-to-r from-transparent via-secondary/40 to-transparent"
-            ></div>
-          </div>
-
-          <ptah-docs-orchestration />
+          <ptah-docs-cta />
         </div>
       </main>
 
       <ptah-footer />
+
+      <ptah-docs-video-modal />
     </div>
   `,
   styles: [
@@ -237,8 +229,6 @@ export class DocsPageComponent {
     { id: 'setup-wizard', label: 'Setup Wizard' },
     { id: 'agent-orchestration', label: 'Agent Orchestration' },
     { id: 'mcp-server', label: 'MCP Server' },
-    { id: 'chat-dashboard', label: 'Chat & Dashboard' },
-    { id: 'orchestration', label: 'Orchestration' },
   ];
 
   private observer: IntersectionObserver | null = null;

@@ -19,7 +19,7 @@ import type {
   PrescriptiveGuidance,
   QualityHistoryEntry,
 } from '@ptah-extension/shared';
-import type * as vscode from 'vscode';
+// No vscode dependency -- all interfaces use string paths
 
 // ============================================
 // Supporting Types
@@ -73,7 +73,7 @@ export interface ICodeQualityAssessmentService {
    * ```
    */
   assessQuality(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     config?: Partial<SamplingConfig>
   ): Promise<QualityAssessment>;
 
@@ -96,7 +96,7 @@ export interface ICodeQualityAssessmentService {
    * ```
    */
   sampleFiles(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     config: SamplingConfig
   ): Promise<SampledFile[]>;
 }
@@ -205,7 +205,7 @@ export interface IProjectIntelligenceService {
    * console.log(`Top recommendation: ${intel.prescriptiveGuidance.recommendations[0]?.issue}`);
    * ```
    */
-  getIntelligence(workspaceUri: vscode.Uri): Promise<ProjectIntelligence>;
+  getIntelligence(workspacePath: string): Promise<ProjectIntelligence>;
 
   /**
    * Get workspace context only (no quality assessment).
@@ -224,7 +224,7 @@ export interface IProjectIntelligenceService {
    * }
    * ```
    */
-  getWorkspaceContext(workspaceUri: vscode.Uri): Promise<WorkspaceContext>;
+  getWorkspaceContext(workspacePath: string): Promise<WorkspaceContext>;
 
   /**
    * Invalidate cached intelligence for a workspace.
@@ -243,7 +243,7 @@ export interface IProjectIntelligenceService {
    * const freshIntel = await service.getIntelligence(workspaceUri);
    * ```
    */
-  invalidateCache(workspaceUri: vscode.Uri): void;
+  invalidateCache(workspacePath: string): void;
 }
 
 /**

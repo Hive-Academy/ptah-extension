@@ -24,13 +24,26 @@
       "@ptah-extension/chat": ["libs/frontend/chat/src/index.ts"],
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
       "@ptah-extension/dashboard": ["libs/frontend/dashboard/src/index.ts"],
+      "@ptah-extension/editor": ["libs/frontend/editor/src/index.ts"],
       "@ptah-extension/llm-abstraction": [
         "libs/backend/llm-abstraction/src/index.ts"
       ],
       "@ptah-extension/llm-abstraction/vscode-lm": [
         "libs/backend/llm-abstraction/src/vscode-lm.ts"
       ],
+      "@ptah-extension/platform-core": [
+        "libs/backend/platform-core/src/index.ts"
+      ],
+      "@ptah-extension/platform-electron": [
+        "libs/backend/platform-electron/src/index.ts"
+      ],
+      "@ptah-extension/platform-vscode": [
+        "libs/backend/platform-vscode/src/index.ts"
+      ],
       "@ptah-extension/providers": ["libs/frontend/providers/src/index.ts"],
+      "@ptah-extension/rpc-handlers": [
+        "libs/backend/rpc-handlers/src/index.ts"
+      ],
       "@ptah-extension/setup-wizard": [
         "libs/frontend/setup-wizard/src/index.ts"
       ],

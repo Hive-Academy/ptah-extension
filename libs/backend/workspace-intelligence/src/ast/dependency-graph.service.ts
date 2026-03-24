@@ -2,7 +2,6 @@ import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import * as vscode from 'vscode';
 import { SupportedLanguage } from './ast.types';
 import { EXTENSION_LANGUAGE_MAP } from './tree-sitter.config';
 import {
@@ -133,9 +132,7 @@ export class DependencyGraphService {
       }
 
       try {
-        const content = await this.fileSystem.readFile(
-          vscode.Uri.file(filePath)
-        );
+        const content = await this.fileSystem.readFile(filePath);
 
         const analysisResult = this.astAnalysis.analyzeSource(
           content,

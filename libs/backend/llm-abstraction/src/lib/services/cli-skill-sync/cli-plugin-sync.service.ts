@@ -17,7 +17,7 @@ import { injectable, inject } from 'tsyringe';
 import { readdir, rm } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
-import type * as vscode from 'vscode';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { CliTarget, CliSkillSyncStatus } from '@ptah-extension/shared';
 import { CliDetectionService } from '../cli-detection.service';
@@ -41,6 +41,9 @@ export class CliPluginSyncService {
   /** Extension assets path (set during initialize) */
   private extensionPath: string | null = null;
 
+  /** External path resolver (delegates to PluginLoaderService for validated resolution) */
+  private pluginPathResolver: ((ids: string[]) => string[]) | null = null;
+
   /** Whether the service has been initialized */
   private initialized = false;
 
@@ -61,12 +64,18 @@ export class CliPluginSyncService {
    * Initialize with extension context values.
    * Must be called once during extension activation.
    *
-   * @param globalState - VS Code Memento for persistent sync state
+   * @param globalState - Platform state storage for persistent sync state
    * @param extensionPath - Absolute path to extension directory (context.extensionPath)
+   * @param pluginPathResolver - Optional resolver that delegates to PluginLoaderService for validated path resolution
    */
-  initialize(globalState: vscode.Memento, extensionPath: string): void {
+  initialize(
+    globalState: IStateStorage,
+    extensionPath: string,
+    pluginPathResolver?: (ids: string[]) => string[]
+  ): void {
     this.manifestTracker.initialize(globalState);
     this.extensionPath = extensionPath;
+    this.pluginPathResolver = pluginPathResolver ?? null;
     this.initialized = true;
 
     this.logger.debug('[CliPluginSync] Initialized', { extensionPath });
@@ -329,13 +338,19 @@ export class CliPluginSyncService {
 
   /**
    * Resolve absolute plugin paths from plugin IDs.
+   * Uses injected resolver when available (delegates to PluginLoaderService
+   * for KNOWN_PLUGIN_IDS validation), falls back to naive path construction.
    */
   private resolvePluginPaths(pluginIds: string[]): string[] {
+    // Use injected resolver if available (delegates to PluginLoaderService for validation)
+    if (this.pluginPathResolver) {
+      return this.pluginPathResolver(pluginIds);
+    }
+    // Fallback: naive path construction (no validation)
     const extPath = this.extensionPath;
     if (!extPath) {
       return [];
     }
-
     return pluginIds.map((id) => join(extPath, 'assets', 'plugins', id));
   }
 

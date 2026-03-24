@@ -26,6 +26,7 @@ export * from './atoms/streaming-text-reveal.component';
 export * from './atoms/typing-cursor.component';
 export * from './atoms/theme-toggle.component';
 export * from './atoms/resize-handle.component';
+export * from './atoms/electron-resize-handle.component';
 
 // ============================================================================
 // MOLECULES - Standalone (ungrouped)
@@ -66,7 +67,6 @@ export * from './molecules/trial-billing/community-upgrade-banner.component';
 // MOLECULES - Notifications
 // ============================================================================
 export * from './molecules/notifications/notification-bell.component';
-export * from './molecules/notifications/background-agent-badge.component';
 export * from './molecules/notifications/compaction-notification.component';
 
 // ============================================================================
@@ -75,6 +75,7 @@ export * from './molecules/notifications/compaction-notification.component';
 export * from './molecules/setup-plugins/setup-status-widget.component';
 export * from './molecules/setup-plugins/plugin-status-widget.component';
 export * from './molecules/setup-plugins/plugin-browser-modal.component';
+export * from './molecules/setup-plugins/skill-sh-browser.component';
 
 // ============================================================================
 // MOLECULES - Agent Card (WIP - separate refactor)
@@ -93,6 +94,7 @@ export * from './organisms/execution/agent-execution.component';
 // ============================================================================
 export * from './organisms/message-bubble.component';
 export * from './organisms/agent-monitor-panel.component';
+export * from './organisms/workspace-sidebar.component';
 
 // ============================================================================
 // TEMPLATES - Page layouts
@@ -100,6 +102,8 @@ export * from './organisms/agent-monitor-panel.component';
 export * from './templates/chat-view.component';
 export * from './templates/app-shell.component';
 export * from './templates/welcome.component';
+export * from './templates/electron-shell.component';
+export * from './templates/electron-welcome.component';
 
 // ============================================================================
 // AUTOCOMPLETE COMPONENTS

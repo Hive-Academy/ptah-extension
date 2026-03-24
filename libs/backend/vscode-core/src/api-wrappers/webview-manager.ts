@@ -221,8 +221,13 @@ export class WebviewManager {
     const webview = panel?.webview || view?.webview;
 
     if (!webview) {
-      this.logger.error(
-        `[WebviewManager] CRITICAL: Webview ${viewType} not found`,
+      // TASK_2025_194: Downgrade from CRITICAL error to debug.
+      // During extension activation the ConfigWatcher may trigger reinit
+      // (which posts status to webview) before the webview provider is registered.
+      // This is a harmless timing issue — the message is simply dropped and
+      // the webview requests its initial state upon connection anyway.
+      this.logger.debug(
+        `[WebviewManager] Webview ${viewType} not found (may not be registered yet)`,
         {
           activePanels: Array.from(this.activeWebviews.keys()),
           activeViews: Array.from(this.activeWebviewViews.keys()),

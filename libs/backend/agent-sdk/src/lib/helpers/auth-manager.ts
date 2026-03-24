@@ -34,6 +34,9 @@ import type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
 } from '../copilot-provider/copilot-provider.types';
+import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
+import type { ICodexAuthService } from '../codex-provider/codex-provider.types';
+import type { ITranslationProxy } from '../openai-translation';
 
 export interface AuthResult {
   configured: boolean;
@@ -66,6 +69,8 @@ interface EnvSnapshot {
  */
 @injectable()
 export class AuthManager {
+  private configInProgress: Promise<AuthResult> | null = null;
+
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
@@ -77,7 +82,11 @@ export class AuthManager {
     @inject(SDK_TOKENS.SDK_COPILOT_AUTH)
     private copilotAuth: ICopilotAuthService,
     @inject(SDK_TOKENS.SDK_COPILOT_PROXY)
-    private copilotProxy: ICopilotTranslationProxy
+    private copilotProxy: ICopilotTranslationProxy,
+    @inject(SDK_TOKENS.SDK_CODEX_AUTH)
+    private codexAuth: ICodexAuthService,
+    @inject(SDK_TOKENS.SDK_CODEX_PROXY)
+    private codexProxy: ITranslationProxy
   ) {}
 
   /**
@@ -91,6 +100,28 @@ export class AuthManager {
    * 4. Log env summary (boolean presence, no secrets)
    */
   async configureAuthentication(rawAuthMethod: string): Promise<AuthResult> {
+    // Concurrency guard: if a configuration is already in progress, await it
+    if (this.configInProgress) {
+      this.logger.debug(
+        '[AuthManager] configureAuthentication already in progress, awaiting existing call'
+      );
+      return this.configInProgress;
+    }
+
+    this.configInProgress = this.doConfigureAuthentication(rawAuthMethod);
+    try {
+      return await this.configInProgress;
+    } finally {
+      this.configInProgress = null;
+    }
+  }
+
+  /**
+   * Internal implementation of configureAuthentication (guarded by concurrency mutex above)
+   */
+  private async doConfigureAuthentication(
+    rawAuthMethod: string
+  ): Promise<AuthResult> {
     // Normalize: treat unknown/legacy values (e.g. 'vscode-lm') as 'auto'
     const validMethods = new Set(['oauth', 'apiKey', 'openrouter', 'auto']);
     const authMethod = validMethods.has(rawAuthMethod) ? rawAuthMethod : 'auto';
@@ -323,6 +354,9 @@ export class AuthManager {
       // authEnvVar is per-provider: ANTHROPIC_AUTH_TOKEN (Bearer) or ANTHROPIC_API_KEY (X-API-Key)
       this.authEnv.ANTHROPIC_BASE_URL = baseUrl;
       this.authEnv[authEnvVar as keyof AuthEnv] = providerKey.trim();
+      // Sync to process.env — SDK reads these directly, not from the env option
+      process.env['ANTHROPIC_BASE_URL'] = baseUrl;
+      process.env[authEnvVar] = providerKey.trim();
 
       // Apply persisted tier mappings for this provider (TASK_2025_132)
       this.providerModels.switchActiveProvider(providerId);
@@ -361,6 +395,51 @@ export class AuthManager {
    * 4. Set a placeholder auth token (proxy handles real auth internally)
    */
   private async configureOAuthProvider(provider: {
+    id: string;
+    name: string;
+    staticModels?: Array<{ id: string }>;
+  }): Promise<AuthResult> {
+    // Stop the OTHER provider's proxy to prevent cross-contamination.
+    // Only one proxy should be active at a time — the selected provider's.
+    if (provider.id === 'openai-codex') {
+      await this.stopProxyIfRunning(this.copilotProxy, 'Copilot');
+      return this.configureCodexOAuth(provider);
+    }
+
+    // Default: GitHub Copilot flow
+    await this.stopProxyIfRunning(this.codexProxy, 'Codex');
+    return this.configureCopilotOAuth(provider);
+  }
+
+  /**
+   * Stop a translation proxy if it's running.
+   * Called when switching providers to ensure only one proxy is active.
+   */
+  private async stopProxyIfRunning(
+    proxy: { isRunning(): boolean; stop(): Promise<void> },
+    name: string
+  ): Promise<void> {
+    if (proxy.isRunning()) {
+      this.logger.info(
+        `[AuthManager] Stopping ${name} proxy (switching to different provider)`
+      );
+      try {
+        await proxy.stop();
+      } catch (error) {
+        this.logger.warn(
+          `[AuthManager] Failed to stop ${name} proxy: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
+    }
+  }
+
+  /**
+   * Configure GitHub Copilot OAuth provider (TASK_2025_186).
+   * Uses VS Code GitHub authentication and the Copilot translation proxy.
+   */
+  private async configureCopilotOAuth(provider: {
     id: string;
     name: string;
     staticModels?: Array<{ id: string }>;
@@ -413,6 +492,97 @@ export class AuthManager {
     // Step 3: Point SDK at the proxy
     this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
     this.authEnv.ANTHROPIC_AUTH_TOKEN = COPILOT_PROXY_TOKEN_PLACEHOLDER;
+    // Sync to process.env — SDK reads these directly, not from the env option
+    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = COPILOT_PROXY_TOKEN_PLACEHOLDER;
+
+    // Step 4: Apply tier mappings and seed pricing
+    this.providerModels.switchActiveProvider(provider.id);
+    seedStaticModelPricing(provider.id);
+
+    this.logger.info(
+      `[AuthManager] Using ${providerName} via translation proxy (${proxyUrl})`
+    );
+    this.logger.info(
+      `[AuthManager] Set ANTHROPIC_BASE_URL=${proxyUrl}, ANTHROPIC_AUTH_TOKEN=<proxy-managed>`
+    );
+
+    return {
+      configured: true,
+      details: [`${providerName} (OAuth via translation proxy at ${proxyUrl})`],
+    };
+  }
+
+  /**
+   * Configure OpenAI Codex OAuth provider (TASK_2025_193).
+   * Uses file-based auth from ~/.codex/auth.json and the Codex translation proxy.
+   */
+  private async configureCodexOAuth(provider: {
+    id: string;
+    name: string;
+    staticModels?: Array<{ id: string }>;
+  }): Promise<AuthResult> {
+    const providerName = provider.name;
+
+    this.logger.info(
+      `[AuthManager] Configuring OAuth provider: ${providerName}`
+    );
+
+    // Step 1: Verify Codex auth and ensure tokens are fresh
+    const isAuthed = await this.codexAuth.isAuthenticated();
+    if (!isAuthed) {
+      this.logger.warn(
+        `[AuthManager] ${providerName} not authenticated. Run \`codex login\` to authenticate.`
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `${providerName} is not authenticated. Run \`codex login\` in your terminal to set up authentication.`,
+      };
+    }
+
+    const tokensFresh = await this.codexAuth.ensureTokensFresh();
+    if (!tokensFresh) {
+      this.logger.warn(
+        `[AuthManager] ${providerName} token refresh failed. Run \`codex login\` to re-authenticate.`
+      );
+      return {
+        configured: false,
+        details: [],
+        errorMessage: `${providerName} token has expired. Run \`codex login\` in your terminal to re-authenticate.`,
+      };
+    }
+
+    // Step 2: Start the Codex translation proxy
+    let proxyUrl: string;
+    try {
+      if (this.codexProxy.isRunning()) {
+        proxyUrl = this.codexProxy.getUrl()!;
+        this.logger.info(
+          `[AuthManager] Codex translation proxy already running at ${proxyUrl}`
+        );
+      } else {
+        const result = await this.codexProxy.start();
+        proxyUrl = result.url;
+        this.logger.info(
+          `[AuthManager] Codex translation proxy started at ${proxyUrl}`
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[AuthManager] Failed to start Codex translation proxy: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return { configured: false, details: [] };
+    }
+
+    // Step 3: Point SDK at the Codex proxy
+    this.authEnv.ANTHROPIC_BASE_URL = proxyUrl;
+    this.authEnv.ANTHROPIC_AUTH_TOKEN = CODEX_PROXY_TOKEN_PLACEHOLDER;
+    // Sync to process.env — SDK reads these directly, not from the env option
+    process.env['ANTHROPIC_BASE_URL'] = proxyUrl;
+    process.env['ANTHROPIC_AUTH_TOKEN'] = CODEX_PROXY_TOKEN_PLACEHOLDER;
 
     // Step 4: Apply tier mappings and seed pricing
     this.providerModels.switchActiveProvider(provider.id);
@@ -459,6 +629,8 @@ export class AuthManager {
       }
 
       this.authEnv.ANTHROPIC_API_KEY = apiKey.trim();
+      // Sync to process.env — SDK reads these directly
+      process.env['ANTHROPIC_API_KEY'] = apiKey.trim();
       details.push(
         `API key from SecretStorage (pay-per-token, format ${
           isValidFormat ? 'valid' : 'INVALID'
@@ -515,6 +687,20 @@ export class AuthManager {
       });
     }
 
+    // Stop Codex translation proxy if running (TASK_2025_193)
+    if (this.codexProxy?.isRunning()) {
+      this.codexProxy.stop().catch((err) => {
+        this.logger.warn(
+          `[AuthManager] Failed to stop Codex proxy during cleanup: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      });
+    }
+
+    // Reset Codex auth service cache to prevent stale data on provider re-selection
+    this.codexAuth.clearCache();
+
     this.logger.debug(
       '[AuthManager] Cleared authentication environment variables'
     );
@@ -541,6 +727,8 @@ export class AuthManager {
   private clearAllAuthEnvVars(): void {
     for (const varName of AUTH_ENV_VARS) {
       delete this.authEnv[varName as keyof AuthEnv];
+      // Sync to process.env — SDK reads these directly
+      delete process.env[varName];
     }
   }
 

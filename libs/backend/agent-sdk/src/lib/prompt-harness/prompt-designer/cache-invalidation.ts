@@ -101,7 +101,7 @@ export interface CacheKeyComponents {
 /**
  * Current config version - increment when cache format changes
  */
-export const CACHE_CONFIG_VERSION = '1.0.0';
+export const CACHE_CONFIG_VERSION = '2.0.0';
 
 /**
  * Default TTL for cached prompt designs (7 days in ms)

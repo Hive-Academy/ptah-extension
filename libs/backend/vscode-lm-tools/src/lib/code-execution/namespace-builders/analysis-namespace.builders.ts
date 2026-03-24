@@ -5,7 +5,6 @@
  * These namespaces leverage workspace-intelligence for intelligent file selection.
  */
 
-import * as vscode from 'vscode';
 import {
   ContextSizeOptimizerService,
   MonorepoDetectorService,
@@ -18,6 +17,7 @@ import {
   ContextEnrichmentService,
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   ContextNamespace,
   ProjectNamespace,
@@ -43,6 +43,7 @@ export interface AnalysisNamespaceDependencies {
   workspaceAnalyzer: WorkspaceAnalyzerService;
   contextEnrichment: ContextEnrichmentService;
   dependencyGraph: DependencyGraphService;
+  workspaceProvider: IWorkspaceProvider;
 }
 
 /**
@@ -142,12 +143,13 @@ export function buildProjectNamespace(
     dependencyAnalyzer,
     projectDetector,
     workspaceAnalyzer,
+    workspaceProvider,
   } = deps;
 
   return {
     detectMonorepo: async (): Promise<MonorepoResult> => {
-      const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-      if (!workspaceUri) {
+      const workspaceRoot = workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
         return {
           isMonorepo: false,
           type: '',
@@ -155,7 +157,7 @@ export function buildProjectNamespace(
         };
       }
 
-      const result = await monorepoDetector.detectMonorepo(workspaceUri);
+      const result = await monorepoDetector.detectMonorepo(workspaceRoot);
       return {
         isMonorepo: result.isMonorepo,
         type: result.type || '',
@@ -170,15 +172,17 @@ export function buildProjectNamespace(
     },
 
     analyzeDependencies: async (): Promise<DependencyResult[]> => {
-      const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-      if (!workspaceUri) {
+      const workspaceRoot = workspaceProvider.getWorkspaceRoot();
+      if (!workspaceRoot) {
         return [];
       }
 
-      const projectType = await projectDetector.detectProjectType(workspaceUri);
+      const projectType = await projectDetector.detectProjectType(
+        workspaceRoot
+      );
 
       const analysis = await dependencyAnalyzer.analyzeDependencies(
-        workspaceUri,
+        workspaceRoot,
         projectType
       );
       return [

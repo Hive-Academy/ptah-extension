@@ -16,7 +16,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
 import {
   Logger,
   ConfigManager,
@@ -150,7 +149,7 @@ export class AgenticAnalysisService {
    * and structured output (JSON Schema).
    */
   async analyzeWorkspace(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     options?: {
       timeout?: number;
       model?: string;
@@ -161,17 +160,13 @@ export class AgenticAnalysisService {
   ): Promise<Result<DeepProjectAnalysis, Error>> {
     const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
     const model =
-      options?.model ||
-      this.config.getWithDefault<string>(
-        'model.selected',
-        'claude-sonnet-4-5-20250929'
-      );
+      options?.model || this.config.get<string>('model.selected') || 'default';
     const isPremium = options?.isPremium ?? false;
     const mcpServerRunning = options?.mcpServerRunning ?? false;
     const mcpPort = options?.mcpPort;
 
     this.logger.info(`${SERVICE_TAG} Starting agentic analysis`, {
-      workspace: workspaceUri.fsPath,
+      workspace: workspacePath,
       timeout,
       model,
       isPremium,
@@ -191,7 +186,7 @@ export class AgenticAnalysisService {
 
     try {
       const handle = await this.internalQueryService.execute({
-        cwd: workspaceUri.fsPath,
+        cwd: workspacePath,
         model,
         prompt:
           'Analyze this workspace thoroughly. Inspect the project structure, frameworks, architecture patterns, code health, and test coverage using the available tools.',

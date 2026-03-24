@@ -115,8 +115,47 @@ export function sanitizeYamlDescriptions(content: string): string {
 }
 
 /**
+ * Rewrite the `name:` field in YAML frontmatter to match the target folder name.
+ *
+ * CLIs like Copilot validate that the skill name in SKILL.md matches the
+ * containing folder name. When we copy skills into `ptah-{skillName}/`,
+ * the name field must be updated to `ptah-{skillName}` accordingly.
+ *
+ * @param content - SKILL.md content (LF-normalized)
+ * @param newName - The target folder name (e.g., "ptah-agent-browser")
+ * @returns Content with updated name field, or unchanged if no frontmatter
+ */
+export function rewriteSkillName(content: string, newName: string): string {
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (!frontmatterMatch) {
+    return content;
+  }
+
+  const frontmatter = frontmatterMatch[1];
+  const lines = frontmatter.split('\n');
+  const updatedLines = lines.map((line) => {
+    const nameMatch = line.match(/^(\s*name:\s*)(.+)$/);
+    if (!nameMatch) {
+      return line;
+    }
+    return `${nameMatch[1]}${newName}`;
+  });
+
+  // If nothing changed, return as-is
+  if (updatedLines.every((line, i) => line === lines[i])) {
+    return content;
+  }
+
+  const newFrontmatter = updatedLines.join('\n');
+  return content.replace(frontmatterMatch[0], `---\n${newFrontmatter}\n---`);
+}
+
+/**
  * Recursively copy directory contents, stripping allowed-tools from markdown files.
  * Returns count of files copied.
+ *
+ * @param options.skillFolderName - If provided, rewrites the `name:` field in
+ *   SKILL.md files to match this folder name (for CLI name/folder validation).
  *
  * Safety features:
  * - Uses lstat() to detect symlinks (prevents symlink loop infinite recursion)
@@ -126,7 +165,8 @@ export function sanitizeYamlDescriptions(content: string): string {
 export async function copyDirectoryRecursive(
   sourceDir: string,
   targetDir: string,
-  depth = 0
+  depth = 0,
+  skillFolderName?: string
 ): Promise<number> {
   if (depth > MAX_RECURSION_DEPTH) {
     return 0; // Prevent runaway recursion from symlink loops or deep nesting
@@ -148,14 +188,24 @@ export async function copyDirectoryRecursive(
 
     if (entryStat.isDirectory()) {
       await mkdir(targetPath, { recursive: true });
-      count += await copyDirectoryRecursive(sourcePath, targetPath, depth + 1);
+      count += await copyDirectoryRecursive(
+        sourcePath,
+        targetPath,
+        depth + 1,
+        skillFolderName
+      );
     } else if (entryStat.isFile()) {
-      // For markdown files, strip Claude-specific frontmatter fields
-      // and sanitize YAML descriptions for strict parsers (Codex/Gemini)
+      // For markdown files, strip Claude-specific frontmatter fields,
+      // sanitize YAML descriptions for strict parsers (Codex/Gemini),
+      // and rewrite skill name to match target folder if needed
       if (extname(entry).toLowerCase() === '.md') {
         const content = await readFile(sourcePath, 'utf8');
         const stripped = stripAllowedToolsFromFrontmatter(content);
-        const processed = sanitizeYamlDescriptions(stripped);
+        const sanitized = sanitizeYamlDescriptions(stripped);
+        const processed =
+          skillFolderName && entry.toUpperCase() === 'SKILL.MD'
+            ? rewriteSkillName(sanitized, skillFolderName)
+            : sanitized;
         await writeFile(targetPath, processed, 'utf8');
       } else {
         // Binary/other files: direct copy via read+write

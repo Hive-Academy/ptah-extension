@@ -45,7 +45,10 @@ export * from './lib/types/sdk-types/claude-sdk.types';
 export { SdkPermissionHandler } from './lib/sdk-permission-handler';
 
 // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
-export { ProviderModelsService } from './lib/provider-models.service';
+export {
+  ProviderModelsService,
+  type DynamicModelFetcher,
+} from './lib/provider-models.service';
 
 // @deprecated Use ProviderModelsService instead
 export { ProviderModelsService as OpenRouterModelsService } from './lib/provider-models.service';
@@ -71,11 +74,14 @@ export type {
 
 // Shared prompt-building functions (used by SdkQueryOptionsBuilder and PtahCliAdapter)
 export {
-  assembleSystemPromptAppend,
+  assembleSystemPrompt,
   buildModelIdentityPrompt,
   getActiveProviderId,
 } from './lib/helpers';
-export type { AssembleSystemPromptInput } from './lib/helpers';
+export type {
+  AssembleSystemPromptInput,
+  SystemPromptAssemblyResult,
+} from './lib/helpers';
 
 // ============================================================
 // Enhanced Prompts System (TASK_2025_137)
@@ -169,6 +175,12 @@ export {
 } from './lib/helpers';
 
 // ============================================================
+// Skill Junction Service (TASK_2025_201)
+// Manages workspace .claude/skills/ junctions for third-party providers
+// ============================================================
+export { SkillJunctionService, type SkillJunctionResult } from './lib/helpers';
+
+// ============================================================
 // Ptah CLI (TASK_2025_167)
 // User-configured adapters for Anthropic-compatible providers
 // ============================================================
@@ -183,6 +195,7 @@ export {
   CopilotAuthService,
   CopilotTranslationProxy,
   COPILOT_PROVIDER_ENTRY,
+  COPILOT_DEFAULT_TIERS,
 } from './lib/copilot-provider';
 export type {
   ICopilotAuthService,
@@ -191,11 +204,59 @@ export type {
 } from './lib/copilot-provider';
 
 // ============================================================
+// Codex Provider (TASK_2025_193)
+// OpenAI Codex integration via file-based OAuth + translation proxy
+// ============================================================
+export {
+  CodexAuthService,
+  CodexTranslationProxy,
+  CODEX_PROVIDER_ENTRY,
+  CODEX_DEFAULT_TIERS,
+} from './lib/codex-provider';
+export type { ICodexAuthService, CodexAuthFile } from './lib/codex-provider';
+
+// ============================================================
+// OpenAI Translation Module (TASK_2025_193)
+// Shared Anthropic <-> OpenAI translation infrastructure
+// ============================================================
+export {
+  OpenAIResponseTranslator,
+  TranslationProxyBase,
+  translateAnthropicToOpenAI,
+} from './lib/openai-translation';
+export type {
+  ITranslationProxy,
+  TranslationProxyConfig,
+} from './lib/openai-translation';
+
+// ============================================================
 // Slash Command Interceptor (TASK_2025_184)
 // Detects and classifies follow-up slash commands
 // ============================================================
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
+
+// ============================================================
+// Settings Export/Import (TASK_2025_210)
+// Cross-platform settings portability
+// ============================================================
+export { SettingsExportService } from './lib/settings-export.service';
+export { SettingsImportService } from './lib/settings-import.service';
+export type { SettingsImportOptions } from './lib/settings-import.service';
+export {
+  SETTINGS_EXPORT_VERSION,
+  KNOWN_PROVIDER_IDS,
+  KNOWN_CONFIG_KEYS,
+  SECRET_KEYS,
+  providerSecretKey,
+  countPopulatedSecrets,
+} from './lib/types/settings-export.types';
+export type {
+  PtahSettingsExport,
+  SettingsImportResult,
+  KnownProviderId,
+  KnownConfigKey,
+} from './lib/types/settings-export.types';
 
 // ============================================================
 // Stream Processing (shared SDK stream processor)

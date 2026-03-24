@@ -14,7 +14,7 @@ import {
  * - Temple background with parallax effect
  * - Gradient overlays
  * - Floating particles animation
- * - Feature card with Claude branding
+ * - Feature card with multi-provider branding
  * - Active developers counter card
  */
 @Component({
@@ -71,10 +71,12 @@ import {
             />
           </div>
           <div>
-            <h3 class="font-semibold text-white mb-1">Powered by Claude</h3>
+            <h3 class="font-semibold text-white mb-1">
+              Multi-Provider AI Harness
+            </h3>
             <p class="text-sm text-neutral-content/70">
-              Experience AI-powered coding assistance with a beautiful visual
-              interface designed for VS Code.
+              Orchestrate any AI provider through a unified visual interface
+              designed for VS Code.
             </p>
           </div>
         </div>

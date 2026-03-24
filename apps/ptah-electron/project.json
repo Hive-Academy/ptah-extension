@@ -1,0 +1,125 @@
+{
+  "name": "ptah-electron",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "application",
+  "sourceRoot": "apps/ptah-electron/src",
+  "tags": ["scope:electron", "type:app"],
+  "targets": {
+    "build-main": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "apps/ptah-electron/src/main.ts",
+        "tsConfig": "apps/ptah-electron/tsconfig.app.json",
+        "webpackConfig": "apps/ptah-electron/webpack.config.js",
+        "target": "node",
+        "compiler": "tsc"
+      },
+      "configurations": {
+        "production": {
+          "optimization": true,
+          "sourceMap": false
+        },
+        "development": {
+          "optimization": false,
+          "sourceMap": true
+        }
+      }
+    },
+    "build-preload": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/apps/ptah-electron",
+        "main": "apps/ptah-electron/src/preload.ts",
+        "tsConfig": "apps/ptah-electron/tsconfig.preload.json",
+        "webpackConfig": "apps/ptah-electron/webpack.preload.config.js",
+        "target": "node",
+        "compiler": "tsc"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build-main ptah-electron",
+          "nx build-preload ptah-electron",
+          "nx build ptah-extension-webview --configuration=production"
+        ],
+        "parallel": false
+      },
+      "dependsOn": []
+    },
+    "build-dev": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build-main ptah-electron --configuration=development",
+          "nx build-preload ptah-electron",
+          "nx build ptah-extension-webview --configuration=development"
+        ],
+        "parallel": true
+      }
+    },
+    "copy-renderer": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          {
+            "command": "node apps/ptah-electron/scripts/copy-renderer.js"
+          }
+        ]
+      }
+    },
+    "copy-assets": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          {
+            "command": "node apps/ptah-electron/scripts/copy-assets.js"
+          }
+        ]
+      }
+    },
+    "serve": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build-dev ptah-electron",
+          "nx copy-renderer ptah-electron",
+          "nx copy-assets ptah-electron",
+          "node apps/ptah-electron/scripts/launch.js"
+        ],
+        "parallel": false
+      }
+    },
+    "serve:watch": {
+      "executor": "nx:run-commands",
+      "options": {
+        "commands": [
+          "nx build-main ptah-electron --configuration=development --watch",
+          "nx build-preload ptah-electron --watch",
+          "nx build ptah-extension-webview --configuration=development --watch"
+        ],
+        "parallel": true
+      }
+    },
+    "package": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build", "copy-renderer", "copy-assets"],
+      "options": {
+        "command": "electron-builder --config apps/ptah-electron/electron-builder.yml --project dist/apps/ptah-electron"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project apps/ptah-electron/tsconfig.app.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

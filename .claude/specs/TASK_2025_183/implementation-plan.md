@@ -1,1055 +1,835 @@
-# Implementation Plan - TASK_2025_183: Ptah Context Engine
+# Implementation Plan - TASK_2025_183: Ptah Context Engine (Re-Plan)
+
+**Re-Plan Date**: 2026-03-18
+**Replaces**: Previous 77KB implementation plan (outdated)
+**Requirements**: task-description.md (58KB, still valid)
+**Status**: ~50-70% of Pillar 1 done, 0% of Pillars 2 and 3
+
+---
 
 ## Codebase Investigation Summary
 
-### Libraries Analyzed
+### What Changed Since the Original Plan
 
-- **workspace-intelligence** (`D:\projects\ptah-extension\libs\backend\workspace-intelligence`): 20+ services, tiered DI registration, context orchestration facade
-- **agent-sdk** (`D:\projects\ptah-extension\libs\backend\agent-sdk`): SDK hook system, session management, DI tokens with `Symbol.for()` pattern
-- **agent-generation** (`D:\projects\ptah-extension\libs\backend\agent-generation`): `AnalysisStorageService` -- the file-based storage pattern to follow
-- **vscode-core** (`D:\projects\ptah-extension\libs\backend\vscode-core`): `FileSystemManager` with stub `handleWatcherEvent()`, DI TOKENS namespace
-- **vscode-lm-tools** (`D:\projects\ptah-extension\libs\backend\vscode-lm-tools`): MCP namespace builder pattern
+| Change                                                             | Impact on Architecture                                                                                |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `platform-core` library added (Tasks 199-203)                      | New services SHOULD use `IFileSystemProvider` / `IWorkspaceProvider` for cross-platform compatibility |
+| `platform-vscode` / `platform-electron` added                      | Platform implementations exist for all interfaces                                                     |
+| `rpc-handlers` library added (Task 203)                            | Context Engine RPC endpoints (if any) go here                                                         |
+| Multi-provider CLI adapters (Gemini, Codex, Copilot)               | Session memory hooks must work across ALL providers, not just Claude SDK                              |
+| File-based storage decision confirmed                              | NO sql.js/SQLite. Use `fs/promises` + markdown + JSON                                                 |
+| `ContextOrchestrationService` now injects `DependencyGraphService` | Wiring already done via `TOKENS.DEPENDENCY_GRAPH_SERVICE` (line 221-229)                              |
+| `DependencyGraphService.invalidateFile()` fully implemented        | Lines 314-359, removes node + edges + invalidates symbol index                                        |
+| gray-matter available as dependency                                | Listed in `workspace-intelligence/package.json`                                                       |
 
-### Patterns Identified
+### Current API Surface (Verified 2026-03-18)
 
-1. **DI Registration**: Tiered singleton registration with dependency validation. Workspace-intelligence uses `registerWorkspaceIntelligenceServices()` with 8 tiers. Agent-sdk uses `registerSdkServices()` with explicit `Lifecycle.Singleton`.
+#### DependencyGraphService (`libs/backend/workspace-intelligence/src/ast/dependency-graph.service.ts`)
 
-   - Evidence: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\di\register.ts:74-239`
-   - Evidence: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\register.ts:73-364`
+- `buildGraph(filePaths, workspaceRoot, tsconfigPaths?)` -- Full graph build with chunked parallelism (line 101)
+- `getDependencies(filePath, depth=1)` -- Forward traversal, max depth 3, cycle detection (line 243)
+- `getDependents(filePath)` -- Reverse dependency lookup (line 272)
+- `getSymbolIndex()` -- Lazy-computed `Map<string, ExportInfo[]>` (line 289)
+- `invalidateFile(filePath)` -- Removes node + all edges + invalidates symbol cache (line 314)
+- `isBuilt()` -- Returns boolean (line 364)
+- **MISSING**: `updateFile(filePath)` -- Incremental re-parse after invalidation
+- **MISSING**: `getGraph()` accessor for cache serialization
+- Data structures: `DependencyGraph`, `FileNode`, `SymbolIndex` (exported)
 
-2. **Token Convention**: `Symbol.for('DescriptiveName')` -- globally shared symbols, never plain strings.
+#### ContextOrchestrationService (`libs/backend/workspace-intelligence/src/context/context-orchestration.service.ts`)
 
-   - Evidence: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\tokens.ts:1-109`
-   - Evidence: `D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts:101-115` (CONTEXT_SIZE_OPTIMIZER, DEPENDENCY_GRAPH_SERVICE, etc.)
+- Already injects `DependencyGraphService` via `@inject(TOKENS.DEPENDENCY_GRAPH_SERVICE)` (line 221)
+- Already injects `ContextSizeOptimizerService` via `@inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)` (line 223)
+- Already wires graph into optimizer: `this.contextSizeOptimizer.setDependencyGraph(this.dependencyGraph)` (line 229)
+- Stateless facade over `ContextService` -- delegates all operations
 
-3. **File-Based Storage (AnalysisStorageService pattern)**: Manifest JSON + markdown files + `fs/promises` for all I/O. Directory structure under `.claude/`.
+#### FileRelevanceScorerService (`libs/backend/workspace-intelligence/src/context-analysis/file-relevance-scorer.service.ts`)
 
-   - Evidence: `D:\projects\ptah-extension\libs\backend\agent-generation\src\lib\services\analysis-storage.service.ts:1-267`
+- `scoreFile(file, query?, symbolIndex?, activeFileImports?)` -- Returns `FileRelevanceResult` (line 50)
+- `rankFiles(files, query?, symbolIndex?, activeFileImports?)` -- Returns sorted Map (line 174)
+- `getTopFiles(files, query, limit, symbolIndex?, activeFileImports?)` -- Top N results (line 209)
+- Scoring factors: path keywords, file type, language patterns, framework patterns, task patterns, symbol matching
+- **MISSING**: Graph proximity signal (dependency hop distance)
+- **MISSING**: Session memory signal (recently touched files, error patterns)
+- **MISSING**: Context profile weighting
 
-4. **Hook Handler Pattern**: Injectable singleton, `createHooks()` returns `Partial<Record<HookEvent, HookCallbackMatcher[]>>`, always returns `{ continue: true }`, never throws.
+#### ContextSizeOptimizerService (`libs/backend/workspace-intelligence/src/context-analysis/context-size-optimizer.service.ts`)
 
-   - Evidence: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\session-start-hook-handler.ts:66-209`
+- Already has `DependencyGraphInterface` (lines 34-38) and `setDependencyGraph()` (line 175)
+- Uses `dependencyGraph?.getSymbolIndex()` for symbol-aware scoring (line 198-204)
+- `contentOverrides` map for structural summaries (line 114)
+- Two modes: `full` and `structural`
 
-5. **Hook Merging**: `SdkQueryOptionsBuilder.createHooks()` merges hooks from multiple handlers by concatenating arrays per event key.
+#### FileSystemManager (`libs/backend/vscode-core/src/api-wrappers/file-system-manager.ts`)
 
-   - Evidence: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts:660-709`
+- `handleWatcherEvent(watcherId, eventType, uri)` -- **STUB** at lines 546-555, no-op implementation
+- `createWatcher(config)` -- Fully implemented, manages `activeWatchers` map
+- This is VS Code-specific (uses `vscode.FileSystemWatcher`)
 
-6. **System Prompt Injection**: `assembleSystemPromptAppend()` pure function concatenates prompt parts.
+#### SdkQueryOptionsBuilder (`libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`)
 
-   - Evidence: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts:156-201`
+- `createHooks(cwd, sessionId?, onCompactionStart?)` -- Merges SubagentHookHandler + CompactionHookHandler hooks (line 718)
+- Hook merging: concatenates `HookCallbackMatcher[]` arrays per event key (line 737-743)
+- **NOTE**: `SessionStartHookHandler` is NOT currently merged here -- it was deleted (file does not exist)
+- **FINDING**: Session start hook handling is done differently now
 
-7. **File Watcher Stub**: `FileSystemManager.handleWatcherEvent()` accepts `(watcherId, eventType, uri)` but is a no-op stub.
+#### AnalysisStorageService (`libs/backend/agent-generation/src/lib/services/analysis-storage.service.ts`)
 
-   - Evidence: `D:\projects\ptah-extension\libs\backend\vscode-core\src\api-wrappers\file-system-manager.ts:546-555`
+- Pattern to follow: `fs/promises` (mkdir, readdir, readFile, writeFile, rm, stat)
+- Uses `join()` for path construction
+- JSON manifests + markdown phase files
+- Error handling: try/catch returning null on failure
+- Idempotent directory creation
 
-8. **Graph Interface**: `ContextSizeOptimizerService` already declares `DependencyGraphInterface` and `setDependencyGraph()`.
+#### Platform Core (`libs/backend/platform-core/`)
 
-   - Evidence: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\context-size-optimizer.service.ts:34-38, 175-177`
+- `IFileSystemProvider` -- readFile, writeFile, createDirectory, exists, delete, findFiles, createFileWatcher (line 17-105)
+- `IWorkspaceProvider` -- getWorkspaceFolders, getWorkspaceRoot, getConfiguration (line 9-51)
+- `IFileWatcher` -- onDidChange, onDidCreate, onDidDelete events (platform.types.ts line 73-77)
+- `PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER`, `PLATFORM_TOKENS.WORKSPACE_PROVIDER`
+- Used by PtahAPIBuilder already (line 37-41 of ptah-api-builder.service.ts)
 
-9. **MCP Namespace Builder**: Each namespace built by a dedicated builder function with typed dependencies.
-   - Evidence: `D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\analysis-namespace.builders.ts:35-80`
+#### CLI Adapters (`libs/backend/llm-abstraction/src/lib/services/cli-adapters/`)
 
-### Integration Points Verified
+- `CliAdapter` interface with `name: CliType`, `detect()`, `buildCommand()`, `runSdk?()` (line 82-137)
+- Implementations: `gemini-cli.adapter.ts` (spawn), `codex-cli.adapter.ts` (SDK), `copilot-sdk.adapter.ts` (SDK)
+- `CliDetectionService` in `llm-abstraction` registered as `TOKENS.CLI_DETECTION_SERVICE`
+- `AgentProcessManager` orchestrates agent execution
 
-- `ContextOrchestrationService` already injects `DependencyGraphService` via `TOKENS.DEPENDENCY_GRAPH_SERVICE` and calls `setDependencyGraph()` on the optimizer (line 229).
-- `DependencyGraphService.invalidateFile()` exists and is fully implemented (lines 317-362).
-- `buildGraph()` uses chunked parallel parsing with `AstAnalysisService.analyzeSource()` (lines 102-236).
-- `SdkQueryOptionsBuilder` constructor injects `SubagentHookHandler`, `CompactionHookHandler`, `SessionStartHookHandler` via SDK_TOKENS.
+#### DI Token Pattern
+
+- All tokens use `Symbol.for('DescriptiveName')` -- globally unique
+- `TOKENS` namespace in `vscode-core/src/di/tokens.ts` for core/workspace-intelligence tokens
+- `SDK_TOKENS` in `agent-sdk/src/lib/di/tokens.ts` for SDK-specific tokens
+- Registration in `workspace-intelligence/src/di/register.ts` uses 8 tiers
+- Registration in container.ts: Phase 2 = workspace-intelligence, Phase 2.7 = agent-sdk
+
+### Multi-Provider Hook Architecture
+
+The observation hooks need to work with ALL providers. The current hook system:
+
+1. **Claude SDK path**: `SdkQueryOptionsBuilder.createHooks()` creates `PostToolUse`, `SessionEnd`, etc. hooks. These are Claude SDK-specific hooks using `HookCallbackMatcher` from `claude-sdk.types.ts`.
+2. **CLI adapters (Gemini, Codex, Copilot)**: These use `AgentProcessManager` which spawns processes via `CliAdapter.buildCommand()` or `CliAdapter.runSdk()`. They do NOT use SDK hooks -- they produce `CliOutputSegment` or `FlatStreamEventUnion` events.
+
+**Architecture Decision**: Session memory observation must work at TWO levels:
+
+- **SDK hooks level** (Claude SDK only): `PostToolUse`, `SessionEnd` hooks in `SdkQueryOptionsBuilder`
+- **Process output level** (all providers): Parse `FlatStreamEventUnion` events from `AgentProcessManager` for non-SDK providers
+
+For this initial implementation, we focus on the SDK hooks path (Claude SDK) as the primary integration. Multi-provider support for Gemini/Codex/Copilot will use the same `SessionMemoryService` but observations will be captured from `AgentProcessManager` output parsing in a future phase.
 
 ---
 
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Extension Activation                         │
-│  apps/ptah-extension-vscode (consumption point)                     │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │          PILLAR 1: Live Code Graph                           │   │
-│  │  libs/backend/workspace-intelligence                         │   │
-│  │                                                               │   │
-│  │  LiveCodeGraphService (lifecycle: lazy init, rebuild, dispose)│   │
-│  │       │                                                       │   │
-│  │       ├── GraphFileWatcherService (file events -> graph)      │   │
-│  │       │       │                                               │   │
-│  │       │       └── FileSystemManager.createWatcher()           │   │
-│  │       │                                                       │   │
-│  │       ├── DependencyGraphService (EXISTING + updateFile())    │   │
-│  │       │       ├── buildGraph()                                │   │
-│  │       │       ├── invalidateFile() (EXISTING)                 │   │
-│  │       │       └── updateFile() (NEW)                          │   │
-│  │       │                                                       │   │
-│  │       └── GraphCacheService (JSON persistence)                │   │
-│  │               └── .claude/context/graph/graph-cache.json      │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │          PILLAR 2: Session Memory                            │   │
-│  │  libs/backend/agent-sdk                                      │   │
-│  │                                                               │   │
-│  │  SessionMemoryService (facade)                                │   │
-│  │       │                                                       │   │
-│  │       ├── ObservationExtractorService (tool -> observation)   │   │
-│  │       │                                                       │   │
-│  │       ├── MemoryStorageService (file I/O)                     │   │
-│  │       │       ├── .claude/context/memory/sessions/*.md        │   │
-│  │       │       ├── .claude/context/memory/summaries/*.md       │   │
-│  │       │       └── .claude/context/memory/manifest.json        │   │
-│  │       │                                                       │   │
-│  │       ├── MemoryQueryService (search + retrieval)             │   │
-│  │       │                                                       │   │
-│  │       └── ObservationHookHandler (PostToolUse/SessionEnd)     │   │
-│  │               └── Merged into SdkQueryOptionsBuilder.hooks    │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │          PILLAR 3: Smart Context Curation                    │   │
-│  │  libs/backend/workspace-intelligence                         │   │
-│  │                                                               │   │
-│  │  FileRelevanceScorerService (EXISTING + new signals)          │   │
-│  │       ├── Keyword matching (EXISTING)                         │   │
-│  │       ├── Symbol matching (EXISTING)                          │   │
-│  │       ├── Graph proximity signal (NEW)                        │   │
-│  │       └── Session memory signal (NEW)                         │   │
-│  │                                                               │   │
-│  │  ContextProfileService (NEW - task-type scoring weights)      │   │
-│  │       ├── Bugfix profile                                      │   │
-│  │       ├── Feature profile                                     │   │
-│  │       └── Review profile                                      │   │
-│  │                                                               │   │
-│  │  ContextOrchestrationService (EXISTING + memory injection)    │   │
-│  │       └── Injects memory context into system prompt           │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │          MCP Integration                                     │   │
-│  │  libs/backend/vscode-lm-tools                                │   │
-│  │                                                               │   │
-│  │  memory-namespace.builders.ts (NEW)                           │   │
-│  │       ├── ptah.memory.search(query)                           │   │
-│  │       ├── ptah.memory.getRecent(count)                        │   │
-│  │       └── ptah.memory.getForFile(filePath)                    │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
+                         ┌─────────────────────────────────────────┐
+                         │         Smart Context Curation          │
+                         │  ContextProfileService                  │
+                         │  Enhanced FileRelevanceScorerService    │
+                         │  Memory Injection (SessionStart hooks)  │
+                         │  MCP Memory Namespace                   │
+                         └──────────┬──────────────────────────────┘
+                                    │
+                  ┌─────────────────┴─────────────────┐
+                  │                                     │
+    ┌─────────────▼──────────────┐    ┌────────────────▼──────────────┐
+    │     Live Code Graph        │    │      Session Memory           │
+    │  LiveCodeGraphService      │    │  ObservationHookHandler       │
+    │  GraphFileWatcherService   │    │  ObservationExtractor         │
+    │  DependencyGraph.updateFile│    │  SessionMemoryService         │
+    │  Graph Cache Persistence   │    │  MemoryQueryService           │
+    └─────────────┬──────────────┘    └────────────────┬──────────────┘
+                  │                                     │
+    ┌─────────────▼──────────────────────────────────────▼──────────────┐
+    │                    File-Based Context Storage                      │
+    │  ContextStorageService (.claude/context/)                         │
+    │  Session files (markdown + YAML frontmatter)                     │
+    │  Graph cache (JSON)                                              │
+    │  Context profiles (markdown)                                     │
+    └──────────────────────────────────────────────────────────────────┘
+```
+
+### Directory Structure
+
+```
+.claude/context/
+├── graph/
+│   ├── dependency-graph.json     # Serialized DependencyGraph
+│   └── symbol-index.json         # Serialized SymbolIndex
+├── memory/
+│   ├── sessions/
+│   │   ├── sess_abc123.md        # Session observation log
+│   │   └── sess_def456.md
+│   └── summaries/
+│       ├── latest.md             # Rolling summary (overwritten)
+│       └── 2026-03-18.md         # Daily snapshot
+└── profiles/
+    ├── bugfix.md                 # Task-type scoring profile
+    ├── feature.md
+    └── review.md
 ```
 
 ---
 
-## Type Definitions
+## Phase Breakdown
 
-All new types are defined in the files where they are used (colocated with their services), following the existing codebase pattern.
+### Phase 1: File-Based Context Storage (Independent, Start First)
 
-### Pillar 1: Graph Types
+**Estimated Effort**: 2-3 days
+**Library**: `libs/backend/agent-sdk` (storage subdirectory)
+**Prerequisites**: None
+
+This phase creates the storage foundation that ALL other phases depend on.
+
+#### 1.1 ContextStorageService
+
+**File**: `libs/backend/agent-sdk/src/lib/storage/context-storage.service.ts` (CREATE)
 
 ```typescript
-// D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\graph.types.ts
+import { injectable, inject } from 'tsyringe';
+import { join } from 'path';
+import { mkdir, readdir, readFile, writeFile, rm, stat } from 'fs/promises';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import * as matter from 'gray-matter';
 
-/** Configuration for live code graph initialization */
-export interface LiveGraphConfig {
-  /** Workspace root path */
-  workspaceRoot: string;
-  /** File patterns to watch (default: **/*.{ts,tsx,js,jsx}) */
-  watchPatterns?: string[];
-  /** tsconfig paths for alias resolution */
-  tsconfigPaths?: Record<string, string[]>;
-  /** Debounce delay for file change events in ms (default: 300) */
-  debounceMs?: number;
-  /** Whether to persist graph to disk (default: true) */
-  enablePersistence?: boolean;
+export interface SessionFileMetadata {
+  session_id: string;
+  workspace_id: string;
+  created_at: string;
+  updated_at: string;
+  observation_count: number;
 }
 
-/** Status of the live code graph */
-export interface GraphStatus {
-  /** Whether the graph has been built */
-  isBuilt: boolean;
-  /** Whether the graph is currently building */
-  isBuilding: boolean;
-  /** Number of file nodes in the graph */
-  nodeCount: number;
-  /** Number of edges (import relationships) */
-  edgeCount: number;
-  /** Timestamp of last build */
-  lastBuiltAt: number | null;
-  /** Number of incremental updates since last full build */
-  incrementalUpdateCount: number;
+export interface SessionFileContent {
+  metadata: SessionFileMetadata;
+  observations: string; // Raw markdown observations section
 }
 
-/** Serializable graph cache for persistence */
-export interface GraphCacheData {
-  version: 1;
-  builtAt: number;
-  workspaceRoot: string;
-  /** Serialized file nodes (path -> { relativePath, imports, exports, language }) */
-  nodes: Array<{
-    path: string;
-    relativePath: string;
-    language: string;
-    importSources: string[];
-    exportNames: string[];
-  }>;
-  /** Forward edges (path -> array of dependency paths) */
-  edges: Array<[string, string[]]>;
+@injectable()
+export class ContextStorageService {
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+
+  // Core methods:
+  async initialize(workspacePath: string): Promise<void>; // Ensure .claude/context/ tree exists
+  async writeSessionFile(workspacePath: string, sessionId: string, content: SessionFileContent): Promise<void>;
+  async readSessionFile(workspacePath: string, sessionId: string): Promise<SessionFileContent | null>;
+  async appendObservations(workspacePath: string, sessionId: string, newObservations: string, newCount: number): Promise<void>;
+  async listSessionFiles(workspacePath: string): Promise<SessionFileMetadata[]>; // Sorted by updated_at desc
+  async writeGraphCache(workspacePath: string, type: 'dependency-graph' | 'symbol-index', data: unknown): Promise<void>;
+  async readGraphCache(workspacePath: string, type: 'dependency-graph' | 'symbol-index'): Promise<unknown | null>;
+  async writeSummary(workspacePath: string, summaryId: string, content: string): Promise<void>;
+  async readSummary(workspacePath: string, summaryId: string): Promise<string | null>;
+  async writeProfile(workspacePath: string, profileName: string, content: string): Promise<void>;
+  async readProfile(workspacePath: string, profileName: string): Promise<string | null>;
+  async pruneOldSessions(workspacePath: string, retentionDays: number): Promise<number>; // Returns count deleted
 }
 ```
 
-### Pillar 2: Memory Types
+**Pattern**: Follow `AnalysisStorageService` exactly:
 
-```typescript
-// D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\memory.types.ts
+- All I/O via `fs/promises` (import from `fs/promises`, NOT `vscode.workspace.fs`)
+- `join()` for path construction
+- `mkdir(path, { recursive: true })` for idempotent directory creation
+- `try/catch` returning `null` on read failures
+- `gray-matter` for YAML frontmatter parsing (already a dependency)
 
-/** Types of observations extracted from SDK hooks */
-export type ObservationType = 'file_read' | 'file_edit' | 'file_create' | 'search' | 'error' | 'decision' | 'command';
+**DI Token**: `SDK_TOKENS.SDK_CONTEXT_STORAGE` = `Symbol.for('SdkContextStorage')`
 
-/** A single observation extracted from a tool use event */
-export interface Observation {
-  /** Unique identifier (timestamp-based) */
-  id: string;
-  /** Session that produced this observation */
-  sessionId: string;
-  /** Workspace path */
-  workspacePath: string;
-  /** Unix timestamp (ms) */
-  timestamp: number;
-  /** Observation type */
-  type: ObservationType;
-  /** File path involved (if applicable) */
-  filePath?: string;
-  /** Human-readable description */
-  content: string;
-  /** Importance score 0.0-1.0 */
-  importance: number;
-  /** Tool name that produced this observation */
-  toolName?: string;
-}
+**Evidence**:
 
-/** Session memory summary written at session end */
-export interface SessionSummary {
-  /** Session ID */
-  sessionId: string;
-  /** Workspace path */
-  workspacePath: string;
-  /** Summary creation timestamp */
-  createdAt: number;
-  /** Human-readable summary text */
-  summary: string;
-  /** Files touched during the session */
-  filesTouched: string[];
-  /** Key decisions or patterns observed */
-  keyDecisions: string[];
-  /** Total observation count */
-  observationCount: number;
-}
+- `AnalysisStorageService` pattern: `libs/backend/agent-generation/src/lib/services/analysis-storage.service.ts:1-267`
+- `gray-matter` available: `libs/backend/workspace-intelligence/package.json:17`
+- Storage path convention: `.claude/context/` (per context.md line 79)
 
-/** Memory manifest stored as JSON */
-export interface MemoryManifest {
-  version: 1;
-  lastUpdated: number;
-  /** Session IDs with observation files */
-  sessions: Array<{
-    sessionId: string;
-    createdAt: number;
-    observationCount: number;
-    hasSummary: boolean;
-  }>;
-  /** Total observation count across all sessions */
-  totalObservations: number;
-}
+#### 1.2 Session File Format Implementation
 
-/** Query options for searching memory */
-export interface MemoryQueryOptions {
-  /** Text search query */
-  query?: string;
-  /** Filter by file path (exact or prefix match) */
-  filePath?: string;
-  /** Filter by observation type */
-  types?: ObservationType[];
-  /** Maximum results to return */
-  limit?: number;
-  /** Filter by session ID */
-  sessionId?: string;
-  /** Only return observations newer than this timestamp */
-  since?: number;
-}
+The session markdown files use YAML frontmatter (parsed by gray-matter) with an observations section:
 
-/** Result from a memory query */
-export interface MemoryQueryResult {
-  observations: Observation[];
-  totalCount: number;
-  sessionSummaries: SessionSummary[];
-}
+```markdown
+---
+session_id: 'sess_abc123'
+workspace_id: '/path/to/workspace'
+created_at: '2026-03-08T10:00:00Z'
+updated_at: '2026-03-08T10:30:00Z'
+observation_count: 15
+---
 
-/** Signals extracted from memory for relevance scoring */
-export interface MemorySignals {
-  /** Files read in recent sessions (path -> read count) */
-  recentlyReadFiles: Map<string, number>;
-  /** Files edited in recent sessions (path -> edit count) */
-  recentlyEditedFiles: Map<string, number>;
-  /** Session count used to compute signals */
-  sessionCount: number;
-}
+## Observations
+
+### [2026-03-08T10:01:00Z] file_read
+
+- **File**: src/services/auth.service.ts
+- **Importance**: 0.5
+
+### [2026-03-08T10:02:00Z] file_edit
+
+- **File**: src/services/auth.service.ts
+- **Content**: Added login validation to authenticate() method
+- **Importance**: 0.6
 ```
 
-### Pillar 3: Context Profile Types
+**Append strategy**: Read file, parse with gray-matter, append new observation entries to content, update frontmatter `updated_at` and `observation_count`, write back.
 
-```typescript
-// D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\context-profile.types.ts
+#### 1.3 Context Profile Files
 
-/** Task type for context profile selection */
-export type TaskType = 'bugfix' | 'feature' | 'review' | 'explore' | 'general';
+**Files**: `libs/backend/agent-sdk/src/lib/storage/default-profiles/` (CREATE directory)
 
-/** Scoring weight multipliers for each signal */
-export interface ContextProfileWeights {
-  /** Weight for keyword matching (default: 1.0) */
-  keywordMatch: number;
-  /** Weight for symbol matching (default: 1.0) */
-  symbolMatch: number;
-  /** Weight for graph proximity (default: 1.0) */
-  graphProximity: number;
-  /** Weight for session memory recency (default: 1.0) */
-  memoryRecency: number;
-  /** Weight for file type relevance (default: 1.0) */
-  fileType: number;
-}
+- `bugfix.md` -- Bugfix scoring weights
+- `feature.md` -- Feature scoring weights
+- `review.md` -- Review scoring weights
 
-/** A context profile that adjusts scoring for a task type */
-export interface ContextProfile {
-  /** Task type identifier */
-  taskType: TaskType;
-  /** Human-readable description */
-  description: string;
-  /** Weight multipliers */
-  weights: ContextProfileWeights;
-  /** Keywords that trigger this profile */
-  triggerKeywords: string[];
-}
+Profile format:
+
+```markdown
+---
+name: bugfix
+description: Optimized for bug fixing tasks
+weights:
+  path_relevance: 1.0
+  graph_proximity: 1.2
+  memory_recency: 1.5
+  memory_frequency: 1.0
+  error_history: 2.0
+  file_type: 0.8
+---
+
+## Bugfix Profile
+
+Error-related files and recently edited files are prioritized...
 ```
+
+#### 1.4 Unit Tests
+
+**File**: `libs/backend/agent-sdk/src/lib/storage/context-storage.service.spec.ts` (CREATE)
+
+Tests with temporary directory fixtures:
+
+- Directory creation (idempotent)
+- Session file CRUD (write, read, append, list)
+- Graph cache CRUD
+- Summary file CRUD
+- Profile file CRUD
+- Pruning with retention periods
+- Error handling (corrupt files, missing dirs)
+- Frontmatter parsing edge cases
+
+#### 1.5 DI Registration
+
+**File**: `libs/backend/agent-sdk/src/lib/di/tokens.ts` (MODIFY)
+
+- Add `SDK_CONTEXT_STORAGE: Symbol.for('SdkContextStorage')`
+
+**File**: `libs/backend/agent-sdk/src/lib/di/register.ts` (MODIFY)
+
+- Register `ContextStorageService` as singleton
+
+**File**: `libs/backend/agent-sdk/src/index.ts` (MODIFY)
+
+- Export `ContextStorageService` and types
 
 ---
 
-## Detailed Service Design
+### Phase 2: Live Code Graph (Partially Done)
 
-### Phase 1: Live Code Graph
+**Estimated Effort**: 2-3 days
+**Library**: `libs/backend/workspace-intelligence`
+**Prerequisites**: None (independent of Phase 1, but Phase 1.1 needed for graph cache)
 
-#### 1.1 DependencyGraphService -- Add `updateFile()` Method
+#### 2.1 DependencyGraphService.updateFile() -- Incremental Update
 
-**File**: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\ast\dependency-graph.service.ts` (MODIFY)
+**File**: `libs/backend/workspace-intelligence/src/ast/dependency-graph.service.ts` (MODIFY)
 
-**Change**: Add `updateFile()` public method and expose `getGraph()` accessor.
+Add method after `invalidateFile()` (after line 359):
 
 ```typescript
 /**
- * Incrementally update a single file in the graph.
- * Invalidates existing data, re-parses the file, and re-inserts edges.
+ * Incrementally update a single file in the dependency graph.
+ * Invalidates old data, re-parses, and re-inserts with new edges.
  *
- * @param filePath - Absolute path to the changed file
- * @param workspaceRoot - Workspace root for relative path computation
+ * @param filePath - Absolute file path
+ * @param workspaceRoot - Workspace root for relative path resolution
  * @param tsconfigPaths - Optional tsconfig paths for alias resolution
  */
 async updateFile(
   filePath: string,
   workspaceRoot: string,
   tsconfigPaths?: Record<string, string[]>
-): Promise<void>
-
-/**
- * Remove a file from the graph entirely (for deletions).
- * Delegates to invalidateFile().
- */
-removeFile(filePath: string): void
-
-/**
- * Get the current graph (or null if not built).
- */
-getGraph(): DependencyGraph | null
+): Promise<void>;
 ```
 
-**Implementation Notes**:
+Implementation steps:
 
-- `updateFile()`: calls `invalidateFile()` first, then reads + parses the file using `AstAnalysisService.analyzeSource()`, creates a new `FileNode`, adds it to `graph.nodes`, resolves imports using existing `resolveImportPath()`, builds forward edges and reverse edges. Finally invalidates `symbolIndex`.
-- `removeFile()`: alias for `invalidateFile()` -- provides semantic clarity for delete events.
-- `getGraph()`: returns `this.graph` -- needed by `LiveCodeGraphService` for cache persistence and status reporting.
-- Uses existing `processFile` logic from `buildGraph()` (extract into private method to avoid duplication).
-- Error handling: logs warning and returns silently if file cannot be read or parsed (file may be in transient state during saves).
+1. Normalize path
+2. Read file content via `this.fileSystem.readFile(filePath)`
+3. Compare content hash against previous (skip if unchanged)
+4. Call `this.invalidateFile(filePath)` to remove old data
+5. Parse with `this.astAnalysis.analyzeSource(content, language, normalizedPath)`
+6. Create new `FileNode` with imports/exports
+7. Insert into `this.graph.nodes`
+8. Resolve imports against existing `knownFiles` set + the file's own new node
+9. Build forward edges, update reverse edges
+10. Invalidate symbol index cache
 
-**Evidence**: `invalidateFile()` already handles edge cleanup (lines 317-362). The `processFile` inline function in `buildGraph()` (lines 123-174) contains the parsing logic to reuse.
+Also add:
 
----
+- `getGraph(): DependencyGraph | null` -- accessor for serialization
+- Private `contentHashes: Map<string, string>` for content hash caching (use simple string hash)
 
-#### 1.2 GraphFileWatcherService -- File Watcher Bridge
+**Evidence**:
 
-**File**: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\graph-file-watcher.service.ts` (CREATE)
+- `invalidateFile()` pattern: lines 314-359
+- `buildGraph()` parsing pattern: lines 122-176 (processFile)
+- Import resolution: `resolveImportPath()` at line 410
 
-**Class**: `GraphFileWatcherService`
-**Responsibility**: Creates file system watchers, debounces events, and routes them to `DependencyGraphService.updateFile()` / `removeFile()`.
+#### 2.2 GraphFileWatcherService
 
-**Constructor Dependencies**:
-
-- `@inject(TOKENS.FILE_SYSTEM_MANAGER) fileSystemManager: FileSystemManager`
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
-
-```typescript
-/**
- * Start watching for file changes in the workspace.
- * Creates watchers for TS/JS files and routes events to the callback.
- *
- * @param workspaceRoot - Workspace root path
- * @param onFileChanged - Callback for file create/change events (receives absolute path)
- * @param onFileDeleted - Callback for file delete events (receives absolute path)
- * @param debounceMs - Debounce delay (default: 300)
- */
-startWatching(
-  workspaceRoot: string,
-  onFileChanged: (filePath: string) => Promise<void>,
-  onFileDeleted: (filePath: string) => void,
-  debounceMs?: number
-): void
-
-/**
- * Stop watching and dispose all watchers.
- */
-stopWatching(): void
-
-/**
- * Whether watchers are currently active.
- */
-isWatching(): boolean
-```
-
-**Internal Implementation Notes**:
-
-- Creates watcher via `fileSystemManager.createWatcher({ id: 'context-engine-graph', pattern: '**/*.{ts,tsx,js,jsx}' })`.
-- Uses a `Map<string, NodeJS.Timeout>` for per-file debouncing: on each event, clear existing timeout and set a new one at `debounceMs`.
-- On `created`/`changed`: debounce then call `onFileChanged(uri.fsPath)`.
-- On `deleted`: call `onFileDeleted(uri.fsPath)` immediately (no debounce needed).
-- Filters out `node_modules`, `dist`, `.git` paths via simple string check before debouncing.
-- `stopWatching()`: clears all pending timeouts, calls `fileSystemManager.disposeWatcher('context-engine-graph')`.
-
-**Error Handling**: Wraps callbacks in try-catch, logs errors, never throws.
-
----
-
-#### 1.3 GraphCacheService -- Graph Persistence
-
-**File**: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\graph-cache.service.ts` (CREATE)
-
-**Class**: `GraphCacheService`
-**Responsibility**: Persists/loads graph data to/from `.claude/context/graph/graph-cache.json` following the `AnalysisStorageService` pattern.
-
-**Constructor Dependencies**:
-
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
+**File**: `libs/backend/workspace-intelligence/src/graph/graph-file-watcher.service.ts` (CREATE)
 
 ```typescript
-/**
- * Save graph data to disk cache.
- */
-async saveGraph(
-  workspacePath: string,
-  graph: DependencyGraph
-): Promise<void>
-
-/**
- * Load cached graph data from disk.
- * Returns null if cache doesn't exist or is invalid.
- */
-async loadGraph(workspacePath: string): Promise<GraphCacheData | null>
-
-/**
- * Delete the graph cache file.
- */
-async clearCache(workspacePath: string): Promise<void>
-
-/**
- * Get the cache directory path.
- */
-getCacheDir(workspacePath: string): string
-```
-
-**Internal Implementation Notes**:
-
-- Cache path: `join(workspacePath, '.claude', 'context', 'graph')`.
-- Uses `mkdir(cacheDir, { recursive: true })` + `writeFile()` from `fs/promises`.
-- Serializes `DependencyGraph` to `GraphCacheData` (converts Maps to arrays for JSON serialization).
-- `loadGraph()`: reads JSON, validates `version === 1`, returns parsed data or null on any error.
-- Wrap all I/O in try-catch, return null / log warning on failure.
-
----
-
-#### 1.4 LiveCodeGraphService -- Lifecycle Manager
-
-**File**: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\live-code-graph.service.ts` (CREATE)
-
-**Class**: `LiveCodeGraphService`
-**Responsibility**: Orchestrates graph lifecycle: lazy initialization, incremental updates, periodic rebuild, cache persistence, disposal.
-
-**Constructor Dependencies**:
-
-- `@inject(TOKENS.DEPENDENCY_GRAPH_SERVICE) dependencyGraph: DependencyGraphService`
-- `@inject(TOKENS.WORKSPACE_INDEXER_SERVICE) workspaceIndexer: WorkspaceIndexerService`
-- `graphFileWatcher: GraphFileWatcherService` (auto-wired via `@injectable()`)
-- `graphCache: GraphCacheService` (auto-wired)
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
-
-```typescript
-/**
- * Ensure the graph is initialized. Lazy -- only builds on first call.
- * Returns immediately if graph is already built.
- *
- * @param workspacePath - Workspace root path
- * @param tsconfigPaths - Optional tsconfig paths
- */
-async ensureInitialized(
-  workspacePath: string,
-  tsconfigPaths?: Record<string, string[]>
-): Promise<void>
-
-/**
- * Get current graph status.
- */
-getStatus(): GraphStatus
-
-/**
- * Force a full graph rebuild (replaces existing graph atomically).
- */
-async rebuild(): Promise<void>
-
-/**
- * Get the DependencyGraphService instance (for consumers).
- */
-getGraphService(): DependencyGraphService
-
-/**
- * Dispose all resources (watchers, timers).
- */
-dispose(): void
-```
-
-**Internal Implementation Notes**:
-
-- State: `isBuilding: boolean`, `incrementalUpdateCount: number`, `workspacePath: string | null`, `tsconfigPaths: Record<string, string[]> | undefined`.
-- `ensureInitialized()`:
-  1. If `dependencyGraph.isBuilt()`, return immediately.
-  2. Try loading from cache via `graphCache.loadGraph()`. If valid and fresh (< 1 hour old), restore graph from cache data.
-  3. Otherwise, get workspace files from `workspaceIndexer.indexWorkspace()`, call `dependencyGraph.buildGraph()`.
-  4. Start file watchers via `graphFileWatcher.startWatching()` with callbacks:
-     - `onFileChanged`: calls `dependencyGraph.updateFile()`, increments counter.
-     - `onFileDeleted`: calls `dependencyGraph.removeFile()`.
-  5. Save graph to cache via `graphCache.saveGraph()`.
-  6. Log build time, warn if > 5 seconds.
-- `rebuild()`: calls `graphFileWatcher.stopWatching()`, then full `buildGraph()`, then restart watchers.
-- `dispose()`: stops watchers, clears timers, saves cache one final time.
-- Performance guard: if `ensureInitialized()` is called while already building, queue and resolve when build completes (use a Promise-based mutex).
-
----
-
-### Phase 2: Session Memory Storage
-
-#### 2.1 MemoryStorageService -- File-Based Storage
-
-**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\memory-storage.service.ts` (CREATE)
-
-**Class**: `MemoryStorageService`
-**Responsibility**: Read/write observations and summaries as markdown files under `.claude/context/memory/`. Manages manifest.json for indexing.
-
-**Constructor Dependencies**:
-
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
-
-```typescript
-/**
- * Initialize the memory directory structure.
- */
-async initialize(workspacePath: string): Promise<void>
-
-/**
- * Write an observation to the session's observation file.
- * Appends to existing file or creates new one.
- */
-async writeObservation(
-  workspacePath: string,
-  observation: Observation
-): Promise<void>
-
-/**
- * Write a batch of observations (buffered writes).
- */
-async writeObservations(
-  workspacePath: string,
-  observations: Observation[]
-): Promise<void>
-
-/**
- * Write a session summary.
- */
-async writeSessionSummary(
-  workspacePath: string,
-  summary: SessionSummary
-): Promise<void>
-
-/**
- * Read all observations for a session.
- */
-async readSessionObservations(
-  workspacePath: string,
-  sessionId: string
-): Promise<Observation[]>
-
-/**
- * Read all session summaries.
- */
-async readAllSummaries(
-  workspacePath: string
-): Promise<SessionSummary[]>
-
-/**
- * Read the memory manifest.
- */
-async readManifest(
-  workspacePath: string
-): Promise<MemoryManifest | null>
-
-/**
- * Update the memory manifest.
- */
-async updateManifest(
-  workspacePath: string,
-  manifest: MemoryManifest
-): Promise<void>
-
-/**
- * Prune observations older than the specified age.
- */
-async pruneOldSessions(
-  workspacePath: string,
-  maxAgeMs: number
-): Promise<number>
-
-/**
- * Get memory directory path.
- */
-getMemoryDir(workspacePath: string): string
-```
-
-**Internal Implementation Notes**:
-
-- Directory structure:
-  ```
-  .claude/context/memory/
-    manifest.json           # Index of all sessions
-    sessions/
-      {sessionId}.md        # Observations as markdown with frontmatter
-    summaries/
-      {sessionId}.md        # Session summary with frontmatter
-  ```
-- Observation markdown format (per session file):
-
-  ```markdown
-  ---
-  sessionId: 'abc-123'
-  createdAt: 1710000000000
-  observationCount: 5
-  ---
-
-  ## Observations
-
-  ### [2026-03-08 14:30:22] file_read
-
-  - **File**: src/services/auth.service.ts
-  - **Tool**: Read
-  - **Importance**: 0.7
-  - Read authentication service for session validation logic
-
-  ### [2026-03-08 14:30:45] file_edit
-
-  - **File**: src/services/auth.service.ts
-  - **Tool**: Edit
-  - **Importance**: 0.9
-  - Modified session validation to support refresh tokens
-  ```
-
-- Summary markdown format:
-
-  ```markdown
-  ---
-  sessionId: 'abc-123'
-  createdAt: 1710000000000
-  observationCount: 15
-  filesTouched:
-    - src/services/auth.service.ts
-    - src/guards/auth.guard.ts
-  ---
-
-  ## Session Summary
-
-  Added refresh token support to the authentication service.
-  Modified auth guard to check token expiry.
-
-  ## Key Decisions
-
-  - Used JWT for refresh tokens instead of opaque tokens
-  - Added 7-day expiry for refresh tokens
-  ```
-
-- Uses `gray-matter` (already a dependency) for frontmatter parsing when reading.
-- Uses `fs/promises` (`mkdir`, `readFile`, `writeFile`, `readdir`, `stat`, `rm`) for all I/O.
-- Manifest update is atomic: write to temp file then rename (prevents corruption on crash).
-- `pruneOldSessions()`: removes session files older than `maxAgeMs`, updates manifest.
-
----
-
-#### 2.2 ObservationExtractorService -- Tool Event Parser
-
-**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\observation-extractor.service.ts` (CREATE)
-
-**Class**: `ObservationExtractorService`
-**Responsibility**: Extracts structured `Observation` objects from SDK `PostToolUse` hook inputs.
-
-**Constructor Dependencies**:
-
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
-
-```typescript
-/**
- * Extract an observation from a PostToolUse hook input.
- * Returns null if the tool use is not observation-worthy.
- */
-extractFromToolUse(
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  toolResult: unknown,
-  sessionId: string,
-  workspacePath: string
-): Observation | null
-
-/**
- * Generate a session summary from a list of observations.
- */
-generateSummary(
-  observations: Observation[],
-  sessionId: string,
-  workspacePath: string
-): SessionSummary
-```
-
-**Internal Implementation Notes**:
-
-- Tool name mapping:
-  - `Read` / `read` -> `file_read` (extract `file_path` from input)
-  - `Edit` / `edit` / `Write` / `write` -> `file_edit` (extract `file_path` from input)
-  - `MultiEdit` / `multi_edit` -> `file_edit` (extract `file_path` from input)
-  - `Bash` / `bash` -> `command` (extract `command` from input, importance 0.5)
-  - Tool names containing `search` or `grep` -> `search` (extract query, importance 0.4)
-  - Tool result with error -> `error` (importance 0.8)
-- Importance scoring:
-  - `file_edit`: 0.9 (high -- modifications are important)
-  - `file_read`: 0.6 (medium -- reads provide context)
-  - `file_create`: 0.9 (high -- new files are important)
-  - `error`: 0.8 (high -- errors should be remembered)
-  - `search`: 0.4 (low -- searches are routine)
-  - `command`: 0.5 (medium -- commands may be significant)
-- `generateSummary()`: collects unique file paths, generates a bullet-point summary of what happened (file reads, edits, key patterns). No LLM call -- purely mechanical aggregation.
-- Returns `null` for tools that are not observation-worthy (e.g., `LS`, `ListFiles` -- too noisy).
-- Content string is a human-readable one-liner describing the observation.
-
----
-
-#### 2.3 MemoryQueryService -- Search and Retrieval
-
-**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\memory-query.service.ts` (CREATE)
-
-**Class**: `MemoryQueryService`
-**Responsibility**: Query observations and summaries from memory storage. Provides search by text, file path, type, and recency.
-
-**Constructor Dependencies**:
-
-- `memoryStorage: MemoryStorageService` (auto-wired)
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
-
-```typescript
-/**
- * Search memory for relevant observations.
- */
-async search(
-  workspacePath: string,
-  options: MemoryQueryOptions
-): Promise<MemoryQueryResult>
-
-/**
- * Get most recent observations across all sessions.
- */
-async getRecent(
-  workspacePath: string,
-  limit?: number
-): Promise<Observation[]>
-
-/**
- * Get observations for a specific file.
- */
-async getForFile(
-  workspacePath: string,
-  filePath: string
-): Promise<Observation[]>
-
-/**
- * Get memory signals for relevance scoring.
- * Returns file read/edit counts from recent sessions.
- */
-async getMemorySignals(
-  workspacePath: string,
-  maxSessions?: number
-): Promise<MemorySignals>
-
-/**
- * Format memory context for system prompt injection.
- * Returns a markdown string summarizing relevant memory.
- */
-async formatForPrompt(
-  workspacePath: string,
-  query?: string,
-  maxTokens?: number
-): Promise<string | undefined>
-```
-
-**Internal Implementation Notes**:
-
-- `search()`: reads manifest to find relevant session files, then reads each session's observations, applies filters (query text match via `content.toLowerCase().includes()`, file path prefix match, type filter, since filter). Sorts by timestamp descending.
-- `getMemorySignals()`: reads last N session files, counts file read/edit occurrences, returns as `Map<string, number>`. This is the primary input for Pillar 3 relevance scoring.
-- `formatForPrompt()`: queries recent observations + summaries, formats as concise markdown suitable for system prompt injection. Truncates to `maxTokens` (default: 2000 tokens, ~8000 chars).
-- Performance: reads are sequential (file-based), but observation volumes are small (100s not millions). Acceptable for workspace-scale use.
-
----
-
-#### 2.4 ObservationHookHandler -- SDK Hook Integration
-
-**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\observation-hook-handler.ts` (CREATE)
-
-**Class**: `ObservationHookHandler`
-**Responsibility**: Creates SDK hooks for `PostToolUse` and `SessionEnd` events to capture observations.
-
-**Constructor Dependencies**:
-
-- `observationExtractor: ObservationExtractorService` (auto-wired)
-- `memoryStorage: MemoryStorageService` (auto-wired)
-- `memoryQuery: MemoryQueryService` (auto-wired)
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
-
-```typescript
-/**
- * Create hooks for SDK query options.
- * Returns hooks for PostToolUse (observation capture) and Stop (session summary).
- */
-createHooks(
-  sessionId: string,
-  workspacePath: string
-): Partial<Record<HookEvent, HookCallbackMatcher[]>>
-
-/**
- * Dispose and flush any buffered observations.
- */
-dispose(): void
-```
-
-**Internal Implementation Notes**:
-
-- Follows `SessionStartHookHandler` pattern exactly:
-  - Hook callback is `async (input, toolUseId, options) => Promise<HookJSONOutput>`.
-  - Always returns `{ continue: true }`.
-  - Wrapped in try-catch, never throws.
-  - Fire-and-forget for observation writes.
-- **PostToolUse hook**:
-  1. Extract tool name and input from `input` (type guard: `isPostToolUseHook(input)`).
-  2. Call `observationExtractor.extractFromToolUse()`.
-  3. If observation is returned, buffer it (in-memory array).
-  4. Flush buffer to disk every 10 observations or every 30 seconds (whichever comes first).
-  5. Buffering prevents I/O on every single tool use.
-- **Stop hook** (SessionEnd):
-  1. Flush any remaining buffered observations.
-  2. Call `observationExtractor.generateSummary()` with all session observations.
-  3. Write summary via `memoryStorage.writeSessionSummary()`.
-  4. Update manifest.
-- Buffer: `private observationBuffer: Observation[] = []`, flushed via `flushBuffer()`.
-- Timer: `private flushTimer: NodeJS.Timeout | null`, set to 30s interval.
-
----
-
-#### 2.5 SessionMemoryService -- Facade
-
-**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\session-memory.service.ts` (CREATE)
-
-**Class**: `SessionMemoryService`
-**Responsibility**: Public facade for session memory. Coordinates storage, query, and hook handler. This is the service injected by consumers.
-
-**Constructor Dependencies**:
-
-- `memoryStorage: MemoryStorageService` (auto-wired)
-- `memoryQuery: MemoryQueryService` (auto-wired)
-- `observationHookHandler: ObservationHookHandler` (auto-wired)
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
-
-```typescript
-/**
- * Initialize memory storage for a workspace.
- */
-async initialize(workspacePath: string): Promise<void>
-
-/**
- * Create SDK hooks for observation capture.
- */
-createHooks(
-  sessionId: string,
-  workspacePath: string
-): Partial<Record<HookEvent, HookCallbackMatcher[]>>
-
-/**
- * Search memory.
- */
-async search(
-  workspacePath: string,
-  options: MemoryQueryOptions
-): Promise<MemoryQueryResult>
-
-/**
- * Get memory signals for relevance scoring.
- */
-async getMemorySignals(
-  workspacePath: string
-): Promise<MemorySignals>
-
-/**
- * Format memory for system prompt injection.
- */
-async formatForPrompt(
-  workspacePath: string,
-  query?: string
-): Promise<string | undefined>
-
-/**
- * Get recent observations.
- */
-async getRecent(
-  workspacePath: string,
-  limit?: number
-): Promise<Observation[]>
-
-/**
- * Get observations for a file.
- */
-async getForFile(
-  workspacePath: string,
-  filePath: string
-): Promise<Observation[]>
-
-/**
- * Prune old sessions.
- */
-async prune(
-  workspacePath: string,
-  maxAgeDays?: number
-): Promise<number>
-
-/**
- * Dispose resources.
- */
-dispose(): void
-```
-
----
-
-### Phase 3: Observation Hooks Wiring
-
-#### 3.1 SdkQueryOptionsBuilder -- Hook Integration
-
-**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts` (MODIFY)
-
-**Changes**:
-
-1. Add `SessionMemoryService` as an optional constructor dependency (injected via new SDK_TOKEN).
-2. In `createHooks()`, add memory hooks to the merge list.
-3. In `buildSystemPrompt()` / `assembleSystemPromptAppend()`, add memory context as an additional prompt part.
-
-**Specific Changes**:
-
-Constructor: Add `@inject(SDK_TOKENS.SDK_SESSION_MEMORY_SERVICE) private readonly sessionMemory: SessionMemoryService | null` (use optional injection pattern -- resolve to null if not registered).
-
-`createHooks()` method (line 660): Add to the hooks merge list:
-
-```typescript
-// Create memory observation hooks (TASK_2025_183)
-const memoryHooks = this.sessionMemory?.createHooks(sessionId ?? '', cwd) ?? {};
-
-// Merge hooks -- concatenate arrays per event key
-for (const hooks of [subagentHooks, compactionHooks, sessionStartHooks, memoryHooks]) {
-  // ... existing merge logic
+import { injectable, inject } from 'tsyringe';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IFileSystemProvider, IFileWatcher, IDisposable } from '@ptah-extension/platform-core';
+
+@injectable()
+export class GraphFileWatcherService {
+  private watchers: IDisposable[] = [];
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pendingUpdates: Map<string, 'created' | 'changed' | 'deleted'> = new Map();
+
+  constructor(@inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER) private readonly fs: IFileSystemProvider, @inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+
+  /**
+   * Start watching for TS/JS file changes.
+   * @param onBatch - Callback with batched file changes after debounce
+   */
+  startWatching(onBatch: (changes: Map<string, 'created' | 'changed' | 'deleted'>) => void): void;
+
+  /**
+   * Stop all watchers and clean up.
+   */
+  stopWatching(): void;
 }
 ```
 
-`buildSystemPrompt()` / `assembleSystemPromptAppend()`: Add a new parameter for memory context:
+Uses `IFileSystemProvider.createFileWatcher('**/*.{ts,tsx,js,jsx}')` from platform-core for cross-platform support.
+
+Debounce: Collect events for 100ms, then call `onBatch` with the merged set. If a file has multiple events within the window, last event wins (e.g., created+changed = changed, changed+deleted = deleted).
+
+**DI Token**: `TOKENS.GRAPH_FILE_WATCHER_SERVICE` = `Symbol.for('GraphFileWatcherService')`
+
+**Evidence**:
+
+- `IFileSystemProvider.createFileWatcher()` at `libs/backend/platform-core/src/interfaces/file-system-provider.interface.ts:98-104`
+- `IFileWatcher` type at `libs/backend/platform-core/src/types/platform.types.ts:73-77`
+- Existing watcher patterns in workspace-intelligence (AgentDiscoveryService, CommandDiscoveryService)
+
+#### 2.3 LiveCodeGraphService -- Lifecycle Manager
+
+**File**: `libs/backend/workspace-intelligence/src/graph/live-code-graph.service.ts` (CREATE)
 
 ```typescript
-// In assembleSystemPromptAppend, add:
-// 5. Session memory context (TASK_2025_183)
-if (input.memoryContext) {
-  appendParts.push(input.memoryContext);
+import { injectable, inject } from 'tsyringe';
+import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
+import { DependencyGraphService, type DependencyGraph, type SymbolIndex } from '../ast/dependency-graph.service';
+import { WorkspaceIndexerService } from '../file-indexing/workspace-indexer.service';
+import { GraphFileWatcherService } from './graph-file-watcher.service';
+
+@injectable()
+export class LiveCodeGraphService {
+  private initialized = false;
+  private building = false;
+
+  constructor(@inject(TOKENS.DEPENDENCY_GRAPH_SERVICE) private readonly graphService: DependencyGraphService, @inject(TOKENS.WORKSPACE_INDEXER_SERVICE) private readonly indexer: WorkspaceIndexerService, @inject(TOKENS.GRAPH_FILE_WATCHER_SERVICE) private readonly watcher: GraphFileWatcherService, @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER) private readonly workspace: IWorkspaceProvider, @inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+
+  /** Ensure graph is built (lazy init). Safe to call multiple times. */
+  async ensureGraph(): Promise<void>;
+
+  /** Force a full graph rebuild. */
+  async rebuild(): Promise<void>;
+
+  /** Dispose watchers and resources. */
+  dispose(): void;
+
+  /** Get reference to the underlying DependencyGraphService. */
+  getGraphService(): DependencyGraphService;
 }
 ```
 
-**Evidence**: Hook merging pattern at line 683-688.
+Lifecycle:
+
+1. `ensureGraph()` called on first context request -- indexes workspace files, calls `buildGraph()`, starts watchers
+2. Watcher `onBatch` callback: for each changed file, call `updateFile()` (created/changed) or `invalidateFile()` (deleted)
+3. After initial build and after periodic full rebuilds, persist graph cache via `ContextStorageService` (optional dependency)
+4. `dispose()` stops watchers, releases graph reference
+
+**DI Token**: `TOKENS.LIVE_CODE_GRAPH_SERVICE` = `Symbol.for('LiveCodeGraphService')`
+
+#### 2.4 Graph Cache Persistence
+
+In `LiveCodeGraphService`:
+
+- After `buildGraph()` completes, fire-and-forget write to `.claude/context/graph/dependency-graph.json` and `symbol-index.json`
+- On `ensureGraph()`, attempt to load from cache first. Validate freshness by comparing workspace file count and build timestamp.
+- If cache is stale or missing, perform full build.
+
+Serialization: `DependencyGraph` uses `Map` objects. Serialize with custom replacer:
+
+```typescript
+// Serialize: Map -> Array of [key, value]
+// DependencyGraph.nodes -> Array<[string, FileNode]>
+// DependencyGraph.edges -> Array<[string, string[]]> (Set -> Array)
+```
+
+The `ContextStorageService` dependency is optional -- if not available (e.g., storage init failed), skip caching silently.
+
+#### 2.5 Wire LiveCodeGraphService into Existing Services
+
+**File**: `libs/backend/workspace-intelligence/src/context/context-orchestration.service.ts` (MODIFY)
+
+Replace direct `DependencyGraphService` injection with `LiveCodeGraphService`:
+
+```typescript
+constructor(
+  private readonly contextService: ContextService,
+  @inject(TOKENS.LIVE_CODE_GRAPH_SERVICE)
+  private readonly liveCodeGraph: LiveCodeGraphService,
+  @inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)
+  private readonly contextSizeOptimizer: ContextSizeOptimizerService
+) {
+  // Wire the underlying graph service into the optimizer
+  this.contextSizeOptimizer.setDependencyGraph(this.liveCodeGraph.getGraphService());
+}
+```
+
+This ensures the graph is lazily initialized and auto-updated.
+
+#### 2.6 DI Registration for Graph Services
+
+**File**: `libs/backend/vscode-core/src/di/tokens.ts` (MODIFY)
+
+- Add `GRAPH_FILE_WATCHER_SERVICE: Symbol.for('GraphFileWatcherService')`
+- Add `LIVE_CODE_GRAPH_SERVICE: Symbol.for('LiveCodeGraphService')`
+- Add these to `TOKENS` object
+
+**File**: `libs/backend/workspace-intelligence/src/di/register.ts` (MODIFY)
+
+- Add Tier 6c after Tier 6b: Register `GraphFileWatcherService` and `LiveCodeGraphService`
+- `LiveCodeGraphService` depends on `DependencyGraphService`, `WorkspaceIndexerService`, `GraphFileWatcherService`
+
+**File**: `libs/backend/workspace-intelligence/src/index.ts` (MODIFY)
+
+- Export `LiveCodeGraphService`, `GraphFileWatcherService`
+
+#### 2.7 Unit Tests
+
+**Files to create**:
+
+- `libs/backend/workspace-intelligence/src/ast/dependency-graph.service.spec.ts` -- Test `updateFile()`, content hash skipping
+- `libs/backend/workspace-intelligence/src/graph/graph-file-watcher.service.spec.ts` -- Test debouncing, event batching
+- `libs/backend/workspace-intelligence/src/graph/live-code-graph.service.spec.ts` -- Test lazy init, rebuild, dispose
 
 ---
 
-#### 3.2 QueryOptionsInput Update
+### Phase 3: Session Memory (Depends on Phase 1)
 
-**File**: `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts` (MODIFY)
+**Estimated Effort**: 3-4 days
+**Library**: `libs/backend/agent-sdk`
+**Prerequisites**: Phase 1 (ContextStorageService)
 
-Add to `QueryOptionsInput` interface:
+#### 3.1 Observation Types
+
+**File**: `libs/backend/agent-sdk/src/lib/storage/observation.types.ts` (CREATE)
 
 ```typescript
+export type ObservationType = 'file_read' | 'file_edit' | 'search' | 'error' | 'decision';
+
+export interface Observation {
+  readonly timestamp: string; // ISO 8601
+  readonly type: ObservationType;
+  readonly filePath?: string; // Workspace-relative
+  readonly content?: string; // Description
+  readonly importance: number; // 0.0 - 1.0
+}
+
+export interface SessionSummary {
+  readonly session_id: string;
+  readonly workspace_id: string;
+  readonly created_at: string;
+  readonly files_touched: string[];
+  readonly key_decisions: string[];
+  readonly summary_text: string;
+}
+```
+
+#### 3.2 ObservationExtractor
+
+**File**: `libs/backend/agent-sdk/src/lib/storage/observation-extractor.ts` (CREATE)
+
+Pure function module (no class needed, testable independently):
+
+```typescript
+import type { Observation } from './observation.types';
+
 /**
- * Session memory context for prompt injection (TASK_2025_183)
- * Formatted string from SessionMemoryService.formatForPrompt()
+ * Extract a structured observation from a PostToolUse event.
+ * Returns null for unrecognized tools.
  */
-memoryContext?: string;
+export function extractObservation(toolName: string, toolInput: Record<string, unknown>, toolResult?: string, isError?: boolean): Observation | null;
+
+/**
+ * Normalize a file path to workspace-relative format.
+ */
+export function normalizeFilePath(filePath: string, workspacePath: string): string;
+
+/**
+ * Format observations as markdown for session file append.
+ */
+export function formatObservationsAsMarkdown(observations: Observation[]): string;
 ```
 
-Add to `AssembleSystemPromptInput` interface:
+Extraction rules:
+
+- `Read` tool -> `file_read` observation, importance 0.5
+- `Edit` / `Write` tool -> `file_edit` observation, importance 0.6
+- `Bash` tool with grep/find/rg -> `search` observation, importance 0.3
+- `PostToolUseFailure` -> `error` observation, importance 0.8
+- Other tools -> return `null` (skip)
+
+**Evidence**:
+
+- Tool names from SDK types: `Read`, `Edit`, `Write`, `Bash`, `Grep` (from claude-sdk.types.ts)
+- `file_path` field in tool input (from task-description.md requirement 3.2)
+
+#### 3.3 ObservationHookHandler
+
+**File**: `libs/backend/agent-sdk/src/lib/helpers/observation-hook-handler.ts` (CREATE)
 
 ```typescript
-/** Session memory context (TASK_2025_183) */
-memoryContext?: string;
+import { injectable, inject } from 'tsyringe';
+import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import type { HookEvent, HookCallbackMatcher } from '../types/sdk-types/claude-sdk.types';
+import type { Observation } from '../storage/observation.types';
+
+@injectable()
+export class ObservationHookHandler {
+  private buffer: Observation[] = [];
+  private flushInterval: ReturnType<typeof setInterval> | null = null;
+  private currentSessionId: string | null = null;
+  private workspacePath: string | null = null;
+
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger // ContextStorageService injected via SDK_TOKENS.SDK_CONTEXT_STORAGE
+  ) {}
+
+  /** Create hooks for PostToolUse and SessionEnd events. */
+  createHooks(workspacePath: string, sessionId: string): Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+
+  /** Flush buffered observations to session file. */
+  async flush(): Promise<void>;
+
+  /** Stop flush interval and flush remaining observations. */
+  async dispose(): Promise<void>;
+}
 ```
+
+Pattern: Follow `SubagentHookHandler` and `CompactionHookHandler`:
+
+- Return `{ continue: true }` from all hooks (never block)
+- Fire-and-forget callbacks (never await in hook)
+- Buffer observations in memory, flush every 5 seconds
+- On `SessionEnd`, flush remaining observations and generate summary
+
+**DI Token**: `SDK_TOKENS.SDK_OBSERVATION_HOOK_HANDLER` = `Symbol.for('SdkObservationHookHandler')`
+
+**Evidence**:
+
+- `SubagentHookHandler.createHooks()` pattern: `libs/backend/agent-sdk/src/lib/helpers/subagent-hook-handler.ts`
+- `CompactionHookHandler.createHooks()` pattern: `libs/backend/agent-sdk/src/lib/helpers/compaction-hook-handler.ts`
+- Hook merging in `SdkQueryOptionsBuilder`: lines 718-743
+
+#### 3.4 SessionMemoryService -- Storage Facade
+
+**File**: `libs/backend/agent-sdk/src/lib/storage/session-memory.service.ts` (CREATE)
+
+```typescript
+import { injectable, inject } from 'tsyringe';
+import type { Observation, SessionSummary } from './observation.types';
+
+@injectable()
+export class SessionMemoryService {
+  constructor() {} // @inject(SDK_TOKENS.SDK_MEMORY_QUERY) memoryQuery // @inject(SDK_TOKENS.SDK_CONTEXT_STORAGE) contextStorage
+
+  async addObservation(workspacePath: string, sessionId: string, observation: Observation): Promise<void>;
+  async flushObservations(workspacePath: string, sessionId: string): Promise<void>;
+  async addSessionSummary(workspacePath: string, summary: SessionSummary): Promise<void>;
+  async getRecentObservations(workspacePath: string, limit?: number): Promise<Observation[]>;
+  async getFileHistory(workspacePath: string, filePath: string, limit?: number): Promise<Observation[]>;
+  async pruneOldObservations(workspacePath: string, retentionDays?: number): Promise<void>;
+}
+```
+
+**DI Token**: `SDK_TOKENS.SDK_SESSION_MEMORY` = `Symbol.for('SdkSessionMemory')`
+
+#### 3.5 MemoryQueryService -- File-Based Querying
+
+**File**: `libs/backend/agent-sdk/src/lib/storage/memory-query.service.ts` (CREATE)
+
+```typescript
+import { injectable, inject } from 'tsyringe';
+
+@injectable()
+export class MemoryQueryService {
+  private queryCache: Map<string, { result: unknown; expiry: number }> = new Map();
+
+  constructor() {} // @inject(SDK_TOKENS.SDK_CONTEXT_STORAGE) contextStorage
+
+  async searchByContent(workspacePath: string, query: string, limit?: number): Promise<Observation[]>;
+  async getRecentlyTouchedFiles(workspacePath: string, days?: number, limit?: number): Promise<string[]>;
+  async getFileObservations(workspacePath: string, filePath: string, limit?: number): Promise<Observation[]>;
+  async getSessionSummaries(workspacePath: string, limit?: number): Promise<SessionSummary[]>;
+  async getErrorPatterns(workspacePath: string, days?: number): Promise<Map<string, number>>; // file -> error count
+}
+```
+
+Query implementation:
+
+- Read session files via `ContextStorageService.listSessionFiles()` (sorted by recency)
+- Limit scan to most recent 100 files
+- Case-insensitive substring matching for content search
+- Cache results for 30 seconds
+
+**DI Token**: `SDK_TOKENS.SDK_MEMORY_QUERY` = `Symbol.for('SdkMemoryQuery')`
+
+#### 3.6 Wire Hooks into SdkQueryOptionsBuilder
+
+**File**: `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (MODIFY)
+
+In `createHooks()` method (line 718):
+
+1. Add `ObservationHookHandler` as a constructor dependency
+2. Create observation hooks via `this.observationHookHandler.createHooks(cwd, sessionId)`
+3. Merge into `mergedHooks` alongside subagent and compaction hooks
+
+```typescript
+// Add to constructor:
+@inject(SDK_TOKENS.SDK_OBSERVATION_HOOK_HANDLER)
+private readonly observationHookHandler: ObservationHookHandler
+
+// In createHooks():
+const observationHooks = this.observationHookHandler.createHooks(cwd, sessionId ?? '');
+for (const hooks of [subagentHooks, compactionHooks, observationHooks]) {
+  for (const [event, matchers] of Object.entries(hooks)) {
+    const key = event as HookEvent;
+    mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];
+  }
+}
+```
+
+#### 3.7 DI Registration
+
+**File**: `libs/backend/agent-sdk/src/lib/di/tokens.ts` (MODIFY)
+
+- Add `SDK_OBSERVATION_HOOK_HANDLER: Symbol.for('SdkObservationHookHandler')`
+- Add `SDK_SESSION_MEMORY: Symbol.for('SdkSessionMemory')`
+- Add `SDK_MEMORY_QUERY: Symbol.for('SdkMemoryQuery')`
+- Add `SDK_CONTEXT_STORAGE: Symbol.for('SdkContextStorage')` (from Phase 1)
+
+**File**: `libs/backend/agent-sdk/src/lib/di/register.ts` (MODIFY)
+
+- Register `ContextStorageService`, `MemoryQueryService`, `SessionMemoryService`, `ObservationHookHandler`
+
+**File**: `libs/backend/agent-sdk/src/index.ts` (MODIFY)
+
+- Export new services and types
+
+#### 3.8 Unit Tests
+
+**Files to create**:
+
+- `libs/backend/agent-sdk/src/lib/storage/observation-extractor.spec.ts`
+- `libs/backend/agent-sdk/src/lib/helpers/observation-hook-handler.spec.ts`
+- `libs/backend/agent-sdk/src/lib/storage/session-memory.service.spec.ts`
+- `libs/backend/agent-sdk/src/lib/storage/memory-query.service.spec.ts`
 
 ---
 
-### Phase 4: Smart Context Curation
+### Phase 4: Smart Context Curation (Depends on Phases 2 + 3)
 
-#### 4.1 FileRelevanceScorerService -- Enhanced Scoring
+**Estimated Effort**: 2-3 days
+**Library**: `libs/backend/workspace-intelligence` + `libs/backend/agent-sdk` + `libs/backend/vscode-lm-tools`
+**Prerequisites**: Phase 2 (graph), Phase 3 (memory)
 
-**File**: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\file-relevance-scorer.service.ts` (MODIFY)
+#### 4.1 ContextProfileService
 
-**Changes**: Add two new scoring signals to `scoreFile()`:
+**File**: `libs/backend/workspace-intelligence/src/context-analysis/context-profile.service.ts` (CREATE)
 
-1. **Graph proximity signal**: Files that are direct dependencies of the active file get a relevance boost.
-2. **Session memory signal**: Files recently read/edited in past sessions get a recency boost.
+```typescript
+import { injectable, inject } from 'tsyringe';
 
-New parameters added to `scoreFile()` and `rankFiles()`:
+export interface ContextProfile {
+  name: string;
+  description: string;
+  weights: {
+    path_relevance: number;
+    graph_proximity: number;
+    memory_recency: number;
+    memory_frequency: number;
+    error_history: number;
+    file_type: number;
+  };
+}
+
+const DEFAULT_PROFILES: Record<string, ContextProfile> = {
+  bugfix: {
+    name: 'bugfix',
+    description: 'Optimized for bug fixing tasks',
+    weights: { path_relevance: 1.0, graph_proximity: 1.2, memory_recency: 1.5, memory_frequency: 1.0, error_history: 2.0, file_type: 0.8 },
+  },
+  feature: {
+    name: 'feature',
+    description: 'Optimized for feature development',
+    weights: { path_relevance: 1.0, graph_proximity: 1.0, memory_recency: 1.0, memory_frequency: 1.0, error_history: 0.5, file_type: 1.0 },
+  },
+  review: {
+    name: 'review',
+    description: 'Optimized for code review',
+    weights: { path_relevance: 0.8, graph_proximity: 1.5, memory_recency: 1.2, memory_frequency: 0.8, error_history: 1.0, file_type: 0.8 },
+  },
+};
+
+@injectable()
+export class ContextProfileService {
+  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+
+  /** Get profile by name (loads from .claude/context/profiles/ if exists, falls back to defaults) */
+  async getProfile(profileName: string): Promise<ContextProfile>;
+
+  /** Auto-detect profile from prompt keywords */
+  detectProfile(prompt: string): string; // Returns profile name
+
+  /** List available profiles */
+  async listProfiles(workspacePath: string): Promise<string[]>;
+}
+```
+
+Profile auto-detection rules:
+
+- Keywords `fix`, `bug`, `error`, `crash`, `broken` -> `bugfix`
+- Keywords `implement`, `add`, `create`, `feature`, `build` -> `feature`
+- Keywords `review`, `check`, `audit`, `inspect` -> `review`
+- Default: `feature`
+
+**DI Token**: `TOKENS.CONTEXT_PROFILE_SERVICE` = `Symbol.for('ContextProfileService')`
+
+#### 4.2 Enhanced FileRelevanceScorerService
+
+**File**: `libs/backend/workspace-intelligence/src/context-analysis/file-relevance-scorer.service.ts` (MODIFY)
+
+Add new scoring signals to `scoreFile()`:
 
 ```typescript
 scoreFile(
@@ -1057,415 +837,449 @@ scoreFile(
   query?: string,
   symbolIndex?: SymbolIndex,
   activeFileImports?: ImportInfo[],
-  // NEW parameters (TASK_2025_183):
-  graphDependencies?: Set<string>,   // Set of file paths that are dependencies of the active file
-  memorySignals?: MemorySignals       // Recent file read/edit counts from session memory
-): FileRelevanceResult
+  // NEW optional parameters:
+  graphProximitySet?: Map<string, number>, // file path -> hop distance (1 or 2)
+  memorySignals?: MemorySignals,
+  profile?: ContextProfile
+): FileRelevanceResult;
 ```
 
-New private scoring methods:
+New interface:
 
 ```typescript
-/**
- * Score based on graph proximity.
- * Files that are dependencies of the active file get a boost.
- * +12 if file is a direct dependency, +6 if file is a dependent.
- */
-private scoreByGraphProximity(
-  file: IndexedFile,
-  reasons: string[],
-  graphDependencies?: Set<string>
-): number
-
-/**
- * Score based on session memory signals.
- * Recently edited files get +10, recently read files get +5.
- * Capped at +15 total.
- */
-private scoreByMemory(
-  file: IndexedFile,
-  reasons: string[],
-  memorySignals?: MemorySignals
-): number
+export interface MemorySignals {
+  recentlyTouched: Set<string>; // File paths touched in last 3 sessions
+  sessionRecency: Map<string, number>; // File path -> recency score (0.05-0.2)
+  errorFiles: Set<string>; // Files that appeared in error observations
+}
 ```
 
-**Implementation Notes**:
+New scoring methods (private):
 
-- `scoreByGraphProximity()`: checks if `file.path` is in `graphDependencies` set. O(1) lookup.
-- `scoreByMemory()`: checks if file path is in `memorySignals.recentlyEditedFiles` or `recentlyReadFiles`. Edit boost (+10) is higher than read boost (+5) because edits indicate more important files.
-- Both methods return 0 when their input is undefined (zero overhead when signals not available).
-- Cap total memory score at 15 to prevent memory signals from dominating.
+- `scoreByGraphProximity(file, graphProximitySet, reasons)` -- 1 hop: +0.3, 2 hops: +0.15
+- `scoreByMemory(file, memorySignals, reasons)` -- Recency boost from map, error file boost +0.15
+- Profile weight multiplication: multiply each signal's score by `profile.weights[signal]`
 
----
+**Important**: All new parameters are optional. When not provided, scoring degrades gracefully to existing behavior. This preserves backward compatibility for all existing callers.
 
-#### 4.2 ContextProfileService -- Task-Type Profiles
+#### 4.3 Graph Proximity Building
 
-**File**: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\context-profile.service.ts` (CREATE)
+In `ContextSizeOptimizerService.optimizeContext()` (MODIFY):
 
-**Class**: `ContextProfileService`
-**Responsibility**: Detects task type from user query and provides scoring weight profiles.
-
-**Constructor Dependencies**:
-
-- `@inject(TOKENS.LOGGER) logger: Logger`
-
-**Public API**:
+Before ranking files, build the graph proximity set if the dependency graph is available:
 
 ```typescript
-/**
- * Detect the task type from a user query.
- */
-detectTaskType(query: string): TaskType
-
-/**
- * Get the context profile for a task type.
- */
-getProfile(taskType: TaskType): ContextProfile
-
-/**
- * Get all available profiles.
- */
-getAllProfiles(): ContextProfile[]
-```
-
-**Internal Implementation Notes**:
-
-- Built-in profiles:
-  - **bugfix**: `{ keywordMatch: 1.0, symbolMatch: 1.2, graphProximity: 1.5, memoryRecency: 1.3, fileType: 1.0 }` -- favors graph proximity (related files) and recent memory (files involved in the bug area). Trigger keywords: `fix`, `bug`, `error`, `issue`, `broken`, `crash`, `fail`.
-  - **feature**: `{ keywordMatch: 1.2, symbolMatch: 1.0, graphProximity: 1.0, memoryRecency: 0.8, fileType: 1.0 }` -- favors keyword matching for new feature exploration. Trigger keywords: `implement`, `add`, `create`, `feature`, `build`, `new`.
-  - **review**: `{ keywordMatch: 0.8, symbolMatch: 0.8, graphProximity: 1.2, memoryRecency: 1.5, fileType: 0.8 }` -- heavily favors recent memory (what was changed). Trigger keywords: `review`, `check`, `audit`, `inspect`, `verify`.
-  - **explore**: `{ keywordMatch: 1.5, symbolMatch: 1.0, graphProximity: 0.8, memoryRecency: 0.5, fileType: 1.0 }` -- favors keyword matching for exploration. Trigger keywords: `explain`, `how`, `what`, `where`, `find`, `show`, `explore`.
-  - **general**: `{ keywordMatch: 1.0, symbolMatch: 1.0, graphProximity: 1.0, memoryRecency: 1.0, fileType: 1.0 }` -- no bias (default).
-- `detectTaskType()`: scans query for trigger keywords. First match wins. Default: `general`.
-- Profiles are statically defined (no file I/O). Simple and predictable.
-
----
-
-#### 4.3 ContextSizeOptimizerService -- Profile Integration
-
-**File**: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\context-size-optimizer.service.ts` (MODIFY)
-
-**Changes**:
-
-1. Add optional `ContextProfileService` reference (same pattern as `setDependencyGraph()`).
-2. Add optional `MemorySignals` parameter to optimization methods.
-3. Apply profile weights when scoring files.
-
-```typescript
-// New optional fields
-private contextProfile: ContextProfileService | null = null;
-
-setContextProfile(profile: ContextProfileService | null): void
-
-// Modified optimizeContext signature -- add optional MemorySignals
-async optimizeContext(
-  request: ContextOptimizationRequest & {
-    memorySignals?: MemorySignals;
-    graphDependencies?: Set<string>;
+// Build graph proximity set for the active file
+let graphProximitySet: Map<string, number> | undefined;
+if (this.dependencyGraph?.isBuilt() && activeFilePath) {
+  graphProximitySet = new Map();
+  // 1-hop dependencies
+  for (const dep of this.dependencyGraph.getDependencies(activeFilePath, 1)) {
+    graphProximitySet.set(dep, 1);
   }
-): Promise<OptimizedContext>
-```
-
----
-
-### Phase 5: Integration and MCP
-
-#### 5.1 Memory MCP Namespace
-
-**File**: `D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\memory-namespace.builders.ts` (CREATE)
-
-**Responsibility**: Builds the `ptah.memory` MCP namespace for AI agents to query session memory.
-
-```typescript
-export interface MemoryNamespaceDependencies {
-  sessionMemory: SessionMemoryService;
+  // 2-hop dependencies
+  for (const dep of this.dependencyGraph.getDependencies(activeFilePath, 2)) {
+    if (!graphProximitySet.has(dep)) {
+      graphProximitySet.set(dep, 2);
+    }
+  }
+  // Reverse dependencies (files that import active file)
+  for (const dep of this.dependencyGraph.getDependents(activeFilePath)) {
+    if (!graphProximitySet.has(dep)) {
+      graphProximitySet.set(dep, 1);
+    }
+  }
 }
+```
 
-export interface MemoryNamespace {
-  search(query: string, options?: { limit?: number; types?: string[] }): Promise<MemoryQueryResult>;
-  getRecent(limit?: number): Promise<Observation[]>;
-  getForFile(filePath: string): Promise<Observation[]>;
+Then pass `graphProximitySet` to `relevanceScorer.scoreFile()` / `rankFiles()`.
+
+**Note**: The `activeFilePath` parameter needs to be added to `ContextOptimizationRequest` interface.
+
+#### 4.4 Memory Context Injection at Session Start
+
+**File**: `libs/backend/agent-sdk/src/lib/helpers/memory-context-builder.ts` (CREATE)
+
+```typescript
+import { injectable, inject } from 'tsyringe';
+
+@injectable()
+export class MemoryContextBuilder {
+  constructor() {} // @inject(SDK_TOKENS.SDK_MEMORY_QUERY) memoryQuery // @inject(SDK_TOKENS.SDK_SESSION_MEMORY) sessionMemory
+
+  /**
+   * Build a <session_memory> block for system prompt injection.
+   * Returns empty string if no relevant memory exists.
+   */
+  async buildMemoryContext(workspacePath: string, maxTokens?: number): Promise<string>;
 }
-
-export function buildMemoryNamespace(deps: MemoryNamespaceDependencies, workspacePath: string): MemoryNamespace;
 ```
 
----
+Output format:
 
-#### 5.2 PtahAPIBuilder -- Add Memory Namespace
+```
+<session_memory>
+## Recent File Activity
+- [2 hours ago] Read: src/services/auth.service.ts
+- [2 hours ago] Edited: src/services/auth.service.ts (added login validation)
 
-**File**: `D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\code-execution\ptah-api-builder.service.ts` (MODIFY)
+## Previous Session Summary
+[Summary text from latest.md]
 
-Add `memory` namespace to the Ptah API builder. Add `SessionMemoryService` to the builder's dependencies.
+## Known Issues
+- [yesterday] Error in src/utils/parser.ts: TypeError - cannot read property of undefined
+</session_memory>
+```
 
----
+Token budget: Default 2000 tokens. Truncate by dropping oldest observations first.
 
-#### 5.3 System Prompt Update
+#### 4.5 Wire Memory into System Prompt
 
-**File**: `D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\code-execution\ptah-system-prompt.constant.ts` (MODIFY)
+**File**: `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts` (MODIFY)
 
-Add documentation for the `ptah.memory` namespace to `PTAH_SYSTEM_PROMPT`.
+In `assembleSystemPromptAppend()` or the prompt building flow:
 
----
+1. Inject `MemoryContextBuilder`
+2. Call `buildMemoryContext(workspacePath)` to get the memory block
+3. Append to the system prompt if non-empty
 
-## DI Registration Plan
+This is done at session creation time, not per-message.
 
-### New Tokens
+**DI Token**: `SDK_TOKENS.SDK_MEMORY_CONTEXT_BUILDER` = `Symbol.for('SdkMemoryContextBuilder')`
 
-#### workspace-intelligence Tokens (in `D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts`)
+#### 4.6 Memory MCP Namespace
+
+**File**: `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/memory-namespace.builder.ts` (CREATE)
 
 ```typescript
-export const LIVE_CODE_GRAPH_SERVICE = Symbol.for('LiveCodeGraphService');
-export const GRAPH_FILE_WATCHER_SERVICE = Symbol.for('GraphFileWatcherService');
-export const GRAPH_CACHE_SERVICE = Symbol.for('GraphCacheService');
-export const CONTEXT_PROFILE_SERVICE = Symbol.for('ContextProfileService');
+export function buildMemoryNamespace(sessionMemoryService: SessionMemoryService, memoryQueryService: MemoryQueryService, workspacePath: string) {
+  return {
+    searchMemory: async (query: string, limit?: number) => {
+      return memoryQueryService.searchByContent(workspacePath, query, limit);
+    },
+    getRecentFiles: async (days?: number, limit?: number) => {
+      return memoryQueryService.getRecentlyTouchedFiles(workspacePath, days, limit);
+    },
+    getSessionSummaries: async (limit?: number) => {
+      return memoryQueryService.getSessionSummaries(workspacePath, limit);
+    },
+    getFileHistory: async (filePath: string, limit?: number) => {
+      return memoryQueryService.getFileObservations(workspacePath, filePath, limit);
+    },
+  };
+}
 ```
 
-Add to TOKENS export object.
+**File**: `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts` (MODIFY)
 
-#### agent-sdk Tokens (in `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\tokens.ts`)
+- Import `buildMemoryNamespace`
+- Add `memory` namespace to the `PtahAPI` object
+- Resolve `SessionMemoryService` and `MemoryQueryService` from container
 
-```typescript
-export const SDK_TOKENS = {
-  // ... existing tokens
+**File**: `libs/backend/vscode-lm-tools/src/lib/code-execution/types.ts` (MODIFY)
 
-  // Session Memory (TASK_2025_183)
-  SDK_SESSION_MEMORY_SERVICE: Symbol.for('SdkSessionMemoryService'),
-  SDK_MEMORY_STORAGE_SERVICE: Symbol.for('SdkMemoryStorageService'),
-  SDK_OBSERVATION_EXTRACTOR: Symbol.for('SdkObservationExtractor'),
-  SDK_MEMORY_QUERY_SERVICE: Symbol.for('SdkMemoryQueryService'),
-  SDK_OBSERVATION_HOOK_HANDLER: Symbol.for('SdkObservationHookHandler'),
-} as const;
-```
+- Add `memory` namespace type to `PtahAPI` interface
+
+**File**: `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-system-prompt.constant.ts` (MODIFY)
+
+- Add `memory` namespace documentation to system prompt
+
+#### 4.7 DI Registration for Curation Services
+
+**File**: `libs/backend/vscode-core/src/di/tokens.ts` (MODIFY)
+
+- Add `CONTEXT_PROFILE_SERVICE: Symbol.for('ContextProfileService')`
+
+**File**: `libs/backend/agent-sdk/src/lib/di/tokens.ts` (MODIFY)
+
+- Add `SDK_MEMORY_CONTEXT_BUILDER: Symbol.for('SdkMemoryContextBuilder')`
+
+**File**: `libs/backend/workspace-intelligence/src/di/register.ts` (MODIFY)
+
+- Add `ContextProfileService` registration in Tier 5 (context services)
+
+**File**: `libs/backend/agent-sdk/src/lib/di/register.ts` (MODIFY)
+
+- Register `MemoryContextBuilder`
+
+#### 4.8 Unit Tests
+
+**Files to create**:
+
+- `libs/backend/workspace-intelligence/src/context-analysis/context-profile.service.spec.ts`
+- `libs/backend/workspace-intelligence/src/context-analysis/file-relevance-scorer.service.spec.ts` (extend existing or create)
+- `libs/backend/agent-sdk/src/lib/helpers/memory-context-builder.spec.ts`
+- `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/memory-namespace.builder.spec.ts`
+
+---
+
+### Phase 5: Integration and Testing (Depends on All Prior Phases)
+
+**Estimated Effort**: 2-3 days
+**Libraries**: All affected
+**Prerequisites**: Phases 1-4
+
+#### 5.1 Integration Tests
+
+- Graph update end-to-end: file save -> watcher event -> debounce -> updateFile() -> verifiable query
+- Session memory capture: mock PostToolUse events -> verify observations in session file
+- Memory persistence: store observations -> simulate restart -> query session files
+- Content search: write observations with known keywords -> searchByContent returns them
+- Memory injection: store observations -> create session -> verify system prompt contains memory block
+- Graph cache: build graph -> persist -> load from cache -> verify consistency
+
+#### 5.2 Performance Benchmarks
+
+- Graph build time (280 files) < 5 seconds
+- Incremental update (1 file) < 200ms
+- Session file write (append 20 observations) < 50ms
+- Content search (50 session files) < 200ms
+- Memory context assembly < 100ms
+- Graph cache load < 500ms
+
+#### 5.3 Documentation Updates
+
+**Files to update**:
+
+- `libs/backend/workspace-intelligence/CLAUDE.md` -- Add graph lifecycle, LiveCodeGraphService docs
+- `libs/backend/agent-sdk/CLAUDE.md` -- Add session memory, ContextStorageService docs
+- `libs/backend/vscode-lm-tools/CLAUDE.md` -- Add memory namespace docs
+- `libs/backend/vscode-core/CLAUDE.md` -- Add new TOKENS docs
+
+---
+
+## DI Registration Strategy
+
+### New Tokens Summary
+
+| Token                                     | Location              | Service                   |
+| ----------------------------------------- | --------------------- | ------------------------- |
+| `TOKENS.GRAPH_FILE_WATCHER_SERVICE`       | vscode-core/tokens.ts | `GraphFileWatcherService` |
+| `TOKENS.LIVE_CODE_GRAPH_SERVICE`          | vscode-core/tokens.ts | `LiveCodeGraphService`    |
+| `TOKENS.CONTEXT_PROFILE_SERVICE`          | vscode-core/tokens.ts | `ContextProfileService`   |
+| `SDK_TOKENS.SDK_CONTEXT_STORAGE`          | agent-sdk/tokens.ts   | `ContextStorageService`   |
+| `SDK_TOKENS.SDK_OBSERVATION_HOOK_HANDLER` | agent-sdk/tokens.ts   | `ObservationHookHandler`  |
+| `SDK_TOKENS.SDK_SESSION_MEMORY`           | agent-sdk/tokens.ts   | `SessionMemoryService`    |
+| `SDK_TOKENS.SDK_MEMORY_QUERY`             | agent-sdk/tokens.ts   | `MemoryQueryService`      |
+| `SDK_TOKENS.SDK_MEMORY_CONTEXT_BUILDER`   | agent-sdk/tokens.ts   | `MemoryContextBuilder`    |
 
 ### Registration Order
 
-#### workspace-intelligence (`D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\di\register.ts`)
-
-Add after existing Tier 6 (AST Analysis Services):
+**workspace-intelligence** (`registerWorkspaceIntelligenceServices`):
 
 ```
-Tier 6c: Graph Services (TASK_2025_183)
-  - GRAPH_CACHE_SERVICE (GraphCacheService) -- no deps beyond Logger
-  - GRAPH_FILE_WATCHER_SERVICE (GraphFileWatcherService) -- depends on FILE_SYSTEM_MANAGER
-  - LIVE_CODE_GRAPH_SERVICE (LiveCodeGraphService) -- depends on DEPENDENCY_GRAPH_SERVICE, WORKSPACE_INDEXER_SERVICE, GraphFileWatcher, GraphCache
-
-Tier 5b: Context Profile (TASK_2025_183)
-  - CONTEXT_PROFILE_SERVICE (ContextProfileService) -- depends on Logger only
+Existing Tier 1-6b: (unchanged)
+NEW Tier 6c: GraphFileWatcherService (depends on PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+NEW Tier 6d: LiveCodeGraphService (depends on DependencyGraphService, WorkspaceIndexerService, GraphFileWatcherService)
+Modified Tier 5: Add ContextProfileService
+Existing Tier 7-8: (unchanged)
 ```
 
-Note: `ContextProfileService` can go in Tier 5 area since it has no dependencies. `LiveCodeGraphService` goes after Tier 6 because it depends on `DependencyGraphService`.
+**IMPORTANT**: `ContextOrchestrationService` (Tier 5) currently injects `TOKENS.DEPENDENCY_GRAPH_SERVICE`. After this task, it will inject `TOKENS.LIVE_CODE_GRAPH_SERVICE` instead. Since `LiveCodeGraphService` is in Tier 6d (after Tier 5), we need to change `ContextOrchestrationService` to use lazy resolution or move its registration after Tier 6d. The simplest approach: use `container.resolve()` in a factory registration for `ContextOrchestrationService`, or move it to a new Tier 7 position.
 
-#### agent-sdk (`D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\register.ts`)
-
-Add new section before "Main Adapter":
+**agent-sdk** (`registerSdkServices`):
 
 ```
-// ============================================================
-// Session Memory Services (TASK_2025_183)
-// ============================================================
-container.register(SDK_TOKENS.SDK_MEMORY_STORAGE_SERVICE, { useClass: MemoryStorageService }, { lifecycle: Lifecycle.Singleton });
-container.register(SDK_TOKENS.SDK_OBSERVATION_EXTRACTOR, { useClass: ObservationExtractorService }, { lifecycle: Lifecycle.Singleton });
-container.register(SDK_TOKENS.SDK_MEMORY_QUERY_SERVICE, { useClass: MemoryQueryService }, { lifecycle: Lifecycle.Singleton });
-container.register(SDK_TOKENS.SDK_OBSERVATION_HOOK_HANDLER, { useClass: ObservationHookHandler }, { lifecycle: Lifecycle.Singleton });
-container.register(SDK_TOKENS.SDK_SESSION_MEMORY_SERVICE, { useClass: SessionMemoryService }, { lifecycle: Lifecycle.Singleton });
+Existing services: (unchanged)
+NEW: ContextStorageService (no dependencies beyond Logger)
+NEW: MemoryQueryService (depends on ContextStorageService)
+NEW: SessionMemoryService (depends on ContextStorageService, MemoryQueryService)
+NEW: ObservationHookHandler (depends on ContextStorageService, Logger)
+NEW: MemoryContextBuilder (depends on SessionMemoryService, MemoryQueryService)
 ```
 
 ---
 
-## File-by-File Change List
+## Interface Definitions
 
-### Files to CREATE
+### Key TypeScript Interfaces (All New)
 
-| #   | File Path                                                                                                                        | Service/Module                | Lines (est) |
-| --- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ----------- |
-| 1   | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\graph.types.ts`                                        | Graph type definitions        | ~60         |
-| 2   | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\graph-cache.service.ts`                                | GraphCacheService             | ~120        |
-| 3   | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\graph-file-watcher.service.ts`                         | GraphFileWatcherService       | ~130        |
-| 4   | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\live-code-graph.service.ts`                            | LiveCodeGraphService          | ~200        |
-| 5   | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\graph\index.ts`                                              | Barrel exports                | ~10         |
-| 6   | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\memory.types.ts`                                               | Memory type definitions       | ~120        |
-| 7   | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\memory-storage.service.ts`                                     | MemoryStorageService          | ~250        |
-| 8   | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\observation-extractor.service.ts`                              | ObservationExtractorService   | ~150        |
-| 9   | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\memory-query.service.ts`                                       | MemoryQueryService            | ~200        |
-| 10  | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\observation-hook-handler.ts`                                   | ObservationHookHandler        | ~180        |
-| 11  | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\session-memory.service.ts`                                     | SessionMemoryService (facade) | ~150        |
-| 12  | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\memory\index.ts`                                                      | Barrel exports                | ~15         |
-| 13  | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\context-profile.types.ts`                   | Profile type definitions      | ~40         |
-| 14  | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\context-profile.service.ts`                 | ContextProfileService         | ~120        |
-| 15  | `D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\code-execution\namespace-builders\memory-namespace.builders.ts` | Memory MCP namespace          | ~80         |
+```typescript
+// ===== Storage Types =====
 
-### Files to MODIFY
+interface SessionFileMetadata {
+  session_id: string;
+  workspace_id: string;
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+  observation_count: number;
+}
 
-| #   | File Path                                                                                                               | Change Description                                                                                                  |
-| --- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| 16  | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\ast\dependency-graph.service.ts`                    | Add `updateFile()`, `removeFile()`, `getGraph()` methods                                                            |
-| 17  | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\file-relevance-scorer.service.ts`  | Add `graphDependencies` and `memorySignals` parameters, add `scoreByGraphProximity()` and `scoreByMemory()` methods |
-| 18  | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\context-analysis\context-size-optimizer.service.ts` | Add `setContextProfile()`, pass new scoring signals through                                                         |
-| 19  | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\di\register.ts`                                     | Register GraphCacheService, GraphFileWatcherService, LiveCodeGraphService, ContextProfileService                    |
-| 20  | `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\index.ts`                                           | Export new graph and profile services/types                                                                         |
-| 21  | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\tokens.ts`                                                | Add 5 new SDK_TOKENS for memory services                                                                            |
-| 22  | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\di\register.ts`                                              | Register 5 memory services                                                                                          |
-| 23  | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\sdk-query-options-builder.ts`                        | Add memory hooks to `createHooks()`, add memory context to `assembleSystemPromptAppend()`                           |
-| 24  | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\lib\helpers\index.ts`                                            | Export memory module                                                                                                |
-| 25  | `D:\projects\ptah-extension\libs\backend\agent-sdk\src\index.ts`                                                        | Export SessionMemoryService and memory types                                                                        |
-| 26  | `D:\projects\ptah-extension\libs\backend\vscode-core\src\di\tokens.ts`                                                  | Add 4 new TOKENS for graph/profile services                                                                         |
-| 27  | `D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\code-execution\ptah-api-builder.service.ts`            | Add `memory` namespace                                                                                              |
-| 28  | `D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\code-execution\ptah-system-prompt.constant.ts`         | Add `ptah.memory` documentation                                                                                     |
-| 29  | `D:\projects\ptah-extension\libs\backend\vscode-lm-tools\src\lib\code-execution\types.ts`                               | Add MemoryNamespace type                                                                                            |
-| 30  | `D:\projects\ptah-extension\apps\ptah-extension-vscode\src\services\rpc\handlers\chat-rpc.handlers.ts`                  | Pass memory context to SDK query options                                                                            |
+interface SessionFileContent {
+  metadata: SessionFileMetadata;
+  observations: string; // Raw markdown
+}
+
+// ===== Observation Types =====
+
+type ObservationType = 'file_read' | 'file_edit' | 'search' | 'error' | 'decision';
+
+interface Observation {
+  readonly timestamp: string; // ISO 8601
+  readonly type: ObservationType;
+  readonly filePath?: string; // Workspace-relative
+  readonly content?: string; // Description text
+  readonly importance: number; // 0.0 - 1.0
+}
+
+interface SessionSummary {
+  readonly session_id: string;
+  readonly workspace_id: string;
+  readonly created_at: string;
+  readonly files_touched: string[];
+  readonly key_decisions: string[];
+  readonly summary_text: string;
+}
+
+// ===== Context Profile Types =====
+
+interface ContextProfile {
+  name: string;
+  description: string;
+  weights: {
+    path_relevance: number;
+    graph_proximity: number;
+    memory_recency: number;
+    memory_frequency: number;
+    error_history: number;
+    file_type: number;
+  };
+}
+
+// ===== Memory Signals for Scoring =====
+
+interface MemorySignals {
+  recentlyTouched: Set<string>; // File paths from last 3 sessions
+  sessionRecency: Map<string, number>; // File -> recency score
+  errorFiles: Set<string>; // Files with error observations
+}
+```
 
 ---
 
-## Phase-by-Phase Delivery Plan
+## Integration Points
 
-### Phase 1: Live Code Graph (Days 1-3)
+### 1. DependencyGraphService <-> LiveCodeGraphService
 
-**Deliverables**:
+- `LiveCodeGraphService` owns the graph lifecycle
+- Wraps `DependencyGraphService` for lazy init and auto-update
+- Exposes `getGraphService()` for consumers that need direct access
 
-1. `DependencyGraphService.updateFile()` and `removeFile()` methods
-2. `GraphCacheService` -- JSON persistence of graph to `.claude/context/graph/`
-3. `GraphFileWatcherService` -- debounced file watcher bridge
-4. `LiveCodeGraphService` -- lifecycle manager with lazy init
-5. DI registration (4 new tokens in vscode-core, 3 new services in workspace-intelligence)
-6. Public exports from workspace-intelligence
+### 2. GraphFileWatcherService <-> Platform Core
 
-**Verification**: Build the graph, modify a file, verify graph updates incrementally. Verify graph persists to disk and reloads on restart.
+- Uses `IFileSystemProvider.createFileWatcher()` (not VS Code API directly)
+- Returns `IFileWatcher` with `onDidChange/Create/Delete` events
+- Cross-platform compatible (VS Code + Electron)
 
-### Phase 2: Session Memory Storage (Days 3-5)
+### 3. ObservationHookHandler <-> SdkQueryOptionsBuilder
 
-**Deliverables**:
+- Hooks merged via existing array concatenation pattern (line 737-743)
+- New hook handler added alongside SubagentHookHandler and CompactionHookHandler
+- All hooks follow fire-and-forget, `{ continue: true }` pattern
 
-1. Memory type definitions (`memory.types.ts`)
-2. `MemoryStorageService` -- file-based storage following AnalysisStorageService pattern
-3. `ObservationExtractorService` -- tool event parser
-4. `MemoryQueryService` -- search and retrieval
-5. DI registration (5 new tokens in agent-sdk tokens, 3 new services)
-6. Public exports from agent-sdk
+### 4. MemoryContextBuilder <-> System Prompt
 
-**Verification**: Write observations to disk, read them back, search by query/file/type. Verify markdown format is human-readable and parseable.
+- Generates `<session_memory>` block
+- Appended to system prompt via `assembleSystemPromptAppend()` flow
+- Respects 2000 token budget with graceful truncation
 
-### Phase 3: Observation Hooks (Days 5-7)
+### 5. Memory MCP Namespace <-> PtahAPIBuilder
 
-**Deliverables**:
+- New `ptah.memory` namespace exposed to AI agents
+- 4 methods: searchMemory, getRecentFiles, getSessionSummaries, getFileHistory
+- Follows existing namespace builder pattern
 
-1. `ObservationHookHandler` -- PostToolUse + Stop hooks
-2. `SessionMemoryService` -- facade coordinating all memory services
-3. Hook integration in `SdkQueryOptionsBuilder.createHooks()` -- merge memory hooks
-4. System prompt injection via `assembleSystemPromptAppend()` -- add memory context
-5. DI registration (2 more services in agent-sdk)
+### 6. ContextStorageService <-> fs/promises
 
-**Verification**: Start a session, use Read/Edit tools, verify observations captured in `.claude/context/memory/sessions/`. End session, verify summary written. Start new session, verify memory context appears in system prompt.
-
-### Phase 4: Smart Context Curation (Days 7-9)
-
-**Deliverables**:
-
-1. `ContextProfileService` -- task-type detection and weight profiles
-2. `FileRelevanceScorerService` enhancement -- graph proximity + memory signals
-3. `ContextSizeOptimizerService` enhancement -- profile integration
-4. DI registration (1 new token + service)
-5. Wire memory signals through context pipeline
-
-**Verification**: Query with "fix bug in auth" -- verify bugfix profile activates, graph-proximate files rank higher. Query with "implement feature" -- verify feature profile. Verify files from recent sessions get memory boost.
-
-### Phase 5: MCP Integration and Polish (Days 9-11)
-
-**Deliverables**:
-
-1. `memory-namespace.builders.ts` -- `ptah.memory` MCP namespace
-2. `PtahAPIBuilder` update -- add memory namespace
-3. System prompt update -- document `ptah.memory` API
-4. Chat RPC handlers update -- pass memory context to query options
-5. End-to-end integration testing
-
-**Verification**: Use MCP `execute_code` to call `ptah.memory.search('auth')`, verify results. Test full flow: edit file -> graph updates -> new session -> memory signals boost related files.
+- All I/O via Node.js `fs/promises` (NOT VS Code workspace.fs, NOT IFileSystemProvider)
+- Reason: Session files are in `.claude/context/` which is a workspace-local directory. Using `fs/promises` directly matches the `AnalysisStorageService` pattern and avoids platform abstraction overhead for file-based storage that is always local.
 
 ---
 
 ## Testing Strategy
 
-### Unit Tests
+### Unit Testing (Per Service)
 
-| Service                                 | Key Test Scenarios                                                                                                   |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `DependencyGraphService.updateFile()`   | Invalidate + re-parse produces correct edges; handles missing file gracefully; handles parse error gracefully        |
-| `GraphFileWatcherService`               | Debounces rapid changes; filters node_modules; calls correct callback per event type                                 |
-| `GraphCacheService`                     | Saves/loads round-trip; returns null for missing cache; returns null for invalid JSON                                |
-| `LiveCodeGraphService`                  | Lazy init (no build until first call); rebuilds atomically; disposes cleanly                                         |
-| `MemoryStorageService`                  | Writes/reads observations; creates directory structure; prunes old sessions; handles concurrent writes               |
-| `ObservationExtractorService`           | Maps each tool name to correct type; extracts file paths; assigns importance; returns null for non-observation tools |
-| `MemoryQueryService`                    | Text search matches; file path filter works; recency sort; memory signals computed correctly                         |
-| `ObservationHookHandler`                | Buffers observations; flushes on threshold; flushes on dispose; writes summary on Stop; never throws                 |
-| `ContextProfileService`                 | Detects bugfix from "fix" keyword; detects feature from "implement"; defaults to general                             |
-| `FileRelevanceScorerService` (enhanced) | Graph proximity boosts score; memory signals boost score; scores unchanged when signals absent                       |
+| Service                               | Approach                      | Key Test Scenarios                                          |
+| ------------------------------------- | ----------------------------- | ----------------------------------------------------------- |
+| `ContextStorageService`               | Temp directory fixtures       | CRUD ops, pruning, corrupt file handling, concurrent writes |
+| `DependencyGraphService.updateFile()` | Mock AstAnalysisService       | Invalidate+reparse, content hash skip, new file addition    |
+| `GraphFileWatcherService`             | Mock IFileSystemProvider      | Debounce timing, event batching, multi-event merge          |
+| `LiveCodeGraphService`                | Mock dependencies             | Lazy init, rebuild, dispose cleanup, cache load             |
+| `ObservationExtractor`                | Pure function tests           | Each tool type, unknown tools, path normalization           |
+| `ObservationHookHandler`              | Mock ContextStorageService    | Buffer/flush cycle, SessionEnd flush, error resilience      |
+| `SessionMemoryService`                | Mock storage                  | Observation CRUD, summary generation, pruning delegation    |
+| `MemoryQueryService`                  | Temp directory with fixtures  | Content search, recency queries, file queries, cache TTL    |
+| `ContextProfileService`               | Default profiles + temp files | Profile loading, auto-detection, fallback to defaults       |
+| `FileRelevanceScorerService`          | Extended existing tests       | Graph proximity scoring, memory signals, profile weighting  |
+| `MemoryContextBuilder`                | Mock query service            | Format correctness, token budget truncation, empty memory   |
 
-### Integration Tests
+### Integration Testing
 
-1. **Graph lifecycle**: Build graph -> modify file -> verify updateFile() -> verify edges updated -> restart -> verify cache loads.
-2. **Memory pipeline**: Send PostToolUse hook -> verify observation buffered -> flush -> verify file written -> query -> verify results.
-3. **Context curation**: Build graph + write observations -> optimize context -> verify files ranked with all signals.
-4. **MCP namespace**: Call `ptah.memory.search()` -> verify results match stored observations.
+| Test                   | Libraries                          | Scope                                                       |
+| ---------------------- | ---------------------------------- | ----------------------------------------------------------- |
+| Graph lifecycle        | workspace-intelligence             | file create -> watcher -> updateFile -> query               |
+| Session memory flow    | agent-sdk                          | PostToolUse hook -> buffer -> flush -> query                |
+| Memory injection       | agent-sdk                          | store observations -> build memory context -> verify prompt |
+| MCP memory namespace   | vscode-lm-tools                    | execute ptah.memory.searchMemory() -> verify results        |
+| Graph cache round-trip | workspace-intelligence + agent-sdk | build -> persist -> load -> verify consistency              |
 
 ---
 
-## Risk Mitigations
+## Risk Assessment (Updated)
 
-### Risk 1: File Watcher Event Storm
+| Risk                                            | Prob | Impact | Mitigation                                                                                                                                                      |
+| ----------------------------------------------- | ---- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Session file count grows large (1000+)          | 20%  | Medium | 30-day auto-pruning, scan limit to 100 most recent files                                                                                                        |
+| Substring search across session files too slow  | 15%  | Medium | 30s result cache, limit scan to recent files, summaries provide pre-aggregated data                                                                             |
+| Incremental graph updates introduce stale edges | 30%  | Medium | Content hash skip for unchanged files, comprehensive unit tests for edge cases                                                                                  |
+| PostToolUse hook adds latency to SDK pipeline   | 10%  | Medium | Fire-and-forget with 5s batch flush, never awaited                                                                                                              |
+| Concurrent writes to same session file          | 20%  | Medium | In-memory buffer with single flush writer, serialized via interval                                                                                              |
+| Platform abstraction gap for file watchers      | 15%  | Low    | GraphFileWatcherService uses IFileSystemProvider.createFileWatcher() -- implementations exist for VS Code and Electron                                          |
+| Multi-provider observation capture deferred     | 40%  | Low    | Initial implementation covers Claude SDK only. Gemini/Codex/Copilot observation capture designed but not wired -- clean extension point via AgentProcessManager |
+| ContextOrchestrationService DI ordering         | 25%  | Medium | Move registration to factory pattern or reorder tiers. Well-defined fix.                                                                                        |
 
-**Probability**: Medium (large refactoring operations can produce 100+ file events simultaneously)
+---
 
-**Mitigation**:
+## Files Affected Summary
 
-- Per-file debouncing (300ms default) in `GraphFileWatcherService` prevents redundant updates.
-- Filter out `node_modules`, `dist`, `.git` immediately (no debounce overhead for these paths).
-- `LiveCodeGraphService` tracks `isBuilding` state to prevent concurrent builds.
-- Worst case: events are debounced, graph may be momentarily stale during bulk operations. This is acceptable -- the graph catches up within 300ms of the last change.
+### CREATE (14 files)
 
-### Risk 2: Memory Storage Growth
+| File                                                                                                 | Library                | Purpose                          |
+| ---------------------------------------------------------------------------------------------------- | ---------------------- | -------------------------------- |
+| `libs/backend/agent-sdk/src/lib/storage/context-storage.service.ts`                                  | agent-sdk              | File-based storage manager       |
+| `libs/backend/agent-sdk/src/lib/storage/context-storage.service.spec.ts`                             | agent-sdk              | Storage tests                    |
+| `libs/backend/agent-sdk/src/lib/storage/observation.types.ts`                                        | agent-sdk              | Observation type definitions     |
+| `libs/backend/agent-sdk/src/lib/storage/observation-extractor.ts`                                    | agent-sdk              | Tool event -> Observation parser |
+| `libs/backend/agent-sdk/src/lib/storage/observation-extractor.spec.ts`                               | agent-sdk              | Extractor tests                  |
+| `libs/backend/agent-sdk/src/lib/storage/session-memory.service.ts`                                   | agent-sdk              | Session memory facade            |
+| `libs/backend/agent-sdk/src/lib/storage/session-memory.service.spec.ts`                              | agent-sdk              | Memory service tests             |
+| `libs/backend/agent-sdk/src/lib/storage/memory-query.service.ts`                                     | agent-sdk              | File-based querying              |
+| `libs/backend/agent-sdk/src/lib/storage/memory-query.service.spec.ts`                                | agent-sdk              | Query service tests              |
+| `libs/backend/agent-sdk/src/lib/helpers/observation-hook-handler.ts`                                 | agent-sdk              | SDK hook handler                 |
+| `libs/backend/agent-sdk/src/lib/helpers/observation-hook-handler.spec.ts`                            | agent-sdk              | Hook handler tests               |
+| `libs/backend/agent-sdk/src/lib/helpers/memory-context-builder.ts`                                   | agent-sdk              | System prompt memory block       |
+| `libs/backend/workspace-intelligence/src/graph/graph-file-watcher.service.ts`                        | workspace-intelligence | File watcher bridge              |
+| `libs/backend/workspace-intelligence/src/graph/live-code-graph.service.ts`                           | workspace-intelligence | Graph lifecycle manager          |
+| `libs/backend/workspace-intelligence/src/context-analysis/context-profile.service.ts`                | workspace-intelligence | Task-type profiles               |
+| `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/memory-namespace.builder.ts` | vscode-lm-tools        | MCP memory namespace             |
 
-**Probability**: Low (workspace-scoped, not user-global)
+### MODIFY (12 files)
 
-**Mitigation**:
-
-- Observations are stored per-session in individual markdown files (not a single growing file).
-- `SessionMemoryService.prune()` removes sessions older than 30 days (configurable).
-- Manifest tracks session count -- can warn if approaching limits.
-- Observation extraction is selective (only file reads/edits/errors, not every tool use).
-- Expected volume: ~50-200 observations per session, ~10 sessions per workspace = ~2000 observations total at any time. File size: ~200KB total. Negligible.
-
-### Risk 3: Hook Latency Impacting SDK Responsiveness
-
-**Probability**: Low (hooks are fire-and-forget)
-
-**Mitigation**:
-
-- `ObservationHookHandler` buffers observations in memory, writes to disk asynchronously.
-- Buffer flush is batched (every 10 observations or 30 seconds).
-- Hook callback always returns `{ continue: true }` immediately -- the buffer/flush happens in a `void` promise.
-- Observation extraction is pure computation (no I/O), completes in < 1ms.
-
-### Risk 4: Graph Cache Corruption
-
-**Probability**: Low (extension crash during write)
-
-**Mitigation**:
-
-- Graph cache is a performance optimization, not a source of truth. If cache is corrupt, it is silently discarded and a full rebuild is triggered.
-- `GraphCacheService.loadGraph()` validates `version` field and returns null on any parse error.
-- Atomic write via temp file + rename for manifest (MemoryStorageService).
-- Graph cache loss costs ~2s rebuild for 280 files -- acceptable recovery time.
-
-### Risk 5: Circular Import Between workspace-intelligence and agent-sdk
-
-**Probability**: None (by design)
-
-**Mitigation**:
-
-- `FileRelevanceScorerService` accepts `MemorySignals` as a plain data interface (no import from agent-sdk).
-- `MemorySignals` type is defined in agent-sdk but passed as data through the context pipeline.
-- The interface boundary is at `ContextSizeOptimizerService` which accepts `MemorySignals` as an optional parameter on its method -- no constructor dependency on agent-sdk.
-- If needed, `MemorySignals` can be duplicated as a simple interface in workspace-intelligence (it's just two Maps and a number).
+| File                                                                                         | Library                | Change                                                     |
+| -------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------- |
+| `libs/backend/workspace-intelligence/src/ast/dependency-graph.service.ts`                    | workspace-intelligence | Add updateFile(), getGraph(), content hashing              |
+| `libs/backend/workspace-intelligence/src/context-analysis/file-relevance-scorer.service.ts`  | workspace-intelligence | Add graph proximity + memory signal scoring                |
+| `libs/backend/workspace-intelligence/src/context-analysis/context-size-optimizer.service.ts` | workspace-intelligence | Pass graph proximity set to scorer                         |
+| `libs/backend/workspace-intelligence/src/context/context-orchestration.service.ts`           | workspace-intelligence | Use LiveCodeGraphService instead of DependencyGraphService |
+| `libs/backend/workspace-intelligence/src/di/register.ts`                                     | workspace-intelligence | Add Tier 6c/6d, ContextProfileService                      |
+| `libs/backend/workspace-intelligence/src/index.ts`                                           | workspace-intelligence | Export new services                                        |
+| `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`                        | agent-sdk              | Add ObservationHookHandler + MemoryContextBuilder          |
+| `libs/backend/agent-sdk/src/lib/di/tokens.ts`                                                | agent-sdk              | Add 5 new tokens                                           |
+| `libs/backend/agent-sdk/src/lib/di/register.ts`                                              | agent-sdk              | Register 5 new services                                    |
+| `libs/backend/agent-sdk/src/index.ts`                                                        | agent-sdk              | Export new services and types                              |
+| `libs/backend/vscode-core/src/di/tokens.ts`                                                  | vscode-core            | Add 3 new tokens                                           |
+| `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts`            | vscode-lm-tools        | Add memory namespace                                       |
 
 ---
 
@@ -1477,61 +1291,30 @@ container.register(SDK_TOKENS.SDK_SESSION_MEMORY_SERVICE, { useClass: SessionMem
 
 **Rationale**:
 
-- All work is in backend TypeScript libraries (no UI/frontend components)
-- Requires understanding of DI patterns, SDK hooks, file I/O, AST parsing
-- No Angular/HTML/CSS work involved
-- NestJS-style service architecture throughout
+- All work is in backend TypeScript libraries (Node.js runtime)
+- No Angular/frontend components involved
+- Heavy DI container work, file I/O, AST services
+- Requires understanding of tsyringe DI patterns and SDK hook system
 
 ### Complexity Assessment
 
 **Complexity**: HIGH
-**Estimated Effort**: 8-11 working days across 5 phases
+**Estimated Effort**: 10-14 days across 5 phases
 
-**Breakdown**:
+### Phase Dependencies
 
-- Phase 1 (Live Code Graph): 3 days -- 4 new files + 2 modified files
-- Phase 2 (Session Memory Storage): 2 days -- 5 new files
-- Phase 3 (Observation Hooks): 2 days -- 2 new files + 3 modified files
-- Phase 4 (Smart Context Curation): 2 days -- 2 new files + 2 modified files
-- Phase 5 (MCP + Integration): 2 days -- 1 new file + 4 modified files
+```
+Phase 1 (Storage)     ──────────────────────────────────────┐
+                                                             │
+Phase 2 (Graph)       ──────────────────────────┐           │
+                                                 │           │
+                                                 ├──> Phase 4 (Curation) ──> Phase 5 (Integration)
+                                                 │           │
+Phase 3 (Memory)      ──────────────────────────┘           │
+    depends on Phase 1 ─────────────────────────────────────┘
+```
 
-### Files Affected Summary
-
-**CREATE** (15 files):
-
-- `libs/backend/workspace-intelligence/src/graph/graph.types.ts`
-- `libs/backend/workspace-intelligence/src/graph/graph-cache.service.ts`
-- `libs/backend/workspace-intelligence/src/graph/graph-file-watcher.service.ts`
-- `libs/backend/workspace-intelligence/src/graph/live-code-graph.service.ts`
-- `libs/backend/workspace-intelligence/src/graph/index.ts`
-- `libs/backend/workspace-intelligence/src/context-analysis/context-profile.types.ts`
-- `libs/backend/workspace-intelligence/src/context-analysis/context-profile.service.ts`
-- `libs/backend/agent-sdk/src/lib/memory/memory.types.ts`
-- `libs/backend/agent-sdk/src/lib/memory/memory-storage.service.ts`
-- `libs/backend/agent-sdk/src/lib/memory/observation-extractor.service.ts`
-- `libs/backend/agent-sdk/src/lib/memory/memory-query.service.ts`
-- `libs/backend/agent-sdk/src/lib/memory/observation-hook-handler.ts`
-- `libs/backend/agent-sdk/src/lib/memory/session-memory.service.ts`
-- `libs/backend/agent-sdk/src/lib/memory/index.ts`
-- `libs/backend/vscode-lm-tools/src/lib/code-execution/namespace-builders/memory-namespace.builders.ts`
-
-**MODIFY** (15 files):
-
-- `libs/backend/workspace-intelligence/src/ast/dependency-graph.service.ts`
-- `libs/backend/workspace-intelligence/src/context-analysis/file-relevance-scorer.service.ts`
-- `libs/backend/workspace-intelligence/src/context-analysis/context-size-optimizer.service.ts`
-- `libs/backend/workspace-intelligence/src/di/register.ts`
-- `libs/backend/workspace-intelligence/src/index.ts`
-- `libs/backend/agent-sdk/src/lib/di/tokens.ts`
-- `libs/backend/agent-sdk/src/lib/di/register.ts`
-- `libs/backend/agent-sdk/src/lib/helpers/sdk-query-options-builder.ts`
-- `libs/backend/agent-sdk/src/lib/helpers/index.ts`
-- `libs/backend/agent-sdk/src/index.ts`
-- `libs/backend/vscode-core/src/di/tokens.ts`
-- `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-api-builder.service.ts`
-- `libs/backend/vscode-lm-tools/src/lib/code-execution/ptah-system-prompt.constant.ts`
-- `libs/backend/vscode-lm-tools/src/lib/code-execution/types.ts`
-- `apps/ptah-extension-vscode/src/services/rpc/handlers/chat-rpc.handlers.ts`
+Phases 1 and 2 can run in parallel. Phase 3 depends on Phase 1. Phase 4 depends on Phases 2 and 3. Phase 5 depends on all.
 
 ### Critical Verification Points
 
@@ -1539,51 +1322,24 @@ container.register(SDK_TOKENS.SDK_SESSION_MEMORY_SERVICE, { useClass: SessionMem
 
 1. **All imports exist in codebase**:
 
-   - `FileSystemManager` from `@ptah-extension/vscode-core` (verified: `D:\projects\ptah-extension\libs\backend\vscode-core\src\api-wrappers\file-system-manager.ts`)
-   - `DependencyGraphService` from `@ptah-extension/workspace-intelligence` (verified: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\ast\dependency-graph.service.ts`)
-   - `AstAnalysisService` from workspace-intelligence (verified: imported in dependency-graph.service.ts:13)
-   - `WorkspaceIndexerService` from workspace-intelligence (verified: `D:\projects\ptah-extension\libs\backend\workspace-intelligence\src\file-indexing\workspace-indexer.service.ts`)
-   - `gray-matter` package (verified: listed as dependency in workspace-intelligence CLAUDE.md)
-   - `fs/promises` (verified: used in `analysis-storage.service.ts:16`)
+   - `gray-matter` from workspace-intelligence/package.json (verified)
+   - `IFileSystemProvider` from `@ptah-extension/platform-core` (verified: file-system-provider.interface.ts:17)
+   - `IWorkspaceProvider` from `@ptah-extension/platform-core` (verified: workspace-provider.interface.ts:9)
+   - `PLATFORM_TOKENS` from `@ptah-extension/platform-core` (verified: tokens.ts:11)
+   - `HookEvent`, `HookCallbackMatcher` from `claude-sdk.types.ts` (verified: sdk-query-options-builder.ts:36-40)
 
 2. **All patterns verified from examples**:
 
-   - Hook handler pattern: `SessionStartHookHandler` (verified: lines 66-209)
-   - Hook merging pattern: `SdkQueryOptionsBuilder.createHooks()` (verified: lines 660-709)
-   - File storage pattern: `AnalysisStorageService` (verified: lines 1-267)
-   - DI token pattern: `SDK_TOKENS` with `Symbol.for()` (verified: lines 30-103)
-   - DI registration pattern: `registerSdkServices()` (verified: lines 73-364)
+   - File storage: AnalysisStorageService (verified: analysis-storage.service.ts:1-267)
+   - Hook handlers: SubagentHookHandler, CompactionHookHandler (verified: sdk-query-options-builder.ts:727-743)
+   - DI registration: workspace-intelligence/di/register.ts tiers (verified: lines 74-239)
+   - Token convention: Symbol.for() pattern (verified: tokens.ts throughout)
 
-3. **Library documentation consulted**:
+3. **No hallucinated APIs**:
 
-   - `libs/backend/workspace-intelligence/CLAUDE.md` -- read
-   - `libs/backend/agent-sdk/CLAUDE.md` -- read
-   - `libs/backend/vscode-core/CLAUDE.md` -- read
-   - `libs/backend/vscode-lm-tools/CLAUDE.md` -- read
+   - All DependencyGraphService methods verified: lines 101, 243, 272, 289, 314, 364
+   - `setDependencyGraph()` on ContextSizeOptimizerService verified: line 175
+   - `IFileSystemProvider.createFileWatcher()` verified: file-system-provider.interface.ts:104
+   - `handleWatcherEvent` stub verified: file-system-manager.ts:546-555
 
-4. **No hallucinated APIs**:
-   - All decorators: `@injectable()`, `@inject()` from tsyringe (verified in all service files)
-   - All base types: `DependencyGraph`, `FileNode`, `SymbolIndex` (verified: dependency-graph.service.ts:21-49)
-   - `HookEvent`, `HookCallbackMatcher`, `HookJSONOutput`, `HookInput` (verified: claude-sdk.types.ts, imported in session-start-hook-handler.ts:27-34)
-   - `FileSystemManager.createWatcher()` (verified: file-system-manager.ts:359)
-   - `FileSystemManager.disposeWatcher()` (verified: file-system-manager.ts:408)
-   - `ContextSizeOptimizerService.setDependencyGraph()` (verified: context-size-optimizer.service.ts:175)
-   - `DependencyGraphService.invalidateFile()` (verified: dependency-graph.service.ts:317)
-   - `DependencyGraphService.isBuilt()` (verified: dependency-graph.service.ts:367)
-   - `IndexedFile`, `FileType` (verified: exported from workspace.types.ts via index.ts:9)
-
-### Architecture Delivery Checklist
-
-- [x] All components specified with evidence
-- [x] All patterns verified from codebase
-- [x] All imports/decorators verified as existing
-- [x] Quality requirements defined (error handling, performance, graceful degradation)
-- [x] Integration points documented (3 pillars interconnected)
-- [x] Files affected list complete (15 create + 15 modify = 30 files)
-- [x] Developer type recommended (backend-developer)
-- [x] Complexity assessed (HIGH, 8-11 days)
-- [x] No step-by-step implementation (that's team-leader's job)
-- [x] Each pillar functions independently (graceful degradation)
-- [x] File-based storage follows AnalysisStorageService pattern
-- [x] No new external dependencies (uses fs/promises + existing gray-matter)
-- [x] No backward compatibility layers or parallel implementations
+4. **SessionStartHookHandler does NOT exist as a file** -- was deleted. Memory injection must go through a different mechanism (system prompt assembly in SdkQueryOptionsBuilder).

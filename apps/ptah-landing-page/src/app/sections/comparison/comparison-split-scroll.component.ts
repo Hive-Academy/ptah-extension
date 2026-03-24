@@ -25,8 +25,8 @@ interface Benefit {
  */
 interface PerformanceMetric {
   name: string;
-  cli: string;
-  sdk: string;
+  before: string;
+  after: string;
   improvement: string;
 }
 
@@ -59,8 +59,8 @@ interface PerformanceMetric {
           [viewportConfig]="subheaderConfig"
           class="mt-4 text-xl text-slate-400 max-w-2xl mx-auto"
         >
-          From terminal chaos to visual clarity. See how Ptah transforms your AI
-          coding workflow.
+          From juggling AI providers to unified orchestration. See how Ptah
+          transforms your coding workflow.
         </p>
       </div>
 
@@ -195,16 +195,16 @@ interface PerformanceMetric {
               <div class="flex items-baseline justify-center gap-3 flex-wrap">
                 <span
                   class="text-slate-500 line-through text-lg"
-                  aria-label="CLI value"
+                  aria-label="Before value"
                 >
-                  {{ metric.cli }}
+                  {{ metric.before }}
                 </span>
                 <span class="text-slate-600" aria-hidden="true">→</span>
                 <span
                   class="text-3xl font-bold text-green-400"
-                  aria-label="SDK value"
+                  aria-label="With Ptah value"
                 >
-                  {{ metric.sdk }}
+                  {{ metric.after }}
                 </span>
               </div>
               <span
@@ -230,9 +230,9 @@ interface PerformanceMetric {
 export class ComparisonSplitScrollComponent {
   public readonly painPoints: PainPoint[] = [
     {
-      text: 'Terminal switching disrupts your flow',
+      text: 'Fragmented AI provider experience',
       detail:
-        'Constant context switching between editor and terminal breaks concentration',
+        'Switching between OpenAI, Claude, and Copilot means different tools, different workflows',
     },
     {
       text: 'Slow CLI subprocess overhead',
@@ -252,13 +252,13 @@ export class ComparisonSplitScrollComponent {
 
   public readonly benefits: Benefit[] = [
     {
-      text: 'VS Code native - never leave your editor',
+      text: 'One harness for all AI providers',
       detail:
-        'Seamlessly integrated into your existing workflow and keybindings',
+        'OpenAI, Claude, Copilot, and 200+ models through a single unified interface',
     },
     {
-      text: '10x faster SDK integration',
-      detail: '50ms session creation vs 500ms with CLI subprocess',
+      text: '10x faster native integration',
+      detail: '50ms session creation vs 500ms with CLI subprocess overhead',
     },
     {
       text: 'Project-adaptive AI agents',
@@ -274,20 +274,20 @@ export class ComparisonSplitScrollComponent {
   public readonly metrics: PerformanceMetric[] = [
     {
       name: 'Session Creation',
-      cli: '500ms',
-      sdk: '50ms',
+      before: '500ms',
+      after: '50ms',
       improvement: '10x faster',
     },
     {
       name: 'First Chunk Latency',
-      cli: '1000ms',
-      sdk: '100ms',
+      before: '1000ms',
+      after: '100ms',
       improvement: '10x faster',
     },
     {
       name: 'Memory Usage',
-      cli: '50MB',
-      sdk: '20MB',
+      before: '50MB',
+      after: '20MB',
       improvement: '60% less',
     },
   ];

@@ -34,11 +34,14 @@ jobs:
 
       - run: npm ci
 
-      # Prepend any command with "nx-cloud record --" to record its logs to Nx Cloud
-      # - run: npx nx-cloud record -- echo Hello World
-      - uses: nrwl/nx-set-shas@v4
+      # Generate Prisma client types (required for typecheck/build of license server)
+      - run: npx nx run ptah-license-server:prisma:generate
 
-      - run: npx nx affected -t lint typecheck build
-      # Nx Cloud recommends fixes for failures to help you get CI green faster. Learn more: https://nx.dev/ci/features/self-healing-ci
-      - run: npx nx fix-ci
-        if: always()
+      # Set NX_BASE for affected comparison
+      # PR: compare against the base branch; Push to main: compare against previous commit
+      - name: Set NX SHAs
+        uses: nrwl/nx-set-shas@v4
+        with:
+          main-branch-name: main
+
+      - run: npx nx affected -t  build --exclude=infra-test

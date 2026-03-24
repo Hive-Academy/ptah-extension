@@ -17,6 +17,7 @@ import type {
   CliSessionReference,
 } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
+import { VSCodeService } from '@ptah-extension/core';
 
 /** Maximum stdout/stderr buffer per agent in the frontend (50KB) */
 const MAX_FRONTEND_BUFFER = 50 * 1024;
@@ -68,6 +69,7 @@ export interface MonitoredAgent {
 @Injectable({ providedIn: 'root' })
 export class AgentMonitorStore implements OnDestroy {
   private readonly tabManager = inject(TabManagerService);
+  private readonly vscodeService = inject(VSCodeService);
 
   // Private mutable state
   private readonly _agents = signal<Map<string, MonitoredAgent>>(new Map());
@@ -76,6 +78,37 @@ export class AgentMonitorStore implements OnDestroy {
   private _userExplicitlyClosed = false;
   /** Monotonic counter for tracking expand order (oldest = lowest value) */
   private _expandOrder = 0;
+
+  /**
+   * TASK_2025_211: Tracks agent descriptions (tasks) that have been resumed.
+   * Used by inline-agent-bubble to upgrade 'interrupted' → 'resumed' visuals.
+   * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
+   */
+  private readonly _resumedAgentKeys = signal<Set<string>>(new Set());
+
+  /**
+   * TASK_2025_211: Tracks specific agent node IDs that have been resumed.
+   * When a new agent of the same type is spawned while an interrupted agent
+   * of that type exists, the SPECIFIC interrupted agent's node ID is stored here.
+   * This prevents false positives when multiple agents of the same type exist.
+   */
+  private readonly _resumedAgentNodeIds = signal<Set<string>>(new Set());
+
+  /** Whether this webview instance is the sidebar (not an editor panel) */
+  get isSidebar(): boolean {
+    const panelId = this.vscodeService.config().panelId;
+    return !panelId || panelId === '';
+  }
+
+  /**
+   * Whether the "pop out to editor" button should be highlighted.
+   * True when agents are actively running and we're in the narrow sidebar.
+   */
+  readonly shouldSuggestEditorPanel = computed(
+    () =>
+      this.isSidebar &&
+      Array.from(this._agents().values()).some((a) => a.status === 'running')
+  );
 
   /**
    * Shared tick signal incremented every 1s while agents are running.
@@ -99,8 +132,19 @@ export class AgentMonitorStore implements OnDestroy {
   readonly activeTabAgents = computed(() => {
     const all = this.agents();
     const activeSessionId = this.tabManager.activeTab()?.claudeSessionId;
-    if (!activeSessionId) return all;
-    return all.filter(
+
+    // Ptah-cli agents with a parentSessionId are orchestration subagents spawned
+    // via the ptah_agent_spawn MCP tool during an active session. Their output is
+    // rendered inline in the chat as ExecutionNode agent bubbles — showing them
+    // in the sidebar too creates confusing duplicate empty cards.
+    // User-initiated ptah-cli sessions go through chat:start, run in their own
+    // tab, and have no parentSessionId — those are NOT filtered.
+    const visible = all.filter(
+      (a) => !(a.cli === 'ptah-cli' && a.parentSessionId)
+    );
+
+    if (!activeSessionId) return visible;
+    return visible.filter(
       (a) => !a.parentSessionId || a.parentSessionId === activeSessionId
     );
   });
@@ -162,6 +206,48 @@ export class AgentMonitorStore implements OnDestroy {
     this._panelOpen.set(false);
   }
 
+  /**
+   * TASK_2025_211: Check if a specific interrupted agent has been resumed.
+   * Two matching strategies:
+   * 1. SDK subagents: matches by specific node ID (nodeId or toolCallId)
+   * 2. CLI agents: matches by parentSessionId + task description
+   * Used by inline-agent-bubble to show 'Resumed' badge.
+   */
+  isAgentResumed(
+    nodeId: string | undefined,
+    toolCallId: string | undefined,
+    taskOrDescription: string
+  ): boolean {
+    const resumedIds = this._resumedAgentNodeIds();
+
+    // Strategy 1: SDK subagent resume (matched by specific node ID or toolCallId)
+    if (nodeId && resumedIds.has(nodeId)) return true;
+    if (toolCallId && resumedIds.has(toolCallId)) return true;
+
+    // Strategy 2: CLI agent resume (matched by parentSessionId::task)
+    const keys = this._resumedAgentKeys();
+    for (const key of keys) {
+      if (key.endsWith(`::${taskOrDescription}`)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * TASK_2025_211: Mark specific agent node IDs as resumed.
+   * Called by the streaming handler when a new agent_start arrives and
+   * a specific interrupted agent of the same type is found.
+   */
+  markAgentNodesResumed(nodeIds: string[]): void {
+    if (nodeIds.length === 0) return;
+    this._resumedAgentNodeIds.update((set) => {
+      const next = new Set(set);
+      for (const id of nodeIds) {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
   // Agent lifecycle
   onAgentSpawned(info: AgentProcessInfo): void {
     // Check before adding — auto-open on 0→1 transition only
@@ -174,6 +260,16 @@ export class AgentMonitorStore implements OnDestroy {
       // instead of creating a new one (avoids flicker and duplicate cards)
       if (info.resumedFromAgentId && next.has(info.resumedFromAgentId)) {
         const oldCard = next.get(info.resumedFromAgentId)!;
+
+        // TASK_2025_211: Track this agent as resumed so inline bubbles can
+        // show 'Resumed' badge instead of 'Interrupted'.
+        if (oldCard.parentSessionId && oldCard.task) {
+          this._resumedAgentKeys.update((set) => {
+            const next = new Set(set);
+            next.add(`${oldCard.parentSessionId}::${oldCard.task}`);
+            return next;
+          });
+        }
         next.delete(info.resumedFromAgentId);
         next.set(info.agentId, {
           agentId: info.agentId,

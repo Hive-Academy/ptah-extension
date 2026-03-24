@@ -46,10 +46,11 @@ export {
 } from './sdk-message-factory';
 export {
   SdkQueryOptionsBuilder,
-  assembleSystemPromptAppend,
+  assembleSystemPrompt,
   buildModelIdentityPrompt,
   getActiveProviderId,
   type AssembleSystemPromptInput,
+  type SystemPromptAssemblyResult,
   type QueryOptionsInput,
   type SdkQueryOptions,
   type QueryConfig,
@@ -87,3 +88,9 @@ export {
   formatSkillsForPrompt,
   type PluginSkillInfo,
 } from './plugin-skill-discovery';
+
+// Skill junction management (TASK_2025_201)
+export {
+  SkillJunctionService,
+  type SkillJunctionResult,
+} from './skill-junction.service';

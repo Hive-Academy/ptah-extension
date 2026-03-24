@@ -33,7 +33,10 @@
       "WebFetch(domain:angular.love)",
       "Bash(npm run typecheck:all:*)",
       "WebFetch(domain:api.github.com)",
-      "Bash(npx prisma generate:*)"
+      "Bash(npx prisma generate:*)",
+      "Bash(ffmpeg -i D:/projects/ptah-extension/apps/ptah-landing-page/public/assets/videos/ptah-mcp-server.mp4 -c:v libx264 -profile:v high -pix_fmt yuv420p -vf \"scale=1088:672\" -r 24 -crf 28 -preset slow -an -movflags +faststart D:/projects/ptah-extension/apps/ptah-landing-page/public/assets/videos/ptah-mcp-server_compressed.mp4 -y)",
+      "Bash(ls:*)",
+      "Bash(cd:*)"
     ],
     "deny": [],
     "ask": [],

@@ -23,6 +23,7 @@ import {
   type AuthEnv,
 } from '@ptah-extension/shared';
 import { COPILOT_PROVIDER_ENTRY } from '../copilot-provider';
+import { CODEX_PROVIDER_ENTRY } from '../codex-provider';
 
 /**
  * Static model definition for providers without a dynamic models API
@@ -280,6 +281,7 @@ export const ANTHROPIC_PROVIDERS = [
     ],
   },
   COPILOT_PROVIDER_ENTRY,
+  CODEX_PROVIDER_ENTRY,
 ] as const satisfies readonly AnthropicProvider[];
 
 /**
@@ -290,7 +292,8 @@ export type AnthropicProviderId =
   | 'openrouter'
   | 'moonshot'
   | 'z-ai'
-  | 'github-copilot';
+  | 'github-copilot'
+  | 'openai-codex';
 
 /** Default provider when none is configured */
 export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';

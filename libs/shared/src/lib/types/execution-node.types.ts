@@ -21,6 +21,7 @@
  */
 
 import { z } from 'zod';
+import { isAgentDispatchTool } from '../type-guards/tool-input-guards';
 
 // ============================================================================
 // EXECUTION NODE TYPES
@@ -53,6 +54,7 @@ export type ExecutionStatus =
   | 'streaming' // Currently receiving content
   | 'complete' // Successfully finished
   | 'interrupted' // User aborted/stopped (TASK_2025_098)
+  | 'resumed' // Previously interrupted, now resumed in a new agent (TASK_2025_211)
   | 'error'; // Failed with error
 
 /**
@@ -490,6 +492,8 @@ export const ExecutionStatusSchema = z.enum([
   'pending',
   'streaming',
   'complete',
+  'interrupted',
+  'resumed',
   'error',
 ]);
 
@@ -686,10 +690,10 @@ export function isStreaming(node: ExecutionNode): boolean {
 }
 
 /**
- * Check if JSONL message is a Task tool (agent spawn)
+ * Check if JSONL message is a Task/Agent tool (agent spawn)
  */
 export function isTaskToolMessage(msg: JSONLMessage): boolean {
-  return msg.type === 'tool' && msg.tool === 'Task';
+  return msg.type === 'tool' && isAgentDispatchTool(msg.tool ?? '');
 }
 
 /**
@@ -999,6 +1003,8 @@ export interface BackgroundAgentCompletedEvent extends FlatStreamEvent {
   readonly toolCallId: string;
   /** Short agent identifier */
   readonly agentId: string;
+  /** Agent type (e.g., 'software-architect', 'Explore') for display when start event was missed */
+  readonly agentType?: string;
   /** Final result text from the agent */
   readonly result?: string;
   /** Total cost in USD */
@@ -1022,6 +1028,8 @@ export interface BackgroundAgentStoppedEvent extends FlatStreamEvent {
   readonly toolCallId: string;
   /** Short agent identifier */
   readonly agentId: string;
+  /** Agent type for display when start event was missed */
+  readonly agentType?: string;
   /** Tab ID for routing */
   readonly tabId?: string;
 }

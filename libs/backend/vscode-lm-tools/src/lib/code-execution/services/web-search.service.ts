@@ -1,13 +1,7 @@
-import type {
-  LlmService,
-  LlmConfigurationService,
-  CliDetectionService,
-} from '@ptah-extension/llm-abstraction';
+import type { CliDetectionService } from '@ptah-extension/llm-abstraction';
 import type { Logger } from '@ptah-extension/vscode-core';
 
 export interface WebSearchDependencies {
-  llmService: LlmService;
-  configService: LlmConfigurationService;
   cliDetectionService: CliDetectionService;
   logger: Logger;
 }
@@ -15,7 +9,7 @@ export interface WebSearchDependencies {
 export interface WebSearchResult {
   query: string;
   summary: string;
-  provider: 'vscode-lm' | 'gemini-cli';
+  provider: 'gemini-cli';
   durationMs: number;
 }
 
@@ -39,42 +33,9 @@ export class WebSearchService {
     const timeout = Math.min(timeoutMs ?? 30000, 60000);
     const start = Date.now();
 
-    // Try VS Code LM API first (in-process, fast)
+    // Gemini CLI (has native google_web_search)
     try {
-      const result = await this.searchViaVsCodeLm(sanitizedQuery, timeout);
-      if (result) {
-        this.deps.logger.info(
-          '[WebSearch] Completed via VS Code LM',
-          'WebSearchService',
-          {
-            query: sanitizedQuery.substring(0, 80),
-            durationMs: Date.now() - start,
-          }
-        );
-        return {
-          query: sanitizedQuery,
-          summary: result,
-          provider: 'vscode-lm',
-          durationMs: Date.now() - start,
-        };
-      }
-    } catch (error) {
-      this.deps.logger.warn(
-        '[WebSearch] VS Code LM failed, trying Gemini CLI',
-        'WebSearchService',
-        {
-          error: error instanceof Error ? error.message : String(error),
-        }
-      );
-    }
-
-    // Fallback: Gemini CLI (has native google_web_search)
-    try {
-      const remaining = timeout - (Date.now() - start);
-      if (remaining <= 0) {
-        throw new Error('Timeout exhausted after VS Code LM attempt');
-      }
-      const result = await this.searchViaGeminiCli(sanitizedQuery, remaining);
+      const result = await this.searchViaGeminiCli(sanitizedQuery, timeout);
       this.deps.logger.info(
         '[WebSearch] Completed via Gemini CLI',
         'WebSearchService',
@@ -92,58 +53,9 @@ export class WebSearchService {
     } catch (error) {
       throw new Error(
         `Web search failed: no provider available. ` +
-          `VS Code LM and Gemini CLI both failed. ` +
+          `Gemini CLI failed. ` +
           `Error: ${error instanceof Error ? error.message : String(error)}`
       );
-    }
-  }
-
-  /**
-   * Search via VS Code LM API (in-process, fast path).
-   * Returns null (not throw) when provider is unavailable, enabling fallback.
-   *
-   * Note: setProvider() mutates the shared LlmService singleton's active provider.
-   * This is the same pattern used by buildProviderNamespace() in llm-namespace.builder.ts.
-   * The LlmService uses an internal Mutex to serialize provider switches.
-   */
-  private async searchViaVsCodeLm(
-    query: string,
-    timeoutMs: number
-  ): Promise<string | null> {
-    const model = this.deps.configService.getDefaultModel('vscode-lm');
-    const setResult = await this.deps.llmService.setProvider(
-      'vscode-lm',
-      model
-    );
-    if (setResult.isErr()) {
-      this.deps.logger.debug(
-        '[WebSearch] VS Code LM not available',
-        'WebSearchService'
-      );
-      return null;
-    }
-
-    const systemPrompt =
-      'You are a web search assistant. Search the web for the given query ' +
-      'and provide a comprehensive summary of the most relevant and recent results. ' +
-      'Include key facts, sources, and URLs when available.';
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const completionResult = await Promise.race([
-        this.deps.llmService.getCompletion(
-          systemPrompt,
-          `Search the web for: ${query}`
-        ),
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), timeoutMs);
-        }),
-      ]);
-
-      if (!completionResult || completionResult.isErr()) return null;
-      return completionResult.value || null;
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
     }
   }
 

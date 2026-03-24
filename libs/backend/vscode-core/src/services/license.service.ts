@@ -17,7 +17,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 import EventEmitter from 'eventemitter3';
 import { createPublicKey, verify, KeyObject } from 'crypto';
 import {
@@ -26,6 +26,7 @@ import {
 } from '@ptah-extension/shared';
 import { Logger } from '../logging';
 import { TOKENS } from '../di/tokens';
+import type { ConfigManager } from '../config/config-manager';
 
 /**
  * Persisted cache structure for offline grace period
@@ -215,19 +216,17 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    * Resolve the license server URL.
    *
    * Priority:
-   * 1. VS Code setting `ptah.apiUrl` (manual override)
-   * 2. Environment-based: localhost:3000 in dev (F5), api.ptah.live in production
+   * 1. Setting `ptah.apiUrl` (manual override via ConfigManager)
+   * 2. Environment-based: localhost:3000 in dev, api.ptah.live in production
    */
   private get licenseServerUrl(): string {
-    const settingOverride = vscode.workspace
-      .getConfiguration('ptah')
-      .get<string>('apiUrl');
+    const settingOverride = this.configManager.get<string>('apiUrl');
     if (settingOverride) {
       return settingOverride;
     }
 
-    const isDev =
-      this.context.extensionMode === vscode.ExtensionMode.Development;
+    // extensionMode: 2 = Development (matches vscode.ExtensionMode.Development)
+    const isDev = this.context.extensionMode === 2;
     return resolveEnvironment(isDev).urls.API_URL;
   }
 
@@ -235,7 +234,9 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     @inject(TOKENS.EXTENSION_CONTEXT)
     private readonly context: vscode.ExtensionContext,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    @inject(TOKENS.CONFIG_MANAGER)
+    private readonly configManager: ConfigManager
   ) {
     super();
     this.logger.info('[LicenseService.constructor] Service initialized', {

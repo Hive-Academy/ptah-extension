@@ -199,6 +199,8 @@ export class JsonlReaderService {
       isMeta: line.isMeta,
       slug: line.slug,
       message: line.message as SessionHistoryMessage['message'],
+      // Preserve model from system init messages for dashboard display
+      model: line.model,
       // Preserve usage stats for later aggregation
       usage: line.message?.usage,
     };

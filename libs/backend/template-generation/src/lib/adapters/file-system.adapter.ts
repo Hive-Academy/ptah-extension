@@ -1,26 +1,26 @@
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
+import * as path from 'path';
 import { Result } from '@ptah-extension/shared';
-import { TOKENS } from '@ptah-extension/vscode-core';
-import { FileSystemService } from '@ptah-extension/workspace-intelligence';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IFileSystemProvider } from '@ptah-extension/platform-core';
+import { FileType } from '@ptah-extension/platform-core';
 
 /**
- * FileSystemAdapter - Adapter for workspace-intelligence FileSystemService
+ * FileSystemAdapter - Adapter for platform-agnostic file system operations
  *
  * Bridges the API gap between template-generation (string paths, Result returns)
- * and workspace-intelligence FileSystemService (Uri-based, throws errors).
+ * and IFileSystemProvider (string-based, throws errors).
  *
  * Responsibilities:
- * - Convert string file paths to vscode.Uri
- * - Wrap FileSystemService calls with Result<T, Error> pattern
- * - Implement missing methods (createDirectory, writeFile, copyDirectoryRecursive)
+ * - Wrap IFileSystemProvider calls with Result<T, Error> pattern
+ * - Implement missing methods (copyDirectoryRecursive)
  * - Catch thrown errors and return as Result.err()
  */
 @injectable()
 export class FileSystemAdapter {
   constructor(
-    @inject(TOKENS.FILE_SYSTEM_SERVICE)
-    private readonly fileSystemService: FileSystemService
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fs: IFileSystemProvider
   ) {}
 
   /**
@@ -30,8 +30,7 @@ export class FileSystemAdapter {
    */
   async readFile(filePath: string): Promise<Result<string, Error>> {
     try {
-      const uri = vscode.Uri.file(filePath);
-      const content = await this.fileSystemService.readFile(uri);
+      const content = await this.fs.readFile(filePath);
       return Result.ok(content);
     } catch (error) {
       return Result.err(
@@ -51,9 +50,7 @@ export class FileSystemAdapter {
     content: string
   ): Promise<Result<void, Error>> {
     try {
-      const uri = vscode.Uri.file(filePath);
-      const bytes = new TextEncoder().encode(content);
-      await vscode.workspace.fs.writeFile(uri, bytes);
+      await this.fs.writeFile(filePath, content);
       return Result.ok(undefined);
     } catch (error) {
       return Result.err(
@@ -69,8 +66,7 @@ export class FileSystemAdapter {
    */
   async createDirectory(dirPath: string): Promise<Result<void, Error>> {
     try {
-      const uri = vscode.Uri.file(dirPath);
-      await vscode.workspace.fs.createDirectory(uri);
+      await this.fs.createDirectory(dirPath);
       return Result.ok(undefined);
     } catch (error) {
       return Result.err(
@@ -90,32 +86,29 @@ export class FileSystemAdapter {
     destDir: string
   ): Promise<Result<void, Error>> {
     try {
-      const sourceUri = vscode.Uri.file(sourceDir);
-      const destUri = vscode.Uri.file(destDir);
-
       // Read source directory
-      const entries = await this.fileSystemService.readDirectory(sourceUri);
+      const entries = await this.fs.readDirectory(sourceDir);
 
       // Create destination directory
-      await vscode.workspace.fs.createDirectory(destUri);
+      await this.fs.createDirectory(destDir);
 
       // Copy each entry recursively
-      for (const [name, type] of entries) {
-        const srcPath = vscode.Uri.joinPath(sourceUri, name);
-        const dstPath = vscode.Uri.joinPath(destUri, name);
+      for (const entry of entries) {
+        const srcPath = path.join(sourceDir, entry.name);
+        const dstPath = path.join(destDir, entry.name);
 
-        if (type === vscode.FileType.Directory) {
+        if (entry.type === FileType.Directory) {
           // Recursive copy for directories
           const recursiveResult = await this.copyDirectoryRecursive(
-            srcPath.fsPath,
-            dstPath.fsPath
+            srcPath,
+            dstPath
           );
           if (recursiveResult.isErr()) {
             return recursiveResult;
           }
         } else {
           // Copy file
-          await vscode.workspace.fs.copy(srcPath, dstPath, { overwrite: true });
+          await this.fs.copy(srcPath, dstPath, { overwrite: true });
         }
       }
 
@@ -134,8 +127,7 @@ export class FileSystemAdapter {
    */
   async exists(filePath: string): Promise<Result<boolean, Error>> {
     try {
-      const uri = vscode.Uri.file(filePath);
-      const exists = await this.fileSystemService.exists(uri);
+      const exists = await this.fs.exists(filePath);
       return Result.ok(exists);
     } catch (error) {
       return Result.err(
