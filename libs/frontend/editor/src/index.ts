@@ -27,3 +27,4 @@ export { EditorPanelComponent } from './lib/editor-panel/editor-panel.component'
 
 // Services
 export { EditorService } from './lib/services/editor.service';
+export type { EditorTab } from './lib/services/editor.service';

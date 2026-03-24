@@ -12,6 +12,8 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { EditorComponent } from 'ngx-monaco-editor-v2';
+import { MarkdownComponent } from 'ngx-markdown';
+import { LucideAngularModule, Eye, Code } from 'lucide-angular';
 
 /**
  * CodeEditorComponent - Monaco editor wrapper with language detection and save support.
@@ -30,7 +32,12 @@ import { EditorComponent } from 'ngx-monaco-editor-v2';
 @Component({
   selector: 'ptah-code-editor',
   standalone: true,
-  imports: [FormsModule, EditorComponent],
+  imports: [
+    FormsModule,
+    EditorComponent,
+    MarkdownComponent,
+    LucideAngularModule,
+  ],
   template: `
     @if (filePath()) {
     <div class="h-full w-full flex flex-col">
@@ -43,8 +50,33 @@ import { EditorComponent } from 'ngx-monaco-editor-v2';
         @if (isDirty()) {
         <span class="badge badge-xs badge-warning">Modified</span>
         }
+        <div class="ml-auto flex items-center">
+          @if (isMarkdownFile()) {
+          <button
+            class="btn btn-ghost btn-xs gap-1"
+            [attr.aria-label]="
+              showPreview() ? 'Switch to editor' : 'Switch to preview'
+            "
+            [title]="showPreview() ? 'Edit markdown' : 'Preview markdown'"
+            (click)="togglePreview()"
+          >
+            <lucide-angular
+              [img]="showPreview() ? CodeIcon : EyeIcon"
+              class="w-3.5 h-3.5"
+            />
+            <span>{{ showPreview() ? 'Edit' : 'Preview' }}</span>
+          </button>
+          }
+        </div>
       </div>
       <div class="flex-1 min-h-0">
+        @if (showPreview() && isMarkdownFile()) {
+        <div
+          class="h-full overflow-y-auto bg-base-100 p-6 prose prose-invert max-w-none"
+        >
+          <markdown [data]="editorContent" />
+        </div>
+        } @else {
         <ngx-monaco-editor
           class="h-full"
           [options]="editorOptions()"
@@ -52,6 +84,7 @@ import { EditorComponent } from 'ngx-monaco-editor-v2';
           (ngModelChange)="onContentChange()"
           (onInit)="onEditorInit($event)"
         />
+        }
       </div>
     </div>
     } @else {
@@ -90,6 +123,18 @@ export class CodeEditorComponent implements OnInit {
   private lastSavedContent = '';
 
   readonly isDirty = signal(false);
+  readonly showPreview = signal(false);
+
+  // Icons
+  readonly EyeIcon = Eye;
+  readonly CodeIcon = Code;
+
+  /** Whether the current file is a markdown file */
+  readonly isMarkdownFile = computed(() => {
+    const path = this.filePath();
+    if (!path) return false;
+    return path.toLowerCase().endsWith('.md');
+  });
 
   readonly fileName = computed(() => {
     const path = this.filePath();
@@ -118,6 +163,8 @@ export class CodeEditorComponent implements OnInit {
         this.editorContent = newContent;
         this.lastSavedContent = newContent;
         this.isDirty.set(false);
+        // Reset preview when switching files
+        this.showPreview.set(false);
       }
     });
   }
@@ -139,6 +186,10 @@ export class CodeEditorComponent implements OnInit {
         document.removeEventListener('keydown', this.keydownHandler);
       }
     });
+  }
+
+  protected togglePreview(): void {
+    this.showPreview.update((v) => !v);
   }
 
   protected onEditorInit(_editor: unknown): void {

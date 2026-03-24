@@ -3,6 +3,14 @@ import { VSCodeService } from '@ptah-extension/core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { FileTreeNode } from '../models/file-tree.model';
 
+/** Represents an open editor tab */
+export interface EditorTab {
+  filePath: string;
+  fileName: string;
+  content: string;
+  isDirty: boolean;
+}
+
 /**
  * Internal type for per-workspace editor state.
  * Stores all editor-related state that should be isolated between workspaces.
@@ -14,6 +22,8 @@ interface EditorWorkspaceState {
   activeFilePath: string | undefined;
   /** Content of the currently active file */
   activeFileContent: string;
+  /** All open tabs */
+  openTabs: EditorTab[];
   /** Scroll position for state restoration */
   scrollPosition?: number;
   /** Cursor position for state restoration */
@@ -68,6 +78,7 @@ export class EditorService {
   private readonly _fileTree = signal<FileTreeNode[]>([]);
   private readonly _activeFilePath = signal<string | undefined>(undefined);
   private readonly _activeFileContent = signal<string>('');
+  private readonly _openTabs = signal<EditorTab[]>([]);
   private readonly _isLoading = signal(false);
   private readonly _error = signal<string | null>(null);
   private errorTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -86,6 +97,9 @@ export class EditorService {
 
   /** Last error message, or null if no error */
   readonly error = this._error.asReadonly();
+
+  /** All currently open editor tabs */
+  readonly openTabs = this._openTabs.asReadonly();
 
   /** Whether a file is currently open */
   readonly hasActiveFile = computed(() => this._activeFilePath() !== undefined);
@@ -122,17 +136,20 @@ export class EditorService {
       this._fileTree.set(cachedState.fileTree);
       this._activeFilePath.set(cachedState.activeFilePath);
       this._activeFileContent.set(cachedState.activeFileContent);
+      this._openTabs.set(cachedState.openTabs);
     } else {
       // No cached state -- reset to empty defaults and trigger file tree load
       this._fileTree.set([]);
       this._activeFilePath.set(undefined);
       this._activeFileContent.set('');
+      this._openTabs.set([]);
 
       // Initialize empty state in map
       this._workspaceEditorState.set(workspacePath, {
         fileTree: [],
         activeFilePath: undefined,
         activeFileContent: '',
+        openTabs: [],
       });
 
       // Fetch file tree for the new workspace via RPC
@@ -155,6 +172,7 @@ export class EditorService {
       this._fileTree.set([]);
       this._activeFilePath.set(undefined);
       this._activeFileContent.set('');
+      this._openTabs.set([]);
     }
   }
 
@@ -203,8 +221,19 @@ export class EditorService {
 
   /**
    * Open a file by path. Sends an RPC message to load file content.
+   * Adds the file as a tab if not already open, and sets it as active.
    */
   async openFile(filePath: string): Promise<void> {
+    // Check if the file is already open in a tab
+    const existingTab = this._openTabs().find((t) => t.filePath === filePath);
+    if (existingTab) {
+      // Tab already open -- just switch to it without RPC
+      this._activeFilePath.set(filePath);
+      this._activeFileContent.set(existingTab.content);
+      this._updateCachedActiveFile(filePath, existingTab.content);
+      return;
+    }
+
     this._activeFilePath.set(filePath);
     this._isLoading.set(true);
     this.clearError();
@@ -218,16 +247,16 @@ export class EditorService {
       const content = result.data.content ?? '';
       this._activeFileContent.set(content);
 
+      // Add new tab
+      const fileName = this._extractFileName(filePath);
+      this._openTabs.update((tabs) => [
+        ...tabs,
+        { filePath, fileName, content, isDirty: false },
+      ]);
+
       // Update cached state if workspace is active
-      if (this._activeWorkspacePath) {
-        const cached = this._workspaceEditorState.get(
-          this._activeWorkspacePath
-        );
-        if (cached) {
-          cached.activeFilePath = filePath;
-          cached.activeFileContent = content;
-        }
-      }
+      this._updateCachedActiveFile(filePath, content);
+      this._syncTabsToCache();
     } else {
       this.showError(result.error ?? 'Failed to open file');
     }
@@ -331,6 +360,77 @@ export class EditorService {
     }
   }
 
+  // ============================================================================
+  // TAB OPERATIONS
+  // ============================================================================
+
+  /**
+   * Close a tab by file path. If the closed tab was active, switch to the
+   * last remaining tab or clear the editor if no tabs remain.
+   */
+  closeTab(filePath: string): void {
+    const currentTabs = this._openTabs();
+    const tabIndex = currentTabs.findIndex((t) => t.filePath === filePath);
+    if (tabIndex === -1) return;
+
+    const updatedTabs = currentTabs.filter((t) => t.filePath !== filePath);
+    this._openTabs.set(updatedTabs);
+
+    // If the closed tab was active, switch to another tab
+    if (this._activeFilePath() === filePath) {
+      if (updatedTabs.length > 0) {
+        // Switch to the tab that was adjacent (prefer the one before, or the last one)
+        const newIndex = Math.min(tabIndex, updatedTabs.length - 1);
+        const newActive = updatedTabs[newIndex];
+        this._activeFilePath.set(newActive.filePath);
+        this._activeFileContent.set(newActive.content);
+        this._updateCachedActiveFile(newActive.filePath, newActive.content);
+      } else {
+        this.clearActiveFile();
+      }
+    }
+
+    this._syncTabsToCache();
+  }
+
+  /**
+   * Switch to an already-open tab by file path.
+   * Updates the active file path and content from cached tab data.
+   */
+  switchTab(filePath: string): void {
+    const tab = this._openTabs().find((t) => t.filePath === filePath);
+    if (!tab) return;
+
+    this._activeFilePath.set(tab.filePath);
+    this._activeFileContent.set(tab.content);
+    this._updateCachedActiveFile(tab.filePath, tab.content);
+  }
+
+  /**
+   * Update a tab's content and mark it as dirty.
+   * Called when the user edits content in the Monaco editor.
+   */
+  updateTabContent(filePath: string, content: string): void {
+    this._openTabs.update((tabs) =>
+      tabs.map((tab) =>
+        tab.filePath === filePath ? { ...tab, content, isDirty: true } : tab
+      )
+    );
+    this._syncTabsToCache();
+  }
+
+  /**
+   * Mark a tab as clean (not dirty) after a successful save.
+   */
+  markTabClean(filePath: string): void {
+    this._openTabs.update((tabs) =>
+      tabs.map((tab) =>
+        tab.filePath === filePath ? { ...tab, isDirty: false } : tab
+      )
+    );
+    this._syncTabsToCache();
+  }
+
   /**
    * Update the scroll position for the current workspace.
    * Called by editor components when scroll position changes.
@@ -416,9 +516,47 @@ export class EditorService {
       fileTree: this._fileTree(),
       activeFilePath: this._activeFilePath(),
       activeFileContent: this._activeFileContent(),
+      openTabs: this._openTabs(),
       scrollPosition: existing?.scrollPosition,
       cursorPosition: existing?.cursorPosition,
     });
+  }
+
+  // ============================================================================
+  // TAB & CACHE HELPERS
+  // ============================================================================
+
+  /**
+   * Extract file name from a full file path.
+   */
+  private _extractFileName(filePath: string): string {
+    const parts = filePath.replace(/\\/g, '/').split('/');
+    return parts[parts.length - 1] || filePath;
+  }
+
+  /**
+   * Update the cached active file path and content for the current workspace.
+   */
+  private _updateCachedActiveFile(filePath: string, content: string): void {
+    if (this._activeWorkspacePath) {
+      const cached = this._workspaceEditorState.get(this._activeWorkspacePath);
+      if (cached) {
+        cached.activeFilePath = filePath;
+        cached.activeFileContent = content;
+      }
+    }
+  }
+
+  /**
+   * Sync the current openTabs signal into the workspace state cache.
+   */
+  private _syncTabsToCache(): void {
+    if (this._activeWorkspacePath) {
+      const cached = this._workspaceEditorState.get(this._activeWorkspacePath);
+      if (cached) {
+        cached.openTabs = this._openTabs();
+      }
+    }
   }
 
   // ============================================================================

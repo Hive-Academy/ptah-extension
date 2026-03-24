@@ -263,13 +263,26 @@ export class ElectronEditorRpcHandlers {
       );
 
       for (const entry of sorted) {
-        // Skip hidden files/dirs and node_modules
-        if (
-          entry.name.startsWith('.') ||
-          entry.name === 'node_modules' ||
-          entry.name === 'dist'
-        ) {
+        // Skip truly hidden/noisy directories while allowing config dirs
+        // (.claude, .agent, .vscode, .github, .husky, etc.)
+        if (entry.name === 'node_modules' || entry.name === 'dist') {
           continue;
+        }
+        if (entry.name.startsWith('.')) {
+          const HIDDEN_SKIP = new Set([
+            '.git',
+            '.hg',
+            '.svn',
+            '.DS_Store',
+            '.Trash',
+            '.cache',
+            '.tmp',
+            '.temp',
+            '.nx',
+          ]);
+          if (HIDDEN_SKIP.has(entry.name)) {
+            continue;
+          }
         }
 
         const fullPath = dirPath.replace(/\\/g, '/') + '/' + entry.name;

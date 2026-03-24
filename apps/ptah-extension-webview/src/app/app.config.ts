@@ -150,6 +150,21 @@ export const appConfig: ApplicationConfig = {
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',
+      onMonacoLoad: () => {
+        // Fix Monaco web workers for Electron's file:// protocol.
+        // Workers need absolute file:/// URLs; relative file:// URLs fail importScripts.
+        const monacoVsUrl = new URL('./assets/monaco/vs', window.location.href)
+          .href;
+        (self as any).MonacoEnvironment = {
+          getWorkerUrl: (_moduleId: string, _label: string) => {
+            const workerUrl = `${monacoVsUrl}/base/worker/workerMain.js`;
+            const js = `self.MonacoEnvironment = { baseUrl: '${monacoVsUrl}/' };\nimportScripts('${workerUrl}');`;
+            return (
+              'data:text/javascript;charset=utf-8,' + encodeURIComponent(js)
+            );
+          },
+        };
+      },
     }),
     // Markdown rendering for chat messages (required for ngx-markdown)
     // Includes custom extensions for callout cards and collapsible code blocks

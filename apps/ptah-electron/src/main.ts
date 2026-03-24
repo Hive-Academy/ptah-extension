@@ -513,10 +513,11 @@ if (!gotLock) {
     // PHASE 4.6: Session Auto-Discovery (TASK_2025_210)
     // ========================================
     // Import existing Claude sessions from ~/.claude/projects/ for the active
-    // workspace. Non-fatal: failures are logged as warnings but do not block
-    // application startup.
+    // workspace. Uses startupWorkspaceRoot (resolved in Phase 2.5) which covers
+    // both CLI arg AND persisted workspace restoration — not just initialFolders.
+    // Non-fatal: failures are logged as warnings but do not block startup.
     {
-      const workspaceRoot = initialFolders?.[0];
+      const workspaceRoot = startupWorkspaceRoot;
       if (workspaceRoot) {
         try {
           const sessionImporter = container.resolve(

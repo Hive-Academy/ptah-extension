@@ -16,6 +16,8 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { SessionImporterService } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
@@ -31,7 +33,9 @@ export class ElectronWorkspaceRpcHandlers {
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.WORKSPACE_CONTEXT_MANAGER)
-    workspaceContextManager: WorkspaceContextManager
+    workspaceContextManager: WorkspaceContextManager,
+    @inject(SDK_TOKENS.SDK_SESSION_IMPORTER)
+    private readonly sessionImporter: SessionImporterService
   ) {
     this.workspaceContextManager = workspaceContextManager;
   }
@@ -112,6 +116,24 @@ export class ElectronWorkspaceRpcHandlers {
 
         this.electronProvider.addFolder(folderPath);
 
+        // Import existing Claude sessions for the new workspace (fire-and-forget)
+        this.sessionImporter
+          .scanAndImport(folderPath, 50)
+          .then((count) => {
+            if (count > 0) {
+              this.logger.info(
+                `[Electron RPC] workspace:addFolder imported ${count} session(s)`,
+                { folderPath }
+              );
+            }
+          })
+          .catch((err: unknown) => {
+            this.logger.warn(
+              '[Electron RPC] workspace:addFolder session import failed (non-fatal)',
+              { error: err instanceof Error ? err.message : String(err) }
+            );
+          });
+
         this.logger.info('[Electron RPC] workspace:addFolder', { folderPath });
         return { path: folderPath, name: folderName };
       } catch (error) {
@@ -173,6 +195,24 @@ export class ElectronWorkspaceRpcHandlers {
           }
 
           this.electronProvider.setActiveFolder(params.path);
+
+          // Import existing Claude sessions for the switched workspace (fire-and-forget)
+          this.sessionImporter
+            .scanAndImport(params.path, 50)
+            .then((count) => {
+              if (count > 0) {
+                this.logger.info(
+                  `[Electron RPC] workspace:switch imported ${count} session(s)`,
+                  { path: params.path }
+                );
+              }
+            })
+            .catch((err: unknown) => {
+              this.logger.warn(
+                '[Electron RPC] workspace:switch session import failed (non-fatal)',
+                { error: err instanceof Error ? err.message : String(err) }
+              );
+            });
 
           const folderName = params.path.split(/[/\\]/).pop() ?? 'Workspace';
 
