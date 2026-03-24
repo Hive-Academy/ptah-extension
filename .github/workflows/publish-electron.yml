@@ -96,7 +96,7 @@ jobs:
       - name: Commit version bump
         run: |
           git add apps/ptah-electron/package.json
-          git commit -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
+          git commit --no-verify -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
           git push origin HEAD
 
   build:
@@ -142,7 +142,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.os }}
-          path: release/
+          path: dist/release/
           retention-days: 30
 
   release:
