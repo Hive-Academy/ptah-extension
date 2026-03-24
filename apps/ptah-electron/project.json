@@ -14,7 +14,34 @@
         "tsConfig": "apps/ptah-electron/tsconfig.app.json",
         "webpackConfig": "apps/ptah-electron/webpack.config.js",
         "target": "node",
-        "compiler": "tsc"
+        "compiler": "tsc",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "apps/ptah-electron/src/assets",
+            "output": "assets"
+          },
+          {
+            "glob": "**/*",
+            "input": "apps/ptah-extension-vscode/assets/plugins",
+            "output": "assets/plugins"
+          },
+          {
+            "glob": "**/*",
+            "input": "libs/backend/agent-generation/templates",
+            "output": "templates"
+          },
+          {
+            "glob": "package.json",
+            "input": "apps/ptah-electron",
+            "output": "."
+          },
+          {
+            "glob": "electron-builder.yml",
+            "input": "apps/ptah-electron",
+            "output": "."
+          }
+        ]
       },
       "configurations": {
         "production": {
@@ -40,16 +67,12 @@
       }
     },
     "build": {
-      "executor": "nx:run-commands",
-      "options": {
-        "commands": [
-          "nx build-main ptah-electron",
-          "nx build-preload ptah-electron",
-          "nx build ptah-extension-webview --configuration=production"
-        ],
-        "parallel": false
-      },
-      "dependsOn": []
+      "executor": "nx:noop",
+      "dependsOn": [
+        "build-main",
+        "build-preload",
+        "ptah-extension-webview:build"
+      ]
     },
     "build-dev": {
       "executor": "nx:run-commands",
@@ -64,22 +87,10 @@
     },
     "copy-renderer": {
       "executor": "nx:run-commands",
+      "dependsOn": ["ptah-extension-webview:build"],
+      "outputs": ["{workspaceRoot}/dist/apps/ptah-electron/renderer"],
       "options": {
-        "commands": [
-          {
-            "command": "node apps/ptah-electron/scripts/copy-renderer.js"
-          }
-        ]
-      }
-    },
-    "copy-assets": {
-      "executor": "nx:run-commands",
-      "options": {
-        "commands": [
-          {
-            "command": "node apps/ptah-electron/scripts/copy-assets.js"
-          }
-        ]
+        "command": "node apps/ptah-electron/scripts/copy-renderer.js"
       }
     },
     "serve": {
@@ -88,7 +99,6 @@
         "commands": [
           "nx build-dev ptah-electron",
           "nx copy-renderer ptah-electron",
-          "nx copy-assets ptah-electron",
           "node apps/ptah-electron/scripts/launch.js"
         ],
         "parallel": false
@@ -107,7 +117,7 @@
     },
     "package": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build", "copy-renderer", "copy-assets"],
+      "dependsOn": ["build", "copy-renderer"],
       "options": {
         "command": "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron"
       }
