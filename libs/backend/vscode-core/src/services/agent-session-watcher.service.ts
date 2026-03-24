@@ -441,6 +441,9 @@ export class AgentSessionWatcherService extends EventEmitter {
       agentType: agentType || 'unknown',
       duration,
       summaryContent: watch?.summaryContent || '',
+      // TASK_2025_217: Include sessionId so the frontend store can properly
+      // associate the agent with a session even if the start event was missed
+      sessionId: watch?.sessionId || '',
     });
   }
 
@@ -491,8 +494,19 @@ export class AgentSessionWatcherService extends EventEmitter {
           isAgentFile: filename?.startsWith('agent-'),
         });
 
-        if (eventType === 'rename' && filename?.startsWith('agent-')) {
+        if (
+          eventType === 'rename' &&
+          filename?.startsWith('agent-') &&
+          filename.endsWith('.jsonl')
+        ) {
           this.handleNewAgentFile(sessionsDir, filename);
+        }
+
+        // When a session directory is created (e.g., UUID-named dir), re-check
+        // for subagent directories that we couldn't watch earlier.
+        if (eventType === 'rename' && filename && !filename.includes('.')) {
+          // UUID-like directory name (no extension) — could be a session dir
+          this.watchSubagentDirectories(sessionsDir);
         }
       });
 
@@ -552,6 +566,20 @@ export class AgentSessionWatcherService extends EventEmitter {
       Array.from(this.activeWatches.values()).map((w) => w.sessionId)
     );
 
+    // Also scan the sessions directory for UUID-named directories.
+    // This catches the first subagent whose session ID isn't in activeWatches yet.
+    try {
+      const entries = fs.readdirSync(sessionsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && this.isUuidLike(entry.name)) {
+          sessionIds.add(entry.name);
+        }
+      }
+    } catch {
+      // Directory scan failed (e.g., sessionsDir doesn't exist yet) -
+      // proceed with activeWatches only
+    }
+
     for (const sessionId of sessionIds) {
       const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
 
@@ -604,6 +632,17 @@ export class AgentSessionWatcherService extends EventEmitter {
   }
 
   /**
+   * Check if a directory name looks like a UUID or hex session identifier.
+   * Matches both standard UUID format (with hyphens) and hex-only format.
+   */
+  private isUuidLike(name: string): boolean {
+    return (
+      /^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i.test(name) ||
+      /^[0-9a-f]{12,64}$/i.test(name)
+    );
+  }
+
+  /**
    * Watch a specific subagents directory for new agent files
    */
   private watchSubagentDir(sessionsDir: string, subagentsDir: string): void {
@@ -621,7 +660,11 @@ export class AgentSessionWatcherService extends EventEmitter {
           }
         );
 
-        if (eventType === 'rename' && filename?.startsWith('agent-')) {
+        if (
+          eventType === 'rename' &&
+          filename?.startsWith('agent-') &&
+          filename.endsWith('.jsonl')
+        ) {
           // handleNewAgentFile expects the file to be in sessionsDir,
           // but for nested layout we need to provide the full path.
           // We pass the subagentsDir as the base directory.
@@ -812,7 +855,9 @@ export class AgentSessionWatcherService extends EventEmitter {
     const scanDir = async (dir: string) => {
       try {
         const files = await fs.promises.readdir(dir);
-        const agentFiles = files.filter((f) => f.startsWith('agent-'));
+        const agentFiles = files.filter(
+          (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
+        );
 
         for (const filename of agentFiles) {
           const filenameAgentId = filename

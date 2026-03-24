@@ -18,6 +18,7 @@ import {
   FlatStreamEventUnion,
   assertNever,
   ExecutionChatMessage,
+  UNKNOWN_AGENT_TOOL_CALL_ID,
 } from '@ptah-extension/shared';
 import { TabManagerService } from '../tab-manager.service';
 import { SessionManager } from '../session-manager.service';
@@ -34,6 +35,7 @@ import { BatchedUpdateService } from './batched-update.service';
 import { MessageFinalizationService } from './message-finalization.service';
 import { PermissionHandlerService } from './permission-handler.service';
 import { BackgroundAgentStore } from '../background-agent.store';
+import { AgentMonitorStore } from '../agent-monitor.store';
 
 @Injectable({ providedIn: 'root' })
 export class StreamingHandlerService {
@@ -46,6 +48,7 @@ export class StreamingHandlerService {
   private readonly finalization = inject(MessageFinalizationService);
   private readonly permissionHandler = inject(PermissionHandlerService);
   private readonly backgroundAgentStore = inject(BackgroundAgentStore);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
 
   /**
    * Clean up deduplication state for a session.
@@ -394,6 +397,13 @@ export class StreamingHandlerService {
             agentType: event.agentType,
           });
 
+          // TASK_2025_211: Detect SDK subagent resume — if a new agent of the
+          // same type as a previously interrupted agent is spawned, mark the old
+          // agent type as "resumed" so inline bubbles update their badge.
+          if (event.agentType) {
+            this.detectAndMarkResumedAgent(event.agentType, targetTab);
+          }
+
           const pendingDeltas = this.sessionManager.registerAgent(
             event.toolCallId,
             preliminaryAgentNode
@@ -509,6 +519,16 @@ export class StreamingHandlerService {
 
       // Schedule batched UI update
       this.batchedUpdate.scheduleUpdate(targetTab.id, state);
+
+      // Structural events that change the execution tree layout must flush immediately.
+      // In VS Code webviews, requestAnimationFrame can be throttled/delayed when the
+      // webview isn't actively rendering. Without an immediate flush, agent_start events
+      // stay invisible until an unrelated signal update (e.g. permission request) forces
+      // Angular change detection.
+      if (event.eventType === 'agent_start') {
+        this.batchedUpdate.flushSync();
+      }
+
       return null;
     } catch (error) {
       console.error(
@@ -690,22 +710,39 @@ export class StreamingHandlerService {
 
       const queuedContent = targetTab.queuedContent;
 
-      // Check if a hard permission deny occurred
-      const wasHardDeny = this.permissionHandler.consumeHardDenyFlag();
+      // TASK_2025_213: Check if hard permission deny occurred — now returns specific toolUseIds
+      const hardDenyToolUseIds =
+        this.permissionHandler.consumeHardDenyToolUseIds();
 
       console.log(
         '[StreamingHandlerService] Finalizing streaming on stats received for tab:',
         targetTabId,
-        { wasHardDeny }
+        { hardDenyToolUseIds: [...hardDenyToolUseIds] }
       );
       this.finalization.finalizeCurrentMessage(targetTabId);
 
       // For hard deny: the SDK sends all completion events before exiting,
       // so markStreamingNodesAsInterrupted (used by isAborted) finds nothing
       // to change. Instead, post-process the finalized message to mark the
-      // last agent node as interrupted.
-      if (wasHardDeny) {
-        this.finalization.markLastAgentAsInterrupted(targetTabId);
+      // specific denied agent node(s) as interrupted.
+      if (hardDenyToolUseIds.size > 0) {
+        if (hardDenyToolUseIds.has(UNKNOWN_AGENT_TOOL_CALL_ID)) {
+          // Fallback: no specific agentToolCallId available, mark last agent (legacy behavior)
+          this.finalization.markLastAgentAsInterrupted(targetTabId);
+        }
+
+        // Targeted: mark only the specific denied agent(s) by their toolCallIds (excluding sentinel)
+        const specificIds = new Set(
+          [...hardDenyToolUseIds].filter(
+            (id) => id !== UNKNOWN_AGENT_TOOL_CALL_ID
+          )
+        );
+        if (specificIds.size > 0) {
+          this.finalization.markAgentsAsInterruptedByToolCallIds(
+            targetTabId,
+            specificIds
+          );
+        }
       }
 
       this.tabManager.markTabIdle(targetTabId);
@@ -770,5 +807,55 @@ export class StreamingHandlerService {
       '[StreamingHandlerService] Stats applied to last assistant message'
     );
     return null;
+  }
+
+  /**
+   * TASK_2025_211: Check if there's a previously interrupted agent of the same
+   * agentType in the tab's finalized messages. If so, mark those SPECIFIC
+   * agent node IDs as "resumed" in the AgentMonitorStore.
+   *
+   * Tracks by node ID (not agentType) to avoid false positives when multiple
+   * agents of the same type exist — only the specific interrupted agent(s)
+   * that were superseded show "Resumed", not newly interrupted ones.
+   */
+  private detectAndMarkResumedAgent(agentType: string, tab: TabState): void {
+    const interruptedNodeIds: string[] = [];
+
+    // Collect IDs of all interrupted agents of the same type in finalized messages
+    for (const msg of tab.messages) {
+      if (!msg.streamingState) continue;
+      // msg.streamingState is an ExecutionNode tree (finalized)
+      this.collectInterruptedAgentIds(
+        msg.streamingState,
+        agentType,
+        interruptedNodeIds
+      );
+    }
+
+    if (interruptedNodeIds.length > 0) {
+      this.agentMonitorStore.markAgentNodesResumed(interruptedNodeIds);
+    }
+  }
+
+  /**
+   * Recursively collect node IDs (id + toolCallId) of interrupted agents
+   * matching the given agentType.
+   */
+  private collectInterruptedAgentIds(
+    node: ExecutionNode,
+    agentType: string,
+    out: string[]
+  ): void {
+    if (
+      node.type === 'agent' &&
+      node.status === 'interrupted' &&
+      node.agentType === agentType
+    ) {
+      out.push(node.id);
+      if (node.toolCallId) out.push(node.toolCallId);
+    }
+    for (const child of node.children) {
+      this.collectInterruptedAgentIds(child, agentType, out);
+    }
   }
 }

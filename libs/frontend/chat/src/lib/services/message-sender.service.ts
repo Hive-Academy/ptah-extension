@@ -262,8 +262,11 @@ export class MessageSenderService {
       // Update tab with streaming status immediately
       // TASK_2025_086: Changed from 'draft' to 'streaming' so UI shows content as it arrives
       // Previously, isStreaming() returned false until session:id-resolved, hiding all streaming content
+      // TASK_2025_192: Auto-name session from first message content (not "New Chat")
+      const autoName = content.substring(0, 50).trim() || 'New Chat';
       this.tabManager.updateTab(activeTabId, {
-        title: content.substring(0, 50) || 'New Chat',
+        name: autoName,
+        title: autoName,
         status: 'streaming',
         isDirty: false,
       });
@@ -310,7 +313,7 @@ export class MessageSenderService {
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
         tabId: activeTabId, // Frontend correlation ID
-        name: activeTab?.name, // Send session name to backend
+        name: autoName, // Send message-derived name to backend (not stale activeTab reference)
         workspacePath,
         ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
         options: {

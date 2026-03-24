@@ -21,11 +21,11 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 17 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 12 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
-            '• IIFE (any style): `(async () => { return await ptah.git.getStatus(); })()`\n' +
+            '• IIFE (any style): `(async () => { return await ptah.workspace.getInfo(); })()`\n' +
             '• Direct return: `return "hello"`\n' +
             'Results are automatically extracted from Promises. No special syntax required.',
         },
@@ -466,9 +466,9 @@ export function buildWebSearchTool(): MCPToolDefinition {
   return {
     name: 'ptah_web_search',
     description:
-      'Search the web for information using available LLM providers. ' +
+      'Search the web for information using Gemini CLI (native google_web_search). ' +
       'Returns a narrative summary of search results. ' +
-      'Uses VS Code LM API (Copilot) as primary provider, falls back to Gemini CLI. ' +
+      'Requires Gemini CLI installed on PATH. ' +
       'Use this when you need current information from the internet.',
     inputSchema: {
       type: 'object',
@@ -494,11 +494,11 @@ export function buildWebSearchTool(): MCPToolDefinition {
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
  */
 function buildExecuteCodeDescription(): string {
-  return `Execute TypeScript/JavaScript code with access to VS Code extension APIs via the global "ptah" object.
+  return `IDE access tool — execute TypeScript/JavaScript code with access to VS Code APIs via the global "ptah" object. Use this for code structure analysis (AST), dependency graphs, LSP operations, and multi-step API workflows.
 
 ${PTAH_SYSTEM_PROMPT}
 
-## Top Namespaces (17 total — use ptah.help(topic) for full details)
+## Top Namespaces (13 total — use ptah.help(topic) for full details)
 
 ### ptah.workspace - Workspace Analysis
 - analyze(): Promise<{info, structure}> - Full workspace analysis
@@ -514,9 +514,6 @@ ${PTAH_SYSTEM_PROMPT}
 - getErrors(): Promise<{file, message, line}[]> - All error-level diagnostics
 - getWarnings(): Promise<{file, message, line}[]> - All warning-level diagnostics
 - getAll(): Promise<{file, message, line, severity}[]> - All diagnostics with severity
-
-### ptah.git - Repository Status
-- getStatus(): Promise<{branch, modified, staged, untracked}> - Git working tree status
 
 ### ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
 - ide.lsp.getDefinition(file, line, col) - Go to definition
@@ -543,15 +540,27 @@ Relative paths are resolved from workspace root. Absolute paths work as-is.
 - analyzeDependencies(): Promise<{name, version, isDev}[]> - Analyze package dependencies
 ⚠️ NO getMonorepoInfo(). Use detectMonorepo() instead.
 
+### ptah.ast - Code Structure Analysis (Tree-Sitter) — PREFER OVER FULL FILE READS
+- analyze(file): Promise<{functions, classes, imports, exports}> - Full structural analysis with line ranges
+- queryFunctions(file): Promise<{name, parameters, startLine, endLine}[]> - All functions
+- queryClasses(file): Promise<{name, startLine, endLine}[]> - All classes
+- queryImports(file): Promise<{source, importedSymbols}[]> - All imports
+- queryExports(file): Promise<{name, kind}[]> - All exports
+- parse(file): Promise<{ast, nodeCount}> - Raw AST tree
+- getSupportedLanguages(): Promise<string[]> - Supported languages (JS/TS)
+
+Use ptah.ast BEFORE reading files to understand structure at 40-60% token savings.
+
+### ptah.dependencies - Import-Based Dependency Graph
+- buildGraph(filePaths, workspaceRoot): Promise<void> - Build the graph (call once)
+- getDependencies(file): Promise<string[]> - What this file imports
+- getDependents(file): Promise<string[]> - What imports this file
+- getSymbolIndex(): Promise<Record<string, string[]>> - Exported symbols per file
+- isBuilt(): Promise<boolean> - Check if graph exists
+
 ### Other Namespaces (use ptah.help('topic') for details)
-- ptah.ai.* - VS Code LM API (chat, tokens, tools, specialized tasks, invokeAgent)
-- ptah.llm.* - VS Code Language Model API provider
-- ptah.symbols.* - Code symbol search
-- ptah.commands.* - VS Code command execution
 - ptah.context.* - Token budget optimization, enrichFile() for structural summaries (40-60% token reduction)
 - ptah.relevance.* - File relevance scoring
-- ptah.dependencies.* - Import-based dependency graph: buildGraph(), getDependencies(), getDependents(), getSymbolIndex()
-- ptah.ast.* - Code structure analysis (tree-sitter)
 - ptah.orchestration.* - Workflow state management
 - ptah.agent.* - Agent orchestration (spawn, monitor Gemini CLI / Codex SDK / VS Code LM)
 
@@ -587,9 +596,6 @@ return files.filter(f => f.endsWith('.ts'));
 // Find references before refactoring
 const refs = await ptah.ide.lsp.getReferences('src/app.ts', 10, 5);
 return refs.map(r => r.file + ':' + r.line);
-
-// Delegate routine task to cheap model (150x cheaper)
-const review = await ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', 'gpt-4o-mini');
 
 // Check for TypeScript errors
 const errors = await ptah.diagnostics.getErrors();

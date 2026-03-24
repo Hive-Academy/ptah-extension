@@ -100,7 +100,23 @@ export class PaddleService {
       `Processing subscription.created event: ${eventId} for customer: ${email}, status: ${data.status}`
     );
 
+    const subscriptionId = data.id;
+
     // Step 1: Idempotency check - prevent duplicate processing
+    // Primary guard: check if subscription already exists (handles cross-event duplicates,
+    // e.g. subscription.activated already created the record before this retry arrives)
+    const existingSubscription = await this.prisma.subscription.findUnique({
+      where: { paddleSubscriptionId: subscriptionId },
+    });
+
+    if (existingSubscription) {
+      this.logger.log(
+        `Subscription ${subscriptionId} already exists (event: ${eventId}) - skipping duplicate`
+      );
+      return { success: true, duplicate: true };
+    }
+
+    // Secondary guard: check if this exact event already created a license
     const existingLicense = await this.prisma.license.findFirst({
       where: { createdBy: `paddle_${eventId}` },
     });
@@ -114,7 +130,6 @@ export class PaddleService {
     const priceId = data.items[0]?.price?.id;
     const basePlan = this.mapPriceIdToPlan(priceId);
     const customerId = data.customerId;
-    const subscriptionId = data.id;
     const periodEnd = data.currentBillingPeriod
       ? new Date(data.currentBillingPeriod.endsAt)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Default 30 days if missing

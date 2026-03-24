@@ -271,17 +271,31 @@ export class InternalQueryService {
       persistSession: false,
 
       // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
-      env: { ...process.env, ...this.authEnv } as Record<
-        string,
-        string | undefined
-      >,
+      // Set NO_PROXY to prevent corporate proxy interception of localhost requests
+      env: {
+        ...process.env,
+        ...this.authEnv,
+        NO_PROXY: '127.0.0.1,localhost',
+      } as Record<string, string | undefined>,
 
-      // Load user/project/local settings (CLAUDE.md files, etc.)
-      settingSources: ['user', 'project', 'local'],
+      // Load settings from project and local directories.
+      // IMPORTANT: Exclude 'user' when using a translation proxy because
+      // ~/.claude/settings.json may contain auth from a previous `claude login`
+      // that overrides ANTHROPIC_BASE_URL and routes requests to api.anthropic.com
+      // instead of our local proxy.
+      settingSources: this.authEnv.ANTHROPIC_BASE_URL?.includes('127.0.0.1')
+        ? ['project', 'local']
+        : ['user', 'project', 'local'],
 
-      // Capture stderr for debugging
+      // Capture stderr — parse log level and route appropriately
       stderr: (data: string) => {
-        this.logger.error(`${SERVICE_TAG} SDK stderr: ${data}`);
+        if (data.includes('[ERROR]')) {
+          this.logger.error(`${SERVICE_TAG} SDK stderr: ${data}`);
+        } else if (data.includes('[WARN]')) {
+          this.logger.warn(`${SERVICE_TAG} SDK stderr: ${data}`);
+        } else {
+          this.logger.debug(`${SERVICE_TAG} SDK stderr: ${data}`);
+        }
       },
 
       // Lifecycle hooks (subagent + compaction)
@@ -378,18 +392,20 @@ export class InternalQueryService {
     // Detect which provider is active
     for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
       const provider = getAnthropicProvider(id);
-      if (provider && baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-        // Get actual model from AuthEnv tier vars
-        const actualModel =
-          this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-          this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-          this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+      if (!provider || !provider.baseUrl) continue;
+      try {
+        if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
+          // Get actual model from AuthEnv tier vars
+          const actualModel =
+            this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+            this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+            this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
-        if (!actualModel) {
-          return undefined; // No tier mapping — likely using Anthropic directly
-        }
+          if (!actualModel) {
+            return undefined; // No tier mapping — likely using Anthropic directly
+          }
 
-        return `# Model Identity Clarification
+          return `# Model Identity Clarification
 
 IMPORTANT: You are running as **${actualModel}** provided by **${provider.name}**, NOT Claude by Anthropic.
 
@@ -399,6 +415,10 @@ When asked about your identity, model, or capabilities:
 - You may mention you are running through an Anthropic-compatible API interface
 
 This clarification takes precedence over any other identity instructions in the system prompt.`;
+        }
+      } catch {
+        // Skip providers with invalid baseUrl (e.g., empty string for proxy-based providers)
+        continue;
       }
     }
 
@@ -454,9 +474,15 @@ This clarification takes precedence over any other identity instructions in the 
       `internal-query-${Date.now()}`
     );
 
-    return {
-      ...subagentHooks,
-      ...compactionHooks,
-    };
+    // Merge hooks safely — concatenate arrays for same event key to prevent overwrites
+    const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
+    for (const hooks of [subagentHooks, compactionHooks]) {
+      for (const [event, matchers] of Object.entries(hooks)) {
+        const key = event as HookEvent;
+        mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];
+      }
+    }
+
+    return mergedHooks;
   }
 }

@@ -60,6 +60,17 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 25e-6, // $25.00 per 1M tokens
     cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
     cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    maxTokens: 200_000,
+    provider: 'anthropic',
+  },
+
+  // Claude 4.6 Opus (short alias)
+  'claude-opus-4-6': {
+    inputCostPerToken: 5e-6,
+    outputCostPerToken: 25e-6,
+    cacheReadCostPerToken: 5e-7,
+    cacheCreationCostPerToken: 6.25e-6,
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -69,6 +80,27 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 25e-6, // $25.00 per 1M tokens
     cacheReadCostPerToken: 5e-7, // $0.50 per 1M tokens
     cacheCreationCostPerToken: 6.25e-6, // $6.25 per 1M tokens
+    maxTokens: 200_000,
+    provider: 'anthropic',
+  },
+
+  // Claude 4.6 Sonnet (latest balanced)
+  'claude-sonnet-4-6-20250514': {
+    inputCostPerToken: 3e-6, // $3.00 per 1M tokens
+    outputCostPerToken: 15e-6, // $15.00 per 1M tokens
+    cacheReadCostPerToken: 3e-7, // $0.30 per 1M tokens
+    cacheCreationCostPerToken: 3.75e-6, // $3.75 per 1M tokens
+    maxTokens: 200_000,
+    provider: 'anthropic',
+  },
+
+  // Claude 4.6 Sonnet (short alias — avoids O(n) partial scan on every lookup)
+  'claude-sonnet-4-6': {
+    inputCostPerToken: 3e-6,
+    outputCostPerToken: 15e-6,
+    cacheReadCostPerToken: 3e-7,
+    cacheCreationCostPerToken: 3.75e-6,
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -78,6 +110,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 15e-6, // $15.00 per 1M tokens
     cacheReadCostPerToken: 3e-7, // $0.30 per 1M tokens
     cacheCreationCostPerToken: 3.75e-6, // $3.75 per 1M tokens
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -87,6 +120,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 15e-6,
     cacheReadCostPerToken: 3e-7,
     cacheCreationCostPerToken: 3.75e-6,
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -94,6 +128,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-3-opus-20240229': {
     inputCostPerToken: 15e-6, // $15.00 per 1M tokens
     outputCostPerToken: 75e-6, // $75.00 per 1M tokens
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -103,6 +138,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 4e-6, // $4.00 per 1M tokens
     cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
     cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -112,6 +148,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 4e-6, // $4.00 per 1M tokens
     cacheReadCostPerToken: 0.08e-6, // $0.08 per 1M tokens
     cacheCreationCostPerToken: 1e-6, // $1.00 per 1M tokens
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -119,6 +156,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'claude-3-haiku-20240307': {
     inputCostPerToken: 0.25e-6, // $0.25 per 1M tokens
     outputCostPerToken: 1.25e-6, // $1.25 per 1M tokens
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -133,6 +171,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
     outputCostPerToken: 4e-6,
     cacheReadCostPerToken: 0.08e-6,
     cacheCreationCostPerToken: 1e-6,
+    maxTokens: 200_000,
     provider: 'anthropic',
   },
 
@@ -144,6 +183,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-4o': {
     inputCostPerToken: 2.5e-6, // $2.50 per 1M tokens
     outputCostPerToken: 10e-6, // $10.00 per 1M tokens
+    maxTokens: 128_000,
     provider: 'openai',
   },
 
@@ -151,6 +191,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-4o-mini': {
     inputCostPerToken: 0.15e-6, // $0.15 per 1M tokens
     outputCostPerToken: 0.6e-6, // $0.60 per 1M tokens
+    maxTokens: 128_000,
     provider: 'openai',
   },
 
@@ -158,6 +199,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-4-turbo': {
     inputCostPerToken: 10e-6, // $10.00 per 1M tokens
     outputCostPerToken: 30e-6, // $30.00 per 1M tokens
+    maxTokens: 128_000,
     provider: 'openai',
   },
 
@@ -165,6 +207,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-4': {
     inputCostPerToken: 30e-6, // $30.00 per 1M tokens
     outputCostPerToken: 60e-6, // $60.00 per 1M tokens
+    maxTokens: 8_192,
     provider: 'openai',
   },
 
@@ -172,6 +215,7 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
   'gpt-3.5-turbo': {
     inputCostPerToken: 0.5e-6, // $0.50 per 1M tokens
     outputCostPerToken: 1.5e-6, // $1.50 per 1M tokens
+    maxTokens: 16_385,
     provider: 'openai',
   },
 
@@ -243,6 +287,12 @@ export function getPricingMap(): Record<string, ModelPricing> {
  */
 export function findModelPricing(modelId: string): ModelPricing {
   if (!modelId) {
+    return modelPricingMap['default'];
+  }
+
+  // SDK-internal model IDs (e.g., "<synthetic>") have no real pricing —
+  // return default silently without logging a warning
+  if (modelId.startsWith('<') && modelId.endsWith('>')) {
     return modelPricingMap['default'];
   }
 
@@ -322,6 +372,21 @@ export function calculateMessageCost(
 }
 
 /**
+ * Get the context window size for a model.
+ *
+ * Uses the `maxTokens` field from the pricing map as context window.
+ * Returns 0 if unknown (the model isn't in the pricing map or has no maxTokens).
+ *
+ * @param modelId - Model identifier (e.g., "claude-sonnet-4-6-20250514")
+ * @returns Context window size in tokens, or 0 if unknown
+ */
+export function getModelContextWindow(modelId: string): number {
+  if (!modelId) return 0;
+  const pricing = findModelPricing(modelId);
+  return pricing.maxTokens ?? 0;
+}
+
+/**
  * Get a human-readable description of model pricing
  *
  * @param modelId - Model identifier
@@ -377,6 +442,8 @@ export function formatModelDisplayName(modelId: string): string {
   }
 
   if (withoutDate.includes('sonnet')) {
+    if (withoutDate.includes('4.6') || withoutDate.includes('4-6'))
+      return 'Sonnet 4.6';
     if (withoutDate.includes('4.5') || withoutDate.includes('4-5'))
       return 'Sonnet 4.5';
     if (withoutDate.includes('sonnet-4') || withoutDate.includes('sonnet 4'))

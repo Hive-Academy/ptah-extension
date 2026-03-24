@@ -285,8 +285,11 @@ export class ConversationService {
       this.sessionManager.clearNodeMaps();
 
       // Update tab with draft status (claudeSessionId stays null until SDK responds)
+      // TASK_2025_192: Auto-name session from first message content (not "New Chat")
+      const autoName = content.substring(0, 50).trim() || 'New Chat';
       this.tabManager.updateTab(activeTabId, {
-        title: content.substring(0, 50) || 'New Chat',
+        name: autoName,
+        title: autoName,
         status: 'draft',
         isDirty: false,
         claudeSessionId: null, // Explicitly null - will be set when real UUID arrives
@@ -317,6 +320,7 @@ export class ConversationService {
       const result = await this.claudeRpcService.call('chat:start', {
         prompt: content,
         tabId: activeTabId, // Frontend correlation ID
+        name: autoName, // TASK_2025_192: Send message-derived name to backend
         workspacePath,
         ptahCliId, // TASK_2025_170: Route to Ptah CLI agent adapter
         options: files ? { files } : undefined,

@@ -14,6 +14,7 @@ import {
 
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
+import { DocsVideoPlayerComponent } from '../components/docs-video-player.component';
 
 @Component({
   selector: 'ptah-docs-providers-api',
@@ -23,6 +24,7 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
     LucideAngularModule,
     DocsSectionShellComponent,
     DocsCollapsibleCardComponent,
+    DocsVideoPlayerComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="providers">
@@ -38,22 +40,22 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         [viewportConfig]="introConfig"
         class="text-neutral-content mb-4 max-w-2xl"
       >
-        Ptah supports three Anthropic-compatible third-party providers. These
-        let you use Ptah's full coding agent experience
+        Ptah supports multiple AI providers out of the box. Bring your own API
+        key from any supported provider and use Ptah's full agentic coding
+        experience
         <strong class="text-base-content/70"
-          >without a Claude subscription</strong
+          >with the model of your choice</strong
         >
-        — you bring your own API key from the provider and pay through their
-        billing.
+        — pay only through your provider's billing.
       </p>
       <p
         viewportAnimation
         [viewportConfig]="introConfig"
         class="text-neutral-content/60 text-sm mb-8 max-w-2xl"
       >
-        Each provider speaks the Anthropic API protocol, so Ptah routes requests
-        seamlessly by setting a custom base URL. Your credentials for each
-        provider are stored independently.
+        Each provider integrates through a compatible API protocol, so Ptah
+        routes requests seamlessly. Your credentials for each provider are
+        stored independently.
       </p>
 
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
@@ -165,9 +167,9 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
           title="Model Tier Mapping"
         >
           <p class="text-sm text-neutral-content mb-4">
-            When using a third-party provider, Ptah maps Claude's model tiers
-            (Opus, Sonnet, Haiku) to the provider's actual models. You can
-            customize which model handles each tier from the settings.
+            When using a third-party provider, Ptah maps capability tiers (Opus,
+            Sonnet, Haiku) to the provider's actual models. You can customize
+            which model handles each tier from the settings.
           </p>
           <div class="space-y-2">
             @for (tier of modelTiers; track tier.name) {
@@ -191,36 +193,13 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
           <p class="text-xs text-neutral-content/40 mt-3">
             Example: Map Opus to
             <code class="text-secondary/60">kimi-k2</code> so when Ptah requests
-            Claude Opus, it uses Kimi K2 via Moonshot.
+            the Opus tier, it uses Kimi K2 via Moonshot.
           </p>
         </ptah-docs-collapsible-card>
       </div>
 
       <ng-container media>
-        <div
-          class="group relative cursor-pointer"
-          (click)="toggleVideo($event)"
-        >
-          <video
-            autoplay
-            muted
-            loop
-            playsinline
-            preload="metadata"
-            class="w-full rounded-xl border border-white/10 shadow-2xl"
-          >
-            <source src="assets/videos/providers.mp4" type="video/mp4" />
-          </video>
-          <div
-            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
-          >
-            <span
-              class="px-3 py-1.5 rounded-lg bg-slate-900/80 border border-amber-500/20 text-xs font-medium text-white/90 backdrop-blur-sm"
-            >
-              Click to play / pause
-            </span>
-          </div>
-        </div>
+        <ptah-docs-video-player src="assets/videos/providers.mp4" />
       </ng-container>
     </ptah-docs-section-shell>
   `,
@@ -238,7 +217,6 @@ export class ProvidersApiSectionComponent {
   public readonly ArrowRightIcon = ArrowRight;
   public readonly RepeatIcon = Repeat;
   public readonly ServerIcon = Server;
-
   public readonly moonshotModels = [
     { name: 'kimi-k2', note: '128K ctx' },
     { name: 'kimi-k2-0905-preview', note: '256K ctx' },
@@ -291,15 +269,4 @@ export class ProvidersApiSectionComponent {
     delay: 0.15,
     threshold: 0.1,
   };
-
-  public toggleVideo(event: MouseEvent): void {
-    const container = event.currentTarget as HTMLElement;
-    const video = container.querySelector('video');
-    if (!video) return;
-    if (video.paused) {
-      video.play();
-    } else {
-      video.pause();
-    }
-  }
 }

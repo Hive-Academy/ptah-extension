@@ -1,69 +1,44 @@
 /**
  * System Namespace Builders
  *
- * Provides AI/LM integration, file system access, and command execution.
+ * Provides file system access and help documentation.
  * These namespaces enable system-level interactions.
+ *
+ * File operations (buildFilesNamespace, resolveWorkspacePath) use platform-core
+ * IWorkspaceProvider and IFileSystemProvider for workspace-relative path resolution.
  */
 
-import * as vscode from 'vscode';
 import * as path from 'path';
-import { FileSystemManager, CommandManager } from '@ptah-extension/vscode-core';
-import { AINamespace, FilesNamespace, CommandsNamespace } from '../types';
+import { FileSystemManager } from '@ptah-extension/vscode-core';
+import { FileType } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+} from '@ptah-extension/platform-core';
+import { FilesNamespace } from '../types';
 
 /**
  * Dependencies required for system namespaces
  */
 export interface SystemNamespaceDependencies {
   fileSystemManager: FileSystemManager;
-  commandManager: CommandManager;
+  workspaceProvider: IWorkspaceProvider;
+  fileSystemProvider: IFileSystemProvider;
 }
 
 /**
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah MCP Server - 16 Namespaces:
+  overview: `Ptah IDE Access - 12 Namespaces:
 
-WORKSPACE: workspace, search, symbols, files, diagnostics, git, commands
-ANALYSIS: context, project, relevance, ast
-AI: ptah.ai.* (chat, tokens, tools, specialized tasks)
+WORKSPACE: workspace, search, files, diagnostics
+ANALYSIS: context, project, relevance, ast, dependencies
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
-LLM: ptah.llm.* (VS Code Language Model API)
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, steer)
 
 Use ptah.help('namespace') for details on any namespace.`,
-
-  ai: `ptah.ai - Enhanced LLM Capabilities (VS Code Language Model API)
-
-CHAT:
-- chat(message, model?) - Single message
-- chatWithHistory(messages[], model?) - Multi-turn
-- chatStream(message, onChunk, model?) - Streaming
-- chatWithSystem(message, systemPrompt, model?) - Custom system prompt
-- invokeAgent(agentPath, task, model?) - Delegate to cheap model using .md file
-
-TOKEN INTELLIGENCE:
-- selectModel(family?) - Get models with maxInputTokens, vendor, version
-- countTokens(text, model?) - Count tokens
-- countFileTokens(file, model?) - Count file tokens
-- fitsInContext(content, model?, reserve?) - Check if fits (default reserve: 4000)
-
-TOOLS:
-- getTools() - List VS Code LM tools
-- invokeTool(name, input) - Invoke tool
-- chatWithTools(message, toolNames[], model?) - Chat with tool access
-
-SPECIALIZED TASKS:
-- summarize(content, options?) - Summarize content
-- explain(code, options?) - Explain code
-- review(code, options?) - Code review
-- transform(code, instruction, model?) - Transform code
-- generate(description, options?) - Generate code
-
-COST OPTIMIZATION:
-Use invokeAgent() with 'gpt-4o-mini' for routine tasks (150x cheaper than Opus).
-Example: ptah.ai.invokeAgent('.claude/agents/code-reviewer.md', 'Review this', 'gpt-4o-mini')`,
 
   ide: `ptah.ide - VS Code IDE Superpowers (exclusive to VS Code)
 
@@ -155,23 +130,6 @@ Paths can be relative to workspace root (e.g., 'package.json') or absolute.
 This namespace is READ-ONLY. There is NO write(), delete(), or exists() method.
 Use readJson() for config files like tsconfig.json, package.json which may have comments.`,
 
-  llm: `ptah.llm - VS Code Language Model API
-
-PROVIDERS:
-- ptah.llm.vscodeLm - VS Code Language Model API (always available)
-
-Provider methods:
-- chat(message, options?) - Send message
-- isAvailable() - Check availability
-- getDefaultModel() - Get default model name
-- getDisplayName() - Get provider display name
-
-TOP-LEVEL:
-- ptah.llm.chat(message, options?) - Use default provider
-- ptah.llm.getConfiguredProviders() - List available providers
-- ptah.llm.getDefaultProvider() - Get default provider name
-- ptah.llm.getConfiguration() - Get full config state`,
-
   orchestration: `ptah.orchestration - Development Workflow Orchestration
 
 Multi-phase development workflow orchestration with dynamic strategies and user validation checkpoints.
@@ -221,6 +179,35 @@ Do NOT fall back to your own plan mode or ad-hoc coding — delegate to orchestr
 
 Used for persisting workflow state across sessions (planning, design, implementation, QA, complete).`,
 
+  ast: `ptah.ast - Code Structure Analysis (Tree-Sitter)
+
+- analyze(file) - Full structural analysis: functions, classes, imports, exports with line ranges
+- parse(file) - Raw tree-sitter AST with node tree {type, text, start, end, children}
+- queryFunctions(file) - Extract all functions with name, parameters, startLine/endLine
+- queryClasses(file) - Extract all classes with name, startLine/endLine
+- queryImports(file) - Extract all imports with source module and imported symbols
+- queryExports(file) - Extract all exports with name and kind (class/variable/function)
+- getSupportedLanguages() - List supported languages (currently: javascript, typescript)
+
+Use ptah.ast.analyze() to understand file structure BEFORE reading or editing.
+Prefer ptah.ast over reading full files when you only need structural information (40-60% token savings).`,
+
+  dependencies: `ptah.dependencies - Import-Based Dependency Graph
+
+- buildGraph(filePaths, workspaceRoot) - Build dependency graph from file list
+- getDependencies(file) - Get what a file imports (outgoing edges)
+- getDependents(file) - Get what imports this file (incoming edges)
+- getSymbolIndex() - Get exported symbols per file
+- isBuilt() - Check if the dependency graph has been built
+
+Build the graph once, then query it repeatedly. Essential for understanding impact of changes.`,
+
+  diagnostics: `ptah.diagnostics - TypeScript Errors & Warnings
+
+- getErrors() - Get all error-level diagnostics {file, message, line}
+- getWarnings() - Get all warning-level diagnostics {file, message, line}
+- getAll() - Get all diagnostics with severity level`,
+
   agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
 
 Spawn Gemini CLI or Codex CLI as background workers for parallel task execution.
@@ -260,635 +247,8 @@ EXAMPLE:
   }`,
 };
 
-/**
- * Build AI namespace (MULTI-AGENT SUPPORT)
- * Exposes VS Code Language Model API for Claude CLI -> VS Code LM delegation
- * TASK_2025_039: Enhanced with advanced LLM chat, token intelligence, and specialized AI tasks
- */
-export function buildAINamespace(): AINamespace {
-  // Helper function to avoid 'this' context issues
-  const namespace: AINamespace = {
-    // ========================================
-    // Basic Chat (Existing - Task 2.1 Enhanced)
-    // ========================================
-
-    /**
-     * Send a chat message to VS Code language model
-     * @param message - User message to send
-     * @param model - Optional model family filter
-     * @returns Complete model response text
-     */
-    chat: async (message: string, model?: string) => {
-      if (!message || message.trim().length === 0) {
-        throw new Error('Message cannot be empty');
-      }
-
-      const models = await vscode.lm.selectChatModels({ family: model });
-      if (models.length === 0) {
-        throw new Error(
-          `No language model found${model ? ` for family: ${model}` : ''}`
-        );
-      }
-
-      const selectedModel = models[0];
-      const messages = [vscode.LanguageModelChatMessage.User(message)];
-
-      const tokenSource = new vscode.CancellationTokenSource();
-      try {
-        const response = await selectedModel.sendRequest(
-          messages,
-          {},
-          tokenSource.token
-        );
-
-        let fullResponse = '';
-        for await (const chunk of response.text) {
-          fullResponse += chunk;
-        }
-        return fullResponse;
-      } finally {
-        tokenSource.dispose();
-      }
-    },
-
-    /**
-     * Select available language models with full metadata
-     * @param family - Optional family filter
-     * @returns Array of available model metadata including maxInputTokens, vendor, version
-     */
-    selectModel: async (family?: string) => {
-      const models = await vscode.lm.selectChatModels(
-        family ? { family } : undefined
-      );
-      return models.map((m) => ({
-        id: m.id,
-        family: m.family,
-        name: m.name,
-        maxInputTokens: m.maxInputTokens,
-        vendor: m.vendor,
-        version: m.version,
-      }));
-    },
-
-    // ========================================
-    // Chat Enhancements (TASK_2025_039)
-    // ========================================
-
-    /**
-     * Multi-turn conversation with message history
-     * @param messages - Array of chat messages with roles (user/assistant)
-     * @param model - Optional model family filter
-     * @returns Complete model response text
-     */
-    chatWithHistory: async (
-      messages: Array<{ role: 'user' | 'assistant'; content: string }>,
-      model?: string
-    ) => {
-      if (!messages || messages.length === 0) {
-        throw new Error('Messages array cannot be empty');
-      }
-
-      const models = await vscode.lm.selectChatModels({
-        family: model || 'gpt-4o',
-      });
-
-      if (models.length === 0) {
-        throw new Error(`No model found for family: ${model || 'gpt-4o'}`);
-      }
-
-      const selectedModel = models[0];
-
-      // Convert ChatMessage[] to vscode.LanguageModelChatMessage[]
-      const vscodeMessages = messages.map((msg) => {
-        if (!msg.content || msg.content.trim().length === 0) {
-          throw new Error('Message content cannot be empty');
-        }
-        return msg.role === 'user'
-          ? vscode.LanguageModelChatMessage.User(msg.content)
-          : vscode.LanguageModelChatMessage.Assistant(msg.content);
-      });
-
-      const tokenSource = new vscode.CancellationTokenSource();
-      try {
-        const response = await selectedModel.sendRequest(
-          vscodeMessages,
-          {},
-          tokenSource.token
-        );
-
-        let result = '';
-        for await (const chunk of response.text) {
-          result += chunk;
-        }
-
-        return result;
-      } finally {
-        tokenSource.dispose();
-      }
-    },
-
-    /**
-     * Streaming chat with chunk-by-chunk callback
-     * @param message - User message to send
-     * @param onChunk - Callback invoked for each response chunk
-     * @param model - Optional model family filter
-     * @returns Promise that resolves when streaming is complete
-     */
-    chatStream: async (
-      message: string,
-      onChunk: (chunk: string) => void,
-      model?: string
-    ) => {
-      if (!message || message.trim().length === 0) {
-        throw new Error('Message cannot be empty');
-      }
-
-      if (typeof onChunk !== 'function') {
-        throw new Error('onChunk must be a function');
-      }
-
-      const models = await vscode.lm.selectChatModels({
-        family: model || 'gpt-4o',
-      });
-
-      if (models.length === 0) {
-        throw new Error(`No model found for family: ${model || 'gpt-4o'}`);
-      }
-
-      const selectedModel = models[0];
-      const messages = [vscode.LanguageModelChatMessage.User(message)];
-
-      const tokenSource = new vscode.CancellationTokenSource();
-      try {
-        const response = await selectedModel.sendRequest(
-          messages,
-          {},
-          tokenSource.token
-        );
-
-        for await (const chunk of response.text) {
-          onChunk(chunk);
-        }
-      } finally {
-        tokenSource.dispose();
-      }
-    },
-
-    /**
-     * Chat with custom system prompt for task-specific behavior
-     * Uses XML-delimited format for clear instruction boundaries
-     * @param message - User message to send
-     * @param systemPrompt - System prompt defining behavior/role
-     * @param model - Optional model family filter
-     * @returns Complete model response text
-     */
-    chatWithSystem: async (
-      message: string,
-      systemPrompt: string,
-      model?: string
-    ) => {
-      if (!message || message.trim().length === 0) {
-        throw new Error('Message cannot be empty');
-      }
-
-      if (!systemPrompt || systemPrompt.trim().length === 0) {
-        throw new Error('System prompt cannot be empty');
-      }
-
-      const models = await vscode.lm.selectChatModels({
-        family: model || 'gpt-4o',
-      });
-
-      if (models.length === 0) {
-        throw new Error(`No model found for family: ${model || 'gpt-4o'}`);
-      }
-
-      const selectedModel = models[0];
-
-      // Use XML-delimited format for system prompt (claude-copilot pattern)
-      const formattedMessage = `<SYSTEM_INSTRUCTIONS>
-${systemPrompt}
-</SYSTEM_INSTRUCTIONS>
-
-<USER_MESSAGE>
-${message}
-</USER_MESSAGE>`;
-
-      const messages = [vscode.LanguageModelChatMessage.User(formattedMessage)];
-
-      const tokenSource = new vscode.CancellationTokenSource();
-      try {
-        const response = await selectedModel.sendRequest(
-          messages,
-          {},
-          tokenSource.token
-        );
-
-        let result = '';
-        for await (const chunk of response.text) {
-          result += chunk;
-        }
-
-        return result;
-      } finally {
-        tokenSource.dispose();
-      }
-    },
-
-    /**
-     * Invoke an agent with .md file as system prompt
-     * Enables Claude CLI to delegate tasks to cheaper models (gpt-4o-mini, haiku)
-     * @param agentPath - Path to agent .md file (e.g., ".claude/agents/senior-tester.md")
-     * @param task - Task description for the agent
-     * @param model - Optional model to use (default: cost-optimized model)
-     * @returns Agent's response
-     */
-    invokeAgent: async (
-      agentPath: string,
-      task: string,
-      model?: string
-    ): Promise<string> => {
-      if (!agentPath || agentPath.trim().length === 0) {
-        throw new Error('Agent path cannot be empty');
-      }
-
-      if (!task || task.trim().length === 0) {
-        throw new Error('Task cannot be empty');
-      }
-
-      // Validate path is safe (prevent path traversal)
-      const normalizedPath = path.normalize(agentPath);
-      if (normalizedPath.startsWith('..') || path.isAbsolute(normalizedPath)) {
-        throw new Error(
-          'Agent path must be relative to workspace root and cannot contain ".."'
-        );
-      }
-
-      // Read agent definition file
-      const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (!workspaceFolders || workspaceFolders.length === 0) {
-        throw new Error('No workspace folder open');
-      }
-
-      const agentFilePath = vscode.Uri.joinPath(
-        workspaceFolders[0].uri,
-        normalizedPath
-      );
-
-      let agentDefinition: string;
-      try {
-        // Check file size BEFORE reading (prevent resource exhaustion)
-        const stat = await vscode.workspace.fs.stat(agentFilePath);
-        const maxSizeBytes = 10 * 1024 * 1024; // 10MB limit
-        if (stat.size > maxSizeBytes) {
-          throw new Error(
-            `Agent file exceeds maximum size of ${maxSizeBytes / 1024 / 1024}MB`
-          );
-        }
-
-        // Now safe to read
-        const fileContent = await vscode.workspace.fs.readFile(agentFilePath);
-        agentDefinition = Buffer.from(fileContent).toString('utf8');
-      } catch (error) {
-        throw new Error(
-          `Failed to read agent file ${agentPath}: ${(error as Error).message}`
-        );
-      }
-
-      // Use chatWithSystem to invoke with agent definition as system prompt
-      return namespace.chatWithSystem(
-        task,
-        agentDefinition,
-        model || 'gpt-4o-mini'
-      );
-    },
-
-    // ========================================
-    // Token Intelligence (TASK_2025_039)
-    // ========================================
-
-    /**
-     * Count tokens in text using model-specific tokenizer
-     * @param text - Text to count tokens for
-     * @param model - Optional model family filter (default: active model)
-     * @returns Token count
-     */
-    countTokens: async (text: string, model?: string) => {
-      if (!text || text.trim().length === 0) {
-        throw new Error('Text cannot be empty');
-      }
-
-      const models = await vscode.lm.selectChatModels({
-        family: model || 'gpt-4o',
-      });
-
-      if (models.length === 0) {
-        throw new Error(`No model found for family: ${model || 'gpt-4o'}`);
-      }
-
-      const selectedModel = models[0];
-      const tokenSource = new vscode.CancellationTokenSource();
-      try {
-        return await selectedModel.countTokens(text, tokenSource.token);
-      } finally {
-        tokenSource.dispose();
-      }
-    },
-
-    /**
-     * Count tokens in a file using model-specific tokenizer
-     * @param filePath - Absolute or relative file path
-     * @param model - Optional model family filter (default: active model)
-     * @returns Token count
-     */
-    countFileTokens: async (filePath: string, model?: string) => {
-      if (!filePath || filePath.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-
-      // Read file — resolve relative paths against workspace root
-      const uri = resolveWorkspacePath(filePath);
-      let fileContent: string;
-
-      try {
-        // Check file size BEFORE reading (prevent resource exhaustion)
-        const stat = await vscode.workspace.fs.stat(uri);
-        const maxSizeBytes = 10 * 1024 * 1024; // 10MB limit
-        if (stat.size > maxSizeBytes) {
-          throw new Error(
-            `File exceeds maximum size of ${maxSizeBytes / 1024 / 1024}MB`
-          );
-        }
-
-        // Now safe to read
-        const fileData = await vscode.workspace.fs.readFile(uri);
-        fileContent = Buffer.from(fileData).toString('utf8');
-      } catch (error) {
-        throw new Error(
-          `Failed to read file ${filePath}: ${(error as Error).message}`
-        );
-      }
-
-      // Count tokens
-      return namespace.countTokens(fileContent, model);
-    },
-
-    /**
-     * Check if content fits in model's context window
-     * @param content - Content to check
-     * @param model - Optional model family filter (default: active model)
-     * @param reserve - Reserved tokens for response (default: 4000)
-     * @returns True if content fits in context window
-     */
-    fitsInContext: async (
-      content: string,
-      model?: string,
-      reserve?: number
-    ) => {
-      if (!content || content.trim().length === 0) {
-        throw new Error('Content cannot be empty');
-      }
-
-      const models = await vscode.lm.selectChatModels({
-        family: model || 'gpt-4o',
-      });
-
-      if (models.length === 0) {
-        throw new Error(`No model found for family: ${model || 'gpt-4o'}`);
-      }
-
-      const selectedModel = models[0];
-      const tokenSource = new vscode.CancellationTokenSource();
-      try {
-        const tokenCount = await selectedModel.countTokens(
-          content,
-          tokenSource.token
-        );
-
-        const reserveTokens = reserve ?? 4000; // Default reserve (match types.ts)
-        const availableTokens = selectedModel.maxInputTokens - reserveTokens;
-
-        return tokenCount <= availableTokens;
-      } finally {
-        tokenSource.dispose();
-      }
-    },
-
-    // ========================================
-    // Tool Integration (TASK_2025_039)
-    // ========================================
-
-    /**
-     * List all registered VS Code LM tools
-     * @returns Array of tool information (name, description, schema)
-     */
-    getTools: async () => {
-      const tools = vscode.lm.tools;
-
-      return tools.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema as Record<string, unknown> | undefined,
-      }));
-    },
-
-    /**
-     * Invoke a VS Code LM tool directly
-     * @param name - Tool name
-     * @param input - Tool input parameters (must match tool's schema)
-     * @returns Tool execution result
-     */
-    invokeTool: async (name: string, input: Record<string, unknown>) => {
-      if (!name || name.trim().length === 0) {
-        throw new Error('Tool name cannot be empty');
-      }
-
-      const tokenSource = new vscode.CancellationTokenSource();
-      try {
-        const result = await vscode.lm.invokeTool(
-          name,
-          {
-            input,
-            toolInvocationToken: undefined, // Invoked outside of chat request
-          },
-          tokenSource.token
-        );
-
-        return result;
-      } finally {
-        tokenSource.dispose();
-      }
-    },
-
-    /**
-     * Chat with access to specific VS Code tools
-     * @param message - User message to send
-     * @param toolNames - Array of tool names to make available
-     * @param model - Optional model family filter
-     * @returns Complete model response text
-     */
-    chatWithTools: async (
-      message: string,
-      toolNames: string[],
-      model?: string
-    ) => {
-      if (!message || message.trim().length === 0) {
-        throw new Error('Message cannot be empty');
-      }
-
-      if (!toolNames || toolNames.length === 0) {
-        throw new Error('Tool names array cannot be empty');
-      }
-
-      const models = await vscode.lm.selectChatModels({
-        family: model || 'gpt-4o',
-      });
-
-      if (models.length === 0) {
-        throw new Error(`No model found for family: ${model || 'gpt-4o'}`);
-      }
-
-      const selectedModel = models[0];
-      const messages = [vscode.LanguageModelChatMessage.User(message)];
-
-      // Get tools by name
-      const availableTools = vscode.lm.tools.filter((tool) =>
-        toolNames.includes(tool.name)
-      );
-
-      const tokenSource = new vscode.CancellationTokenSource();
-      try {
-        const response = await selectedModel.sendRequest(
-          messages,
-          { tools: availableTools },
-          tokenSource.token
-        );
-
-        let result = '';
-        for await (const chunk of response.text) {
-          result += chunk;
-        }
-
-        return result;
-      } finally {
-        tokenSource.dispose();
-      }
-    },
-
-    // ========================================
-    // Specialized AI Tasks (TASK_2025_039 - Phase 3)
-    // ========================================
-
-    /**
-     * Summarize content using VS Code LM
-     * @param content - Content to summarize
-     * @param options - Task options (model, maxLength, format)
-     * @returns Summary text
-     */
-    summarize: async (
-      content: string,
-      options?: { model?: string; maxLength?: number; format?: string }
-    ) => {
-      const systemPrompt = `You are a summarization assistant. Summarize the following content concisely${
-        options?.maxLength
-          ? ` in no more than ${options.maxLength} characters`
-          : ''
-      }${
-        options?.format ? ` and format the output as ${options.format}` : ''
-      }.`;
-
-      return namespace.chatWithSystem(content, systemPrompt, options?.model);
-    },
-
-    /**
-     * Explain code with context awareness
-     * @param code - Code to explain
-     * @param options - Task options (model, maxLength, format)
-     * @returns Explanation text
-     */
-    explain: async (
-      code: string,
-      options?: { model?: string; maxLength?: number; format?: string }
-    ) => {
-      const systemPrompt = `You are a code explanation assistant. Explain the following code in a clear, educational manner. Focus on what the code does, how it works, and any notable patterns or techniques used${
-        options?.format === 'markdown' ? ' using markdown formatting' : ''
-      }.`;
-
-      return namespace.chatWithSystem(code, systemPrompt, options?.model);
-    },
-
-    /**
-     * Code review via VS Code LM
-     * @param code - Code to review
-     * @param options - Task options (model, maxLength, format)
-     * @returns Review feedback text
-     */
-    review: async (
-      code: string,
-      options?: { model?: string; maxLength?: number; format?: string }
-    ) => {
-      const systemPrompt = `You are a code review assistant. Review the following code for:
-- Code quality and best practices
-- Potential bugs or issues
-- Performance considerations
-- Security concerns
-- Readability and maintainability
-
-Provide constructive feedback${
-        options?.format === 'markdown'
-          ? ' using markdown formatting with sections'
-          : ''
-      }.`;
-
-      return namespace.chatWithSystem(code, systemPrompt, options?.model);
-    },
-
-    /**
-     * Transform code by instruction
-     * @param code - Code to transform
-     * @param instruction - Transformation instruction
-     * @param model - Optional model family filter
-     * @returns Transformed code
-     */
-    transform: async (code: string, instruction: string, model?: string) => {
-      const systemPrompt = `You are a code transformation assistant. Transform the code according to the user's instruction. Return ONLY the transformed code without explanations or markdown formatting.`;
-
-      const message = `Instruction: ${instruction}
-
-Code:
-${code}`;
-
-      return namespace.chatWithSystem(message, systemPrompt, model);
-    },
-
-    /**
-     * Generate code from description
-     * @param description - Description of code to generate
-     * @param options - Task options (model, maxLength, format)
-     * @returns Generated code
-     */
-    generate: async (
-      description: string,
-      options?: { model?: string; maxLength?: number; format?: string }
-    ) => {
-      const systemPrompt = `You are a code generation assistant. Generate clean, well-structured code based on the user's description. Include comments explaining key parts. Follow best practices and modern conventions${
-        options?.format === 'typescript'
-          ? ' and write TypeScript code'
-          : options?.format === 'javascript'
-          ? ' and write JavaScript code'
-          : ''
-      }.`;
-
-      return namespace.chatWithSystem(
-        description,
-        systemPrompt,
-        options?.model
-      );
-    },
-  };
-
-  return namespace;
-}
+// buildAINamespace removed in TASK_2025_209 — ptah.ai namespace is obsolete,
+// replaced by CLI tools + MCP agent spawn (ptah.agent.*).
 
 /**
  * Strip comments from JSON string (supports single-line and multi-line comments)
@@ -968,7 +328,10 @@ function stripJsonComments(jsonString: string): string {
  * SECURITY: Rejects absolute paths and path traversal to confine
  * all file operations to the workspace directory.
  */
-function resolveWorkspacePath(filePath: string): vscode.Uri {
+function resolveWorkspacePath(
+  filePath: string,
+  workspaceProvider: IWorkspaceProvider
+): string {
   // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
 
@@ -989,12 +352,12 @@ function resolveWorkspacePath(filePath: string): vscode.Uri {
   }
 
   // Resolve relative to workspace root
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) {
+  const workspaceRoot = workspaceProvider.getWorkspaceRoot();
+  if (!workspaceRoot) {
     throw new Error('No workspace folder is open.');
   }
 
-  return vscode.Uri.joinPath(workspaceFolders[0].uri, normalizedPath);
+  return path.join(workspaceRoot, normalizedPath);
 }
 
 /**
@@ -1004,30 +367,26 @@ function resolveWorkspacePath(filePath: string): vscode.Uri {
 export function buildFilesNamespace(
   deps: SystemNamespaceDependencies
 ): FilesNamespace {
-  const { fileSystemManager } = deps;
+  const { fileSystemProvider, workspaceProvider } = deps;
 
   return {
-    read: async (path: string) => {
-      const uri = resolveWorkspacePath(path);
+    read: async (filePath: string) => {
+      const resolvedPath = resolveWorkspacePath(filePath, workspaceProvider);
       // Check if file exists before reading
-      try {
-        await fileSystemManager.stat(uri);
-      } catch {
-        throw new Error(`File not found: ${uri.fsPath}`);
+      const exists = await fileSystemProvider.exists(resolvedPath);
+      if (!exists) {
+        throw new Error(`File not found: ${resolvedPath}`);
       }
-      const content = await fileSystemManager.readFile(uri);
-      return new TextDecoder('utf-8').decode(content);
+      return fileSystemProvider.readFile(resolvedPath);
     },
-    readJson: async (path: string) => {
-      const uri = resolveWorkspacePath(path);
+    readJson: async (filePath: string) => {
+      const resolvedPath = resolveWorkspacePath(filePath, workspaceProvider);
       // Check if file exists before reading
-      try {
-        await fileSystemManager.stat(uri);
-      } catch {
-        throw new Error(`File not found: ${uri.fsPath}`);
+      const exists = await fileSystemProvider.exists(resolvedPath);
+      if (!exists) {
+        throw new Error(`File not found: ${resolvedPath}`);
       }
-      const content = await fileSystemManager.readFile(uri);
-      const text = new TextDecoder('utf-8').decode(content);
+      const text = await fileSystemProvider.readFile(resolvedPath);
 
       // Try standard JSON.parse first (most files like package.json are valid JSON)
       try {
@@ -1039,60 +398,21 @@ export function buildFilesNamespace(
       }
     },
     list: async (directory: string) => {
-      const uri = resolveWorkspacePath(directory);
+      const resolvedPath = resolveWorkspacePath(directory, workspaceProvider);
       // Check if directory exists before listing
       try {
-        const stat = await fileSystemManager.stat(uri);
-        if (stat.type !== vscode.FileType.Directory) {
-          throw new Error(`Path is not a directory: ${uri.fsPath}`);
+        const stat = await fileSystemProvider.stat(resolvedPath);
+        if (stat.type !== FileType.Directory) {
+          throw new Error(`Path is not a directory: ${resolvedPath}`);
         }
       } catch {
-        throw new Error(`Directory not found: ${uri.fsPath}`);
+        throw new Error(`Directory not found: ${resolvedPath}`);
       }
-      const entries = await fileSystemManager.readDirectory(uri);
-      return entries.map(([name, type]) => ({
-        name,
-        type: type === vscode.FileType.Directory ? 'directory' : 'file',
+      const entries = await fileSystemProvider.readDirectory(resolvedPath);
+      return entries.map((entry) => ({
+        name: entry.name,
+        type: entry.type === FileType.Directory ? 'directory' : 'file',
       }));
-    },
-  };
-}
-
-/**
- * Allowed command prefixes for MCP execution.
- * SECURITY: More restrictive than webview RPC allowlist.
- * No terminal commands, no extension install/uninstall commands.
- */
-const ALLOWED_MCP_COMMAND_PREFIXES = [
-  'ptah.',
-  'editor.',
-  'workbench.action.files.',
-  'vscode.open',
-  'vscode.diff',
-];
-
-/**
- * Build commands namespace
- * Uses VS Code's commands API with security allowlist
- */
-export function buildCommandsNamespace(): CommandsNamespace {
-  return {
-    execute: async (commandId: string, ...args: unknown[]) => {
-      const isAllowed = ALLOWED_MCP_COMMAND_PREFIXES.some((prefix) =>
-        commandId.startsWith(prefix)
-      );
-      if (!isAllowed) {
-        throw new Error(
-          `Command '${commandId}' is not allowed via MCP. Allowed prefixes: ${ALLOWED_MCP_COMMAND_PREFIXES.join(
-            ', '
-          )}`
-        );
-      }
-      return await vscode.commands.executeCommand(commandId, ...args);
-    },
-    list: async () => {
-      const commands = await vscode.commands.getCommands();
-      return commands.filter((c) => c.startsWith('ptah.'));
     },
   };
 }

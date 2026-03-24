@@ -1,5 +1,5 @@
 import { injectable } from 'tsyringe';
-import * as vscode from 'vscode';
+import * as path from 'path';
 import { ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
 
@@ -41,12 +41,12 @@ export class DependencyAnalyzerService {
    * Analyze dependencies for a workspace folder.
    * Returns dependency lists based on project type.
    *
-   * @param workspaceUri - URI of the workspace folder to analyze
+   * @param workspacePath - Path of the workspace folder to analyze
    * @param projectType - Already detected project type
    * @returns Dependency analysis result
    */
   async analyzeDependencies(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     projectType: ProjectType
   ): Promise<DependencyAnalysisResult> {
     try {
@@ -56,28 +56,28 @@ export class DependencyAnalyzerService {
         case ProjectType.Vue:
         case ProjectType.Angular:
         case ProjectType.NextJS:
-          return await this.analyzeNodeDependencies(workspaceUri);
+          return await this.analyzeNodeDependencies(workspacePath);
 
         case ProjectType.Python:
-          return await this.analyzePythonDependencies(workspaceUri);
+          return await this.analyzePythonDependencies(workspacePath);
 
         case ProjectType.Go:
-          return await this.analyzeGoDependencies(workspaceUri);
+          return await this.analyzeGoDependencies(workspacePath);
 
         case ProjectType.Rust:
-          return await this.analyzeRustDependencies(workspaceUri);
+          return await this.analyzeRustDependencies(workspacePath);
 
         case ProjectType.PHP:
-          return await this.analyzePHPDependencies(workspaceUri);
+          return await this.analyzePHPDependencies(workspacePath);
 
         case ProjectType.Ruby:
-          return await this.analyzeRubyDependencies(workspaceUri);
+          return await this.analyzeRubyDependencies(workspacePath);
 
         case ProjectType.DotNet:
-          return await this.analyzeDotNetDependencies(workspaceUri);
+          return await this.analyzeDotNetDependencies(workspacePath);
 
         case ProjectType.Java:
-          return await this.analyzeJavaDependencies(workspaceUri);
+          return await this.analyzeJavaDependencies(workspacePath);
 
         default:
           return this.emptyResult();
@@ -92,17 +92,17 @@ export class DependencyAnalyzerService {
    * Analyze Node.js dependencies from package.json.
    */
   private async analyzeNodeDependencies(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<DependencyAnalysisResult> {
-    const packageJsonUri = vscode.Uri.joinPath(workspaceUri, 'package.json');
-    const exists = await this.fileSystem.exists(packageJsonUri);
+    const packageJsonPath = path.join(workspacePath, 'package.json');
+    const exists = await this.fileSystem.exists(packageJsonPath);
 
     if (!exists) {
       return this.emptyResult();
     }
 
     try {
-      const content = await this.fileSystem.readFile(packageJsonUri);
+      const content = await this.fileSystem.readFile(packageJsonPath);
       const packageJson = JSON.parse(content) as {
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
@@ -129,18 +129,15 @@ export class DependencyAnalyzerService {
    * Analyze Python dependencies from requirements.txt or Pipfile.
    */
   private async analyzePythonDependencies(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<DependencyAnalysisResult> {
     // Try requirements.txt first
-    const requirementsUri = vscode.Uri.joinPath(
-      workspaceUri,
-      'requirements.txt'
-    );
-    const requirementsExist = await this.fileSystem.exists(requirementsUri);
+    const requirementsPath = path.join(workspacePath, 'requirements.txt');
+    const requirementsExist = await this.fileSystem.exists(requirementsPath);
 
     if (requirementsExist) {
       try {
-        const content = await this.fileSystem.readFile(requirementsUri);
+        const content = await this.fileSystem.readFile(requirementsPath);
         const dependencies = this.parseRequirementsTxt(content);
 
         return {
@@ -154,12 +151,12 @@ export class DependencyAnalyzerService {
     }
 
     // Try Pipfile as fallback
-    const pipfileUri = vscode.Uri.joinPath(workspaceUri, 'Pipfile');
-    const pipfileExists = await this.fileSystem.exists(pipfileUri);
+    const pipfilePath = path.join(workspacePath, 'Pipfile');
+    const pipfileExists = await this.fileSystem.exists(pipfilePath);
 
     if (pipfileExists) {
       try {
-        const content = await this.fileSystem.readFile(pipfileUri);
+        const content = await this.fileSystem.readFile(pipfilePath);
         return this.parsePipfile(content);
       } catch {
         // Ignore parse errors
@@ -173,17 +170,17 @@ export class DependencyAnalyzerService {
    * Analyze Go dependencies from go.mod.
    */
   private async analyzeGoDependencies(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<DependencyAnalysisResult> {
-    const goModUri = vscode.Uri.joinPath(workspaceUri, 'go.mod');
-    const exists = await this.fileSystem.exists(goModUri);
+    const goModPath = path.join(workspacePath, 'go.mod');
+    const exists = await this.fileSystem.exists(goModPath);
 
     if (!exists) {
       return this.emptyResult();
     }
 
     try {
-      const content = await this.fileSystem.readFile(goModUri);
+      const content = await this.fileSystem.readFile(goModPath);
       const dependencies = this.parseGoMod(content);
 
       return {
@@ -200,17 +197,17 @@ export class DependencyAnalyzerService {
    * Analyze Rust dependencies from Cargo.toml.
    */
   private async analyzeRustDependencies(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<DependencyAnalysisResult> {
-    const cargoTomlUri = vscode.Uri.joinPath(workspaceUri, 'Cargo.toml');
-    const exists = await this.fileSystem.exists(cargoTomlUri);
+    const cargoTomlPath = path.join(workspacePath, 'Cargo.toml');
+    const exists = await this.fileSystem.exists(cargoTomlPath);
 
     if (!exists) {
       return this.emptyResult();
     }
 
     try {
-      const content = await this.fileSystem.readFile(cargoTomlUri);
+      const content = await this.fileSystem.readFile(cargoTomlPath);
       return this.parseCargoToml(content);
     } catch {
       return this.emptyResult();
@@ -221,17 +218,17 @@ export class DependencyAnalyzerService {
    * Analyze PHP dependencies from composer.json.
    */
   private async analyzePHPDependencies(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<DependencyAnalysisResult> {
-    const composerJsonUri = vscode.Uri.joinPath(workspaceUri, 'composer.json');
-    const exists = await this.fileSystem.exists(composerJsonUri);
+    const composerJsonPath = path.join(workspacePath, 'composer.json');
+    const exists = await this.fileSystem.exists(composerJsonPath);
 
     if (!exists) {
       return this.emptyResult();
     }
 
     try {
-      const content = await this.fileSystem.readFile(composerJsonUri);
+      const content = await this.fileSystem.readFile(composerJsonPath);
       const composerJson = JSON.parse(content) as {
         require?: Record<string, string>;
         'require-dev'?: Record<string, string>;
@@ -258,17 +255,17 @@ export class DependencyAnalyzerService {
    * Analyze Ruby dependencies from Gemfile.
    */
   private async analyzeRubyDependencies(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<DependencyAnalysisResult> {
-    const gemfileUri = vscode.Uri.joinPath(workspaceUri, 'Gemfile');
-    const exists = await this.fileSystem.exists(gemfileUri);
+    const gemfilePath = path.join(workspacePath, 'Gemfile');
+    const exists = await this.fileSystem.exists(gemfilePath);
 
     if (!exists) {
       return this.emptyResult();
     }
 
     try {
-      const content = await this.fileSystem.readFile(gemfileUri);
+      const content = await this.fileSystem.readFile(gemfilePath);
       const dependencies = this.parseGemfile(content);
 
       return {
@@ -285,19 +282,21 @@ export class DependencyAnalyzerService {
    * Analyze .NET dependencies from .csproj files.
    */
   private async analyzeDotNetDependencies(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<DependencyAnalysisResult> {
     try {
       // Find all .csproj files
-      const files = await this.fileSystem.readDirectory(workspaceUri);
-      const csprojFile = files.find(([name]) => name.endsWith('.csproj'));
+      const entries = await this.fileSystem.readDirectory(workspacePath);
+      const csprojFile = entries.find((entry) =>
+        entry.name.endsWith('.csproj')
+      );
 
       if (!csprojFile) {
         return this.emptyResult();
       }
 
-      const csprojUri = vscode.Uri.joinPath(workspaceUri, csprojFile[0]);
-      const content = await this.fileSystem.readFile(csprojUri);
+      const csprojPath = path.join(workspacePath, csprojFile.name);
+      const content = await this.fileSystem.readFile(csprojPath);
       const dependencies = this.parseCsproj(content);
 
       return {
@@ -314,15 +313,15 @@ export class DependencyAnalyzerService {
    * Analyze Java dependencies from pom.xml or build.gradle.
    */
   private async analyzeJavaDependencies(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<DependencyAnalysisResult> {
     // Try pom.xml first (Maven)
-    const pomXmlUri = vscode.Uri.joinPath(workspaceUri, 'pom.xml');
-    const pomExists = await this.fileSystem.exists(pomXmlUri);
+    const pomXmlPath = path.join(workspacePath, 'pom.xml');
+    const pomExists = await this.fileSystem.exists(pomXmlPath);
 
     if (pomExists) {
       try {
-        const content = await this.fileSystem.readFile(pomXmlUri);
+        const content = await this.fileSystem.readFile(pomXmlPath);
         const dependencies = this.parsePomXml(content);
 
         return {
@@ -336,12 +335,12 @@ export class DependencyAnalyzerService {
     }
 
     // Try build.gradle as fallback (Gradle)
-    const buildGradleUri = vscode.Uri.joinPath(workspaceUri, 'build.gradle');
-    const gradleExists = await this.fileSystem.exists(buildGradleUri);
+    const buildGradlePath = path.join(workspacePath, 'build.gradle');
+    const gradleExists = await this.fileSystem.exists(buildGradlePath);
 
     if (gradleExists) {
       try {
-        const content = await this.fileSystem.readFile(buildGradleUri);
+        const content = await this.fileSystem.readFile(buildGradlePath);
         const dependencies = this.parseBuildGradle(content);
 
         return {
@@ -629,19 +628,22 @@ export class DependencyAnalyzerService {
 
   /**
    * Analyze dependencies for all workspace folders in a multi-root workspace.
-   * Returns a map of workspace URI to dependency analysis results.
+   * Returns a map of workspace path to dependency analysis results.
    *
-   * @param projectTypes - Map of workspace URIs to project types
-   * @returns Map of workspace URIs to dependency analysis results
+   * @param projectTypes - Map of workspace paths to project types
+   * @returns Map of workspace paths to dependency analysis results
    */
   async analyzeDependenciesForWorkspaces(
-    projectTypes: Map<vscode.Uri, ProjectType>
-  ): Promise<Map<vscode.Uri, DependencyAnalysisResult>> {
-    const results = new Map<vscode.Uri, DependencyAnalysisResult>();
+    projectTypes: Map<string, ProjectType>
+  ): Promise<Map<string, DependencyAnalysisResult>> {
+    const results = new Map<string, DependencyAnalysisResult>();
 
-    for (const [uri, projectType] of projectTypes) {
-      const analysis = await this.analyzeDependencies(uri, projectType);
-      results.set(uri, analysis);
+    for (const [workspacePath, projectType] of projectTypes) {
+      const analysis = await this.analyzeDependencies(
+        workspacePath,
+        projectType
+      );
+      results.set(workspacePath, analysis);
     }
 
     return results;

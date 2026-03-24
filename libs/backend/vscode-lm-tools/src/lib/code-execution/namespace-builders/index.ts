@@ -19,33 +19,23 @@ export {
   type AnalysisNamespaceDependencies,
 } from './analysis-namespace.builders';
 
-// Core namespaces (workspace, search, symbols, diagnostics, git)
+// Core namespaces (workspace, search, diagnostics)
 export {
   buildWorkspaceNamespace,
   buildSearchNamespace,
-  buildSymbolsNamespace,
   buildDiagnosticsNamespace,
-  buildGitNamespace,
   type CoreNamespaceDependencies,
 } from './core-namespace.builders';
 
-// System namespaces (ai, files, commands) + help method
+// System namespaces (files) + help method
 export {
-  buildAINamespace,
   buildFilesNamespace,
-  buildCommandsNamespace,
   buildHelpMethod,
   type SystemNamespaceDependencies,
 } from './system-namespace.builders';
 
 // IDE namespace (lsp, editor, actions, testing)
 export { buildIDENamespace } from './ide-namespace.builder';
-
-// LLM namespace (VS Code LM provider)
-export {
-  buildLLMNamespace,
-  type LlmNamespaceDependencies,
-} from './llm-namespace.builder';
 
 // Orchestration namespace (TASK_2025_111 - workflow state management)
 export {

@@ -5,8 +5,13 @@
  * and file type classification. Provides async generators for large workspaces.
  */
 
-import { injectable } from 'tsyringe';
-import * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
+import * as path from 'path';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IFileSystemProvider,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import { FileSystemService } from '../services/file-system.service';
 import { TokenCounterService } from '../services/token-counter.service';
 import { PatternMatcherService } from './pattern-matcher.service';
@@ -29,7 +34,7 @@ export interface WorkspaceIndexOptions {
   /** Whether to estimate token counts for files */
   estimateTokens?: boolean;
   /** Workspace folder to index - defaults to first workspace folder */
-  workspaceFolder?: vscode.Uri;
+  workspaceFolder?: string;
 }
 
 /**
@@ -65,7 +70,11 @@ export class WorkspaceIndexerService {
     private readonly patternMatcher: PatternMatcherService,
     private readonly ignoreResolver: IgnorePatternResolverService,
     private readonly fileClassifier: FileTypeClassifierService,
-    private readonly tokenCounter: TokenCounterService
+    private readonly tokenCounter: TokenCounterService,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fsProvider: IFileSystemProvider,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider
   ) {}
 
   /**
@@ -119,8 +128,8 @@ export class WorkspaceIndexerService {
     const indexedFiles: IndexedFile[] = [];
     let filesIndexed = 0;
 
-    for (const fileUri of allFiles) {
-      const relativePath = vscode.workspace.asRelativePath(fileUri, false);
+    for (const filePath of allFiles) {
+      const relativePath = path.relative(workspaceFolder, filePath);
 
       // Check if file should be ignored
       if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
@@ -145,7 +154,7 @@ export class WorkspaceIndexerService {
       }
 
       // Get file stats
-      const stat = await this.fileSystemService.stat(fileUri);
+      const stat = await this.fileSystemService.stat(filePath);
 
       // Skip files that are too large
       if (stat.size > maxFileSize) {
@@ -159,7 +168,7 @@ export class WorkspaceIndexerService {
       let estimatedTokens = 0;
       if (options.estimateTokens) {
         try {
-          const content = await this.fileSystemService.readFile(fileUri);
+          const content = await this.fileSystemService.readFile(filePath);
           estimatedTokens = await this.tokenCounter.countTokens(content);
         } catch {
           // If we can't read the file, skip it
@@ -169,7 +178,7 @@ export class WorkspaceIndexerService {
 
       // Create indexed file entry
       const indexedFile: IndexedFile = {
-        path: fileUri.fsPath,
+        path: filePath,
         relativePath,
         type: classification.type,
         size: stat.size,
@@ -241,8 +250,8 @@ export class WorkspaceIndexerService {
       options.includePatterns
     );
 
-    for (const fileUri of allFiles) {
-      const relativePath = vscode.workspace.asRelativePath(fileUri, false);
+    for (const filePath of allFiles) {
+      const relativePath = path.relative(workspaceFolder, filePath);
 
       // Check if file should be ignored
       if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
@@ -267,7 +276,7 @@ export class WorkspaceIndexerService {
       }
 
       // Get file stats
-      const stat = await this.fileSystemService.stat(fileUri);
+      const stat = await this.fileSystemService.stat(filePath);
 
       // Skip files that are too large
       if (stat.size > maxFileSize) {
@@ -281,7 +290,7 @@ export class WorkspaceIndexerService {
       let estimatedTokens = 0;
       if (options.estimateTokens) {
         try {
-          const content = await this.fileSystemService.readFile(fileUri);
+          const content = await this.fileSystemService.readFile(filePath);
           estimatedTokens = await this.tokenCounter.countTokens(content);
         } catch {
           continue;
@@ -290,7 +299,7 @@ export class WorkspaceIndexerService {
 
       // Yield indexed file
       yield {
-        path: fileUri.fsPath,
+        path: filePath,
         relativePath,
         type: classification.type,
         size: stat.size,
@@ -329,32 +338,24 @@ export class WorkspaceIndexerService {
   /**
    * Discover all files in workspace folder matching include patterns
    *
-   * @param workspaceFolder - Workspace folder URI
+   * @param workspaceFolder - Workspace folder path
    * @param includePatterns - Optional glob patterns to include
-   * @returns Array of file URIs
+   * @returns Array of absolute file paths
    */
   private async discoverFiles(
-    workspaceFolder: vscode.Uri,
+    workspaceFolder: string,
     includePatterns?: string[]
-  ): Promise<vscode.Uri[]> {
-    // Use VS Code's findFiles API for efficient file discovery
+  ): Promise<string[]> {
+    // Use IFileSystemProvider's findFiles API for efficient file discovery
     const pattern = includePatterns?.length
       ? `{${includePatterns.join(',')}}`
       : '**/*';
-
-    const relativePattern = new vscode.RelativePattern(
-      workspaceFolder,
-      pattern
-    );
 
     // Exclude common build/dependency directories by default
     const defaultExcludes =
       '**/node_modules/**,**/dist/**,**/build/**,**/.git/**,**/out/**,**/target/**,**/.nx/**';
 
-    const files = await vscode.workspace.findFiles(
-      relativePattern,
-      defaultExcludes
-    );
+    const files = await this.fsProvider.findFiles(pattern, defaultExcludes);
 
     return files;
   }
@@ -362,10 +363,9 @@ export class WorkspaceIndexerService {
   /**
    * Get the default workspace folder
    *
-   * @returns First workspace folder or undefined
+   * @returns First workspace folder path or undefined
    */
-  private getDefaultWorkspaceFolder(): vscode.Uri | undefined {
-    const folders = vscode.workspace.workspaceFolders;
-    return folders?.[0]?.uri;
+  private getDefaultWorkspaceFolder(): string | undefined {
+    return this.workspaceProvider.getWorkspaceRoot();
   }
 }

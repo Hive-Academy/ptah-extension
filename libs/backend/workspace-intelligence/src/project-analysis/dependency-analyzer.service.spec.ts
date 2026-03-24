@@ -1,31 +1,8 @@
 import 'reflect-metadata';
-import * as vscode from 'vscode';
 import { DependencyAnalyzerService } from './dependency-analyzer.service';
 import { FileSystemService } from '../services/file-system.service';
 import { ProjectType } from '../types/workspace.types';
-
-// Mock vscode module
-jest.mock('vscode', () => ({
-  Uri: {
-    file: jest.fn((path: string) => ({
-      fsPath: path,
-      path,
-      scheme: 'file',
-    })),
-    joinPath: jest.fn((base: Record<string, unknown>, ...paths: string[]) => ({
-      fsPath: `${(base as { fsPath: string }).fsPath}/${paths.join('/')}`,
-      path: `${(base as { path: string }).path}/${paths.join('/')}`,
-      scheme: 'file',
-    })),
-  },
-  FileType: {
-    File: 1,
-    Directory: 2,
-  },
-  workspace: {
-    workspaceFolders: [],
-  },
-}));
+import { FileType } from '@ptah-extension/platform-core';
 
 describe('DependencyAnalyzerService', () => {
   let service: DependencyAnalyzerService;
@@ -66,8 +43,10 @@ describe('DependencyAnalyzerService', () => {
         JSON.stringify(packageJson)
       );
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Node);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Node
+      );
 
       expect(result.dependencies).toHaveLength(2);
       expect(result.devDependencies).toHaveLength(2);
@@ -102,8 +81,10 @@ describe('DependencyAnalyzerService', () => {
         JSON.stringify(packageJson)
       );
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Node);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Node
+      );
 
       expect(result.dependencies).toHaveLength(1);
       expect(result.dependencies[0]).toEqual({
@@ -116,8 +97,10 @@ describe('DependencyAnalyzerService', () => {
       mockFileSystemService.exists.mockResolvedValue(true);
       mockFileSystemService.readFile.mockResolvedValue('{ invalid json }');
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Node);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Node
+      );
 
       expect(result.dependencies).toHaveLength(0);
     });
@@ -138,8 +121,10 @@ describe('DependencyAnalyzerService', () => {
       mockFileSystemService.exists.mockResolvedValue(true);
       mockFileSystemService.readFile.mockResolvedValue(requirements);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Python);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Python
+      );
 
       expect(result.dependencies).toHaveLength(6);
       expect(result.totalCount).toBe(6);
@@ -180,8 +165,10 @@ pytest = ">=7.0"
         .mockResolvedValueOnce(true); // Pipfile exists
       mockFileSystemService.readFile.mockResolvedValue(pipfile);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Python);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Python
+      );
 
       expect(result.dependencies).toHaveLength(2); // [packages] section
       expect(result.devDependencies).toHaveLength(1); // [dev-packages] section
@@ -217,8 +204,10 @@ require github.com/stretchr/testify v1.8.4
       mockFileSystemService.exists.mockResolvedValue(true); // go.mod exists
       mockFileSystemService.readFile.mockResolvedValue(goMod);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Go);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Go
+      );
 
       expect(result.dependencies).toHaveLength(3);
       expect(result.dependencies).toContainEqual({
@@ -254,8 +243,10 @@ mockall = "0.11"
       mockFileSystemService.exists.mockResolvedValue(true); // Cargo.toml exists
       mockFileSystemService.readFile.mockResolvedValue(cargoToml);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Rust);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Rust
+      );
 
       expect(result.dependencies).toHaveLength(2);
       expect(result.devDependencies).toHaveLength(1);
@@ -292,8 +283,10 @@ mockall = "0.11"
         JSON.stringify(composerJson)
       );
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.PHP);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.PHP
+      );
 
       expect(result.dependencies).toHaveLength(3);
       expect(result.devDependencies).toHaveLength(1);
@@ -333,8 +326,10 @@ end
       mockFileSystemService.exists.mockResolvedValue(true); // Gemfile exists
       mockFileSystemService.readFile.mockResolvedValue(gemfile);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Ruby);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Ruby
+      );
 
       expect(result.dependencies).toContainEqual({
         name: 'rails',
@@ -372,12 +367,14 @@ end
 `.trim();
 
       mockFileSystemService.readDirectory.mockResolvedValue([
-        ['project.csproj', vscode.FileType.File],
+        { name: 'project.csproj', type: FileType.File },
       ]);
       mockFileSystemService.readFile.mockResolvedValue(csproj);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.DotNet);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.DotNet
+      );
 
       expect(result.dependencies).toHaveLength(3);
       expect(result.dependencies).toContainEqual({
@@ -418,8 +415,10 @@ end
       mockFileSystemService.exists.mockResolvedValue(true); // pom.xml exists
       mockFileSystemService.readFile.mockResolvedValue(pomXml);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Java);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Java
+      );
 
       expect(result.dependencies).toHaveLength(2);
       expect(result.dependencies).toContainEqual({
@@ -446,8 +445,10 @@ dependencies {
         .mockResolvedValueOnce(true); // build.gradle exists
       mockFileSystemService.readFile.mockResolvedValue(buildGradle);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Java);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Java
+      );
 
       expect(result.dependencies).toHaveLength(3);
       expect(result.dependencies).toContainEqual({
@@ -474,12 +475,9 @@ dependencies {
         dependencies: { vue: '^3.0.0' },
       };
 
-      const uri1 = vscode.Uri.file('/workspace1');
-      const uri2 = vscode.Uri.file('/workspace2');
-
-      const projectTypes = new Map<vscode.Uri, ProjectType>();
-      projectTypes.set(uri1, ProjectType.React);
-      projectTypes.set(uri2, ProjectType.Vue);
+      const projectTypes = new Map<string, ProjectType>();
+      projectTypes.set('/workspace1', ProjectType.React);
+      projectTypes.set('/workspace2', ProjectType.Vue);
 
       mockFileSystemService.exists.mockResolvedValue(true);
       mockFileSystemService.readFile
@@ -491,8 +489,8 @@ dependencies {
       );
 
       expect(results.size).toBe(2);
-      const result1 = results.get(uri1);
-      const result2 = results.get(uri2);
+      const result1 = results.get('/workspace1');
+      const result2 = results.get('/workspace2');
 
       expect(result1?.dependencies).toContainEqual({
         name: 'react',
@@ -505,7 +503,7 @@ dependencies {
     });
 
     it('should return empty map for empty project types', async () => {
-      const projectTypes = new Map<vscode.Uri, ProjectType>();
+      const projectTypes = new Map<string, ProjectType>();
 
       const results = await service.analyzeDependenciesForWorkspaces(
         projectTypes
@@ -520,8 +518,10 @@ dependencies {
       mockFileSystemService.exists.mockResolvedValue(false);
       mockFileSystemService.readDirectory.mockResolvedValue([]);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Node);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Node
+      );
 
       expect(result.dependencies).toHaveLength(0);
     });
@@ -532,8 +532,10 @@ dependencies {
         new Error('Permission denied')
       );
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Node);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Node
+      );
 
       expect(result.dependencies).toHaveLength(0);
     });
@@ -542,8 +544,10 @@ dependencies {
       mockFileSystemService.exists.mockResolvedValue(true);
       mockFileSystemService.readFile.mockResolvedValue('');
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Node);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Node
+      );
 
       expect(result.dependencies).toHaveLength(0);
     });
@@ -557,8 +561,10 @@ gem 'rails'
       mockFileSystemService.exists.mockResolvedValue(true);
       mockFileSystemService.readFile.mockResolvedValue(gemfile);
 
-      const uri = vscode.Uri.file('/workspace');
-      const result = await service.analyzeDependencies(uri, ProjectType.Ruby);
+      const result = await service.analyzeDependencies(
+        '/workspace',
+        ProjectType.Ruby
+      );
 
       // Should only have one 'rails' dependency (version takes precedence)
       const railsDeps = result.dependencies.filter((d) => d.name === 'rails');

@@ -10,9 +10,13 @@
  * Both are routed through the same internal mechanism:
  * - Store pending requests as Map<requestId, Promise resolver>
  * - Emit 'permission-request' event for RPC forwarding to webview
- * - Resolve when user responds (or auto-deny on timeout)
+ * - Block indefinitely until user responds or cleanup resolves
  *
  * Auto-approves read-only tools and 'read' permission kinds to reduce friction.
+ *
+ * TASK_2025_215: Removed 5-minute setTimeout-based timeout. Permission requests
+ * now block indefinitely until the user responds or cleanup resolves them
+ * (matching Claude Code CLI behavior).
  */
 import { EventEmitter } from 'eventemitter3';
 import { v4 as uuidv4 } from 'uuid';
@@ -20,9 +24,6 @@ import type {
   AgentPermissionRequest,
   AgentPermissionDecision,
 } from '@ptah-extension/shared';
-
-/** Default timeout for permission requests: 5 minutes (matches SDK and MCP timeouts) */
-const PERMISSION_TIMEOUT = 5 * 60 * 1000;
 
 // ========================================
 // Permission Policy
@@ -101,14 +102,13 @@ export const PERMISSION_PRESETS = {
 
 interface PendingRequest {
   readonly resolve: (decision: AgentPermissionDecision) => void;
-  readonly timeout: ReturnType<typeof setTimeout>;
 }
 
 export class CopilotPermissionBridge {
   /** Event emitter for RPC forwarding. Emits 'permission-request' events. */
   readonly events = new EventEmitter();
 
-  /** Map of requestId -> { resolve, timeout } for pending permission requests */
+  /** Map of requestId -> { resolve } for pending permission requests */
   private readonly pending = new Map<string, PendingRequest>();
 
   /** Active permission policy (defaults to fullAuto for backward compatibility) */
@@ -224,7 +224,7 @@ export class CopilotPermissionBridge {
   /**
    * Internal permission request mechanism shared by both hook handlers.
    * Creates a Promise, stores the resolver, emits an event, and waits
-   * for resolution or timeout.
+   * indefinitely for resolution (no timeout).
    */
   private async requestPermissionInternal(params: {
     agentId: string;
@@ -243,26 +243,15 @@ export class CopilotPermissionBridge {
       toolArgs: params.toolArgs,
       description: params.description,
       timestamp: now,
-      timeoutAt: now + PERMISSION_TIMEOUT,
+      timeoutAt: 0,
     };
 
     return new Promise<AgentPermissionDecision>((resolve) => {
-      const timeout = setTimeout(() => {
-        this.pending.delete(requestId);
-        resolve({
-          requestId,
-          decision: 'deny',
-          reason: 'Timed out waiting for user response',
-        });
-      }, PERMISSION_TIMEOUT);
-
       this.pending.set(requestId, {
         resolve: (decision: AgentPermissionDecision) => {
-          clearTimeout(timeout);
           this.pending.delete(requestId);
           resolve(decision);
         },
-        timeout,
       });
 
       // Emit event for RPC forwarding to webview
@@ -293,7 +282,6 @@ export class CopilotPermissionBridge {
    */
   cleanup(): void {
     for (const [id, entry] of this.pending) {
-      clearTimeout(entry.timeout);
       entry.resolve({
         requestId: id,
         decision: 'deny',

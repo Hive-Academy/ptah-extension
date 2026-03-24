@@ -24,6 +24,7 @@ import type { GeneratedAgent } from '../../types/core.types';
 import type { ICliAgentTransformer } from './cli-agent-transformer.interface';
 import { CopilotAgentTransformer } from './copilot-agent-transformer';
 import { GeminiAgentTransformer } from './gemini-agent-transformer';
+import { CodexAgentTransformer } from './codex-agent-transformer';
 
 @injectable()
 export class MultiCliAgentWriterService {
@@ -35,6 +36,7 @@ export class MultiCliAgentWriterService {
     // Instantiate transformers internally (not DI-injected, they are pure functions)
     this.transformers.set('copilot', new CopilotAgentTransformer());
     this.transformers.set('gemini', new GeminiAgentTransformer());
+    this.transformers.set('codex', new CodexAgentTransformer());
 
     this.logger.debug('[MultiCliWriter] Service initialized');
   }

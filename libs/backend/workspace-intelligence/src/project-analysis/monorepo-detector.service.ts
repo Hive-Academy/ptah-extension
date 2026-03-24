@@ -1,5 +1,7 @@
-import { injectable } from 'tsyringe';
-import * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
+import * as path from 'path';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { MonorepoType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
 
@@ -26,50 +28,54 @@ export interface MonorepoDetectionResult {
  */
 @injectable()
 export class MonorepoDetectorService {
-  constructor(private readonly fileSystem: FileSystemService) {}
+  constructor(
+    private readonly fileSystem: FileSystemService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider
+  ) {}
 
   /**
    * Detect monorepo configuration for a workspace folder.
    * Checks for presence of monorepo config files in priority order.
    *
-   * @param workspaceUri - URI of the workspace folder to analyze
+   * @param workspacePath - Path of the workspace folder to analyze
    * @returns Monorepo detection result
    */
   async detectMonorepo(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<MonorepoDetectionResult> {
     // Check for Nx workspace (highest priority - most opinionated)
-    const nxResult = await this.detectNxWorkspace(workspaceUri);
+    const nxResult = await this.detectNxWorkspace(workspacePath);
     if (nxResult.isMonorepo) {
       return nxResult;
     }
 
     // Check for Rush workspace
-    const rushResult = await this.detectRushWorkspace(workspaceUri);
+    const rushResult = await this.detectRushWorkspace(workspacePath);
     if (rushResult.isMonorepo) {
       return rushResult;
     }
 
     // Check for Lerna workspace
-    const lernaResult = await this.detectLernaWorkspace(workspaceUri);
+    const lernaResult = await this.detectLernaWorkspace(workspacePath);
     if (lernaResult.isMonorepo) {
       return lernaResult;
     }
 
     // Check for Turborepo
-    const turborepoResult = await this.detectTurborepo(workspaceUri);
+    const turborepoResult = await this.detectTurborepo(workspacePath);
     if (turborepoResult.isMonorepo) {
       return turborepoResult;
     }
 
     // Check for pnpm workspaces
-    const pnpmResult = await this.detectPnpmWorkspace(workspaceUri);
+    const pnpmResult = await this.detectPnpmWorkspace(workspacePath);
     if (pnpmResult.isMonorepo) {
       return pnpmResult;
     }
 
     // Check for Yarn workspaces (lowest priority - least specific)
-    const yarnResult = await this.detectYarnWorkspace(workspaceUri);
+    const yarnResult = await this.detectYarnWorkspace(workspacePath);
     if (yarnResult.isMonorepo) {
       return yarnResult;
     }
@@ -80,23 +86,23 @@ export class MonorepoDetectorService {
 
   /**
    * Detect monorepo type for all workspace folders.
-   * Returns a map of workspace URI to monorepo detection result.
+   * Returns a map of workspace path to monorepo detection result.
    *
-   * @returns Map of workspace folder URIs to their monorepo detection results
+   * @returns Map of workspace folder paths to their monorepo detection results
    */
   async detectMonoreposForWorkspaces(): Promise<
-    Map<vscode.Uri, MonorepoDetectionResult>
+    Map<string, MonorepoDetectionResult>
   > {
-    const results = new Map<vscode.Uri, MonorepoDetectionResult>();
-    const workspaceFolders = vscode.workspace.workspaceFolders;
+    const results = new Map<string, MonorepoDetectionResult>();
+    const workspaceFolders = this.workspaceProvider.getWorkspaceFolders();
 
-    if (!workspaceFolders) {
+    if (workspaceFolders.length === 0) {
       return results;
     }
 
     for (const folder of workspaceFolders) {
-      const detection = await this.detectMonorepo(folder.uri);
-      results.set(folder.uri, detection);
+      const detection = await this.detectMonorepo(folder);
+      results.set(folder, detection);
     }
 
     return results;
@@ -106,16 +112,13 @@ export class MonorepoDetectorService {
    * Detect Nx workspace via nx.json or workspace.json.
    */
   private async detectNxWorkspace(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<MonorepoDetectionResult> {
-    const nxJsonUri = vscode.Uri.joinPath(workspaceUri, 'nx.json');
-    const workspaceJsonUri = vscode.Uri.joinPath(
-      workspaceUri,
-      'workspace.json'
-    );
+    const nxJsonPath = path.join(workspacePath, 'nx.json');
+    const workspaceJsonPath = path.join(workspacePath, 'workspace.json');
 
-    const nxExists = await this.fileSystem.exists(nxJsonUri);
-    const workspaceExists = await this.fileSystem.exists(workspaceJsonUri);
+    const nxExists = await this.fileSystem.exists(nxJsonPath);
+    const workspaceExists = await this.fileSystem.exists(workspaceJsonPath);
 
     if (nxExists || workspaceExists) {
       const workspaceFiles: string[] = [];
@@ -130,7 +133,7 @@ export class MonorepoDetectorService {
       let packageCount: number | undefined;
       if (nxExists) {
         try {
-          const content = await this.fileSystem.readFile(nxJsonUri);
+          const content = await this.fileSystem.readFile(nxJsonPath);
           const nxJson = JSON.parse(content) as {
             projects?: Record<string, unknown>;
           };
@@ -157,16 +160,16 @@ export class MonorepoDetectorService {
    * Detect Lerna workspace via lerna.json.
    */
   private async detectLernaWorkspace(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<MonorepoDetectionResult> {
-    const lernaJsonUri = vscode.Uri.joinPath(workspaceUri, 'lerna.json');
-    const exists = await this.fileSystem.exists(lernaJsonUri);
+    const lernaJsonPath = path.join(workspacePath, 'lerna.json');
+    const exists = await this.fileSystem.exists(lernaJsonPath);
 
     if (exists) {
       // Try to extract package count from lerna.json
       let packageCount: number | undefined;
       try {
-        const content = await this.fileSystem.readFile(lernaJsonUri);
+        const content = await this.fileSystem.readFile(lernaJsonPath);
         const lernaJson = JSON.parse(content) as {
           packages?: string[];
           useWorkspaces?: boolean;
@@ -174,16 +177,13 @@ export class MonorepoDetectorService {
 
         // If using workspaces, need to check package.json
         if (lernaJson.useWorkspaces) {
-          const packageJsonUri = vscode.Uri.joinPath(
-            workspaceUri,
-            'package.json'
-          );
+          const packageJsonPath = path.join(workspacePath, 'package.json');
           const packageJsonExists = await this.fileSystem.exists(
-            packageJsonUri
+            packageJsonPath
           );
           if (packageJsonExists) {
             const packageContent = await this.fileSystem.readFile(
-              packageJsonUri
+              packageJsonPath
             );
             const packageJson = JSON.parse(packageContent) as {
               workspaces?: string[];
@@ -214,16 +214,16 @@ export class MonorepoDetectorService {
    * Detect Rush workspace via rush.json.
    */
   private async detectRushWorkspace(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<MonorepoDetectionResult> {
-    const rushJsonUri = vscode.Uri.joinPath(workspaceUri, 'rush.json');
-    const exists = await this.fileSystem.exists(rushJsonUri);
+    const rushJsonPath = path.join(workspacePath, 'rush.json');
+    const exists = await this.fileSystem.exists(rushJsonPath);
 
     if (exists) {
       // Try to count projects from rush.json
       let packageCount: number | undefined;
       try {
-        const content = await this.fileSystem.readFile(rushJsonUri);
+        const content = await this.fileSystem.readFile(rushJsonPath);
         const rushJson = JSON.parse(content) as {
           projects?: Array<{ packageName: string }>;
         };
@@ -249,10 +249,10 @@ export class MonorepoDetectorService {
    * Detect Turborepo via turbo.json.
    */
   private async detectTurborepo(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<MonorepoDetectionResult> {
-    const turboJsonUri = vscode.Uri.joinPath(workspaceUri, 'turbo.json');
-    const exists = await this.fileSystem.exists(turboJsonUri);
+    const turboJsonPath = path.join(workspacePath, 'turbo.json');
+    const exists = await this.fileSystem.exists(turboJsonPath);
 
     if (exists) {
       return {
@@ -269,19 +269,16 @@ export class MonorepoDetectorService {
    * Detect pnpm workspace via pnpm-workspace.yaml.
    */
   private async detectPnpmWorkspace(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<MonorepoDetectionResult> {
-    const pnpmWorkspaceUri = vscode.Uri.joinPath(
-      workspaceUri,
-      'pnpm-workspace.yaml'
-    );
-    const exists = await this.fileSystem.exists(pnpmWorkspaceUri);
+    const pnpmWorkspacePath = path.join(workspacePath, 'pnpm-workspace.yaml');
+    const exists = await this.fileSystem.exists(pnpmWorkspacePath);
 
     if (exists) {
       // Try to count packages from pnpm-workspace.yaml
       let packageCount: number | undefined;
       try {
-        const content = await this.fileSystem.readFile(pnpmWorkspaceUri);
+        const content = await this.fileSystem.readFile(pnpmWorkspacePath);
         // Simple YAML parsing for packages array
         const packagesMatch = content.match(
           /packages:\s*\n((?:\s+-\s+.+\n?)+)/
@@ -311,14 +308,14 @@ export class MonorepoDetectorService {
    * Detect Yarn workspace via package.json workspaces field.
    */
   private async detectYarnWorkspace(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<MonorepoDetectionResult> {
-    const packageJsonUri = vscode.Uri.joinPath(workspaceUri, 'package.json');
-    const exists = await this.fileSystem.exists(packageJsonUri);
+    const packageJsonPath = path.join(workspacePath, 'package.json');
+    const exists = await this.fileSystem.exists(packageJsonPath);
 
     if (exists) {
       try {
-        const content = await this.fileSystem.readFile(packageJsonUri);
+        const content = await this.fileSystem.readFile(packageJsonPath);
         const packageJson = JSON.parse(content) as {
           workspaces?: string[] | { packages?: string[] };
         };

@@ -5,6 +5,7 @@ import {
   computed,
   inject,
   ChangeDetectionStrategy,
+  booleanAttribute,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { LucideAngularModule, Bell, Clock, X, Sparkles } from 'lucide-angular';
@@ -39,14 +40,17 @@ import { ClaudeRpcService } from '@ptah-extension/core';
       <button
         trigger
         type="button"
-        class="btn btn-square btn-ghost btn-sm relative"
+        class="btn btn-ghost btn-sm relative"
+        [class.btn-square]="!showLabel()"
+        [class.gap-1]="showLabel()"
         aria-label="Notifications"
         title="Notifications"
         (click)="toggle()"
       >
         <lucide-angular [img]="BellIcon" class="w-4 h-4" aria-hidden="true" />
-
-        @if (hasNotifications()) {
+        @if (showLabel()) {
+        <span class="text-xs">Alerts</span>
+        } @if (hasNotifications()) {
         <span
           class="absolute top-1 right-1 w-2 h-2 rounded-full"
           [class.bg-info]="dotColor() === 'info'"
@@ -169,6 +173,9 @@ export class NotificationBellComponent {
   readonly trialDaysRemaining = input<number | null>(null);
   readonly isCommunity = input<boolean>(false);
   readonly reason = input<string | undefined>(undefined);
+
+  /** When true, show text label next to icon (Electron desktop mode) */
+  readonly showLabel = input(false, { transform: booleanAttribute });
 
   // Popover state
   private readonly _isOpen = signal(false);

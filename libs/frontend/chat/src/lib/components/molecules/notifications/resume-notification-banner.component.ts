@@ -13,55 +13,89 @@ import type { SubagentRecord } from '@ptah-extension/shared';
 /**
  * ResumeNotificationBannerComponent - Banner for resumable interrupted agents
  *
- * TASK_2025_103: Displays a notification banner when there are interrupted
- * subagents that can be resumed. The banner shows the count of resumable
- * agents and provides options to resume all or dismiss.
+ * TASK_2025_213: Displays each interrupted subagent individually with its own
+ * resume button. Shows agent type badge, truncated agentId, time since
+ * interruption, and a per-agent "Resume" action.
  *
  * Complexity Level: 1 (Simple component with signal-based state)
  * Patterns Applied:
  * - Signal-based inputs/outputs (Angular 20+)
  * - ChangeDetectionStrategy.OnPush for performance
- * - DaisyUI alert styling
+ * - Permission-card styling (bg-base-300/30, border-l-2 border-warning)
  *
  * SOLID Principles:
- * - Single Responsibility: Display resumable agent notification and handle actions
+ * - Single Responsibility: Display resumable agent notification and handle per-agent resume actions
  */
 @Component({
   selector: 'ptah-resume-notification-banner',
   imports: [LucideAngularModule],
   template: `
     @if (resumableSubagents().length > 0 && !dismissed()) {
-    <div class="alert alert-info shadow-lg mb-4 py-2 px-3">
-      <div class="flex items-center gap-2 flex-1">
-        <lucide-angular [img]="PlayCircleIcon" class="w-5 h-5 flex-shrink-0" />
-        <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-sm">Interrupted Agents</h3>
-          <p class="text-xs opacity-80">
-            {{ resumableSubagents().length }} agent{{
-              resumableSubagents().length === 1 ? '' : 's'
-            }}
-            can be resumed
-          </p>
-        </div>
-      </div>
-      <div class="flex gap-2 flex-shrink-0">
+    <div
+      class="relative bg-base-300/30 rounded border border-warning/40"
+      role="alert"
+      aria-label="Interrupted agents that can be resumed"
+    >
+      <!-- Header row - compact, matching permission card style -->
+      <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
+        <lucide-angular
+          [img]="PlayCircleIcon"
+          class="w-3 h-3 text-warning flex-shrink-0"
+          aria-hidden="true"
+        />
+        <span class="font-semibold text-base-content/80">Interrupted</span>
+        <span class="badge badge-xs badge-warning font-mono px-1.5">
+          {{ resumableSubagents().length }}
+        </span>
+        <span class="flex-1"></span>
         <button
           type="button"
-          class="btn btn-sm btn-primary gap-1"
-          (click)="onResumeAll()"
-        >
-          <lucide-angular [img]="PlayCircleIcon" class="w-4 h-4" />
-          Resume All
-        </button>
-        <button
-          type="button"
-          class="btn btn-sm btn-ghost btn-square"
+          class="btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0"
           (click)="onDismiss()"
-          title="Dismiss notification"
+          title="Dismiss"
+          aria-label="Dismiss interrupted agents notification"
         >
-          <lucide-angular [img]="XIcon" class="w-4 h-4" />
+          <lucide-angular [img]="XIcon" class="w-3 h-3 opacity-50" />
         </button>
       </div>
+
+      <!-- Agent list - separated by subtle divider -->
+      @for (agent of resumableSubagents(); track agent.toolCallId) {
+      <div
+        class="flex items-center gap-1.5 px-2 py-1.5 border-t border-base-300/30 bg-base-100/20"
+      >
+        <span
+          class="badge badge-xs font-mono px-1.5 badge-warning badge-outline"
+        >
+          {{ agent.agentType }}
+        </span>
+        <span
+          class="text-[10px] text-base-content/50 font-mono truncate max-w-[8ch]"
+          [title]="agent.agentId"
+        >
+          {{ agent.agentId }}
+        </span>
+        <span class="text-[10px] text-base-content/40">
+          {{ getTimeSince(agent.interruptedAt) }}
+        </span>
+        <span class="flex-1"></span>
+        <button
+          type="button"
+          class="btn btn-xs btn-primary gap-0.5 px-2"
+          (click)="onResume(agent)"
+          [attr.aria-label]="
+            'Resume ' + agent.agentType + ' agent ' + agent.agentId
+          "
+        >
+          <lucide-angular
+            [img]="PlayCircleIcon"
+            class="w-3 h-3"
+            aria-hidden="true"
+          />
+          Resume
+        </button>
+      </div>
+      }
     </div>
     }
   `,
@@ -100,9 +134,10 @@ export class ResumeNotificationBannerComponent {
   }
 
   /**
-   * Emits when user clicks "Resume All" button
+   * Emits when user clicks a specific agent's "Resume" button.
+   * The parent handler should build a resume prompt and send it via ChatStore.
    */
-  readonly resumeAllRequested = output<void>();
+  readonly resumeRequested = output<SubagentRecord>();
 
   /**
    * Icons
@@ -117,10 +152,10 @@ export class ResumeNotificationBannerComponent {
   readonly dismissed = signal(false);
 
   /**
-   * Handle "Resume All" button click
+   * Handle individual agent "Resume" button click
    */
-  protected onResumeAll(): void {
-    this.resumeAllRequested.emit();
+  protected onResume(agent: SubagentRecord): void {
+    this.resumeRequested.emit(agent);
   }
 
   /**
@@ -131,11 +166,34 @@ export class ResumeNotificationBannerComponent {
   }
 
   /**
-   * Reset dismissed state manually
-   * @deprecated No longer needed - the component auto-resets via effect when new subagents arrive.
-   * Kept for backward compatibility.
+   * Compute a human-readable relative time string from a timestamp.
+   * Returns "just now", "X min ago", or "X hr ago" depending on elapsed time.
    */
-  public resetDismissed(): void {
-    this.dismissed.set(false);
+  protected getTimeSince(timestamp: number | undefined): string {
+    if (timestamp == null) {
+      return '';
+    }
+
+    const now = Date.now();
+    const elapsedMs = now - timestamp;
+
+    if (elapsedMs < 0) {
+      return '';
+    }
+
+    const seconds = Math.floor(elapsedMs / 1000);
+
+    if (seconds < 60) {
+      return 'just now';
+    }
+
+    const minutes = Math.floor(seconds / 60);
+
+    if (minutes < 60) {
+      return `${minutes} min ago`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    return `${hours} hr ago`;
   }
 }

@@ -25,7 +25,7 @@ import type {
   AgentStartEvent,
   MessageCompleteEvent,
 } from '@ptah-extension/shared';
-import { isTaskToolInput } from '@ptah-extension/shared';
+import { isTaskToolInput, isAgentDispatchTool } from '@ptah-extension/shared';
 import type { ContentBlock } from './history.types';
 
 /**
@@ -214,7 +214,7 @@ export class HistoryEventFactory {
       toolCallId,
       toolName,
       toolInput,
-      isTaskTool: toolName === 'Task',
+      isTaskTool: isAgentDispatchTool(toolName),
       timestamp,
       source: 'history',
     };
@@ -408,7 +408,7 @@ export class HistoryEventFactory {
       toolCallId,
       toolName,
       toolInput,
-      isTaskTool: toolName === 'Task',
+      isTaskTool: isAgentDispatchTool(toolName),
       timestamp,
       source: 'history',
     };

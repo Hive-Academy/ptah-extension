@@ -46,10 +46,11 @@ export class SessionImporterService {
    * parses the first few KB of the most recent files to extract metadata.
    *
    * @param workspacePath - The workspace path to find sessions for
-   * @param limit - Maximum number of sessions to import (default: 5)
+   * @param limit - Maximum number of sessions to import (default: 50)
    * @returns Number of sessions imported
    */
-  async scanAndImport(workspacePath: string, limit = 5): Promise<number> {
+  // TASK_2025_210: Increased default from 5 to 50 for cross-platform session discovery
+  async scanAndImport(workspacePath: string, limit = 50): Promise<number> {
     this.logger.info('[SessionImporter] Scanning for existing sessions', {
       workspacePath,
       limit,
@@ -76,6 +77,23 @@ export class SessionImporterService {
           this.logger.debug('[SessionImporter] Session already imported', {
             sessionId,
           });
+          continue;
+        }
+
+        // Cross-reference: check if any parent session references this UUID
+        // as a child session via cliSessions[].sdkSessionId. If so, this is
+        // a ptah-cli child session that wasn't properly marked by createChild
+        // (e.g., extension crashed before createChild could persist).
+        if (await this.metadataStore.isReferencedAsChildSession(sessionId)) {
+          this.logger.info(
+            '[SessionImporter] Detected child session via cross-reference, creating child metadata',
+            { sessionId }
+          );
+          await this.metadataStore.createChild(
+            sessionId,
+            workspacePath,
+            'CLI Agent Session'
+          );
           continue;
         }
 

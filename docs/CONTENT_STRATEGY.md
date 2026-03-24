@@ -23,7 +23,7 @@ Ptah is a VS Code-native extension **powered by the official Claude Code Agent S
 | Priority | Message                             | Supporting Evidence                                    |
 | -------- | ----------------------------------- | ------------------------------------------------------ |
 | **1**    | 10x faster AI interactions          | Agent SDK integration, no CLI subprocess overhead      |
-| **2**    | Your Claude agent gains superpowers | Code Execution MCP server with 8 Ptah API namespaces   |
+| **2**    | Your Claude agent gains superpowers | Code Execution MCP server with 14 Ptah API namespaces  |
 | **3**    | Intelligent workspace awareness     | 13+ project types, 6 monorepo types auto-detected      |
 | **4**    | Project-adaptive agents             | LLM-powered agent generation tailored to YOUR codebase |
 | **5**    | Multi-provider flexibility          | Anthropic, OpenAI, Gemini, OpenRouter, VS Code LM      |
@@ -41,7 +41,7 @@ Ptah is a VS Code-native extension **powered by the official Claude Code Agent S
 **Content Angles**:
 
 - "Your Claude Agent Just Got Superpowers" (blog/video)
-- "8 APIs You Didn't Know Claude Could Access" (listicle)
+- "14 APIs You Didn't Know Claude Could Access" (listicle)
 - "Execute Code + Query Your Workspace = Magic" (demo video)
 
 **Technical Details for Content**:
@@ -51,12 +51,9 @@ Ptah API Namespaces Available to Claude:
 
 - ptah.workspace - Analyze project structure, detect tech stack
 - ptah.search - Semantic file search with relevance scoring
-- ptah.symbols - Extract code symbols, find definitions/references
 - ptah.diagnostics - Access VS Code problems/errors
-- ptah.git - Get status, history, diffs
 - ptah.ai - Generate content with multi-provider LLM
 - ptah.files - Read/write/list files
-- ptah.commands - Execute VS Code commands
 ```
 
 **Example Use Cases for Content**:
@@ -232,7 +229,7 @@ Layered, Hexagonal, Microservices, Monorepo patterns
 | Week | Content Type   | Topic                                                    | Channel              |
 | ---- | -------------- | -------------------------------------------------------- | -------------------- |
 | 5    | Tutorial Video | "Setting Up the Code Execution MCP Server"               | YouTube              |
-| 5    | Blog           | "8 Ptah API Namespaces That Give Claude Superpowers"     | Blog, Dev.to         |
+| 5    | Blog           | "14 Ptah API Namespaces That Give Claude Superpowers"    | Blog, Dev.to         |
 | 6    | Live Stream    | Coding session with Ptah (Angular project)               | YouTube Live, Twitch |
 | 6    | Tweet Thread   | Deep dive on workspace intelligence                      | Twitter/X            |
 | 7    | Case Study     | "How I Refactored a Monorepo with Ptah"                  | Blog                 |
@@ -603,7 +600,7 @@ Brief architecture overview
 This content strategy positions Ptah as far more than a "pretty UI wrapper" - it's a **sophisticated AI development platform** with:
 
 - **10x performance** via Agent SDK integration
-- **Superpower MCP server** with 8 API namespaces
+- **Superpower MCP server** with 14 API namespaces
 - **Intelligent workspace analysis** (13+ project types, 6 monorepo types)
 - **Project-adaptive agents** via LLM-powered generation
 - **Multi-provider flexibility** (5 LLM providers)

@@ -46,7 +46,7 @@ export interface AgentPermissionRequest {
   /** Request timestamp (Unix epoch milliseconds) */
   readonly timestamp: number;
 
-  /** Auto-deny deadline (Unix epoch milliseconds) */
+  /** Timeout deadline (Unix epoch milliseconds). 0 means no timeout — block indefinitely until user responds. */
   readonly timeoutAt: number;
 }
 

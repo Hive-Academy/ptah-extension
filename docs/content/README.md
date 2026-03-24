@@ -146,7 +146,7 @@ All claims in content are backed by codebase evidence:
 
 ### Twitter/X
 
-1. "Built a VS Code extension powered by @AnthropicAI's Claude Agent SDK. Added 8 MCP APIs so Claude can query your workspace, check diagnostics, and execute VS Code commands. Here's what that looks like: [link]"
+1. "Built a VS Code extension powered by @AnthropicAI's Claude Agent SDK. Added 14 MCP API namespaces so Claude can query your workspace, analyze code with tree-sitter, and check diagnostics. Here's what that looks like: [link]"
 
 2. "Love Claude Code? We built Ptah to bring it into VS Code with some extra capabilities - workspace intelligence, extended MCP server, multi-provider LLM support. Here's the tour: [link]"
 
@@ -154,11 +154,11 @@ All claims in content are backed by codebase evidence:
 
 ### LinkedIn
 
-"We built Ptah on the official Claude Code Agent SDK - bringing Claude's capabilities directly into VS Code with extended features: workspace intelligence, 8 MCP API namespaces, and multi-provider LLM support. 12 specialized libraries, 280+ TypeScript files. Here's the architecture: [link]"
+"We built Ptah on the official Claude Code Agent SDK - bringing Claude's capabilities directly into VS Code with extended features: workspace intelligence, 14 MCP API namespaces, and multi-provider LLM support. 12 specialized libraries, 280+ TypeScript files. Here's the architecture: [link]"
 
 ### Reddit (r/ClaudeAI)
 
-"Built a VS Code extension on the Claude Agent SDK that adds 8 MCP APIs for deeper workspace integration - semantic file search, symbol extraction, diagnostics access, git operations, and more. Happy to share what I learned building it."
+"Built a VS Code extension on the Claude Agent SDK that adds 14 MCP API namespaces for deeper workspace integration - semantic file search, tree-sitter AST analysis, diagnostics access, dependency graphs, and more. Happy to share what I learned building it."
 
 ---
 

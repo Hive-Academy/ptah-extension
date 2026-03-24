@@ -15,7 +15,11 @@
  * Architecture: Thin orchestration layer that delegates to focused helper services.
  */
 
+import * as path from 'path';
+import { existsSync } from 'fs';
 import { injectable, inject } from 'tsyringe';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import {
   IAIProvider,
   ProviderId,
@@ -108,6 +112,12 @@ export class SdkAgentAdapter implements IAIProvider {
   private cliInstallation: ClaudeInstallation | null = null;
 
   /**
+   * TASK_2025_194: Resolved path to cli.js - either from detected CLI or bundled fallback.
+   * Always set during successful initialization. Passed to SDK as pathToClaudeCodeExecutable.
+   */
+  private cliJsPath: string | null = null;
+
+  /**
    * Callback to notify when real Claude session ID is resolved
    * Set by RpcMethodRegistrationService to send session:id-resolved events
    */
@@ -147,7 +157,9 @@ export class SdkAgentAdapter implements IAIProvider {
     @inject(SDK_TOKENS.SDK_MODULE_LOADER)
     private readonly moduleLoader: SdkModuleLoader,
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
-    private readonly modelService: SdkModelService
+    private readonly modelService: SdkModelService,
+    @inject(PLATFORM_TOKENS.PLATFORM_INFO)
+    private readonly platformInfo: IPlatformInfo
   ) {}
 
   /**
@@ -178,37 +190,9 @@ export class SdkAgentAdapter implements IAIProvider {
         await this.initialize();
       });
 
-      // Step 1: Detect Claude CLI installation
-      this.logger.info(
-        '[SdkAgentAdapter] Detecting Claude CLI installation...'
-      );
-      const configuredPath = this.config.get<string>('claudeCliPath');
-      if (configuredPath) {
-        this.cliDetector.configure({ configuredPath });
-      }
-
-      this.cliInstallation = await this.cliDetector.findExecutable();
-
-      if (!this.cliInstallation) {
-        const errorMessage =
-          'Claude CLI not found. Please install it via: npm install -g @anthropic-ai/claude-code';
-        this.logger.info(`[SdkAgentAdapter] ${errorMessage}`);
-        this.health = {
-          status: 'error' as ProviderStatus,
-          lastCheck: Date.now(),
-          errorMessage,
-        };
-        return false;
-      }
-
-      this.logger.info('[SdkAgentAdapter] Claude CLI found', {
-        path: this.cliInstallation.path,
-        source: this.cliInstallation.source,
-        cliJsPath: this.cliInstallation.cliJsPath,
-        useDirectExecution: this.cliInstallation.useDirectExecution,
-      });
-
-      // Step 2: Configure authentication
+      // Step 1: Configure authentication FIRST (not dependent on CLI)
+      // TASK_2025_194: Auth runs before CLI detection so third-party providers
+      // (Z.AI, OpenRouter) work even without Claude CLI installed.
       const authMethod = this.config.get<string>('authMethod') || 'auto';
       const authResult = await this.authManager.configureAuthentication(
         authMethod
@@ -221,6 +205,48 @@ export class SdkAgentAdapter implements IAIProvider {
           errorMessage: authResult.errorMessage,
         };
         return false;
+      }
+
+      // Step 2: Detect Claude CLI installation (soft requirement)
+      // TASK_2025_194: CLI detection no longer gates initialization.
+      // If CLI is not found, we fall back to the bundled cli.js shipped with the extension.
+      this.logger.info(
+        '[SdkAgentAdapter] Detecting Claude CLI installation...'
+      );
+      const configuredPath = this.config.get<string>('claudeCliPath');
+      if (configuredPath) {
+        this.cliDetector.configure({ configuredPath });
+      }
+
+      this.cliInstallation = await this.cliDetector.findExecutable();
+
+      if (this.cliInstallation) {
+        this.cliJsPath = this.cliInstallation.cliJsPath ?? null;
+        this.logger.info('[SdkAgentAdapter] Claude CLI found', {
+          path: this.cliInstallation.path,
+          source: this.cliInstallation.source,
+          cliJsPath: this.cliInstallation.cliJsPath,
+          useDirectExecution: this.cliInstallation.useDirectExecution,
+        });
+      } else {
+        // Fall back to bundled cli.js shipped alongside the extension
+        const bundledCliPath = path.join(
+          this.platformInfo.extensionPath,
+          'cli.js'
+        );
+        if (existsSync(bundledCliPath)) {
+          this.cliJsPath = bundledCliPath;
+          this.logger.info(
+            '[SdkAgentAdapter] Claude CLI not found - using bundled cli.js fallback',
+            { bundledCliPath }
+          );
+        } else {
+          this.cliJsPath = null;
+          this.logger.error(
+            '[SdkAgentAdapter] Bundled cli.js not found at expected path',
+            new Error(`cli.js missing at ${bundledCliPath}`)
+          );
+        }
       }
 
       // Step 3: Mark as initialized
@@ -282,6 +308,7 @@ export class SdkAgentAdapter implements IAIProvider {
     });
     this.authManager.clearAuthentication();
     this.initialized = false;
+    this.cliJsPath = null;
     this.logger.info('[SdkAgentAdapter] Disposed successfully');
   }
 
@@ -392,6 +419,7 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
+    // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId: trackingId,
@@ -410,6 +438,7 @@ export class SdkAgentAdapter implements IAIProvider {
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
+        pathToClaudeCodeExecutable: this.cliJsPath || undefined,
       }
     );
 
@@ -532,6 +561,7 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
     // TASK_2025_153: Pass pluginPaths for session plugin loading
+    // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId,
@@ -542,6 +572,7 @@ export class SdkAgentAdapter implements IAIProvider {
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
+        pathToClaudeCodeExecutable: this.cliJsPath || undefined,
       }
     );
 
@@ -697,6 +728,7 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent: config.enhancedPromptsContent,
         pluginPaths: config.pluginPaths,
         onCompactionStart: this.compactionStartCallback || undefined,
+        pathToClaudeCodeExecutable: this.cliJsPath || undefined,
       });
 
     // Reuse existing stream transformation logic

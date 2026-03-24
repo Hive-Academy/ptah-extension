@@ -28,6 +28,7 @@ import {
   resolveCliPath,
   spawnCli,
 } from './cli-adapter.utils';
+import { resolveAndImportSdk } from './sdk-resolver';
 
 /** Valid reasoning effort values for the Codex SDK. */
 const CODEX_REASONING_EFFORTS = [
@@ -140,25 +141,21 @@ let codexSdkModule: CodexSdkModule | null = null;
  * Lazily import the ESM-only @openai/codex-sdk package.
  * Only caches successful imports so a failed import can be retried.
  *
- * The package is ESM-only ("type": "module", exports only "import" condition).
- * Webpack bundles it into the extension output (configured in webpack.config.js)
- * so the dynamic import resolves to the bundled module at runtime.
+ * The package is NOT bundled with the extension. It is resolved at runtime
+ * from the user's system via resolveAndImportSdk(), which tries standard
+ * Node.js resolution first, then falls back to locating the package
+ * relative to the CLI binary's install location.
  */
-async function getCodexSdk(): Promise<CodexSdkModule> {
+async function getCodexSdk(binaryPath?: string): Promise<CodexSdkModule> {
   if (codexSdkModule) {
     return codexSdkModule;
   }
-  try {
-    const mod = (await import('@openai/codex-sdk')) as CodexSdkModule;
-    codexSdkModule = mod;
-    return mod;
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Failed to load @openai/codex-sdk: ${message}. ` +
-        `Ensure the package is installed: npm install @openai/codex-sdk`
-    );
-  }
+  const mod = await resolveAndImportSdk<CodexSdkModule>(
+    '@openai/codex-sdk',
+    binaryPath
+  );
+  codexSdkModule = mod;
+  return mod;
 }
 
 /** Shape of ~/.codex/auth.json */
@@ -443,7 +440,7 @@ export class CodexCliAdapter implements CliAdapter {
    * reasoning→thinking mapping.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    const sdk = await getCodexSdk();
+    const sdk = await getCodexSdk(options.binaryPath);
 
     // Pass MCP server config, env vars, and codexPathOverride through Codex SDK
     const codexOptions: {

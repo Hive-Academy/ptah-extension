@@ -37,14 +37,6 @@ import type {
 } from '@ptah-extension/shared';
 import { FileType, Framework, ProjectType } from '../../types/workspace.types';
 import type { IndexedFile, FileIndex } from '../../types/workspace.types';
-import * as vscode from 'vscode';
-
-// Mock VS Code API
-jest.mock('vscode', () => ({
-  Uri: {
-    file: (path: string) => ({ fsPath: path, scheme: 'file' }),
-  },
-}));
 
 // ============================================
 // Mock Logger Factory
@@ -456,8 +448,8 @@ describe('CodeQualityAssessmentService', () => {
       };
       mockIndexer.indexWorkspace.mockResolvedValue(mockFileIndex);
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const files = await service.sampleFiles(workspaceUri, defaultConfig);
+      const workspacePath = 'D:\\test\\project';
+      const files = await service.sampleFiles(workspacePath, defaultConfig);
 
       expect(files.length).toBe(0);
     });
@@ -491,8 +483,8 @@ describe('CodeQualityAssessmentService', () => {
       mockRelevanceScorer.getTopFiles.mockReturnValue([]);
       mockFileSystem.readFile.mockResolvedValue('file content');
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const files = await service.sampleFiles(workspaceUri, defaultConfig);
+      const workspacePath = 'D:\\test\\project';
+      const files = await service.sampleFiles(workspacePath, defaultConfig);
 
       // Only the non-test file should be sampled
       expect(files.length).toBe(1);
@@ -528,8 +520,8 @@ describe('CodeQualityAssessmentService', () => {
       mockRelevanceScorer.getTopFiles.mockReturnValue([]);
       mockFileSystem.readFile.mockResolvedValue('file content');
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const files = await service.sampleFiles(workspaceUri, defaultConfig);
+      const workspacePath = 'D:\\test\\project';
+      const files = await service.sampleFiles(workspacePath, defaultConfig);
 
       expect(files.length).toBe(1);
       expect(files[0].path).toBe('src/utils.ts');
@@ -571,8 +563,8 @@ describe('CodeQualityAssessmentService', () => {
       mockRelevanceScorer.getTopFiles.mockReturnValue([]);
       mockFileSystem.readFile.mockResolvedValue('file content');
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const files = await service.sampleFiles(workspaceUri, {
+      const workspacePath = 'D:\\test\\project';
+      const files = await service.sampleFiles(workspacePath, {
         ...defaultConfig,
         entryPointCount: 2,
         highRelevanceCount: 0,
@@ -614,17 +606,15 @@ describe('CodeQualityAssessmentService', () => {
 
       mockRelevanceScorer.getTopFiles.mockReturnValue([]);
       // Make readFile succeed for good.ts, fail for bad.ts
-      mockFileSystem.readFile.mockImplementation(
-        async (uri: { fsPath: string }) => {
-          if (uri.fsPath.includes('bad.ts')) {
-            throw new Error('File read error');
-          }
-          return 'good content';
+      mockFileSystem.readFile.mockImplementation(async (path: string) => {
+        if (path.includes('bad.ts')) {
+          throw new Error('File read error');
         }
-      );
+        return 'good content';
+      });
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const files = await service.sampleFiles(workspaceUri, defaultConfig);
+      const workspacePath = 'D:\\test\\project';
+      const files = await service.sampleFiles(workspacePath, defaultConfig);
 
       expect(files.length).toBe(1);
       expect(files[0].path).toBe('src/good.ts');
@@ -642,8 +632,8 @@ describe('CodeQualityAssessmentService', () => {
       };
       mockIndexer.indexWorkspace.mockResolvedValue(mockFileIndex);
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const assessment = await service.assessQuality(workspaceUri);
+      const workspacePath = 'D:\\test\\project';
+      const assessment = await service.assessQuality(workspacePath);
 
       expect(assessment.score).toBe(50);
       expect(assessment.antiPatterns.length).toBe(0);
@@ -689,8 +679,8 @@ describe('CodeQualityAssessmentService', () => {
       );
       mockAntiPatternDetector.calculateScore.mockReturnValue(85);
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const assessment = await service.assessQuality(workspaceUri);
+      const workspacePath = 'D:\\test\\project';
+      const assessment = await service.assessQuality(workspacePath);
 
       expect(assessment.score).toBe(85);
       expect(assessment.antiPatterns.length).toBe(1);
@@ -736,8 +726,8 @@ describe('CodeQualityAssessmentService', () => {
       );
       mockAntiPatternDetector.calculateScore.mockReturnValue(75);
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const assessment = await service.assessQuality(workspaceUri);
+      const workspacePath = 'D:\\test\\project';
+      const assessment = await service.assessQuality(workspacePath);
 
       expect(assessment.gaps.length).toBeGreaterThan(0);
       expect(
@@ -771,8 +761,8 @@ describe('CodeQualityAssessmentService', () => {
       mockAntiPatternDetector.detectPatternsInFiles.mockReturnValue([]);
       mockAntiPatternDetector.calculateScore.mockReturnValue(100);
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const assessment = await service.assessQuality(workspaceUri);
+      const workspacePath = 'D:\\test\\project';
+      const assessment = await service.assessQuality(workspacePath);
 
       expect(assessment.strengths.length).toBeGreaterThan(0);
     });
@@ -1082,8 +1072,8 @@ describe('ProjectIntelligenceService', () => {
     it('should combine workspace context with quality assessment', async () => {
       setupDefaultMocks();
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const intel = await service.getIntelligence(workspaceUri);
+      const workspacePath = 'D:\\test\\project';
+      const intel = await service.getIntelligence(workspacePath);
 
       expect(intel.workspaceContext).toBeDefined();
       expect(intel.qualityAssessment).toBeDefined();
@@ -1094,13 +1084,13 @@ describe('ProjectIntelligenceService', () => {
     it('should use cached data within TTL', async () => {
       setupDefaultMocks();
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
+      const workspacePath = 'D:\\test\\project';
 
       // First call - should compute
-      const intel1 = await service.getIntelligence(workspaceUri);
+      const intel1 = await service.getIntelligence(workspacePath);
 
       // Second call - should use cache
-      const intel2 = await service.getIntelligence(workspaceUri);
+      const intel2 = await service.getIntelligence(workspacePath);
 
       expect(intel1.timestamp).toBe(intel2.timestamp);
       expect(mockProjectDetector.detectProjectType).toHaveBeenCalledTimes(1);
@@ -1111,8 +1101,8 @@ describe('ProjectIntelligenceService', () => {
         new Error('Detection failed')
       );
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const intel = await service.getIntelligence(workspaceUri);
+      const workspacePath = 'D:\\test\\project';
+      const intel = await service.getIntelligence(workspacePath);
 
       expect(intel.workspaceContext.projectType).toBe('unknown');
       expect(intel.qualityAssessment.score).toBe(50);
@@ -1126,7 +1116,7 @@ describe('ProjectIntelligenceService', () => {
         ProjectType.Angular
       );
       mockFrameworkDetector.detectFrameworks.mockResolvedValue(
-        new Map([[vscode.Uri.file('D:\\test'), Framework.Angular]])
+        new Map([['D:\\test', Framework.Angular]])
       );
       mockMonorepoDetector.detectMonorepo.mockResolvedValue({
         isMonorepo: true,
@@ -1137,8 +1127,8 @@ describe('ProjectIntelligenceService', () => {
         devDependencies: [{ name: 'typescript', version: '^5.0.0' }],
       } as unknown as DependencyAnalysisResult);
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const context = await service.getWorkspaceContext(workspaceUri);
+      const workspacePath = 'D:\\test\\project';
+      const context = await service.getWorkspaceContext(workspacePath);
 
       expect(context.projectType).toBe('angular');
       expect(context.isMonorepo).toBe(true);
@@ -1152,8 +1142,8 @@ describe('ProjectIntelligenceService', () => {
         new Error('Failed')
       );
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
-      const context = await service.getWorkspaceContext(workspaceUri);
+      const workspacePath = 'D:\\test\\project';
+      const context = await service.getWorkspaceContext(workspacePath);
 
       expect(context.projectType).toBe('unknown');
       expect(context.isMonorepo).toBe(false);
@@ -1188,25 +1178,25 @@ describe('ProjectIntelligenceService', () => {
         wasTruncated: false,
       });
 
-      const workspaceUri = vscode.Uri.file('D:\\test\\project');
+      const workspacePath = 'D:\\test\\project';
 
       // First call - cache populated
-      await service.getIntelligence(workspaceUri);
+      await service.getIntelligence(workspacePath);
 
       // Invalidate
-      service.invalidateCache(workspaceUri);
+      service.invalidateCache(workspacePath);
 
       // Second call - should recompute
-      await service.getIntelligence(workspaceUri);
+      await service.getIntelligence(workspacePath);
 
       expect(mockProjectDetector.detectProjectType).toHaveBeenCalledTimes(2);
     });
 
     it('should handle invalidation of non-cached workspace', () => {
-      const workspaceUri = vscode.Uri.file('D:\\test\\nonexistent');
+      const nonExistentPath = 'D:\\test\\nonexistent';
 
       // Should not throw
-      expect(() => service.invalidateCache(workspaceUri)).not.toThrow();
+      expect(() => service.invalidateCache(nonExistentPath)).not.toThrow();
     });
   });
 });

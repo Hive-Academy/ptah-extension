@@ -317,7 +317,7 @@ export const MESSAGE_TYPES = {
 
   // ---- Setup Wizard Messages ----
   SETUP_WIZARD_OPEN_AGENTS_FOLDER: 'setup-wizard:open-agents-folder',
-  SETUP_WIZARD_START_CHAT: 'setup-wizard:start-chat',
+  SETUP_WIZARD_COMPLETE: 'setup-wizard:complete',
   SETUP_WIZARD_SCAN_PROGRESS: 'setup-wizard:scan-progress',
   SETUP_WIZARD_ANALYSIS_STREAM: 'setup-wizard:analysis-stream',
 

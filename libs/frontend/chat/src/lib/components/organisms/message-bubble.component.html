@@ -4,14 +4,14 @@
   <!-- Avatar with Ptah icon + streaming ring -->
   <div class="chat-image avatar">
     <div
-      class="w-8 h-8 rounded-full overflow-hidden transition-all duration-300"
+      class="w-6 h-6 rounded-full overflow-hidden transition-all duration-300"
       [class.streaming-avatar-glow]="isStreaming()"
     >
       <img
         [ngSrc]="ptahIconUri"
         alt="Claude"
-        width="32"
-        height="32"
+        width="24"
+        height="24"
         class="w-full h-full object-cover"
       />
     </div>
@@ -30,7 +30,7 @@
 
   <!-- Message bubble - uses base-300 for theme-aware background -->
   <div
-    class="chat-bubble bg-base-300 text-base-content shadow-card max-w-[90%] md:max-w-[95%] lg:max-w-[90%]"
+    class="chat-bubble bg-base-300 text-base-content shadow-card max-w-[95%] md:max-w-[98%] lg:max-w-[95%]"
   >
     @if (message().streamingState) {
     <!-- ExecutionNode recursive tree with streaming state -->
@@ -87,7 +87,7 @@
 } @else {
 <!-- User message (right-aligned) -->
 <div class="chat chat-end">
-  <!-- Avatar with User icon -->
+  <!-- Avatar with User icon
   <div class="chat-image avatar">
     <div class="w-8 h-8 rounded-full overflow-hidden">
       <img
@@ -98,7 +98,7 @@
         class="w-full h-full object-cover"
       />
     </div>
-  </div>
+  </div>-->
 
   <!-- Header -->
   <div class="chat-header text-xs text-base-content/70 mb-1">

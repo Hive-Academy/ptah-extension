@@ -76,13 +76,21 @@ export interface RpcVerificationResult {
  */
 export function verifyRpcRegistration(
   rpcHandler: RpcHandler,
-  logger: Logger
+  logger: Logger,
+  excludeMethods?: string[]
 ): RpcVerificationResult {
   const registeredMethods = rpcHandler.getRegisteredMethods();
 
   // Use string Sets for comparison (runtime values are strings)
   const expectedMethods = new Set<string>(RPC_METHOD_NAMES);
   const actualMethods = new Set<string>(registeredMethods);
+
+  // Remove platform-specific methods that are not applicable in this context
+  if (excludeMethods) {
+    for (const method of excludeMethods) {
+      expectedMethods.delete(method);
+    }
+  }
 
   // Find methods in registry but missing handlers
   const missingHandlers: string[] = [];

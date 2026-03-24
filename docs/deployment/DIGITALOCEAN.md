@@ -722,6 +722,27 @@ npx @vscode/vsce publish --pat <AZURE_DEVOPS_PAT>
 
 ---
 
+## Electron Desktop App Deployment
+
+The Electron desktop app is distributed via GitHub Releases — no DigitalOcean infrastructure required.
+
+See **[PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md#6-electron-desktop-app)** for full details.
+
+### Quick Reference
+
+```bash
+# 1. Bump version in apps/ptah-electron/package.json
+# 2. Push to release/electron branch
+git checkout release/electron
+git merge main
+git push origin release/electron
+# 3. CI builds Win/Mac/Linux, creates tag + public GitHub Release automatically
+```
+
+**Downloads**: https://github.com/Hive-Academy/ptah-extension/releases/latest
+
+---
+
 **Document Version**: 4.0
 **Last Updated**: 2026-03-05
 **Architecture**: Droplet ($6/month) + App Platform (free) + Self-hosted PostgreSQL

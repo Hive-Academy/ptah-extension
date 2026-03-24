@@ -1,5 +1,7 @@
-import { injectable } from 'tsyringe';
-import * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
+import * as path from 'path';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
 
@@ -21,33 +23,37 @@ import { FileSystemService } from '../services/file-system.service';
  * ```typescript
  * const detector = container.resolve<ProjectDetectorService>(TOKENS.PROJECT_DETECTOR_SERVICE);
  * const projectTypes = await detector.detectProjectTypes();
- * for (const [uri, type] of projectTypes) {
- *   console.log(`${uri.fsPath} is a ${type} project`);
+ * for (const [path, type] of projectTypes) {
+ *   console.log(`${path} is a ${type} project`);
  * }
  * ```
  */
 @injectable()
 export class ProjectDetectorService {
-  constructor(private readonly fileSystem: FileSystemService) {}
+  constructor(
+    private readonly fileSystem: FileSystemService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider
+  ) {}
 
   /**
    * Detects project type for all workspace folders.
    *
-   * @returns Map of workspace folder URI to detected project type
+   * @returns Map of workspace folder path to detected project type
    * @throws Never - returns 'general' for undetectable or errored workspaces
    */
-  async detectProjectTypes(): Promise<Map<vscode.Uri, ProjectType>> {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    const results = new Map<vscode.Uri, ProjectType>();
+  async detectProjectTypes(): Promise<Map<string, ProjectType>> {
+    const workspaceFolders = this.workspaceProvider.getWorkspaceFolders();
+    const results = new Map<string, ProjectType>();
 
-    if (!workspaceFolders || workspaceFolders.length === 0) {
+    if (workspaceFolders.length === 0) {
       return results;
     }
 
     // Detect project type for each workspace folder
     for (const folder of workspaceFolders) {
-      const projectType = await this.detectProjectType(folder.uri);
-      results.set(folder.uri, projectType);
+      const projectType = await this.detectProjectType(folder);
+      results.set(folder, projectType);
     }
 
     return results;
@@ -62,17 +68,17 @@ export class ProjectDetectorService {
    * 3. Check for framework-specific configuration files
    * 4. Default to 'general' if no specific type detected
    *
-   * @param workspaceUri - URI of workspace folder to analyze
+   * @param workspacePath - Path of workspace folder to analyze
    * @returns Detected project type (never throws, defaults to 'general')
    */
-  async detectProjectType(workspaceUri: vscode.Uri): Promise<ProjectType> {
+  async detectProjectType(workspacePath: string): Promise<ProjectType> {
     try {
-      const files = await this.fileSystem.readDirectory(workspaceUri);
-      const fileNames = new Set(files.map(([name]) => name));
+      const entries = await this.fileSystem.readDirectory(workspacePath);
+      const fileNames = new Set(entries.map((entry) => entry.name));
 
       // Node.js/JavaScript projects - highest priority
       if (fileNames.has('package.json')) {
-        const nodeType = await this.detectNodeProjectType(workspaceUri);
+        const nodeType = await this.detectNodeProjectType(workspacePath);
         if (nodeType !== ProjectType.Node) {
           return nodeType; // Specific framework detected
         }
@@ -153,7 +159,7 @@ export class ProjectDetectorService {
     } catch (_error) {
       // Never throw - always return a valid project type
       console.warn(
-        `Failed to detect project type for ${workspaceUri.fsPath}:`,
+        `Failed to detect project type for ${workspacePath}:`,
         _error instanceof Error ? _error.message : String(_error)
       );
       return ProjectType.General;
@@ -171,15 +177,15 @@ export class ProjectDetectorService {
    * 5. Express (backend framework)
    * 6. Generic Node.js
    *
-   * @param workspaceUri - Workspace folder containing package.json
+   * @param workspacePath - Workspace folder containing package.json
    * @returns Detected Node.js project type
    */
   private async detectNodeProjectType(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<ProjectType> {
     try {
-      const packageJsonUri = vscode.Uri.joinPath(workspaceUri, 'package.json');
-      const content = await this.fileSystem.readFile(packageJsonUri);
+      const packageJsonPath = path.join(workspacePath, 'package.json');
+      const content = await this.fileSystem.readFile(packageJsonPath);
       const packageJson = JSON.parse(content);
 
       const allDeps = {
