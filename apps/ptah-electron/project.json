@@ -109,7 +109,7 @@
       "executor": "nx:run-commands",
       "dependsOn": ["build", "copy-renderer", "copy-assets"],
       "options": {
-        "command": "electron-builder --config apps/ptah-electron/electron-builder.yml --project dist/apps/ptah-electron"
+        "command": "electron-builder --config electron-builder.yml --project dist/apps/ptah-electron"
       }
     },
     "typecheck": {

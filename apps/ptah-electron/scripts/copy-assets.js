@@ -103,4 +103,21 @@ if (fs.existsSync(TEMPLATE_SOURCE)) {
   );
 }
 
+// --- 4. electron-builder.yml (needed by --project dist/apps/ptah-electron) ---
+
+const EB_SOURCE = path.resolve(__dirname, '../electron-builder.yml');
+const EB_DEST = path.resolve(
+  __dirname,
+  '../../../dist/apps/ptah-electron/electron-builder.yml'
+);
+
+if (fs.existsSync(EB_SOURCE)) {
+  fs.copyFileSync(EB_SOURCE, EB_DEST);
+  console.log(`[copy-assets] Copied electron-builder.yml -> ${EB_DEST}`);
+} else {
+  console.warn(
+    `[copy-assets] WARNING: electron-builder.yml not found: ${EB_SOURCE}`
+  );
+}
+
 console.log('[copy-assets] Done');
