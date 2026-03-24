@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/ptah-landing-page/public/assets/icons/ptah-logo.svg" width="100" alt="Ptah Logo" />
+  <img src="https://github.com/Hive-Academy/ptah-extension/raw/HEAD/apps/ptah-extension-vscode/src/assets/images/ptah-icon.png" width="100" alt="Ptah Logo" />
 </p>
 
 <h1 align="center">Ptah - AI Coding Orchestra</h1>
