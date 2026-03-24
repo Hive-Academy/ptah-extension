@@ -175,6 +175,12 @@ export {
 } from './lib/helpers';
 
 // ============================================================
+// Skill Junction Service (TASK_2025_201)
+// Manages workspace .claude/skills/ junctions for third-party providers
+// ============================================================
+export { SkillJunctionService, type SkillJunctionResult } from './lib/helpers';
+
+// ============================================================
 // Ptah CLI (TASK_2025_167)
 // User-configured adapters for Anthropic-compatible providers
 // ============================================================
@@ -229,6 +235,28 @@ export type {
 // ============================================================
 export { SlashCommandInterceptor } from './lib/helpers';
 export type { SlashCommandResult, SlashCommandConfig } from './lib/helpers';
+
+// ============================================================
+// Settings Export/Import (TASK_2025_210)
+// Cross-platform settings portability
+// ============================================================
+export { SettingsExportService } from './lib/settings-export.service';
+export { SettingsImportService } from './lib/settings-import.service';
+export type { SettingsImportOptions } from './lib/settings-import.service';
+export {
+  SETTINGS_EXPORT_VERSION,
+  KNOWN_PROVIDER_IDS,
+  KNOWN_CONFIG_KEYS,
+  SECRET_KEYS,
+  providerSecretKey,
+  countPopulatedSecrets,
+} from './lib/types/settings-export.types';
+export type {
+  PtahSettingsExport,
+  SettingsImportResult,
+  KnownProviderId,
+  KnownConfigKey,
+} from './lib/types/settings-export.types';
 
 // ============================================================
 // Stream Processing (shared SDK stream processor)

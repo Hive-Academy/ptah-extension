@@ -22,7 +22,7 @@ import { ExecutionStatus } from '@ptah-extension/shared';
       class="badge badge-sm"
       [class.badge-ghost]="status() === 'pending'"
       [class.badge-info]="status() === 'streaming'"
-      [class.badge-success]="status() === 'complete'"
+      [class.badge-success]="status() === 'complete' || status() === 'resumed'"
       [class.badge-warning]="status() === 'interrupted'"
       [class.badge-error]="status() === 'error'"
     >
@@ -47,6 +47,8 @@ export class StatusBadgeComponent {
         return 'Done';
       case 'interrupted':
         return 'Stopped';
+      case 'resumed':
+        return 'Resumed';
       case 'error':
         return 'Error';
     }

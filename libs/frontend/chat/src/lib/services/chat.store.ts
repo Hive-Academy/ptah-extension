@@ -7,7 +7,6 @@ import {
   PermissionResponse,
   SessionId,
   MESSAGE_TYPES,
-  SubagentRecord,
   LicenseGetStatusResponse,
 } from '@ptah-extension/shared';
 import type {
@@ -161,9 +160,8 @@ export class ChatStore {
   // TASK_2025_136: Question requests for AskUserQuestion tool
   readonly questionRequests = this.permissionHandler.questionRequests;
 
-  // Resumable subagents signals (TASK_2025_103)
-  private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
-  readonly resumableSubagents = this._resumableSubagents.asReadonly();
+  // Resumable subagents signal (TASK_2025_213: delegated to SessionLoaderService)
+  readonly resumableSubagents = this.sessionLoader.resumableSubagents;
 
   // License status signal (TASK_2025_142)
   private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
@@ -176,7 +174,7 @@ export class ChatStore {
   readonly isCompacting = this._isCompacting.asReadonly();
 
   /**
-   * Timeout ID for compaction auto-dismiss.
+   * Timeout ID for compaction safety fallback.
    *
    * DESIGN NOTE: This is intentionally stored as a class property rather than
    * a signal because:
@@ -190,12 +188,12 @@ export class ChatStore {
   private compactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   /**
-   * Auto-dismiss timeout for compaction notification (milliseconds).
-   * SDK compaction typically completes within 5-8 seconds based on testing.
-   * The 10-second timeout provides buffer while ensuring UX doesn't hang.
+   * Safety fallback timeout for compaction notification (milliseconds).
+   * The banner is normally dismissed by the `compaction_complete` event.
+   * This timeout is a safety net in case the complete event is lost.
    * @see TASK_2025_098
    */
-  private static readonly COMPACTION_AUTO_DISMISS_MS = 10000;
+  private static readonly COMPACTION_SAFETY_TIMEOUT_MS = 120000;
 
   // ============================================================================
   // PUBLIC READONLY SIGNALS
@@ -439,29 +437,29 @@ export class ChatStore {
   }
 
   // ============================================================================
-  // SUBAGENT RESUME METHODS (TASK_2025_103)
+  // SUBAGENT RESUME METHODS (TASK_2025_213)
   // ============================================================================
 
   /**
-   * Refresh the list of resumable subagents from the backend registry
-   * Should be called when entering a session or after session events
+   * Clear the resumable subagents signal.
+   * Delegates to SessionLoaderService.
+   *
+   * Called when the user triggers a resume action, so the banner
+   * dismisses immediately while the backend processes the request.
    */
-  async refreshResumableSubagents(): Promise<void> {
-    try {
-      const result = await this._claudeRpcService.querySubagents();
-      if (result.isSuccess()) {
-        this._resumableSubagents.set(result.data.subagents);
-        console.log('[ChatStore] Resumable subagents refreshed:', {
-          count: result.data.subagents.length,
-        });
-      } else {
-        console.error('[ChatStore] Failed to query subagents:', result.error);
-        this._resumableSubagents.set([]);
-      }
-    } catch (error) {
-      console.error('[ChatStore] Error refreshing resumable subagents:', error);
-      this._resumableSubagents.set([]);
-    }
+  clearResumableSubagents(): void {
+    this.sessionLoader.clearResumableSubagents();
+  }
+
+  /**
+   * Remove a single resumable subagent by toolCallId.
+   * Delegates to SessionLoaderService.
+   *
+   * Called when the user resumes one specific agent so that only that
+   * agent is removed from the banner while others remain visible.
+   */
+  removeResumableSubagent(toolCallId: string): void {
+    this.sessionLoader.removeResumableSubagent(toolCallId);
   }
 
   // TASK_2025_109: handleSubagentResume method removed - now uses context injection
@@ -553,15 +551,17 @@ export class ChatStore {
       this.compactionTimeoutId = null;
     }
 
-    // Set compacting state
+    // Set compacting state — stays visible until compaction_complete event arrives
     this._isCompacting.set(true);
 
-    // Auto-dismiss after timeout (compaction typically completes quickly)
+    // Safety fallback: dismiss if compaction_complete event is never received
     this.compactionTimeoutId = setTimeout(() => {
       this._isCompacting.set(false);
       this.compactionTimeoutId = null;
-      console.log('[ChatStore] Compaction auto-dismissed after timeout');
-    }, ChatStore.COMPACTION_AUTO_DISMISS_MS);
+      console.warn(
+        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost'
+      );
+    }, ChatStore.COMPACTION_SAFETY_TIMEOUT_MS);
   }
 
   /**

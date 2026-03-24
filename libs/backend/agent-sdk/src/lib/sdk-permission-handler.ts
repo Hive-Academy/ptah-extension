@@ -9,14 +9,23 @@
  * - Emit RPC events for dangerous tools (Write, Edit, Bash, NotebookEdit)
  * - Prompt for network tools (WebFetch, WebSearch)
  * - Handle AskUserQuestion with specialized question UI
- * - 5-minute timeout with auto-deny (fail-safe)
+ * - Blocks indefinitely until user responds or session is aborted via AbortSignal
  * - Input sanitization (redact API keys, tokens)
  * - Support parameter modification (user edits before approval)
  * - Unknown tools prompt user rather than silently denying
+ *
+ * TASK_2025_215: Removed 5-minute setTimeout-based timeout. Permission and question
+ * requests now block indefinitely until the user responds (matching Claude Code CLI
+ * behavior). Cancellation is handled via the SDK's AbortSignal, which fires on
+ * session abort or extension deactivation.
  */
 
 import { injectable, inject } from 'tsyringe';
-import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import {
+  Logger,
+  TOKENS,
+  type SubagentRegistryService,
+} from '@ptah-extension/vscode-core';
 import {
   isBashToolInput,
   isEditToolInput,
@@ -28,6 +37,7 @@ import {
   isAskUserQuestionToolInput,
   isExitPlanModeToolInput,
   MESSAGE_TYPES,
+  UNKNOWN_AGENT_TOOL_CALL_ID,
   type QuestionItem,
   type PermissionRequest,
   type PermissionResponse,
@@ -49,7 +59,6 @@ import {
  */
 interface PendingRequest {
   resolve: (response: PermissionResponse) => void;
-  timer: NodeJS.Timeout;
   /** Session ID this request belongs to (for session-scoped cleanup) */
   sessionId?: string;
 }
@@ -83,22 +92,9 @@ interface AskUserQuestionResponse {
  */
 interface PendingQuestionRequest {
   resolve: (response: AskUserQuestionResponse | null) => void;
-  timer: NodeJS.Timeout;
   /** Session ID this request belongs to (for session-scoped cleanup) */
   sessionId?: string;
 }
-
-/**
- * Permission timeout in milliseconds (5 minutes)
- *
- * NOTE: Claude CLI blocks INDEFINITELY until user responds.
- * We use a 5-minute timeout as a fail-safe to prevent orphaned requests,
- * but this should be long enough for users to respond in normal usage.
- *
- * If you need truly indefinite blocking, consider removing the timeout
- * and relying on the abort signal from the SDK instead.
- */
-const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Safe tools that are auto-approved without user prompt
@@ -140,6 +136,12 @@ const NETWORK_TOOLS = ['WebFetch', 'WebSearch'];
  * The Task tool spawns subagents - auto-approve since the user initiated the session
  */
 const SUBAGENT_TOOLS = ['Task'];
+
+/**
+ * File editing tools that are auto-approved in 'auto-edit' mode
+ * and for background sub-agents (matching SDK acceptEdits semantics)
+ */
+const AUTO_EDIT_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
 
 /**
  * Check if a tool name is an MCP tool (prefixed with "mcp__")
@@ -215,7 +217,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager
+    private readonly webviewManager: WebviewManager,
+    @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+    private readonly subagentRegistry: SubagentRegistryService
   ) {
     // Initialize permission emitter on construction
     this.initializePermissionEmitter();
@@ -273,6 +277,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       payloadId: payload.id,
       payloadToolName: payload.toolName,
       payloadToolUseId: payload.toolUseId,
+      payloadAgentToolCallId: payload.agentToolCallId,
     });
 
     // Send to webview - fire and forget (async but we don't await)
@@ -289,6 +294,18 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           `[SdkPermissionHandler] Failed to send permission event`,
           { error }
         );
+        // If send fails, resolve pending request to avoid permanent hang
+        // (TASK_2025_215: no timeout fallback anymore)
+        const pending = this.pendingRequests.get(payload.id);
+        if (pending) {
+          this.pendingRequests.delete(payload.id);
+          this.pendingRequestContext.delete(payload.id);
+          pending.resolve({
+            id: payload.id,
+            decision: 'deny',
+            reason: 'Failed to send permission request to UI',
+          });
+        }
       });
   }
 
@@ -366,7 +383,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return await this.handleAskUserQuestion(
           input,
           options.toolUseID,
-          sessionId
+          sessionId,
+          options.signal
         );
       }
 
@@ -382,7 +400,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         return await this.handleExitPlanMode(
           input,
           options.toolUseID,
-          sessionId
+          sessionId,
+          options.signal
         );
       }
 
@@ -401,7 +420,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // 'auto-edit' mode: auto-approve file editing tools (Write, Edit, NotebookEdit)
       // Bash is NOT auto-approved — it's code execution, not file editing
       if (this._permissionLevel === 'auto-edit') {
-        const AUTO_EDIT_TOOLS = ['Write', 'Edit', 'NotebookEdit'];
         if (AUTO_EDIT_TOOLS.includes(toolName)) {
           this.logger.info(
             `[SdkPermissionHandler] Auto-edit mode: auto-approved file tool: ${toolName}`
@@ -410,6 +428,36 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
             behavior: 'allow' as const,
             updatedInput: input,
           };
+        }
+      }
+
+      // Background agent auto-approval: auto-approve Write/Edit/NotebookEdit for
+      // background sub-agents. Background agents can't show interactive permission
+      // prompts (the main turn has completed), so file operations are auto-approved
+      // matching the SDK's acceptEdits semantics. Bash still requires user approval
+      // and will surface a permission request to the chat UI.
+      if (options.agentID) {
+        const bgToolCallId = this.subagentRegistry.getToolCallIdByAgentId(
+          options.agentID
+        );
+        if (bgToolCallId) {
+          const bgRecord = this.subagentRegistry.get(bgToolCallId);
+          if (bgRecord?.isBackground) {
+            if (AUTO_EDIT_TOOLS.includes(toolName)) {
+              this.logger.info(
+                `[SdkPermissionHandler] Background agent auto-approved: ${toolName}`,
+                {
+                  agentID: options.agentID,
+                  toolCallId: bgToolCallId,
+                  agentType: bgRecord.agentType,
+                }
+              );
+              return {
+                behavior: 'allow' as const,
+                updatedInput: input,
+              };
+            }
+          }
         }
       }
 
@@ -435,7 +483,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           toolName,
           input,
           options.toolUseID,
-          sessionId
+          sessionId,
+          options.agentID,
+          options.signal
         );
       }
 
@@ -448,7 +498,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           toolName,
           input,
           options.toolUseID,
-          sessionId
+          sessionId,
+          options.agentID,
+          options.signal
         );
       }
 
@@ -472,7 +524,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           toolName,
           input,
           options.toolUseID,
-          sessionId
+          sessionId,
+          options.agentID,
+          options.signal
         );
       }
 
@@ -485,7 +539,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         toolName,
         input,
         options.toolUseID,
-        sessionId
+        sessionId,
+        options.agentID,
+        options.signal
       );
     };
   }
@@ -494,17 +550,22 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    * Request user permission via RPC event
    *
    * Emits permission request event to webview and awaits response.
-   * Implements 5-minute timeout with auto-deny.
+   * Blocks indefinitely until user responds or the AbortSignal fires.
    *
    * @param toolName - Name of the tool requiring permission
    * @param input - Tool input parameters
    * @param toolUseId - SDK's tool_use ID for correlation with ExecutionNode
+   * @param sessionId - Session ID for routing to correct tab
+   * @param agentID - Sub-agent's short hex ID from SDK (if tool runs inside a subagent)
+   * @param signal - AbortSignal from SDK for cancellation on session abort
    */
   private async requestUserPermission(
     toolName: string,
     input: Record<string, unknown>,
     toolUseId?: string,
-    sessionId?: string
+    sessionId?: string,
+    agentID?: string,
+    signal?: AbortSignal
   ): Promise<PermissionResult> {
     // TASK_2025_097: Timing diagnostics - capture start time for latency measurement
     const startTime = Date.now();
@@ -515,12 +576,30 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     // Sanitize tool input before sending to UI
     const sanitizedInput = this.sanitizeToolInput(input);
 
-    // Calculate timeout deadline (5 minutes from now)
-    const now = Date.now();
-    const timeoutAt = now + PERMISSION_TIMEOUT_MS;
+    // TASK_2025_215: No timeout — set timeoutAt to 0 to signal "no timeout" to frontend
+    const timeoutAt = 0;
 
     // Generate human-readable description based on tool type
     const description = this.generateDescription(toolName, sanitizedInput);
+
+    // TASK_2025_213 (Bug 2): Resolve the parent agent's toolCallId from
+    // the sub-agent's agentID. The SDK's canUseTool provides agentID (short hex
+    // like "a329b32") when the tool runs inside a subagent. The frontend needs
+    // the Task tool's toolCallId to identify the agent ExecutionNode.
+    let agentToolCallId: string | undefined;
+    if (agentID) {
+      const resolvedToolCallId =
+        this.subagentRegistry.getToolCallIdByAgentId(agentID);
+      agentToolCallId = resolvedToolCallId ?? UNKNOWN_AGENT_TOOL_CALL_ID;
+      this.logger.info(
+        `[SdkPermissionHandler] Resolved agentID to agentToolCallId`,
+        {
+          agentID,
+          agentToolCallId,
+          resolved: resolvedToolCallId !== null,
+        }
+      );
+    }
 
     // Emit permission request event
     // Note: All fields match shared/permission.types.ts PermissionRequest interface
@@ -529,8 +608,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       id: requestId,
       toolName,
       toolInput: sanitizedInput,
-      toolUseId, // CRITICAL: Enables frontend to show permission inline with tool node
-      timestamp: now,
+      toolUseId, // The denied tool's own tool_use_id
+      agentToolCallId, // TASK_2025_213: The parent agent's toolCallId for frontend matching
+      timestamp: startTime,
       description,
       timeoutAt,
       sessionId, // TASK_2025_187: Route permission UI to correct session tab
@@ -548,6 +628,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         requestId,
         toolName,
         toolUseId,
+        agentToolCallId,
         messageType: MESSAGE_TYPES.PERMISSION_REQUEST,
       }
     );
@@ -562,30 +643,26 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       emitLatency: Date.now() - startTime,
     });
 
-    // Await user response with timeout (pass sessionId for session-scoped cleanup)
-    const response = await this.awaitResponse(
-      requestId,
-      PERMISSION_TIMEOUT_MS,
-      sessionId
-    );
+    // Await user response indefinitely (pass signal for cancellation, sessionId for cleanup)
+    const response = await this.awaitResponse(requestId, signal, sessionId);
 
     // TASK_2025_097: Log total latency for timing diagnostics (includes user decision time)
     this.logger.info(`[SdkPermissionHandler] Permission response received`, {
       requestId,
       totalLatency: Date.now() - startTime,
-      decision: response?.decision ?? 'timeout',
+      decision: response?.decision ?? 'aborted',
     });
 
     if (!response) {
-      // Timeout - auto-deny with interrupt (stops execution)
+      // Aborted (signal fired or session cleanup) - deny with interrupt
       this.logger.warn(
-        `[SdkPermissionHandler] Permission request ${requestId} timed out after ${PERMISSION_TIMEOUT_MS}ms`,
-        { decision: 'timeout', interrupt: true }
+        `[SdkPermissionHandler] Permission request ${requestId} aborted`,
+        { decision: 'aborted', interrupt: true }
       );
       return {
         behavior: 'deny' as const,
-        message: 'Permission request timed out',
-        interrupt: true, // Stop execution on timeout
+        message: 'Permission request was aborted',
+        interrupt: true,
       };
     }
 
@@ -607,17 +684,21 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     // TASK_2025_102: deny_with_message allows Claude to continue execution with feedback
     if (response.decision === 'deny_with_message') {
       // Deny with message - provide feedback but don't interrupt execution
+      const userReason = response.reason || 'No explanation given';
       this.logger.info(
         `[SdkPermissionHandler] Permission request ${requestId} denied with message for tool ${toolName}`,
         {
           decision: 'deny_with_message',
-          reason: response.reason || 'User denied without explanation',
+          reason: userReason,
           interrupt: false,
         }
       );
+      // Prefix with clear context so the model understands this is a deliberate
+      // user decision, not a transient tool error. Without this prefix the model
+      // may retry the same tool or ignore the feedback entirely.
       return {
         behavior: 'deny' as const,
-        message: response.reason || 'User denied without explanation',
+        message: `Permission denied by user for tool "${toolName}". The user reviewed this tool call and explicitly chose to deny it. User's message: "${userReason}". You MUST respect this decision — do NOT retry the same tool call. Adjust your approach based on the user's feedback.`,
         interrupt: false, // Continue execution, just skip this tool
       };
     }
@@ -697,8 +778,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         const pendingReq = this.pendingRequests.get(pendingId);
         if (!pendingReq) continue;
 
-        // Auto-resolve: clear timer, remove from maps, resolve promise
-        clearTimeout(pendingReq.timer);
+        // Auto-resolve: remove from maps, resolve promise
         this.pendingRequests.delete(pendingId);
         this.pendingRequestContext.delete(pendingId);
         pendingReq.resolve({ id: pendingId, decision: 'allow' });
@@ -729,8 +809,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     // Clean up request context
     this.pendingRequestContext.delete(requestId);
 
-    // Clear timeout and resolve pending promise
-    clearTimeout(pending.timer);
+    // Resolve pending promise
     this.pendingRequests.delete(requestId);
     pending.resolve(response);
 
@@ -756,7 +835,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async handleAskUserQuestion(
     input: Record<string, unknown>,
     toolUseId: string,
-    sessionId?: string
+    sessionId?: string,
+    signal?: AbortSignal
   ): Promise<PermissionResult> {
     // Validate input using type guard
     if (!isAskUserQuestionToolInput(input)) {
@@ -771,16 +851,16 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     const requestId = this.generateRequestId();
     const now = Date.now();
-    const timeoutAt = now + PERMISSION_TIMEOUT_MS;
 
     // Build request payload
+    // TASK_2025_215: timeoutAt=0 signals "no timeout" to frontend
     const request: AskUserQuestionRequest = {
       id: requestId,
       toolName: 'AskUserQuestion',
       questions: input.questions,
       toolUseId,
       timestamp: now,
-      timeoutAt,
+      timeoutAt: 0,
       sessionId, // TASK_2025_187: Route question UI to correct session tab
     };
 
@@ -808,22 +888,28 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           `[SdkPermissionHandler] Failed to send AskUserQuestion request`,
           { error }
         );
+        // If send fails, resolve pending question to avoid permanent hang
+        const pending = this.pendingQuestionRequests.get(request.id);
+        if (pending) {
+          this.pendingQuestionRequests.delete(request.id);
+          pending.resolve(null);
+        }
       });
 
-    // Await user response with timeout (pass sessionId for session-scoped cleanup)
+    // Await user response indefinitely (pass signal for cancellation, sessionId for cleanup)
     const response = await this.awaitQuestionResponse(
       requestId,
-      PERMISSION_TIMEOUT_MS,
+      signal,
       sessionId
     );
 
     if (!response) {
-      this.logger.warn('[SdkPermissionHandler] AskUserQuestion timed out', {
+      this.logger.warn('[SdkPermissionHandler] AskUserQuestion aborted', {
         requestId,
       });
       return {
         behavior: 'deny' as const,
-        message: 'Question request timed out',
+        message: 'Question request was aborted',
       };
     }
 
@@ -861,7 +947,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async handleExitPlanMode(
     input: Record<string, unknown>,
     toolUseId: string,
-    sessionId?: string
+    sessionId?: string,
+    signal?: AbortSignal
   ): Promise<PermissionResult> {
     // Validate input — ExitPlanMode must contain a plan string
     if (!isExitPlanModeToolInput(input)) {
@@ -889,7 +976,9 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       'ExitPlanMode',
       input,
       toolUseId,
-      sessionId
+      sessionId,
+      undefined, // agentID - ExitPlanMode is never called from subagents
+      signal
     );
 
     // On approval: notify frontend that plan mode is ending
@@ -919,24 +1008,37 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   /**
    * Await question response from webview
    *
-   * Returns null on timeout, AskUserQuestionResponse on user action.
+   * Blocks indefinitely until user responds or the AbortSignal fires.
+   * Returns null on abort, AskUserQuestionResponse on user action.
+   *
+   * TASK_2025_215: Replaced setTimeout with AbortSignal-based cancellation.
    */
   private async awaitQuestionResponse(
     requestId: string,
-    timeoutMs: number,
+    signal?: AbortSignal,
     sessionId?: string
   ): Promise<AskUserQuestionResponse | null> {
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
-      // Set timeout
-      const timer = setTimeout(() => {
+      // If already aborted, resolve immediately
+      if (signal?.aborted) {
         this.pendingQuestionRequests.delete(requestId);
-        resolve(null); // Timeout - return null
-      }, timeoutMs);
+        resolve(null);
+        return;
+      }
 
-      // Store pending request with sessionId for session-scoped cleanup
+      // Listen for abort signal (session abort, extension deactivation)
+      const onAbort = () => {
+        this.pendingQuestionRequests.delete(requestId);
+        resolve(null);
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+
+      // Store pending request (no timer — blocks indefinitely)
       this.pendingQuestionRequests.set(requestId, {
-        resolve,
-        timer,
+        resolve: (response) => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve(response);
+        },
         sessionId,
       });
     });
@@ -956,8 +1058,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       return;
     }
 
-    // Clear timeout and resolve pending promise
-    clearTimeout(pending.timer);
+    // Resolve pending promise
     this.pendingQuestionRequests.delete(response.id);
     pending.resolve(response);
 
@@ -969,24 +1070,39 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   /**
    * Await RPC response from webview
    *
-   * Returns null on timeout, PermissionResponse on user action.
+   * Blocks indefinitely until user responds or the AbortSignal fires.
+   * Returns null on abort, PermissionResponse on user action.
+   *
+   * TASK_2025_215: Replaced setTimeout with AbortSignal-based cancellation.
    */
   private async awaitResponse(
     requestId: string,
-    timeoutMs: number,
+    signal?: AbortSignal,
     sessionId?: string
   ): Promise<PermissionResponse | null> {
     return new Promise<PermissionResponse | null>((resolve) => {
-      // Set timeout
-      const timer = setTimeout(() => {
+      // If already aborted, resolve immediately
+      if (signal?.aborted) {
         this.pendingRequests.delete(requestId);
-        resolve(null); // Timeout - return null
-      }, timeoutMs);
+        this.pendingRequestContext.delete(requestId);
+        resolve(null);
+        return;
+      }
 
-      // Store pending request with sessionId for session-scoped cleanup
+      // Listen for abort signal (session abort, extension deactivation)
+      const onAbort = () => {
+        this.pendingRequests.delete(requestId);
+        this.pendingRequestContext.delete(requestId);
+        resolve(null);
+      };
+      signal?.addEventListener('abort', onAbort, { once: true });
+
+      // Store pending request (no timer — blocks indefinitely)
       this.pendingRequests.set(requestId, {
-        resolve,
-        timer,
+        resolve: (response) => {
+          signal?.removeEventListener('abort', onAbort);
+          resolve(response);
+        },
         sessionId,
       });
     });
@@ -1169,9 +1285,8 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests, ${this.pendingQuestionRequests.size} pending question requests, and ${this.permissionRules.size} permission rules`
     );
 
-    // Clear all permission request timeouts
+    // Resolve all pending permission requests as denied
     for (const [requestId, pending] of this.pendingRequests.entries()) {
-      clearTimeout(pending.timer);
       pending.resolve({
         id: requestId,
         decision: 'deny',
@@ -1183,13 +1298,12 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     // Clear request context map
     this.pendingRequestContext.clear();
 
-    // Clear all question request timeouts
+    // Resolve all pending question requests as null (aborted)
     for (const [
       _requestId,
       pending,
     ] of this.pendingQuestionRequests.entries()) {
-      clearTimeout(pending.timer);
-      pending.resolve(null); // Resolve with null on dispose
+      pending.resolve(null);
     }
     this.pendingQuestionRequests.clear();
 
@@ -1218,7 +1332,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // Session-scoped cleanup: only remove requests belonging to this session
       for (const [requestId, pending] of this.pendingRequests.entries()) {
         if (pending.sessionId === sessionId) {
-          clearTimeout(pending.timer);
           pending.resolve({
             id: requestId,
             decision: 'deny',
@@ -1234,7 +1347,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         pending,
       ] of this.pendingQuestionRequests.entries()) {
         if (pending.sessionId === sessionId) {
-          clearTimeout(pending.timer);
           pending.resolve(null);
           this.pendingQuestionRequests.delete(requestId);
         }
@@ -1254,7 +1366,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     } else {
       // Global cleanup: clear ALL (backward compat, extension deactivation)
       for (const [requestId, pending] of this.pendingRequests.entries()) {
-        clearTimeout(pending.timer);
         pending.resolve({
           id: requestId,
           decision: 'deny',
@@ -1265,7 +1376,6 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       this.pendingRequestContext.clear();
 
       for (const [, pending] of this.pendingQuestionRequests.entries()) {
-        clearTimeout(pending.timer);
         pending.resolve(null);
       }
       this.pendingQuestionRequests.clear();

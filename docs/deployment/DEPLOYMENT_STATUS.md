@@ -104,6 +104,7 @@ All 6 secrets configured at: `github.com/Hive-Academy/ptah-extension/settings/se
 - `.github/workflows/ci.yml` — Runs on push to main + all PRs (lint, test, typecheck, build)
 - `.github/workflows/deploy-landing.yml` — Triggers on push to `release/landing`, deploys to App Platform via `doctl`
 - `.github/workflows/deploy-server.yml` — Triggers on push to `release/server`, builds Docker → GHCR → SSH deploy to Droplet
+- `.github/workflows/publish-electron.yml` — Triggers on push to `release/electron`, builds cross-platform Electron installers, creates public GitHub Release
 
 ### 6. Production Docker Compose ✅ (file exists, not yet deployed)
 
@@ -235,9 +236,47 @@ After App Platform deploys successfully:
 
 ---
 
+## Electron Desktop App
+
+### Release Workflow
+
+The Electron desktop app is built and distributed via GitHub Releases, triggered by pushing to the `release/electron` branch.
+
+**How to release:**
+
+1. Bump the version in `apps/ptah-electron/package.json`
+2. Push/merge to the `release/electron` branch
+3. CI automatically:
+   - Reads version from `apps/ptah-electron/package.json`
+   - Checks for duplicate tags (skips if `electron-v{version}` already exists)
+   - Builds for Windows (.exe), macOS (.dmg), and Linux (.AppImage) in parallel
+   - Creates git tag `electron-v{version}`
+   - Publishes a public GitHub Release with all installers
+
+**Landing page links:** "Download Desktop App" buttons point to `https://github.com/Hive-Academy/ptah-extension/releases/latest`
+
+**Config files:**
+
+- `apps/ptah-electron/package.json` — Version source of truth
+- `apps/ptah-electron/electron-builder.yml` — Build config (publishes to `Hive-Academy/ptah-extension`)
+- `.github/workflows/publish-electron.yml` — CI workflow
+
+**Platform outputs:**
+| Platform | Format | Installer |
+| -------- | --------- | ----------------------------- |
+| Windows | NSIS | `Ptah-Setup-{version}.exe` |
+| macOS | DMG + ZIP | `Ptah-{version}.dmg` |
+| Linux | AppImage | `Ptah-{version}.AppImage` |
+| Linux | Debian | `ptah_{version}_amd64.deb` |
+
+> **Phase 1**: Unsigned builds. Users will see platform warnings ("unidentified developer") until code signing is added.
+
+---
+
 ## Quick Reference URLs
 
 - **GitHub Repo**: https://github.com/Hive-Academy/ptah-extension
+- **GitHub Releases (Electron)**: https://github.com/Hive-Academy/ptah-extension/releases
 - **GitHub Secrets**: https://github.com/Hive-Academy/ptah-extension/settings/secrets/actions
 - **DO Droplet**: https://cloud.digitalocean.com/droplets (ptah-api-prod)
 - **DO App Platform**: https://cloud.digitalocean.com/apps/7f4271fb-ff47-4cb7-bb97-8a2aed6eefe3

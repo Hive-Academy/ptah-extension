@@ -20,8 +20,9 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IStateStorage } from '@ptah-extension/platform-core';
 import type { CliSessionReference } from '@ptah-extension/shared';
 
 /**
@@ -89,11 +90,11 @@ const STORAGE_KEY = 'ptah.sessionMetadata';
 @injectable()
 export class SessionMetadataStore {
   /**
-   * NOTE: @inject() decorators below are NOT used at runtime.
-   * This class is registered via registerInstance() in di/register.ts,
-   * which manually constructs the instance with context.workspaceState
-   * and a Logger instance. The decorators are retained for documentation
-   * purposes only (they show the logical dependencies).
+   * TASK_2025_199: Dependencies are now resolved via @inject() decorators.
+   * TASK_2025_208: Uses WORKSPACE_STATE_STORAGE. In Electron, this resolves to
+   * WorkspaceAwareStateStorage which delegates to per-workspace storage based
+   * on the active workspace. In VS Code, it resolves to the single workspace
+   * state storage as before.
    */
 
   /**
@@ -104,19 +105,43 @@ export class SessionMetadataStore {
   private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
-    @inject(TOKENS.GLOBAL_STATE) private storage: vscode.Memento,
+    @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
+    private storage: IStateStorage,
     @inject(TOKENS.LOGGER) private logger: Logger
   ) {}
 
   /**
-   * Save or update session metadata
+   * Save or update session metadata.
+   * Serialized through writeQueue to prevent concurrent read-modify-write races.
    */
   async save(metadata: SessionMetadata): Promise<void> {
+    return this.enqueueWrite(() => this._saveInternal(metadata));
+  }
+
+  /**
+   * Internal save implementation (NOT serialized).
+   * Called directly by addStats()/addCliSession() which already enqueue their own writes.
+   * Public callers must use save() which wraps this in enqueueWrite().
+   */
+  private async _saveInternal(metadata: SessionMetadata): Promise<void> {
     const all = await this.getAll();
     const index = all.findIndex((m) => m.sessionId === metadata.sessionId);
 
     if (index >= 0) {
-      all[index] = metadata;
+      // Preserve isChildSession and cliSessions from existing metadata.
+      // Once a session is marked as a child (by createChild()), it must stay
+      // hidden from the sidebar even if create() is later called without the
+      // flag (e.g., when the main SdkAgentAdapter resumes a ptah-cli session).
+      const existing = all[index];
+      all[index] = {
+        ...metadata,
+        ...(existing.isChildSession && !metadata.isChildSession
+          ? { isChildSession: true }
+          : {}),
+        ...(existing.cliSessions && !metadata.cliSessions
+          ? { cliSessions: existing.cliSessions }
+          : {}),
+      };
     } else {
       all.push(metadata);
     }
@@ -185,7 +210,7 @@ export class SessionMetadataStore {
     return this.enqueueWrite(async () => {
       const metadata = await this.get(sessionId);
       if (metadata) {
-        await this.save({
+        await this._saveInternal({
           ...metadata,
           lastActiveAt: Date.now(),
           totalCost: metadata.totalCost + stats.cost,
@@ -194,8 +219,47 @@ export class SessionMetadataStore {
             output: metadata.totalTokens.output + stats.tokens.output,
           },
         });
+
+        // If this is a child session, propagate stats to the parent
+        if (metadata.isChildSession) {
+          await this.propagateStatsToParent(sessionId, stats);
+        }
       }
     });
+  }
+
+  /**
+   * Propagate child session stats to the parent session.
+   * Finds the parent by scanning all sessions' cliSessions arrays for a reference
+   * whose sdkSessionId matches the child's sessionId.
+   *
+   * Called within enqueueWrite, so concurrent updates are safe.
+   * Silently skips if no parent is found (orphan child or timing issue).
+   */
+  private async propagateStatsToParent(
+    childSessionId: string,
+    stats: { cost: number; tokens: { input: number; output: number } }
+  ): Promise<void> {
+    const all = await this.getAll();
+    for (const session of all) {
+      if (
+        session.cliSessions?.some((ref) => ref.sdkSessionId === childSessionId)
+      ) {
+        await this._saveInternal({
+          ...session,
+          lastActiveAt: Date.now(),
+          totalCost: session.totalCost + stats.cost,
+          totalTokens: {
+            input: session.totalTokens.input + stats.tokens.input,
+            output: session.totalTokens.output + stats.tokens.output,
+          },
+        });
+        this.logger.debug(
+          `[SessionMetadataStore] Propagated subagent stats to parent ${session.sessionId}`
+        );
+        break;
+      }
+    }
   }
 
   /**
@@ -241,7 +305,7 @@ export class SessionMetadataStore {
         );
       }
 
-      await this.save({
+      await this._saveInternal({
         ...metadata,
         lastActiveAt: Date.now(),
         cliSessions: updated,
@@ -250,9 +314,18 @@ export class SessionMetadataStore {
   }
 
   /**
-   * Delete session metadata
+   * Delete session metadata.
+   * Serialized through writeQueue to prevent concurrent read-modify-write races.
    */
   async delete(sessionId: string): Promise<void> {
+    return this.enqueueWrite(() => this._deleteInternal(sessionId));
+  }
+
+  /**
+   * Internal delete implementation (NOT serialized).
+   * Public callers must use delete() which wraps this in enqueueWrite().
+   */
+  private async _deleteInternal(sessionId: string): Promise<void> {
     const all = await this.getAll();
     const filtered = all.filter((m) => m.sessionId !== sessionId);
 
@@ -337,6 +410,28 @@ export class SessionMetadataStore {
         `[SessionMetadataStore] Renamed session ${sessionId} to "${newName}"`
       );
     }
+  }
+
+  /**
+   * Check if a given SDK session UUID is referenced as a child session
+   * by any parent session's cliSessions array.
+   *
+   * Used by SessionImporterService to detect child sessions that weren't
+   * properly marked with isChildSession (e.g., createChild failed or
+   * was never called).
+   */
+  async isReferencedAsChildSession(sdkSessionId: string): Promise<boolean> {
+    const all = await this.getAll();
+    for (const session of all) {
+      if (session.cliSessions) {
+        for (const ref of session.cliSessions) {
+          if (ref.sdkSessionId === sdkSessionId) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /**

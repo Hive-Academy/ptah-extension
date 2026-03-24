@@ -19,9 +19,9 @@ import {
   Eye,
 } from 'lucide-angular';
 import { DocsCodeBlockComponent } from '../components/docs-code-block.component';
-import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
+import { DocsVideoPlayerComponent } from '../components/docs-video-player.component';
 
 @Component({
   selector: 'ptah-docs-mcp-server',
@@ -30,9 +30,9 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsCodeBlockComponent,
-    DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
     DocsCollapsibleCardComponent,
+    DocsVideoPlayerComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="mcp-server">
@@ -54,7 +54,7 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         >
         that runs inside the VS Code extension host. It gives AI subagents
         direct access to VS Code's internal capabilities — LSP, diagnostics,
-        workspace analysis, git, and more.
+        workspace analysis, AST parsing, and more.
       </p>
       <p
         viewportAnimation
@@ -98,11 +98,13 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
           </p>
         </ptah-docs-collapsible-card>
 
-        <!-- MCP Tools Grid -->
-        <div>
-          <h3 class="text-base font-semibold text-base-content/80 mb-4">
-            Available MCP Tools
-          </h3>
+        <!-- Available MCP Tools -->
+        <ptah-docs-collapsible-card
+          [icon]="SearchIcon"
+          title="Available MCP Tools"
+          subtitle="8 workspace tools + 6 agent orchestration tools"
+          [expanded]="true"
+        >
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             @for (tool of mcpTools; track tool.name) {
             <div
@@ -158,12 +160,12 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
             >
             for detailed usage and the fire-and-check workflow.
           </p>
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- API Namespaces -->
         <ptah-docs-collapsible-card
           [icon]="BrainCircuitIcon"
-          title="16 API Namespaces"
+          title="14 API Namespaces"
         >
           <p class="text-sm text-neutral-content mb-4">
             The
@@ -199,15 +201,15 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         </ptah-docs-collapsible-card>
 
         <!-- Example -->
-        <div>
-          <h3 class="text-base font-semibold text-base-content/80 mb-3">
-            What Your Agent Can Do
-          </h3>
+        <ptah-docs-collapsible-card
+          [icon]="TerminalIcon"
+          title="What Your Agent Can Do"
+        >
           <ptah-docs-code-block
             [code]="exampleCode"
             label="Your agent uses ptah.* APIs autonomously"
           />
-        </div>
+        </ptah-docs-collapsible-card>
 
         <!-- Security -->
         <div
@@ -230,11 +232,7 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
       </div>
 
       <ng-container media>
-        <ptah-docs-media-placeholder
-          title="MCP Server in Action"
-          aspectRatio="16/9"
-          mediaType="gif"
-        />
+        <ptah-docs-video-player src="assets/videos/ptah-mcp-server.mp4" />
       </ng-container>
     </ptah-docs-section-shell>
   `,
@@ -299,7 +297,7 @@ export class McpServerSectionComponent {
     },
     {
       name: 'execute_code',
-      description: 'Run TypeScript with access to all 16 ptah.* APIs',
+      description: 'Run TypeScript with access to all 14 ptah.* APIs',
       icon: BrainCircuit,
     },
   ];
@@ -331,12 +329,8 @@ export class McpServerSectionComponent {
   public readonly apiNamespaces = [
     { name: 'ptah.workspace', hint: 'project info' },
     { name: 'ptah.search', hint: 'file search' },
-    { name: 'ptah.symbols', hint: 'code symbols' },
     { name: 'ptah.diagnostics', hint: 'errors' },
-    { name: 'ptah.git', hint: 'git status' },
-    { name: 'ptah.ai', hint: 'multi-LLM' },
     { name: 'ptah.files', hint: 'file I/O' },
-    { name: 'ptah.commands', hint: 'VS Code cmds' },
     { name: 'ptah.context', hint: 'token budget' },
     { name: 'ptah.project', hint: 'deep analysis' },
     { name: 'ptah.relevance', hint: 'file scoring' },
@@ -345,6 +339,7 @@ export class McpServerSectionComponent {
     { name: 'ptah.ide.editor', hint: 'editor state' },
     { name: 'ptah.ide.actions', hint: 'refactoring' },
     { name: 'ptah.agent', hint: 'background agents' },
+    { name: 'ptah.dependencies', hint: 'dep analysis' },
   ];
 
   public readonly exampleCode = `// Your agent autonomously queries your workspace:

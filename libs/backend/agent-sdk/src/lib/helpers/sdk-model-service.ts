@@ -19,20 +19,32 @@ import { SdkModuleLoader } from './sdk-module-loader';
 /**
  * Fallback models when SDK call fails
  */
+/**
+ * Fallback models using SDK tier names (not hardcoded model IDs).
+ * The SDK resolves tier names to the latest model version at runtime.
+ * Only used when the SDK's supportedModels() API call fails.
+ */
+/**
+ * Fallback models using SDK tier names (not hardcoded model IDs).
+ * The SDK resolves tier names to the latest model version at runtime.
+ * Using explicit tiers (opus/sonnet/haiku) instead of "default" so the
+ * user always knows exactly which tier they're on — no silent changes
+ * when Anthropic remaps "default" to a different tier.
+ */
 const FALLBACK_MODELS: ModelInfo[] = [
   {
-    value: 'claude-opus-4-6-20250623',
-    displayName: 'Claude Opus 4.6',
+    value: 'opus',
+    displayName: 'Opus',
     description: 'Most capable for complex work',
   },
   {
-    value: 'claude-sonnet-4-5-20250929',
-    displayName: 'Claude Sonnet 4.5',
+    value: 'sonnet',
+    displayName: 'Sonnet',
     description: 'Best for everyday tasks',
   },
   {
-    value: 'claude-haiku-4-5-20251001',
-    displayName: 'Claude Haiku 4.5',
+    value: 'haiku',
+    displayName: 'Haiku',
     description: 'Fastest for quick answers',
   },
 ];
@@ -113,11 +125,30 @@ export class SdkModelService {
   /**
    * Get default model - first from supported models
    *
-   * @returns Model ID string (e.g., 'claude-sonnet-4-20250514')
+   * Resolves SDK's 'default' tier to an explicit tier name based on the model's
+   * description, since the SDK's query() API doesn't always resolve 'default'
+   * to the model advertised by supportedModels().
+   *
+   * @returns Model tier string (e.g., 'opus', 'sonnet', 'haiku')
    */
   async getDefaultModel(): Promise<string> {
     const models = await this.getSupportedModels();
-    return models[0]?.value || 'claude-opus-4-6-20250623';
+    const first = models[0];
+    if (!first) return 'default';
+
+    // If SDK returns 'default' as the value, resolve to explicit tier
+    if (first.value.toLowerCase() === 'default') {
+      const desc = (
+        (first.displayName || '') +
+        ' ' +
+        (first.description || '')
+      ).toLowerCase();
+      if (desc.includes('opus')) return 'opus';
+      if (desc.includes('sonnet')) return 'sonnet';
+      if (desc.includes('haiku')) return 'haiku';
+    }
+
+    return first.value;
   }
 
   /**

@@ -13,6 +13,8 @@
 import { join } from 'path';
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 
 // Import services
@@ -26,7 +28,6 @@ import { ContentGenerationService } from '../services/content-generation.service
 import { AgentFileWriterService } from '../services/file-writer.service';
 import { MultiCliAgentWriterService } from '../services/cli-agent-transforms/multi-cli-agent-writer.service';
 import { OutputValidationService } from '../services/output-validation.service';
-import { VsCodeLmService } from '../services/vscode-lm.service';
 import {
   WizardWebviewLifecycleService,
   AgenticAnalysisService,
@@ -45,8 +46,7 @@ import { AnalysisStorageService } from '../services/analysis-storage.service';
  */
 export function registerAgentGenerationServices(
   container: DependencyContainer,
-  logger: Logger,
-  extensionPath?: string
+  logger: Logger
 ): void {
   logger.info('[AgentGeneration] Registering agent-generation services...');
 
@@ -62,13 +62,16 @@ export function registerAgentGenerationServices(
   );
 
   // Template storage service - loads and caches templates
-  // Uses factory registration to handle optional templatesPath parameter
+  // Uses factory registration to resolve extensionPath from IPlatformInfo
   // (tsyringe cannot inject primitive types without explicit tokens)
   container.register(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE, {
     useFactory: (c) => {
       const loggerInstance = c.resolve<Logger>(TOKENS.LOGGER);
-      const templatesPath = extensionPath
-        ? join(extensionPath, 'templates', 'agents')
+      const platformInfo = c.resolve<IPlatformInfo>(
+        PLATFORM_TOKENS.PLATFORM_INFO
+      );
+      const templatesPath = platformInfo.extensionPath
+        ? join(platformInfo.extensionPath, 'templates', 'agents')
         : undefined;
       return new TemplateStorageService(loggerInstance, templatesPath);
     },
@@ -105,13 +108,6 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE,
     { useClass: WizardWebviewLifecycleService },
-    { lifecycle: Lifecycle.Singleton }
-  );
-
-  // VS Code LM service - LLM integration with retry logic
-  container.register(
-    AGENT_GENERATION_TOKENS.VSCODE_LM_SERVICE,
-    { useClass: VsCodeLmService },
     { lifecycle: Lifecycle.Singleton }
   );
 
@@ -183,7 +179,6 @@ export function registerAgentGenerationServices(
       'AGENTIC_ANALYSIS_SERVICE',
       'MULTI_PHASE_ANALYSIS_SERVICE',
       'WIZARD_WEBVIEW_LIFECYCLE',
-      'VSCODE_LM_SERVICE',
       'AGENT_SELECTION_SERVICE',
       'AGENT_RECOMMENDATION_SERVICE',
       'CONTENT_GENERATION_SERVICE',

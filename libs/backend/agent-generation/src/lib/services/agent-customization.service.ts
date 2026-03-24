@@ -1,12 +1,12 @@
 /**
  * Agent Customization Service
  *
- * Wraps ptah.ai.invokeAgent() for LLM-powered agent template customization.
+ * Wraps InternalQueryService for LLM-powered agent template customization.
  * Provides reliability through retry logic, batch processing, and quality validation.
  *
  * Key responsibilities:
  * - Build context-aware customization tasks for LLM
- * - Delegate to ptah.ai.invokeAgent() for actual LLM invocation
+ * - Delegate to InternalQueryService for actual LLM invocation
  * - Validate LLM output using OutputValidationService (3-tier validation)
  * - Batch process multiple sections with concurrency control (5 concurrent max)
  * - Provide fallback to empty string on validation failures (signals generic content usage)
@@ -18,7 +18,9 @@
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import { PtahAPIBuilder } from '@ptah-extension/vscode-lm-tools';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { InternalQueryService } from '@ptah-extension/agent-sdk';
+import type { SDKMessage } from '@ptah-extension/agent-sdk';
 import { IOutputValidationService } from '../interfaces/output-validation.interface';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
 import {
@@ -47,11 +49,11 @@ export class AgentCustomizationFallbackError extends Error {
  * Agent Customization Service
  *
  * Facade service for LLM-powered template section customization.
- * Uses ptah.ai.invokeAgent() to invoke cost-effective models (gpt-4o-mini, haiku)
+ * Uses InternalQueryService to invoke cost-effective models (gpt-4o-mini, haiku)
  * for generating project-specific content in agent templates.
  *
  * **Design Pattern**: Facade with Retry + Validation
- * - Wraps complex ptah.ai API with simple interface
+ * - Wraps InternalQueryService with simple interface
  * - Adds reliability through retry mechanism
  * - Ensures quality through validation pipeline
  *
@@ -90,8 +92,8 @@ export class AgentCustomizationService implements IAgentCustomizationService {
   private readonly DEFAULT_MODEL = 'gpt-4o-mini'; // 150x cheaper than GPT-4
 
   constructor(
-    @inject(TOKENS.PTAH_API_BUILDER)
-    private readonly ptahApiBuilder: PtahAPIBuilder,
+    @inject(SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE)
+    private readonly internalQueryService: InternalQueryService,
     @inject(AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE)
     private readonly validator: IOutputValidationService,
     @inject(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE)
@@ -108,7 +110,7 @@ export class AgentCustomizationService implements IAgentCustomizationService {
    * **Execution Flow**:
    * 1. Build customization task from section topic + project context
    * 2. Get template file path from template storage
-   * 3. Invoke ptah.ai.invokeAgent() with template + task
+   * 3. Invoke InternalQueryService with template + task
    * 4. Validate LLM output (3-tier: schema, safety, factual)
    * 5. If validation fails: retry with simplified task
    * 6. If retry exhausted: return empty string (fallback to generic content)
@@ -165,17 +167,6 @@ export class AgentCustomizationService implements IAgentCustomizationService {
       );
     }
 
-    // Build ptah.ai API
-    let ptahApi;
-    try {
-      ptahApi = this.ptahApiBuilder.build();
-    } catch (error) {
-      this.logger.error('Failed to build Ptah API', error as Error);
-      return Result.err(
-        new Error(`Ptah API initialization failed: ${(error as Error).message}`)
-      );
-    }
-
     // Retry loop with exponential backoff
     for (let attempt = 0; attempt <= this.MAX_RETRIES; attempt++) {
       try {
@@ -191,14 +182,20 @@ export class AgentCustomizationService implements IAgentCustomizationService {
           attempt > 0 // Simplify task on retry
         );
 
-        // Call ptah.ai.invokeAgent() - delegates to VS Code LM API
-        // Uses template file as system prompt + task as user message
-        const templatePath = this.getTemplatePath(templateId);
-        const response = await ptahApi.ai.invokeAgent(
-          templatePath,
-          task,
-          this.DEFAULT_MODEL
-        );
+        // Execute via InternalQueryService (Agent SDK)
+        // Uses the template as system prompt context + task as user prompt
+        const handle = await this.internalQueryService.execute({
+          cwd: projectContext.rootPath ?? '.',
+          model: this.DEFAULT_MODEL,
+          prompt: task,
+          systemPromptAppend: `You are customizing the "${sectionTopic}" section of the "${templateId}" agent template.`,
+          isPremium: false,
+          mcpServerRunning: false,
+          maxTurns: 1,
+        });
+
+        // Collect response text from the stream
+        const response = await this.collectStreamResponse(handle.stream);
 
         this.logger.debug('LLM response received', {
           responseLength: response.length,
@@ -500,7 +497,7 @@ Return ONLY markdown content. NO section headers. NO code fences around the enti
   }
 
   /**
-   * Get template file path for ptah.ai.invokeAgent().
+   * Get template file path for InternalQueryService invocation.
    *
    * Converts template ID to file path in extension's template directory.
    * Path format: `.claude/agents/{templateId}.md`
@@ -513,6 +510,54 @@ Return ONLY markdown content. NO section headers. NO code fences around the enti
   private getTemplatePath(templateId: string): string {
     // Template paths follow Claude convention: .claude/agents/{id}.md
     return `.claude/agents/${templateId}.md`;
+  }
+
+  /**
+   * Collect text response from an InternalQueryService stream.
+   *
+   * Iterates SDK messages, extracting assistant text content from
+   * result messages.
+   *
+   * @param stream - Async iterable of SDK messages
+   * @returns Concatenated response text
+   * @private
+   */
+  private async collectStreamResponse(
+    stream: AsyncIterable<SDKMessage>
+  ): Promise<string> {
+    let response = '';
+    for await (const message of stream) {
+      if (
+        message.type === 'result' &&
+        'subtype' in message &&
+        message.subtype === 'success'
+      ) {
+        // Extract text from result message content blocks
+        const resultMsg = message as {
+          content?: Array<{ type: string; text?: string }>;
+        };
+        if (resultMsg.content) {
+          for (const block of resultMsg.content) {
+            if (block.type === 'text' && block.text) {
+              response += block.text;
+            }
+          }
+        }
+      } else if (message.type === 'assistant') {
+        // Extract from assistant messages
+        const assistantMsg = message as {
+          message?: { content?: Array<{ type: string; text?: string }> };
+        };
+        if (assistantMsg.message?.content) {
+          for (const block of assistantMsg.message.content) {
+            if (block.type === 'text' && block.text) {
+              response += block.text;
+            }
+          }
+        }
+      }
+    }
+    return response;
   }
 
   /**

@@ -6,7 +6,7 @@
  * - Validation failures with retry logic
  * - Retry exhaustion with fallback
  * - Batch processing with concurrency
- * - Error handling from ptah.ai API
+ * - Error handling from InternalQueryService
  *
  * Coverage target: >80%
  */
@@ -450,7 +450,7 @@ describe('AgentCustomizationService', () => {
         expect(mockPtahApi.ai.invokeAgent).not.toHaveBeenCalled();
       });
 
-      it('should return error when ptah.ai API initialization fails', async () => {
+      it('should return error when Ptah API initialization fails', async () => {
         // Arrange
         mockTemplateStorage.loadTemplate.mockResolvedValue(
           Result.ok(sampleTemplate)

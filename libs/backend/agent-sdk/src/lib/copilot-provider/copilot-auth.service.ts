@@ -9,6 +9,9 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+// APPROVED EXCEPTION: vscode import required — CopilotAuthService uses VS Code-specific APIs
+// (vscode.authentication, vscode.extensions, vscode.version) that have no platform-agnostic
+// equivalent. GitHub Copilot integration is inherently VS Code-only. See TASK_2025_199.
 import * as vscode from 'vscode';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import type {
@@ -243,6 +246,7 @@ export class CopilotAuthService implements ICopilotAuthService {
           Accept: 'application/json',
           'User-Agent': `ptah-extension/${getExtensionVersion()}`,
         },
+        signal: AbortSignal.timeout(15_000),
       });
 
       if (!response.ok) {

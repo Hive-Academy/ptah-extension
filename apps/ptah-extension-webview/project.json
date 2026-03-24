@@ -18,6 +18,11 @@
           {
             "glob": "**/*",
             "input": "apps/ptah-extension-webview/public"
+          },
+          {
+            "glob": "**/*",
+            "input": "node_modules/monaco-editor/min",
+            "output": "/assets/monaco"
           }
         ],
         "styles": [

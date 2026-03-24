@@ -32,7 +32,8 @@
         "hooks",
         "scripts",
         "landing",
-        "license-server"
+        "license-server",
+        "electron"
       ]
     ],
     "scope-case": [2, "always", "lower-case"],

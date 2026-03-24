@@ -32,7 +32,7 @@ export type PreferenceKey =
  * Default values for preferences
  */
 const PREFERENCE_DEFAULTS: Record<PreferenceKey, unknown> = {
-  'model.selected': 'claude-opus-4-6-20250623',
+  'model.selected': undefined, // Resolved by SDK's getDefaultModel() on first init
   'autopilot.enabled': false,
   'autopilot.permissionLevel': 'ask',
 };

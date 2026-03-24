@@ -5,7 +5,7 @@
  * Exposes functions, classes, imports, exports extraction.
  */
 
-import * as vscode from 'vscode';
+import * as path from 'path';
 import {
   TreeSitterParserService,
   AstAnalysisService,
@@ -15,7 +15,10 @@ import {
   type QueryMatch,
   type QueryCapture,
 } from '@ptah-extension/workspace-intelligence';
-import { FileSystemManager } from '@ptah-extension/vscode-core';
+import type {
+  IFileSystemProvider,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import {
   AstNamespace,
   AstCodeInsights,
@@ -33,7 +36,8 @@ import {
 export interface AstNamespaceDependencies {
   treeSitterParser: TreeSitterParserService;
   astAnalysis: AstAnalysisService;
-  fileSystemManager: FileSystemManager;
+  fileSystemProvider: IFileSystemProvider;
+  workspaceProvider: IWorkspaceProvider;
 }
 
 /**
@@ -42,13 +46,19 @@ export interface AstNamespaceDependencies {
 export function buildAstNamespace(
   deps: AstNamespaceDependencies
 ): AstNamespace {
-  const { treeSitterParser, astAnalysis, fileSystemManager } = deps;
+  const {
+    treeSitterParser,
+    astAnalysis,
+    fileSystemProvider,
+    workspaceProvider,
+  } = deps;
 
   return {
     analyze: async (filePath: string): Promise<AstCodeInsights> => {
       const { content, language, absolutePath } = await readFileForAst(
         filePath,
-        fileSystemManager
+        fileSystemProvider,
+        workspaceProvider
       );
 
       const result = astAnalysis.analyzeSource(content, language, absolutePath);
@@ -76,7 +86,8 @@ export function buildAstNamespace(
     parse: async (filePath: string, maxDepth = 10): Promise<AstParseResult> => {
       const { content, language } = await readFileForAst(
         filePath,
-        fileSystemManager
+        fileSystemProvider,
+        workspaceProvider
       );
 
       const result = treeSitterParser.parse(content, language);
@@ -102,7 +113,8 @@ export function buildAstNamespace(
     queryFunctions: async (filePath: string): Promise<AstFunctionInfo[]> => {
       const { content, language } = await readFileForAst(
         filePath,
-        fileSystemManager
+        fileSystemProvider,
+        workspaceProvider
       );
 
       const result = treeSitterParser.queryFunctions(content, language);
@@ -117,7 +129,8 @@ export function buildAstNamespace(
     queryClasses: async (filePath: string): Promise<AstClassInfo[]> => {
       const { content, language } = await readFileForAst(
         filePath,
-        fileSystemManager
+        fileSystemProvider,
+        workspaceProvider
       );
 
       const result = treeSitterParser.queryClasses(content, language);
@@ -132,7 +145,8 @@ export function buildAstNamespace(
     queryImports: async (filePath: string): Promise<AstImportInfo[]> => {
       const { content, language } = await readFileForAst(
         filePath,
-        fileSystemManager
+        fileSystemProvider,
+        workspaceProvider
       );
 
       const result = treeSitterParser.queryImports(content, language);
@@ -147,7 +161,8 @@ export function buildAstNamespace(
     queryExports: async (filePath: string): Promise<AstExportInfo[]> => {
       const { content, language } = await readFileForAst(
         filePath,
-        fileSystemManager
+        fileSystemProvider,
+        workspaceProvider
       );
 
       const result = treeSitterParser.queryExports(content, language);
@@ -176,17 +191,16 @@ export function buildAstNamespace(
  */
 async function readFileForAst(
   filePath: string,
-  fileSystemManager: FileSystemManager
+  fileSystemProvider: IFileSystemProvider,
+  workspaceProvider: IWorkspaceProvider
 ): Promise<{
   content: string;
   language: SupportedLanguage;
   absolutePath: string;
 }> {
-  const absolutePath = resolveFilePath(filePath);
-  const uri = vscode.Uri.file(absolutePath);
+  const absolutePath = resolveFilePath(filePath, workspaceProvider);
 
-  const contentBytes = await fileSystemManager.readFile(uri);
-  const content = new TextDecoder('utf-8').decode(contentBytes);
+  const content = await fileSystemProvider.readFile(absolutePath);
 
   const ext = absolutePath.substring(absolutePath.lastIndexOf('.'));
   const language = EXTENSION_LANGUAGE_MAP[ext.toLowerCase()];
@@ -205,7 +219,10 @@ async function readFileForAst(
 /**
  * Resolve file path to absolute path
  */
-function resolveFilePath(filePath: string): string {
+function resolveFilePath(
+  filePath: string,
+  workspaceProvider: IWorkspaceProvider
+): string {
   if (
     filePath.startsWith('/') ||
     /^[A-Za-z]:/.test(filePath) ||
@@ -214,12 +231,12 @@ function resolveFilePath(filePath: string): string {
     return filePath;
   }
 
-  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-  if (!workspaceFolder) {
+  const workspaceRoot = workspaceProvider.getWorkspaceRoot();
+  if (!workspaceRoot) {
     throw new Error('No workspace folder open');
   }
 
-  return vscode.Uri.joinPath(workspaceFolder.uri, filePath).fsPath;
+  return path.join(workspaceRoot, filePath);
 }
 
 /**

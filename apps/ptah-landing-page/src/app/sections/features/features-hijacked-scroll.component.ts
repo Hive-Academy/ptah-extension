@@ -340,14 +340,14 @@ export class FeaturesHijackedScrollComponent {
       step: 2,
       title: 'Code Execution MCP Server',
       description:
-        'Ptah includes a Code Execution MCP server that exposes 8 powerful API namespaces to any connected AI agent. Your provider of choice can query your workspace structure, search files semantically, extract code symbols, check diagnostics, access git status, and execute VS Code commands.',
+        'Ptah includes a Code Execution MCP server that exposes 14 powerful API namespaces to any connected AI agent. Your provider of choice can query your workspace structure, search files semantically, analyze code with tree-sitter AST, check diagnostics, build dependency graphs, and access LSP superpowers.',
       image: '/assets/images/showcase/ptah-mcp-server.png',
       layout: 'right',
       notes: [
-        '8 Ptah API namespaces',
+        '14 Ptah API namespaces',
         'Semantic file search',
-        'Symbol extraction',
-        'Git status & diffs',
+        'Tree-sitter AST analysis',
+        'LSP & dependency graphs',
       ],
     },
     {

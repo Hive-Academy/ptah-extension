@@ -26,6 +26,7 @@ import {
   Settings,
   Trash2,
   X,
+  BarChart3,
 } from 'lucide-angular';
 import { ChatViewComponent } from './chat-view.component';
 import { TabBarComponent } from '../organisms/tab-bar.component';
@@ -39,10 +40,9 @@ import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.com
 import { ResizeHandleComponent } from '../atoms/resize-handle.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
-import { BackgroundAgentBadgeComponent } from '../molecules/notifications/background-agent-badge.component';
+import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
 import { ChatStore } from '../../services/chat.store';
 import { AgentMonitorStore } from '../../services/agent-monitor.store';
-import { BackgroundAgentStore } from '../../services/background-agent.store';
 import { KeyboardShortcutsService } from '../../services/keyboard-shortcuts.service';
 import { TabManagerService } from '../../services/tab-manager.service';
 import {
@@ -94,13 +94,13 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     TrialEndedModalComponent,
     ThemeToggleComponent,
     NotificationBellComponent,
-    BackgroundAgentBadgeComponent,
     NgOptimizedImage,
     LucideAngularModule,
     FormsModule,
     NativePopoverComponent,
     AgentMonitorPanelComponent,
     ResizeHandleComponent,
+    SessionAnalyticsDashboardViewComponent,
   ],
   templateUrl: './app-shell.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -111,7 +111,6 @@ export class AppShellComponent {
 
   readonly chatStore = inject(ChatStore);
   readonly agentMonitorStore = inject(AgentMonitorStore);
-  readonly backgroundAgentStore = inject(BackgroundAgentStore);
   private readonly tabManager = inject(TabManagerService);
   private readonly appState = inject(AppStateManager);
   private readonly vscodeService = inject(VSCodeService);
@@ -121,8 +120,8 @@ export class AppShellComponent {
   // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
 
-  // Sidebar state (default hidden for VS Code sidebar space efficiency)
-  private readonly _sidebarOpen = signal(false);
+  // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
+  private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
 
   // Lucide icons
@@ -140,6 +139,10 @@ export class AppShellComponent {
   readonly Trash2Icon = Trash2;
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
+  readonly BarChart3Icon = BarChart3;
+
+  // Platform detection: in Electron, some icons move to the global navbar
+  readonly isElectron = this.vscodeService.isElectron;
 
   // Ptah icon URI
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -279,6 +282,13 @@ export class AppShellComponent {
    */
   openSettings(): void {
     this.appState.setCurrentView('settings');
+  }
+
+  /**
+   * Navigate to analytics dashboard view
+   */
+  openDashboard(): void {
+    this.appState.setCurrentView('analytics');
   }
 
   /** Guard to prevent double-click opening multiple panels */

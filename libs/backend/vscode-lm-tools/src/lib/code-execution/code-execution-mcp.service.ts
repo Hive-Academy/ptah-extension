@@ -17,10 +17,15 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IStateStorage,
+  IDisposable,
+} from '@ptah-extension/platform-core';
 import { PtahAPIBuilder } from './ptah-api-builder.service';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
 import { PtahAPI } from './types';
@@ -33,7 +38,7 @@ import {
 } from './mcp-handlers';
 
 @injectable()
-export class CodeExecutionMCP implements vscode.Disposable {
+export class CodeExecutionMCP implements IDisposable {
   private server: http.Server | null = null;
   private port: number | null = null;
   private ptahAPI: PtahAPI;
@@ -47,8 +52,11 @@ export class CodeExecutionMCP implements vscode.Disposable {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
 
-    @inject(TOKENS.EXTENSION_CONTEXT)
-    private readonly context: vscode.ExtensionContext,
+    @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
+    private readonly workspaceState: IStateStorage,
+
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
 
     @inject(TOKENS.PERMISSION_PROMPT_SERVICE)
     private readonly permissionPromptService: PermissionPromptService,
@@ -75,7 +83,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
     const result = await startHttpServer({
       port: configuredPort,
       logger: this.logger,
-      extensionContext: this.context,
+      workspaceState: this.workspaceState,
       onMCPRequest: (request) =>
         handleMCPRequest(request, {
           ptahAPI: this.ptahAPI,
@@ -110,7 +118,7 @@ export class CodeExecutionMCP implements vscode.Disposable {
    */
   async stop(): Promise<void> {
     this.unregisterFromMcpJson();
-    await stopHttpServer(this.server, this.context, this.logger);
+    await stopHttpServer(this.server, this.workspaceState, this.logger);
     this.server = null;
     this.port = null;
   }
@@ -224,8 +232,8 @@ export class CodeExecutionMCP implements vscode.Disposable {
    * Get the path to .mcp.json in the first workspace folder.
    */
   private getMcpJsonPath(): string | null {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) return null;
-    return path.join(workspaceFolders[0].uri.fsPath, '.mcp.json');
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (!workspaceRoot) return null;
+    return path.join(workspaceRoot, '.mcp.json');
   }
 }

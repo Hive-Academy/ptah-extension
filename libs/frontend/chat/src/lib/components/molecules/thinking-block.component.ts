@@ -22,33 +22,56 @@ import type { ExecutionNode } from '@ptah-extension/shared';
   standalone: true,
   imports: [MarkdownModule, LucideAngularModule],
   template: `
-    <div class="bg-base-300 rounded-md my-2 border border-base-300/50">
-      <!-- Header (clickable to toggle) -->
+    <div
+      class="card card-border my-3 border-secondary/20 bg-gradient-to-br from-secondary/5 to-transparent shadow-sm"
+    >
+      <!-- Card header (clickable to toggle) -->
       <button
         type="button"
-        class="w-full py-2 px-3 text-sm font-medium flex items-center gap-2 hover:bg-base-200/50 transition-colors cursor-pointer rounded-t-md"
+        class="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-secondary/5 transition-colors cursor-pointer rounded-t-2xl"
         (click)="toggleCollapse()"
         [attr.aria-expanded]="!isCollapsed()"
         [attr.aria-controls]="'thinking-' + node().id"
       >
-        <!-- Expand/Collapse icon -->
+        <!-- Expand/Collapse chevron -->
         <lucide-angular
           [img]="ChevronIcon"
-          class="w-4 h-4 flex-shrink-0 text-base-content/50 transition-transform"
+          class="w-3.5 h-3.5 flex-shrink-0 text-secondary/60 transition-transform duration-200"
           [class.rotate-0]="!isCollapsed()"
           [class.-rotate-90]="isCollapsed()"
         />
-        <lucide-angular [img]="BrainIcon" class="w-4 h-4 text-secondary" />
-        <span class="text-base-content/80">Extended Thinking</span>
+
+        <!-- Brain icon with glow ring -->
+        <div
+          class="w-6 h-6 rounded-full bg-secondary/15 flex items-center justify-center flex-shrink-0"
+        >
+          <lucide-angular
+            [img]="BrainIcon"
+            class="w-3.5 h-3.5 text-secondary"
+          />
+        </div>
+
+        <span class="text-xs font-semibold tracking-wide text-secondary/90"
+          >Extended Thinking</span
+        >
+
+        <!-- Collapsed preview hint -->
+        @if (isCollapsed()) {
+        <span class="text-[10px] text-base-content/30 ml-auto">
+          click to expand
+        </span>
+        }
       </button>
 
-      <!-- Collapsible content -->
+      <!-- Collapsible body -->
       @if (!isCollapsed()) {
-      <div
-        class="px-3 pb-3 border-t border-base-200/50"
-        [attr.id]="'thinking-' + node().id"
-      >
-        <div class="prose prose-sm prose-invert max-w-none pt-2">
+      <div class="card-body px-4 pt-0 pb-4" [attr.id]="'thinking-' + node().id">
+        <div
+          class="divider my-0 before:bg-secondary/10 after:bg-secondary/10"
+        ></div>
+        <div
+          class="prose prose-sm prose-invert max-w-none text-base-content/70 leading-relaxed"
+        >
           <markdown [data]="node().content || ''" />
         </div>
       </div>

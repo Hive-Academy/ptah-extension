@@ -60,7 +60,7 @@ export const PtahDevDefaults = {
  * Replace this placeholder with the generated public key before production.
  */
 export const LICENSE_PUBLIC_KEY_BASE64 =
-  'MCowBQYDK2VwAyEAKCYdta2d6ePQAQirldcF90FXv00yuXQgaLJ0aW3/wWQ=';
+  'MCowBQYDK2VwAyEAy8PRu7wT/Fv2yGMPd/5kNyKfs0i42C7oAvsk63pV/MA=';
 
 /**
  * Resolve the correct URL set and defaults for the current environment.

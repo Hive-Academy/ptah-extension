@@ -24,6 +24,7 @@ import {
 import { ExecutionNodeComponent } from './execution-node.component';
 import { TypingCursorComponent } from '../../atoms/typing-cursor.component';
 import { CostBadgeComponent } from '../../atoms/cost-badge.component';
+import { AgentMonitorStore } from '../../../services/agent-monitor.store';
 import type {
   ExecutionNode,
   PermissionRequest,
@@ -67,17 +68,22 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
     <div
       class="my-3 border-l-2 rounded-lg overflow-hidden transition-colors"
       [ngClass]="{
-        'bg-base-200/50': !isInterrupted() && !isBackground(),
+        'bg-base-200/50': !isInterrupted() && !isResumed() && !isBackground(),
         'bg-warning/10': isInterrupted(),
         'border-warning': isInterrupted(),
-        'ring-1': isInterrupted() || isBackground(),
+        'ring-1': isInterrupted() || isResumed() || isBackground(),
         'ring-warning/30': isInterrupted(),
         'streaming-border-glow': isStreaming() && !isBackground(),
-        'bg-info/5': isBackground() && !isInterrupted(),
-        'border-dashed': isBackground(),
-        'ring-info/20': isBackground() && !isInterrupted()
+        'bg-info/5': isBackground() && !isInterrupted() && !isResumed(),
+        'border-dashed': isBackground() || isResumed(),
+        'ring-info/20': isBackground() && !isInterrupted() && !isResumed(),
+        'bg-success/5': isResumed(),
+        'ring-success/30': isResumed()
       }"
-      [style.border-left-color]="isInterrupted() ? null : agentColor()"
+      [style.border-left-color]="
+        isInterrupted() ? null : isResumed() ? null : agentColor()
+      "
+      [class.border-success]="isResumed()"
     >
       <!-- Agent Header (clickable to toggle) -->
       <button
@@ -133,6 +139,14 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
         <span class="badge badge-xs badge-info gap-1 flex-shrink-0">
           <lucide-angular [img]="LoaderIcon" class="w-2.5 h-2.5 animate-spin" />
           <span class="text-[9px]">Streaming</span>
+        </span>
+        } @else if (isResumed()) {
+        <!-- TASK_2025_211: Resumed indicator — agent was interrupted then continued -->
+        <span
+          class="badge badge-sm badge-success gap-1 flex-shrink-0"
+          title="This agent was resumed in a new session."
+        >
+          <span class="text-[10px] font-medium">Resumed</span>
         </span>
         } @else if (isInterrupted()) {
         <!-- TASK_2025_109: Enhanced interrupted indicator with auto-resume hint -->
@@ -197,11 +211,13 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
       <!-- Agent Stats Footer (shown when stats available and not streaming) -->
       @if (hasStats() && !isStreaming()) {
       <div
-        class="flex items-center gap-1.5 px-3 py-1.5 border-t border-base-300/30 text-base-content/60"
+        class="flex items-center gap-1.5 px-3 py-1.5 border-t border-white/5 text-base-content/70 rounded-b-lg"
+        [style.background-color]="footerBgColor()"
       >
         @if (modelDisplayName()) {
         <span
-          class="badge badge-xs badge-outline text-[9px] opacity-70 flex-shrink-0"
+          class="badge badge-xs text-[9px] font-medium flex-shrink-0 border-white/20 text-white/80"
+          [style.background-color]="agentColor()"
           [title]="rawModelId() || ''"
         >
           {{ modelDisplayName() }}
@@ -247,6 +263,7 @@ import { DurationBadgeComponent } from '../../atoms/duration-badge.component';
 export class InlineAgentBubbleComponent {
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly agentMonitorStore = inject(AgentMonitorStore);
 
   /**
    * MutationObserver for auto-scroll behavior.
@@ -421,6 +438,24 @@ export class InlineAgentBubbleComponent {
   // Computed: was agent interrupted (TASK_2025_098)
   readonly isInterrupted = computed(() => this.node().status === 'interrupted');
 
+  // Computed: was agent resumed (TASK_2025_211 — interrupted then continued in new agent)
+  // Checks both the node's own status and the AgentMonitorStore's resume tracking.
+  // Matches by specific node ID to avoid false positives with multiple agents of same type.
+  readonly isResumed = computed(() => {
+    const node = this.node();
+    if (node.status === 'resumed') return true;
+    // If node is interrupted, check if THIS specific node was subsequently resumed
+    if (node.status === 'interrupted') {
+      const description = node.agentDescription || node.content || '';
+      return this.agentMonitorStore.isAgentResumed(
+        node.id,
+        node.toolCallId ?? undefined,
+        description
+      );
+    }
+    return false;
+  });
+
   // Computed: is background agent
   readonly isBackground = computed(() => this.node().isBackground === true);
 
@@ -474,6 +509,21 @@ export class InlineAgentBubbleComponent {
     // C=0.15 gives vibrant but not oversaturated colors
     return `oklch(0.55 0.15 ${hue})`;
   }
+
+  /**
+   * Computed: footer background color — a subtle tint derived from agentColor().
+   * Converts the oklch agent color to a low-opacity version for the stats footer.
+   */
+  readonly footerBgColor = computed(() => {
+    const color = this.agentColor();
+    // Extract oklch values and return at 10% opacity for a subtle tint
+    const match = color.match(/oklch\(([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)\)/);
+    if (match) {
+      return `oklch(${match[1]} ${match[2]} ${match[3]} / 0.1)`;
+    }
+    // Fallback for theme-aware colors like oklch(var(--bc) / 0.5)
+    return 'oklch(var(--bc) / 0.05)';
+  });
 
   // Computed: agent initial letter
   readonly agentInitial = computed(() => {
@@ -536,6 +586,7 @@ export class InlineAgentBubbleComponent {
   /**
    * Computed: aggregated duration for the agent in milliseconds
    * Returns null if no duration data is available.
+   * Note: DurationBadgeComponent handles unit normalization (seconds vs ms).
    */
   readonly agentDuration = computed(() => this.node().duration ?? null);
 
@@ -559,8 +610,4 @@ export class InlineAgentBubbleComponent {
   protected toggleCollapse(): void {
     this.isCollapsed.update((v) => !v);
   }
-
-  // TASK_2025_109: onResumeClick method removed - Resume button no longer needed
-  // Subagent resumption is now handled via context injection in chat:continue RPC.
-  // Users can resume interrupted agents by typing "resume agent {agentId}" in chat.
 }

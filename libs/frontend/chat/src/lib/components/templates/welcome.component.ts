@@ -18,6 +18,7 @@ import {
   UserPlus,
   Loader2,
   CheckCircle2,
+  Download,
 } from 'lucide-angular';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import type {
@@ -69,6 +70,7 @@ export class WelcomeComponent implements OnInit {
   readonly UserPlusIcon = UserPlus;
   readonly Loader2Icon = Loader2;
   readonly CheckCircle2Icon = CheckCircle2;
+  readonly DownloadIcon = Download;
 
   // State signals
   readonly licenseReason = signal<LicenseGetStatusResponse['reason'] | null>(
@@ -83,6 +85,10 @@ export class WelcomeComponent implements OnInit {
   readonly isVerifyingKey = signal(false);
   readonly keyError = signal<string | null>(null);
   readonly keySuccess = signal(false);
+
+  // Settings import state
+  readonly isImporting = signal(false);
+  readonly importSuccess = signal(false);
 
   // Format validation: ptah_lic_ followed by 64 hex characters
   readonly isKeyFormatValid = computed(() => {
@@ -265,6 +271,53 @@ export class WelcomeComponent implements OnInit {
     } catch (error) {
       console.error('[WelcomeComponent] Failed to open signup:', error);
       this.errorMessage.set('Failed to open signup page. Please try again.');
+    }
+  }
+
+  /**
+   * Import settings from a JSON file exported from another Ptah instance.
+   * Brings license key, API keys, and config — enabling seamless
+   * transition between VS Code extension and Electron desktop app.
+   *
+   * Platform-aware: uses settings:import RPC for Electron,
+   * command:execute for VS Code (same pattern as settings.component.ts).
+   *
+   * If a license key is included in the import, the backend will
+   * verify it and trigger a window reload on success.
+   */
+  async importSettings(): Promise<void> {
+    if (this.isImporting()) return;
+    this.isImporting.set(true);
+    this.errorMessage.set(null);
+
+    try {
+      let result;
+      if (this.vscodeService.isElectron) {
+        result = await this.rpcService.call(
+          'settings:import' as never,
+          {} as never
+        );
+      } else {
+        result = await this.rpcService.call('command:execute', {
+          command: 'ptah.importSettings',
+        });
+      }
+
+      // Check RPC result — don't show success if backend rejected the call
+      if (result.isSuccess()) {
+        this.importSuccess.set(true);
+        // Backend handles window reload if a license key was imported
+      } else {
+        const errorMsg =
+          (result as { error?: string }).error ||
+          'Import failed. Please try again.';
+        this.errorMessage.set(errorMsg);
+      }
+    } catch (error) {
+      console.error('[WelcomeComponent] Failed to import settings:', error);
+      this.errorMessage.set('Failed to import settings. Please try again.');
+    } finally {
+      this.isImporting.set(false);
     }
   }
 

@@ -18,6 +18,10 @@ export interface WebviewConfig {
   initialSessionId?: string | null;
   /** Session name for auto-loaded session tab title. */
   initialSessionName?: string | null;
+  /** Whether the webview is running inside Electron (set by preload script). */
+  isElectron?: boolean;
+  /** OS platform from Electron main process: 'darwin', 'win32', 'linux'. */
+  platform?: string;
 }
 
 /**
@@ -76,6 +80,7 @@ export class VSCodeService {
     iconUri: '',
     userIconUri: '',
     panelId: '',
+    isElectron: false,
   });
 
   private readonly _isConnected = signal(false);
@@ -125,10 +130,37 @@ export class VSCodeService {
 
   getAssetUri(relativePath: string): string {
     const config = this.config();
+    // Electron: assets are co-located with index.html, use relative path
+    if (config.isElectron) {
+      return `./${relativePath}`;
+    }
     if (this.isConnected() && config.extensionUri) {
       return `${config.extensionUri}/${relativePath}`;
     }
     return `/${relativePath}`;
+  }
+
+  /**
+   * Update the workspace root and name in the config signal.
+   * Called by ElectronLayoutService after workspace:switch RPC succeeds.
+   * All consumers reading config().workspaceRoot will reactively see the new value.
+   *
+   * @param newPath - The new workspace folder path
+   */
+  updateWorkspaceRoot(newPath: string): void {
+    const workspaceName = newPath.split(/[/\\]/).pop() ?? 'Workspace';
+    this._config.update((current) => ({
+      ...current,
+      workspaceRoot: newPath,
+      workspaceName,
+    }));
+  }
+
+  /**
+   * Whether the webview is running inside Electron desktop app
+   */
+  get isElectron(): boolean {
+    return this._config().isElectron === true;
   }
 
   /**

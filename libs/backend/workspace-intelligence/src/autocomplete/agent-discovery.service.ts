@@ -1,10 +1,15 @@
 import { injectable, inject } from 'tsyringe';
-import { TOKENS } from '@ptah-extension/vscode-core';
-import * as vscode from 'vscode';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import matter from 'gray-matter';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IFileSystemProvider,
+  IDisposable,
+  IFileWatcher,
+} from '@ptah-extension/platform-core';
 
 /**
  * Agent information parsed from .md file
@@ -50,10 +55,13 @@ export interface AgentSearchRequest {
 export class AgentDiscoveryService {
   private cache: AgentInfo[] = [];
   private cacheTimestamp = 0;
-  private watchers: vscode.FileSystemWatcher[] = [];
+  private watchers: IDisposable[] = [];
 
   constructor(
-    @inject(TOKENS.EXTENSION_CONTEXT) private context: vscode.ExtensionContext
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fsProvider: IFileSystemProvider
   ) {}
 
   /**
@@ -111,7 +119,7 @@ export class AgentDiscoveryService {
    */
   async discoverAgents(): Promise<AgentDiscoveryResult> {
     try {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
 
       // Get built-in agents (always available)
       const builtinAgents = this.getBuiltinAgents();
@@ -191,12 +199,12 @@ export class AgentDiscoveryService {
    * Initialize file watchers for real-time updates
    */
   initializeWatchers(): void {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
     if (!workspaceRoot) return;
 
-    // Watch project agents
-    const projectWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(workspaceRoot, '.claude/agents/*.md')
+    // Watch project agents using platform file watcher
+    const projectWatcher = this.fsProvider.createFileWatcher(
+      '.claude/agents/*.md'
     );
 
     const refreshCache = () => {
@@ -205,12 +213,16 @@ export class AgentDiscoveryService {
       });
     };
 
-    projectWatcher.onDidCreate(refreshCache);
-    projectWatcher.onDidChange(refreshCache);
-    projectWatcher.onDidDelete(refreshCache);
+    const createDisposable = projectWatcher.onDidCreate(refreshCache);
+    const changeDisposable = projectWatcher.onDidChange(refreshCache);
+    const deleteDisposable = projectWatcher.onDidDelete(refreshCache);
 
-    this.watchers.push(projectWatcher);
-    this.context.subscriptions.push(projectWatcher);
+    this.watchers.push(
+      projectWatcher,
+      createDisposable,
+      changeDisposable,
+      deleteDisposable
+    );
   }
 
   /**

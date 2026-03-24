@@ -81,6 +81,14 @@ module.exports = {
   resolve: {
     extensions: ['.ts', '.js', '.json'],
     alias: {
+      '@ptah-extension/platform-core': path.resolve(
+        __dirname,
+        '../../libs/backend/platform-core/src'
+      ),
+      '@ptah-extension/platform-vscode': path.resolve(
+        __dirname,
+        '../../libs/backend/platform-vscode/src'
+      ),
       '@ptah-extension/shared': path.resolve(
         __dirname,
         '../../libs/shared/src'
@@ -108,6 +116,10 @@ module.exports = {
       '@ptah-extension/template-generation': path.resolve(
         __dirname,
         '../../libs/backend/template-generation/src'
+      ),
+      '@ptah-extension/rpc-handlers': path.resolve(
+        __dirname,
+        '../../libs/backend/rpc-handlers/src'
       ),
       // Main llm-abstraction entry point
       '@ptah-extension/llm-abstraction': path.resolve(

@@ -41,7 +41,7 @@ Every claim below is backed by actual codebase implementation.
 
 - "Recursive Sub-Agent Visualization"
 - "6-Step Agent Generation Wizard"
-- "8 MCP API Namespaces"
+- "14 MCP API Namespaces"
 - "200+ Supported Models"
 
 ---
@@ -85,12 +85,12 @@ Generic chat interfaces hide the magic. Ptah visualizes the entire thought proce
 **Headline**: "Your Claude Agent Just Got Superpowers"
 
 **Description**:
-Ptah includes a Code Execution MCP server that exposes 8 powerful API namespaces to Claude agents. Your AI can now query your workspace structure, search files semantically, extract code symbols, check diagnostics, access git status, and execute VS Code commands - all from within a conversation.
+Ptah includes a Code Execution MCP server that exposes 14 powerful API namespaces to Claude agents. Your AI can now query your workspace structure, search files semantically, analyze code with tree-sitter AST, check diagnostics, build dependency graphs, and access LSP superpowers - all from within a conversation.
 
 **Evidence**:
 
 - Source: `vscode-lm-tools/CLAUDE.md`, `BLOG_POST_MCP_SUPERPOWERS.md`
-- 8 namespaces: workspace, search, symbols, diagnostics, git, ai, files, commands
+- 14 namespaces: workspace, search, diagnostics, ai, files, context, project, relevance, ast, ide, llm, orchestration, agent, dependencies
 
 **Code Example**:
 
@@ -101,12 +101,9 @@ console.log('Project type:', info.projectType); // "Angular"
 
 // Find semantic matches
 const files = await ptah.search.findFiles({ query: 'auth service' });
-
-// Extract symbols without reading the whole file
-const symbols = await ptah.symbols.extract('/src/auth.service.ts');
 ```
 
-**Metric**: "8 Ptah API namespaces available to your Claude agent"
+**Metric**: "14 Ptah API namespaces available to your Claude agent"
 
 ---
 
@@ -213,7 +210,7 @@ Ptah is powered by the official Claude Code Agent SDK. Here's what the VS Code i
 | **Setup Wizard**           | **Automated agent generation** tailored to your project        |
 | **Model Freedom**          | **OpenRouter integration** with 200+ models and tier overrides |
 | **Workspace Intelligence** | Auto-detect 13+ project types, 6 monorepo tools                |
-| **Extended MCP**           | 8 Ptah API namespaces for deep workspace access                |
+| **Extended MCP**           | 14 Ptah API namespaces for deep workspace access               |
 | **SDK Performance**        | 10x faster native integration                                  |
 
 ---

@@ -64,6 +64,10 @@ const ALLOWED_METHOD_PREFIXES = [
   'plugins:', // TASK_2025_153: Plugin configuration (list, get-config, save-config)
   'agent:', // TASK_2025_157: Agent orchestration (getConfig, setConfig, detectClis)
   'ptahCli:', // TASK_2025_170: Ptah CLI agent management (list, create, update, delete, testConnection, listModels)
+  'editor:', // TASK_2025_200: Editor operations (openFile, etc.) for Electron Monaco editor
+  'layout:', // Electron desktop layout persistence (sidebar/editor panel widths)
+  'skillsSh:', // TASK_2025_204: Skills.sh marketplace (search, install, recommend)
+  'settings:', // TASK_2025_210: Settings export/import (Electron desktop)
 ] as const;
 
 /**
@@ -108,6 +112,7 @@ const LICENSE_EXEMPT_PREFIXES = [
   'license:', // Must work to show license status and enter keys
   'auth:', // Must work for login/authentication flow
   'command:', // TASK_2025_126: Must work for unlicensed users (welcome page actions)
+  'settings:', // Must work for settings import on welcome page (cross-platform onboarding)
 ] as const;
 
 /**

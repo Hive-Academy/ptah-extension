@@ -46,7 +46,6 @@ import {
 import { COPILOT_PROXY_TOKEN_PLACEHOLDER } from '../copilot-provider/copilot-provider.types';
 import { CODEX_PROXY_TOKEN_PLACEHOLDER } from '../codex-provider/codex-provider.types';
 import { PTAH_CORE_SYSTEM_PROMPT } from '../prompt-harness';
-import { PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
 import { PTAH_MCP_PORT } from '../constants';
 
 /**
@@ -160,33 +159,36 @@ export interface AssembleSystemPromptInput {
 /**
  * Result of system prompt assembly.
  *
- * Two distinct paths:
- * - 'preset-append': Use SDK's claude_code preset as base, append top-ups only
- * - 'standalone': Use PTAH_CORE_SYSTEM_PROMPT as a standalone string (not layered on claude_code)
+ * Always uses 'preset-append' mode — the SDK's claude_code preset is the base,
+ * and our content is appended on top. This preserves the SDK's critical MCP
+ * handling, tool routing, and environment context instructions.
  */
 export interface SystemPromptAssemblyResult {
-  mode: 'preset-append' | 'standalone';
+  mode: 'preset-append';
   content: string | undefined;
 }
 
 /**
  * Assemble the system prompt from its constituent parts.
  *
- * Two distinct paths based on user's preset selection:
+ * Always uses the SDK's `claude_code` preset as the base — this provides critical
+ * built-in behavioral guidance, MCP server handling, tool routing, and environment
+ * context that the agent needs to function correctly.
  *
- * **claude_code path** (preset='claude_code' or default without enhanced prompts):
- *   SDK's built-in claude_code preset is the base. Only premium top-ups are appended:
- *   identity + user prompt + enhanced prompts (premium) + MCP docs (premium).
- *   PTAH_CORE_SYSTEM_PROMPT is NOT included (it would duplicate claude_code).
+ * **Premium users**: PTAH_CORE_SYSTEM_PROMPT is appended to the preset, providing
+ * Ptah-specific MCP mandates, formatting rules, AskUserQuestion enforcement,
+ * orchestration workflows, CLI agent hierarchy, and git/PR safety. Enhanced prompts
+ * (project-specific guidance from the setup wizard) are also appended when available.
+ * Some behavioral sections overlap with the preset — this is intentional as it
+ * reinforces the instructions without contradicting them.
  *
- * **Ptah harness path** (preset='enhanced' or default with enhanced prompts):
- *   PTAH_CORE_SYSTEM_PROMPT is the standalone base (inspired by but independent of claude_code).
- *   Premium top-ups layered on top: identity + user prompt + enhanced prompts + MCP docs.
+ * **Free tier**: Only basic top-ups appended (identity, user prompt). No Ptah-specific
+ * behavioral guidance.
  *
  * Shared function used by SdkQueryOptionsBuilder and PtahCliAdapter.
  *
  * @param input - All parameters needed for prompt assembly
- * @returns Assembly result with mode and content
+ * @returns Assembly result with mode and content (always preset-append)
  */
 export function assembleSystemPrompt(
   input: AssembleSystemPromptInput
@@ -196,54 +198,42 @@ export function assembleSystemPrompt(
     authEnv,
     userSystemPrompt,
     isPremium,
-    mcpServerRunning,
     enhancedPromptsContent,
-    preset,
   } = input;
 
-  // Determine path: Ptah harness when preset='enhanced' or when enhanced content
-  // is available and no explicit preset is set (auto-select prefers Ptah harness)
-  const usePtahHarness =
-    preset === 'enhanced' || (!preset && !!enhancedPromptsContent?.trim());
-
-  // Build common top-up parts (shared by both paths)
-  const topUpParts: string[] = [];
+  // Build append parts layered on top of the SDK's claude_code preset.
+  // The preset provides foundational behavioral guidance and MCP handling —
+  // we NEVER replace it, only append to it.
+  const appendParts: string[] = [];
 
   // 1. Model identity clarification for third-party providers
   const identityPrompt = buildModelIdentityPrompt(providerId, authEnv);
   if (identityPrompt) {
-    topUpParts.push(identityPrompt);
+    appendParts.push(identityPrompt);
   }
 
-  // 2. User's custom system prompt
+  // 2. PTAH_CORE_SYSTEM_PROMPT for all premium users — MCP mandates, orchestration,
+  // formatting, AskUserQuestion, CLI agent hierarchy, git/PR workflows.
+  // Appended to (not replacing) the SDK's claude_code preset so the agent gets BOTH
+  // the SDK's built-in MCP handling instructions AND our Ptah-specific directives.
+  if (isPremium) {
+    appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
+  }
+
+  // 3. User's custom system prompt
   if (userSystemPrompt) {
-    topUpParts.push(userSystemPrompt);
+    appendParts.push(userSystemPrompt);
   }
 
-  // 3. Enhanced prompts (premium top-up, applies to both paths)
+  // 4. Enhanced prompts — project-specific guidance (from setup wizard)
   if (isPremium && enhancedPromptsContent?.trim()) {
-    topUpParts.push(enhancedPromptsContent);
+    appendParts.push(enhancedPromptsContent);
   }
 
-  // 4. MCP documentation for premium users with MCP server (applies to both paths)
-  if (isPremium && mcpServerRunning) {
-    topUpParts.push(PTAH_SYSTEM_PROMPT);
-  }
-
-  if (usePtahHarness) {
-    // Ptah harness: standalone string with PTAH_CORE_SYSTEM_PROMPT as base
-    const parts = [PTAH_CORE_SYSTEM_PROMPT, ...topUpParts];
-    return {
-      mode: 'standalone',
-      content: parts.join('\n\n'),
-    };
-  } else {
-    // claude_code preset: only top-ups get appended (no PTAH_CORE_SYSTEM_PROMPT)
-    return {
-      mode: 'preset-append',
-      content: topUpParts.length > 0 ? topUpParts.join('\n\n') : undefined,
-    };
-  }
+  return {
+    mode: 'preset-append',
+    content: appendParts.length > 0 ? appendParts.join('\n\n') : undefined,
+  };
 }
 
 /**
@@ -557,19 +547,16 @@ export class SdkQueryOptionsBuilder {
   /**
    * Build system prompt configuration
    *
-   * Two distinct paths based on user's preset selection:
-   *
-   * **claude_code path**: Returns `{ type: 'preset', preset: 'claude_code', append }` —
-   *   SDK's built-in preset is the base. Only premium top-ups appended.
-   *
-   * **Ptah harness path**: Returns standalone string —
-   *   PTAH_CORE_SYSTEM_PROMPT is the base (independent of claude_code), with premium top-ups.
+   * Always uses SDK's `claude_code` preset as base (provides MCP handling, tool routing,
+   * environment context). For premium users, appends PTAH_CORE_SYSTEM_PROMPT with
+   * Ptah-specific MCP mandates, orchestration, and formatting rules. Enhanced prompts
+   * (project-specific guidance) are also appended when available.
    *
    * @param sessionConfig - Session configuration with optional custom system prompt and preset selection
    * @param isPremium - Whether user has premium features enabled
    * @param enhancedPromptsContent - Optional AI-generated guidance from EnhancedPromptsService
    * @param mcpServerRunning - Whether MCP server is running
-   * @returns System prompt configuration for SDK (preset+append or standalone string)
+   * @returns System prompt configuration for SDK (always preset+append)
    */
   private buildSystemPrompt(
     sessionConfig?: AISessionConfig,
@@ -598,22 +585,17 @@ export class SdkQueryOptionsBuilder {
     this.logger.info('[SdkQueryOptionsBuilder] System prompt assembled', {
       isPremium,
       mcpServerRunning,
-      mode: result.mode,
-      preset: sessionConfig?.preset || 'auto',
+      mode: 'preset-append',
       hasEnhancedPrompts: !!enhancedPromptsContent,
       enhancedPromptsLength: enhancedPromptsContent?.length ?? 0,
+      hasPtahCorePrompt: isPremium,
       hasIdentityPrompt: !!activeProviderId,
       hasUserSystemPrompt: !!sessionConfig?.systemPrompt,
-      hasMcpDocs: isPremium && mcpServerRunning,
-      totalContentLength: result.content?.length ?? 0,
+      totalAppendLength: result.content?.length ?? 0,
     });
 
-    if (result.mode === 'standalone' && result.content) {
-      // Ptah harness: standalone string (not layered on claude_code)
-      return result.content;
-    }
-
-    // claude_code preset: SDK's built-in preset + optional top-ups
+    // Always use claude_code preset as base — it provides critical MCP handling,
+    // tool routing, and environment context. Our content is appended on top.
     return {
       type: 'preset' as const,
       preset: 'claude_code' as const,

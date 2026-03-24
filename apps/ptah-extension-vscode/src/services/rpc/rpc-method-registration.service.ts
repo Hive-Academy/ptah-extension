@@ -42,25 +42,33 @@ import type { AgentPermissionRequest } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import * as vscode from 'vscode';
 
-import { ChatRpcHandlers } from './handlers/chat-rpc.handlers';
-import { SessionRpcHandlers } from './handlers/session-rpc.handlers';
-import { ContextRpcHandlers } from './handlers/context-rpc.handlers';
-import { AutocompleteRpcHandlers } from './handlers/autocomplete-rpc.handlers';
-import { FileRpcHandlers } from './handlers/file-rpc.handlers';
-import { ConfigRpcHandlers } from './handlers/config-rpc.handlers';
-import { AuthRpcHandlers } from './handlers/auth-rpc.handlers';
-import { SetupRpcHandlers } from './handlers/setup-rpc.handlers';
-import { LicenseRpcHandlers } from './handlers/license-rpc.handlers';
-import { LlmRpcHandlers } from './handlers/llm-rpc.handlers';
-import { ProviderRpcHandlers } from './handlers/provider-rpc.handlers';
-import { SubagentRpcHandlers } from './handlers/subagent-rpc.handlers';
-import { CommandRpcHandlers } from './handlers/command-rpc.handlers';
-import { EnhancedPromptsRpcHandlers } from './handlers/enhanced-prompts-rpc.handlers';
-import { QualityRpcHandlers } from './handlers/quality-rpc.handlers';
-import { WizardGenerationRpcHandlers } from './handlers/wizard-generation-rpc.handlers'; // TASK_2025_148
-import { PluginRpcHandlers } from './handlers/plugin-rpc.handlers'; // TASK_2025_153
-import { AgentRpcHandlers } from './handlers/agent-rpc.handlers'; // TASK_2025_157
-import { PtahCliRpcHandlers } from './handlers/ptah-cli-rpc.handlers'; // TASK_2025_167
+// All handlers imported from barrel (TASK_2025_203 Batch 5: unified imports)
+// Shared handlers come from @ptah-extension/rpc-handlers via the barrel.
+// Tier 3 handlers (File, Command, Agent) are local VS Code-specific files.
+import {
+  // Shared handlers (16 total from @ptah-extension/rpc-handlers)
+  ChatRpcHandlers,
+  SessionRpcHandlers,
+  ContextRpcHandlers,
+  AutocompleteRpcHandlers,
+  ConfigRpcHandlers,
+  AuthRpcHandlers,
+  SetupRpcHandlers,
+  LicenseRpcHandlers,
+  LlmRpcHandlers,
+  ProviderRpcHandlers,
+  SubagentRpcHandlers,
+  EnhancedPromptsRpcHandlers,
+  QualityRpcHandlers,
+  WizardGenerationRpcHandlers,
+  PluginRpcHandlers,
+  PtahCliRpcHandlers,
+  // Tier 3 handlers (local, VS Code-specific)
+  FileRpcHandlers,
+  CommandRpcHandlers,
+  AgentRpcHandlers,
+  SkillsShRpcHandlers,
+} from './handlers';
 
 interface WebviewManager {
   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>;
@@ -106,6 +114,7 @@ export class RpcMethodRegistrationService {
     private readonly pluginHandlers: PluginRpcHandlers, // TASK_2025_153
     private readonly agentHandlers: AgentRpcHandlers, // TASK_2025_157
     private readonly ptahCliHandlers: PtahCliRpcHandlers, // TASK_2025_167
+    private readonly skillsShHandlers: SkillsShRpcHandlers, // TASK_2025_204
     private readonly container: DependencyContainer
   ) {
     // Setup SDK callbacks and listeners
@@ -141,15 +150,43 @@ export class RpcMethodRegistrationService {
     this.pluginHandlers.register(); // TASK_2025_153
     this.agentHandlers.register(); // TASK_2025_157
     this.ptahCliHandlers.register(); // TASK_2025_167
+    this.skillsShHandlers.register(); // TASK_2025_204
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
     });
 
     // Verify all expected RPC methods have handlers
+    // Exclude Electron-only methods (workspace/layout/editor/file/config/auth/settings) that are not applicable in VS Code
+    const ELECTRON_ONLY_METHODS = [
+      'workspace:getInfo',
+      'workspace:addFolder',
+      'workspace:removeFolder',
+      'workspace:switch',
+      'layout:persist',
+      'layout:restore',
+      // Electron editor methods (Monaco-based)
+      'editor:openFile',
+      'editor:saveFile',
+      'editor:getFileTree',
+      // Electron file methods (IFileSystemProvider-based)
+      'file:read',
+      'file:exists',
+      'file:save-dialog',
+      // Electron config extended methods
+      'config:model-set',
+      // Electron auth extended methods
+      'auth:setApiKey',
+      'auth:getStatus',
+      'auth:getApiKeyStatus',
+      // Electron settings export/import
+      'settings:export',
+      'settings:import',
+    ];
     const verificationResult = verifyRpcRegistration(
       this.rpcHandler,
-      this.logger
+      this.logger,
+      ELECTRON_ONLY_METHODS
     );
 
     if (!verificationResult.valid) {
@@ -283,6 +320,12 @@ export class RpcMethodRegistrationService {
         );
       }
 
+      // For ptah-cli sessions, retrieve the resolved SDK UUID for cross-referencing.
+      // This enables SessionImporterService to detect child sessions on restart.
+      const sdkSessionId = info.ptahCliId
+        ? this.chatHandlers.getPtahCliSdkSessionId(info.ptahCliId)
+        : undefined;
+
       const ref: CliSessionReference = {
         cliSessionId: effectiveCliSessionId,
         cli: info.cli,
@@ -298,6 +341,7 @@ export class RpcMethodRegistrationService {
           ? { streamEvents: persistedOutput.streamEvents }
           : {}),
         ...(info.ptahCliId ? { ptahCliId: info.ptahCliId } : {}),
+        ...(sdkSessionId ? { sdkSessionId } : {}),
       };
 
       retryWithBackoff(
@@ -699,14 +743,14 @@ export class RpcMethodRegistrationService {
           const setupWizardService = this.container.resolve(
             AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE
           ) as {
-            launchWizard: (uri: vscode.Uri) => Promise<{
+            launchWizard: (workspacePath: string) => Promise<{
               isErr?: () => boolean;
               error?: { message: string };
             }>;
           };
 
           const result = await setupWizardService.launchWizard(
-            workspaceFolder.uri
+            workspaceFolder.uri.fsPath
           );
 
           if (result.isErr && result.isErr()) {

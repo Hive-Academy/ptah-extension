@@ -16,7 +16,11 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IDisposable,
+} from '@ptah-extension/platform-core';
 import { ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
 import { ProjectDetectorService } from '../project-analysis/project-detector.service';
@@ -74,8 +78,8 @@ export interface ContextRecommendations {
  * ```
  */
 @injectable()
-export class WorkspaceAnalyzerService implements vscode.Disposable {
-  private disposables: vscode.Disposable[] = [];
+export class WorkspaceAnalyzerService implements IDisposable {
+  private disposables: IDisposable[] = [];
   private workspaceInfo?: WorkspaceInfo;
 
   constructor(
@@ -91,7 +95,9 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
     @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalyzer: AstAnalysisService,
     @inject(TOKENS.LOGGER)
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider
   ) {
     this.initialize();
   }
@@ -101,7 +107,7 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
    */
   private initialize(): void {
     // Update workspace info when workspace changes
-    const workspaceWatcher = vscode.workspace.onDidChangeWorkspaceFolders(
+    const workspaceWatcher = this.workspaceProvider.onDidChangeWorkspaceFolders(
       () => {
         this.updateWorkspaceInfo();
       }
@@ -129,8 +135,7 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
    * @returns Project type enum value
    */
   async detectProjectType(workspacePath: string): Promise<ProjectType> {
-    const workspaceUri = vscode.Uri.file(workspacePath);
-    return await this.projectDetector.detectProjectType(workspaceUri);
+    return await this.projectDetector.detectProjectType(workspacePath);
   }
 
   /**
@@ -176,7 +181,7 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
    * @returns Recommended files for AI context
    */
   async getContextRecommendations(): Promise<ContextRecommendations> {
-    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspacePath = this.workspaceProvider.getWorkspaceRoot();
     if (!workspacePath) {
       return {
         recommendedFiles: [],
@@ -206,7 +211,7 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
    * Update internal workspace info cache
    */
   private async updateWorkspaceInfo(): Promise<void> {
-    const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspacePath = this.workspaceProvider.getWorkspaceRoot();
     if (!workspacePath) {
       this.workspaceInfo = undefined;
       return;
@@ -214,23 +219,18 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
 
     try {
       const info = await this.getProjectInfo();
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
-        this.workspaceInfo = undefined;
-        return;
-      }
 
       // Detect project types and frameworks for this workspace
       const projectType = await this.projectDetector.detectProjectType(
-        workspaceFolder.uri
+        workspacePath
       );
-      const projectTypesMap = new Map<vscode.Uri, ProjectType>();
-      projectTypesMap.set(workspaceFolder.uri, projectType);
+      const projectTypesMap = new Map<string, ProjectType>();
+      projectTypesMap.set(workspacePath, projectType);
 
       const frameworksMap = await this.frameworkDetector.detectFrameworks(
         projectTypesMap
       );
-      const framework = frameworksMap.get(workspaceFolder.uri);
+      const framework = frameworksMap.get(workspacePath);
 
       // Check for TypeScript by looking at dependencies or file statistics
       const hasTypeScript =
@@ -294,22 +294,22 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
     const files: string[] = [];
 
     // Get frameworks from framework detector
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
+    if (!workspaceRoot) {
       return files;
     }
 
     // Detect project type and frameworks
     const projectType = await this.projectDetector.detectProjectType(
-      workspaceFolder.uri
+      workspaceRoot
     );
-    const projectTypesMap = new Map<vscode.Uri, ProjectType>();
-    projectTypesMap.set(workspaceFolder.uri, projectType);
+    const projectTypesMap = new Map<string, ProjectType>();
+    projectTypesMap.set(workspaceRoot, projectType);
 
     const frameworksMap = await this.frameworkDetector.detectFrameworks(
       projectTypesMap
     );
-    const framework = frameworksMap.get(workspaceFolder.uri);
+    const framework = frameworksMap.get(workspaceRoot);
 
     if (!framework) {
       return files;
@@ -359,8 +359,7 @@ export class WorkspaceAnalyzerService implements vscode.Disposable {
   async extractCodeInsights(filePath: string): Promise<CodeInsights | null> {
     try {
       // Read file content
-      const uri = vscode.Uri.file(filePath);
-      const content = await this.fileSystemService.readFile(uri);
+      const content = await this.fileSystemService.readFile(filePath);
 
       // Detect language from extension
       const language: SupportedLanguage =

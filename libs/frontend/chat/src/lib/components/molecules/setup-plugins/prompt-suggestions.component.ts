@@ -1,18 +1,18 @@
 import {
-  Component,
   ChangeDetectionStrategy,
+  Component,
+  computed,
   output,
   signal,
-  computed,
 } from '@angular/core';
 import {
-  LucideAngularModule,
-  Sparkles,
-  RefreshCw,
   CheckCircle,
-  ScanSearch,
+  LucideAngularModule,
   Palette,
-  Rocket,
+  RefreshCw,
+  ScanSearch,
+  Sparkles,
+  Users,
   type LucideIconData,
 } from 'lucide-angular';
 
@@ -43,8 +43,8 @@ interface PromptItem {
  * Patterns: Signal-based state, output() API, DaisyUI styling, Tab navigation
  *
  * Features:
- * - 6 category tabs in a 3×2 mini-card grid (Build, Fix, Review, Creative, DevOps, Explore)
- * - Covers all Ptah skills: orchestration, /ptah-core:simplify, /review-*, 3D scenes, GSAP, content, DevOps
+ * - 6 category tabs in a 3×2 mini-card grid (Build, Fix, Review, Agents, Explore, Creative)
+ * - Covers all Ptah skills: orchestration, /ptah-core:simplify, /review-*, CLI agents, MCP tools, 3D scenes, GSAP, content
  * - Selected tab shows prompt cards below with fade animation
  * - Clicking a prompt card emits full text to parent for chat input fill
  * - Egyptian/Anubis theme with hieroglyphic symbols
@@ -249,6 +249,62 @@ export class PromptSuggestionsComponent {
       ],
     },
     {
+      id: 'agents',
+      label: 'Agents',
+      icon: Users,
+      hieroglyph: '\u{1312D}', // 𓄭
+      prompts: [
+        {
+          label: 'Parallel codebase analysis',
+          text: 'Spawn CLI agents in parallel to analyze each library in the workspace — architecture, dependencies, and quality gaps. Synthesize findings into a single report.',
+          description: 'Multi-agent parallel research',
+        },
+        {
+          label: 'Generate tests with agents',
+          text: 'Use CLI agents to generate unit tests for all untested public methods in [module]. Spawn one agent per service file in parallel, then review and commit the results.',
+          description: 'Parallel test scaffolding',
+        },
+        {
+          label: 'Multi-agent code review',
+          text: 'Spawn CLI agents to review [module] in parallel — one for style, one for logic, one for security. Merge findings into a unified review.',
+          description: 'Style + logic + security in parallel',
+        },
+        {
+          label: 'Delegate documentation',
+          text: 'Use CLI agents to generate API documentation for each service in [module]. One agent per file, then synthesize into a comprehensive doc.',
+          description: 'Parallel doc generation',
+        },
+      ],
+    },
+    {
+      id: 'explore',
+      label: 'Explore',
+      icon: ScanSearch,
+      hieroglyph: '\u{13000}', // 𓀀
+      prompts: [
+        {
+          label: 'Health check',
+          text: 'Run a full project health check — analyze workspace structure, check for TypeScript errors, find unused exports, and report code quality metrics.',
+          description: 'Diagnostics + workspace analysis',
+        },
+        {
+          label: 'Analyze architecture',
+          text: '/ptah-core:orchestrate RESEARCH: Analyze the codebase architecture, map dependency graph, and document key patterns and boundaries.',
+          description: 'Architecture + dependency deep-dive',
+        },
+        {
+          label: 'Find what changed',
+          text: 'Show me all unsaved changes and TypeScript errors in the workspace right now. Then explain the impact of the current changes.',
+          description: 'Dirty files + live diagnostics',
+        },
+        {
+          label: 'Explain how it works',
+          text: 'Analyze the code structure of [feature/module] using AST analysis, then trace its dependencies and explain how it works end-to-end.',
+          description: 'AST + dependency walkthrough',
+        },
+      ],
+    },
+    {
       id: 'creative',
       label: 'Creative',
       icon: Palette,
@@ -273,52 +329,6 @@ export class PromptSuggestionsComponent {
           label: 'Write technical content',
           text: '/ptah-core:orchestrate CREATIVE: Write a technical blog post about [topic] based on our codebase implementation',
           description: 'Blog, docs, or video scripts',
-        },
-      ],
-    },
-    {
-      id: 'devops',
-      label: 'DevOps',
-      icon: Rocket,
-      hieroglyph: '\u{13171}', // 𓅱
-      prompts: [
-        {
-          label: 'Setup CI/CD pipeline',
-          text: '/ptah-core:orchestrate DEVOPS: Set up CI/CD pipeline with automated testing and deployment',
-          description: 'GitHub Actions / Docker',
-        },
-        {
-          label: 'Dockerize the project',
-          text: '/ptah-core:orchestrate DEVOPS: Create Docker configuration with multi-stage build and compose setup',
-          description: 'Dockerfile + docker-compose',
-        },
-        {
-          label: 'Setup infrastructure',
-          text: '/ptah-core:orchestrate DEVOPS: Configure deployment infrastructure with database, caching, and monitoring',
-          description: 'DB + Redis + observability',
-        },
-      ],
-    },
-    {
-      id: 'explore',
-      label: 'Explore',
-      icon: ScanSearch,
-      hieroglyph: '\u{13000}', // 𓀀
-      prompts: [
-        {
-          label: 'Analyze architecture',
-          text: '/ptah-core:orchestrate RESEARCH: Analyze the codebase architecture and document key patterns',
-          description: 'Architecture deep-dive',
-        },
-        {
-          label: 'Generate documentation',
-          text: '/ptah-core:orchestrate DOCUMENTATION: Generate comprehensive API documentation for [module]',
-          description: 'API docs + usage examples',
-        },
-        {
-          label: 'Explain how it works',
-          text: 'Explain how [feature/system] works in this codebase',
-          description: 'Codebase walkthrough',
         },
       ],
     },

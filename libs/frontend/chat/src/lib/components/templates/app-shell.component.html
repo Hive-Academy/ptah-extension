@@ -36,6 +36,13 @@
 </div>
 }
 
+<!-- Analytics: Full-width dashboard layout (no sidebar) -->
+@case ('analytics') {
+<div class="h-full w-full overflow-y-auto">
+  <ptah-session-analytics-dashboard />
+</div>
+}
+
 <!-- Chat (default): Sidebar + Header + Chat layout -->
 @default {
 <div class="flex h-full">
@@ -277,7 +284,9 @@
     >
       <!-- Sidebar toggle -->
       <button
-        class="btn btn-square btn-ghost btn-sm"
+        class="btn btn-ghost btn-sm"
+        [class.btn-square]="!isElectron"
+        [class.gap-1]="isElectron"
         aria-label="Toggle sidebar"
         (click)="toggleSidebar()"
       >
@@ -285,6 +294,9 @@
           [img]="sidebarOpen() ? PanelLeftCloseIcon : PanelLeftOpenIcon"
           class="w-4 h-4"
         />
+        @if (isElectron) {
+        <span class="text-xs">Sessions</span>
+        }
       </button>
 
       <!-- Tab bar (relocated from below) -->
@@ -295,7 +307,8 @@
       <!-- Header actions -->
       <div class="flex gap-0.5 items-center">
         <!-- Group 1: View controls -->
-        <!-- Pop out to editor tab (highlights when CLI agents need more space) -->
+        <!-- Pop out to editor tab (VS Code only — Electron has built-in editor panel) -->
+        @if (!isElectron) {
         <button
           class="btn btn-square btn-xs relative"
           [class.btn-ghost]="!agentMonitorStore.shouldSuggestEditorPanel()"
@@ -311,10 +324,13 @@
         >
           <lucide-angular [img]="ExternalLinkIcon" class="w-3.5 h-3.5" />
         </button>
+        }
 
         <!-- Agent monitor toggle (always visible) -->
         <button
-          class="btn btn-square btn-ghost btn-xs relative"
+          class="btn btn-ghost btn-xs relative"
+          [class.btn-square]="!isElectron"
+          [class.gap-1]="isElectron"
           aria-label="Toggle agent monitor"
           title="Toggle agent monitor"
           (click)="agentMonitorStore.togglePanel()"
@@ -327,7 +343,9 @@
             "
             class="w-3.5 h-3.5"
           />
-          @if (agentMonitorStore.pendingPermissions().length > 0) {
+          @if (isElectron) {
+          <span class="text-xs">Cli Agents</span>
+          } @if (agentMonitorStore.pendingPermissions().length > 0) {
           <span
             class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-warning rounded-full animate-pulse ring-2 ring-base-100"
           ></span>
@@ -346,20 +364,16 @@
         <div class="w-px h-4 bg-base-content/10"></div>
 
         <!-- Group 2: Session -->
-        <!-- Background agent badge -->
-        @if (backgroundAgentStore.totalCount() > 0) {
-        <ptah-background-agent-badge />
-        }
 
-        <!-- Notification bell -->
-        @if (chatStore.licenseStatus(); as license) {
+        <!-- Notification bell (VS Code only — in Electron this is in the global navbar) -->
+        @if (!isElectron) { @if (chatStore.licenseStatus(); as license) {
         <ptah-notification-bell
           [trialActive]="license.trialActive"
           [trialDaysRemaining]="license.trialDaysRemaining"
           [isCommunity]="license.isCommunity"
           [reason]="license.reason"
         />
-        }
+        } }
 
         <!-- New session popover -->
         <ptah-native-popover
@@ -372,12 +386,17 @@
           <!-- Trigger: New Session button -->
           <button
             trigger
-            class="btn btn-square btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs"
+            [class.btn-square]="!isElectron"
+            [class.gap-1]="isElectron"
             (click)="createNewSession()"
             aria-label="New Session"
             title="New Session"
           >
             <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
+            @if (isElectron) {
+            <span class="text-xs">New Session</span>
+            }
           </button>
 
           <!-- Popover content -->
@@ -424,12 +443,23 @@
           </div>
         </ptah-native-popover>
 
+        <!-- App-level actions (VS Code only — in Electron these are in the global navbar) -->
+        @if (!isElectron) {
         <!-- Divider between Session and App group -->
         <div class="w-px h-4 bg-base-content/10"></div>
 
-        <!-- Group 3: App -->
         <!-- Theme toggle -->
         <ptah-theme-toggle />
+
+        <!-- Dashboard -->
+        <button
+          class="btn btn-square btn-ghost btn-xs"
+          aria-label="Dashboard"
+          title="Session Analytics"
+          (click)="openDashboard()"
+        >
+          <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
+        </button>
 
         <button
           class="btn btn-square btn-ghost btn-xs"
@@ -439,6 +469,7 @@
         >
           <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
         </button>
+        }
       </div>
     </div>
 

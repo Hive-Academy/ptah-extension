@@ -53,7 +53,7 @@ services:
       postgres:
         condition: service_healthy
     env_file:
-      - apps/ptah-license-server/.env
+      - .env
     environment:
       DATABASE_URL: postgresql://ptah:ptah_dev_password@postgres:5432/ptah_db
       NODE_ENV: development

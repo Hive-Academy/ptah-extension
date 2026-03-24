@@ -146,6 +146,15 @@ export class AuthConfigComponent implements OnInit {
   });
 
   /**
+   * Computed: which Claude auth mode is active ('apiKey' or 'oauth').
+   * Defaults to 'apiKey' when authMethod is neither.
+   */
+  readonly claudeAuthMode = computed<'apiKey' | 'oauth'>(() => {
+    const method = this.authState.authMethod();
+    return method === 'oauth' ? 'oauth' : 'apiKey';
+  });
+
+  /**
    * Computed signal to determine if Save & Test button should be enabled.
    * Button is enabled when there's a new credential value entered OR an existing credential
    * already saved for the selected auth method.
@@ -162,11 +171,12 @@ export class AuthConfigComponent implements OnInit {
     const hasExistingApiKey = this.authState.hasApiKey();
     const hasExistingProviderKey = this.authState.hasProviderKey();
 
-    // Claude tile shows both API Key and OAuth inputs -- accept either
+    // Claude tile: check credential matching the active auth mode
     if (this.selectedTileId() === 'claude') {
-      return (
-        hasNewApiKey || hasExistingApiKey || hasNewOAuth || hasExistingOAuth
-      );
+      if (this.claudeAuthMode() === 'oauth') {
+        return hasNewOAuth || hasExistingOAuth;
+      }
+      return hasNewApiKey || hasExistingApiKey;
     }
 
     // OAuth providers (Copilot/Codex) are ready when authenticated
@@ -252,9 +262,19 @@ export class AuthConfigComponent implements OnInit {
     const currentMethod = this.authState.authMethod();
     const params: AuthSaveSettingsParams = {
       authMethod: currentMethod,
-      claudeOAuthToken: this.oauthToken().trim() || undefined,
-      anthropicApiKey: this.apiKey().trim() || undefined,
-      openrouterApiKey: this.providerKey().trim() || undefined,
+      // Only send credentials relevant to the selected auth method
+      claudeOAuthToken:
+        currentMethod === 'oauth'
+          ? this.oauthToken().trim() || undefined
+          : undefined,
+      anthropicApiKey:
+        currentMethod === 'apiKey'
+          ? this.apiKey().trim() || undefined
+          : undefined,
+      openrouterApiKey:
+        currentMethod === 'openrouter' || currentMethod === 'auto'
+          ? this.providerKey().trim() || undefined
+          : undefined,
       anthropicProviderId: this.authState.selectedProviderId(),
     };
 
@@ -325,9 +345,22 @@ export class AuthConfigComponent implements OnInit {
    * Handle tile selection from the provider tile grid.
    * Maps each tile to the appropriate (authMethod, selectedProviderId) pair.
    */
+  /**
+   * Switch between API Key and OAuth within the Claude auth section.
+   */
+  onClaudeAuthModeChange(mode: 'apiKey' | 'oauth'): void {
+    this.authState.setAuthMethod(mode);
+    this.isReplacingOAuth.set(false);
+    this.isReplacingApiKey.set(false);
+  }
+
   onTileSelect(tileId: string): void {
     if (tileId === 'claude') {
-      this.authState.setAuthMethod('apiKey');
+      // Preserve current claude auth mode if already on claude tile
+      const current = this.authState.authMethod();
+      if (current !== 'apiKey' && current !== 'oauth') {
+        this.authState.setAuthMethod('apiKey');
+      }
     } else {
       this.authState.setAuthMethod('openrouter');
       this.authState.setSelectedProviderId(tileId);

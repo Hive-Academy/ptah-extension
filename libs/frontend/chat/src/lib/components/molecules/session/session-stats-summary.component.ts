@@ -384,6 +384,7 @@ export class SessionStatsSummaryComponent {
       cacheCreation: number;
     };
     messageCount: number;
+    agentSessionCount?: number;
   } | null>(null);
 
   /**
@@ -439,7 +440,7 @@ export class SessionStatsSummaryComponent {
         totalCost: preloaded.totalCost,
         totalTokens: preloaded.tokens,
         totalDuration: 0, // Duration not available in preloaded stats
-        agentCount: 0, // Agent count not tracked in preloaded stats
+        agentCount: preloaded.agentSessionCount ?? 0,
       };
     }
     // Calculate from messages (live sessions)

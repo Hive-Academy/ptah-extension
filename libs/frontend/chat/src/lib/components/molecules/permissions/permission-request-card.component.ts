@@ -174,10 +174,17 @@ export class PermissionRequestCardComponent {
   /**
    * Computed signal for countdown timer
    * Calculates remaining time from request timeout
+   * TASK_2025_215: timeoutAt === 0 means "no timeout — block indefinitely"
    */
   readonly remainingTime = computed(() => {
     const current = this._currentTime();
     const timeout = this.request().timeoutAt;
+
+    // No timeout: block indefinitely (TASK_2025_215)
+    if (timeout <= 0) {
+      return 'No timeout';
+    }
+
     const remaining = timeout - current;
 
     if (remaining <= 0) {
@@ -200,9 +207,11 @@ export class PermissionRequestCardComponent {
 
   /**
    * Check if time is running low (less than 1 minute)
+   * TASK_2025_215: timeoutAt === 0 means "no timeout" — never expiring soon
    */
   protected isExpiringSoon(): boolean {
     const timeout = this.request().timeoutAt;
+    if (timeout <= 0) return false; // No timeout — never expiring (TASK_2025_215)
     const remaining = timeout - this._currentTime();
     return remaining <= 60000; // Less than 1 minute
   }
@@ -210,15 +219,20 @@ export class PermissionRequestCardComponent {
   private timerInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    // Start countdown timer on component initialization
+    // Start countdown timer on component initialization (only when timeout is set)
     effect((onCleanup) => {
+      // No timeout: skip interval entirely (TASK_2025_215)
+      if (this.request().timeoutAt <= 0) {
+        return;
+      }
+
       // Update current time every second
       this.timerInterval = setInterval(() => {
         this._currentTime.set(Date.now());
 
         // Auto-deny if expired
         const timeout = this.request().timeoutAt;
-        if (Date.now() >= timeout) {
+        if (timeout > 0 && Date.now() >= timeout) {
           this.respond('deny', 'Request timeout');
         }
       }, 1000);

@@ -9,6 +9,9 @@
  */
 
 import { injectable } from 'tsyringe';
+// APPROVED EXCEPTION: vscode.lm is a VS Code-specific Language Model API
+// with no platform-agnostic equivalent. The service falls back gracefully
+// to estimation when the API is unavailable.
 import * as vscode from 'vscode';
 
 /**

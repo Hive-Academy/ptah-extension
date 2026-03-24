@@ -13,8 +13,13 @@
  * @packageDocumentation
  */
 
-import { injectable } from 'tsyringe';
-import * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
+import * as path from 'path';
+import { PLATFORM_TOKENS, FileType } from '@ptah-extension/platform-core';
+import type {
+  IWorkspaceProvider,
+  IDisposable,
+} from '@ptah-extension/platform-core';
 import { ProjectDetectorService } from '../project-analysis/project-detector.service';
 import { FrameworkDetectorService } from '../project-analysis/framework-detector.service';
 import { DependencyAnalyzerService } from '../project-analysis/dependency-analyzer.service';
@@ -117,7 +122,7 @@ export interface WorkspaceStructureAnalysis {
  * - Context template recommendations
  *
  * Pattern: Uses existing workspace-intelligence services internally
- * No VS Code API business logic (only event subscriptions)
+ * No VS Code API business logic (only event subscriptions via platform interfaces)
  *
  * @example
  * ```typescript
@@ -137,8 +142,8 @@ export interface WorkspaceStructureAnalysis {
  * ```
  */
 @injectable()
-export class WorkspaceService implements vscode.Disposable {
-  private disposables: vscode.Disposable[] = [];
+export class WorkspaceService implements IDisposable {
+  private disposables: IDisposable[] = [];
   private currentAnalysis?: WorkspaceAnalysisResult;
 
   constructor(
@@ -146,7 +151,9 @@ export class WorkspaceService implements vscode.Disposable {
     private readonly frameworkDetector: FrameworkDetectorService,
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
     private readonly monorepoDetector: MonorepoDetectorService,
-    private readonly fileSystem: FileSystemService
+    private readonly fileSystem: FileSystemService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider
   ) {
     // Initialize workspace analysis on construction
     this.updateWorkspaceAnalysis().catch((error) => {
@@ -185,58 +192,59 @@ export class WorkspaceService implements vscode.Disposable {
   async updateWorkspaceAnalysis(): Promise<
     WorkspaceAnalysisResult | undefined
   > {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
 
-    if (!workspaceFolder) {
+    if (!workspaceRoot) {
       this.currentAnalysis = undefined;
       console.info('No workspace folder detected');
       return undefined;
     }
 
     try {
-      const workspaceUri = workspaceFolder.uri;
+      const workspacePath = workspaceRoot;
+      const workspaceName = path.basename(workspacePath);
 
       // Detect project type
       const projectType = await this.projectDetector.detectProjectType(
-        workspaceUri
+        workspacePath
       );
 
       // Detect framework (if applicable)
       const framework = await this.frameworkDetector.detectFramework(
-        workspaceUri,
+        workspacePath,
         projectType
       );
 
       // Detect monorepo
       const monorepoResult = await this.monorepoDetector.detectMonorepo(
-        workspaceUri
+        workspacePath
       );
       const isMonorepo = monorepoResult.isMonorepo;
       const monorepoType = isMonorepo ? monorepoResult.type : undefined;
 
       // Analyze dependencies
       const dependencyInfo = await this.dependencyAnalyzer.analyzeDependencies(
-        workspaceUri,
+        workspacePath,
         projectType
       );
 
       // Count files
-      const totalFiles = await this.countAllFiles(workspaceUri);
+      const totalFiles = await this.countAllFiles(workspacePath);
 
       // Check for git repository
-      const gitUri = vscode.Uri.joinPath(workspaceUri, '.git');
-      const hasGitRepository = await this.fileSystem.exists(gitUri);
+      const gitPath = path.join(workspacePath, '.git');
+      const hasGitRepository = await this.fileSystem.exists(gitPath);
 
       // Get version and description (project-type specific)
       let version: string | undefined;
       let description: string | undefined;
 
       if (this.isNodeBasedProject(projectType)) {
-        const packageInfo = await this.readPackageJson(workspaceUri);
+        const packageInfo = await this.readPackageJson(workspacePath);
         version = packageInfo?.version;
         description = packageInfo?.description;
       } else if (projectType === ProjectType.Rust) {
-        const cargoInfo = await this.readCargoToml(workspaceUri);
+        const cargoInfo = await this.readCargoToml(workspacePath);
         version = cargoInfo?.version;
         description = cargoInfo?.description;
       }
@@ -244,8 +252,8 @@ export class WorkspaceService implements vscode.Disposable {
       // Create analysis result
       this.currentAnalysis = {
         info: {
-          name: workspaceFolder.name,
-          path: workspaceUri.fsPath,
+          name: workspaceName,
+          path: workspacePath,
           type: projectType,
         },
         projectType,
@@ -261,7 +269,7 @@ export class WorkspaceService implements vscode.Disposable {
       };
 
       console.info(
-        `Workspace analyzed: ${workspaceFolder.name} (${projectType}${
+        `Workspace analyzed: ${workspaceName} (${projectType}${
           framework ? ` - ${framework}` : ''
         })`
       );
@@ -294,9 +302,9 @@ export class WorkspaceService implements vscode.Disposable {
       return null;
     }
 
-    const workspaceUri = vscode.Uri.file(analysis.info.path);
+    const workspacePath = analysis.info.path;
     const fileStatistics = await this.getFileStatistics(
-      workspaceUri,
+      workspacePath,
       analysis.projectType
     );
 
@@ -367,8 +375,8 @@ export class WorkspaceService implements vscode.Disposable {
     }
 
     try {
-      const workspaceUri = vscode.Uri.file(analysis.info.path);
-      const structure = await this.getDirectoryStructure(workspaceUri, 3);
+      const workspacePath = analysis.info.path;
+      const structure = await this.getDirectoryStructure(workspacePath, 3);
       const recommendations = this.getContextRecommendations(
         analysis.projectType
       );
@@ -481,13 +489,13 @@ export class WorkspaceService implements vscode.Disposable {
    * Builds a tree structure of directories and files up to maxDepth.
    * Skips common build/dependency directories automatically.
    *
-   * @param dirUri - Directory URI to analyze
+   * @param dirPath - Directory path to analyze
    * @param maxDepth - Maximum depth to traverse (default 3)
    * @param currentDepth - Current recursion depth
    * @returns Directory structure or empty structure on error
    */
   private async getDirectoryStructure(
-    dirUri: vscode.Uri,
+    dirPath: string,
     maxDepth = 3,
     currentDepth = 0
   ): Promise<DirectoryStructure> {
@@ -496,33 +504,33 @@ export class WorkspaceService implements vscode.Disposable {
     }
 
     try {
-      const entries = await this.fileSystem.readDirectory(dirUri);
+      const entries = await this.fileSystem.readDirectory(dirPath);
       const structure: DirectoryStructure = { directories: [], files: [] };
 
-      for (const [name, type] of entries) {
+      for (const entry of entries) {
         // Skip directories we should ignore
         if (
-          type === vscode.FileType.Directory &&
-          this.shouldSkipDirectory(name)
+          entry.type === FileType.Directory &&
+          this.shouldSkipDirectory(entry.name)
         ) {
           continue;
         }
 
-        if (type === vscode.FileType.Directory) {
-          const subUri = vscode.Uri.joinPath(dirUri, name);
+        if (entry.type === FileType.Directory) {
+          const subPath = path.join(dirPath, entry.name);
           const subStructure = await this.getDirectoryStructure(
-            subUri,
+            subPath,
             maxDepth,
             currentDepth + 1
           );
           structure.directories.push({
-            name,
+            name: entry.name,
             structure: subStructure,
           });
-        } else if (type === vscode.FileType.File) {
-          const extension = this.getFileExtension(name);
+        } else if (entry.type === FileType.File) {
+          const extension = this.getFileExtension(entry.name);
           structure.files.push({
-            name,
+            name: entry.name,
             extension,
           });
         }
@@ -530,7 +538,7 @@ export class WorkspaceService implements vscode.Disposable {
 
       return structure;
     } catch (error) {
-      console.warn(`Failed to read directory ${dirUri.fsPath}:`, error);
+      console.warn(`Failed to read directory ${dirPath}:`, error);
       return { directories: [], files: [] };
     }
   }
@@ -541,12 +549,12 @@ export class WorkspaceService implements vscode.Disposable {
    * Counts files by extension relevant to the project type.
    * Example: .py files for Python, .java files for Java, etc.
    *
-   * @param workspaceUri - Workspace folder URI
+   * @param workspacePath - Workspace folder path
    * @param projectType - Detected project type
    * @returns Map of extension to file count
    */
   private async getFileStatistics(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     projectType: ProjectType
   ): Promise<Record<string, number>> {
     const statistics: Record<string, number> = {};
@@ -575,7 +583,7 @@ export class WorkspaceService implements vscode.Disposable {
     }
 
     for (const ext of extensions) {
-      const count = await this.countFilesByExtension(workspaceUri, [ext]);
+      const count = await this.countFilesByExtension(workspacePath, [ext]);
       statistics[ext] = count;
     }
 
@@ -585,22 +593,22 @@ export class WorkspaceService implements vscode.Disposable {
   /**
    * Count all files in workspace (excluding ignored directories)
    *
-   * @param dirUri - Directory URI to count
+   * @param dirPath - Directory path to count
    * @returns Total file count
    */
-  private async countAllFiles(dirUri: vscode.Uri): Promise<number> {
+  private async countAllFiles(dirPath: string): Promise<number> {
     try {
-      const entries = await this.fileSystem.readDirectory(dirUri);
+      const entries = await this.fileSystem.readDirectory(dirPath);
       let count = 0;
 
-      for (const [name, type] of entries) {
+      for (const entry of entries) {
         if (
-          type === vscode.FileType.Directory &&
-          !this.shouldSkipDirectory(name)
+          entry.type === FileType.Directory &&
+          !this.shouldSkipDirectory(entry.name)
         ) {
-          const subUri = vscode.Uri.joinPath(dirUri, name);
-          count += await this.countAllFiles(subUri);
-        } else if (type === vscode.FileType.File) {
+          const subPath = path.join(dirPath, entry.name);
+          count += await this.countAllFiles(subPath);
+        } else if (entry.type === FileType.File) {
           count++;
         }
       }
@@ -614,27 +622,27 @@ export class WorkspaceService implements vscode.Disposable {
   /**
    * Count files by extension in workspace
    *
-   * @param dirUri - Directory URI to search
+   * @param dirPath - Directory path to search
    * @param extensions - File extensions to count (e.g., ['.py', '.js'])
    * @returns Total count of files matching extensions
    */
   private async countFilesByExtension(
-    dirUri: vscode.Uri,
+    dirPath: string,
     extensions: string[]
   ): Promise<number> {
     try {
-      const entries = await this.fileSystem.readDirectory(dirUri);
+      const entries = await this.fileSystem.readDirectory(dirPath);
       let count = 0;
 
-      for (const [name, type] of entries) {
+      for (const entry of entries) {
         if (
-          type === vscode.FileType.Directory &&
-          !this.shouldSkipDirectory(name)
+          entry.type === FileType.Directory &&
+          !this.shouldSkipDirectory(entry.name)
         ) {
-          const subUri = vscode.Uri.joinPath(dirUri, name);
-          count += await this.countFilesByExtension(subUri, extensions);
-        } else if (type === vscode.FileType.File) {
-          const ext = this.getFileExtension(name);
+          const subPath = path.join(dirPath, entry.name);
+          count += await this.countFilesByExtension(subPath, extensions);
+        } else if (entry.type === FileType.File) {
+          const ext = this.getFileExtension(entry.name);
           if (extensions.includes(ext)) {
             count++;
           }
@@ -650,15 +658,15 @@ export class WorkspaceService implements vscode.Disposable {
   /**
    * Read package.json from workspace
    *
-   * @param workspaceUri - Workspace folder URI
+   * @param workspacePath - Workspace folder path
    * @returns Parsed package.json or undefined on error
    */
   private async readPackageJson(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<{ version?: string; description?: string } | undefined> {
     try {
-      const packageJsonUri = vscode.Uri.joinPath(workspaceUri, 'package.json');
-      const content = await this.fileSystem.readFile(packageJsonUri);
+      const packageJsonPath = path.join(workspacePath, 'package.json');
+      const content = await this.fileSystem.readFile(packageJsonPath);
       const packageJson = JSON.parse(content);
       return {
         version: packageJson.version,
@@ -672,15 +680,15 @@ export class WorkspaceService implements vscode.Disposable {
   /**
    * Read Cargo.toml from workspace (Rust projects)
    *
-   * @param workspaceUri - Workspace folder URI
+   * @param workspacePath - Workspace folder path
    * @returns Cargo.toml metadata or undefined on error
    */
   private async readCargoToml(
-    workspaceUri: vscode.Uri
+    workspacePath: string
   ): Promise<{ version?: string; description?: string } | undefined> {
     try {
-      const cargoTomlUri = vscode.Uri.joinPath(workspaceUri, 'Cargo.toml');
-      const content = await this.fileSystem.readFile(cargoTomlUri);
+      const cargoTomlPath = path.join(workspacePath, 'Cargo.toml');
+      const content = await this.fileSystem.readFile(cargoTomlPath);
 
       // Simple TOML parsing for [package] section
       const packageMatch = content.match(/\[package\]([\s\S]*?)(\[|$)/);
@@ -763,16 +771,17 @@ export class WorkspaceService implements vscode.Disposable {
   /**
    * Setup event handlers for workspace changes
    *
-   * Listens to VS Code workspace change events and triggers re-analysis.
+   * Listens to workspace change events and triggers re-analysis.
    */
   private setupEventHandlers(): void {
-    this.disposables.push(
-      vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    const disposable = this.workspaceProvider.onDidChangeWorkspaceFolders(
+      () => {
         this.updateWorkspaceAnalysis().catch((error) => {
           console.error('Failed to update workspace on folder change:', error);
         });
-      })
+      }
     );
+    this.disposables.push(disposable);
   }
 
   /**

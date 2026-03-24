@@ -107,8 +107,6 @@ export interface OpenAIResponsesRequest {
   input: ResponsesInputItem[];
   /** System instructions (required by Codex API — extracted from developer message) */
   instructions?: string;
-  /** Maximum tokens to generate */
-  max_output_tokens?: number;
   /** Whether to stream the response */
   stream?: boolean;
   /** Whether to store the response (Codex API requires false) */
@@ -165,10 +163,8 @@ export function translateAnthropicToResponses(
     store: false,
   };
 
-  // max_tokens -> max_output_tokens
-  if (anthropicRequest.max_tokens != null) {
-    responsesRequest.max_output_tokens = anthropicRequest.max_tokens;
-  }
+  // Note: max_output_tokens is intentionally NOT mapped for the Responses API.
+  // Codex API rejects it as "Unsupported parameter: max_output_tokens".
 
   // stream — direct pass-through
   if (anthropicRequest.stream) {

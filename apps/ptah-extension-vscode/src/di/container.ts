@@ -27,7 +27,7 @@ import * as vscode from 'vscode';
 import {
   Logger,
   OutputManager,
-  LlmRpcHandlers,
+  ConfigManager,
   SubagentRegistryService,
   TOKENS,
   registerVsCodeCoreServices,
@@ -56,6 +56,7 @@ import {
   PluginRpcHandlers, // TASK_2025_153: Plugin Configuration
   AgentRpcHandlers, // TASK_2025_157: Agent Orchestration
   PtahCliRpcHandlers, // TASK_2025_167: Ptah CLI Management
+  SkillsShRpcHandlers, // TASK_2025_204: Skills.sh Marketplace
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -80,6 +81,17 @@ import { registerVsCodeLmToolsServices } from '@ptah-extension/vscode-lm-tools';
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
+
+import { registerPlatformVscodeServices } from '@ptah-extension/platform-vscode';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+
+// Platform abstraction implementations (TASK_2025_203)
+import {
+  VsCodePlatformCommands,
+  VsCodePlatformAuth,
+  VsCodeSaveDialog,
+  VsCodeModelDiscovery,
+} from '../services/platform';
 
 // Import webview support services
 import { WebviewEventQueue } from '../services/webview-event-queue';
@@ -118,6 +130,12 @@ export class DIContainer {
     container.register(TOKENS.EXTENSION_CONTEXT, { useValue: context });
 
     // ========================================
+    // PHASE 0.5: Platform Abstraction Layer (TASK_2025_199)
+    // ========================================
+    // MUST be before any library services (they inject PLATFORM_TOKENS)
+    registerPlatformVscodeServices(container, context);
+
+    // ========================================
     // PHASE 1: Logger Dependencies
     // ========================================
     // CRITICAL: OutputManager must be registered BEFORE Logger
@@ -128,9 +146,16 @@ export class DIContainer {
     container.registerSingleton(TOKENS.LOGGER, Logger);
 
     // ========================================
+    // PHASE 1.5: ConfigManager (required by LicenseService)
+    // ========================================
+    // ConfigManager wraps vscode.workspace.getConfiguration('ptah').
+    // LicenseService depends on it for reading license config.
+    container.registerSingleton(TOKENS.CONFIG_MANAGER, ConfigManager);
+
+    // ========================================
     // PHASE 2: License Service for verification
     // ========================================
-    // License Service only depends on EXTENSION_CONTEXT and LOGGER
+    // LicenseService depends on EXTENSION_CONTEXT, LOGGER, and CONFIG_MANAGER
 
     container.registerSingleton(TOKENS.LICENSE_SERVICE, LicenseService);
 
@@ -168,6 +193,15 @@ export class DIContainer {
     }
 
     // ========================================
+    // PHASE 0.5: Platform Abstraction Layer (TASK_2025_199)
+    // ========================================
+    // MUST be before any library services (they inject PLATFORM_TOKENS)
+    // Check if already registered by setupMinimal()
+    if (!container.isRegistered(PLATFORM_TOKENS.PLATFORM_INFO)) {
+      registerPlatformVscodeServices(container, context);
+    }
+
+    // ========================================
     // PHASE 1: Infrastructure Services (vscode-core)
     // ========================================
     // TASK_2025_121: Check if already registered by setupMinimal()
@@ -183,6 +217,19 @@ export class DIContainer {
       container.registerSingleton(TOKENS.LOGGER, Logger);
     }
     const logger = container.resolve<Logger>(TOKENS.LOGGER);
+
+    // PHASE 1.4.5: Platform Abstraction Implementations (TASK_2025_203)
+    // Must be registered BEFORE handler classes that depend on these tokens
+    container.registerSingleton(
+      TOKENS.PLATFORM_COMMANDS,
+      VsCodePlatformCommands
+    );
+    container.registerSingleton(
+      TOKENS.PLATFORM_AUTH_PROVIDER,
+      VsCodePlatformAuth
+    );
+    container.registerSingleton(TOKENS.SAVE_DIALOG_PROVIDER, VsCodeSaveDialog);
+    container.registerSingleton(TOKENS.MODEL_DISCOVERY, VsCodeModelDiscovery);
 
     // PHASE 1.5: Register remaining vscode-core infrastructure services
     registerVsCodeCoreServices(container, context, logger);
@@ -209,6 +256,7 @@ export class DIContainer {
     container.registerSingleton(LicenseRpcHandlers);
     // SetupRpcHandlers and LlmRpcHandlers require container instance for lazy resolution
     // Must use factory pattern because DependencyContainer is an interface (no reflection metadata)
+    // TASK_2025_203: Added WORKSPACE_PROVIDER injection
     container.register(SetupRpcHandlers, {
       useFactory: (c) =>
         new SetupRpcHandlers(
@@ -216,6 +264,7 @@ export class DIContainer {
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(TOKENS.CONFIG_MANAGER),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c
         ),
     });
@@ -243,6 +292,7 @@ export class DIContainer {
     // TASK_2025_137: Enhanced Prompts RPC handlers
     // Must use factory pattern because DependencyContainer is an interface (no reflection metadata)
     // Same pattern as SetupRpcHandlers and WizardGenerationRpcHandlers
+    // TASK_2025_203: Added WORKSPACE_PROVIDER + SAVE_DIALOG_PROVIDER injections
     container.register(EnhancedPromptsRpcHandlers, {
       useFactory: (c) =>
         new EnhancedPromptsRpcHandlers(
@@ -251,6 +301,8 @@ export class DIContainer {
           c.resolve(SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE),
           c.resolve(TOKENS.LICENSE_SERVICE),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
+          c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
           c
         ),
     });
@@ -267,13 +319,18 @@ export class DIContainer {
     // TASK_2025_167: Ptah CLI Management RPC handlers
     container.registerSingleton(PtahCliRpcHandlers);
 
+    // TASK_2025_204: Skills.sh Marketplace RPC handlers
+    container.registerSingleton(SkillsShRpcHandlers);
+
     // TASK_2025_148: Wizard Generation RPC handlers (requires container for lazy resolution)
+    // TASK_2025_203: Added WORKSPACE_PROVIDER injection
     container.register(WizardGenerationRpcHandlers, {
       useFactory: (c) =>
         new WizardGenerationRpcHandlers(
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
+          c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c
         ),
     });
@@ -312,6 +369,7 @@ export class DIContainer {
           c.resolve(PluginRpcHandlers), // TASK_2025_153
           c.resolve(AgentRpcHandlers), // TASK_2025_157
           c.resolve(PtahCliRpcHandlers), // TASK_2025_167
+          c.resolve(SkillsShRpcHandlers), // TASK_2025_204
           c // Pass container instance
         );
       },
@@ -333,7 +391,10 @@ export class DIContainer {
     // Register Agent SDK services (adapter, storage, permission handler)
     // TASK_2025_092: SdkPermissionHandler now handles permission emitter directly
     // (SdkRpcHandlers deleted - was dead code, only initializePermissionEmitter() was used)
-    registerSdkServices(container, context, logger);
+    // TASK_2025_199: Removed context parameter — SDK services now inject
+    // platform abstractions via PLATFORM_TOKENS decorators instead of receiving
+    // vscode.ExtensionContext directly.
+    registerSdkServices(container, logger);
 
     // TASK_2025_140: Bridge registration removed. TOKENS.SDK_AGENT_ADAPTER and
     // SDK_TOKENS.SDK_AGENT_ADAPTER both use Symbol.for('SdkAgentAdapter'), so
@@ -345,7 +406,10 @@ export class DIContainer {
     // ========================================
     // SetupStatusService, SetupWizardService, and supporting services
     // Required for setup wizard functionality
-    registerAgentGenerationServices(container, logger, context.extensionPath);
+    // TASK_2025_199: Removed extensionPath parameter — services now inject
+    // IPlatformInfo directly via PLATFORM_TOKENS.PLATFORM_INFO instead of
+    // receiving extensionPath through the registration function.
+    registerAgentGenerationServices(container, logger);
 
     // TASK_2025_154: Wire multi-phase analysis reader into EnhancedPromptsService
     // Both SDK and agent-generation services are now registered, so we can
@@ -366,15 +430,15 @@ export class DIContainer {
     }
 
     // ========================================
-    // PHASE 2.9: LLM Abstraction Services (TASK_2025_071 - CRITICAL FIX)
+    // PHASE 2.9: CLI Abstraction Services (TASK_2025_071, TASK_2025_212)
     // ========================================
-    // FIXES: LlmService was never registered before this task
-    // This registration function was created but NEVER called in container.ts
+    // TASK_2025_212: Vestigial LLM provider services (LlmSecretsService,
+    // LlmConfigurationService, ProviderRegistry, LlmService) removed.
+    // Only CLI detection/management services remain.
     registerLlmAbstractionServices(container, logger);
 
-    // Register LlmRpcHandlers (TASK_2025_073 Batch 5)
-    // Must come AFTER llm-abstraction (depends on LLM_SECRETS_SERVICE, LLM_CONFIGURATION_SERVICE)
-    container.registerSingleton(TOKENS.LLM_RPC_HANDLERS, LlmRpcHandlers);
+    // TASK_2025_209: TOKENS.LLM_RPC_HANDLERS deleted. Shared LlmRpcHandlers (from @ptah-extension/rpc-handlers)
+    // is now platform-agnostic and registered in Phase 2.5 as AppLlmRpcHandlers.
 
     // ========================================
     // PHASE 2.10: Template Generation Services (TASK_2025_071)

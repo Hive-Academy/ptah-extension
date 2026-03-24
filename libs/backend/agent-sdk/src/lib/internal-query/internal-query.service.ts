@@ -392,18 +392,20 @@ export class InternalQueryService {
     // Detect which provider is active
     for (const id of ANTHROPIC_PROVIDERS.map((p) => p.id)) {
       const provider = getAnthropicProvider(id);
-      if (provider && baseUrl.includes(new URL(provider.baseUrl).hostname)) {
-        // Get actual model from AuthEnv tier vars
-        const actualModel =
-          this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
-          this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-          this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
+      if (!provider || !provider.baseUrl) continue;
+      try {
+        if (baseUrl.includes(new URL(provider.baseUrl).hostname)) {
+          // Get actual model from AuthEnv tier vars
+          const actualModel =
+            this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ||
+            this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ||
+            this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL;
 
-        if (!actualModel) {
-          return undefined; // No tier mapping — likely using Anthropic directly
-        }
+          if (!actualModel) {
+            return undefined; // No tier mapping — likely using Anthropic directly
+          }
 
-        return `# Model Identity Clarification
+          return `# Model Identity Clarification
 
 IMPORTANT: You are running as **${actualModel}** provided by **${provider.name}**, NOT Claude by Anthropic.
 
@@ -413,6 +415,10 @@ When asked about your identity, model, or capabilities:
 - You may mention you are running through an Anthropic-compatible API interface
 
 This clarification takes precedence over any other identity instructions in the system prompt.`;
+        }
+      } catch {
+        // Skip providers with invalid baseUrl (e.g., empty string for proxy-based providers)
+        continue;
       }
     }
 

@@ -109,11 +109,9 @@ export class IgnorePatternResolverService {
    * // parsed.patterns = [{ pattern: 'node_modules/', isNegation: false, ... }, ...]
    * ```
    */
-  async parseIgnoreFile(
-    ignoreFileUri: import('vscode').Uri
-  ): Promise<ParsedIgnoreFile> {
-    const content = await this.fileSystem.readFile(ignoreFileUri);
-    const filePath = ignoreFileUri.fsPath;
+  async parseIgnoreFile(ignoreFilePath: string): Promise<ParsedIgnoreFile> {
+    const content = await this.fileSystem.readFile(ignoreFilePath);
+    const filePath = ignoreFilePath;
     const baseDir = path.dirname(filePath);
 
     const patterns: IgnorePattern[] = [];
@@ -171,7 +169,7 @@ export class IgnorePatternResolverService {
    * ```
    */
   async parseWorkspaceIgnoreFiles(
-    workspaceUri: import('vscode').Uri,
+    workspacePath: string,
     ignoreFileNames: string[] = [
       '.gitignore',
       '.vscodeignore',
@@ -182,20 +180,17 @@ export class IgnorePatternResolverService {
   ): Promise<ParsedIgnoreFile[]> {
     const ignoreFiles: ParsedIgnoreFile[] = [];
 
-    // Dynamic import to avoid Jest issues
-    const { Uri } = await import('vscode');
-
     for (const fileName of ignoreFileNames) {
-      const ignoreFileUri = Uri.joinPath(workspaceUri, fileName);
+      const ignoreFilePath = path.join(workspacePath, fileName);
 
       // Check if file exists
-      const exists = await this.fileSystem.exists(ignoreFileUri);
+      const exists = await this.fileSystem.exists(ignoreFilePath);
       if (!exists) {
         continue;
       }
 
       try {
-        const parsed = await this.parseIgnoreFile(ignoreFileUri);
+        const parsed = await this.parseIgnoreFile(ignoreFilePath);
         ignoreFiles.push(parsed);
       } catch (error) {
         // Ignore parse errors (malformed ignore files)

@@ -14,9 +14,9 @@ import {
   CheckCircle2,
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
-import { DocsMediaPlaceholderComponent } from '../components/docs-media-placeholder.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
 import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-card.component';
+import { DocsVideoPlayerComponent } from '../components/docs-video-player.component';
 
 @Component({
   selector: 'ptah-docs-setup-wizard',
@@ -25,9 +25,9 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsStepCardComponent,
-    DocsMediaPlaceholderComponent,
     DocsSectionShellComponent,
     DocsCollapsibleCardComponent,
+    DocsVideoPlayerComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="setup-wizard">
@@ -111,11 +111,29 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
       </div>
 
       <ng-container media>
-        <ptah-docs-media-placeholder
-          title="Setup Wizard"
-          aspectRatio="4/3"
-          mediaType="gif"
-        />
+        <!-- Analysis Phase -->
+        <div class="space-y-3">
+          <p
+            class="text-xs font-medium text-neutral-content/60 uppercase tracking-wide"
+          >
+            Workspace Analysis
+          </p>
+          <ptah-docs-video-player
+            src="assets/videos/setup-wizard-analysis.mp4"
+          />
+        </div>
+
+        <!-- Agent Generation Phase -->
+        <div class="space-y-3 mt-6">
+          <p
+            class="text-xs font-medium text-neutral-content/60 uppercase tracking-wide"
+          >
+            Agent Generation
+          </p>
+          <ptah-docs-video-player
+            src="assets/videos/setup-wizard-agent-generation.mp4"
+          />
+        </div>
       </ng-container>
     </ptah-docs-section-shell>
   `,
@@ -130,7 +148,6 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
 })
 export class SetupWizardSectionComponent {
   public readonly Wand2Icon = Wand2;
-
   public readonly ScanSearchIcon = ScanSearch;
   public readonly BrainCircuitIcon = BrainCircuit;
   public readonly UsersIcon = Users;

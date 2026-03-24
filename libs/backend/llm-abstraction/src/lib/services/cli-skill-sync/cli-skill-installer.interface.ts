@@ -29,8 +29,8 @@ export interface ICliSkillInstaller {
    * Copies skill directories from `{extensionPath}/assets/plugins/{pluginId}/skills/`
    * to the CLI's user-level skill directory (e.g., `~/.copilot/skills/ptah-{pluginId}/`).
    *
-   * Only copies the `skills/` subtree from each plugin. Does NOT copy
-   * `.claude-plugin/` or `commands/` directories (those are Claude SDK-specific).
+   * Only copies the `skills/` subtree from each plugin.
+   * Also copies command `.md` files from each plugin's `commands/` directory.
    *
    * @param pluginPaths - Absolute paths to Ptah plugin directories (from PluginLoaderService)
    * @returns Sync status with skill count and any errors
@@ -51,4 +51,10 @@ export interface ICliSkillInstaller {
    * @returns Absolute path to CLI's skills directory (e.g., `~/.copilot/skills/`)
    */
   getSkillsBasePath(): string;
+
+  /**
+   * Get the base directory where commands are installed for this CLI.
+   * @returns Absolute path to CLI's commands directory (e.g., `~/.copilot/commands/`)
+   */
+  getCommandsBasePath(): string;
 }

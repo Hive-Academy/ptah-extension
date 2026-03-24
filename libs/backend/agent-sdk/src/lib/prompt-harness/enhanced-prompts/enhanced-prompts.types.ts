@@ -134,7 +134,7 @@ export interface EnhancedPromptsConfig {
   /**
    * Maximum token count for generated prompt
    * Higher values = more detailed guidance but longer context
-   * @default 2000
+   * @default 4000
    */
   maxTokens: number;
 }
@@ -147,7 +147,7 @@ export const DEFAULT_ENHANCED_PROMPTS_CONFIG: EnhancedPromptsConfig = {
   includeTerminology: true,
   includeArchitecturePatterns: true,
   includeTestingGuidelines: true,
-  maxTokens: 2000,
+  maxTokens: 4000,
 };
 
 /**
