@@ -99,7 +99,7 @@ jobs:
         run: npx nx copy-assets ptah-electron
 
       - name: Package for platform
-        run: npx electron-builder --config apps/ptah-electron/electron-builder.yml --project dist/apps/ptah-electron ${{ matrix.build-args }}
+        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron ${{ matrix.build-args }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
