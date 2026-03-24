@@ -117,6 +117,9 @@ export class AgentRpcHandlers {
           // Merge Ptah CLI agents as CLI entries alongside gemini/codex/copilot
           const detectedClis = await this.mergePtahCliAgents(cliResults);
 
+          // Read MCP port from ptah namespace (separate from agentOrchestration)
+          const ptahConfig = vscode.workspace.getConfiguration('ptah');
+
           const result: AgentOrchestrationConfig = {
             detectedClis,
             defaultCli: config.get<CliType | null>('defaultCli', null),
@@ -135,6 +138,7 @@ export class AgentRpcHandlers {
               'copilotReasoningEffort',
               ''
             ),
+            mcpPort: ptahConfig.get<number>('mcpPort', 51820),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -338,6 +342,17 @@ export class AgentRpcHandlers {
       await config.update(
         'copilotReasoningEffort',
         params.copilotReasoningEffort || undefined,
+        vscode.ConfigurationTarget.Global
+      );
+    }
+
+    // MCP port lives under ptah namespace (not ptah.agentOrchestration)
+    if (params.mcpPort !== undefined) {
+      const clampedPort = Math.max(1024, Math.min(65535, params.mcpPort));
+      const ptahConfig = vscode.workspace.getConfiguration('ptah');
+      await ptahConfig.update(
+        'mcpPort',
+        clampedPort,
         vscode.ConfigurationTarget.Global
       );
     }
@@ -649,6 +664,7 @@ export class AgentRpcHandlers {
             resumeSessionId: cliSessionExists ? params.cliSessionId : undefined,
             parentSessionId: params.parentSessionId,
             ptahCliId: params.ptahCliId,
+            resumedFromAgentId: params.previousAgentId,
           });
         }
 

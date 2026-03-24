@@ -1,34 +1,43 @@
 /**
  * File System Service
  *
- * VS Code workspace.fs wrapper for async, platform-agnostic file operations.
- * Replaces Node.js fs module for virtual workspace support.
+ * Platform-agnostic file system wrapper that delegates to IFileSystemProvider.
+ * Supports string-based paths (no vscode.Uri dependency).
  *
- * Research Finding 2: Migrate from Node.js fs to workspace.fs API
- * Evidence: workspace.fs handles all URI schemes (file, vscode-vfs, untitled)
+ * Research Finding 2: Migrate from Node.js fs to platform-agnostic API
+ * Evidence: IFileSystemProvider handles all URI schemes via platform-vscode adapter
  */
 
-import { injectable } from 'tsyringe';
-import * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
+import { PLATFORM_TOKENS, FileType } from '@ptah-extension/platform-core';
+import type {
+  IFileSystemProvider,
+  DirectoryEntry,
+  FileStat,
+} from '@ptah-extension/platform-core';
 
 /**
- * File system service with VS Code workspace.fs wrapper
+ * File system service with platform-agnostic provider
  */
 @injectable()
 export class FileSystemService {
+  constructor(
+    @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
+    private readonly fsProvider: IFileSystemProvider
+  ) {}
+
   /**
    * Read file contents as string
    *
-   * @param uri File URI (supports all schemes: file://, vscode-vfs://, untitled://)
+   * @param path File path (absolute string)
    * @returns File contents as UTF-8 string
    */
-  async readFile(uri: vscode.Uri): Promise<string> {
+  async readFile(path: string): Promise<string> {
     try {
-      const bytes = await vscode.workspace.fs.readFile(uri);
-      return new TextDecoder('utf-8').decode(bytes);
+      return await this.fsProvider.readFile(path);
     } catch (error) {
       throw new FileSystemError(
-        `Failed to read file: ${uri.toString()}`,
+        `Failed to read file: ${path}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -37,15 +46,15 @@ export class FileSystemService {
   /**
    * Read directory contents
    *
-   * @param uri Directory URI
-   * @returns Array of [name, fileType] tuples
+   * @param path Directory path (absolute string)
+   * @returns Array of DirectoryEntry objects
    */
-  async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
+  async readDirectory(path: string): Promise<DirectoryEntry[]> {
     try {
-      return await vscode.workspace.fs.readDirectory(uri);
+      return await this.fsProvider.readDirectory(path);
     } catch (error) {
       throw new FileSystemError(
-        `Failed to read directory: ${uri.toString()}`,
+        `Failed to read directory: ${path}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -54,42 +63,44 @@ export class FileSystemService {
   /**
    * Get file/directory stats
    *
-   * @param uri File or directory URI
+   * @param path File or directory path (absolute string)
    * @returns File stats (type, size, timestamps)
    */
-  async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
+  async stat(path: string): Promise<FileStat> {
     try {
-      return await vscode.workspace.fs.stat(uri);
+      return await this.fsProvider.stat(path);
     } catch (error) {
       throw new FileSystemError(
-        `Failed to stat: ${uri.toString()}`,
+        `Failed to stat: ${path}`,
         error instanceof Error ? error : undefined
       );
     }
   }
 
   /**
-   * Check if URI points to a virtual workspace
+   * Check if path points to a virtual workspace
    *
-   * Virtual workspaces use schemes other than 'file' (e.g., vscode-vfs, untitled)
+   * Virtual workspaces use schemes other than 'file' (e.g., vscode-vfs, untitled).
+   * For string-based paths, we detect this by checking for URI scheme patterns.
    *
-   * @param uri URI to check
+   * @param path Path to check
    * @returns True if virtual workspace
    */
-  isVirtualWorkspace(uri: vscode.Uri): boolean {
-    return uri.scheme !== 'file';
+  isVirtualWorkspace(path: string): boolean {
+    // If the path contains a scheme indicator (e.g., "vscode-vfs://"),
+    // it's a virtual workspace. Regular file paths don't contain "://"
+    return path.includes('://') && !path.startsWith('file://');
   }
 
   /**
    * Check if file/directory exists
    *
-   * @param uri File or directory URI
+   * @param path File or directory path (absolute string)
    * @returns True if exists
    */
-  async exists(uri: vscode.Uri): Promise<boolean> {
+  async exists(path: string): Promise<boolean> {
     try {
-      await vscode.workspace.fs.stat(uri);
-      return true;
+      return await this.fsProvider.exists(path);
     } catch {
       return false;
     }

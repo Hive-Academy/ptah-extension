@@ -50,6 +50,9 @@ import {
 } from '../prompt-harness';
 import { InternalQueryService } from '../internal-query';
 import { PluginLoaderService } from '../helpers/plugin-loader.service';
+import { SkillJunctionService } from '../helpers/skill-junction.service';
+import { SettingsExportService } from '../settings-export.service';
+import { SettingsImportService } from '../settings-import.service';
 import {
   PtahCliRegistry,
   PtahCliConfigPersistence,
@@ -59,9 +62,9 @@ import {
   CopilotAuthService,
   CopilotTranslationProxy,
 } from '../copilot-provider';
+import { CodexAuthService, CodexTranslationProxy } from '../codex-provider';
 import { SDK_TOKENS } from './tokens';
 import { ProviderModelsService } from '../provider-models.service';
-import * as vscode from 'vscode';
 
 /**
  * Register all agent-sdk services in DI container
@@ -69,13 +72,15 @@ import * as vscode from 'vscode';
  * Services are registered as singletons using tsyringe's lifecycle management.
  * The @injectable() decorators on each class enable auto-wiring of dependencies.
  *
+ * TASK_2025_199: Removed vscode.ExtensionContext parameter. SessionMetadataStore
+ * now resolves IStateStorage via PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE decorator
+ * injection instead of receiving context.workspaceState manually.
+ *
  * @param container - TSyringe DI container
- * @param context - VS Code extension context (for Memento storage)
  * @param logger - Logger instance
  */
 export function registerSdkServices(
   container: DependencyContainer,
-  context: vscode.ExtensionContext,
   logger: Logger
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
@@ -84,13 +89,13 @@ export function registerSdkServices(
   // Core Services (require special initialization)
   // ============================================================
 
-  // Session metadata store needs VS Code Memento for UI metadata persistence
-  // SDK handles message persistence natively to ~/.claude/projects/
-  container.registerInstance(
+  // Session metadata store - uses @inject decorators for IStateStorage and Logger
+  // TASK_2025_199: Now resolved via decorator injection (PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
+  // instead of manual construction with context.workspaceState
+  container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
-    (() => {
-      return new SessionMetadataStore(context.workspaceState, logger);
-    })()
+    { useClass: SessionMetadataStore },
+    { lifecycle: Lifecycle.Singleton }
   );
 
   // Shared mutable AuthEnv singleton (TASK_2025_164)
@@ -314,6 +319,33 @@ export function registerSdkServices(
   );
 
   // ============================================================
+  // Skill Junction Service (TASK_2025_201)
+  // Manages workspace .claude/skills/ junctions to plugin skill directories
+  // So third-party providers (Codex, Copilot) can find skills via MCP search
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_SKILL_JUNCTION,
+    { useClass: SkillJunctionService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Settings Export/Import Services (TASK_2025_210)
+  // Platform-agnostic settings portability between VS Code and Electron
+  // ============================================================
+  container.register(
+    SDK_TOKENS.SDK_SETTINGS_EXPORT,
+    { useClass: SettingsExportService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_SETTINGS_IMPORT,
+    { useClass: SettingsImportService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
   // Ptah CLI Services (TASK_2025_167, TASK_2025_176)
   // Config persistence, spawn options, and registry
   // ============================================================
@@ -360,6 +392,24 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COPILOT_PROXY,
     { useClass: CopilotTranslationProxy },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  // ============================================================
+  // Codex Provider Services (TASK_2025_193)
+  // Auth service and translation proxy for OpenAI Codex integration
+  // Must be registered before AuthManager resolves (which depends on these)
+  // ============================================================
+
+  container.register(
+    SDK_TOKENS.SDK_CODEX_AUTH,
+    { useClass: CodexAuthService },
+    { lifecycle: Lifecycle.Singleton }
+  );
+
+  container.register(
+    SDK_TOKENS.SDK_CODEX_PROXY,
+    { useClass: CodexTranslationProxy },
     { lifecycle: Lifecycle.Singleton }
   );
 

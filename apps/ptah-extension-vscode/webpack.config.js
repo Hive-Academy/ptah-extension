@@ -53,18 +53,9 @@ module.exports = {
         return callback(); // Bundle it
       }
 
-      // Bundle @github/copilot-sdk and @github/copilot - both ESM-only
-      // ("type": "module", exports only "import"). Same treatment as
-      // claude-agent-sdk: must be bundled for CJS interop
-      if (request.startsWith('@github/copilot')) {
-        return callback(); // Bundle it
-      }
-
-      // Bundle @openai/codex-sdk - ESM-only ("type": "module", exports
-      // only "import"). Same treatment as claude-agent-sdk and copilot-sdk.
-      if (request.startsWith('@openai/codex-sdk')) {
-        return callback(); // Bundle it
-      }
+      // @github/copilot-sdk and @openai/codex-sdk are NOT bundled.
+      // They are resolved at runtime from the user's system via sdk-resolver.ts.
+      // See TASK_2025_197 for details.
 
       // @google/genai - REMOVED (SDK-only migration: Google GenAI provider removed)
       // @google/gemini-cli-core - REMOVED (SDK-only migration: CLI auth removed)
@@ -90,6 +81,14 @@ module.exports = {
   resolve: {
     extensions: ['.ts', '.js', '.json'],
     alias: {
+      '@ptah-extension/platform-core': path.resolve(
+        __dirname,
+        '../../libs/backend/platform-core/src'
+      ),
+      '@ptah-extension/platform-vscode': path.resolve(
+        __dirname,
+        '../../libs/backend/platform-vscode/src'
+      ),
       '@ptah-extension/shared': path.resolve(
         __dirname,
         '../../libs/shared/src'
@@ -117,6 +116,10 @@ module.exports = {
       '@ptah-extension/template-generation': path.resolve(
         __dirname,
         '../../libs/backend/template-generation/src'
+      ),
+      '@ptah-extension/rpc-handlers': path.resolve(
+        __dirname,
+        '../../libs/backend/rpc-handlers/src'
       ),
       // Main llm-abstraction entry point
       '@ptah-extension/llm-abstraction': path.resolve(

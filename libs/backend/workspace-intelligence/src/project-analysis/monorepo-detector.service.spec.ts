@@ -2,29 +2,12 @@ import 'reflect-metadata';
 import { MonorepoDetectorService } from './monorepo-detector.service';
 import { FileSystemService } from '../services/file-system.service';
 import { MonorepoType } from '../types/workspace.types';
-import * as vscode from 'vscode';
-
-// Mock vscode module
-jest.mock('vscode', () => ({
-  Uri: {
-    file: jest.fn((path: string) => ({ fsPath: path, scheme: 'file', path })),
-    joinPath: jest.fn(
-      (uri: { fsPath: string }, ...paths: string[]) =>
-        ({
-          fsPath: `${uri.fsPath}/${paths.join('/')}`,
-          scheme: 'file',
-          path: `${uri.fsPath}/${paths.join('/')}`,
-        } as vscode.Uri)
-    ),
-  },
-  workspace: {
-    workspaceFolders: undefined,
-  },
-}));
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 
 describe('MonorepoDetectorService', () => {
   let service: MonorepoDetectorService;
   let mockFileSystem: jest.Mocked<FileSystemService>;
+  let mockWorkspaceProvider: jest.Mocked<IWorkspaceProvider>;
 
   beforeEach(() => {
     mockFileSystem = {
@@ -32,7 +15,18 @@ describe('MonorepoDetectorService', () => {
       readFile: jest.fn(),
     } as unknown as jest.Mocked<FileSystemService>;
 
-    service = new MonorepoDetectorService(mockFileSystem);
+    mockWorkspaceProvider = {
+      getWorkspaceFolders: jest.fn().mockReturnValue([]),
+      getWorkspaceRoot: jest.fn().mockReturnValue(undefined),
+      getConfiguration: jest.fn(),
+      onDidChangeConfiguration: jest.fn(),
+      onDidChangeWorkspaceFolders: jest.fn(),
+    } as unknown as jest.Mocked<IWorkspaceProvider>;
+
+    service = new MonorepoDetectorService(
+      mockFileSystem,
+      mockWorkspaceProvider
+    );
   });
 
   afterEach(() => {
@@ -40,7 +34,7 @@ describe('MonorepoDetectorService', () => {
   });
 
   describe('detectMonorepo', () => {
-    const workspaceUri = vscode.Uri.file('/test/workspace');
+    const workspacePath = '/test/workspace';
 
     describe('Nx workspace detection', () => {
       it('should detect Nx monorepo with nx.json', async () => {
@@ -58,7 +52,7 @@ describe('MonorepoDetectorService', () => {
           })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Nx);
@@ -71,7 +65,7 @@ describe('MonorepoDetectorService', () => {
           .mockResolvedValueOnce(false) // nx.json
           .mockResolvedValueOnce(true); // workspace.json
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Nx);
@@ -88,7 +82,7 @@ describe('MonorepoDetectorService', () => {
           JSON.stringify({ projects: {} })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Nx);
@@ -103,7 +97,7 @@ describe('MonorepoDetectorService', () => {
 
         mockFileSystem.readFile.mockResolvedValueOnce('{ invalid json }');
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Nx);
@@ -119,7 +113,7 @@ describe('MonorepoDetectorService', () => {
           JSON.stringify({ npmScope: 'test' })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Nx);
@@ -146,7 +140,7 @@ describe('MonorepoDetectorService', () => {
           })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Rush);
@@ -162,7 +156,7 @@ describe('MonorepoDetectorService', () => {
 
         mockFileSystem.readFile.mockResolvedValueOnce('{ invalid json }');
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Rush);
@@ -179,7 +173,7 @@ describe('MonorepoDetectorService', () => {
           JSON.stringify({ rushVersion: '5.0.0' })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Rush);
@@ -201,7 +195,7 @@ describe('MonorepoDetectorService', () => {
           })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Lerna);
@@ -229,7 +223,7 @@ describe('MonorepoDetectorService', () => {
             })
           );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Lerna);
@@ -251,7 +245,7 @@ describe('MonorepoDetectorService', () => {
           })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Lerna);
@@ -267,7 +261,7 @@ describe('MonorepoDetectorService', () => {
 
         mockFileSystem.readFile.mockResolvedValueOnce('{ invalid json }');
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Lerna);
@@ -284,7 +278,7 @@ describe('MonorepoDetectorService', () => {
           .mockResolvedValueOnce(false) // lerna.json
           .mockResolvedValueOnce(true); // turbo.json
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.Turborepo);
@@ -312,7 +306,7 @@ describe('MonorepoDetectorService', () => {
 
         mockFileSystem.readFile.mockResolvedValueOnce(yamlContent);
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.PnpmWorkspaces);
@@ -337,7 +331,7 @@ describe('MonorepoDetectorService', () => {
 
         mockFileSystem.readFile.mockResolvedValueOnce(yamlContent);
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.PnpmWorkspaces);
@@ -357,7 +351,7 @@ describe('MonorepoDetectorService', () => {
           'invalid: yaml: content:'
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.PnpmWorkspaces);
@@ -382,7 +376,7 @@ describe('MonorepoDetectorService', () => {
           })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.YarnWorkspaces);
@@ -408,7 +402,7 @@ describe('MonorepoDetectorService', () => {
           })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(true);
         expect(result.type).toBe(MonorepoType.YarnWorkspaces);
@@ -433,7 +427,7 @@ describe('MonorepoDetectorService', () => {
           })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(false);
         expect(result.type).toBe('' as MonorepoType);
@@ -452,7 +446,7 @@ describe('MonorepoDetectorService', () => {
 
         mockFileSystem.readFile.mockResolvedValueOnce('{ invalid json }');
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(false);
         expect(result.type).toBe('' as MonorepoType);
@@ -463,7 +457,7 @@ describe('MonorepoDetectorService', () => {
       it('should return isMonorepo false when no monorepo config found', async () => {
         mockFileSystem.exists.mockResolvedValue(false);
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.isMonorepo).toBe(false);
         expect(result.type).toBe('' as MonorepoType);
@@ -483,7 +477,7 @@ describe('MonorepoDetectorService', () => {
           JSON.stringify({ projects: {} })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.type).toBe(MonorepoType.Nx);
         expect(mockFileSystem.exists).toHaveBeenCalledTimes(2); // Should stop after Nx detection
@@ -499,7 +493,7 @@ describe('MonorepoDetectorService', () => {
           JSON.stringify({ projects: [] })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.type).toBe(MonorepoType.Rush);
       });
@@ -515,7 +509,7 @@ describe('MonorepoDetectorService', () => {
           JSON.stringify({ packages: [] })
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.type).toBe(MonorepoType.Lerna);
       });
@@ -528,7 +522,7 @@ describe('MonorepoDetectorService', () => {
           .mockResolvedValueOnce(false) // lerna.json
           .mockResolvedValueOnce(true); // turbo.json (short-circuit)
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.type).toBe(MonorepoType.Turborepo);
       });
@@ -546,7 +540,7 @@ describe('MonorepoDetectorService', () => {
           'packages:\n  - packages/*\n'
         );
 
-        const result = await service.detectMonorepo(workspaceUri);
+        const result = await service.detectMonorepo(workspacePath);
 
         expect(result.type).toBe(MonorepoType.PnpmWorkspaces);
       });
@@ -556,18 +550,13 @@ describe('MonorepoDetectorService', () => {
   describe('detectMonoreposForWorkspaces', () => {
     it('should detect monorepos for all workspace folders', async () => {
       // Mock multi-root workspace
-      const folder1 = vscode.Uri.file('/workspace1');
-      const folder2 = vscode.Uri.file('/workspace2');
+      const folder1 = '/workspace1';
+      const folder2 = '/workspace2';
 
-      // Directly assign to workspaceFolders property
-      (
-        vscode.workspace as {
-          workspaceFolders: vscode.WorkspaceFolder[] | undefined;
-        }
-      ).workspaceFolders = [
-        { uri: folder1, name: 'workspace1', index: 0 },
-        { uri: folder2, name: 'workspace2', index: 1 },
-      ];
+      mockWorkspaceProvider.getWorkspaceFolders.mockReturnValue([
+        folder1,
+        folder2,
+      ]);
 
       // Workspace 1: Nx monorepo
       mockFileSystem.exists
@@ -596,21 +585,10 @@ describe('MonorepoDetectorService', () => {
       expect(workspace2Result).toBeDefined();
       expect(workspace2Result?.type).toBe(MonorepoType.Lerna);
       expect(workspace2Result?.packageCount).toBe(1);
-
-      // Cleanup
-      (
-        vscode.workspace as {
-          workspaceFolders: vscode.WorkspaceFolder[] | undefined;
-        }
-      ).workspaceFolders = undefined;
     });
 
     it('should return empty map when no workspace folders', async () => {
-      (
-        vscode.workspace as {
-          workspaceFolders: vscode.WorkspaceFolder[] | undefined;
-        }
-      ).workspaceFolders = undefined;
+      mockWorkspaceProvider.getWorkspaceFolders.mockReturnValue([]);
 
       const results = await service.detectMonoreposForWorkspaces();
 
@@ -619,17 +597,13 @@ describe('MonorepoDetectorService', () => {
     });
 
     it('should handle mix of monorepo and non-monorepo workspaces', async () => {
-      const folder1 = vscode.Uri.file('/monorepo');
-      const folder2 = vscode.Uri.file('/regular-project');
+      const folder1 = '/monorepo';
+      const folder2 = '/regular-project';
 
-      (
-        vscode.workspace as {
-          workspaceFolders: vscode.WorkspaceFolder[] | undefined;
-        }
-      ).workspaceFolders = [
-        { uri: folder1, name: 'monorepo', index: 0 },
-        { uri: folder2, name: 'regular-project', index: 1 },
-      ];
+      mockWorkspaceProvider.getWorkspaceFolders.mockReturnValue([
+        folder1,
+        folder2,
+      ]);
 
       // Workspace 1: Nx monorepo
       mockFileSystem.exists
@@ -653,13 +627,6 @@ describe('MonorepoDetectorService', () => {
       const regularResult = results.get(folder2);
       expect(regularResult?.isMonorepo).toBe(false);
       expect(regularResult?.type).toBe('' as MonorepoType);
-
-      // Cleanup
-      (
-        vscode.workspace as {
-          workspaceFolders: vscode.WorkspaceFolder[] | undefined;
-        }
-      ).workspaceFolders = undefined;
     });
   });
 });

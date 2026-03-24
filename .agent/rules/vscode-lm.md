@@ -9,12 +9,12 @@ globs: libs/backend/vscode-lm-tools/**/*.ts
 
 ## Purpose
 
-The **vscode-lm-tools library** provides a Code Execution MCP server for Ptah API integration. It enables VS Code LM and Claude CLI to execute TypeScript/JavaScript code with access to Ptah extension APIs (`workspace`, `search`, `symbols`, `diagnostics`, `git`, `ai`, `files`, `commands`) via the `execute_code` tool in a sandboxed environment.
+The **vscode-lm-tools library** provides a Code Execution MCP server for Ptah API integration. It enables VS Code LM and Claude CLI to execute TypeScript/JavaScript code with access to Ptah extension APIs (`workspace`, `search`, `diagnostics`, `ai`, `files`, and more) via the `execute_code` tool in a sandboxed environment.
 
 ## Responsibilities
 
 ✅ **MCP Server**: `execute_code` tool implementation  
-✅ **API Builder**: 8 Ptah API namespaces construction  
+✅ **API Builder**: 14 Ptah API namespaces construction  
 ✅ **Sandboxed Execution**: Timeout management (5s-30s)  
 ✅ **Permission Management**: User consent prompts  
 ✅ **System Prompt Generation**: Tool descriptions for LM
@@ -118,16 +118,6 @@ const configFiles = await ptah.search.findFiles({
 });
 ```
 
-**ptah.symbols**
-
-```typescript
-const symbols = await ptah.symbols.extract('/src/app.ts');
-// [{ name: 'AppController', kind: 'class', range: {...} }]
-
-const definitions = await ptah.symbols.findDefinitions('UserService');
-// [{ path: '/src/user.service.ts', line: 10 }]
-```
-
 **ptah.diagnostics**
 
 ```typescript
@@ -135,16 +125,6 @@ const diagnostics = await ptah.diagnostics.getProblems();
 // [{ file: '/src/app.ts', severity: 'error', message: '...' }]
 
 const errors = await ptah.diagnostics.getProblems({ severity: 'error' });
-```
-
-**ptah.git**
-
-```typescript
-const status = await ptah.git.getStatus();
-// { branch: 'main', modified: ['src/app.ts'] }
-
-const commits = await ptah.git.getHistory({ maxCount: 10 });
-const diff = await ptah.git.getDiff({ file: '/src/app.ts' });
 ```
 
 **ptah.ai**
@@ -170,14 +150,6 @@ const content = await ptah.files.read('/src/app.ts');
 await ptah.files.write('/src/new.ts', 'export const x = 1');
 const exists = await ptah.files.exists('/src/app.ts');
 const files = await ptah.files.list('/src');
-```
-
-**ptah.commands**
-
-```typescript
-await ptah.commands.execute('workbench.action.files.save');
-await ptah.commands.execute('editor.action.formatDocument', { uri });
-const commands = await ptah.commands.list();
 ```
 
 ## Permission Management
@@ -227,7 +199,7 @@ const response = await model.sendRequest([
 ]);
 ```
 
-Includes: Tool description, 8 namespace docs, usage examples, timeout guidelines, error patterns.
+Includes: Tool description, 14 namespace docs, usage examples, timeout guidelines, error patterns.
 
 ## Testing
 
@@ -278,7 +250,7 @@ describe('CodeExecutionMCP', () => {
 
 2. **Timeout Best Practices** - 5s (read), 15s (analysis), 30s (AI, max). No exceptions.
 
-3. **Permission Required** - Write, delete, git commit, commands MUST request permission.
+3. **Permission Required** - Write and delete operations MUST request permission.
 
 4. **Correlation IDs** - All API calls MUST include correlation IDs for tracing.
 

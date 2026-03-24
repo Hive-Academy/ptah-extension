@@ -12,6 +12,7 @@ import {
 } from 'lucide-angular';
 import { DocsStepCardComponent } from '../components/docs-step-card.component';
 import { DocsSectionShellComponent } from '../components/docs-section-shell.component';
+import { DocsVideoPlayerComponent } from '../components/docs-video-player.component';
 
 @Component({
   selector: 'ptah-docs-installation',
@@ -21,6 +22,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
     LucideAngularModule,
     DocsStepCardComponent,
     DocsSectionShellComponent,
+    DocsVideoPlayerComponent,
   ],
   template: `
     <ptah-docs-section-shell sectionId="installation">
@@ -95,30 +97,7 @@ import { DocsSectionShellComponent } from '../components/docs-section-shell.comp
       </div>
 
       <ng-container media>
-        <div
-          class="group relative cursor-pointer"
-          (click)="toggleVideo($event)"
-        >
-          <video
-            autoplay
-            muted
-            loop
-            playsinline
-            preload="metadata"
-            class="w-full rounded-xl border border-secondary/10 shadow-2xl"
-          >
-            <source src="assets/videos/install.mp4" type="video/mp4" />
-          </video>
-          <div
-            class="absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none"
-          >
-            <span
-              class="px-3 py-1.5 rounded-lg bg-base-200/80 border border-secondary/20 text-xs font-medium text-base-content/90 backdrop-blur-sm"
-            >
-              Click to play / pause
-            </span>
-          </div>
-        </div>
+        <ptah-docs-video-player src="assets/videos/install.mp4" />
       </ng-container>
     </ptah-docs-section-shell>
   `,
@@ -155,15 +134,4 @@ export class InstallationSectionComponent {
     delay: 0.2,
     threshold: 0.2,
   };
-
-  public toggleVideo(event: MouseEvent): void {
-    const container = event.currentTarget as HTMLElement;
-    const video = container.querySelector('video');
-    if (!video) return;
-    if (video.paused) {
-      video.play();
-    } else {
-      video.pause();
-    }
-  }
 }

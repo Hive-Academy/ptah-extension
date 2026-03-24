@@ -29,7 +29,10 @@ import type {
   AgentStartEvent,
   CliOutputSegment,
 } from '@ptah-extension/shared';
-import { createExecutionNode } from '@ptah-extension/shared';
+import {
+  createExecutionNode,
+  isAgentDispatchTool,
+} from '@ptah-extension/shared';
 
 /** Maximum recursion depth for nested agent tree building */
 const MAX_DEPTH = 10;
@@ -622,8 +625,8 @@ export class AgentMonitorTreeBuilderService {
       toolInput = toolStart.toolInput;
     }
 
-    // Check if this is a Task tool (agent spawn)
-    if (toolStart.isTaskTool || toolStart.toolName === 'Task') {
+    // Check if this is an Agent/Task tool (agent spawn)
+    if (toolStart.isTaskTool || isAgentDispatchTool(toolStart.toolName)) {
       const agentNode = this.buildAgentNodeFromTool(
         toolStart,
         toolInput,

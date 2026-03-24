@@ -122,6 +122,12 @@ export interface ExecuteQueryConfig {
    * Passed through to SdkQueryOptionsBuilder.
    */
   pluginPaths?: string[];
+  /**
+   * Explicit path to Claude Code CLI executable (cli.js).
+   * TASK_2025_194: Passed through to SdkQueryOptionsBuilder to override
+   * the default import.meta.url-based resolution baked at webpack time.
+   */
+  pathToClaudeCodeExecutable?: string;
 }
 
 /**
@@ -136,6 +142,8 @@ export interface SlashCommandConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   onCompactionStart?: CompactionStartCallback;
+  /** TASK_2025_194: Explicit path to cli.js */
+  pathToClaudeCodeExecutable?: string;
 }
 
 /**
@@ -301,7 +309,22 @@ export class SessionLifecycleManager {
    * subagents for this session are marked as 'interrupted' to enable resumption.
    */
   async endSession(sessionId: SessionId): Promise<void> {
-    const session = this.activeSessions.get(sessionId as string);
+    let session = this.activeSessions.get(sessionId as string);
+
+    // TASK_2025_211: Reverse lookup - if sessionId is a real SDK UUID, find the tab ID
+    // The frontend sends the real SDK UUID but activeSessions is keyed by tab ID
+    if (!session) {
+      for (const [tabId, realId] of this.tabIdToRealId.entries()) {
+        if (realId === (sessionId as string)) {
+          session = this.activeSessions.get(tabId);
+          if (session) {
+            sessionId = tabId as SessionId;
+            break;
+          }
+        }
+      }
+    }
+
     if (!session) {
       this.logger.warn(
         `[SessionLifecycle] Cannot end session - not found: ${sessionId}`
@@ -543,6 +566,7 @@ export class SessionLifecycleManager {
       mcpServerRunning = true,
       enhancedPromptsContent,
       pluginPaths,
+      pathToClaudeCodeExecutable,
     } = config;
 
     this.logger.info(
@@ -627,6 +651,7 @@ export class SessionLifecycleManager {
       enhancedPromptsContent,
       pluginPaths,
       permissionMode: initialPermissionMode,
+      pathToClaudeCodeExecutable,
     });
 
     // Determine the effective prompt for the SDK query:
@@ -777,6 +802,7 @@ export class SessionLifecycleManager {
       mcpServerRunning: config.mcpServerRunning,
       enhancedPromptsContent: config.enhancedPromptsContent,
       pluginPaths: config.pluginPaths,
+      pathToClaudeCodeExecutable: config.pathToClaudeCodeExecutable,
     });
   }
 
@@ -886,7 +912,18 @@ export class SessionLifecycleManager {
    * @param model - Model ID to set
    */
   async setSessionModel(sessionId: SessionId, model: string): Promise<void> {
-    const session = this.activeSessions.get(sessionId as string);
+    let session = this.activeSessions.get(sessionId as string);
+
+    // Reverse lookup: frontend sends real SDK UUID but activeSessions is keyed by tab ID
+    if (!session) {
+      for (const [tabId, realId] of this.tabIdToRealId.entries()) {
+        if (realId === (sessionId as string)) {
+          session = this.activeSessions.get(tabId);
+          if (session) break;
+        }
+      }
+    }
+
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }

@@ -31,13 +31,3 @@ export interface IGetDiagnosticsParameters {
   filePath?: string;
   severity?: 'error' | 'warning' | 'info' | 'hint';
 }
-
-export interface IFindSymbolParameters {
-  symbolName: string;
-  symbolType?: 'class' | 'function' | 'interface' | 'type' | 'variable' | 'any';
-}
-
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type, @typescript-eslint/no-empty-interface
-export interface IGetGitStatusParameters {
-  // No parameters needed
-}

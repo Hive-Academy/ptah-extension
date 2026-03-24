@@ -63,11 +63,11 @@ import type {
         <span class="font-semibold text-info">Input needed</span>
         <span
           class="badge badge-xs font-mono px-1.5 gap-0.5 ml-auto flex-shrink-0"
-          [class.badge-warning]="timeRemaining() > 10"
-          [class.badge-error]="timeRemaining() <= 10"
+          [class.badge-warning]="timeRemaining() < 0 || timeRemaining() > 10"
+          [class.badge-error]="timeRemaining() >= 0 && timeRemaining() <= 10"
         >
           <lucide-angular [img]="ClockIcon" class="w-2.5 h-2.5" />
-          {{ timeRemaining() }}s
+          {{ timeRemaining() < 0 ? 'No timeout' : timeRemaining() + 's' }}
         </span>
       </div>
 
@@ -264,6 +264,13 @@ export class QuestionCardComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
+    // TASK_2025_215: timeoutAt === 0 means "no timeout — block indefinitely"
+    // Skip timer entirely when no timeout is set
+    if (this.request().timeoutAt <= 0) {
+      this.timeRemaining.set(-1); // Sentinel: no timeout
+      return;
+    }
+
     this.updateTimeRemaining();
     this.timerInterval = setInterval(() => {
       const remaining = this.updateTimeRemaining();

@@ -18,6 +18,12 @@ import {
   Trash2,
   Github,
   LogOut,
+  Bot,
+  Globe,
+  Sparkles,
+  Zap,
+  Terminal,
+  AlertTriangle,
 } from 'lucide-angular';
 import { AuthStateService, ClaudeRpcService } from '@ptah-extension/core';
 import type {
@@ -73,6 +79,12 @@ export class AuthConfigComponent implements OnInit {
   readonly Trash2Icon = Trash2;
   readonly GithubIcon = Github;
   readonly LogOutIcon = LogOut;
+  readonly BotIcon = Bot;
+  readonly GlobeIcon = Globe;
+  readonly SparklesIcon = Sparkles;
+  readonly ZapIcon = Zap;
+  readonly TerminalIcon = Terminal;
+  readonly AlertTriangleIcon = AlertTriangle;
 
   // --- Local form signals (text input values only) ---
 
@@ -104,10 +116,42 @@ export class AuthConfigComponent implements OnInit {
    */
   readonly selectedProvider = this.authState.selectedProvider;
 
-  /** Whether the selected provider uses OAuth (e.g., GitHub Copilot) (TASK_2025_191) */
+  /** Whether the selected provider uses OAuth (e.g., GitHub Copilot, OpenAI Codex) (TASK_2025_191) */
   readonly isOAuthProvider = computed(() => {
     const provider = this.selectedProvider();
     return provider?.authType === 'oauth';
+  });
+
+  /** Whether the selected provider is GitHub Copilot (uses GitHub OAuth login) */
+  readonly isCopilotProvider = computed(() => {
+    return this.selectedProvider()?.id === 'github-copilot';
+  });
+
+  /** Whether the selected provider is OpenAI Codex (uses file-based auth from ~/.codex/auth.json) */
+  readonly isCodexProvider = computed(() => {
+    return this.selectedProvider()?.id === 'openai-codex';
+  });
+
+  /**
+   * Computed: which tile is currently active in the provider tile grid.
+   * Claude tile is active when authMethod is 'apiKey' or 'oauth'.
+   * Provider tiles are active when authMethod is 'openrouter' or 'auto'.
+   */
+  readonly selectedTileId = computed(() => {
+    const method = this.authState.authMethod();
+    if (method === 'apiKey' || method === 'oauth') {
+      return 'claude';
+    }
+    return this.authState.selectedProviderId();
+  });
+
+  /**
+   * Computed: which Claude auth mode is active ('apiKey' or 'oauth').
+   * Defaults to 'apiKey' when authMethod is neither.
+   */
+  readonly claudeAuthMode = computed<'apiKey' | 'oauth'>(() => {
+    const method = this.authState.authMethod();
+    return method === 'oauth' ? 'oauth' : 'apiKey';
   });
 
   /**
@@ -126,6 +170,21 @@ export class AuthConfigComponent implements OnInit {
     const hasExistingOAuth = this.authState.hasOAuthToken();
     const hasExistingApiKey = this.authState.hasApiKey();
     const hasExistingProviderKey = this.authState.hasProviderKey();
+
+    // Claude tile: check credential matching the active auth mode
+    if (this.selectedTileId() === 'claude') {
+      if (this.claudeAuthMode() === 'oauth') {
+        return hasNewOAuth || hasExistingOAuth;
+      }
+      return hasNewApiKey || hasExistingApiKey;
+    }
+
+    // OAuth providers (Copilot/Codex) are ready when authenticated
+    if (this.isOAuthProvider()) {
+      return this.isCopilotProvider()
+        ? this.authState.copilotAuthenticated()
+        : true; // Codex uses file-based auth, always "ready" if selected
+    }
 
     switch (method) {
       case 'oauth':
@@ -151,6 +210,11 @@ export class AuthConfigComponent implements OnInit {
   /** Trigger Copilot OAuth login (TASK_2025_191) */
   async copilotLogin(): Promise<void> {
     await this.authState.copilotLogin();
+  }
+
+  /** Trigger Codex CLI login via terminal (TASK_2025_199) */
+  async codexLogin(): Promise<void> {
+    await this.authState.codexLogin();
   }
 
   /** Disconnect Copilot OAuth (TASK_2025_191) */
@@ -198,9 +262,19 @@ export class AuthConfigComponent implements OnInit {
     const currentMethod = this.authState.authMethod();
     const params: AuthSaveSettingsParams = {
       authMethod: currentMethod,
-      claudeOAuthToken: this.oauthToken().trim() || undefined,
-      anthropicApiKey: this.apiKey().trim() || undefined,
-      openrouterApiKey: this.providerKey().trim() || undefined,
+      // Only send credentials relevant to the selected auth method
+      claudeOAuthToken:
+        currentMethod === 'oauth'
+          ? this.oauthToken().trim() || undefined
+          : undefined,
+      anthropicApiKey:
+        currentMethod === 'apiKey'
+          ? this.apiKey().trim() || undefined
+          : undefined,
+      openrouterApiKey:
+        currentMethod === 'openrouter' || currentMethod === 'auto'
+          ? this.providerKey().trim() || undefined
+          : undefined,
       anthropicProviderId: this.authState.selectedProviderId(),
     };
 
@@ -265,6 +339,36 @@ export class AuthConfigComponent implements OnInit {
     // Query backend for key status of the newly selected provider
     // This correctly updates the badge without a full auth status refresh
     await this.authState.checkProviderKeyStatus(providerId);
+  }
+
+  /**
+   * Handle tile selection from the provider tile grid.
+   * Maps each tile to the appropriate (authMethod, selectedProviderId) pair.
+   */
+  /**
+   * Switch between API Key and OAuth within the Claude auth section.
+   */
+  onClaudeAuthModeChange(mode: 'apiKey' | 'oauth'): void {
+    this.authState.setAuthMethod(mode);
+    this.isReplacingOAuth.set(false);
+    this.isReplacingApiKey.set(false);
+  }
+
+  onTileSelect(tileId: string): void {
+    if (tileId === 'claude') {
+      // Preserve current claude auth mode if already on claude tile
+      const current = this.authState.authMethod();
+      if (current !== 'apiKey' && current !== 'oauth') {
+        this.authState.setAuthMethod('apiKey');
+      }
+    } else {
+      this.authState.setAuthMethod('openrouter');
+      this.authState.setSelectedProviderId(tileId);
+      this.authState.checkProviderKeyStatus(tileId);
+    }
+    this.isReplacingOAuth.set(false);
+    this.isReplacingApiKey.set(false);
+    this.isReplacingProviderKey.set(false);
   }
 
   /**

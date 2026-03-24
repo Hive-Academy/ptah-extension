@@ -1,0 +1,43 @@
+{
+  "name": "@ptah-extension/platform-electron",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/backend/platform-electron/src",
+  "projectType": "library",
+  "tags": ["scope:electron", "type:feature"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/backend/platform-electron",
+        "main": "libs/backend/platform-electron/src/index.ts",
+        "tsConfig": "libs/backend/platform-electron/tsconfig.lib.json",
+        "assets": ["libs/backend/platform-electron/*.md"],
+        "format": ["cjs"],
+        "external": [
+          "tsyringe",
+          "reflect-metadata",
+          "electron",
+          "chokidar",
+          "fast-glob"
+        ]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+      "options": {
+        "jestConfig": "libs/backend/platform-electron/jest.config.ts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "tsc --noEmit --project libs/backend/platform-electron/tsconfig.lib.json"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    }
+  }
+}

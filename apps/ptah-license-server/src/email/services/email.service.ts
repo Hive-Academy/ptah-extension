@@ -179,37 +179,53 @@ export class EmailService {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Your Ptah License Key</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          h1 { color: #4A5568; margin-bottom: 20px; }
-          .license-key { background-color: #F7FAFC; border: 2px solid #E2E8F0; border-radius: 8px; padding: 16px; font-family: 'Courier New', monospace; font-size: 14px; word-break: break-all; margin: 20px 0; }
-          .plan-badge { display: inline-block; background-color: #48BB78; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 10px; }
-          ol { padding-left: 20px; }
-          li { margin-bottom: 8px; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
-          a { color: #4299E1; text-decoration: none; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 32px 24px; text-align: center; }
+          .header h1 { color: #0a0a0a; margin: 0; font-size: 28px; font-weight: 700; }
+          .header p { color: #0a0a0a; opacity: 0.8; margin: 8px 0 0; font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .plan-badge { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 4px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .license-key { background-color: #0f172a; border: 2px solid #d4af37; border-radius: 8px; padding: 16px; font-family: 'Courier New', monospace; font-size: 14px; word-break: break-all; margin: 20px 0; color: #f4d47c; }
+          .expiry { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
+          h2 { color: #f4d47c; font-size: 18px; margin-top: 28px; }
+          ol { padding-left: 20px; color: #cbd5e1; }
+          li { margin-bottom: 10px; }
+          li strong { color: #f1f5f9; }
+          .manage-link { display: inline-block; margin-top: 20px; color: #f4d47c; text-decoration: none; font-weight: 600; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
+          .footer a { color: #d4af37; text-decoration: none; }
         </style>
       </head>
       <body>
-        <h1>Welcome to Ptah Premium!</h1>
-        <div class="plan-badge">${plan}</div>
-        <p>Your Ptah premium license is ready. Here's your license key:</p>
-        <div class="license-key">${licenseKey}</div>
-        ${expirationText}
+        <div class="container">
+          <div class="header">
+            <h1>Welcome to the Orchestra</h1>
+            <p>Your Ptah License Is Ready</p>
+          </div>
+          <div class="content">
+            <div class="plan-badge">${plan}</div>
+            <p>You now have access to Ptah's full AI coding orchestra — 4 agent runtimes, 200+ LLM models, and 14 MCP tools, all unified in VS Code.</p>
+            <p style="color: #94a3b8; font-size: 14px;">Here's your license key:</p>
+            <div class="license-key">${licenseKey}</div>
+            ${expirationText}
 
-        <h2>Setup Instructions:</h2>
-        <ol>
-          <li>Open VS Code settings (<strong>Cmd+,</strong> on Mac or <strong>Ctrl+,</strong> on Windows/Linux)</li>
-          <li>Search for <strong>"Ptah"</strong> in the settings search bar</li>
-          <li>Find <strong>"Ptah: License Key"</strong> setting</li>
-          <li>Paste your license key in the input field</li>
-          <li>Reload VS Code window (<strong>Cmd+Shift+P</strong> → "Reload Window")</li>
-        </ol>
+            <h2>Setup in 5 Steps</h2>
+            <ol>
+              <li>Open VS Code settings (<strong>Cmd+,</strong> on Mac or <strong>Ctrl+,</strong> on Windows/Linux)</li>
+              <li>Search for <strong>"Ptah"</strong> in the settings search bar</li>
+              <li>Find <strong>"Ptah: License Key"</strong> setting</li>
+              <li>Paste your license key in the input field</li>
+              <li>Reload VS Code window (<strong>Cmd+Shift+P</strong> → "Reload Window")</li>
+            </ol>
 
-        <p>Manage your license at: <a href="${frontendUrl}/portal/dashboard">${frontendUrl}/portal/dashboard</a></p>
-
-        <div class="footer">
-          <p>Need help? Reply to this email or reach out to our support team.</p>
-          <p>- The Ptah Team</p>
+            <a href="${frontendUrl}/portal/dashboard" class="manage-link">Manage your license →</a>
+          </div>
+          <div class="footer">
+            <p>Need help? Reply to this email.</p>
+            <p>— The Ptah Team</p>
+          </div>
         </div>
       </body>
       </html>
@@ -234,29 +250,43 @@ export class EmailService {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Login to Ptah Portal</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          h1 { color: #4A5568; margin-bottom: 20px; }
-          .login-button { display: inline-block; background-color: #4299E1; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
-          .warning { background-color: #FFF5F5; border-left: 4px solid #FC8181; padding: 12px; margin: 20px 0; border-radius: 4px; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 28px 24px; text-align: center; }
+          .header h1 { color: #0a0a0a; margin: 0; font-size: 24px; font-weight: 700; }
+          .content { background-color: #1e293b; padding: 32px 24px; text-align: center; }
+          .login-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 40px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 24px 0; font-size: 16px; }
+          .warning { background-color: #0f172a; border-left: 4px solid #d4af37; padding: 12px 16px; margin: 24px 0; border-radius: 4px; text-align: left; }
+          .warning strong { color: #f4d47c; }
+          .fallback { text-align: left; margin-top: 24px; color: #94a3b8; font-size: 14px; }
+          .fallback-link { word-break: break-all; color: #f4d47c; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
         </style>
       </head>
       <body>
-        <h1>Login to Ptah Portal</h1>
-        <p>Click the button below to access your Ptah Portal:</p>
-        <a href="${magicLink}" class="login-button">Login to Portal</a>
+        <div class="container">
+          <div class="header">
+            <h1>Ptah Portal Login</h1>
+          </div>
+          <div class="content">
+            <p>Click below to access your Ptah Portal:</p>
+            <a href="${magicLink}" class="login-button">Enter the Portal</a>
 
-        <div class="warning">
-          <strong>⏱️ This link expires in 2 minutes</strong><br>
-          Please click the link soon to avoid expiration.
-        </div>
+            <div class="warning">
+              <strong>Link expires in 2 minutes</strong><br>
+              <span style="color: #94a3b8;">Click the link promptly to avoid expiration.</span>
+            </div>
 
-        <p>If the button doesn't work, copy and paste this link into your browser:</p>
-        <p style="word-break: break-all; color: #4299E1;">${magicLink}</p>
-
-        <div class="footer">
-          <p><strong>Security Notice:</strong> Didn't request this login link? You can safely ignore this email.</p>
-          <p>- The Ptah Team</p>
+            <div class="fallback">
+              <p>If the button doesn't work, copy and paste this link into your browser:</p>
+              <p class="fallback-link">${magicLink}</p>
+            </div>
+          </div>
+          <div class="footer">
+            <p><strong style="color: #94a3b8;">Security Notice:</strong> Didn't request this? You can safely ignore this email.</p>
+            <p>— The Ptah Team</p>
+          </div>
         </div>
       </body>
       </html>
@@ -540,51 +570,62 @@ export class EmailService {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Your Ptah Pro trial ends in 7 days</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          h1 { color: #4A5568; margin-bottom: 20px; }
-          .countdown-badge { display: inline-block; background-color: #3182CE; color: white; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
-          .feature-list { background-color: #F7FAFC; border-radius: 8px; padding: 16px; margin: 20px 0; }
-          .feature-item { display: flex; align-items: center; margin-bottom: 8px; }
-          .feature-icon { width: 20px; height: 20px; margin-right: 8px; color: #48BB78; }
-          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 28px 24px; text-align: center; }
+          .header h1 { color: #0a0a0a; margin: 0; font-size: 24px; font-weight: 700; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .countdown-badge { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 5px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .feature-list { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin: 24px 0; }
+          .feature-item { margin-bottom: 10px; color: #cbd5e1; }
+          .feature-icon { color: #d4af37; margin-right: 8px; }
+          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 20px 0; font-size: 15px; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
         </style>
       </head>
       <body>
-        <h1>${greeting},</h1>
-
-        <div class="countdown-badge">7 days remaining</div>
-
-        <p>Your Ptah Pro trial will end on <strong>${endDate}</strong>.</p>
-
-        <p>You've been enjoying these Pro features:</p>
-
-        <div class="feature-list">
-          <div class="feature-item">
-            <span class="feature-icon">✓</span>
-            <span>Advanced multi-agent orchestration</span>
+        <div class="container">
+          <div class="header">
+            <h1>7 Days Left in Your Trial</h1>
           </div>
-          <div class="feature-item">
-            <span class="feature-icon">✓</span>
-            <span>Priority API access & faster responses</span>
-          </div>
-          <div class="feature-item">
-            <span class="feature-icon">✓</span>
-            <span>Extended context window & memory</span>
-          </div>
-          <div class="feature-item">
-            <span class="feature-icon">✓</span>
-            <span>Custom agent creation & MCP tools</span>
-          </div>
-        </div>
+          <div class="content">
+            <p>${greeting},</p>
 
-        <p>Upgrade now to keep using these features after your trial ends.</p>
+            <div class="countdown-badge">7 days remaining</div>
 
-        <a href="${frontendUrl}/pricing" class="cta-button">Upgrade Now</a>
+            <p>Your Ptah Pro trial ends on <strong style="color: #f4d47c;">${endDate}</strong>.</p>
 
-        <div class="footer">
-          <p>If you have any questions, just reply to this email.</p>
-          <p>- The Ptah Team</p>
+            <p>Here's the orchestra you've been commanding:</p>
+
+            <div class="feature-list">
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>4 agent runtimes — Gemini CLI, Codex, Copilot, Ptah CLI</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>200+ LLM models via unified provider switching</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>14 MCP tools for workspace intelligence</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>Skill plugins from skills.sh registry</span>
+              </div>
+            </div>
+
+            <p>Upgrade now to keep the full orchestra after your trial ends.</p>
+
+            <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>
+
+          </div>
+          <div class="footer">
+            <p>Questions? Reply to this email.</p>
+            <p>— The Ptah Team</p>
+          </div>
         </div>
       </body>
       </html>
@@ -621,58 +662,69 @@ export class EmailService {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>3 days left in your Ptah Pro trial</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          h1 { color: #4A5568; margin-bottom: 20px; }
-          .countdown-badge { display: inline-block; background-color: #ED8936; color: white; padding: 4px 12px; border-radius: 12px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
-          .comparison-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          .comparison-table th, .comparison-table td { padding: 12px; text-align: left; border-bottom: 1px solid #E2E8F0; }
-          .comparison-table th { background-color: #F7FAFC; }
-          .check { color: #48BB78; }
-          .cross { color: #E53E3E; }
-          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 28px 24px; text-align: center; }
+          .header h1 { color: #0a0a0a; margin: 0; font-size: 24px; font-weight: 700; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .countdown-badge { display: inline-block; background-color: #b45309; color: #fff; padding: 5px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .comparison-table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+          .comparison-table th { padding: 12px; text-align: left; background-color: #0f172a; color: #f4d47c; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #d4af37; }
+          .comparison-table td { padding: 12px; text-align: left; border-bottom: 1px solid #334155; color: #cbd5e1; }
+          .check { color: #d4af37; font-weight: 600; }
+          .cross { color: #64748b; }
+          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 20px 0; font-size: 15px; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
         </style>
       </head>
       <body>
-        <h1>${greeting},</h1>
+        <div class="container">
+          <div class="header">
+            <h1>3 Days Left — Don't Lose the Orchestra</h1>
+          </div>
+          <div class="content">
+            <p>${greeting},</p>
 
-        <div class="countdown-badge">Only 3 days left</div>
+            <div class="countdown-badge">Only 3 days left</div>
 
-        <p>Your Ptah Pro trial ends on <strong>${endDate}</strong>. Here's what changes after your trial:</p>
+            <p>Your Ptah Pro trial ends on <strong style="color: #f4d47c;">${endDate}</strong>. Here's what changes:</p>
 
-        <table class="comparison-table">
-          <tr>
-            <th>Feature</th>
-            <th>Pro</th>
-            <th>Community</th>
-          </tr>
-          <tr>
-            <td>Multi-agent orchestration</td>
-            <td class="check">✓ Full</td>
-            <td class="cross">✗ Limited</td>
-          </tr>
-          <tr>
-            <td>Context window</td>
-            <td class="check">✓ Extended</td>
-            <td class="cross">✗ Standard</td>
-          </tr>
-          <tr>
-            <td>Custom agents & MCP</td>
-            <td class="check">✓ Unlimited</td>
-            <td class="cross">✗ None</td>
-          </tr>
-          <tr>
-            <td>Priority support</td>
-            <td class="check">✓ Yes</td>
-            <td class="cross">✗ No</td>
-          </tr>
-        </table>
+            <table class="comparison-table">
+              <tr>
+                <th>Capability</th>
+                <th>Pro</th>
+                <th>Community</th>
+              </tr>
+              <tr>
+                <td>Agent orchestration</td>
+                <td class="check">4 runtimes (Gemini, Codex, Copilot, Ptah CLI)</td>
+                <td class="cross">Single agent</td>
+              </tr>
+              <tr>
+                <td>LLM models</td>
+                <td class="check">200+ via unified providers</td>
+                <td class="cross">Limited selection</td>
+              </tr>
+              <tr>
+                <td>MCP tools</td>
+                <td class="check">14 workspace tools</td>
+                <td class="cross">Basic tools only</td>
+              </tr>
+              <tr>
+                <td>Skill plugins</td>
+                <td class="check">Full skills.sh access</td>
+                <td class="cross">None</td>
+              </tr>
+            </table>
 
-        <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>
+            <a href="${frontendUrl}/pricing" class="cta-button">Keep Full Access</a>
 
-        <div class="footer">
-          <p>Questions? Reply to this email and we'll help you out.</p>
-          <p>- The Ptah Team</p>
+          </div>
+          <div class="footer">
+            <p>Questions? Reply to this email.</p>
+            <p>— The Ptah Team</p>
+          </div>
         </div>
       </body>
       </html>
@@ -711,36 +763,50 @@ export class EmailService {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Your Ptah Pro trial ends tomorrow</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          h1 { color: #E53E3E; margin-bottom: 20px; }
-          .urgent-badge { display: inline-block; background-color: #E53E3E; color: white; padding: 6px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; margin-bottom: 16px; }
-          .warning-box { background-color: #FFF5F5; border-left: 4px solid #E53E3E; padding: 16px; margin: 20px 0; border-radius: 4px; }
-          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; font-size: 16px; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); padding: 28px 24px; text-align: center; }
+          .header h1 { color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .urgent-badge { display: inline-block; background-color: #dc2626; color: #fff; padding: 5px 16px; border-radius: 12px; font-size: 13px; font-weight: 700; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+          .warning-box { background-color: #0f172a; border-left: 4px solid #dc2626; padding: 16px; margin: 24px 0; border-radius: 4px; }
+          .warning-box strong { color: #fca5a5; }
+          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 40px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 24px 0; font-size: 16px; }
+          .soft-note { color: #64748b; font-size: 14px; margin-top: 20px; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
         </style>
       </head>
       <body>
-        <h1>${greeting}</h1>
+        <div class="container">
+          <div class="header">
+            <h1>Your Trial Ends Tomorrow</h1>
+          </div>
+          <div class="content">
+            <p style="font-size: 18px; font-weight: 600;">${greeting}</p>
 
-        <div class="urgent-badge">Trial ends tomorrow</div>
+            <div class="urgent-badge">Final day</div>
 
-        <p>Your Ptah Pro trial expires on <strong>${endDate}</strong>.</p>
+            <p>Your Ptah Pro trial expires on <strong style="color: #fca5a5;">${endDate}</strong>.</p>
 
-        <div class="warning-box">
-          <strong>What happens tomorrow:</strong><br>
-          You'll be moved to the Community tier with limited features. Upgrade now to keep full access to Pro features without interruption.
-        </div>
+            <div class="warning-box">
+              <strong>Tomorrow you lose access to:</strong><br>
+              <span style="color: #cbd5e1;">4 agent runtimes, 200+ LLM models, 14 MCP tools, skill plugins, and fire-and-check orchestration. You'll be moved to the Community tier with a single agent and basic tools.</span>
+            </div>
 
-        <a href="${frontendUrl}/pricing" class="cta-button">Upgrade Now</a>
+            <div style="text-align: center;">
+              <a href="${frontendUrl}/pricing" class="cta-button">Keep the Full Orchestra</a>
+            </div>
 
-        <p style="color: #718096; font-size: 14px;">
-          Not ready to upgrade? No worries - you can continue using Ptah with the Community tier,
-          and upgrade anytime to restore Pro features.
-        </p>
+            <p class="soft-note">
+              Not ready? No worries — you can continue with the Community tier for free, and upgrade anytime to restore full access.
+            </p>
 
-        <div class="footer">
-          <p>Questions? Reply to this email.</p>
-          <p>- The Ptah Team</p>
+          </div>
+          <div class="footer">
+            <p>Questions? Reply to this email.</p>
+            <p>— The Ptah Team</p>
+          </div>
         </div>
       </body>
       </html>
@@ -770,43 +836,64 @@ export class EmailService {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Your Ptah Pro trial has ended</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          h1 { color: #4A5568; margin-bottom: 20px; }
-          .status-box { background-color: #F7FAFC; border-radius: 8px; padding: 16px; margin: 20px 0; text-align: center; }
-          .status-icon { font-size: 48px; margin-bottom: 12px; }
-          .community-info { background-color: #EBF8FF; border-radius: 8px; padding: 16px; margin: 20px 0; }
-          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #334155 0%, #1e293b 100%); padding: 28px 24px; text-align: center; }
+          .header h1 { color: #f1f5f9; margin: 0; font-size: 24px; font-weight: 700; }
+          .header p { color: #94a3b8; margin: 8px 0 0; font-size: 14px; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .community-info { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin: 24px 0; }
+          .community-info strong { color: #94a3b8; }
+          .restore-section { margin-top: 28px; }
+          .restore-section h3 { color: #f4d47c; font-size: 16px; margin-bottom: 12px; }
+          .feature-item { margin-bottom: 8px; color: #cbd5e1; }
+          .feature-icon { color: #d4af37; margin-right: 8px; }
+          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 20px 0; font-size: 15px; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
         </style>
       </head>
       <body>
-        <h1>${greeting},</h1>
+        <div class="container">
+          <div class="header">
+            <h1>Your Pro Trial Has Ended</h1>
+            <p>You've been moved to the Community tier</p>
+          </div>
+          <div class="content">
+            <p>${greeting},</p>
 
-        <div class="status-box">
-          <div class="status-icon">📅</div>
-          <p><strong>Your 14-day Pro trial has ended</strong></p>
-        </div>
+            <div class="community-info">
+              <strong>What's changed:</strong>
+              <p style="color: #cbd5e1;">You're now on the Community tier with single-agent access and basic tools. You can continue using Ptah for free.</p>
+            </div>
 
-        <div class="community-info">
-          <p><strong>What's changed:</strong></p>
-          <p>You now have access to Ptah's Community tier, which includes basic AI assistance
-          and standard features. You can continue using Ptah for free!</p>
-        </div>
+            <div class="restore-section">
+              <h3>Restore the full orchestra anytime:</h3>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>4 agent runtimes — spawn, delegate, conquer</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>200+ LLM models — one harness, every model</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>14 MCP tools & skill plugins from skills.sh</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>Setup Wizard — instant project awareness from day one</span>
+              </div>
+            </div>
 
-        <p>Want to restore full Pro access? Upgrade anytime to unlock all premium features:</p>
+            <a href="${frontendUrl}/pricing" class="cta-button">View Pro Plans</a>
 
-        <ul>
-          <li>Advanced multi-agent orchestration</li>
-          <li>Extended context window & memory</li>
-          <li>Custom agent creation & MCP tools</li>
-          <li>Priority support</li>
-        </ul>
-
-        <a href="${frontendUrl}/pricing" class="cta-button">View Plans</a>
-
-        <div class="footer">
-          <p>Thank you for trying Ptah Pro! If you have feedback, we'd love to hear it.</p>
-          <p>- The Ptah Team</p>
+          </div>
+          <div class="footer">
+            <p>Thank you for trying Ptah Pro. We'd love your feedback — just reply.</p>
+            <p>— The Ptah Team</p>
+          </div>
         </div>
       </body>
       </html>
@@ -839,61 +926,66 @@ export class EmailService {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Welcome to Ptah Community</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          h1 { color: #4A5568; margin-bottom: 20px; }
-          .welcome-box { background-color: #F0FFF4; border: 1px solid #9AE6B4; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center; }
-          .welcome-icon { font-size: 48px; margin-bottom: 12px; }
-          .feature-list { background-color: #F7FAFC; border-radius: 8px; padding: 16px; margin: 20px 0; }
-          .feature-item { display: flex; align-items: center; margin-bottom: 8px; }
-          .feature-icon { width: 20px; height: 20px; margin-right: 8px; color: #48BB78; }
-          .upgrade-box { background-color: #EBF8FF; border-radius: 8px; padding: 16px; margin: 20px 0; }
-          .cta-button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; margin: 20px 0; }
-          .cta-secondary { display: inline-block; color: #4F46E5; text-decoration: none; font-weight: 600; margin-left: 16px; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 28px 24px; text-align: center; }
+          .header h1 { color: #0a0a0a; margin: 0; font-size: 24px; font-weight: 700; }
+          .header p { color: #0a0a0a; opacity: 0.8; margin: 8px 0 0; font-size: 14px; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .feature-list { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin: 24px 0; }
+          .feature-item { margin-bottom: 10px; color: #cbd5e1; }
+          .feature-icon { color: #d4af37; margin-right: 8px; }
+          .upgrade-box { background-color: #0f172a; border: 1px solid #d4af37; border-radius: 8px; padding: 20px; margin: 24px 0; }
+          .upgrade-box strong { color: #f4d47c; }
+          .cta-button { display: inline-block; background-color: #d4af37; color: #0a0a0a; padding: 14px 36px; border-radius: 6px; text-decoration: none; font-weight: 700; margin: 20px 8px 20px 0; font-size: 15px; }
+          .cta-secondary { display: inline-block; color: #f4d47c; text-decoration: none; font-weight: 600; font-size: 14px; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
         </style>
       </head>
       <body>
-        <h1>${greeting},</h1>
-
-        <div class="welcome-box">
-          <div class="welcome-icon">🎉</div>
-          <p><strong>Welcome to Ptah Community!</strong></p>
-          <p>Your account is ready - you can keep using Ptah for free.</p>
-        </div>
-
-        <p>Your Pro trial has ended, but you still have access to great features:</p>
-
-        <div class="feature-list">
-          <div class="feature-item">
-            <span class="feature-icon">✓</span>
-            <span>AI-powered code assistance</span>
+        <div class="container">
+          <div class="header">
+            <h1>Welcome to Ptah Community</h1>
+            <p>Your account is ready — keep coding for free</p>
           </div>
-          <div class="feature-item">
-            <span class="feature-icon">✓</span>
-            <span>Chat with Claude in VS Code</span>
-          </div>
-          <div class="feature-item">
-            <span class="feature-icon">✓</span>
-            <span>Basic code generation & editing</span>
-          </div>
-          <div class="feature-item">
-            <span class="feature-icon">✓</span>
-            <span>Session history & management</span>
-          </div>
-        </div>
+          <div class="content">
+            <p>${greeting},</p>
 
-        <div class="upgrade-box">
-          <p><strong>Want more power?</strong></p>
-          <p>Upgrade to Pro anytime for advanced features like multi-agent orchestration,
-          MCP tools, workspace intelligence, and priority support.</p>
-        </div>
+            <p>Your Pro trial has ended, but the Community tier still gives you solid ground to build on:</p>
 
-        <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>
-        <a href="${frontendUrl}/profile" class="cta-secondary">View Your Account →</a>
+            <div class="feature-list">
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>AI-powered code assistance in VS Code</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>Single-agent chat with Claude</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>Code generation, editing, and explanations</span>
+              </div>
+              <div class="feature-item">
+                <span class="feature-icon">&#10003;</span>
+                <span>Session history and management</span>
+              </div>
+            </div>
 
-        <div class="footer">
-          <p>Thank you for being part of the Ptah community!</p>
-          <p>- The Ptah Team</p>
+            <div class="upgrade-box">
+              <strong>Ready for the full orchestra?</strong>
+              <p style="color: #cbd5e1; margin: 8px 0 0;">Upgrade to Pro for 4 agent runtimes, 200+ LLM models, 14 MCP tools, skill plugins, and fire-and-check orchestration.</p>
+            </div>
+
+            <a href="${frontendUrl}/pricing" class="cta-button">Upgrade to Pro</a>
+            <a href="${frontendUrl}/profile" class="cta-secondary">View Your Account &#8594;</a>
+
+          </div>
+          <div class="footer">
+            <p>Thank you for being part of the Ptah community.</p>
+            <p>— The Ptah Team</p>
+          </div>
         </div>
       </body>
       </html>
@@ -1019,44 +1111,53 @@ export class EmailService {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Session Request Received</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
-          h1 { color: #4A5568; margin-bottom: 20px; }
-          .status-box { background-color: #F0FFF4; border: 1px solid #9AE6B4; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center; }
-          .status-icon { font-size: 48px; margin-bottom: 12px; }
-          .details { background-color: #F7FAFC; border-radius: 8px; padding: 16px; margin: 20px 0; }
-          .next-steps { background-color: #EBF8FF; border-radius: 8px; padding: 16px; margin: 20px 0; }
-          .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 14px; color: #718096; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #f1f5f9; margin: 0; padding: 0; background-color: #0f172a; }
+          .container { max-width: 600px; margin: 0 auto; }
+          .header { background: linear-gradient(135deg, #d4af37 0%, #8a6d10 100%); padding: 28px 24px; text-align: center; }
+          .header h1 { color: #0a0a0a; margin: 0; font-size: 24px; font-weight: 700; }
+          .content { background-color: #1e293b; padding: 32px 24px; }
+          .details { background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin: 24px 0; }
+          .details p { margin: 6px 0; color: #cbd5e1; }
+          .details strong { color: #f4d47c; }
+          .next-steps { background-color: #0f172a; border-left: 4px solid #d4af37; border-radius: 4px; padding: 20px; margin: 24px 0; }
+          .next-steps strong { color: #f4d47c; }
+          .next-steps ol { padding-left: 20px; color: #cbd5e1; }
+          .next-steps li { margin-bottom: 8px; }
+          .footer { background-color: #0f172a; padding: 24px; text-align: center; border-top: 1px solid #334155; }
+          .footer p { color: #64748b; font-size: 13px; margin: 4px 0; }
         </style>
       </head>
       <body>
-        <h1>Session Request Received!</h1>
+        <div class="container">
+          <div class="header">
+            <h1>Session Request Received</h1>
+          </div>
+          <div class="content">
+            <p>Your session request has been submitted successfully.</p>
 
-        <div class="status-box">
-          <div class="status-icon">✅</div>
-          <p><strong>Your session request has been submitted</strong></p>
-        </div>
+            <div class="details">
+              <p><strong>Topic:</strong> ${sessionTopicId}</p>
+              <p><strong>Duration:</strong> 2 hours</p>
+              <p><strong>Price:</strong> ${
+                isFreeSession ? 'FREE (your first session!)' : '$100'
+              }</p>
+            </div>
 
-        <div class="details">
-          <p><strong>Topic:</strong> ${sessionTopicId}</p>
-          <p><strong>Duration:</strong> 2 hours</p>
-          <p><strong>Price:</strong> ${
-            isFreeSession ? 'FREE (your first session!)' : '$100'
-          }</p>
-        </div>
+            <div class="next-steps">
+              <strong>What happens next:</strong>
+              <ol>
+                <li>Our team will review your request</li>
+                <li>We'll reach out via email with available dates</li>
+                <li>You confirm your preferred date and time</li>
+                <li>We'll send a calendar invite with the meeting link</li>
+              </ol>
+            </div>
 
-        <div class="next-steps">
-          <p><strong>What happens next:</strong></p>
-          <ol>
-            <li>Our team will review your request</li>
-            <li>We'll reach out via email with available dates</li>
-            <li>You'll confirm your preferred date and time</li>
-            <li>We'll send you a calendar invite with the meeting link</li>
-          </ol>
-        </div>
-
-        <div class="footer">
-          <p>Questions? Reply to this email and we'll help you out.</p>
-          <p>- The Ptah Team</p>
+          </div>
+          <div class="footer">
+            <p>Questions? Reply to this email.</p>
+            <p>— The Ptah Team</p>
+          </div>
         </div>
       </body>
       </html>

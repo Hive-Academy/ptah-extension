@@ -124,9 +124,12 @@ export class PtahExtension implements vscode.Disposable {
     const logger = this.logger;
     const panelCommand = vscode.commands.registerCommand(
       'ptah.openFullPanel',
-      async () => {
+      async (args?: {
+        initialSessionId?: string;
+        initialSessionName?: string;
+      }) => {
         try {
-          await provider.createPanel();
+          await provider.createPanel(args);
         } catch (err) {
           logger.error('Failed to create editor panel', {
             error: err instanceof Error ? err.message : String(err),
@@ -135,6 +138,29 @@ export class PtahExtension implements vscode.Disposable {
       }
     );
     this.disposables.push(panelCommand);
+
+    const dashboardCommand = vscode.commands.registerCommand(
+      'ptah.openDashboard',
+      async () => {
+        try {
+          await provider.createPanel({ initialView: 'analytics' });
+          logger.info('Dashboard panel opened');
+        } catch (err) {
+          logger.error('Failed to open dashboard panel', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    );
+    this.disposables.push(dashboardCommand);
+
+    const toggleChatCommand = vscode.commands.registerCommand(
+      'ptah.toggleChat',
+      () => {
+        vscode.commands.executeCommand('ptah.main.focus');
+      }
+    );
+    this.disposables.push(toggleChatCommand);
 
     this.logger.info('Webview providers and panel command registered');
   }

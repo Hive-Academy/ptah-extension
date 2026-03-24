@@ -24,6 +24,12 @@ Complete checklist for deploying Ptah to production across all layers.
 │  VS Code Marketplace                                    │
 │  Ptah Extension (.vsix) — URLs baked in at build time   │
 └─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│  GitHub Releases                                        │
+│  Ptah Desktop App (Electron) — Win/Mac/Linux installers │
+│  Triggered by push to release/electron branch           │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -284,7 +290,70 @@ See [INSTALLATION.md](../INSTALLATION.md) for detailed installation instructions
 
 ---
 
-## 6. DNS Configuration
+## 6. Electron Desktop App
+
+The Electron desktop app provides a standalone desktop experience independent of VS Code. Builds are distributed via GitHub Releases.
+
+### Version Management
+
+The version is managed in `apps/ptah-electron/package.json`. Bump this before each release.
+
+### Build & Release
+
+Releases are fully automated via `.github/workflows/publish-electron.yml`:
+
+1. Bump version in `apps/ptah-electron/package.json`
+2. Push to `release/electron` branch
+3. CI builds for all platforms in parallel, creates git tag, and publishes a public GitHub Release
+
+```bash
+# Release a new version
+# 1. Update version
+cd apps/ptah-electron
+# Edit package.json: "version": "0.2.0"
+
+# 2. Push to release branch
+git checkout release/electron
+git merge main
+git push origin release/electron
+# CI handles the rest
+```
+
+### Platform Outputs
+
+| Platform | Format        | Target                     |
+| -------- | ------------- | -------------------------- |
+| Windows  | NSIS (.exe)   | `Ptah-Setup-{version}.exe` |
+| macOS    | DMG + ZIP     | `Ptah-{version}.dmg`       |
+| Linux    | AppImage      | `Ptah-{version}.AppImage`  |
+| Linux    | Debian (.deb) | `ptah_{version}_amd64.deb` |
+
+### Configuration
+
+- **electron-builder.yml**: `apps/ptah-electron/electron-builder.yml`
+- **App ID**: `com.ptah.desktop`
+- **Publish target**: GitHub Releases (`Hive-Academy/ptah-extension`)
+
+### Download Links
+
+The landing page "Download Desktop App" buttons point to:
+`https://github.com/Hive-Academy/ptah-extension/releases/latest`
+
+Users select the installer for their platform from the GitHub Release page.
+
+### Code Signing (Phase 2)
+
+Currently unsigned. Users will see platform warnings:
+
+- **Windows**: SmartScreen "unrecognized app" warning
+- **macOS**: "unidentified developer" Gatekeeper warning (users bypass via right-click → Open)
+- **Linux**: No warning (AppImage is self-contained)
+
+Code signing will be added in a future phase.
+
+---
+
+## 7. DNS Configuration
 
 | Record          | Type       | Value                                          |
 | --------------- | ---------- | ---------------------------------------------- |
@@ -296,7 +365,7 @@ SSL: App Platform handles TLS for `ptah.live` automatically. For `api.ptah.live`
 
 ---
 
-## 7. Deployment Commands
+## 8. Deployment Commands
 
 ### Landing Page (App Platform)
 
@@ -356,7 +425,7 @@ npx @vscode/vsce publish --pre-release --pat <TOKEN>
 
 ---
 
-## 8. Post-Deployment Verification
+## 9. Post-Deployment Verification
 
 | Check                   | Command / Action                                         |
 | ----------------------- | -------------------------------------------------------- |
@@ -367,11 +436,12 @@ npx @vscode/vsce publish --pre-release --pat <TOKEN>
 | Webhook delivery        | Check Paddle dashboard > Webhooks > Logs                 |
 | Email delivery          | Trigger magic link login, verify email arrives           |
 | Extension license check | Install extension, verify it connects to `api.ptah.live` |
+| Desktop app download    | Visit GitHub Releases, download installer, verify launch |
 | Logging level           | Verify no debug/verbose output in production logs        |
 
 ---
 
-## 9. Environment Defaults Reference
+## 10. Environment Defaults Reference
 
 Centralized in `libs/shared/src/lib/constants/environment.constants.ts`:
 
@@ -385,7 +455,7 @@ The license server suppresses `debug` and `verbose` NestJS logs when `NODE_ENV=p
 
 ---
 
-## 10. Secret Rotation Strategy
+## 11. Secret Rotation Strategy
 
 All secrets in `.env.prod` should be rotated on a regular schedule. Mark your calendar.
 
@@ -445,7 +515,7 @@ curl https://api.ptah.live/api/health
 
 ---
 
-## 11. Cost Summary
+## 12. Cost Summary
 
 | Service                                 | Cost              |
 | --------------------------------------- | ----------------- |
@@ -456,4 +526,5 @@ curl https://api.ptah.live/api/health
 | Resend (3,000 emails/month)             | Free              |
 | Paddle                                  | % per transaction |
 | Domain (`ptah.live`)                    | ~$12/year         |
+| GitHub Releases (Electron distribution) | Free              |
 | **Total fixed cost**                    | **~$7/month**     |

@@ -15,7 +15,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
 import { access } from 'fs/promises';
 import { join } from 'path';
 import {
@@ -66,7 +65,7 @@ const SERVICE_TAG = '[MultiPhaseAnalysis]';
 const DEFAULT_TIMEOUT_MS = 3_600_000; // 1 hour total pipeline
 const PER_PHASE_TIMEOUT_MS = 900_000; // 15 minutes per phase
 const MAX_AGENT_TURNS = 50;
-const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
+const DEFAULT_MODEL = 'default';
 const LLM_PHASE_COUNT = 4; // Phases 1-4 are LLM-based
 
 /**
@@ -114,12 +113,12 @@ export class MultiPhaseAnalysisService {
   /**
    * Execute the full multi-phase analysis pipeline.
    *
-   * @param workspaceUri - Workspace to analyze
+   * @param workspacePath - Workspace root path to analyze
    * @param options - Pipeline configuration
    * @returns Result containing the manifest on success, or an Error
    */
   async analyzeWorkspace(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     options?: MultiPhaseAnalysisOptions
   ): Promise<Result<MultiPhaseManifest, Error>> {
     const isPremium = options?.isPremium ?? false;
@@ -131,7 +130,7 @@ export class MultiPhaseAnalysisService {
       this.config.getWithDefault<string>('model.selected', DEFAULT_MODEL);
 
     this.logger.info(`${SERVICE_TAG} Starting multi-phase analysis`, {
-      workspace: workspaceUri.fsPath,
+      workspace: workspacePath,
       model,
       isPremium,
       mcpServerRunning,
@@ -166,9 +165,9 @@ export class MultiPhaseAnalysisService {
     try {
       // ---- Create slug directory ----
       // Use workspace folder name as the project description for the slug
-      const folderName = workspaceUri.fsPath.split(/[\\/]/).pop() || 'project';
+      const folderName = workspacePath.split(/[\\/]/).pop() || 'project';
       const { slugDir, slug } = await this.storageService.createSlugDir(
-        workspaceUri.fsPath,
+        workspacePath,
         folderName
       );
 
@@ -224,7 +223,7 @@ export class MultiPhaseAnalysisService {
           const text = await this.executePhase(
             i,
             slugDir,
-            workspaceUri.fsPath,
+            workspacePath,
             model,
             isPremium,
             mcpServerRunning,
@@ -303,9 +302,9 @@ export class MultiPhaseAnalysisService {
           // Phase failed -- log and continue to next phase
           const errorMessage =
             error instanceof Error ? error.message : String(error);
-          this.logger.error(`${SERVICE_TAG} Phase ${phaseConfig.id} failed`, {
-            error: errorMessage,
-          });
+          this.logger.error(
+            `${SERVICE_TAG} Phase ${phaseConfig.id} failed: ${errorMessage}`
+          );
           manifest.phases[phaseConfig.id as MultiPhaseId] = {
             status: 'failed',
             file: phaseConfig.file,

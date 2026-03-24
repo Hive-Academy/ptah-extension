@@ -23,7 +23,7 @@ import type { CompactionConfigProvider } from '../../helpers/compaction-config-p
 import type { EnhancedPromptsService } from '../../prompt-harness/enhanced-prompts/enhanced-prompts.service';
 import type { PluginLoaderService } from '../../helpers/plugin-loader.service';
 import {
-  assembleSystemPromptAppend,
+  assembleSystemPrompt,
   getActiveProviderId,
 } from '../../helpers/sdk-query-options-builder';
 import { PTAH_MCP_PORT } from '../../constants';
@@ -39,7 +39,9 @@ import type {
  */
 export interface PtahSpawnAssembly {
   readonly isPremium: boolean;
-  readonly systemPromptAppend: string | undefined;
+  /** System prompt mode: 'preset-append' uses claude_code base, 'standalone' uses Ptah harness */
+  readonly systemPromptMode: 'preset-append' | 'standalone';
+  readonly systemPromptContent: string | undefined;
   readonly mcpServers: Record<string, McpHttpServerConfig>;
   readonly plugins: SdkPluginConfig[] | undefined;
   readonly hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined;
@@ -102,7 +104,7 @@ export class PtahCliSpawnOptions {
 
     // Build system prompt with full premium capabilities
     const activeProviderId = getActiveProviderId(authEnv);
-    const systemPromptAppend = assembleSystemPromptAppend({
+    const promptResult = assembleSystemPrompt({
       providerId: activeProviderId,
       authEnv,
       isPremium,
@@ -111,9 +113,9 @@ export class PtahCliSpawnOptions {
     });
 
     // Append project guidance (available for all tiers)
-    const fullSystemPromptAppend =
+    const fullSystemPromptContent =
       [
-        systemPromptAppend,
+        promptResult.content,
         projectGuidance
           ? `\n\n## Project Guidance\n${projectGuidance}`
           : undefined,
@@ -177,7 +179,8 @@ export class PtahCliSpawnOptions {
 
     return {
       isPremium,
-      systemPromptAppend: fullSystemPromptAppend,
+      systemPromptMode: promptResult.mode,
+      systemPromptContent: fullSystemPromptContent,
       mcpServers,
       plugins,
       hooks,

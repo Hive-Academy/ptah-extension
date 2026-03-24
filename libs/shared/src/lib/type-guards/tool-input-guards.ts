@@ -939,6 +939,30 @@ export function isLSPToolInput(input: unknown): input is LSPToolInput {
 }
 
 // ============================================================================
+// AGENT DISPATCH TOOL DETECTION
+// ============================================================================
+
+/**
+ * Known tool names used by the Claude Agent SDK for subagent dispatch.
+ * SDK renamed "Task" to "Agent" in v2.1.x — both must be recognized
+ * for backward compatibility with existing JSONL session files.
+ */
+const AGENT_DISPATCH_TOOL_NAMES = new Set([
+  'Task', // SDK <= v2.0.x
+  'Agent', // SDK >= v2.1.x
+  'dispatch_agent',
+  'dispatch_subagent',
+]);
+
+/**
+ * Checks if a tool name represents a subagent dispatch tool.
+ * Supports both old ("Task") and new ("Agent") SDK naming conventions.
+ */
+export function isAgentDispatchTool(toolName: string): boolean {
+  return AGENT_DISPATCH_TOOL_NAMES.has(toolName);
+}
+
+// ============================================================================
 // TOOL OUTPUT TYPE GUARDS
 // ============================================================================
 

@@ -231,7 +231,7 @@ _Open vscode-lm-tools, show PtahAPIBuilder_
 
 ### Narration
 
-"Hidden feature number four: the complete Ptah API that Claude can access through the MCP server. Most people know about search and workspace. But there are 8 namespaces."
+"Hidden feature number four: the complete Ptah API that Claude can access through the MCP server. Most people know about search and workspace. But there are 14 namespaces."
 
 ### On-Screen
 
@@ -239,33 +239,33 @@ _Open vscode-lm-tools, show PtahAPIBuilder_
 // Full Ptah API available to Claude:
 ptah.workspace; // Project info, frameworks, monorepo
 ptah.search; // Semantic file search, relevance scoring
-ptah.symbols; // Symbol extraction, definitions, references
 ptah.diagnostics; // VS Code problems, errors, warnings
-ptah.git; // Status, history, diff, branch info
 ptah.ai; // Multi-provider LLM generation
 ptah.files; // Read, write, list, exists
-ptah.commands; // Execute any VS Code command
+ptah.ast; // Tree-sitter AST parsing
+ptah.ide.lsp; // LSP features (references, definitions)
+ptah.agent; // Background agent orchestration
+// ... and 6 more namespaces
 ```
 
 ### Narration
 
-"Let me show you the one people miss: ptah.commands."
+"Let me show you the one people miss: ptah.ide.lsp."
 
 ### Action
 
-_Demo typing in chat: "Format all TypeScript files in src/"_
+_Demo typing in chat: "Find all references to AuthService"_
 
 ### Narration
 
-"Claude can execute VS Code commands. Format document. Save all. Open file. Any command in VS Code's command palette is available to Claude through Ptah."
+"Claude can use LSP features directly. Find references. Go to definition. All the power of VS Code's Language Server Protocol is available to Claude through Ptah."
 
 ### Code Callout
 
 ```typescript
 // Claude can do this:
-await ptah.commands.execute('editor.action.formatDocument');
-await ptah.commands.execute('workbench.action.files.saveAll');
-await ptah.commands.execute('workbench.action.openSettings');
+const refs = await ptah.ide.lsp.getReferences('src/auth.ts', 15, 8);
+const def = await ptah.ide.lsp.getDefinition('src/app.ts', 10, 20);
 ```
 
 ---
@@ -339,7 +339,7 @@ _Return to iceberg, now fully revealed_
 1. Workspace Intelligence with 13 project types and context optimization
 2. Multi-provider LLM with 5 providers including free VS Code LM
 3. Project-adaptive agent generation with LLM expansion
-4. The full 8-namespace Ptah API for Claude
+4. The full 14-namespace Ptah API for Claude
 5. Native Tree-sitter AST parsing
 6. Autocomplete discovery for agents, MCPs, and commands"
 
@@ -393,7 +393,7 @@ _GitHub repo page_
 | 1:00      | File tree navigation      | Screen recording |
 | 2:00      | Provider logos            | Graphic          |
 | 3:00      | Setup wizard flow         | Screen recording |
-| 4:30      | ptah.commands demo        | Screen recording |
+| 4:30      | ptah.ide.lsp demo         | Screen recording |
 | 5:30      | AST visualization         | Custom graphic   |
 
 ## TECHNICAL REQUIREMENTS
@@ -419,7 +419,7 @@ _GitHub repo page_
 1. File tree navigation in libs/
 2. Setup wizard flow
 3. Autocomplete discovery in action
-4. ptah.commands execution
+4. ptah.ide.lsp execution
 
 ---
 

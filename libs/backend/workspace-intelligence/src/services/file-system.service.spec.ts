@@ -4,395 +4,269 @@
 
 import 'reflect-metadata'; // Required for tsyringe
 import { FileSystemService, FileSystemError } from './file-system.service';
-import * as vscode from 'vscode';
-
-// Mock VS Code module
-jest.mock('vscode', () => ({
-  Uri: {
-    file: (path: string) => ({
-      scheme: 'file',
-      fsPath: path,
-      toString: () => `file://${path}`,
-    }),
-    parse: (uri: string) => {
-      const scheme = uri.split(':')[0];
-      return { scheme, toString: () => uri };
-    },
-  },
-  FileType: {
-    File: 1,
-    Directory: 2,
-    SymbolicLink: 64,
-  },
-  workspace: {
-    fs: {
-      readFile: jest.fn(),
-      readDirectory: jest.fn(),
-      stat: jest.fn(),
-    },
-  },
-}));
+import { FileType } from '@ptah-extension/platform-core';
+import type {
+  IFileSystemProvider,
+  DirectoryEntry,
+  FileStat,
+} from '@ptah-extension/platform-core';
 
 describe('FileSystemService', () => {
   let service: FileSystemService;
+  let mockFsProvider: jest.Mocked<IFileSystemProvider>;
 
   beforeEach(() => {
-    service = new FileSystemService();
+    mockFsProvider = {
+      readFile: jest.fn(),
+      readFileBytes: jest.fn(),
+      writeFile: jest.fn(),
+      writeFileBytes: jest.fn(),
+      readDirectory: jest.fn(),
+      stat: jest.fn(),
+      exists: jest.fn(),
+      delete: jest.fn(),
+      createDirectory: jest.fn(),
+      copy: jest.fn(),
+      findFiles: jest.fn(),
+      createFileWatcher: jest.fn(),
+    };
+
+    service = new FileSystemService(mockFsProvider);
   });
 
   describe('readFile', () => {
     it('should read file contents as UTF-8 string', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/file.txt');
+      const filePath = '/test/file.txt';
       const mockContent = 'Hello, World!';
-      const mockBytes = new TextEncoder().encode(mockContent);
 
-      jest.spyOn(vscode.workspace.fs, 'readFile').mockResolvedValue(mockBytes);
+      mockFsProvider.readFile.mockResolvedValue(mockContent);
 
-      // Act
-      const result = await service.readFile(uri);
+      const result = await service.readFile(filePath);
 
-      // Assert
       expect(result).toBe(mockContent);
-      expect(vscode.workspace.fs.readFile).toHaveBeenCalledWith(uri);
+      expect(mockFsProvider.readFile).toHaveBeenCalledWith(filePath);
     });
 
     it('should handle UTF-8 content with special characters', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/unicode.txt');
+      const filePath = '/test/unicode.txt';
       const mockContent = 'Hello 🌍 世界';
-      const mockBytes = new TextEncoder().encode(mockContent);
 
-      jest.spyOn(vscode.workspace.fs, 'readFile').mockResolvedValue(mockBytes);
+      mockFsProvider.readFile.mockResolvedValue(mockContent);
 
-      // Act
-      const result = await service.readFile(uri);
+      const result = await service.readFile(filePath);
 
-      // Assert
       expect(result).toBe(mockContent);
     });
 
     it('should throw FileSystemError when read fails', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/missing.txt');
+      const filePath = '/test/missing.txt';
       const originalError = new Error('File not found');
 
-      jest
-        .spyOn(vscode.workspace.fs, 'readFile')
-        .mockRejectedValue(originalError);
+      mockFsProvider.readFile.mockRejectedValue(originalError);
 
-      // Act & Assert
-      await expect(service.readFile(uri)).rejects.toThrow(FileSystemError);
-      await expect(service.readFile(uri)).rejects.toThrow(
-        `Failed to read file: ${uri.toString()}`
+      await expect(service.readFile(filePath)).rejects.toThrow(FileSystemError);
+      await expect(service.readFile(filePath)).rejects.toThrow(
+        `Failed to read file: ${filePath}`
       );
-    });
-
-    it('should handle virtual workspace URIs', async () => {
-      // Arrange
-      const uri = vscode.Uri.parse('vscode-vfs://github/owner/repo/file.ts');
-      const mockContent = 'export const test = true;';
-      const mockBytes = new TextEncoder().encode(mockContent);
-
-      jest.spyOn(vscode.workspace.fs, 'readFile').mockResolvedValue(mockBytes);
-
-      // Act
-      const result = await service.readFile(uri);
-
-      // Assert
-      expect(result).toBe(mockContent);
-      expect(vscode.workspace.fs.readFile).toHaveBeenCalledWith(uri);
     });
   });
 
   describe('readDirectory', () => {
     it('should read directory contents', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/dir');
-      const mockEntries: [string, vscode.FileType][] = [
-        ['file1.ts', vscode.FileType.File],
-        ['file2.ts', vscode.FileType.File],
-        ['subdir', vscode.FileType.Directory],
+      const dirPath = '/test/dir';
+      const mockEntries: DirectoryEntry[] = [
+        { name: 'file1.ts', type: FileType.File },
+        { name: 'file2.ts', type: FileType.File },
+        { name: 'subdir', type: FileType.Directory },
       ];
 
-      jest
-        .spyOn(vscode.workspace.fs, 'readDirectory')
-        .mockResolvedValue(mockEntries);
+      mockFsProvider.readDirectory.mockResolvedValue(mockEntries);
 
-      // Act
-      const result = await service.readDirectory(uri);
+      const result = await service.readDirectory(dirPath);
 
-      // Assert
       expect(result).toEqual(mockEntries);
-      expect(vscode.workspace.fs.readDirectory).toHaveBeenCalledWith(uri);
+      expect(mockFsProvider.readDirectory).toHaveBeenCalledWith(dirPath);
     });
 
     it('should return empty array for empty directory', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/empty');
-      const mockEntries: [string, vscode.FileType][] = [];
+      const dirPath = '/test/empty';
+      mockFsProvider.readDirectory.mockResolvedValue([]);
 
-      jest
-        .spyOn(vscode.workspace.fs, 'readDirectory')
-        .mockResolvedValue(mockEntries);
+      const result = await service.readDirectory(dirPath);
 
-      // Act
-      const result = await service.readDirectory(uri);
-
-      // Assert
       expect(result).toEqual([]);
     });
 
     it('should throw FileSystemError when directory does not exist', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/nonexistent');
+      const dirPath = '/test/nonexistent';
       const originalError = new Error('Directory not found');
 
-      jest
-        .spyOn(vscode.workspace.fs, 'readDirectory')
-        .mockRejectedValue(originalError);
+      mockFsProvider.readDirectory.mockRejectedValue(originalError);
 
-      // Act & Assert
-      await expect(service.readDirectory(uri)).rejects.toThrow(FileSystemError);
-      await expect(service.readDirectory(uri)).rejects.toThrow(
-        `Failed to read directory: ${uri.toString()}`
+      await expect(service.readDirectory(dirPath)).rejects.toThrow(
+        FileSystemError
+      );
+      await expect(service.readDirectory(dirPath)).rejects.toThrow(
+        `Failed to read directory: ${dirPath}`
       );
     });
 
     it('should handle symbolic links', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/dir');
-      const mockEntries: [string, vscode.FileType][] = [
-        ['link', vscode.FileType.SymbolicLink],
-        ['file.ts', vscode.FileType.File],
+      const dirPath = '/test/dir';
+      const mockEntries: DirectoryEntry[] = [
+        { name: 'link', type: FileType.SymbolicLink },
+        { name: 'file.ts', type: FileType.File },
       ];
 
-      jest
-        .spyOn(vscode.workspace.fs, 'readDirectory')
-        .mockResolvedValue(mockEntries);
+      mockFsProvider.readDirectory.mockResolvedValue(mockEntries);
 
-      // Act
-      const result = await service.readDirectory(uri);
+      const result = await service.readDirectory(dirPath);
 
-      // Assert
       expect(result).toEqual(mockEntries);
     });
   });
 
   describe('stat', () => {
     it('should return file stats for file', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/file.ts');
-      const mockStat: vscode.FileStat = {
-        type: vscode.FileType.File,
+      const filePath = '/test/file.ts';
+      const mockStat: FileStat = {
+        type: FileType.File,
         size: 1024,
         ctime: Date.now(),
         mtime: Date.now(),
       };
 
-      jest.spyOn(vscode.workspace.fs, 'stat').mockResolvedValue(mockStat);
+      mockFsProvider.stat.mockResolvedValue(mockStat);
 
-      // Act
-      const result = await service.stat(uri);
+      const result = await service.stat(filePath);
 
-      // Assert
       expect(result).toEqual(mockStat);
-      expect(vscode.workspace.fs.stat).toHaveBeenCalledWith(uri);
+      expect(mockFsProvider.stat).toHaveBeenCalledWith(filePath);
     });
 
     it('should return directory stats', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/dir');
-      const mockStat: vscode.FileStat = {
-        type: vscode.FileType.Directory,
+      const dirPath = '/test/dir';
+      const mockStat: FileStat = {
+        type: FileType.Directory,
         size: 0,
         ctime: Date.now(),
         mtime: Date.now(),
       };
 
-      jest.spyOn(vscode.workspace.fs, 'stat').mockResolvedValue(mockStat);
+      mockFsProvider.stat.mockResolvedValue(mockStat);
 
-      // Act
-      const result = await service.stat(uri);
+      const result = await service.stat(dirPath);
 
-      // Assert
-      expect(result.type).toBe(vscode.FileType.Directory);
+      expect(result.type).toBe(FileType.Directory);
     });
 
     it('should throw FileSystemError when stat fails', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/missing');
+      const filePath = '/test/missing';
       const originalError = new Error('File not found');
 
-      jest.spyOn(vscode.workspace.fs, 'stat').mockRejectedValue(originalError);
+      mockFsProvider.stat.mockRejectedValue(originalError);
 
-      // Act & Assert
-      await expect(service.stat(uri)).rejects.toThrow(FileSystemError);
-      await expect(service.stat(uri)).rejects.toThrow(
-        `Failed to stat: ${uri.toString()}`
+      await expect(service.stat(filePath)).rejects.toThrow(FileSystemError);
+      await expect(service.stat(filePath)).rejects.toThrow(
+        `Failed to stat: ${filePath}`
       );
     });
   });
 
   describe('isVirtualWorkspace', () => {
-    it('should return false for file:// scheme', () => {
-      // Arrange
-      const uri = vscode.Uri.file('/local/path/file.ts');
-
-      // Act
-      const result = service.isVirtualWorkspace(uri);
-
-      // Assert
+    it('should return false for local file paths', () => {
+      const result = service.isVirtualWorkspace('/local/path/file.ts');
       expect(result).toBe(false);
     });
 
     it('should return true for vscode-vfs:// scheme', () => {
-      // Arrange
-      const uri = vscode.Uri.parse('vscode-vfs://github/owner/repo/file.ts');
-
-      // Act
-      const result = service.isVirtualWorkspace(uri);
-
-      // Assert
+      const result = service.isVirtualWorkspace(
+        'vscode-vfs://github/owner/repo/file.ts'
+      );
       expect(result).toBe(true);
     });
 
-    it('should return true for untitled:// scheme', () => {
-      // Arrange
-      const uri = vscode.Uri.parse('untitled:Untitled-1');
-
-      // Act
-      const result = service.isVirtualWorkspace(uri);
-
-      // Assert
-      expect(result).toBe(true);
+    it('should return false for file:// scheme', () => {
+      const result = service.isVirtualWorkspace('file:///local/path');
+      expect(result).toBe(false);
     });
 
     it('should return true for custom schemes', () => {
-      // Arrange
-      const uri = vscode.Uri.parse('custom-scheme://path/to/resource');
-
-      // Act
-      const result = service.isVirtualWorkspace(uri);
-
-      // Assert
+      const result = service.isVirtualWorkspace(
+        'custom-scheme://path/to/resource'
+      );
       expect(result).toBe(true);
     });
 
-    it('should handle http:// and https:// schemes', () => {
-      // Arrange
-      const httpUri = vscode.Uri.parse('http://example.com/file');
-      const httpsUri = vscode.Uri.parse('https://example.com/file');
-
-      // Act & Assert
-      expect(service.isVirtualWorkspace(httpUri)).toBe(true);
-      expect(service.isVirtualWorkspace(httpsUri)).toBe(true);
+    it('should return true for http:// and https:// schemes', () => {
+      expect(service.isVirtualWorkspace('http://example.com/file')).toBe(true);
+      expect(service.isVirtualWorkspace('https://example.com/file')).toBe(true);
     });
   });
 
   describe('exists', () => {
     it('should return true when file exists', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/exists.ts');
-      const mockStat: vscode.FileStat = {
-        type: vscode.FileType.File,
-        size: 100,
-        ctime: Date.now(),
-        mtime: Date.now(),
-      };
+      const filePath = '/test/exists.ts';
+      mockFsProvider.exists.mockResolvedValue(true);
 
-      jest.spyOn(vscode.workspace.fs, 'stat').mockResolvedValue(mockStat);
+      const result = await service.exists(filePath);
 
-      // Act
-      const result = await service.exists(uri);
-
-      // Assert
       expect(result).toBe(true);
     });
 
     it('should return false when file does not exist', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/missing.ts');
+      const filePath = '/test/missing.ts';
+      mockFsProvider.exists.mockResolvedValue(false);
 
-      jest
-        .spyOn(vscode.workspace.fs, 'stat')
-        .mockRejectedValue(new Error('Not found'));
+      const result = await service.exists(filePath);
 
-      // Act
-      const result = await service.exists(uri);
-
-      // Assert
       expect(result).toBe(false);
     });
 
     it('should return true for directories', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/dir');
-      const mockStat: vscode.FileStat = {
-        type: vscode.FileType.Directory,
-        size: 0,
-        ctime: Date.now(),
-        mtime: Date.now(),
-      };
+      const dirPath = '/test/dir';
+      mockFsProvider.exists.mockResolvedValue(true);
 
-      jest.spyOn(vscode.workspace.fs, 'stat').mockResolvedValue(mockStat);
+      const result = await service.exists(dirPath);
 
-      // Act
-      const result = await service.exists(uri);
-
-      // Assert
       expect(result).toBe(true);
     });
 
-    it('should return false for permission denied errors', async () => {
-      // Arrange
-      const uri = vscode.Uri.file('/test/forbidden.ts');
+    it('should return false for errors', async () => {
+      const filePath = '/test/forbidden.ts';
+      mockFsProvider.exists.mockRejectedValue(new Error('Permission denied'));
 
-      jest
-        .spyOn(vscode.workspace.fs, 'stat')
-        .mockRejectedValue(new Error('Permission denied'));
+      const result = await service.exists(filePath);
 
-      // Act
-      const result = await service.exists(uri);
-
-      // Assert
       expect(result).toBe(false);
     });
   });
 
   describe('FileSystemError', () => {
     it('should create error with message', () => {
-      // Arrange & Act
       const error = new FileSystemError('Test error message');
 
-      // Assert
       expect(error.message).toBe('Test error message');
       expect(error.name).toBe('FileSystemError');
       expect(error.cause).toBeUndefined();
     });
 
     it('should create error with cause', () => {
-      // Arrange
       const originalError = new Error('Original error');
 
-      // Act
       const error = new FileSystemError('Wrapped error', originalError);
 
-      // Assert
       expect(error.message).toBe('Wrapped error');
       expect(error.cause).toBe(originalError);
       expect(error.stack).toContain('Caused by:');
     });
 
     it('should chain error stacks', () => {
-      // Arrange
       const originalError = new Error('Root cause');
       originalError.stack = 'Error: Root cause\n  at somewhere';
 
-      // Act
       const error = new FileSystemError('High-level error', originalError);
 
-      // Assert
       expect(error.stack).toContain('Caused by: Error: Root cause');
     });
   });

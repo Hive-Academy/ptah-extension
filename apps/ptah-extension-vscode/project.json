@@ -74,6 +74,10 @@
           {
             "command": "node -e \"const fs=require('fs'); fs.cpSync('apps/ptah-extension-vscode/assets/plugins', 'dist/apps/ptah-extension-vscode/assets/plugins', {recursive:true})\"",
             "forwardAllArgs": false
+          },
+          {
+            "command": "node -e \"const fs=require('fs'); const src='node_modules/@anthropic-ai/claude-agent-sdk/cli.js'; const dst='dist/apps/ptah-extension-vscode/cli.js'; if(fs.existsSync(src)){fs.copyFileSync(src,dst);console.log('Copied cli.js to dist')}else{console.error('ERROR: cli.js not found at '+src);process.exit(1)}\"",
+            "forwardAllArgs": false
           }
         ],
         "parallel": false

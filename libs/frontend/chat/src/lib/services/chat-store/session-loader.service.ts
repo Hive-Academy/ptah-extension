@@ -14,12 +14,14 @@
  * all message reconstruction.
  */
 
-import { Injectable, signal, inject } from '@angular/core';
+import { Injectable, signal, inject, effect, untracked } from '@angular/core';
 import { ClaudeRpcService, VSCodeService } from '@ptah-extension/core';
 import {
   ChatSessionSummary,
   SessionId,
   FlatStreamEventUnion,
+  SubagentRecord,
+  getModelContextWindow,
 } from '@ptah-extension/shared';
 import { SessionManager } from '../session-manager.service';
 import { TabManagerService } from '../tab-manager.service';
@@ -45,9 +47,10 @@ export class SessionLoaderService {
   private readonly _totalSessions = signal(0);
   private readonly _sessionsOffset = signal(0);
   private readonly _isLoadingMoreSessions = signal(false);
+  private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
 
   // Page size constant
-  private static readonly SESSIONS_PAGE_SIZE = 10;
+  private static readonly SESSIONS_PAGE_SIZE = 30;
 
   // Debounce timer for coalescing rapid loadSessions() calls
   private loadSessionsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -61,6 +64,46 @@ export class SessionLoaderService {
   readonly hasMoreSessions = this._hasMoreSessions.asReadonly();
   readonly totalSessions = this._totalSessions.asReadonly();
   readonly isLoadingMoreSessions = this._isLoadingMoreSessions.asReadonly();
+  readonly resumableSubagents = this._resumableSubagents.asReadonly();
+
+  /** Guard to ensure the restored-session check runs only once */
+  private restoredSessionChecked = false;
+
+  constructor() {
+    // React to pop-out panel session load requests from TabManagerService.
+    // This effect breaks the circular dependency: TabManager emits a signal,
+    // SessionLoader consumes it — no import from SessionLoader in TabManager.
+    effect(() => {
+      const sessionId = this.tabManager.pendingSessionLoad();
+      if (sessionId) {
+        this.tabManager.clearPendingSessionLoad();
+        this.switchSession(sessionId);
+      }
+    });
+
+    // TASK_2025_213: Check for resumable subagents on restored sessions.
+    // When VS Code restores the webview from localStorage, TabManager restores
+    // tabs + messages without calling switchSession() (no chat:resume fires).
+    // This means the backend registry is empty and resumableSubagents is never
+    // populated. This one-shot effect fires chat:resume in the background to
+    // populate the signal without reloading messages (those are already cached).
+    effect(() => {
+      const activeTab = this.tabManager.activeTab();
+      if (
+        !this.restoredSessionChecked &&
+        activeTab?.claudeSessionId &&
+        activeTab.status === 'loaded'
+      ) {
+        this.restoredSessionChecked = true;
+        untracked(() =>
+          this.refreshResumableSubagentsForSession(
+            activeTab.claudeSessionId!,
+            activeTab.id
+          )
+        );
+      }
+    });
+  }
 
   // ============================================================================
   // SESSION LOADING & PAGINATION
@@ -279,6 +322,38 @@ export class SessionLoaderService {
           preloadedStats: stats,
           sessionModel: stats.model ?? null,
         });
+
+        // Populate liveModelStats for context usage display.
+        // During live streaming this comes from SDK's modelUsage, but when loading
+        // from JSONL we compute it from aggregate stats + known context window sizes.
+        if (stats.model) {
+          const contextUsed = stats.tokens.input + stats.tokens.output;
+          const contextWindow = getModelContextWindow(stats.model);
+          const contextPercent =
+            contextWindow > 0
+              ? Math.round((contextUsed / contextWindow) * 1000) / 10
+              : 0;
+          this.tabManager.updateTab(activeTabId, {
+            liveModelStats: {
+              model: stats.model,
+              contextUsed,
+              contextWindow,
+              contextPercent,
+            },
+          });
+        }
+
+        // TASK_2025_217: Populate modelUsageList from backend per-model breakdown.
+        // This enables the per-model breakdown table in SessionStatsSummary for old sessions.
+        if (stats.modelUsageList && stats.modelUsageList.length > 0) {
+          const backendModelList = stats.modelUsageList;
+          this.tabManager.updateTab(activeTabId, {
+            modelUsageList: backendModelList.map((entry) => ({
+              ...entry,
+              contextWindow: getModelContextWindow(entry.model),
+            })),
+          });
+        }
       }
 
       // TASK_2025_092 FIX: Process events to build execution tree with tool calls
@@ -301,6 +376,9 @@ export class SessionLoaderService {
         );
 
         this.sessionManager.setStatus('loaded');
+
+        // TASK_2025_213: Populate resumableSubagents signal for the banner UI
+        this._resumableSubagents.set(resumableSubagents ?? []);
 
         // TASK_2025_168: Load CLI sessions into agent monitor panel
         if (cliSessions && cliSessions.length > 0) {
@@ -326,6 +404,9 @@ export class SessionLoaderService {
         });
         this.sessionManager.setStatus('loaded');
 
+        // TASK_2025_213: Set resumableSubagents from chat:resume response (empty for simple-message sessions)
+        this._resumableSubagents.set(resumableSubagents ?? []);
+
         // TASK_2025_168: Also load CLI sessions in fallback branch
         if (cliSessions && cliSessions.length > 0) {
           this.agentMonitorStore.loadCliSessions(cliSessions, sessionId);
@@ -341,9 +422,14 @@ export class SessionLoaderService {
           streamingState: null,
         });
         this.sessionManager.setStatus('loaded');
+
+        // TASK_2025_213: No resumable subagents on error/empty session
+        this._resumableSubagents.set([]);
       }
     } catch (error) {
       console.error('[SessionLoaderService] Failed to switch session:', error);
+      // Clear stale resumable subagents from previous session on switch failure
+      this._resumableSubagents.set([]);
     }
   }
 
@@ -376,6 +462,67 @@ export class SessionLoaderService {
     } catch (error) {
       console.warn(
         '[SessionLoaderService] Failed to restore CLI sessions:',
+        error
+      );
+    }
+  }
+
+  // ============================================================================
+  // RESUMABLE SUBAGENTS (TASK_2025_213)
+  // ============================================================================
+
+  /**
+   * Clear the resumable subagents signal.
+   *
+   * Called when the user sends a message that triggers context injection
+   * (chat:continue), so the banner dismisses immediately at turn start.
+   * The backend auto-injects interrupted agent context into the prompt
+   * and clears them from the registry, so the frontend should mirror this.
+   */
+  clearResumableSubagents(): void {
+    this._resumableSubagents.set([]);
+  }
+
+  /**
+   * Remove a single resumable subagent by toolCallId.
+   *
+   * Called when the user resumes one specific agent so that only that
+   * agent is removed from the banner while others remain visible.
+   */
+  removeResumableSubagent(toolCallId: string): void {
+    this._resumableSubagents.update((agents) =>
+      agents.filter((a) => a.toolCallId !== toolCallId)
+    );
+  }
+
+  /**
+   * TASK_2025_213: Lightweight check for resumable subagents on a restored session.
+   * Calls chat:resume to populate the backend registry and extract resumableSubagents
+   * without reloading the tab's messages (already cached from localStorage).
+   */
+  private async refreshResumableSubagentsForSession(
+    sessionId: string,
+    tabId: string
+  ): Promise<void> {
+    try {
+      const workspacePath = this.vscodeService.config().workspaceRoot;
+      const result = await this.claudeRpcService.call('chat:resume', {
+        sessionId: sessionId as SessionId,
+        tabId,
+        workspacePath,
+      });
+
+      const resumableSubagents = result.data?.resumableSubagents;
+      if (resumableSubagents && resumableSubagents.length > 0) {
+        this._resumableSubagents.set(resumableSubagents);
+        console.log(
+          '[SessionLoaderService] Populated resumableSubagents for restored session',
+          { sessionId, count: resumableSubagents.length }
+        );
+      }
+    } catch (error) {
+      console.warn(
+        '[SessionLoaderService] Failed to check resumable subagents for restored session',
         error
       );
     }

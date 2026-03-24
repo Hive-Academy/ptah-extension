@@ -7,7 +7,8 @@
  * TASK_2025_111: MCP-Powered Setup Wizard & Orchestration Skill Enhancements
  */
 
-import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs';
 import {
   OrchestrationNamespace,
   OrchestrationState,
@@ -20,8 +21,8 @@ import {
  * Dependencies required for orchestration namespace
  */
 export interface OrchestrationNamespaceDependencies {
-  /** Workspace root URI for file operations */
-  workspaceRoot: vscode.Uri;
+  /** Workspace root path for file operations */
+  workspaceRoot: string;
 }
 
 /**
@@ -85,8 +86,8 @@ export function buildOrchestrationNamespace(
   /**
    * Get the file path for orchestration state
    */
-  const getStatePath = (taskId: string): vscode.Uri => {
-    return vscode.Uri.joinPath(
+  const getStatePath = (taskId: string): string => {
+    return path.join(
       workspaceRoot,
       'task-tracking',
       taskId,
@@ -103,9 +104,8 @@ export function buildOrchestrationNamespace(
     const statePath = getStatePath(taskId);
 
     try {
-      const content = await vscode.workspace.fs.readFile(statePath);
-      const jsonString = Buffer.from(content).toString('utf8');
-      return JSON.parse(jsonString) as OrchestrationState;
+      const content = await fs.promises.readFile(statePath, 'utf8');
+      return JSON.parse(content) as OrchestrationState;
     } catch {
       // File doesn't exist or is invalid JSON
       return null;
@@ -119,24 +119,12 @@ export function buildOrchestrationNamespace(
     const statePath = getStatePath(state.taskId);
 
     // Ensure the task folder exists
-    const taskFolder = vscode.Uri.joinPath(
-      workspaceRoot,
-      'task-tracking',
-      state.taskId
-    );
+    const taskFolder = path.join(workspaceRoot, 'task-tracking', state.taskId);
 
-    try {
-      await vscode.workspace.fs.stat(taskFolder);
-    } catch {
-      // Folder doesn't exist, create it
-      await vscode.workspace.fs.createDirectory(taskFolder);
-    }
+    await fs.promises.mkdir(taskFolder, { recursive: true });
 
     const content = JSON.stringify(state, null, 2);
-    await vscode.workspace.fs.writeFile(
-      statePath,
-      Buffer.from(content, 'utf8')
-    );
+    await fs.promises.writeFile(statePath, content, 'utf8');
   };
 
   /**
@@ -178,11 +166,7 @@ export function buildOrchestrationNamespace(
     taskId: string,
     phase: OrchestrationPhase
   ): Promise<boolean> => {
-    const taskFolder = vscode.Uri.joinPath(
-      workspaceRoot,
-      'task-tracking',
-      taskId
-    );
+    const taskFolder = path.join(workspaceRoot, 'task-tracking', taskId);
 
     const requiredDocuments: Record<OrchestrationPhase, string[]> = {
       planning: ['task-description.md'],
@@ -195,9 +179,9 @@ export function buildOrchestrationNamespace(
     const required = requiredDocuments[phase];
 
     for (const doc of required) {
-      const docPath = vscode.Uri.joinPath(taskFolder, doc);
+      const docPath = path.join(taskFolder, doc);
       try {
-        await vscode.workspace.fs.stat(docPath);
+        await fs.promises.stat(docPath);
       } catch {
         return false;
       }

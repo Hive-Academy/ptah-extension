@@ -12,8 +12,8 @@
 
 ## SEO Metadata
 
-**Title**: Your Claude Agent Just Got Superpowers: 8 APIs You Didn't Know Were Possible
-**Meta Description**: Ptah's Code Execution MCP server gives Claude agents direct access to workspace analysis, file search, symbol extraction, and VS Code commands. Here's how it works.
+**Title**: Your Claude Agent Just Got Superpowers: 5 APIs You Didn't Know Were Possible
+**Meta Description**: Ptah's Code Execution MCP server gives Claude agents direct access to workspace analysis, file search, diagnostics, and more. Here's how it works.
 **URL Slug**: claude-agent-superpowers-mcp-server
 **Keywords**: Claude Code MCP server, Claude agent APIs, Ptah extension, VS Code AI tools, Claude workspace access
 
@@ -21,11 +21,11 @@
 
 ## Blog Post
 
-# Your Claude Agent Just Got Superpowers: 8 APIs You Didn't Know Were Possible
+# Your Claude Agent Just Got Superpowers: 5 APIs You Didn't Know Were Possible
 
 ## Hook
 
-What if your Claude agent could query your entire workspace structure, search files by semantic relevance, extract code symbols, check for TypeScript errors, and execute VS Code commands - all from within a conversation?
+What if your Claude agent could query your entire workspace structure, search files by semantic relevance, check for TypeScript errors, and read/write files - all from within a conversation?
 
 That's what Ptah's Code Execution MCP server adds to the Claude Code experience.
 
@@ -38,13 +38,13 @@ Ptah bridges that gap. It's a VS Code extension powered by the official Claude C
 - Claude can search your files semantically
 - Claude can see your TypeScript errors
 - Claude can understand your project structure
-- Claude can access VS Code commands
+- Claude can read and write files
 
 All without you manually providing context.
 
 ## Our Approach
 
-We built an MCP (Model Context Protocol) server that exposes 8 API namespaces directly to Claude agents. Instead of Claude asking _you_ about your workspace, Claude queries _Ptah_, which has direct access to VS Code's APIs.
+We built an MCP (Model Context Protocol) server that exposes 5 core API namespaces directly to Claude agents. Instead of Claude asking _you_ about your workspace, Claude queries _Ptah_, which has direct access to VS Code's APIs.
 
 The result: Claude agents that understand your codebase as well as you do.
 
@@ -52,18 +52,15 @@ The result: Claude agents that understand your codebase as well as you do.
 
 ### The Ptah API Architecture
 
-When you enable Ptah's MCP server, Claude gains access to a `ptah` global object with 8 namespaces:
+When you enable Ptah's MCP server, Claude gains access to a `ptah` global object with key namespaces:
 
 ```typescript
 // These APIs are now available to Claude agents
 ptah.workspace; // Workspace analysis and project detection
 ptah.search; // File search with relevance scoring
-ptah.symbols; // Code symbol extraction
 ptah.diagnostics; // VS Code problems/errors
-ptah.git; // Git status, history, diffs
 ptah.ai; // Multi-provider LLM access
 ptah.files; // File read/write operations
-ptah.commands; // VS Code command execution
 ```
 
 Each namespace maps to actual VS Code APIs and Ptah's workspace intelligence services.
@@ -110,26 +107,7 @@ const files = await ptah.search.findFiles({
 
 **Backed by**: `FileRelevanceScorerService` uses path keyword matching, file type weighting (source > test > config > docs > assets), language-specific patterns, and framework patterns for ranking.
 
-#### 3. ptah.symbols - Code Structure Understanding
-
-Claude can extract symbols without reading entire files:
-
-```typescript
-// Extract symbols from a file
-const symbols = await ptah.symbols.extract('/src/auth/auth.service.ts');
-
-// Returns:
-// [
-//   { name: 'AuthService', kind: 'class', range: {...} },
-//   { name: 'validateToken', kind: 'method', range: {...} },
-//   { name: 'generateJWT', kind: 'method', range: {...} }
-// ]
-
-// Find all usages
-const references = await ptah.symbols.findReferences('AuthService');
-```
-
-#### 4. ptah.diagnostics - Error Awareness
+#### 3. ptah.diagnostics - Error Awareness
 
 Claude can see VS Code's problems panel:
 
@@ -148,22 +126,7 @@ const diagnostics = await ptah.diagnostics.getProblems();
 
 Now you can say: "Check if there are any TypeScript errors and fix them" - and Claude actually can.
 
-#### 5. ptah.git - Version Control Access
-
-Claude gains git awareness:
-
-```typescript
-const status = await ptah.git.getStatus();
-// { branch: 'feature/auth', modified: ['auth.service.ts'], untracked: ['auth.dto.ts'] }
-
-const commits = await ptah.git.getHistory({ maxCount: 5 });
-// Recent commits with messages, authors, timestamps
-
-const diff = await ptah.git.getDiff({ file: '/src/auth.service.ts' });
-// Actual diff content
-```
-
-#### 6. ptah.files - File Operations
+#### 4. ptah.files - File Operations
 
 Secure file access with permission handling:
 
@@ -178,7 +141,7 @@ await ptah.files.write('/src/auth/auth.dto.ts', newContent);
 // With permission prompt
 ```
 
-#### 7. ptah.ai - Multi-Provider LLM
+#### 5. ptah.ai - Multi-Provider LLM
 
 Claude can use other AI models for specific tasks:
 
@@ -191,18 +154,6 @@ const response = await ptah.ai.generate({
 ```
 
 **Backed by**: `libs/backend/llm-abstraction` - 5 providers (Anthropic, OpenAI, Google Gemini, OpenRouter, VS Code LM API).
-
-#### 8. ptah.commands - VS Code Control
-
-Execute any VS Code command:
-
-```typescript
-await ptah.commands.execute('workbench.action.files.save');
-await ptah.commands.execute('editor.action.formatDocument');
-
-const commands = await ptah.commands.list();
-// Available commands
-```
 
 ### Security: Permission Handling
 
@@ -258,8 +209,8 @@ Code runs in a sandboxed environment with configurable timeouts:
 
 > You: "Refactor the authentication logic"
 > Claude: _executes ptah.search.findFiles({ query: 'authentication' })_
-> Claude: _executes ptah.symbols.extract() on each file_
-> Claude: _understands the structure and refactors_
+> Claude: _reads each file and understands the structure_
+> Claude: _refactors with full context_
 
 ### Use Case 2: Error Resolution
 
@@ -301,13 +252,13 @@ With Ptah's MCP server:
 
 1. **Install Ptah** from VS Code Marketplace
 2. **Enable MCP Server** in Ptah settings
-3. **Start a conversation** - Claude now has access to all 8 namespaces
+3. **Start a conversation** - Claude now has access to all Ptah API namespaces
 
 The `execute_code` tool becomes available automatically. Claude's system prompt includes full API documentation.
 
 ## Conclusion
 
-Ptah's Code Execution MCP server transforms Claude from a helpful assistant into an AI that truly understands your codebase. By exposing 8 API namespaces - workspace, search, symbols, diagnostics, git, ai, files, and commands - you give Claude the tools to help you at the level you actually need.
+Ptah's Code Execution MCP server transforms Claude from a helpful assistant into an AI that truly understands your codebase. By exposing powerful API namespaces - workspace, search, diagnostics, ai, and files - you give Claude the tools to help you at the level you actually need.
 
 No more context-building theater. Just results.
 

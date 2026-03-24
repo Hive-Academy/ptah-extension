@@ -37,7 +37,9 @@
   "activationEvents": [
     "onView:ptah.main",
     "onCommand:ptah.openFullPanel",
-    "onCommand:ptah.setupAgents"
+    "onCommand:ptah.toggleChat",
+    "onCommand:ptah.setupAgents",
+    "onCommand:ptah.openDashboard"
   ],
   "license": "SEE LICENSE IN LICENSE",
   "preview": true,
@@ -59,7 +61,7 @@
         {
           "id": "ptah",
           "title": "Ptah",
-          "icon": "assets/images/ptah-icon.png"
+          "icon": "assets/images/ptah-icon-sidebar.svg"
         }
       ]
     },
@@ -75,6 +77,15 @@
       ]
     },
     "commands": [
+      {
+        "command": "ptah.toggleChat",
+        "title": "Toggle Ptah Chat",
+        "category": "Ptah",
+        "icon": {
+          "light": "assets/images/ptah-icon-toolbar.svg",
+          "dark": "assets/images/ptah-icon-toolbar.svg"
+        }
+      },
       {
         "command": "ptah.openFullPanel",
         "title": "Open Full Ptah Panel",
@@ -104,6 +115,24 @@
         "title": "Check License Status",
         "category": "Ptah",
         "icon": "$(info)"
+      },
+      {
+        "command": "ptah.openDashboard",
+        "title": "Open Session Analytics Dashboard",
+        "category": "Ptah",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "ptah.exportSettings",
+        "title": "Export Settings",
+        "category": "Ptah",
+        "icon": "$(export)"
+      },
+      {
+        "command": "ptah.importSettings",
+        "title": "Import Settings",
+        "category": "Ptah",
+        "icon": "$(import)"
       }
     ],
     "menus": {
@@ -119,6 +148,21 @@
         },
         {
           "command": "ptah.checkLicenseStatus"
+        },
+        {
+          "command": "ptah.openDashboard"
+        },
+        {
+          "command": "ptah.exportSettings"
+        },
+        {
+          "command": "ptah.importSettings"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "ptah.toggleChat",
+          "group": "navigation"
         }
       ],
       "editor/context": [],
@@ -151,12 +195,11 @@
             "openrouter"
           ],
           "default": "auto",
-          "description": "Authentication method for Ptah. 'auto' will try OpenRouter first, then OAuth, then API key."
+          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key. Note: Claude OAuth tokens are restricted by Anthropic to Claude Code/Claude.ai only and will not work in third-party tools (Feb 2026 policy)."
         },
         "ptah.model.selected": {
           "type": "string",
-          "default": "claude-sonnet-4-20250514",
-          "description": "Default Claude model for new chat sessions."
+          "description": "Claude model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
         },
         "ptah.autopilot.enabled": {
           "type": "boolean",
@@ -245,12 +288,62 @@
           "default": null,
           "description": "Z.AI model override for Haiku tier."
         },
+        "ptah.provider.github-copilot.modelTier.sonnet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "GitHub Copilot model override for Sonnet tier."
+        },
+        "ptah.provider.github-copilot.modelTier.opus": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "GitHub Copilot model override for Opus tier."
+        },
+        "ptah.provider.github-copilot.modelTier.haiku": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "GitHub Copilot model override for Haiku tier."
+        },
+        "ptah.provider.openai-codex.modelTier.sonnet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "OpenAI Codex model override for Sonnet tier."
+        },
+        "ptah.provider.openai-codex.modelTier.opus": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "OpenAI Codex model override for Opus tier."
+        },
+        "ptah.provider.openai-codex.modelTier.haiku": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "OpenAI Codex model override for Haiku tier."
+        },
         "ptah.anthropicProviderId": {
           "type": "string",
           "enum": [
             "openrouter",
             "moonshot",
-            "z-ai"
+            "z-ai",
+            "github-copilot",
+            "openai-codex"
           ],
           "default": "openrouter",
           "description": "Selected Anthropic-compatible provider for API key authentication."
@@ -285,6 +378,25 @@
           "type": "string",
           "default": "copilot/gpt-4o",
           "description": "Default model for the VS Code Language Model provider (vendor/family format)."
+        },
+        "ptah.reasoningEffort": {
+          "type": "string",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
+          "default": "",
+          "description": "Default reasoning effort level for the main Claude Agent SDK chat. Leave empty for SDK default."
+        },
+        "ptah.mcpPort": {
+          "type": "number",
+          "default": 51820,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Port for Ptah's MCP server (code execution tools). Must be between 1024-65535. Default: 51820."
         },
         "ptah.agentOrchestration.defaultCli": {
           "type": "string",

@@ -10,7 +10,6 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import * as vscode from 'vscode';
 import type {
   QualityAssessment,
   QualityGap,
@@ -137,7 +136,7 @@ const DEFAULT_STRENGTHS: Record<string, string> = {
  *   TOKENS.CODE_QUALITY_ASSESSMENT_SERVICE
  * );
  *
- * const assessment = await service.assessQuality(workspaceUri);
+ * const assessment = await service.assessQuality(workspacePath);
  * console.log(`Quality Score: ${assessment.score}/100`);
  * console.log(`Issues: ${assessment.antiPatterns.length} pattern types`);
  * ```
@@ -178,13 +177,13 @@ export class CodeQualityAssessmentService
    * Performs intelligent file sampling, runs anti-pattern detection,
    * and calculates a quality score with identified gaps and strengths.
    *
-   * @param workspaceUri - Workspace root URI
+   * @param workspacePath - Workspace root URI
    * @param config - Optional sampling configuration overrides
    * @returns QualityAssessment with score, patterns, gaps, and strengths
    *
    * @example
    * ```typescript
-   * const assessment = await service.assessQuality(workspaceUri, {
+   * const assessment = await service.assessQuality(workspacePath, {
    *   maxFiles: 20,
    *   entryPointCount: 5,
    * });
@@ -198,7 +197,7 @@ export class CodeQualityAssessmentService
    * ```
    */
   async assessQuality(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     config?: Partial<SamplingConfig>
   ): Promise<QualityAssessment> {
     const startTime = Date.now();
@@ -210,17 +209,17 @@ export class CodeQualityAssessmentService
     };
 
     this.logger.info('Starting quality assessment', {
-      workspacePath: workspaceUri.fsPath,
+      workspacePath: workspacePath,
       config: mergedConfig,
     });
 
     // Sample files for analysis
-    const sampledFiles = await this.sampleFiles(workspaceUri, mergedConfig);
+    const sampledFiles = await this.sampleFiles(workspacePath, mergedConfig);
 
     // Handle empty workspace case
     if (sampledFiles.length === 0) {
       this.logger.info('No source files found for analysis', {
-        workspacePath: workspaceUri.fsPath,
+        workspacePath: workspacePath,
       });
 
       return this.createNeutralAssessment(startTime);
@@ -278,13 +277,13 @@ export class CodeQualityAssessmentService
    * - Excludes test files (.spec, .test)
    * - Excludes declaration files (.d.ts)
    *
-   * @param workspaceUri - Workspace root URI
+   * @param workspacePath - Workspace root URI
    * @param config - Sampling configuration
    * @returns Array of sampled files with content
    *
    * @example
    * ```typescript
-   * const files = await service.sampleFiles(workspaceUri, {
+   * const files = await service.sampleFiles(workspacePath, {
    *   maxFiles: 15,
    *   entryPointCount: 3,
    *   highRelevanceCount: 8,
@@ -294,17 +293,17 @@ export class CodeQualityAssessmentService
    * ```
    */
   async sampleFiles(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     config: SamplingConfig
   ): Promise<SampledFile[]> {
     this.logger.debug('Starting file sampling', {
-      workspacePath: workspaceUri.fsPath,
+      workspacePath: workspacePath,
       config,
     });
 
     // Index workspace with token estimation
     const index = await this.indexer.indexWorkspace({
-      workspaceFolder: workspaceUri,
+      workspaceFolder: workspacePath,
       estimateTokens: true,
       respectIgnoreFiles: true,
     });
@@ -330,8 +329,7 @@ export class CodeQualityAssessmentService
 
     for (const file of selectedFiles) {
       try {
-        const uri = vscode.Uri.file(file.path);
-        const content = await this.fileSystem.readFile(uri);
+        const content = await this.fileSystem.readFile(file.path);
 
         sampledFiles.push({
           path: file.relativePath,
@@ -368,18 +366,18 @@ export class CodeQualityAssessmentService
    * files are analyzed fresh using async parallel detection. Returns a full
    * QualityAssessment with incremental statistics.
    *
-   * @param workspaceUri - Workspace root URI
+   * @param workspacePath - Workspace root URI
    * @param config - Optional sampling configuration overrides
    * @returns QualityAssessment with incrementalStats populated
    *
    * @example
    * ```typescript
-   * const assessment = await service.assessQualityIncremental(workspaceUri);
+   * const assessment = await service.assessQualityIncremental(workspacePath);
    * console.log(`Cache hit rate: ${assessment.incrementalStats?.cacheHitRate}`);
    * ```
    */
   async assessQualityIncremental(
-    workspaceUri: vscode.Uri,
+    workspacePath: string,
     config?: Partial<SamplingConfig>
   ): Promise<QualityAssessment> {
     const startTime = Date.now();
@@ -391,16 +389,16 @@ export class CodeQualityAssessmentService
     };
 
     this.logger.info('Starting incremental quality assessment', {
-      workspacePath: workspaceUri.fsPath,
+      workspacePath: workspacePath,
       config: mergedConfig,
     });
 
     // Sample files for analysis
-    const sampledFiles = await this.sampleFiles(workspaceUri, mergedConfig);
+    const sampledFiles = await this.sampleFiles(workspacePath, mergedConfig);
 
     if (sampledFiles.length === 0) {
       this.logger.info('No source files found for incremental analysis', {
-        workspacePath: workspaceUri.fsPath,
+        workspacePath: workspacePath,
       });
       return this.createNeutralAssessment(startTime);
     }

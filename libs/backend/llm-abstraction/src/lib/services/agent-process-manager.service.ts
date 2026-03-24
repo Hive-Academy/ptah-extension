@@ -354,6 +354,7 @@ export class AgentProcessManager {
       parentSessionId: request.parentSessionId,
       displayName: adapter.displayName,
       model: cliModel,
+      resumedFromAgentId: request.resumedFromAgentId,
     };
 
     // Use resolved binary path from detection.

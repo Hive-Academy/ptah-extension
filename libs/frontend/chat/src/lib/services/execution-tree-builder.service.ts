@@ -24,7 +24,10 @@ import type {
   ToolResultEvent,
   AgentStartEvent,
 } from '@ptah-extension/shared';
-import { createExecutionNode } from '@ptah-extension/shared';
+import {
+  createExecutionNode,
+  isAgentDispatchTool,
+} from '@ptah-extension/shared';
 import type { StreamingState } from './chat.types';
 import { BackgroundAgentStore } from './background-agent.store';
 
@@ -479,7 +482,24 @@ export class ExecutionTreeBuilderService {
       // TASK_2025_095: For Task tools that spawn agents, show agent directly instead of Task wrapper
       // This prevents the duplication: Task tool → Agent → tools
       // User should see only: Agent → tools
-      if (toolStart.isTaskTool || toolStart.toolName === 'Task') {
+      // TASK_2025_211 Bug 6: Broaden detection to handle dispatch_agent/dispatch_subagent tool names
+      // and data-driven detection via subagent_type in tool input
+      let isAgentDispatch =
+        toolStart.isTaskTool || isAgentDispatchTool(toolStart.toolName);
+
+      // Data-driven fallback: check tool input for subagent_type signal
+      if (!isAgentDispatch) {
+        const inputKey = `${toolStart.toolCallId}-input`;
+        const inputString = state.toolInputAccumulators.get(inputKey) || '';
+        if (
+          inputString.includes('"subagent_type"') ||
+          inputString.includes('"subagentType"')
+        ) {
+          isAgentDispatch = true;
+        }
+      }
+
+      if (isAgentDispatch) {
         // Check if this Task tool has an agent child
         // TASK_2025_128 FIX: The parentToolUseId matching often fails because:
         // - Hook-based agent_start uses UUID format for parentToolUseId

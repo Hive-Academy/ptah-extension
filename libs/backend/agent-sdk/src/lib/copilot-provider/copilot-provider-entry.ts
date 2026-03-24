@@ -11,13 +11,13 @@ import type {
 } from '../helpers/anthropic-provider-registry';
 
 /**
- * Static Claude model definitions available through GitHub Copilot.
+ * All models available through GitHub Copilot (Claude, GPT, Gemini).
  * Pricing is 0 since Copilot subscription covers usage.
  *
- * Model list matches the Claude models from COPILOT_MODELS in
- * copilot-sdk.adapter.ts, filtered to Claude-only.
+ * Model list kept in sync with COPILOT_MODELS in copilot-sdk.adapter.ts.
  */
-const COPILOT_CLAUDE_MODELS: ProviderStaticModel[] = [
+const COPILOT_STATIC_MODELS: ProviderStaticModel[] = [
+  // --- Claude models ---
   {
     id: 'claude-sonnet-4.6',
     name: 'Claude Sonnet 4.6',
@@ -72,6 +72,107 @@ const COPILOT_CLAUDE_MODELS: ProviderStaticModel[] = [
     inputCostPerToken: 0,
     outputCostPerToken: 0,
   },
+  // --- GPT models ---
+  {
+    id: 'gpt-5.4',
+    name: 'GPT 5.4',
+    description: 'Latest GPT — advanced reasoning',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.3-codex',
+    name: 'GPT 5.3 Codex',
+    description: 'GPT 5.3 optimized for code',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.2-codex',
+    name: 'GPT 5.2 Codex',
+    description: 'GPT 5.2 optimized for code',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.2',
+    name: 'GPT 5.2',
+    description: 'GPT 5.2 — balanced performance',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.1-codex-max',
+    name: 'GPT 5.1 Codex Max',
+    description: 'GPT 5.1 Codex — maximum capability',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.1-codex',
+    name: 'GPT 5.1 Codex',
+    description: 'GPT 5.1 optimized for code',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.1-codex-mini',
+    name: 'GPT 5.1 Codex Mini',
+    description: 'GPT 5.1 Codex — lightweight and fast',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5.1',
+    name: 'GPT 5.1',
+    description: 'GPT 5.1 — reliable and efficient',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-5-mini',
+    name: 'GPT 5 Mini',
+    description: 'GPT 5 Mini — fast and lightweight',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  {
+    id: 'gpt-4.1',
+    name: 'GPT 4.1',
+    description: 'GPT 4.1 — previous generation',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
+  // --- Gemini models ---
+  {
+    id: 'gemini-3-pro-preview',
+    name: 'Gemini 3 Pro Preview',
+    description: 'Google Gemini 3 Pro — advanced multimodal',
+    contextLength: 128000,
+    supportsToolUse: true,
+    inputCostPerToken: 0,
+    outputCostPerToken: 0,
+  },
 ];
 
 /**
@@ -82,6 +183,16 @@ const COPILOT_CLAUDE_MODELS: ProviderStaticModel[] = [
  * - `authType: 'oauth'` — uses GitHub OAuth instead of API key input
  * - `requiresProxy: true` — needs the translation proxy to convert protocols
  */
+/**
+ * Default model tier mappings for GitHub Copilot.
+ * Auto-applied on first login so users get the best models mapped immediately.
+ */
+export const COPILOT_DEFAULT_TIERS = {
+  sonnet: 'claude-sonnet-4.6',
+  opus: 'claude-opus-4.6',
+  haiku: 'claude-haiku-4.5',
+} as const;
+
 export const COPILOT_PROVIDER_ENTRY: AnthropicProvider = {
   id: 'github-copilot',
   name: 'GitHub Copilot',
@@ -94,5 +205,5 @@ export const COPILOT_PROVIDER_ENTRY: AnthropicProvider = {
   description: 'Claude models via GitHub Copilot subscription',
   keyPlaceholder: 'Authenticated via GitHub',
   maskedKeyDisplay: 'GitHub Copilot (connected)',
-  staticModels: COPILOT_CLAUDE_MODELS,
+  staticModels: COPILOT_STATIC_MODELS,
 };

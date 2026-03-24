@@ -128,6 +128,8 @@ export interface SpawnAgentRequest {
   readonly pluginPaths?: string[];
   /** Ptah CLI agent ID from PtahCliRegistry. When set, spawns via Ptah CLI agent instead of CLI. */
   readonly ptahCliId?: string;
+  /** When set, this agent is resuming a previous agent. Frontend replaces the old card in-place. */
+  readonly resumedFromAgentId?: string;
 }
 
 // ========================================
@@ -266,4 +268,7 @@ export interface CliSessionReference {
   readonly streamEvents?: readonly FlatStreamEventUnion[];
   /** Ptah CLI agent registry ID (only set when cli === 'ptah-cli'). Needed for resume. */
   readonly ptahCliId?: string;
+  /** Real SDK session UUID. Enables the SessionImporterService to cross-reference
+   *  JSONL files against known child sessions and skip re-importing them. */
+  readonly sdkSessionId?: string;
 }

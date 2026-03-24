@@ -115,13 +115,12 @@ export const CONTEXT_ENRICHMENT_SERVICE = Symbol.for(
 export const DEPENDENCY_GRAPH_SERVICE = Symbol.for('DependencyGraphService');
 
 // ========================================
-// LLM Abstraction Service Tokens
+// LLM Abstraction Service Tokens (DELETED)
+// TASK_2025_212: LLM_SERVICE, PROVIDER_REGISTRY, LLM_SECRETS_SERVICE,
+// LLM_CONFIGURATION_SERVICE all removed. LLM abstraction layer is fully
+// vestigial — all AI queries go through Agent SDK now.
+// LLM_RPC_HANDLERS - DELETED in TASK_2025_209
 // ========================================
-export const LLM_SERVICE = Symbol.for('LlmService');
-export const PROVIDER_REGISTRY = Symbol.for('ProviderRegistry');
-export const LLM_SECRETS_SERVICE = Symbol.for('LlmSecretsService');
-export const LLM_CONFIGURATION_SERVICE = Symbol.for('LlmConfigurationService');
-export const LLM_RPC_HANDLERS = Symbol.for('LlmRpcHandlers');
 
 // ========================================
 // Agent Orchestration Tokens (TASK_2025_157)
@@ -289,6 +288,19 @@ export const WEBVIEW_INITIAL_DATA_BUILDER = Symbol.for(
 export const WEBVIEW_HTML_GENERATOR = Symbol.for('WebviewHtmlGenerator');
 export const WEBVIEW_MESSAGE_HANDLER = Symbol.for('WebviewMessageHandler');
 
+// ========================================
+// Platform Abstraction Tokens (TASK_2025_203)
+// ========================================
+export const PLATFORM_COMMANDS = Symbol.for('PlatformCommands');
+export const PLATFORM_AUTH_PROVIDER = Symbol.for('PlatformAuthProvider');
+export const SAVE_DIALOG_PROVIDER = Symbol.for('SaveDialogProvider');
+export const MODEL_DISCOVERY = Symbol.for('ModelDiscovery');
+
+// ========================================
+// Workspace Context Management (TASK_2025_208)
+// ========================================
+export const WORKSPACE_CONTEXT_MANAGER = Symbol.for('WorkspaceContextManager');
+
 /**
  * TOKENS constant for convenient access to all DI tokens
  * Provides a single source of truth for all dependency injection symbols
@@ -369,13 +381,13 @@ export const TOKENS = {
   QUALITY_EXPORT_SERVICE,
 
   // ========================================
-  // LLM Abstraction
+  // LLM Abstraction (DELETED in TASK_2025_212)
   // ========================================
-  LLM_SERVICE,
-  PROVIDER_REGISTRY,
-  LLM_SECRETS_SERVICE,
-  LLM_CONFIGURATION_SERVICE,
-  LLM_RPC_HANDLERS,
+  // LLM_SERVICE - DELETED
+  // PROVIDER_REGISTRY - DELETED
+  // LLM_SECRETS_SERVICE - DELETED
+  // LLM_CONFIGURATION_SERVICE - DELETED
+  // LLM_RPC_HANDLERS - DELETED in TASK_2025_209
 
   // Agent Orchestration (TASK_2025_157)
   AGENT_PROCESS_MANAGER,
@@ -453,6 +465,19 @@ export const TOKENS = {
   WEBVIEW_INITIAL_DATA_BUILDER,
   WEBVIEW_HTML_GENERATOR,
   WEBVIEW_MESSAGE_HANDLER,
+
+  // ========================================
+  // Platform Abstraction (TASK_2025_203)
+  // ========================================
+  PLATFORM_COMMANDS,
+  PLATFORM_AUTH_PROVIDER,
+  SAVE_DIALOG_PROVIDER,
+  MODEL_DISCOVERY,
+
+  // ========================================
+  // Workspace Context Management (TASK_2025_208)
+  // ========================================
+  WORKSPACE_CONTEXT_MANAGER,
 } as const;
 
 /**

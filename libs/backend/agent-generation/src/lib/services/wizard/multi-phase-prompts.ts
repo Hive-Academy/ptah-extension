@@ -174,11 +174,11 @@ Read 01-project-profile.md first. Then use the \`execute_code\` tool with \`ptah
 **Key API calls for this phase:**
 - \`ptah.files.read('${slugDir}/01-project-profile.md')\` — Read the previous phase output
 - \`ptah.search.findFiles({ query: 'service' })\` — Find files by query relevance
-- \`ptah.symbols.extract('/path/to/file.ts')\` — Extract classes, functions, imports from files
+- \`ptah.ast.analyze('/path/to/file.ts')\` — Extract classes, functions, imports from files
 - \`ptah.ide.lsp.getReferences('/path/to/file.ts', line, col)\` — Find all usages of a symbol
 - \`ptah.diagnostics.getErrors()\` — Check for existing compilation errors
 - \`ptah.files.read('/path/to/file.ts')\` — Read source files to examine imports and patterns
-- \`ptah.help('symbols')\` or \`ptah.help('ide.lsp')\` — Get detailed API docs
+- \`ptah.help('ast')\` or \`ptah.help('ide.lsp')\` — Get detailed API docs
 
 Examine imports, folder structures, dependency relationships. Look for patterns and evaluate consistency. Find specific violations — cite the file and import. Compare against best practices for this tech stack.
 
@@ -285,7 +285,7 @@ Read both previous phase files first. Then use the \`execute_code\` tool with \`
 - \`ptah.files.read('${slugDir}/02-architecture-assessment.md')\` — Read architecture assessment
 - \`ptah.diagnostics.getErrors()\` — Get all compilation errors and warnings
 - \`ptah.diagnostics.getProblems({ severity: 'error' })\` — Get only errors
-- \`ptah.symbols.extract('/path/to/file.ts')\` — Extract code symbols for analysis
+- \`ptah.ast.analyze('/path/to/file.ts')\` — Extract code symbols for analysis
 - \`ptah.search.findFiles({ query: 'test' })\` — Find test files
 - \`ptah.search.findFiles({ pattern: '**/*.spec.ts' })\` — Find test files by pattern
 - \`ptah.files.read('/path/to/file.ts')\` — Read source files for quality analysis

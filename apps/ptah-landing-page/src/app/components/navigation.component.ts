@@ -44,18 +44,17 @@ import { AuthService } from '../services/auth.service';
       <!-- Logo and Branding -->
       <a
         routerLink="/"
-        class="flex items-center gap-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
+        class="flex items-center gap-3 focus-visible:outline mt-10 focus-visible:outline-2 focus-visible:outline-amber-400 focus-visible:outline-offset-2 rounded-md"
         aria-label="Ptah Extension Home"
         (click)="closeMobileMenu()"
       >
         <img
           ngSrc="/assets/icons/ptah-icon.png"
           alt="Ptah Extension Logo"
-          width="32"
-          height="32"
-          class="w-8 h-8"
+          width="96"
+          height="96"
+          class="w-24 h-24"
         />
-        <span class="font-bold text-xl text-amber-400">Ptah</span>
       </a>
 
       <!-- Mobile Hamburger Button -->
@@ -75,7 +74,12 @@ import { AuthService } from '../services/auth.service';
       </button>
 
       <!-- Desktop Navigation Links + CTAs -->
-      <div class="hidden md:flex items-center gap-6">
+      <div
+        class="hidden md:flex items-center gap-6"
+        [ngClass]="{
+          'mt-4 transition-all': !scrolled() && !mobileMenuOpen()
+        }"
+      >
         <!-- Pricing Link -->
         <a
           routerLink="/pricing"

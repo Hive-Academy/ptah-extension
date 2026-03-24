@@ -3,20 +3,35 @@
   height: 100%;
 }
 
-/* Custom scrollbar for message container */
+/* Custom scrollbar for message container
+   Uses VS Code variables when available (extension webview),
+   falls back to Anubis theme (Electron desktop) via global styles.css */
+:host ::ng-deep .overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: var(
+      --vscode-scrollbarSlider-background,
+      oklch(var(--s) / 0.3)
+    )
+    var(--vscode-scrollbar-shadow, transparent);
+}
+
+/* Webkit fallback */
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar {
   width: 8px;
 }
 
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar-track {
-  background: var(--vscode-scrollbar-shadow);
+  background: var(--vscode-scrollbar-shadow, transparent);
 }
 
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: var(--vscode-scrollbarSlider-background);
+  background: var(--vscode-scrollbarSlider-background, oklch(var(--s) / 0.3));
   border-radius: 4px;
 }
 
 :host ::ng-deep .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-  background: var(--vscode-scrollbarSlider-hoverBackground);
+  background: var(
+    --vscode-scrollbarSlider-hoverBackground,
+    oklch(var(--s) / 0.5)
+  );
 }

@@ -190,8 +190,8 @@ export interface SearchImagesResult {
  */
 function formatFileResult(result: FileSearchResult) {
   return {
-    uri: result.uri.toString(),
-    fsPath: result.uri.fsPath, // Actual file system path for attachment processing
+    uri: result.path,
+    fsPath: result.path, // Actual file system path for attachment processing
     relativePath: result.relativePath,
     fileName: result.fileName,
     fileType: result.fileType,

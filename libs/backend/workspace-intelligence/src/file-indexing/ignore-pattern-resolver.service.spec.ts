@@ -13,24 +13,9 @@
  */
 
 import 'reflect-metadata';
-import type { Uri } from 'vscode';
 import { IgnorePatternResolverService } from './ignore-pattern-resolver.service';
 import { FileSystemService } from '../services/file-system.service';
 import { PatternMatcherService } from './pattern-matcher.service';
-
-// Mock vscode Uri
-const createMockUri = (fsPath: string): Uri =>
-  ({
-    fsPath,
-    path: fsPath,
-    scheme: 'file',
-    authority: '',
-    query: '',
-    fragment: '',
-    with: jest.fn(),
-    toString: () => `file://${fsPath}`,
-    toJSON: () => ({ scheme: 'file', path: fsPath }),
-  } as unknown as Uri);
 
 describe('IgnorePatternResolverService', () => {
   let service: IgnorePatternResolverService;
@@ -58,7 +43,7 @@ dist/
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.filePath).toBe('/workspace/.gitignore');
@@ -83,7 +68,7 @@ dist/
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(3);
@@ -108,7 +93,7 @@ dist/
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(2);
@@ -122,7 +107,7 @@ dist/
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(2);
@@ -136,7 +121,7 @@ dist/**/`;
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(2);
@@ -150,7 +135,7 @@ dist/**/`;
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(2);
@@ -163,7 +148,7 @@ dist/**/`;
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(3);
@@ -174,22 +159,24 @@ dist/**/`;
     // These tests require VS Code environment (dynamic import of vscode.Uri)
     // They are integration tests that should run in Extension Development Host
     it.skip('should parse multiple ignore files', async () => {
-      mockFileSystem.exists.mockImplementation(async (uri: Uri) => {
-        const path = uri.fsPath;
-        return path.endsWith('.gitignore') || path.endsWith('.prettierignore');
+      mockFileSystem.exists.mockImplementation(async (filePath: string) => {
+        return (
+          filePath.endsWith('.gitignore') ||
+          filePath.endsWith('.prettierignore')
+        );
       });
 
-      mockFileSystem.readFile.mockImplementation(async (uri: Uri) => {
-        if (uri.fsPath.endsWith('.gitignore')) {
+      mockFileSystem.readFile.mockImplementation(async (filePath: string) => {
+        if (filePath.endsWith('.gitignore')) {
           return 'node_modules/\n*.log';
         }
-        if (uri.fsPath.endsWith('.prettierignore')) {
+        if (filePath.endsWith('.prettierignore')) {
           return 'dist/\nbuild/';
         }
         return '';
       });
 
-      const workspaceUri = createMockUri('/workspace');
+      const workspaceUri = '/workspace';
       const result = await service.parseWorkspaceIgnoreFiles(workspaceUri);
 
       expect(result).toHaveLength(2);
@@ -200,7 +187,7 @@ dist/**/`;
     it.skip('should skip non-existent files', async () => {
       mockFileSystem.exists.mockResolvedValue(false);
 
-      const workspaceUri = createMockUri('/workspace');
+      const workspaceUri = '/workspace';
       const result = await service.parseWorkspaceIgnoreFiles(workspaceUri);
 
       expect(result).toHaveLength(0);
@@ -212,7 +199,7 @@ dist/**/`;
 
       const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
-      const workspaceUri = createMockUri('/workspace');
+      const workspaceUri = '/workspace';
       const result = await service.parseWorkspaceIgnoreFiles(workspaceUri);
 
       expect(result).toHaveLength(0);
@@ -464,7 +451,7 @@ dist/**/`;
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(0);
@@ -477,7 +464,7 @@ dist/**/`;
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(0);
@@ -490,7 +477,7 @@ src/**/test/**
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(3);
@@ -506,7 +493,7 @@ src/**/test/**
 
       mockFileSystem.readFile.mockResolvedValue(content);
 
-      const uri = createMockUri('/workspace/.gitignore');
+      const uri = '/workspace/.gitignore';
       const result = await service.parseIgnoreFile(uri);
 
       expect(result.patterns).toHaveLength(2);

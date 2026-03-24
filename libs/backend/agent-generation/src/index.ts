@@ -37,7 +37,6 @@ export { OutputValidationService } from './lib/services/output-validation.servic
 export { AgentFileWriterService } from './lib/services/file-writer.service';
 export { AgentSelectionService } from './lib/services/agent-selection.service';
 export { AgentRecommendationService } from './lib/services/agent-recommendation.service';
-export { VsCodeLmService } from './lib/services/vscode-lm.service';
 export {
   SetupStatusService,
   type SetupStatus,

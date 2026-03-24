@@ -19,11 +19,14 @@ import {
 } from '@ptah-extension/core';
 
 // UPDATED: Import components from libraries
-import { AppShellComponent } from '@ptah-extension/chat';
+import {
+  AppShellComponent,
+  ElectronShellComponent,
+} from '@ptah-extension/chat';
 
 @Component({
   selector: 'ptah-root',
-  imports: [AppShellComponent, LucideAngularModule],
+  imports: [AppShellComponent, ElectronShellComponent, LucideAngularModule],
   templateUrl: './app.html',
   styleUrls: ['./app.css'],
 })
@@ -39,6 +42,9 @@ export class App implements OnInit, OnDestroy {
   private readonly navigationService = inject(WebviewNavigationService);
   // private readonly providerService = inject(ProviderService); // DELETED - provider library removed in Phase 0
   // REMOVED: Router injection - using pure signal-based navigation
+
+  // Platform detection: Electron desktop vs VS Code webview (set once at bootstrap, never changes)
+  public readonly isElectron = signal(this.vscodeService.isElectron);
 
   // ANGULAR 20 PATTERN: Signal-based state for reactive UI
   private readonly initializationStatus = signal<

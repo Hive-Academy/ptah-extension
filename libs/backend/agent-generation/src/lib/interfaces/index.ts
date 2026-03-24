@@ -32,12 +32,6 @@ export { IAgentFileWriterService } from './agent-file-writer.interface';
 // Setup Wizard Orchestrator
 export { ISetupWizardOrchestrator } from './setup-wizard-orchestrator.interface';
 
-// VS Code LM Service
-export {
-  IVsCodeLmService,
-  SectionCustomizationRequest,
-} from './vscode-lm.interface';
-
 // Agent Customization Service
 export {
   IAgentCustomizationService,

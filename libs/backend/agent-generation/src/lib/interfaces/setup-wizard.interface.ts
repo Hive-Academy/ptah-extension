@@ -8,13 +8,14 @@
  */
 
 import { Result } from '@ptah-extension/shared';
-import type * as vscode from 'vscode';
 
 export interface ISetupWizardService {
   /**
    * Launch the setup wizard webview.
+   *
+   * @param workspacePath - Absolute path to the workspace root
    */
-  launchWizard(workspaceUri: vscode.Uri): Promise<Result<void, Error>>;
+  launchWizard(workspacePath: string): Promise<Result<void, Error>>;
 
   /**
    * Cancel the current wizard session.
