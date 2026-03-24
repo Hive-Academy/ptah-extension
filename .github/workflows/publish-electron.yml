@@ -3,12 +3,12 @@
 # Cross-platform Electron builds for Windows, macOS, and Linux.
 #
 # Workflow:
-#   1. Push to release/electron branch (bump version in apps/ptah-electron/package.json first)
-#   2. CI reads version, checks if tag already exists (prevents duplicate releases)
-#   3. Builds for all 3 platforms in parallel
-#   4. Creates git tag + public GitHub Release with all installers
-#
-# Manual dispatch also supported for re-running builds.
+#   1. Push to release/electron branch OR trigger manually with bump type
+#   2. Auto-bumps the version in apps/ptah-electron/package.json
+#   3. Checks if the version tag already exists (prevents duplicate releases)
+#   4. Builds for all 3 platforms in parallel
+#   5. Creates git tag + public GitHub Release with all installers
+#   6. Commits the version bump back to the branch
 #
 # Phase 1: Unsigned builds — no code signing secrets configured.
 # Users will see platform warnings ("unidentified developer") until
@@ -21,6 +21,16 @@ on:
     branches:
       - 'release/electron'
   workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
 
 permissions:
   contents: write
@@ -29,33 +39,68 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.bump.outputs.new_version }}
+      tag: ${{ steps.bump.outputs.tag }}
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read version
-        id: version
+      - name: Configure git
         run: |
-          VERSION=$(node -p "require('./apps/ptah-electron/package.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=electron-v$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Electron version: $VERSION (tag: electron-v$VERSION)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: bump
+        run: |
+          BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
+          OLD_VERSION=$(node -p "require('./apps/ptah-electron/package.json').version")
+
+          NEW_VERSION=$(node -e "
+            const [major, minor, patch] = '${OLD_VERSION}'.split('.').map(Number);
+            const bump = '${BUMP_TYPE}';
+            if (bump === 'major') console.log(\`\${major+1}.0.0\`);
+            else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
+            else console.log(\`\${major}.\${minor}.\${patch+1}\`);
+          ")
+
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/ptah-electron/package.json', 'utf8'));
+            pkg.version = '${NEW_VERSION}';
+            fs.writeFileSync('apps/ptah-electron/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          echo "old_version=$OLD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=electron-v$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bumped $OLD_VERSION -> $NEW_VERSION ($BUMP_TYPE)"
 
       - name: Check if tag exists
         id: check
         run: |
-          if git ls-remote --tags origin "refs/tags/electron-v${{ steps.version.outputs.version }}" | grep -q .; then
+          if git ls-remote --tags origin "refs/tags/${{ steps.bump.outputs.tag }}" | grep -q .; then
             echo "should_release=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Tag electron-v${{ steps.version.outputs.version }} already exists. Bump the version in apps/ptah-electron/package.json to create a new release."
+            echo "::error::Tag ${{ steps.bump.outputs.tag }} already exists."
           else
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Abort if tag exists
+        if: steps.check.outputs.should_release != 'true'
+        run: exit 1
+
+      - name: Commit version bump
+        run: |
+          git add apps/ptah-electron/package.json
+          git commit -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
+          git push origin HEAD
+
   build:
     needs: prepare
-    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -71,6 +116,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -79,15 +126,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Set version in build output
-        run: |
-          node -e "
-            const fs = require('fs');
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.version = '${{ needs.prepare.outputs.version }}';
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
 
       - name: Build Electron app
         run: npx nx build ptah-electron
@@ -112,6 +150,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Create git tag
         run: |
