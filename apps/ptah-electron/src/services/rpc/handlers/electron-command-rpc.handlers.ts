@@ -13,12 +13,15 @@
 import { injectable, inject } from 'tsyringe';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import type { IPlatformCommands } from '@ptah-extension/rpc-handlers';
 
 @injectable()
 export class ElectronCommandRpcHandlers {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler
+    @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
+    @inject(TOKENS.PLATFORM_COMMANDS)
+    private readonly platformCommands: IPlatformCommands
   ) {}
 
   register(): void {
@@ -27,6 +30,13 @@ export class ElectronCommandRpcHandlers {
       async (params: { command: string; args?: unknown[] } | undefined) => {
         if (!params?.command) {
           return { success: false, error: 'command is required' };
+        }
+
+        // Map VS Code commands to Electron equivalents
+        if (params.command === 'workbench.action.reloadWindow') {
+          this.logger.info('[Electron RPC] command:execute - reloading window');
+          setTimeout(() => this.platformCommands.reloadWindow(), 500);
+          return { success: true };
         }
 
         // In Electron, VS Code commands are not available.

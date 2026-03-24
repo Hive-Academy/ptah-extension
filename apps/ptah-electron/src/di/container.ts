@@ -387,7 +387,10 @@ export class ElectronDIContainer {
           scheme: 'file',
         },
         extensionPath: options.appPath,
-        extensionMode: 1, // 1 = Production (matches vscode.ExtensionMode.Production; 0 = Test, 2 = Development)
+        // vscode.ExtensionMode: 0 = Test, 1 = Production, 2 = Development
+        // Use NODE_ENV to match the VS Code extension's behavior:
+        // Development mode uses localhost:3000 for the license server.
+        extensionMode: process.env['NODE_ENV'] === 'development' ? 2 : 1,
       };
       container.register(TOKENS.EXTENSION_CONTEXT, {
         useValue: extensionContextShim,
