@@ -5,6 +5,7 @@ import {
   OnInit,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { NgClass } from '@angular/common';
 import {
   LucideAngularModule,
   PanelLeftClose,
@@ -33,7 +34,12 @@ import { EditorService } from '../services/editor.service';
 @Component({
   selector: 'ptah-editor-panel',
   standalone: true,
-  imports: [FileTreeComponent, CodeEditorComponent, LucideAngularModule],
+  imports: [
+    NgClass,
+    FileTreeComponent,
+    CodeEditorComponent,
+    LucideAngularModule,
+  ],
   template: `
     <div
       class="flex flex-col h-full w-full bg-base-100"
@@ -81,19 +87,24 @@ import { EditorService } from '../services/editor.service';
             @for (tab of editorService.openTabs(); track tab.filePath) {
             <button
               class="group flex items-center gap-1 px-3 py-1 text-xs border-r border-base-content/5 whitespace-nowrap select-none transition-colors"
-              [class.bg-base-100]="tab.filePath === editorService.activeFilePath()"
-              [class.text-base-content]="tab.filePath === editorService.activeFilePath()"
-              [class.bg-base-300]="tab.filePath !== editorService.activeFilePath()"
-              [class.text-base-content/60]="tab.filePath !== editorService.activeFilePath()"
-              [class.hover:bg-base-200]="tab.filePath !== editorService.activeFilePath()"
+              [ngClass]="
+                tab.filePath === editorService.activeFilePath()
+                  ? 'bg-base-100 text-base-content'
+                  : 'bg-base-300 text-base-content/60 hover:bg-base-200'
+              "
               role="tab"
-              [attr.aria-selected]="tab.filePath === editorService.activeFilePath()"
+              [attr.aria-selected]="
+                tab.filePath === editorService.activeFilePath()
+              "
               [attr.aria-label]="'Switch to ' + tab.fileName"
               (click)="onTabClick(tab.filePath)"
             >
               <span>{{ tab.fileName }}</span>
               @if (tab.isDirty) {
-              <span class="w-2 h-2 rounded-full bg-warning inline-block flex-shrink-0" title="Unsaved changes"></span>
+              <span
+                class="w-2 h-2 rounded-full bg-warning inline-block flex-shrink-0"
+                title="Unsaved changes"
+              ></span>
               }
               <button
                 class="ml-1 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-base-content/10 transition-opacity"

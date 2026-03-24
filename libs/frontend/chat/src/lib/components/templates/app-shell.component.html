@@ -284,7 +284,9 @@
     >
       <!-- Sidebar toggle -->
       <button
-        class="btn btn-square btn-ghost btn-sm"
+        class="btn btn-ghost btn-sm"
+        [class.btn-square]="!isElectron"
+        [class.gap-1]="isElectron"
         aria-label="Toggle sidebar"
         (click)="toggleSidebar()"
       >
@@ -292,6 +294,9 @@
           [img]="sidebarOpen() ? PanelLeftCloseIcon : PanelLeftOpenIcon"
           class="w-4 h-4"
         />
+        @if (isElectron) {
+        <span class="text-xs">Sessions</span>
+        }
       </button>
 
       <!-- Tab bar (relocated from below) -->
@@ -323,7 +328,9 @@
 
         <!-- Agent monitor toggle (always visible) -->
         <button
-          class="btn btn-square btn-ghost btn-xs relative"
+          class="btn btn-ghost btn-xs relative"
+          [class.btn-square]="!isElectron"
+          [class.gap-1]="isElectron"
           aria-label="Toggle agent monitor"
           title="Toggle agent monitor"
           (click)="agentMonitorStore.togglePanel()"
@@ -336,7 +343,9 @@
             "
             class="w-3.5 h-3.5"
           />
-          @if (agentMonitorStore.pendingPermissions().length > 0) {
+          @if (isElectron) {
+          <span class="text-xs">Cli Agents</span>
+          } @if (agentMonitorStore.pendingPermissions().length > 0) {
           <span
             class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-warning rounded-full animate-pulse ring-2 ring-base-100"
           ></span>
@@ -377,12 +386,17 @@
           <!-- Trigger: New Session button -->
           <button
             trigger
-            class="btn btn-square btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs"
+            [class.btn-square]="!isElectron"
+            [class.gap-1]="isElectron"
             (click)="createNewSession()"
             aria-label="New Session"
             title="New Session"
           >
             <lucide-angular [img]="PlusIcon" class="w-3.5 h-3.5" />
+            @if (isElectron) {
+            <span class="text-xs">New Session</span>
+            }
           </button>
 
           <!-- Popover content -->

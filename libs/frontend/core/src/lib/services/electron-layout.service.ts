@@ -18,6 +18,7 @@ import {
 } from '@angular/core';
 import { SessionId } from '@ptah-extension/shared';
 import { VSCodeService } from './vscode.service';
+import { AppStateManager } from './app-state.service';
 import { ClaudeRpcService } from './claude-rpc.service';
 import { WORKSPACE_COORDINATOR } from '../tokens/workspace-coordinator.token';
 
@@ -44,6 +45,7 @@ const SWITCH_DEBOUNCE_MS = 100;
 @Injectable({ providedIn: 'root' })
 export class ElectronLayoutService {
   private readonly vscodeService = inject(VSCodeService);
+  private readonly appState = inject(AppStateManager);
   private readonly rpcService = inject(ClaudeRpcService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly coordinator = inject(WORKSPACE_COORDINATOR, {
@@ -411,6 +413,15 @@ export class ElectronLayoutService {
 
       // Update VSCodeService config so all consumers see the new workspaceRoot
       this.vscodeService.updateWorkspaceRoot(newPath);
+
+      // Update AppStateManager so dashboard and other consumers using
+      // appState.workspaceInfo() see the new workspace path
+      const workspaceName = newPath.split(/[\\/]/).pop() || newPath;
+      this.appState.setWorkspaceInfo({
+        name: workspaceName,
+        path: newPath,
+        type: 'workspace',
+      });
     } catch (error) {
       console.error(
         '[ElectronLayout] Failed to coordinate workspace switch:',

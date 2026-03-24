@@ -154,6 +154,14 @@ export class PtahExtension implements vscode.Disposable {
     );
     this.disposables.push(dashboardCommand);
 
+    const toggleChatCommand = vscode.commands.registerCommand(
+      'ptah.toggleChat',
+      () => {
+        vscode.commands.executeCommand('ptah.main.focus');
+      }
+    );
+    this.disposables.push(toggleChatCommand);
+
     this.logger.info('Webview providers and panel command registered');
   }
 

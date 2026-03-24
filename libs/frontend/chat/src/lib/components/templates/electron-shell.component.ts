@@ -155,7 +155,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         @if (layout.hasWorkspaceFolders()) {
         <div class="flex items-center no-drag ml-1">
           <button
-            class="btn btn-square btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs gap-1"
             [title]="
               layout.workspaceSidebarVisible()
                 ? 'Hide workspaces'
@@ -172,6 +172,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               "
               class="w-3.5 h-3.5"
             />
+            <span class="text-xs">Workspaces</span>
           </button>
         </div>
         }
@@ -189,39 +190,42 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
             [trialDaysRemaining]="license.trialDaysRemaining"
             [isCommunity]="license.isCommunity"
             [reason]="license.reason"
+            [showLabel]="true"
           />
           } }
 
           <!-- Theme toggle (always available) -->
-          <ptah-theme-toggle />
+          <ptah-theme-toggle [showLabel]="true" />
 
           <!-- Dashboard & Settings (only when licensed) -->
           @if (appState.isLicensed()) {
           <!-- Dashboard -->
           <button
-            class="btn btn-square btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs gap-1"
             aria-label="Dashboard"
             title="Session Analytics"
             (click)="openDashboard()"
           >
             <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
+            <span class="text-xs">Dashboard</span>
           </button>
 
           <!-- Settings -->
           <button
-            class="btn btn-square btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs gap-1"
             aria-label="Settings"
             title="Settings"
             (click)="openSettings()"
           >
             <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
+            <span class="text-xs">Settings</span>
           </button>
 
           <!-- Editor panel toggle (only when workspace is open) -->
           @if (layout.hasWorkspaceFolders()) {
           <div class="w-px h-4 bg-base-content/10 mx-0.5"></div>
           <button
-            class="btn btn-square btn-ghost btn-xs"
+            class="btn btn-ghost btn-xs gap-1"
             [title]="
               layout.editorPanelVisible()
                 ? 'Hide editor panel'
@@ -238,6 +242,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               "
               class="w-3.5 h-3.5"
             />
+            <span class="text-xs">Editor</span>
           </button>
           } }
         </div>

@@ -81,7 +81,7 @@ import { ChatStore } from '../../../services/chat.store';
 
     <div class="flex flex-col items-center h-full p-4 md:p-6 overflow-y-auto">
       <!-- Hero Section with Divine Glow -->
-      <div class="relative w-full max-w-md mb-6">
+      <div class="relative w-full max-w-md lg:max-w-lg mb-6">
         <div class="flex flex-col items-center text-center">
           <!-- Logo with Divine Aura -->
           <div class="relative mb-4">
@@ -110,7 +110,7 @@ import { ChatStore } from '../../../services/chat.store';
       </div>
 
       <!-- Tab Navigation -->
-      <div class="w-full max-w-md mb-4">
+      <div class="w-full max-w-md lg:max-w-lg mb-4">
         <div role="tablist" class="tabs tabs-boxed bg-base-200/50 p-1">
           <button
             role="tab"
@@ -145,7 +145,7 @@ import { ChatStore } from '../../../services/chat.store';
 
       <!-- Tab 1: Ptah Skills -->
       @if (activeTab() === 'skills') {
-      <div class="w-full max-w-md space-y-5 tab-content-animated">
+      <div class="w-full max-w-md lg:max-w-lg space-y-5 tab-content-animated">
         <!-- Ptah Skills Card -->
         <div
           class="glass-panel glass-panel-divine rounded-xl overflow-hidden transition-all duration-300 hover:shadow-lg"
@@ -201,7 +201,7 @@ import { ChatStore } from '../../../services/chat.store';
 
       <!-- Tab 2: Intelligent Project Setup -->
       @if (activeTab() === 'setup') {
-      <div class="w-full max-w-md space-y-5 tab-content-animated">
+      <div class="w-full max-w-md lg:max-w-lg space-y-5 tab-content-animated">
         <!-- Warning if skills not configured -->
         @if (isPremium() && !hasConfiguredSkills()) {
         <div

@@ -37,6 +37,7 @@
   "activationEvents": [
     "onView:ptah.main",
     "onCommand:ptah.openFullPanel",
+    "onCommand:ptah.toggleChat",
     "onCommand:ptah.setupAgents",
     "onCommand:ptah.openDashboard"
   ],
@@ -60,7 +61,7 @@
         {
           "id": "ptah",
           "title": "Ptah",
-          "icon": "assets/images/ptah-icon.png"
+          "icon": "assets/images/ptah-icon-sidebar.svg"
         }
       ]
     },
@@ -76,6 +77,15 @@
       ]
     },
     "commands": [
+      {
+        "command": "ptah.toggleChat",
+        "title": "Toggle Ptah Chat",
+        "category": "Ptah",
+        "icon": {
+          "light": "assets/images/ptah-icon-toolbar.svg",
+          "dark": "assets/images/ptah-icon-toolbar.svg"
+        }
+      },
       {
         "command": "ptah.openFullPanel",
         "title": "Open Full Ptah Panel",
@@ -147,6 +157,12 @@
         },
         {
           "command": "ptah.importSettings"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "ptah.toggleChat",
+          "group": "navigation"
         }
       ],
       "editor/context": [],

@@ -62,6 +62,9 @@ function registerLicenseOnlyCommands(
       vscode.env.openExternal(
         vscode.Uri.parse(urls.SIGNUP_URL + '?source=vscode')
       );
+    }),
+    vscode.commands.registerCommand('ptah.toggleChat', () => {
+      vscode.commands.executeCommand('ptah.main.focus');
     })
   );
 }
