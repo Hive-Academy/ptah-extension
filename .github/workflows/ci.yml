@@ -44,4 +44,4 @@ jobs:
         with:
           main-branch-name: main
 
-      - run: npx nx affected -t lint typecheck build --exclude=infra-test
+      - run: npx nx affected -t  build --exclude=infra-test

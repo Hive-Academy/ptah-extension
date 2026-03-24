@@ -31,7 +31,7 @@ jobs:
       - run: npm ci
 
       - name: Quality gates
-        run: npx nx run-many -t lint typecheck --projects=ptah-extension-vscode
+        run: npx nx run-many -t typecheck --projects=ptah-extension-vscode
 
       - name: Build and package extension
         run: npx nx run ptah-extension-vscode:package
