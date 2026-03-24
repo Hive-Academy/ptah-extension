@@ -33,7 +33,7 @@ import { AuthMode } from '../models/auth.types';
       routerLink="/"
       viewportAnimation
       [viewportConfig]="logoConfig"
-      class="flex items-center gap-3 mb-12 "
+      class="flex items-center gap-3 mb-8 "
     >
       <img
         ngSrc="/assets/icons/ptah-icon.png"

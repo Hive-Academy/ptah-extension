@@ -25,16 +25,25 @@ export class DurationBadgeComponent {
   readonly durationMs = input.required<number>();
 
   protected formatDuration(): string {
-    const ms = this.durationMs();
+    let ms = this.durationMs();
+
+    // Normalize: SDK message_complete.duration is in seconds while
+    // tree-builder timestamp diffs are in ms. Any value < 100 is almost
+    // certainly seconds (a real agent/tool never completes in < 100ms).
+    if (ms > 0 && ms < 100) {
+      ms = ms * 1000;
+    }
 
     if (ms < 1000) {
-      return `${ms}ms`;
+      return `${Math.round(ms)}ms`;
     }
 
     if (ms < 60_000) {
       return `${(ms / 1000).toFixed(1)}s`;
     }
 
-    return `${(ms / 60_000).toFixed(1)}m`;
+    const minutes = Math.floor(ms / 60_000);
+    const seconds = Math.round((ms % 60_000) / 1000);
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
   }
 }

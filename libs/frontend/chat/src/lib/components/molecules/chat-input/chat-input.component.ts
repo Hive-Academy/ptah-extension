@@ -100,7 +100,18 @@ interface PastedImage {
     EffortSelectorComponent,
   ],
   template: `
-    <div class="flex flex-col gap-2 p-4 bg-base-100">
+    <div class="flex flex-col gap-2 p-4 bg-base-100 relative">
+      <!-- Compaction overlay on input area -->
+      @if (chatStore.isCompacting()) {
+      <div
+        class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-lg"
+      >
+        <div class="flex items-center gap-2 text-warning text-sm font-medium">
+          <span class="loading loading-spinner loading-sm"></span>
+          <span>Optimizing context...</span>
+        </div>
+      </div>
+      }
       <!-- File Tags + Image Thumbnails Row (above textarea) -->
       @if (selectedFiles().length > 0 || pastedImages().length > 0) {
       <div class="flex flex-wrap gap-2">
