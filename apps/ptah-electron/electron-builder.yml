@@ -16,9 +16,10 @@ extraResources:
   - from: 'renderer'
     to: 'renderer'
 
+icon: assets/icons/icon.png
+
 mac:
   category: public.app-category.developer-tools
-  icon: assets/icons/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   target:
@@ -26,12 +27,10 @@ mac:
     - zip
 
 win:
-  icon: assets/icons/icon.ico
   target:
     - nsis
 
 linux:
-  icon: assets/icons
   category: Development
   target:
     - AppImage
