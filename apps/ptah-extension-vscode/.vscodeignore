@@ -26,6 +26,8 @@ CLAUDE.md
 **/*.test.js
 **/*.spec.js
 **/test/**
+**/tests/**
+**/__tests__/**
 
 # Git
 .git/**
@@ -35,9 +37,37 @@ CLAUDE.md
 .DS_Store
 Thumbs.db
 
-# Source maps (not needed for staging/production)
+# Source maps (not needed for production)
 **/*.map
 
 # Misc
 *.vsix
 *.log
+
+# Trim node_modules bloat
+**/node_modules/**/*.md
+**/node_modules/**/*.markdown
+**/node_modules/**/README*
+**/node_modules/**/CHANGELOG*
+**/node_modules/**/HISTORY*
+**/node_modules/**/LICENSE*
+**/node_modules/**/LICENCE*
+**/node_modules/**/.travis.yml
+**/node_modules/**/.eslintrc*
+**/node_modules/**/.prettierrc*
+**/node_modules/**/.editorconfig
+**/node_modules/**/tsconfig.json
+**/node_modules/**/*.ts
+!**/node_modules/**/*.d.ts
+**/node_modules/**/*.map
+**/node_modules/**/*.min.js.map
+**/node_modules/**/test/**
+**/node_modules/**/tests/**
+**/node_modules/**/__tests__/**
+**/node_modules/**/docs/**
+**/node_modules/**/example/**
+**/node_modules/**/examples/**
+**/node_modules/**/.github/**
+**/node_modules/**/scripts/**
+**/node_modules/**/*.d.ts.map
+**/node_modules/**/.package-lock.json

@@ -1,3 +1,14 @@
+# Publish VS Code Extension
+#
+# Workflow:
+#   1. Push to release/extension branch OR trigger manually with bump type
+#   2. Bumps the version in apps/ptah-extension-vscode/package.json
+#   3. Checks if the version tag already exists (prevents duplicate publishes)
+#   4. Builds, packages, and publishes to VS Code Marketplace
+#   5. Creates git tag and commits the version bump back to the branch
+#
+# Manual dispatch lets you choose bump type (patch/minor/major) and pre-release.
+
 name: Publish Extension
 
 on:
@@ -6,6 +17,15 @@ on:
       - release/extension
   workflow_dispatch:
     inputs:
+      bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
       pre-release:
         description: 'Publish as pre-release'
         required: false
@@ -13,7 +33,7 @@ on:
         default: false
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   publish:
@@ -22,6 +42,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
@@ -29,6 +50,54 @@ jobs:
           cache: 'npm'
 
       - run: npm ci
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version
+        id: bump
+        working-directory: apps/ptah-extension-vscode
+        run: |
+          BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
+          OLD_VERSION=$(node -p "require('./package.json').version")
+
+          # Use node to bump semver (no extra deps needed)
+          NEW_VERSION=$(node -e "
+            const [major, minor, patch] = '${OLD_VERSION}'.split('.').map(Number);
+            const bump = '${BUMP_TYPE}';
+            if (bump === 'major') console.log(\`\${major+1}.0.0\`);
+            else if (bump === 'minor') console.log(\`\${major}.\${minor+1}.0\`);
+            else console.log(\`\${major}.\${minor}.\${patch+1}\`);
+          ")
+
+          # Update package.json
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '${NEW_VERSION}';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          echo "old_version=$OLD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=extension-v$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bumped $OLD_VERSION -> $NEW_VERSION ($BUMP_TYPE)"
+
+      - name: Check if tag exists
+        id: check
+        run: |
+          if git ls-remote --tags origin "refs/tags/${{ steps.bump.outputs.tag }}" | grep -q .; then
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Tag ${{ steps.bump.outputs.tag }} already exists. The version ${{ steps.bump.outputs.new_version }} has already been published."
+          else
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Abort if tag exists
+        if: steps.check.outputs.should_publish != 'true'
+        run: exit 1
 
       - name: Quality gates
         run: npx nx run-many -t typecheck --projects=ptah-extension-vscode
@@ -44,3 +113,10 @@ jobs:
           else
             npx @vscode/vsce publish --pat ${{ secrets.VSCE_PAT }}
           fi
+
+      - name: Commit version bump and tag
+        run: |
+          git add apps/ptah-extension-vscode/package.json
+          git commit -m "chore(release): extension v${{ steps.bump.outputs.new_version }}"
+          git tag -a "${{ steps.bump.outputs.tag }}" -m "VS Code Extension v${{ steps.bump.outputs.new_version }}"
+          git push origin HEAD --tags
