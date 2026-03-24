@@ -117,6 +117,6 @@ jobs:
       - name: Commit version bump and tag
         run: |
           git add apps/ptah-extension-vscode/package.json
-          git commit -m "chore(release): extension v${{ steps.bump.outputs.new_version }}"
+          git commit --no-verify -m "chore(release): extension v${{ steps.bump.outputs.new_version }}"
           git tag -a "${{ steps.bump.outputs.tag }}" -m "VS Code Extension v${{ steps.bump.outputs.new_version }}"
           git push origin HEAD --tags

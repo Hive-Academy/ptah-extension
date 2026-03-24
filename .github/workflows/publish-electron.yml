@@ -96,7 +96,7 @@ jobs:
       - name: Commit version bump
         run: |
           git add apps/ptah-electron/package.json
-          git commit -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
+          git commit --no-verify -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
           git push origin HEAD
 
   build:
