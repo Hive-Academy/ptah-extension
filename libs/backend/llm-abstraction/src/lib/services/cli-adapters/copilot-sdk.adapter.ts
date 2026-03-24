@@ -91,6 +91,7 @@ interface SdkSessionConfig {
   hooks?: SdkSessionHooks;
   mcpServers?: Record<string, SdkMcpServerConfig>;
   tools?: unknown[];
+  excludedTools?: string[];
   [key: string]: unknown;
 }
 
@@ -105,6 +106,7 @@ interface SdkResumeConfig {
     | { mode?: 'append'; content?: string }
     | { mode: 'replace'; content: string };
   mcpServers?: Record<string, SdkMcpServerConfig>;
+  excludedTools?: string[];
   [key: string]: unknown;
 }
 
@@ -217,6 +219,44 @@ interface CopilotSdkModule {
 // ========================================
 // Tool Classification Helpers
 // ========================================
+
+/**
+ * PowerShell tools to exclude on Windows when pwsh.exe (PowerShell Core 6+) is
+ * not available. The Copilot CLI hardcodes pwsh.exe for these tools; excluding
+ * them forces the agent to use bash tools (Git Bash / MSYS2) instead.
+ *
+ * Tool names sourced from @github/copilot ShellConfig.powerShell static
+ * (verified against @github/copilot 1.x). Re-check when upgrading the SDK.
+ */
+const WINDOWS_EXCLUDED_POWERSHELL_TOOLS = [
+  'powershell',
+  'read_powershell',
+  'write_powershell',
+  'stop_powershell',
+  'list_powershell',
+] as const;
+
+/**
+ * Cached promise for pwsh availability check (once per extension lifetime).
+ * Caching the promise (not the result) prevents duplicate subprocess spawns
+ * when multiple sessions are created concurrently.
+ */
+let pwshCheckPromise: Promise<boolean> | null = null;
+
+/**
+ * Check if PowerShell Core (pwsh.exe) is on PATH.
+ * Uses resolveCliPath (which wraps `which`) — no subprocess spawned.
+ * On non-Windows, returns true (no exclusion needed; Copilot uses bash natively).
+ */
+function isPwshAvailable(): Promise<boolean> {
+  if (pwshCheckPromise !== null) return pwshCheckPromise;
+  pwshCheckPromise = (async () => {
+    if (process.platform !== 'win32') return true;
+    const resolved = await resolveCliPath('pwsh');
+    return resolved !== null;
+  })();
+  return pwshCheckPromise;
+}
 
 /** Shell/command execution tool names across providers */
 function isShellTool(toolName: string): boolean {
@@ -442,6 +482,20 @@ export class CopilotSdkAdapter implements CliAdapter {
       });
     };
 
+    // On Windows, exclude PowerShell tools if pwsh.exe is not installed.
+    // The Copilot CLI requires PowerShell Core 6+ (pwsh.exe), not Windows
+    // PowerShell 5.1 (powershell.exe). When excluded, the agent uses bash.
+    const pwshFound = await isPwshAvailable();
+    const excludedTools = !pwshFound
+      ? [...WINDOWS_EXCLUDED_POWERSHELL_TOOLS]
+      : undefined;
+
+    if (!pwshFound) {
+      console.log(
+        '[Copilot SDK] PowerShell Core (pwsh.exe) not found — excluding PowerShell tools, agent will use bash'
+      );
+    }
+
     // Create or resume session
     let session: SdkSession;
     try {
@@ -452,6 +506,7 @@ export class CopilotSdkAdapter implements CliAdapter {
           hooks: sessionHooks,
           onPermissionRequest: permissionHandler,
           workingDirectory: options.workingDirectory,
+          excludedTools,
         };
 
         if (options.model) {
@@ -497,6 +552,7 @@ export class CopilotSdkAdapter implements CliAdapter {
           hooks: sessionHooks,
           onPermissionRequest: permissionHandler,
           workingDirectory: options.workingDirectory,
+          excludedTools,
         };
 
         if (options.model) {
