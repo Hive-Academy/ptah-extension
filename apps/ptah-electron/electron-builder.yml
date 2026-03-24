@@ -1,10 +1,11 @@
 appId: com.ptah.desktop
 productName: Ptah
 copyright: Copyright 2026 Ptah
+electronVersion: 35.7.5
 
 directories:
   output: ../../release
-  buildResources: src/assets
+  buildResources: assets
 
 files:
   - '**/*'
@@ -17,7 +18,7 @@ extraResources:
 
 mac:
   category: public.app-category.developer-tools
-  icon: src/assets/icons/icon.icns
+  icon: assets/icons/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   target:
@@ -25,12 +26,12 @@ mac:
     - zip
 
 win:
-  icon: src/assets/icons/icon.ico
+  icon: assets/icons/icon.ico
   target:
     - nsis
 
 linux:
-  icon: src/assets/icons
+  icon: assets/icons
   category: Development
   target:
     - AppImage
