@@ -25,7 +25,9 @@ import { LucideAngularModule, RefreshCw } from 'lucide-angular';
   imports: [LucideAngularModule],
   template: `
     @if (isCompacting()) {
-    <div class="alert alert-warning shadow-lg mb-4 py-2 px-3 animate-pulse">
+    <div
+      class="alert alert-warning shadow-lg mb-4 py-2 px-3 overflow-hidden relative"
+    >
       <div class="flex items-center gap-2 flex-1">
         <lucide-angular
           [img]="RefreshCwIcon"
@@ -38,7 +40,30 @@ import { LucideAngularModule, RefreshCw } from 'lucide-angular';
           </p>
         </div>
       </div>
+      <!-- Indeterminate progress bar at the bottom of the banner -->
+      <div class="absolute bottom-0 left-0 right-0 h-0.5 bg-warning-content/10">
+        <div class="h-full bg-warning-content/40 animate-indeterminate"></div>
+      </div>
     </div>
+    }
+  `,
+  styles: `
+    @keyframes indeterminate {
+      0% {
+        width: 30%;
+        transform: translateX(-100%);
+      }
+      50% {
+        width: 30%;
+        transform: translateX(200%);
+      }
+      100% {
+        width: 30%;
+        transform: translateX(400%);
+      }
+    }
+    .animate-indeterminate {
+      animation: indeterminate 1.8s ease-in-out infinite;
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

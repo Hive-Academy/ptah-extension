@@ -174,7 +174,7 @@ export class ChatStore {
   readonly isCompacting = this._isCompacting.asReadonly();
 
   /**
-   * Timeout ID for compaction auto-dismiss.
+   * Timeout ID for compaction safety fallback.
    *
    * DESIGN NOTE: This is intentionally stored as a class property rather than
    * a signal because:
@@ -188,12 +188,12 @@ export class ChatStore {
   private compactionTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
   /**
-   * Auto-dismiss timeout for compaction notification (milliseconds).
-   * SDK compaction typically completes within 5-8 seconds based on testing.
-   * The 10-second timeout provides buffer while ensuring UX doesn't hang.
+   * Safety fallback timeout for compaction notification (milliseconds).
+   * The banner is normally dismissed by the `compaction_complete` event.
+   * This timeout is a safety net in case the complete event is lost.
    * @see TASK_2025_098
    */
-  private static readonly COMPACTION_AUTO_DISMISS_MS = 10000;
+  private static readonly COMPACTION_SAFETY_TIMEOUT_MS = 120000;
 
   // ============================================================================
   // PUBLIC READONLY SIGNALS
@@ -551,15 +551,17 @@ export class ChatStore {
       this.compactionTimeoutId = null;
     }
 
-    // Set compacting state
+    // Set compacting state — stays visible until compaction_complete event arrives
     this._isCompacting.set(true);
 
-    // Auto-dismiss after timeout (compaction typically completes quickly)
+    // Safety fallback: dismiss if compaction_complete event is never received
     this.compactionTimeoutId = setTimeout(() => {
       this._isCompacting.set(false);
       this.compactionTimeoutId = null;
-      console.log('[ChatStore] Compaction auto-dismissed after timeout');
-    }, ChatStore.COMPACTION_AUTO_DISMISS_MS);
+      console.warn(
+        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost'
+      );
+    }, ChatStore.COMPACTION_SAFETY_TIMEOUT_MS);
   }
 
   /**
