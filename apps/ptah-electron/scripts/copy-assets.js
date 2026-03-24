@@ -103,7 +103,23 @@ if (fs.existsSync(TEMPLATE_SOURCE)) {
   );
 }
 
-// --- 4. electron-builder.yml (needed by --project dist/apps/ptah-electron) ---
+// --- 4. package.json (needed by electron-builder for app metadata) ---
+
+const PKG_SOURCE = path.resolve(__dirname, '../package.json');
+const PKG_DEST = path.resolve(
+  __dirname,
+  '../../../dist/apps/ptah-electron/package.json'
+);
+
+if (fs.existsSync(PKG_SOURCE)) {
+  fs.copyFileSync(PKG_SOURCE, PKG_DEST);
+  console.log(`[copy-assets] Copied package.json -> ${PKG_DEST}`);
+} else {
+  console.error(`[copy-assets] ERROR: package.json not found: ${PKG_SOURCE}`);
+  process.exit(1);
+}
+
+// --- 5. electron-builder.yml (needed by --project dist/apps/ptah-electron) ---
 
 const EB_SOURCE = path.resolve(__dirname, '../electron-builder.yml');
 const EB_DEST = path.resolve(
