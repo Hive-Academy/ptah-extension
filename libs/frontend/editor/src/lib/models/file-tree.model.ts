@@ -15,4 +15,6 @@ export interface FileTreeNode {
   children?: FileTreeNode[];
   /** Whether a directory is expanded in the tree view */
   expanded?: boolean;
+  /** True when children have not been loaded yet (directory at depth boundary) */
+  needsLoad?: boolean;
 }

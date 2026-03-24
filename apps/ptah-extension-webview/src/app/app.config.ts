@@ -149,7 +149,7 @@ export const appConfig: ApplicationConfig = {
     },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
-      baseUrl: './assets/monaco',
+      baseUrl: './assets/monaco/vs',
     }),
     // Markdown rendering for chat messages (required for ngx-markdown)
     // Includes custom extensions for callout cards and collapsible code blocks

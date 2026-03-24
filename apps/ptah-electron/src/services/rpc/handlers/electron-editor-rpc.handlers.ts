@@ -24,6 +24,8 @@ interface FileTreeEntry {
   path: string;
   type: 'file' | 'directory';
   children?: FileTreeEntry[];
+  /** True when children were not loaded (directory at depth boundary) */
+  needsLoad?: boolean;
 }
 
 @injectable()
@@ -43,6 +45,7 @@ export class ElectronEditorRpcHandlers {
     this.registerOpenFile(); // editor:openFile (Electron-specific)
     this.registerSaveFile();
     this.registerGetFileTree();
+    this.registerGetDirectoryChildren();
   }
 
   /** Validate that a file path is within the workspace root. Returns error message or null. */
@@ -180,7 +183,7 @@ export class ElectronEditorRpcHandlers {
           return { success: true, tree: [] };
         }
         try {
-          const tree = await this.buildFileTree(root, 3);
+          const tree = await this.buildFileTree(root, 6);
           return { success: true, tree };
         } catch (error) {
           this.logger.error('[Electron RPC] editor:getFileTree failed', {
@@ -190,6 +193,42 @@ export class ElectronEditorRpcHandlers {
           return {
             success: false,
             tree: [],
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+    );
+  }
+
+  /**
+   * Lazy-load children of a directory that was at the initial depth boundary.
+   * Returns immediate children (1 level) for the given directory path.
+   */
+  private registerGetDirectoryChildren(): void {
+    this.rpcHandler.registerMethod(
+      'editor:getDirectoryChildren',
+      async (params: { dirPath: string } | undefined) => {
+        if (!params?.dirPath) {
+          return { success: false, error: 'dirPath is required' };
+        }
+        const pathError = this.validatePathInWorkspace(params.dirPath);
+        if (pathError) {
+          return { success: false, error: pathError };
+        }
+        try {
+          const children = await this.buildFileTree(params.dirPath, 2, 0);
+          return { success: true, children };
+        } catch (error) {
+          this.logger.error(
+            '[Electron RPC] editor:getDirectoryChildren failed',
+            {
+              dirPath: params.dirPath,
+              error: error instanceof Error ? error.message : String(error),
+            } as unknown as Error
+          );
+          return {
+            success: false,
+            children: [],
             error: error instanceof Error ? error.message : String(error),
           };
         }
@@ -237,17 +276,28 @@ export class ElectronEditorRpcHandlers {
         const isDir = (entry.type & 2) !== 0;
 
         if (isDir) {
-          const children = await this.buildFileTree(
-            fullPath,
-            maxDepth,
-            currentDepth + 1
-          );
-          result.push({
-            name: entry.name,
-            path: fullPath,
-            type: 'directory',
-            children,
-          });
+          // At the depth boundary, mark directories as needing lazy load
+          if (currentDepth + 1 >= maxDepth) {
+            result.push({
+              name: entry.name,
+              path: fullPath,
+              type: 'directory',
+              children: [],
+              needsLoad: true,
+            });
+          } else {
+            const children = await this.buildFileTree(
+              fullPath,
+              maxDepth,
+              currentDepth + 1
+            );
+            result.push({
+              name: entry.name,
+              path: fullPath,
+              type: 'directory',
+              children,
+            });
+          }
         } else {
           result.push({
             name: entry.name,

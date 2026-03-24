@@ -52,6 +52,7 @@ export class ElectronLayoutService {
 
   // Layout dimensions
   private readonly _workspaceSidebarWidth = signal(DEFAULT_SIDEBAR_WIDTH);
+  private readonly _workspaceSidebarVisible = signal(true);
   private readonly _editorPanelWidth = signal(DEFAULT_EDITOR_WIDTH);
   private readonly _editorPanelVisible = signal(false);
   private readonly _sidebarDragging = signal(false);
@@ -67,6 +68,7 @@ export class ElectronLayoutService {
 
   // Public readonly signals
   readonly workspaceSidebarWidth = this._workspaceSidebarWidth.asReadonly();
+  readonly workspaceSidebarVisible = this._workspaceSidebarVisible.asReadonly();
   readonly editorPanelWidth = this._editorPanelWidth.asReadonly();
   readonly editorPanelVisible = this._editorPanelVisible.asReadonly();
   readonly sidebarDragging = this._sidebarDragging.asReadonly();
@@ -130,6 +132,11 @@ export class ElectronLayoutService {
     if (!value) {
       this.persistLayout();
     }
+  }
+
+  toggleWorkspaceSidebar(): void {
+    this._workspaceSidebarVisible.update((v) => !v);
+    this.persistLayout();
   }
 
   // ── Editor panel ───────────────────────────────────────────────────
@@ -445,6 +452,7 @@ export class ElectronLayoutService {
   private persistLayout(): void {
     const state = {
       sidebarWidth: this._workspaceSidebarWidth(),
+      sidebarVisible: this._workspaceSidebarVisible(),
       editorWidth: this._editorPanelWidth(),
       editorVisible: this._editorPanelVisible(),
       workspaceFolders: this._workspaceFolders(),
@@ -464,6 +472,7 @@ export class ElectronLayoutService {
   private restoreLayout(): void {
     const state = this.vscodeService.getState<{
       sidebarWidth?: number;
+      sidebarVisible?: boolean;
       editorWidth?: number;
       editorVisible?: boolean;
       workspaceFolders?: unknown[];
@@ -475,6 +484,9 @@ export class ElectronLayoutService {
     // Route through clamping methods to enforce min/max constraints
     if (typeof state.sidebarWidth === 'number') {
       this.setWorkspaceSidebarWidth(state.sidebarWidth);
+    }
+    if (typeof state.sidebarVisible === 'boolean') {
+      this._workspaceSidebarVisible.set(state.sidebarVisible);
     }
     if (typeof state.editorWidth === 'number') {
       this.setEditorPanelWidth(state.editorWidth);

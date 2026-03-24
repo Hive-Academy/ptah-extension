@@ -20,6 +20,8 @@ import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
+  PanelLeft,
+  PanelLeftClose,
   PanelRight,
   PanelRightClose,
   Settings,
@@ -148,6 +150,31 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
             >Ptah</span
           >
         </div>
+
+        <!-- Workspace sidebar toggle (left-aligned, near the sidebar it controls) -->
+        @if (layout.hasWorkspaceFolders()) {
+        <div class="flex items-center no-drag ml-1">
+          <button
+            class="btn btn-square btn-ghost btn-xs"
+            [title]="
+              layout.workspaceSidebarVisible()
+                ? 'Hide workspaces'
+                : 'Show workspaces'
+            "
+            aria-label="Toggle workspace sidebar"
+            (click)="layout.toggleWorkspaceSidebar()"
+          >
+            <lucide-angular
+              [img]="
+                layout.workspaceSidebarVisible()
+                  ? PanelLeftCloseIcon
+                  : PanelLeftIcon
+              "
+              class="w-3.5 h-3.5"
+            />
+          </button>
+        </div>
+        }
 
         <!-- Spacer -->
         <div class="flex-1"></div>
@@ -382,7 +409,8 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
       @else {
       <!-- 3-Panel Content Area -->
       <div class="flex flex-1 overflow-hidden">
-        <!-- Workspace sidebar -->
+        <!-- Workspace sidebar (toggleable) -->
+        @if (layout.workspaceSidebarVisible()) {
         <ptah-workspace-sidebar [width]="layout.workspaceSidebarWidth()" />
 
         <!-- Resize handle: sidebar ↔ chat -->
@@ -392,6 +420,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
           (dragMoved)="layout.setWorkspaceSidebarWidth($event)"
           (dragEnded)="layout.setSidebarDragging(false)"
         />
+        }
 
         <!-- Chat panel (reuses entire AppShellComponent) -->
         <div class="flex-1 min-w-[400px] overflow-hidden">
@@ -427,6 +456,8 @@ export class ElectronShellComponent {
   protected readonly appState = inject(AppStateManager);
 
   // Icons
+  readonly PanelLeftIcon = PanelLeft;
+  readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelRightIcon = PanelRight;
   readonly PanelRightCloseIcon = PanelRightClose;
   readonly SettingsIcon = Settings;

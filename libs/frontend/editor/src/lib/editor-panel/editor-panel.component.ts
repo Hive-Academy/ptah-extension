@@ -1,9 +1,11 @@
 import {
   Component,
   inject,
+  signal,
   OnInit,
   ChangeDetectionStrategy,
 } from '@angular/core';
+import { LucideAngularModule, PanelLeftClose, PanelLeft } from 'lucide-angular';
 import { FileTreeComponent } from '../file-tree/file-tree.component';
 import { CodeEditorComponent } from '../code-editor/code-editor.component';
 import { EditorService } from '../services/editor.service';
@@ -26,31 +28,57 @@ import { EditorService } from '../services/editor.service';
 @Component({
   selector: 'ptah-editor-panel',
   standalone: true,
-  imports: [FileTreeComponent, CodeEditorComponent],
+  imports: [FileTreeComponent, CodeEditorComponent, LucideAngularModule],
   template: `
     <div
-      class="flex h-full w-full bg-base-100"
+      class="flex flex-col h-full w-full bg-base-100"
       role="main"
       aria-label="Editor Panel"
     >
-      <ptah-file-tree
-        [files]="editorService.fileTree()"
-        [activeFilePath]="editorService.activeFilePath()"
-        (fileSelected)="onFileSelected($event)"
-      />
-      <div class="flex-1 min-w-0">
-        @if (editorService.isLoading() && !editorService.hasActiveFile()) {
-        <div class="h-full flex items-center justify-center">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-        } @else {
-        <ptah-code-editor
-          [filePath]="editorService.activeFilePath()"
-          [content]="editorService.activeFileContent()"
-          (contentChanged)="onContentChanged($event)"
-          (fileSaved)="onFileSaved($event)"
+      <!-- Editor toolbar with Explorer toggle -->
+      <div
+        class="flex items-center h-8 px-2 bg-base-200 border-b border-base-content/10 flex-shrink-0"
+      >
+        <button
+          class="btn btn-square btn-ghost btn-xs"
+          [title]="explorerVisible() ? 'Hide explorer' : 'Show explorer'"
+          aria-label="Toggle explorer"
+          (click)="toggleExplorer()"
+        >
+          <lucide-angular
+            [img]="explorerVisible() ? PanelLeftCloseIcon : PanelLeftIcon"
+            class="w-3.5 h-3.5"
+          />
+        </button>
+        <span
+          class="text-xs font-semibold tracking-wider opacity-60 uppercase ml-1 select-none"
+          >Editor</span
+        >
+      </div>
+
+      <!-- Content area: file tree + code editor -->
+      <div class="flex flex-1 min-h-0">
+        @if (explorerVisible()) {
+        <ptah-file-tree
+          [files]="editorService.fileTree()"
+          [activeFilePath]="editorService.activeFilePath()"
+          (fileSelected)="onFileSelected($event)"
         />
         }
+        <div class="flex-1 min-w-0">
+          @if (editorService.isLoading() && !editorService.hasActiveFile()) {
+          <div class="h-full flex items-center justify-center">
+            <span class="loading loading-spinner loading-md"></span>
+          </div>
+          } @else {
+          <ptah-code-editor
+            [filePath]="editorService.activeFilePath()"
+            [content]="editorService.activeFileContent()"
+            (contentChanged)="onContentChanged($event)"
+            (fileSaved)="onFileSaved($event)"
+          />
+          }
+        </div>
       </div>
       @if (editorService.error()) {
       <div class="toast toast-end toast-bottom">
@@ -75,9 +103,18 @@ import { EditorService } from '../services/editor.service';
 })
 export class EditorPanelComponent implements OnInit {
   protected readonly editorService = inject(EditorService);
+  protected readonly explorerVisible = signal(true);
+
+  // Icons
+  readonly PanelLeftCloseIcon = PanelLeftClose;
+  readonly PanelLeftIcon = PanelLeft;
 
   ngOnInit(): void {
     void this.editorService.loadFileTree();
+  }
+
+  protected toggleExplorer(): void {
+    this.explorerVisible.update((v) => !v);
   }
 
   protected onFileSelected(filePath: string): void {

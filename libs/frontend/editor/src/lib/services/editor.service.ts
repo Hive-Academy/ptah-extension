@@ -253,6 +253,68 @@ export class EditorService {
   }
 
   /**
+   * Lazy-load children for a directory that was at the initial depth boundary.
+   * Updates the tree in place by replacing the directory's children and clearing needsLoad.
+   */
+  async loadDirectoryChildren(dirPath: string): Promise<void> {
+    const result = await this.rpcCall<{ children: FileTreeNode[] }>(
+      'editor:getDirectoryChildren',
+      { dirPath }
+    );
+
+    if (result.success && result.data) {
+      const children = result.data.children ?? [];
+      // Update the tree in place: find the node and replace its children
+      const currentTree = this._fileTree();
+      const updatedTree = this.updateNodeChildren(
+        currentTree,
+        dirPath,
+        children
+      );
+      this._fileTree.set(updatedTree);
+
+      // Update cached workspace state
+      if (this._activeWorkspacePath) {
+        const cached = this._workspaceEditorState.get(
+          this._activeWorkspacePath
+        );
+        if (cached) {
+          cached.fileTree = updatedTree;
+        }
+      }
+    } else {
+      this.showError(result.error ?? 'Failed to load directory');
+    }
+  }
+
+  /**
+   * Recursively find a node by path and replace its children.
+   * Returns a new tree (immutable update) so signals detect the change.
+   */
+  private updateNodeChildren(
+    nodes: FileTreeNode[],
+    targetPath: string,
+    children: FileTreeNode[]
+  ): FileTreeNode[] {
+    return nodes.map((node) => {
+      if (node.path === targetPath) {
+        return { ...node, children, needsLoad: false };
+      }
+      if (node.children && node.children.length > 0) {
+        return {
+          ...node,
+          children: this.updateNodeChildren(
+            node.children,
+            targetPath,
+            children
+          ),
+        };
+      }
+      return node;
+    });
+  }
+
+  /**
    * Clear the active file selection.
    */
   clearActiveFile(): void {
