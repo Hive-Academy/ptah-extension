@@ -104,11 +104,16 @@ interface RpcResponse<T = unknown> {
 /**
  * RPC methods allowed for unlicensed users.
  * All other methods will be blocked when isLicensed=false.
+ *
+ * settings:import is allowed so users can import their license key
+ * and credentials from another platform (e.g., VS Code → Electron)
+ * directly from the welcome screen.
  */
 const UNLICENSED_ALLOWED_METHODS: readonly string[] = [
   'license:getStatus',
   'license:setKey',
   'command:execute',
+  'settings:import',
 ] as const;
 
 @Injectable({ providedIn: 'root' })

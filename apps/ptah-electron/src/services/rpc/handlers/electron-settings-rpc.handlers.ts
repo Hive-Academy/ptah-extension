@@ -22,6 +22,7 @@ import {
   type SettingsImportService,
   type PtahSettingsExport,
 } from '@ptah-extension/agent-sdk';
+import type { IPlatformCommands } from '@ptah-extension/rpc-handlers';
 
 @injectable()
 export class ElectronSettingsRpcHandlers {
@@ -31,7 +32,9 @@ export class ElectronSettingsRpcHandlers {
     @inject(SDK_TOKENS.SDK_SETTINGS_EXPORT)
     private readonly settingsExportService: SettingsExportService,
     @inject(SDK_TOKENS.SDK_SETTINGS_IMPORT)
-    private readonly settingsImportService: SettingsImportService
+    private readonly settingsImportService: SettingsImportService,
+    @inject(TOKENS.PLATFORM_COMMANDS)
+    private readonly platformCommands: IPlatformCommands
   ) {}
 
   register(): void {
@@ -222,6 +225,17 @@ export class ElectronSettingsRpcHandlers {
           skipped: importResult.skipped.length,
           errors: importResult.errors.length,
         } as unknown as Error);
+
+        // If a license key was imported, schedule a full app relaunch so the
+        // main process re-runs the license check (Phase 3.5 in main.ts).
+        // Same pattern as LicenseRpcHandlers.registerSetKey() — 1.5s delay
+        // lets the RPC response reach the renderer before restart.
+        if (importResult.imported.includes('ptah.licenseKey')) {
+          this.logger.info(
+            '[Electron RPC] License key imported, scheduling app relaunch'
+          );
+          setTimeout(() => this.platformCommands.reloadWindow(), 1500);
+        }
 
         return {
           cancelled: false,

@@ -32,26 +32,6 @@
         {{ subheadline() }}
       </p>
 
-      <!-- Feature Highlights Grid -->
-      <div class="grid grid-cols-1 gap-4 mt-4 w-full max-w-xl">
-        @for (feature of features; track feature.title) {
-        <div class="card bg-base-200 p-4">
-          <div class="flex items-start gap-3">
-            <lucide-angular
-              [img]="feature.icon"
-              class="w-5 h-5 text-primary flex-shrink-0 mt-0.5"
-            />
-            <div class="text-left">
-              <h3 class="font-semibold text-sm">{{ feature.title }}</h3>
-              <p class="text-xs text-base-content/60">
-                {{ feature.description }}
-              </p>
-            </div>
-          </div>
-        </div>
-        }
-      </div>
-
       <!-- Action Buttons: New user (no account) -->
       @if (isNewUser()) {
       <div class="flex flex-col gap-3 mt-6 w-full max-w-sm">
@@ -175,7 +155,39 @@
           }
         </div>
       </div>
-      } }
+      }
+
+      <!-- Settings Import: Cross-platform portability -->
+      <!-- Allows users to bring license key + API keys + config from VS Code extension -->
+      <div class="flex flex-col items-center gap-2 mt-4 w-full max-w-sm">
+        <div class="divider text-xs text-base-content/40 my-0">
+          Coming from another device or the VS Code extension?
+        </div>
+        <button
+          class="btn btn-ghost btn-sm gap-2 text-base-content/60"
+          [disabled]="isImporting() || importSuccess()"
+          (click)="importSettings()"
+          aria-label="Import settings from file"
+        >
+          @if (isImporting()) {
+          <span class="loading loading-spinner loading-xs"></span>
+          Importing... } @else if (importSuccess()) {
+          <lucide-angular
+            [img]="CheckCircle2Icon"
+            class="w-4 h-4 text-success"
+          />
+          Settings imported! } @else {
+          <lucide-angular [img]="DownloadIcon" class="w-4 h-4" />
+          Import Settings }
+        </button>
+        @if (importSuccess()) {
+        <p class="text-xs text-success">
+          Settings imported successfully. Reloading...
+        </p>
+        }
+      </div>
+
+      }
 
       <!-- Error State (shown when license status fetch fails) -->
       @if (errorMessage()) {

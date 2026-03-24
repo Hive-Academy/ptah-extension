@@ -146,6 +146,10 @@ if (!gotLock) {
     //
     // Also subscribes to workspace folder changes to persist the workspace
     // list on every change (debounced at 500ms to avoid rapid writes).
+    //
+    // startupWorkspaceRoot: captured here for the startup config IPC handler
+    // so the preload script can expose the active workspace in ptahConfig.
+    let startupWorkspaceRoot: string | undefined;
     try {
       const globalStateStorage = container.resolve<IStateStorage>(
         PLATFORM_TOKENS.STATE_STORAGE
@@ -233,6 +237,9 @@ if (!gotLock) {
         );
       }
 
+      // Capture the active workspace for the startup config (exposed via preload)
+      startupWorkspaceRoot = workspaceProviderForRestore.getActiveFolder();
+
       // --- Workspace list persistence on change (Task 2.3) ---
       // Subscribe to folder change events and persist the current workspace
       // list to global state storage. Debounced at 500ms to avoid rapid
@@ -281,6 +288,11 @@ if (!gotLock) {
     // PHASE 2.6: (Deferred) RPC handlers registered after WebviewManager in Phase 4.5
     // ========================================
 
+    // Fallback: if workspace restoration failed but CLI arg was provided
+    if (!startupWorkspaceRoot && initialFolders?.[0]) {
+      startupWorkspaceRoot = initialFolders[0];
+    }
+
     // ========================================
     // PHASE 3: Load API Key from Secret Storage
     // ========================================
@@ -297,6 +309,52 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] Failed to load API key from secret storage:',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+
+    // ========================================
+    // PHASE 3.5: License Verification
+    // ========================================
+    // Check license status before creating the window. If the license is invalid
+    // (revoked or payment failed), the renderer will start on the welcome view
+    // with isLicensed=false, blocking access to premium features.
+    // Mirrors the VS Code extension's handleLicenseBlocking() pattern (main.ts:85-306).
+    //
+    // LicenseService is registered in container.ts Phase 1.1 and depends on
+    // EXTENSION_CONTEXT (shimmed), LOGGER, and CONFIG_MANAGER — all available.
+    // Network timeout is 5s; offline grace period (7 days) prevents blocking
+    // if the license server is unreachable.
+    let startupIsLicensed = true;
+    let startupInitialView: string | null = null;
+
+    try {
+      const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
+        verifyLicense: () => Promise<{
+          valid: boolean;
+          reason?: string;
+          tier?: string;
+        }>;
+      };
+      const licenseStatus = await licenseService.verifyLicense();
+
+      if (!licenseStatus.valid) {
+        startupIsLicensed = false;
+        startupInitialView = 'welcome';
+        console.log(
+          `[Ptah Electron] License invalid (reason: ${
+            licenseStatus.reason ?? 'unknown'
+          }, tier: ${licenseStatus.tier ?? 'unknown'}), showing welcome screen`
+        );
+      } else {
+        console.log(
+          `[Ptah Electron] License verified (tier: ${licenseStatus.tier})`
+        );
+      }
+    } catch (error) {
+      // Non-fatal: default to licensed so users aren't blocked by verification errors
+      console.warn(
+        '[Ptah Electron] License verification failed (non-fatal, defaulting to licensed):',
         error instanceof Error ? error.message : String(error)
       );
     }
@@ -504,6 +562,34 @@ if (!gotLock) {
         error instanceof Error ? error.message : String(error)
       );
     }
+
+    // ========================================
+    // PHASE 4.95: Startup Config IPC Handler
+    // ========================================
+    // Register a synchronous IPC handler that the preload script queries
+    // (via ipcRenderer.sendSync) to get license status and workspace info
+    // BEFORE exposing ptahConfig to the Angular renderer.
+    // Must be registered BEFORE Phase 5 (window creation + loadFile).
+    const startupConfig = {
+      initialView: startupInitialView,
+      isLicensed: startupIsLicensed,
+      workspaceRoot: startupWorkspaceRoot || '',
+      workspaceName: startupWorkspaceRoot
+        ? path.basename(startupWorkspaceRoot)
+        : '',
+    };
+
+    ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
+      event.returnValue = startupConfig;
+    });
+
+    console.log(
+      `[Ptah Electron] Startup config registered: initialView=${
+        startupConfig.initialView
+      }, isLicensed=${startupConfig.isLicensed}, workspace=${
+        startupConfig.workspaceName || '(none)'
+      }`
+    );
 
     // ========================================
     // PHASE 5: Create BrowserWindow + Load Renderer

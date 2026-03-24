@@ -112,6 +112,7 @@ const LICENSE_EXEMPT_PREFIXES = [
   'license:', // Must work to show license status and enter keys
   'auth:', // Must work for login/authentication flow
   'command:', // TASK_2025_126: Must work for unlicensed users (welcome page actions)
+  'settings:', // Must work for settings import on welcome page (cross-platform onboarding)
 ] as const;
 
 /**
