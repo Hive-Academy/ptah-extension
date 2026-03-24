@@ -20,7 +20,34 @@
         "outputPath": "dist/apps/ptah-extension-vscode",
         "main": "apps/ptah-extension-vscode/src/main.ts",
         "tsConfig": "apps/ptah-extension-vscode/tsconfig.app.json",
-        "webpackConfig": "apps/ptah-extension-vscode/webpack.config.js"
+        "webpackConfig": "apps/ptah-extension-vscode/webpack.config.js",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "apps/ptah-extension-vscode/src/assets",
+            "output": "assets"
+          },
+          {
+            "glob": "**/*",
+            "input": "apps/ptah-extension-vscode/assets/plugins",
+            "output": "assets/plugins"
+          },
+          {
+            "glob": "**/*",
+            "input": "libs/backend/agent-generation/templates",
+            "output": "templates"
+          },
+          {
+            "glob": "cli.js",
+            "input": "node_modules/@anthropic-ai/claude-agent-sdk",
+            "output": "."
+          },
+          {
+            "glob": "package.json",
+            "input": "apps/ptah-extension-vscode",
+            "output": "."
+          }
+        ]
       },
       "configurations": {
         "development": {
@@ -39,48 +66,47 @@
     "post-build-copy": {
       "executor": "nx:run-commands",
       "dependsOn": ["build-webpack", "ptah-extension-webview:build"],
-      "outputs": [
-        "{workspaceRoot}/dist/apps/ptah-extension-vscode/webview",
-        "{workspaceRoot}/dist/apps/ptah-extension-vscode/assets",
-        "{workspaceRoot}/dist/apps/ptah-extension-vscode/package.json",
-        "{workspaceRoot}/dist/apps/ptah-extension-vscode/assets/plugins"
-      ],
+      "outputs": ["{workspaceRoot}/dist/apps/ptah-extension-vscode/webview"],
       "options": {
         "commands": [
           {
-            "command": "node -e \"const fs=require('fs'); fs.mkdirSync('dist/apps/ptah-extension-vscode/webview', {recursive:true})\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); fs.cpSync('dist/apps/ptah-extension-webview/browser', 'dist/apps/ptah-extension-vscode/webview/browser', {recursive:true})\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); fs.cpSync('apps/ptah-extension-vscode/src/assets', 'dist/apps/ptah-extension-vscode/assets', {recursive:true})\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('apps/ptah-extension-vscode/package.json', 'dist/apps/ptah-extension-vscode/package.json')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); fs.cpSync('libs/backend/agent-generation/templates', 'dist/apps/ptah-extension-vscode/templates', {recursive:true})\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); fs.rmSync('dist/apps/ptah-extension-vscode/assets/plugins', {recursive:true, force:true})\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); fs.cpSync('apps/ptah-extension-vscode/assets/plugins', 'dist/apps/ptah-extension-vscode/assets/plugins', {recursive:true})\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); const src='node_modules/@anthropic-ai/claude-agent-sdk/cli.js'; const dst='dist/apps/ptah-extension-vscode/cli.js'; if(fs.existsSync(src)){fs.copyFileSync(src,dst);console.log('Copied cli.js to dist')}else{console.error('ERROR: cli.js not found at '+src);process.exit(1)}\"",
+            "command": "node -e \"const fs=require('fs'); fs.mkdirSync('dist/apps/ptah-extension-vscode/webview', {recursive:true}); fs.cpSync('dist/apps/ptah-extension-webview/browser', 'dist/apps/ptah-extension-vscode/webview/browser', {recursive:true})\"",
             "forwardAllArgs": false
           }
         ],
         "parallel": false
+      }
+    },
+    "pre-package": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["build"],
+      "options": {
+        "commands": [
+          {
+            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('apps/ptah-extension-vscode/.vscodeignore', 'dist/apps/ptah-extension-vscode/.vscodeignore')\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('README.md', 'dist/apps/ptah-extension-vscode/README.md')\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE')) fs.copyFileSync('LICENSE', 'dist/apps/ptah-extension-vscode/LICENSE')\"",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "cd dist/apps/ptah-extension-vscode && npm install --omit=dev --ignore-scripts 2>&1 || echo 'npm install completed'",
+            "forwardAllArgs": false
+          }
+        ],
+        "parallel": false
+      }
+    },
+    "package": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["pre-package"],
+      "options": {
+        "command": "cd dist/apps/ptah-extension-vscode && npx @vscode/vsce package --allow-missing-repository --allow-star-activation"
       }
     },
     "prune-lockfile": {
@@ -135,52 +161,6 @@
       "executor": "nx:run-commands",
       "options": {
         "command": "tsc --noEmit --project apps/ptah-extension-vscode/tsconfig.app.json"
-      }
-    },
-    "copy-assets": {
-      "executor": "nx:run-commands",
-      "dependsOn": ["build"],
-      "options": {
-        "commands": [
-          {
-            "command": "node -e \"const fs=require('fs'); fs.cpSync('apps/ptah-extension-vscode/src/assets', 'dist/apps/ptah-extension-vscode/assets', {recursive:true})\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('apps/ptah-extension-vscode/package.json', 'dist/apps/ptah-extension-vscode/package.json')\"",
-            "forwardAllArgs": false
-          }
-        ],
-        "parallel": false
-      }
-    },
-    "package": {
-      "executor": "nx:run-commands",
-      "dependsOn": ["build"],
-      "options": {
-        "commands": [
-          {
-            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('apps/ptah-extension-vscode/.vscodeignore', 'dist/apps/ptah-extension-vscode/.vscodeignore')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); fs.copyFileSync('README.md', 'dist/apps/ptah-extension-vscode/README.md')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE')) fs.copyFileSync('LICENSE', 'dist/apps/ptah-extension-vscode/LICENSE')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "cd dist/apps/ptah-extension-vscode && npm install --omit=dev --ignore-scripts 2>&1 || echo 'npm install completed'",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "cd dist/apps/ptah-extension-vscode && npx @vscode/vsce package --allow-missing-repository --allow-star-activation",
-            "forwardAllArgs": false
-          }
-        ],
-        "parallel": false
       }
     }
   }

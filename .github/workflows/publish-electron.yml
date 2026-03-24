@@ -95,9 +95,6 @@ jobs:
       - name: Copy renderer
         run: npx nx copy-renderer ptah-electron
 
-      - name: Copy assets
-        run: npx nx copy-assets ptah-electron
-
       - name: Package for platform
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron ${{ matrix.build-args }}
         env:
