@@ -62,7 +62,7 @@ import {
         <!-- Primary CTA Button with pulse animation via CSS keyframes -->
         <div viewportAnimation [viewportConfig]="primaryCtaConfig">
           <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
+            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
             target="_blank"
             rel="noopener noreferrer"
             class="cta-button inline-block px-8 py-4 text-base sm:px-10 sm:py-5 sm:text-lg md:px-12 md:py-6 md:text-xl font-bold rounded-xl

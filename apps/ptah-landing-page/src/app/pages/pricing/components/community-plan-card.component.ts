@@ -272,7 +272,7 @@ export class CommunityPlanCardComponent {
 
     // Open VS Code marketplace
     window.open(
-      'https://marketplace.visualstudio.com/items?itemName=ptah.ptah-extension',
+      'https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode',
       '_blank'
     );
   }

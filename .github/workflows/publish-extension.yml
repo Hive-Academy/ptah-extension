@@ -38,6 +38,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      NX_SKIP_NX_CACHE: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -63,7 +65,6 @@ jobs:
           BUMP_TYPE="${{ github.event.inputs.bump || 'patch' }}"
           OLD_VERSION=$(node -p "require('./package.json').version")
 
-          # Use node to bump semver (no extra deps needed)
           NEW_VERSION=$(node -e "
             const [major, minor, patch] = '${OLD_VERSION}'.split('.').map(Number);
             const bump = '${BUMP_TYPE}';
@@ -72,7 +73,6 @@ jobs:
             else console.log(\`\${major}.\${minor}.\${patch+1}\`);
           ")
 
-          # Update package.json
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
@@ -102,12 +102,33 @@ jobs:
       - name: Quality gates
         run: npx nx run-many -t typecheck --projects=ptah-extension-vscode
 
+      - name: Clean dist
+        run: rm -rf dist/apps/ptah-extension-vscode
+
       - name: Build and package extension
         run: npx nx run ptah-extension-vscode:package
+
+      - name: Verify version in dist
+        run: |
+          DIST_VERSION=$(node -p "require('./dist/apps/ptah-extension-vscode/package.json').version")
+          EXPECTED="${{ steps.bump.outputs.new_version }}"
+          echo "Dist version: $DIST_VERSION (expected: $EXPECTED)"
+          if [ "$DIST_VERSION" != "$EXPECTED" ]; then
+            echo "::warning::Version mismatch! Patching dist package.json..."
+            node -e "
+              const fs = require('fs');
+              const pkg = JSON.parse(fs.readFileSync('dist/apps/ptah-extension-vscode/package.json', 'utf8'));
+              pkg.version = '${EXPECTED}';
+              fs.writeFileSync('dist/apps/ptah-extension-vscode/package.json', JSON.stringify(pkg, null, 2) + '\n');
+            "
+            echo "Patched to $EXPECTED"
+          fi
 
       - name: Publish to VS Code Marketplace
         run: |
           cd dist/apps/ptah-extension-vscode
+          DIST_VERSION=$(node -p "require('./package.json').version")
+          echo "Publishing version: $DIST_VERSION"
           if [ "${{ github.event.inputs.pre-release }}" = "true" ]; then
             npx @vscode/vsce publish --pre-release --pat ${{ secrets.VSCE_PAT }}
           else
@@ -115,6 +136,8 @@ jobs:
           fi
 
       - name: Commit version bump and tag
+        env:
+          HUSKY: '0'
         run: |
           git add apps/ptah-extension-vscode/package.json
           git commit --no-verify -m "chore(release): extension v${{ steps.bump.outputs.new_version }}"
