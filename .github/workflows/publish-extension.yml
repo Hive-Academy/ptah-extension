@@ -115,6 +115,8 @@ jobs:
           fi
 
       - name: Commit version bump and tag
+        env:
+          HUSKY: '0'
         run: |
           git add apps/ptah-extension-vscode/package.json
           git commit --no-verify -m "chore(release): extension v${{ steps.bump.outputs.new_version }}"

@@ -94,6 +94,8 @@ jobs:
         run: exit 1
 
       - name: Commit version bump
+        env:
+          HUSKY: '0'
         run: |
           git add apps/ptah-electron/package.json
           git commit --no-verify -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"

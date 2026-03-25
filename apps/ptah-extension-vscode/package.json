@@ -2,7 +2,7 @@
   "name": "ptah-extension-vscode",
   "displayName": "Ptah - Coding Orchestra",
   "description": "The AI coding orchestra for VS Code. Intelligent workspace analysis, Code Execution MCP server, and project-adaptive AI agents — powered by Claude Agent SDK.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "ptah-extensions",
   "repository": {
     "type": "git",
