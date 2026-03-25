@@ -103,7 +103,7 @@ jobs:
         run: npx nx run-many -t typecheck --projects=ptah-extension-vscode
 
       - name: Build and package extension
-        run: npx nx run ptah-extension-vscode:package
+        run: npx nx run ptah-extension-vscode:package --skip-nx-cache
 
       - name: Publish to VS Code Marketplace
         run: |
