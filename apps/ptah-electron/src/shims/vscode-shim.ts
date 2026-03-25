@@ -4,8 +4,8 @@
  * TASK_2025_200 Batch 3: Provides empty stubs for the vscode module.
  *
  * Some @ptah-extension/vscode-core modules (OutputManager, ErrorHandler,
- * ConfigManager, etc.) import 'vscode' at the module level. When webpack
- * bundles @ptah-extension/vscode-core via the barrel export (index.ts),
+ * ConfigManager, etc.) import 'vscode' at the module level. When the bundler
+ * resolves @ptah-extension/vscode-core via the barrel export (index.ts),
  * these modules are included even though Electron never instantiates them.
  *
  * This shim prevents runtime crashes from `import * as vscode from 'vscode'`.
@@ -16,10 +16,14 @@
  * WARNING: If any code path actually tries to USE these stubs at runtime,
  * it will get undefined/no-op behavior. This is intentional -- those code
  * paths should never execute in Electron.
+ *
+ * Uses named exports so both webpack (resolve.alias) and esbuild (tsconfig paths)
+ * can resolve `import * as vscode from 'vscode'` correctly.
  */
 
-// Empty namespace object for `import * as vscode from 'vscode'`
-const ConfigurationTarget = {
+// Named exports matching the vscode API surface used by our codebase
+
+export const ConfigurationTarget = {
   Global: 1,
   Workspace: 2,
   WorkspaceFolder: 3,
@@ -100,7 +104,7 @@ const vscodeWorkspace = {
   },
 };
 
-const commands = {
+export const commands = {
   registerCommand: () => ({
     dispose: () => {
       /* noop shim */
@@ -109,11 +113,11 @@ const commands = {
   executeCommand: async () => undefined,
 };
 
-const env = {
+export const env = {
   openExternal: async () => false,
 };
 
-const Uri = {
+export const Uri = {
   parse: (value: string) => ({ toString: () => value, fsPath: value }),
   file: (path: string) => ({ toString: () => path, fsPath: path }),
   joinPath: (...args: unknown[]) => ({
@@ -122,11 +126,11 @@ const Uri = {
   }),
 };
 
-const authentication = {
+export const authentication = {
   getSession: async () => undefined,
 };
 
-const Disposable = class {
+export const Disposable = class {
   static from(...disposables: Array<{ dispose: () => void }>) {
     return {
       dispose: () => disposables.forEach((d) => d.dispose()),
@@ -134,7 +138,7 @@ const Disposable = class {
   }
 };
 
-const EventEmitter = class {
+export const EventEmitter = class {
   event = () => ({
     dispose: () => {
       /* noop shim */
@@ -148,14 +152,6 @@ const EventEmitter = class {
   }
 };
 
-module.exports = {
-  ConfigurationTarget,
-  window: vscodeWindow,
-  workspace: vscodeWorkspace,
-  commands,
-  env,
-  Uri,
-  authentication,
-  Disposable,
-  EventEmitter,
-};
+// Re-export internal names as the vscode API surface names
+// `import * as vscode from 'vscode'` will see vscode.window, vscode.workspace, etc.
+export { vscodeWindow as window, vscodeWorkspace as workspace };
