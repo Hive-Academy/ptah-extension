@@ -34,7 +34,7 @@ async function dynamicImport(specifier: string): Promise<unknown> {
  */
 export async function resolveAndImportSdk<T>(
   packageName: string,
-  cliBinaryPath?: string
+  cliBinaryPath?: string,
 ): Promise<T> {
   let lastError: unknown;
 
@@ -66,7 +66,7 @@ export async function resolveAndImportSdk<T>(
   throw new Error(
     `${packageName} is not installed or could not be loaded.` +
       `${detail ? ` (${detail})` : ''} ` +
-      `Install it globally: npm install -g ${packageName}`
+      `Install it globally: npm install -g ${packageName}`,
   );
 }
 
@@ -82,7 +82,7 @@ export async function resolveAndImportSdk<T>(
  */
 function findPackageFromBinary(
   binaryPath: string,
-  packageName: string
+  packageName: string,
 ): string | null {
   try {
     const realPath = realpathSync(binaryPath);

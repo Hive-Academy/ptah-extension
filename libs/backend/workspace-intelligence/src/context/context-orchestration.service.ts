@@ -222,7 +222,7 @@ export class ContextOrchestrationService {
     @inject(TOKENS.DEPENDENCY_GRAPH_SERVICE)
     private readonly dependencyGraph: DependencyGraphService,
     @inject(TOKENS.CONTEXT_SIZE_OPTIMIZER)
-    private readonly contextSizeOptimizer: ContextSizeOptimizerService
+    private readonly contextSizeOptimizer: ContextSizeOptimizerService,
   ) {
     // Wire DependencyGraphService into the optimizer so it can use dependency
     // data for relevance scoring. The optimizer holds an optional reference
@@ -239,7 +239,7 @@ export class ContextOrchestrationService {
    */
   async getContextFiles(
     request: GetContextFilesRequest,
-    workspaceFiles: unknown[]
+    workspaceFiles: unknown[],
   ): Promise<GetContextFilesResult> {
     try {
       const context = this.contextService.getCurrentContext();
@@ -280,13 +280,13 @@ export class ContextOrchestrationService {
    */
   async includeFile(
     request: IncludeFileRequest,
-    uri: VsCodeUri
+    uri: VsCodeUri,
   ): Promise<IncludeFileResult> {
     try {
       // Cast to unknown first, then to expected type to satisfy ContextService vscode.Uri requirement
       // The main app will pass the actual vscode.Uri object
       await this.contextService.includeFile(
-        uri as unknown as Parameters<ContextService['includeFile']>[0]
+        uri as unknown as Parameters<ContextService['includeFile']>[0],
       );
 
       return {
@@ -315,12 +315,12 @@ export class ContextOrchestrationService {
    */
   async excludeFile(
     request: ExcludeFileRequest,
-    uri: VsCodeUri
+    uri: VsCodeUri,
   ): Promise<ExcludeFileResult> {
     try {
       // Cast to unknown first, then to expected type to satisfy ContextService vscode.Uri requirement
       await this.contextService.excludeFile(
-        uri as unknown as Parameters<ContextService['excludeFile']>[0]
+        uri as unknown as Parameters<ContextService['excludeFile']>[0],
       );
 
       return {
@@ -383,7 +383,7 @@ export class ContextOrchestrationService {
       const results = await this.contextService.getAllFiles(
         request.includeImages,
         request.offset,
-        request.limit
+        request.limit,
       );
 
       return {
@@ -411,12 +411,12 @@ export class ContextOrchestrationService {
    * Extracted from: context-message-handler.ts:406-442
    */
   async getFileSuggestions(
-    request: GetFileSuggestionsRequest
+    request: GetFileSuggestionsRequest,
   ): Promise<GetFileSuggestionsResult> {
     try {
       const suggestions = await this.contextService.getFileSuggestions(
         request.query,
-        request.limit
+        request.limit,
       );
 
       return {
@@ -444,7 +444,7 @@ export class ContextOrchestrationService {
    * Extracted from: context-message-handler.ts:444-479
    */
   async searchImages(
-    request: SearchImagesRequest
+    request: SearchImagesRequest,
   ): Promise<SearchImagesResult> {
     try {
       const results = await this.contextService.searchImageFiles(request.query);

@@ -220,7 +220,7 @@ export class AgentGenerationOrchestratorService {
     @inject(TOKENS.MONOREPO_DETECTOR_SERVICE)
     private readonly monorepoDetector: MonorepoDetectorService,
     @inject(AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE)
-    private readonly multiCliWriter: MultiCliAgentWriterService
+    private readonly multiCliWriter: MultiCliAgentWriterService,
   ) {
     this.logger.debug('AgentGenerationOrchestratorService initialized');
   }
@@ -240,7 +240,7 @@ export class AgentGenerationOrchestratorService {
    */
   async generateAgents(
     options: OrchestratorGenerationOptions,
-    progressCallback?: (progress: GenerationProgress) => void
+    progressCallback?: (progress: GenerationProgress) => void,
   ): Promise<Result<GenerationSummary, Error>> {
     const startTime = Date.now();
     const warnings: string[] = [];
@@ -272,7 +272,7 @@ export class AgentGenerationOrchestratorService {
           projectInfo = await this.workspaceAnalyzer.getProjectInfo();
         } catch {
           this.logger.debug(
-            'Could not get projectInfo for pre-computed context'
+            'Could not get projectInfo for pre-computed context',
           );
         }
 
@@ -309,7 +309,7 @@ export class AgentGenerationOrchestratorService {
             frameworkCount: (analysis.frameworks ?? []).length,
             hasArchPatterns: (analysis.architecturePatterns ?? []).length > 0,
             hasTestCoverage: !!analysis.testCoverage,
-          }
+          },
         );
         progressCallback?.({
           phase: 'analysis',
@@ -335,7 +335,7 @@ export class AgentGenerationOrchestratorService {
 
         const contextResult = await this.analyzeWorkspace(
           options.workspacePath,
-          progressCallback
+          progressCallback,
         );
 
         if (contextResult.isErr()) {
@@ -366,7 +366,7 @@ export class AgentGenerationOrchestratorService {
       const selectionResult = await this.selectAgents(
         projectContext,
         options.threshold ?? 50,
-        options.userOverrides
+        options.userOverrides,
       );
 
       if (selectionResult.isErr()) {
@@ -404,7 +404,7 @@ export class AgentGenerationOrchestratorService {
         projectContext,
         options,
         progressCallback,
-        warnings
+        warnings,
       );
 
       if (renderedResult.isErr()) {
@@ -437,12 +437,12 @@ export class AgentGenerationOrchestratorService {
         if (writeResult.isErr()) {
           this.logger.error(
             `Failed to write agent ${agent.sourceTemplateId}`,
-            writeResult.error!
+            writeResult.error!,
           );
           warnings.push(
             `Failed to write ${agent.sourceTemplateId}: ${
               writeResult.error!.message
-            }`
+            }`,
           );
           writeFailures++;
         }
@@ -463,14 +463,14 @@ export class AgentGenerationOrchestratorService {
         try {
           cliResults = await this.multiCliWriter.writeForClis(
             renderedAgents,
-            options.targetClis
+            options.targetClis,
           );
 
           // Append CLI-specific warnings (non-fatal)
           for (const result of cliResults) {
             if (result.errors.length > 0) {
               warnings.push(
-                ...result.errors.map((e) => `[${result.cli}] ${e}`)
+                ...result.errors.map((e) => `[${result.cli}] ${e}`),
               );
             }
           }
@@ -483,7 +483,7 @@ export class AgentGenerationOrchestratorService {
           warnings.push(
             `Multi-CLI distribution failed: ${
               cliError instanceof Error ? cliError.message : String(cliError)
-            }`
+            }`,
           );
         }
       }
@@ -516,10 +516,10 @@ export class AgentGenerationOrchestratorService {
     } catch (error) {
       this.logger.error(
         'Agent generation failed with unexpected error',
-        error as Error
+        error as Error,
       );
       return Result.err(
-        new Error(`Agent generation failed: ${(error as Error).message}`)
+        new Error(`Agent generation failed: ${(error as Error).message}`),
       );
     }
   }
@@ -537,7 +537,7 @@ export class AgentGenerationOrchestratorService {
    */
   public async analyzeWorkspace(
     workspacePath: string,
-    progressCallback?: (progress: GenerationProgress) => void
+    progressCallback?: (progress: GenerationProgress) => void,
   ): Promise<Result<AgentProjectContext, Error>> {
     try {
       this.logger.debug('Starting workspace analysis', {
@@ -549,19 +549,18 @@ export class AgentGenerationOrchestratorService {
 
       if (!projectInfo) {
         return Result.err(
-          new Error('Could not analyze workspace - no project info available')
+          new Error('Could not analyze workspace - no project info available'),
         );
       }
 
       // Get monorepo detection (services now use string paths)
-      const monorepoResult = await this.monorepoDetector.detectMonorepo(
-        workspacePath
-      );
+      const monorepoResult =
+        await this.monorepoDetector.detectMonorepo(workspacePath);
 
       // Get framework detection (from project type)
       const detectedFramework = await this.frameworkDetector.detectFramework(
         workspacePath,
-        projectInfo.type
+        projectInfo.type,
       );
 
       // Convert framework enum to arrays (Framework[] for context, string[] for techStack)
@@ -596,12 +595,12 @@ export class AgentGenerationOrchestratorService {
         techStack: {
           languages: this.detectLanguagesFromProjectType(
             projectInfo.type,
-            projectInfo
+            projectInfo,
           ),
           frameworks: frameworksString,
           buildTools: this.detectBuildTools(projectInfo),
           testingFrameworks: this.detectTestingFrameworks(
-            projectInfo.devDependencies
+            projectInfo.devDependencies,
           ),
           packageManager: this.detectPackageManager(projectInfo.path),
         },
@@ -624,7 +623,7 @@ export class AgentGenerationOrchestratorService {
     } catch (error) {
       this.logger.error('Workspace analysis failed', error as Error);
       return Result.err(
-        new Error(`Workspace analysis failed: ${(error as Error).message}`)
+        new Error(`Workspace analysis failed: ${(error as Error).message}`),
       );
     }
   }
@@ -641,7 +640,7 @@ export class AgentGenerationOrchestratorService {
   private async selectAgents(
     context: AgentProjectContext,
     threshold: number,
-    userOverrides?: string[]
+    userOverrides?: string[],
   ): Promise<
     Result<
       Array<{
@@ -666,9 +665,8 @@ export class AgentGenerationOrchestratorService {
 
         for (const agentId of userOverrides) {
           this.logger.debug(`Loading template for agent: ${agentId}`);
-          const templateResult = await this.templateStorage.loadTemplate(
-            agentId
-          );
+          const templateResult =
+            await this.templateStorage.loadTemplate(agentId);
 
           if (templateResult.isOk()) {
             selections.push({
@@ -682,7 +680,7 @@ export class AgentGenerationOrchestratorService {
             loadErrors.push(`${agentId}: ${errorMsg}`);
             this.logger.error(
               `Failed to load template for agent: ${agentId}`,
-              templateResult.error!
+              templateResult.error!,
             );
           }
         }
@@ -700,9 +698,9 @@ export class AgentGenerationOrchestratorService {
           return Result.err(
             new Error(
               `Failed to load any agent templates. Errors: ${loadErrors.join(
-                '; '
-              )}`
-            )
+                '; ',
+              )}`,
+            ),
           );
         }
 
@@ -710,7 +708,7 @@ export class AgentGenerationOrchestratorService {
         if (loadErrors.length > 0) {
           this.logger.warn(
             `Some agent templates failed to load, continuing with ${selections.length} successful agents`,
-            { errors: loadErrors }
+            { errors: loadErrors },
           );
         }
 
@@ -720,7 +718,7 @@ export class AgentGenerationOrchestratorService {
       // Automatic selection via AgentSelectionService
       const selectResult = await this.agentSelector.selectAgents(
         context,
-        threshold
+        threshold,
       );
 
       if (selectResult.isErr()) {
@@ -730,7 +728,7 @@ export class AgentGenerationOrchestratorService {
       return Result.ok(selectResult.value!);
     } catch (error) {
       return Result.err(
-        new Error(`Agent selection failed: ${(error as Error).message}`)
+        new Error(`Agent selection failed: ${(error as Error).message}`),
       );
     }
   }
@@ -756,7 +754,7 @@ export class AgentGenerationOrchestratorService {
     context: AgentProjectContext,
     options: OrchestratorGenerationOptions,
     progressCallback?: (progress: GenerationProgress) => void,
-    warnings?: string[]
+    warnings?: string[],
   ): Promise<Result<GeneratedAgent[], Error>> {
     try {
       const rendered: GeneratedAgent[] = [];
@@ -792,7 +790,7 @@ export class AgentGenerationOrchestratorService {
         if (templateResult.isErr()) {
           this.logger.warn(`Failed to load template for ${agentId}, skipping`);
           warnings?.push(
-            `Failed to load template for ${agentId}: ${templateResult.error?.message}`
+            `Failed to load template for ${agentId}: ${templateResult.error?.message}`,
           );
           continue;
         }
@@ -803,7 +801,7 @@ export class AgentGenerationOrchestratorService {
         const contentResult = await this.contentGenerator.generateContent(
           template,
           context,
-          sdkConfig
+          sdkConfig,
         );
 
         if (contentResult.isOk()) {
@@ -814,7 +812,7 @@ export class AgentGenerationOrchestratorService {
           const finalContent = this.buildAgentFileContent(
             rawContent,
             template,
-            context
+            context,
           );
 
           // Construct GeneratedAgent object with absolute workspace path.
@@ -831,7 +829,7 @@ export class AgentGenerationOrchestratorService {
               context.rootPath,
               '.claude',
               'agents',
-              `${template.id}.md`
+              `${template.id}.md`,
             ),
           };
 
@@ -840,12 +838,12 @@ export class AgentGenerationOrchestratorService {
           this.logger.warn(
             `Failed to generate content for ${agentId}: ${
               contentResult.error!.message
-            }`
+            }`,
           );
           warnings?.push(
             `Content generation failed for ${agentId}: ${
               contentResult.error!.message
-            }`
+            }`,
           );
         }
       }
@@ -857,7 +855,7 @@ export class AgentGenerationOrchestratorService {
       return Result.ok(rendered);
     } catch (error) {
       return Result.err(
-        new Error(`Agent rendering failed: ${(error as Error).message}`)
+        new Error(`Agent rendering failed: ${(error as Error).message}`),
       );
     }
   }
@@ -880,7 +878,7 @@ export class AgentGenerationOrchestratorService {
   private buildAgentFileContent(
     rawContent: string,
     template: AgentTemplate,
-    context: AgentProjectContext
+    context: AgentProjectContext,
   ): string {
     // Strip leading template output frontmatter if present.
     // The template content starts with \n---\n...---\n (the second YAML block
@@ -888,7 +886,7 @@ export class AgentGenerationOrchestratorService {
     // a programmatically constructed version.
     const strippedContent = rawContent.replace(
       /^\s*---\s*\n[\s\S]*?\n---\s*\n/,
-      ''
+      '',
     );
 
     // Build frontmatter with only the fields Claude recognizes
@@ -916,7 +914,7 @@ export class AgentGenerationOrchestratorService {
    */
   private buildVariables(
     context: AgentProjectContext,
-    overrides?: Record<string, string>
+    overrides?: Record<string, string>,
   ): Record<string, string> {
     const variables: Record<string, string> = {
       PROJECT_TYPE: context.projectType.toString(),
@@ -943,7 +941,7 @@ export class AgentGenerationOrchestratorService {
    */
   private detectLanguagesFromProjectType(
     projectType: ProjectType,
-    projectInfo?: ProjectInfo
+    projectInfo?: ProjectInfo,
   ): string[] {
     const languages: string[] = [];
     const typeStr = projectType.toString();
@@ -996,7 +994,7 @@ export class AgentGenerationOrchestratorService {
 
     return allDeps
       .filter((dep) =>
-        buildToolPatterns.some((pattern) => dep.includes(pattern))
+        buildToolPatterns.some((pattern) => dep.includes(pattern)),
       )
       .slice(0, 10);
   }

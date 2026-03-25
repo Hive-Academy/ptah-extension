@@ -81,14 +81,14 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
   mainWindow.on('close', () => {
     const bounds = mainWindow.getBounds();
     console.log(
-      `[Ptah Electron] Saving window bounds: ${JSON.stringify(bounds)}`
+      `[Ptah Electron] Saving window bounds: ${JSON.stringify(bounds)}`,
     );
     // Fire-and-forget: persist bounds for next launch
     if (stateStorage) {
       stateStorage.update('window.bounds', bounds).catch((err: unknown) => {
         console.error(
           '[Ptah Electron] Failed to persist window bounds:',
-          err instanceof Error ? err.message : String(err)
+          err instanceof Error ? err.message : String(err),
         );
       });
     }

@@ -93,7 +93,7 @@ export class IgnorePatternResolverService {
     @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(TOKENS.PATTERN_MATCHER_SERVICE)
-    private readonly patternMatcher: PatternMatcherService
+    private readonly patternMatcher: PatternMatcherService,
   ) {}
 
   /**
@@ -179,7 +179,7 @@ export class IgnorePatternResolverService {
       '.prettierignore',
       '.eslintignore',
       '.npmignore',
-    ]
+    ],
   ): Promise<ParsedIgnoreFile[]> {
     const ignoreFiles: ParsedIgnoreFile[] = [];
 
@@ -199,7 +199,7 @@ export class IgnorePatternResolverService {
         // Ignore parse errors (malformed ignore files)
         console.warn(
           `Failed to parse ignore file ${fileName}:`,
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
       }
     }
@@ -225,7 +225,7 @@ export class IgnorePatternResolverService {
   async isIgnored(
     filePath: string,
     ignoreFiles: ParsedIgnoreFile[],
-    workspaceRoot?: string
+    workspaceRoot?: string,
   ): Promise<IgnoreTestResult> {
     // Normalize file path to use forward slashes
     const normalizedPath = filePath.replace(/\\/g, '/');
@@ -244,7 +244,7 @@ export class IgnorePatternResolverService {
           const relativePath = this.makeRelativePath(
             normalizedPath,
             ignoreFile.baseDir,
-            workspaceRoot
+            workspaceRoot,
           );
           testPath = relativePath;
         }
@@ -292,7 +292,7 @@ export class IgnorePatternResolverService {
   async testFiles(
     filePaths: string[],
     ignoreFiles: ParsedIgnoreFile[],
-    workspaceRoot?: string
+    workspaceRoot?: string,
   ): Promise<IgnoreTestResult[]> {
     const results: IgnoreTestResult[] = [];
 
@@ -322,7 +322,7 @@ export class IgnorePatternResolverService {
   async filterIgnored(
     filePaths: string[],
     ignoreFiles: ParsedIgnoreFile[],
-    workspaceRoot?: string
+    workspaceRoot?: string,
   ): Promise<string[]> {
     const results = await this.testFiles(filePaths, ignoreFiles, workspaceRoot);
     return results
@@ -390,7 +390,7 @@ export class IgnorePatternResolverService {
   private makeRelativePath(
     filePath: string,
     baseDir: string,
-    workspaceRoot: string
+    workspaceRoot: string,
   ): string {
     // Normalize paths
     const normalizedFile = filePath.replace(/\\/g, '/');

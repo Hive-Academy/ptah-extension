@@ -49,7 +49,7 @@ async function dynamicImport(specifier: string): Promise<unknown> {
  */
 function findPackageFromBinary(
   binaryPath: string,
-  packageName: string
+  packageName: string,
 ): string | null {
   try {
     const realPath = realpathSync(binaryPath);
@@ -93,7 +93,7 @@ export class SdkModuleLoader {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
-    private readonly cliDetector: ClaudeCliDetector
+    private readonly cliDetector: ClaudeCliDetector,
   ) {}
 
   /**
@@ -116,7 +116,7 @@ export class SdkModuleLoader {
 
     const startTime = performance.now();
     this.logger.info(
-      '[SdkModuleLoader] Resolving Claude Agent SDK at runtime (first use)...'
+      '[SdkModuleLoader] Resolving Claude Agent SDK at runtime (first use)...',
     );
 
     const sdkModule = await this.resolveAndImportSdk();
@@ -125,7 +125,7 @@ export class SdkModuleLoader {
     const elapsed = (performance.now() - startTime).toFixed(2);
     this.cachedSdkQuery = query;
     this.logger.info(
-      `[SdkModuleLoader] SDK resolved and cached successfully (${elapsed}ms)`
+      `[SdkModuleLoader] SDK resolved and cached successfully (${elapsed}ms)`,
     );
 
     return query;
@@ -149,13 +149,13 @@ export class SdkModuleLoader {
       await this.getQueryFunction();
       const elapsed = (performance.now() - startTime).toFixed(2);
       this.logger.info(
-        `[SdkModuleLoader] SDK pre-loaded successfully (${elapsed}ms)`
+        `[SdkModuleLoader] SDK pre-loaded successfully (${elapsed}ms)`,
       );
     } catch (error) {
       const elapsed = (performance.now() - startTime).toFixed(2);
       this.logger.warn(
         `[SdkModuleLoader] SDK pre-load failed after ${elapsed}ms (will retry on first use)`,
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
       throw error;
     }
@@ -195,21 +195,21 @@ export class SdkModuleLoader {
     // Works if user has @anthropic-ai/claude-agent-sdk installed globally or locally
     try {
       this.logger.debug(
-        '[SdkModuleLoader] Attempt 1: Standard module resolution...'
+        '[SdkModuleLoader] Attempt 1: Standard module resolution...',
       );
       const mod = (await dynamicImport(SDK_PACKAGE_NAME)) as Record<
         string,
         unknown
       >;
       this.logger.debug(
-        '[SdkModuleLoader] SDK resolved via standard module resolution'
+        '[SdkModuleLoader] SDK resolved via standard module resolution',
       );
       return mod;
     } catch (e) {
       lastError = e;
       this.logger.debug(
         '[SdkModuleLoader] Standard resolution failed, trying CLI binary fallback...',
-        { error: e instanceof Error ? e.message : String(e) }
+        { error: e instanceof Error ? e.message : String(e) },
       );
     }
 
@@ -221,11 +221,11 @@ export class SdkModuleLoader {
       const installation = await this.cliDetector.findExecutable();
       if (installation?.path) {
         this.logger.debug(
-          `[SdkModuleLoader] Attempt 2: Resolving from CLI binary at ${installation.path}...`
+          `[SdkModuleLoader] Attempt 2: Resolving from CLI binary at ${installation.path}...`,
         );
         const sdkPath = findPackageFromBinary(
           installation.path,
-          SDK_PACKAGE_NAME
+          SDK_PACKAGE_NAME,
         );
         if (sdkPath) {
           // Use file:// URL for cross-platform ESM import from absolute paths
@@ -236,30 +236,30 @@ export class SdkModuleLoader {
               unknown
             >;
             this.logger.debug(
-              `[SdkModuleLoader] SDK resolved from CLI binary tree: ${sdkPath}`
+              `[SdkModuleLoader] SDK resolved from CLI binary tree: ${sdkPath}`,
             );
             return mod;
           } catch (e) {
             lastError = e;
             this.logger.debug(
               `[SdkModuleLoader] Found SDK at ${sdkPath} but import failed`,
-              { error: e instanceof Error ? e.message : String(e) }
+              { error: e instanceof Error ? e.message : String(e) },
             );
           }
         } else {
           this.logger.debug(
-            '[SdkModuleLoader] SDK package not found relative to CLI binary'
+            '[SdkModuleLoader] SDK package not found relative to CLI binary',
           );
         }
       } else {
         this.logger.debug(
-          '[SdkModuleLoader] Claude CLI not found on system, skipping binary fallback'
+          '[SdkModuleLoader] Claude CLI not found on system, skipping binary fallback',
         );
       }
     } catch (e) {
       this.logger.debug(
         '[SdkModuleLoader] CLI detector failed during SDK resolution',
-        { error: e instanceof Error ? e.message : String(e) }
+        { error: e instanceof Error ? e.message : String(e) },
       );
     }
 
@@ -268,7 +268,7 @@ export class SdkModuleLoader {
     throw new Error(
       `Claude Agent SDK (${SDK_PACKAGE_NAME}) is not installed or could not be loaded. ` +
         `${detail ? `(${detail}) ` : ''}` +
-        `Please install the Claude CLI: npm install -g @anthropic-ai/claude-code`
+        `Please install the Claude CLI: npm install -g @anthropic-ai/claude-code`,
     );
   }
 }

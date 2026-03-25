@@ -72,7 +72,7 @@ export class SetupRpcHandlers {
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject('DependencyContainer')
-    private readonly container: DependencyContainer
+    private readonly container: DependencyContainer,
   ) {}
 
   /**
@@ -91,7 +91,7 @@ export class SetupRpcHandlers {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to resolve ${serviceName}`, { error: message });
       throw new Error(
-        `${serviceName} not available. Ensure the agent-generation module is properly initialized. Details: ${message}`
+        `${serviceName} not available. Ensure the agent-generation module is properly initialized. Details: ${message}`,
       );
     }
   }
@@ -107,7 +107,7 @@ export class SetupRpcHandlers {
         return undefined;
       }
       const paths = this.pluginLoader.resolvePluginPaths(
-        config.enabledPluginIds
+        config.enabledPluginIds,
       );
       return paths.length > 0 ? paths : undefined;
     } catch (error) {
@@ -155,7 +155,7 @@ export class SetupRpcHandlers {
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         if (!workspaceRoot) {
           throw new Error(
-            'No workspace folder open. Please open a folder to configure agents.'
+            'No workspace folder open. Please open a folder to configure agents.',
           );
         }
 
@@ -172,12 +172,12 @@ export class SetupRpcHandlers {
         if (result.isErr()) {
           this.logger.error('Failed to get setup status', result.error);
           throw new Error(
-            result.error?.message || 'Failed to retrieve agent setup status'
+            result.error?.message || 'Failed to retrieve agent setup status',
           );
         }
 
         return result.value as SetupStatusResponse;
-      }
+      },
     );
   }
 
@@ -193,7 +193,7 @@ export class SetupRpcHandlers {
         const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
         if (!workspaceRoot) {
           throw new Error(
-            'No workspace folder open. Please open a folder first.'
+            'No workspace folder open. Please open a folder first.',
           );
         }
 
@@ -209,12 +209,12 @@ export class SetupRpcHandlers {
         if (result.isErr()) {
           this.logger.error('Failed to launch setup wizard', result.error);
           throw new Error(
-            result.error?.message || 'Failed to launch setup wizard'
+            result.error?.message || 'Failed to launch setup wizard',
           );
         }
 
         return { success: true };
-      }
+      },
     );
   }
 
@@ -231,7 +231,7 @@ export class SetupRpcHandlers {
       const workspaceRoot = this.workspaceProvider.getWorkspaceRoot();
       if (!workspaceRoot) {
         throw new Error(
-          'No workspace folder open. Please open a folder to analyze.'
+          'No workspace folder open. Please open a folder to analyze.',
         );
       }
 
@@ -241,7 +241,7 @@ export class SetupRpcHandlers {
       try {
         const licenseService = this.resolveService<LicenseService>(
           TOKENS.LICENSE_SERVICE,
-          'LicenseService'
+          'LicenseService',
         );
         const licenseStatus: LicenseStatus =
           await licenseService.verifyLicense();
@@ -253,7 +253,7 @@ export class SetupRpcHandlers {
 
         const codeExecutionMcp = this.resolveService<CodeExecutionMCP>(
           TOKENS.CODE_EXECUTION_MCP,
-          'CodeExecutionMCP'
+          'CodeExecutionMCP',
         );
         const actualPort = codeExecutionMcp.getPort();
         mcpServerRunning = actualPort !== null;
@@ -263,13 +263,13 @@ export class SetupRpcHandlers {
           'Could not resolve license/MCP services for analysis',
           {
             error: error instanceof Error ? error.message : String(error),
-          }
+          },
         );
       }
 
       if (!isPremium || !mcpServerRunning) {
         throw new Error(
-          'Premium license and MCP server required for workspace analysis.'
+          'Premium license and MCP server required for workspace analysis.',
         );
       }
 
@@ -289,11 +289,11 @@ export class SetupRpcHandlers {
             mcpServerRunning?: boolean;
             mcpPort?: number;
             pluginPaths?: string[];
-          }
+          },
         ) => Promise<Result<MultiPhaseManifest, Error>>;
       }>(
         AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
-        'MultiPhaseAnalysisService'
+        'MultiPhaseAnalysisService',
       );
 
       const multiPhaseResult = await multiPhaseService.analyzeWorkspace(
@@ -304,13 +304,13 @@ export class SetupRpcHandlers {
           mcpServerRunning,
           mcpPort,
           pluginPaths,
-        }
+        },
       );
 
       if (multiPhaseResult.isErr() || !multiPhaseResult.value) {
         throw new Error(
           multiPhaseResult.error?.message ||
-            'Multi-phase analysis failed. Please try again.'
+            'Multi-phase analysis failed. Please try again.',
         );
       }
 
@@ -318,7 +318,7 @@ export class SetupRpcHandlers {
 
       const storageService = this.resolveService<AnalysisStorageService>(
         AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-        'AnalysisStorageService'
+        'AnalysisStorageService',
       );
 
       const slugDir = storageService.getSlugDir(workspaceRoot, manifest.slug);
@@ -328,7 +328,7 @@ export class SetupRpcHandlers {
         if (phaseResult.status === 'completed') {
           const content = await storageService.readPhaseFile(
             slugDir,
-            phaseResult.file
+            phaseResult.file,
           );
           if (content) {
             phaseContents[phaseId] = content;
@@ -373,14 +373,14 @@ export class SetupRpcHandlers {
 
         if (!rawAnalysis) {
           throw new Error(
-            'Missing analysis input. Please run wizard:deep-analyze first.'
+            'Missing analysis input. Please run wizard:deep-analyze first.',
           );
         }
 
         const input = rawAnalysis as Record<string, unknown>;
         if (input['isMultiPhase'] === true) {
           this.logger.info(
-            'Multi-phase analysis detected, returning all agents recommended'
+            'Multi-phase analysis detected, returning all agents recommended',
           );
 
           const agentCatalog: Array<{ id: string; category: AgentCategory }> = [
@@ -413,7 +413,7 @@ export class SetupRpcHandlers {
                 'Multi-phase analysis (all agents recommended)',
               ],
               description: `Agent for ${agentId.replace(/-/g, ' ')} tasks`,
-            })
+            }),
           );
 
           this.logger.info('All 13 agents recommended (multi-phase)', {
@@ -450,7 +450,7 @@ export class SetupRpcHandlers {
 
         type RecommendationServiceType = {
           calculateRecommendations: (
-            analysis: DeepProjectAnalysis
+            analysis: DeepProjectAnalysis,
           ) => AgentRecommendation[];
         };
 
@@ -460,16 +460,16 @@ export class SetupRpcHandlers {
           recommendationService =
             this.resolveService<RecommendationServiceType>(
               AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
-              'AgentRecommendationService'
+              'AgentRecommendationService',
             );
         } catch {
           this.logger.debug(
-            'AgentRecommendationService not registered via token, using direct class resolution'
+            'AgentRecommendationService not registered via token, using direct class resolution',
           );
           recommendationService =
             this.resolveService<RecommendationServiceType>(
               AgentRecommendationService as unknown as symbol,
-              'AgentRecommendationService (direct)'
+              'AgentRecommendationService (direct)',
             );
         }
 
@@ -482,7 +482,7 @@ export class SetupRpcHandlers {
         });
 
         return recommendations;
-      }
+      },
     );
   }
 
@@ -502,7 +502,7 @@ export class SetupRpcHandlers {
             cancelAnalysis: () => void;
           }>(
             AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
-            'MultiPhaseAnalysisService'
+            'MultiPhaseAnalysisService',
           );
 
           multiPhaseService.cancelAnalysis();
@@ -513,7 +513,7 @@ export class SetupRpcHandlers {
             'Could not cancel multi-phase analysis (may not be running)',
             {
               error: error instanceof Error ? error.message : String(error),
-            }
+            },
           );
         }
 
@@ -522,7 +522,7 @@ export class SetupRpcHandlers {
             cancelAnalysis: () => void;
           }>(
             AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE,
-            'AgenticAnalysisService'
+            'AgenticAnalysisService',
           );
 
           agenticService.cancelAnalysis();
@@ -533,12 +533,12 @@ export class SetupRpcHandlers {
             'Could not cancel agentic analysis (may not be running)',
             {
               error: error instanceof Error ? error.message : String(error),
-            }
+            },
           );
         }
 
         return { cancelled };
-      }
+      },
     );
   }
 
@@ -559,7 +559,7 @@ export class SetupRpcHandlers {
 
       const storageService = this.resolveService<AnalysisStorageService>(
         AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-        'AnalysisStorageService'
+        'AnalysisStorageService',
       );
 
       const analyses = await storageService.list(workspaceRoot);
@@ -586,7 +586,7 @@ export class SetupRpcHandlers {
 
       const storageService = this.resolveService<AnalysisStorageService>(
         AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
-        'AnalysisStorageService'
+        'AnalysisStorageService',
       );
 
       return storageService.loadMultiPhase(workspaceRoot, params.filename);

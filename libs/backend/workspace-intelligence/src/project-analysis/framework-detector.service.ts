@@ -20,7 +20,7 @@ import { FileSystemService } from '../services/file-system.service';
 export class FrameworkDetectorService {
   constructor(
     @inject(TOKENS.FILE_SYSTEM_SERVICE)
-    private readonly fileSystem: FileSystemService
+    private readonly fileSystem: FileSystemService,
   ) {}
 
   /**
@@ -33,7 +33,7 @@ export class FrameworkDetectorService {
    */
   async detectFramework(
     workspacePath: string,
-    projectType: ProjectType
+    projectType: ProjectType,
   ): Promise<Framework | undefined> {
     // Only detect frameworks for relevant project types
     if (projectType === ProjectType.General) {
@@ -42,9 +42,8 @@ export class FrameworkDetectorService {
 
     try {
       // Check for framework-specific config files first (most reliable)
-      const frameworkFromConfig = await this.detectFromConfigFiles(
-        workspacePath
-      );
+      const frameworkFromConfig =
+        await this.detectFromConfigFiles(workspacePath);
       if (frameworkFromConfig) {
         return frameworkFromConfig;
       }
@@ -84,7 +83,7 @@ export class FrameworkDetectorService {
    * Detect framework from config files (most reliable method).
    */
   private async detectFromConfigFiles(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<Framework | undefined> {
     const configChecks: Array<{ file: string; framework: Framework }> = [
       { file: 'angular.json', framework: Framework.Angular },
@@ -97,7 +96,7 @@ export class FrameworkDetectorService {
 
     for (const { file, framework } of configChecks) {
       const exists = await this.fileSystem.exists(
-        path.join(workspacePath, file)
+        path.join(workspacePath, file),
       );
       if (exists) {
         return framework;
@@ -111,7 +110,7 @@ export class FrameworkDetectorService {
    * Detect framework from package.json dependencies.
    */
   private async detectFromPackageJson(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<Framework | undefined> {
     const packageJsonPath = path.join(workspacePath, 'package.json');
     const exists = await this.fileSystem.exists(packageJsonPath);
@@ -169,11 +168,11 @@ export class FrameworkDetectorService {
    * Detect Python framework from requirements.txt or project structure.
    */
   private async detectPythonFramework(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<Framework | undefined> {
     // Check for Django-specific files
     const manageExists = await this.fileSystem.exists(
-      path.join(workspacePath, 'manage.py')
+      path.join(workspacePath, 'manage.py'),
     );
     if (manageExists) {
       return Framework.Django;
@@ -204,11 +203,11 @@ export class FrameworkDetectorService {
    * Detect PHP framework from composer.json or project structure.
    */
   private async detectPHPFramework(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<Framework | undefined> {
     // Check for Laravel-specific files
     const artisanExists = await this.fileSystem.exists(
-      path.join(workspacePath, 'artisan')
+      path.join(workspacePath, 'artisan'),
     );
     if (artisanExists) {
       return Framework.Laravel;
@@ -241,11 +240,11 @@ export class FrameworkDetectorService {
    * Detect Ruby framework from Gemfile or project structure.
    */
   private async detectRubyFramework(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<Framework | undefined> {
     // Check for Rails-specific files
     const railsAppExists = await this.fileSystem.exists(
-      path.join(workspacePath, 'config', 'application.rb')
+      path.join(workspacePath, 'config', 'application.rb'),
     );
     if (railsAppExists) {
       return Framework.Rails;
@@ -278,7 +277,7 @@ export class FrameworkDetectorService {
    * @returns Map of workspace paths to detected frameworks
    */
   async detectFrameworks(
-    projectTypes: Map<string, ProjectType>
+    projectTypes: Map<string, ProjectType>,
   ): Promise<Map<string, Framework | undefined>> {
     const frameworks = new Map<string, Framework | undefined>();
 

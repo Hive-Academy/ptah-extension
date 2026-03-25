@@ -33,7 +33,7 @@ export class MonorepoDetectorService {
     @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -44,7 +44,7 @@ export class MonorepoDetectorService {
    * @returns Monorepo detection result
    */
   async detectMonorepo(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<MonorepoDetectionResult> {
     // Check for Nx workspace (highest priority - most opinionated)
     const nxResult = await this.detectNxWorkspace(workspacePath);
@@ -114,7 +114,7 @@ export class MonorepoDetectorService {
    * Detect Nx workspace via nx.json or workspace.json.
    */
   private async detectNxWorkspace(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<MonorepoDetectionResult> {
     const nxJsonPath = path.join(workspacePath, 'nx.json');
     const workspaceJsonPath = path.join(workspacePath, 'workspace.json');
@@ -162,7 +162,7 @@ export class MonorepoDetectorService {
    * Detect Lerna workspace via lerna.json.
    */
   private async detectLernaWorkspace(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<MonorepoDetectionResult> {
     const lernaJsonPath = path.join(workspacePath, 'lerna.json');
     const exists = await this.fileSystem.exists(lernaJsonPath);
@@ -180,13 +180,11 @@ export class MonorepoDetectorService {
         // If using workspaces, need to check package.json
         if (lernaJson.useWorkspaces) {
           const packageJsonPath = path.join(workspacePath, 'package.json');
-          const packageJsonExists = await this.fileSystem.exists(
-            packageJsonPath
-          );
+          const packageJsonExists =
+            await this.fileSystem.exists(packageJsonPath);
           if (packageJsonExists) {
-            const packageContent = await this.fileSystem.readFile(
-              packageJsonPath
-            );
+            const packageContent =
+              await this.fileSystem.readFile(packageJsonPath);
             const packageJson = JSON.parse(packageContent) as {
               workspaces?: string[];
             };
@@ -216,7 +214,7 @@ export class MonorepoDetectorService {
    * Detect Rush workspace via rush.json.
    */
   private async detectRushWorkspace(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<MonorepoDetectionResult> {
     const rushJsonPath = path.join(workspacePath, 'rush.json');
     const exists = await this.fileSystem.exists(rushJsonPath);
@@ -251,7 +249,7 @@ export class MonorepoDetectorService {
    * Detect Turborepo via turbo.json.
    */
   private async detectTurborepo(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<MonorepoDetectionResult> {
     const turboJsonPath = path.join(workspacePath, 'turbo.json');
     const exists = await this.fileSystem.exists(turboJsonPath);
@@ -271,7 +269,7 @@ export class MonorepoDetectorService {
    * Detect pnpm workspace via pnpm-workspace.yaml.
    */
   private async detectPnpmWorkspace(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<MonorepoDetectionResult> {
     const pnpmWorkspacePath = path.join(workspacePath, 'pnpm-workspace.yaml');
     const exists = await this.fileSystem.exists(pnpmWorkspacePath);
@@ -283,12 +281,12 @@ export class MonorepoDetectorService {
         const content = await this.fileSystem.readFile(pnpmWorkspacePath);
         // Simple YAML parsing for packages array
         const packagesMatch = content.match(
-          /packages:\s*\n((?:\s+-\s+.+\n?)+)/
+          /packages:\s*\n((?:\s+-\s+.+\n?)+)/,
         );
         if (packagesMatch) {
           const packageLines = packagesMatch[1].trim().split('\n');
           packageCount = packageLines.filter((line) =>
-            line.trim().startsWith('-')
+            line.trim().startsWith('-'),
           ).length;
         }
       } catch {
@@ -310,7 +308,7 @@ export class MonorepoDetectorService {
    * Detect Yarn workspace via package.json workspaces field.
    */
   private async detectYarnWorkspace(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<MonorepoDetectionResult> {
     const packageJsonPath = path.join(workspacePath, 'package.json');
     const exists = await this.fileSystem.exists(packageJsonPath);

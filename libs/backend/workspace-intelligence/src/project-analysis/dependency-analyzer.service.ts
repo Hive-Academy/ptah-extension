@@ -38,7 +38,7 @@ export interface DependencyAnalysisResult {
 export class DependencyAnalyzerService {
   constructor(
     @inject(TOKENS.FILE_SYSTEM_SERVICE)
-    private readonly fileSystem: FileSystemService
+    private readonly fileSystem: FileSystemService,
   ) {}
 
   /**
@@ -51,7 +51,7 @@ export class DependencyAnalyzerService {
    */
   async analyzeDependencies(
     workspacePath: string,
-    projectType: ProjectType
+    projectType: ProjectType,
   ): Promise<DependencyAnalysisResult> {
     try {
       switch (projectType) {
@@ -96,7 +96,7 @@ export class DependencyAnalyzerService {
    * Analyze Node.js dependencies from package.json.
    */
   private async analyzeNodeDependencies(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     const packageJsonPath = path.join(workspacePath, 'package.json');
     const exists = await this.fileSystem.exists(packageJsonPath);
@@ -113,10 +113,10 @@ export class DependencyAnalyzerService {
       };
 
       const dependencies = this.parseDependencyObject(
-        packageJson.dependencies || {}
+        packageJson.dependencies || {},
       );
       const devDependencies = this.parseDependencyObject(
-        packageJson.devDependencies || {}
+        packageJson.devDependencies || {},
       );
 
       return {
@@ -133,7 +133,7 @@ export class DependencyAnalyzerService {
    * Analyze Python dependencies from requirements.txt or Pipfile.
    */
   private async analyzePythonDependencies(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     // Try requirements.txt first
     const requirementsPath = path.join(workspacePath, 'requirements.txt');
@@ -174,7 +174,7 @@ export class DependencyAnalyzerService {
    * Analyze Go dependencies from go.mod.
    */
   private async analyzeGoDependencies(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     const goModPath = path.join(workspacePath, 'go.mod');
     const exists = await this.fileSystem.exists(goModPath);
@@ -201,7 +201,7 @@ export class DependencyAnalyzerService {
    * Analyze Rust dependencies from Cargo.toml.
    */
   private async analyzeRustDependencies(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     const cargoTomlPath = path.join(workspacePath, 'Cargo.toml');
     const exists = await this.fileSystem.exists(cargoTomlPath);
@@ -222,7 +222,7 @@ export class DependencyAnalyzerService {
    * Analyze PHP dependencies from composer.json.
    */
   private async analyzePHPDependencies(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     const composerJsonPath = path.join(workspacePath, 'composer.json');
     const exists = await this.fileSystem.exists(composerJsonPath);
@@ -239,10 +239,10 @@ export class DependencyAnalyzerService {
       };
 
       const dependencies = this.parseDependencyObject(
-        composerJson.require || {}
+        composerJson.require || {},
       );
       const devDependencies = this.parseDependencyObject(
-        composerJson['require-dev'] || {}
+        composerJson['require-dev'] || {},
       );
 
       return {
@@ -259,7 +259,7 @@ export class DependencyAnalyzerService {
    * Analyze Ruby dependencies from Gemfile.
    */
   private async analyzeRubyDependencies(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     const gemfilePath = path.join(workspacePath, 'Gemfile');
     const exists = await this.fileSystem.exists(gemfilePath);
@@ -286,13 +286,13 @@ export class DependencyAnalyzerService {
    * Analyze .NET dependencies from .csproj files.
    */
   private async analyzeDotNetDependencies(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     try {
       // Find all .csproj files
       const entries = await this.fileSystem.readDirectory(workspacePath);
       const csprojFile = entries.find((entry) =>
-        entry.name.endsWith('.csproj')
+        entry.name.endsWith('.csproj'),
       );
 
       if (!csprojFile) {
@@ -317,7 +317,7 @@ export class DependencyAnalyzerService {
    * Analyze Java dependencies from pom.xml or build.gradle.
    */
   private async analyzeJavaDependencies(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<DependencyAnalysisResult> {
     // Try pom.xml first (Maven)
     const pomXmlPath = path.join(workspacePath, 'pom.xml');
@@ -499,7 +499,7 @@ export class DependencyAnalyzerService {
       if (currentSection && trimmed && !trimmed.startsWith('#')) {
         // Handle both simple and complex version specifications
         const match = trimmed.match(
-          /^([a-zA-Z0-9_-]+)\s*=\s*"([^"]+)"|^([a-zA-Z0-9_-]+)\s*=\s*{/
+          /^([a-zA-Z0-9_-]+)\s*=\s*"([^"]+)"|^([a-zA-Z0-9_-]+)\s*=\s*{/,
         );
         if (match) {
           const name = match[1] || match[3];
@@ -638,14 +638,14 @@ export class DependencyAnalyzerService {
    * @returns Map of workspace paths to dependency analysis results
    */
   async analyzeDependenciesForWorkspaces(
-    projectTypes: Map<string, ProjectType>
+    projectTypes: Map<string, ProjectType>,
   ): Promise<Map<string, DependencyAnalysisResult>> {
     const results = new Map<string, DependencyAnalysisResult>();
 
     for (const [workspacePath, projectType] of projectTypes) {
       const analysis = await this.analyzeDependencies(
         workspacePath,
-        projectType
+        projectType,
       );
       results.set(workspacePath, analysis);
     }

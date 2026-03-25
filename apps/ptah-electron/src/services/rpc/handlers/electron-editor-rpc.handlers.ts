@@ -38,7 +38,7 @@ export class ElectronEditorRpcHandlers {
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
     @inject('DependencyContainer')
-    private readonly container: DependencyContainer
+    private readonly container: DependencyContainer,
   ) {}
 
   register(): void {
@@ -101,7 +101,7 @@ export class ElectronEditorRpcHandlers {
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -140,7 +140,7 @@ export class ElectronEditorRpcHandlers {
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -171,7 +171,7 @@ export class ElectronEditorRpcHandlers {
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -197,7 +197,7 @@ export class ElectronEditorRpcHandlers {
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -225,7 +225,7 @@ export class ElectronEditorRpcHandlers {
             {
               dirPath: params.dirPath,
               error: error instanceof Error ? error.message : String(error),
-            } as unknown as Error
+            } as unknown as Error,
           );
           return {
             success: false,
@@ -233,7 +233,7 @@ export class ElectronEditorRpcHandlers {
             error: error instanceof Error ? error.message : String(error),
           };
         }
-      }
+      },
     );
   }
 
@@ -244,7 +244,7 @@ export class ElectronEditorRpcHandlers {
   private async buildFileTree(
     dirPath: string,
     maxDepth: number,
-    currentDepth = 0
+    currentDepth = 0,
   ): Promise<FileTreeEntry[]> {
     if (currentDepth >= maxDepth) return [];
 
@@ -256,11 +256,11 @@ export class ElectronEditorRpcHandlers {
       const sorted = entries.sort(
         (
           a: { name: string; type: number },
-          b: { name: string; type: number }
+          b: { name: string; type: number },
         ) => {
           if (a.type !== b.type) return a.type === 2 ? -1 : 1;
           return a.name.localeCompare(b.name);
-        }
+        },
       );
 
       for (const entry of sorted) {
@@ -303,7 +303,7 @@ export class ElectronEditorRpcHandlers {
             const children = await this.buildFileTree(
               fullPath,
               maxDepth,
-              currentDepth + 1
+              currentDepth + 1,
             );
             result.push({
               name: entry.name,

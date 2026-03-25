@@ -165,7 +165,7 @@ export class ContextSizeOptimizerService {
     private readonly tokenCounter: TokenCounterService,
     @inject(TOKENS.CONTEXT_ENRICHMENT_SERVICE)
     private readonly enrichmentService: ContextEnrichmentService,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
   ) {}
 
   /**
@@ -185,7 +185,7 @@ export class ContextSizeOptimizerService {
    * @returns Optimized context within token limits
    */
   async optimizeContext(
-    request: ContextOptimizationRequest
+    request: ContextOptimizationRequest,
   ): Promise<OptimizedContext> {
     if (request.mode === 'structural') {
       return this.optimizeContextStructural(request);
@@ -203,7 +203,7 @@ export class ContextSizeOptimizerService {
     const rankedFiles = this.relevanceScorer.rankFiles(
       request.files,
       request.query,
-      symbolIndex
+      symbolIndex,
     );
 
     // Select files within budget using greedy algorithm
@@ -226,13 +226,13 @@ export class ContextSizeOptimizerService {
     const totalFiles = request.files.length;
     const totalTokensBeforeOptimization = request.files.reduce(
       (sum, f) => sum + f.estimatedTokens,
-      0
+      0,
     );
 
     const relevanceScores = Array.from(rankedFiles.values());
     const selectedRelevanceScores = relevanceScores.slice(
       0,
-      selectedFiles.length
+      selectedFiles.length,
     );
     const averageRelevance =
       selectedRelevanceScores.length > 0
@@ -279,7 +279,7 @@ export class ContextSizeOptimizerService {
    * @returns Optimized context with fileContextModes map
    */
   private async optimizeContextStructural(
-    request: ContextOptimizationRequest
+    request: ContextOptimizationRequest,
   ): Promise<OptimizedContext> {
     const maxTokens = request.maxTokens ?? 200_000;
     const responseReserve = request.responseReserve ?? 50_000;
@@ -292,7 +292,7 @@ export class ContextSizeOptimizerService {
     const rankedFiles = this.relevanceScorer.rankFiles(
       request.files,
       request.query,
-      symbolIndex
+      symbolIndex,
     );
 
     const rankedEntries = Array.from(rankedFiles.entries());
@@ -329,7 +329,7 @@ export class ContextSizeOptimizerService {
       try {
         const summary = await this.enrichmentService.generateStructuralSummary(
           file.path,
-          language
+          language,
         );
 
         const summaryTokens = summary.tokenCount;
@@ -359,7 +359,7 @@ export class ContextSizeOptimizerService {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.warn(
-          `ContextSizeOptimizer.optimizeContextStructural() - Failed to generate structural summary for ${file.path}: ${errorMessage}. Falling back to full content.`
+          `ContextSizeOptimizer.optimizeContextStructural() - Failed to generate structural summary for ${file.path}: ${errorMessage}. Falling back to full content.`,
         );
 
         // Fallback: try to include with full content
@@ -378,7 +378,7 @@ export class ContextSizeOptimizerService {
     const totalFiles = request.files.length;
     const totalTokensBeforeOptimization = request.files.reduce(
       (sum, f) => sum + f.estimatedTokens,
-      0
+      0,
     );
 
     // Look up the actual relevance score for each selected file from the
@@ -423,10 +423,10 @@ export class ContextSizeOptimizerService {
         } full, ` +
         `${
           Array.from(fileContextModes.values()).filter(
-            (m) => m === 'structural'
+            (m) => m === 'structural',
           ).length
         } structural), ` +
-        `${currentTokens}/${availableTokens} tokens used`
+        `${currentTokens}/${availableTokens} tokens used`,
     );
 
     return {
@@ -465,7 +465,7 @@ export class ContextSizeOptimizerService {
    * @returns Estimated statistics
    */
   async estimateOptimization(
-    request: ContextOptimizationRequest
+    request: ContextOptimizationRequest,
   ): Promise<ContextOptimizationStats> {
     const result = await this.optimizeContext(request);
     return result.stats;
@@ -478,7 +478,7 @@ export class ContextSizeOptimizerService {
    * @returns Recommended max tokens
    */
   getRecommendedBudget(
-    projectType: 'monorepo' | 'library' | 'application' | 'unknown'
+    projectType: 'monorepo' | 'library' | 'application' | 'unknown',
   ): number {
     switch (projectType) {
       case 'monorepo':
@@ -541,7 +541,7 @@ export class ContextSizeOptimizerService {
    */
   async optimizeWithAdaptiveBudget(
     files: IndexedFile[],
-    query: string
+    query: string,
   ): Promise<OptimizedContext> {
     // Determine project type (simplified - could use MonorepoDetector)
     const projectType: 'monorepo' | 'library' | 'application' | 'unknown' =

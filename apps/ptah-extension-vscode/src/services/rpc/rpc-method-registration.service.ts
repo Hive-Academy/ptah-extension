@@ -130,7 +130,7 @@ export class RpcMethodRegistrationService {
     @inject(SkillsShRpcHandlers)
     private readonly skillsShHandlers: SkillsShRpcHandlers, // TASK_2025_204
     @inject('DependencyContainer')
-    private readonly container: DependencyContainer
+    private readonly container: DependencyContainer,
   ) {
     // Setup SDK callbacks and listeners
     this.setupAgentWatcherListeners();
@@ -201,7 +201,7 @@ export class RpcMethodRegistrationService {
     const verificationResult = verifyRpcRegistration(
       this.rpcHandler,
       this.logger,
-      ELECTRON_ONLY_METHODS
+      ELECTRON_ONLY_METHODS,
     );
 
     if (!verificationResult.valid) {
@@ -209,8 +209,8 @@ export class RpcMethodRegistrationService {
         `RPC registration incomplete: ${verificationResult.missingHandlers.length} methods missing`,
         new Error(
           `Missing: ${verificationResult.missingHandlers.join(', ')}. ` +
-            `Add handlers or remove from RpcMethodRegistry.`
-        )
+            `Add handlers or remove from RpcMethodRegistry.`,
+        ),
       );
     }
   }
@@ -222,7 +222,7 @@ export class RpcMethodRegistrationService {
   private setupAgentMonitorListeners(): void {
     try {
       const agentProcessManager = this.container.resolve<AgentProcessManager>(
-        TOKENS.AGENT_PROCESS_MANAGER
+        TOKENS.AGENT_PROCESS_MANAGER,
       );
 
       agentProcessManager.events.on(
@@ -233,7 +233,7 @@ export class RpcMethodRegistrationService {
             .catch((error) => {
               this.logger.error(
                 'Failed to send agent-monitor:spawned to webview',
-                error instanceof Error ? error : new Error(String(error))
+                error instanceof Error ? error : new Error(String(error)),
               );
             });
 
@@ -245,7 +245,7 @@ export class RpcMethodRegistrationService {
           if (info.parentSessionId && info.cliSessionId) {
             this.persistCliSessionReference(info);
           }
-        }
+        },
       );
 
       agentProcessManager.events.on(
@@ -256,10 +256,10 @@ export class RpcMethodRegistrationService {
             .catch((error) => {
               this.logger.error(
                 'Failed to send agent-monitor:output to webview',
-                error instanceof Error ? error : new Error(String(error))
+                error instanceof Error ? error : new Error(String(error)),
               );
             });
-        }
+        },
       );
 
       agentProcessManager.events.on(
@@ -270,7 +270,7 @@ export class RpcMethodRegistrationService {
             .catch((error) => {
               this.logger.error(
                 'Failed to send agent-monitor:exited to webview',
-                error instanceof Error ? error : new Error(String(error))
+                error instanceof Error ? error : new Error(String(error)),
               );
             });
 
@@ -280,7 +280,7 @@ export class RpcMethodRegistrationService {
           if (info.parentSessionId) {
             this.persistCliSessionReference(info);
           }
-        }
+        },
       );
 
       this.logger.info('[RPC] Agent monitor listeners registered');
@@ -291,7 +291,7 @@ export class RpcMethodRegistrationService {
       // AgentProcessManager may not be registered yet in some configurations
       this.logger.warn(
         '[RPC] Could not setup agent monitor listeners',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -314,7 +314,7 @@ export class RpcMethodRegistrationService {
       const metadataStore = this.container.resolve<{
         addCliSession(
           sessionId: string,
-          ref: CliSessionReference
+          ref: CliSessionReference,
         ): Promise<void>;
       }>(SDK_TOKENS.SDK_SESSION_METADATA_STORE);
 
@@ -322,16 +322,16 @@ export class RpcMethodRegistrationService {
       // MUST resolve by TOKEN — resolving by class creates a new empty instance
       // because AgentProcessManager is registered under TOKENS.AGENT_PROCESS_MANAGER
       const agentProcessManager = this.container.resolve<AgentProcessManager>(
-        TOKENS.AGENT_PROCESS_MANAGER
+        TOKENS.AGENT_PROCESS_MANAGER,
       );
       const persistedOutput = agentProcessManager.readOutputForPersistence(
-        info.agentId
+        info.agentId,
       );
 
       if (!persistedOutput && info.status !== 'running') {
         this.logger.warn(
           `[RPC] Agent ${info.agentId} output unavailable for persistence (already cleaned up?)`,
-          { cli: info.cli, status: info.status }
+          { cli: info.cli, status: info.status },
         );
       }
 
@@ -371,11 +371,11 @@ export class RpcMethodRegistrationService {
             const msg = error instanceof Error ? error.message : String(error);
             return !msg.includes('Parent session not found');
           },
-        }
+        },
       )
         .then(() => {
           this.logger.info(
-            `[RPC] CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`
+            `[RPC] CLI session reference persisted: ${effectiveCliSessionId} -> parent ${parentSessionId}`,
           );
         })
         .catch((error) => {
@@ -385,12 +385,12 @@ export class RpcMethodRegistrationService {
             // to real SDK UUID. The re-persist in setupSessionIdResolvedCallback
             // will handle this once the real session ID is available.
             this.logger.debug(
-              `[RPC] CLI session persist deferred (parent not yet resolved): ${parentSessionId}`
+              `[RPC] CLI session persist deferred (parent not yet resolved): ${parentSessionId}`,
             );
           } else {
             this.logger.error(
               '[RPC] Failed to persist CLI session reference after retries',
-              error instanceof Error ? error : new Error(msg)
+              error instanceof Error ? error : new Error(msg),
             );
           }
         });
@@ -398,7 +398,7 @@ export class RpcMethodRegistrationService {
       // SessionMetadataStore may not be available in all configurations
       this.logger.warn(
         '[RPC] Could not persist CLI session reference',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -412,7 +412,7 @@ export class RpcMethodRegistrationService {
   private setupCopilotPermissionForwarding(): void {
     try {
       const cliDetection = this.container.resolve<CliDetectionService>(
-        TOKENS.CLI_DETECTION_SERVICE
+        TOKENS.CLI_DETECTION_SERVICE,
       );
       const copilotAdapter = cliDetection.getAdapter('copilot');
 
@@ -427,15 +427,15 @@ export class RpcMethodRegistrationService {
             this.webviewManager
               .broadcastMessage(
                 MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
-                request
+                request,
               )
               .catch((error) => {
                 this.logger.error(
                   '[RPC] Failed to send agent permission request to webview',
-                  error instanceof Error ? error : new Error(String(error))
+                  error instanceof Error ? error : new Error(String(error)),
                 );
               });
-          }
+          },
         );
 
         this.logger.info('[RPC] Copilot SDK permission forwarding registered');
@@ -444,7 +444,7 @@ export class RpcMethodRegistrationService {
       // CliDetectionService may not be available in some configurations
       this.logger.debug(
         '[RPC] Copilot SDK permission forwarding not available',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -457,7 +457,7 @@ export class RpcMethodRegistrationService {
     this.sdkAdapter.setSessionIdResolvedCallback(
       (tabId: string | undefined, realSessionId: string) => {
         this.logger.info(
-          `[RPC] Session ID resolved from SDK: tabId=${tabId} -> real=${realSessionId}`
+          `[RPC] Session ID resolved from SDK: tabId=${tabId} -> real=${realSessionId}`,
         );
 
         // Update any CLI agents spawned with the tab ID as parentSessionId
@@ -466,7 +466,7 @@ export class RpcMethodRegistrationService {
           try {
             const agentProcessManager =
               this.container.resolve<AgentProcessManager>(
-                TOKENS.AGENT_PROCESS_MANAGER
+                TOKENS.AGENT_PROCESS_MANAGER,
               );
             agentProcessManager.resolveParentSessionId(tabId, realSessionId);
 
@@ -476,7 +476,7 @@ export class RpcMethodRegistrationService {
             try {
               const subagentRegistry =
                 this.container.resolve<SubagentRegistryService>(
-                  TOKENS.SUBAGENT_REGISTRY_SERVICE
+                  TOKENS.SUBAGENT_REGISTRY_SERVICE,
                 );
               subagentRegistry.resolveParentSessionId(tabId, realSessionId);
             } catch {
@@ -490,11 +490,11 @@ export class RpcMethodRegistrationService {
               agentProcessManager.getStatus() as AgentProcessInfo[];
             const exitedWithParent = allAgents.filter(
               (a) =>
-                a.parentSessionId === realSessionId && a.status !== 'running'
+                a.parentSessionId === realSessionId && a.status !== 'running',
             );
             if (exitedWithParent.length > 0) {
               this.logger.info(
-                `[RPC] Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`
+                `[RPC] Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`,
               );
             }
             for (const exitedInfo of exitedWithParent) {
@@ -516,10 +516,10 @@ export class RpcMethodRegistrationService {
           .catch((error) => {
             this.logger.error(
               'Failed to send session:id-resolved to webview',
-              error instanceof Error ? error : new Error(String(error))
+              error instanceof Error ? error : new Error(String(error)),
             );
           });
-      }
+      },
     );
   }
 
@@ -550,7 +550,7 @@ export class RpcMethodRegistrationService {
   private setupCompactionStartCallback(): void {
     this.sdkAdapter.setCompactionStartCallback((data) => {
       this.logger.info(
-        `[RPC] Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}`
+        `[RPC] Compaction started: sessionId=${data.sessionId}, trigger=${data.trigger}`,
       );
 
       // Create a CompactionStartEvent to send through the unified streaming path
@@ -574,7 +574,7 @@ export class RpcMethodRegistrationService {
         .catch((error) => {
           this.logger.error(
             'Failed to send compaction event to webview',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
         });
     });
@@ -625,12 +625,12 @@ export class RpcMethodRegistrationService {
               message.includes('timeout')
             );
           },
-        }
+        },
       );
     } catch (error) {
       this.logger.error(
         '[RPC] Failed to send session:stats after all retries',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -647,11 +647,11 @@ export class RpcMethodRegistrationService {
     const watcher = this.agentWatcher as {
       on(
         event: 'summary-chunk',
-        callback: (chunk: AgentSummaryChunk) => void
+        callback: (chunk: AgentSummaryChunk) => void,
       ): void;
       on(
         event: 'agent-start',
-        callback: (event: AgentStartEvent) => void
+        callback: (event: AgentStartEvent) => void,
       ): void;
     };
 
@@ -665,7 +665,7 @@ export class RpcMethodRegistrationService {
           agentId: chunk.agentId, // TASK_2025_099: Stable key for summary lookup
           deltaLength: chunk.summaryDelta.length,
           deltaPreview: chunk.summaryDelta.slice(0, 50),
-        }
+        },
       );
 
       // TASK_2025_099: Forward entire chunk including agentId for stable lookup
@@ -674,13 +674,13 @@ export class RpcMethodRegistrationService {
         .then(() => {
           this.logger.info(
             '[RpcMethodRegistrationService] Summary-chunk sent to webview successfully',
-            { toolUseId: chunk.toolUseId }
+            { toolUseId: chunk.toolUseId },
           );
         })
         .catch((error) => {
           this.logger.error(
             'Failed to send agent summary chunk to webview',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
         });
     });
@@ -695,7 +695,7 @@ export class RpcMethodRegistrationService {
           agentId: agentStartEvent.agentId, // TASK_2025_099: Stable key for summary lookup
           agentType: agentStartEvent.agentType,
           sessionId: agentStartEvent.sessionId,
-        }
+        },
       );
 
       // Send as a CHAT_CHUNK with agent_start event type
@@ -730,7 +730,7 @@ export class RpcMethodRegistrationService {
         .catch((error) => {
           this.logger.error(
             'Failed to send agent-start event to webview',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
         });
     });
@@ -749,14 +749,14 @@ export class RpcMethodRegistrationService {
 
         if (!workspaceFolder) {
           vscode.window.showErrorMessage(
-            'No workspace open. Please open a folder first.'
+            'No workspace open. Please open a folder first.',
           );
           return;
         }
 
         try {
           const setupWizardService = this.container.resolve(
-            AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE
+            AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
           ) as {
             launchWizard: (workspacePath: string) => Promise<{
               isErr?: () => boolean;
@@ -765,23 +765,23 @@ export class RpcMethodRegistrationService {
           };
 
           const result = await setupWizardService.launchWizard(
-            workspaceFolder.uri.fsPath
+            workspaceFolder.uri.fsPath,
           );
 
           if (result.isErr && result.isErr()) {
             vscode.window.showErrorMessage(
-              `Failed to launch setup wizard: ${result.error?.message}`
+              `Failed to launch setup wizard: ${result.error?.message}`,
             );
           }
         } catch (error) {
           this.logger.error(
             'Failed to launch setup wizard',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           vscode.window.showErrorMessage(
             `Failed to launch setup wizard: ${
               error instanceof Error ? error.message : 'Unknown error'
-            }`
+            }`,
           );
         }
       },

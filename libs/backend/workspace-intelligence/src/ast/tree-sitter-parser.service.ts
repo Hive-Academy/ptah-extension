@@ -122,7 +122,7 @@ export class TreeSitterParserService {
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.logger.info(
-      'TreeSitterParserService created. Initialization required.'
+      'TreeSitterParserService created. Initialization required.',
     );
   }
 
@@ -136,7 +136,7 @@ export class TreeSitterParserService {
   initialize(): Result<void, Error> {
     // Synchronous
     this.logger.debug(
-      `Initialize called. Current state: isInitialized=${this.isInitialized}`
+      `Initialize called. Current state: isInitialized=${this.isInitialized}`,
     );
     if (this.isInitialized) {
       this.logger.debug('Already initialized.');
@@ -157,7 +157,7 @@ export class TreeSitterParserService {
       this.isInitialized = false;
       const initError = this._handleAndLogError(
         'TreeSitterParserService grammar require() initialization failed',
-        error
+        error,
       );
       return Result.err(initError);
     }
@@ -166,7 +166,7 @@ export class TreeSitterParserService {
   // --- Language & Grammar Handling ---
 
   private getLanguageFromExtension(
-    filePath: string
+    filePath: string,
   ): SupportedLanguage | undefined {
     const ext = path.extname(filePath).toLowerCase();
     return EXTENSION_LANGUAGE_MAP[ext];
@@ -179,11 +179,11 @@ export class TreeSitterParserService {
    */
   private _getPreloadedGrammar(
     // Synchronous
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<TreeSitterLanguage, Error> {
     if (!this.isInitialized) {
       this.logger.debug(
-        `_getPreloadedGrammar: Service not initialized. Triggering initialize().`
+        `_getPreloadedGrammar: Service not initialized. Triggering initialize().`,
       );
       const initResult = this.initialize(); // Call synchronous initialize
       if (initResult.isErr()) {
@@ -191,8 +191,8 @@ export class TreeSitterParserService {
           new Error(
             `Initialization failed before getting preloaded grammar: ${
               initResult.error?.message ?? 'Unknown error'
-            }`
-          )
+            }`,
+          ),
         );
       }
       if (!this.isInitialized) {
@@ -200,9 +200,9 @@ export class TreeSitterParserService {
           this._handleAndLogError(
             'Initialization race condition or unexpected error',
             new Error(
-              'isInitialized still false after successful initialize() call'
-            )
-          )
+              'isInitialized still false after successful initialize() call',
+            ),
+          ),
         );
       }
       this.logger.debug(`_getPreloadedGrammar: Initialization completed.`);
@@ -213,12 +213,12 @@ export class TreeSitterParserService {
       return Result.err(
         this._handleAndLogError(
           `Grammar for language ${language} not found in pre-loaded cache after successful initialization`,
-          new Error(`Grammar not found: ${language}`)
-        )
+          new Error(`Grammar not found: ${language}`),
+        ),
       );
     }
     this.logger.debug(
-      `Retrieved pre-loaded grammar for language: ${language}.`
+      `Retrieved pre-loaded grammar for language: ${language}.`,
     );
     return Result.ok(grammar);
   }
@@ -231,7 +231,7 @@ export class TreeSitterParserService {
    * @returns A Result containing the cached parser if valid, or an error/null if not found or invalid.
    */
   private _getCachedParser(
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<TreeSitterParser | null, Error> {
     if (!this.parserCache.has(language)) {
       return Result.ok(null);
@@ -247,8 +247,8 @@ export class TreeSitterParserService {
         new Error(
           `Failed to re-verify pre-loaded grammar for cached ${language}: ${
             grammarResult.error?.message ?? 'Unknown error'
-          }`
-        )
+          }`,
+        ),
       );
     }
 
@@ -260,8 +260,8 @@ export class TreeSitterParserService {
       return Result.err(
         this._handleAndLogError(
           `Failed to set language on cached parser for ${language}`,
-          error
-        )
+          error,
+        ),
       );
     }
   }
@@ -272,14 +272,14 @@ export class TreeSitterParserService {
    * @returns A Result containing the newly created parser or an error.
    */
   private _createAndCacheParser(
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<TreeSitterParser, Error> {
     this.logger.info(`Creating new parser for language: ${language}`);
 
     const grammarResult = this._getPreloadedGrammar(language); // Call synchronous method
     if (grammarResult.isErr()) {
       return Result.err(
-        grammarResult.error ?? new Error('Unknown grammar error')
+        grammarResult.error ?? new Error('Unknown grammar error'),
       );
     }
 
@@ -288,15 +288,15 @@ export class TreeSitterParserService {
       parser.setLanguage(grammarResult.value);
       this.parserCache.set(language, parser);
       this.logger.info(
-        `Successfully created and cached parser for language: ${language}`
+        `Successfully created and cached parser for language: ${language}`,
       );
       return Result.ok(parser);
     } catch (error: unknown) {
       return Result.err(
         this._handleAndLogError(
           `Failed to create or set language for new parser for ${language}`,
-          error
-        )
+          error,
+        ),
       );
     }
   }
@@ -308,7 +308,7 @@ export class TreeSitterParserService {
    * @returns A Result containing the parser instance or an error.
    */
   private getOrCreateParser(
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<TreeSitterParser | null, Error> {
     const cachedResult = this._getCachedParser(language); // Call synchronous method
 
@@ -338,7 +338,7 @@ export class TreeSitterParserService {
   private _convertNodeToGenericAst(
     node: TreeSitterSyntaxNode,
     currentDepth = 0,
-    maxDepth: number | null = null // Optional depth limit
+    maxDepth: number | null = null, // Optional depth limit
   ): GenericAstNode {
     if (maxDepth !== null && currentDepth > maxDepth) {
       // Return a minimal node if depth limit is exceeded
@@ -376,7 +376,7 @@ export class TreeSitterParserService {
       isNamed: node.isNamed,
       fieldName: node.fieldName || null, // Corrected property name
       children: children.map((child: TreeSitterSyntaxNode) =>
-        this._convertNodeToGenericAst(child, currentDepth + 1, maxDepth)
+        this._convertNodeToGenericAst(child, currentDepth + 1, maxDepth),
       ),
     };
   }
@@ -385,11 +385,11 @@ export class TreeSitterParserService {
 
   parse(
     content: string,
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<GenericAstNode, Error> {
     // Updated return type
     this.logger.info(
-      `Parsing content for language: ${language} to generate generic AST`
+      `Parsing content for language: ${language} to generate generic AST`,
     ); // Updated log
 
     const initResult = this.initialize();
@@ -400,7 +400,7 @@ export class TreeSitterParserService {
     const parserResult = this.getOrCreateParser(language);
     if (parserResult.isErr()) {
       return Result.err(
-        parserResult.error ?? new Error('Unknown parser error')
+        parserResult.error ?? new Error('Unknown parser error'),
       );
     }
     const parser = parserResult.value;
@@ -415,7 +415,7 @@ export class TreeSitterParserService {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
       }
       this.logger.debug(
-        `Successfully created syntax tree for language: ${language}. Root node type: ${tree.rootNode.type}`
+        `Successfully created syntax tree for language: ${language}. Root node type: ${tree.rootNode.type}`,
       );
 
       // --- NEW: Convert tree to generic AST ---
@@ -423,10 +423,10 @@ export class TreeSitterParserService {
       const genericAstRoot = this._convertNodeToGenericAst(
         tree.rootNode,
         0,
-        null
+        null,
       );
       this.logger.info(
-        `Successfully converted AST to generic JSON format for language: ${language}.`
+        `Successfully converted AST to generic JSON format for language: ${language}.`,
       ); // Updated log
       return Result.ok(genericAstRoot);
       // --- END NEW ---
@@ -434,8 +434,8 @@ export class TreeSitterParserService {
       return Result.err(
         this._handleAndLogError(
           `Error during Tree-sitter parsing or AST conversion for ${language}`,
-          error
-        ) // Updated log context
+          error,
+        ), // Updated log context
       );
     }
   }
@@ -452,7 +452,7 @@ export class TreeSitterParserService {
   query(
     content: string,
     language: SupportedLanguage,
-    queryString: string
+    queryString: string,
   ): Result<QueryMatch[], Error> {
     this.logger.debug(`Running query for language: ${language}`);
 
@@ -464,7 +464,7 @@ export class TreeSitterParserService {
     const parserResult = this.getOrCreateParser(language);
     if (parserResult.isErr()) {
       return Result.err(
-        parserResult.error ?? new Error('Unknown parser error')
+        parserResult.error ?? new Error('Unknown parser error'),
       );
     }
     const parser = parserResult.value;
@@ -472,7 +472,7 @@ export class TreeSitterParserService {
     const grammarResult = this._getPreloadedGrammar(language);
     if (grammarResult.isErr()) {
       return Result.err(
-        grammarResult.error ?? new Error('Unknown grammar error')
+        grammarResult.error ?? new Error('Unknown grammar error'),
       );
     }
     const grammar = grammarResult.value;
@@ -512,13 +512,13 @@ export class TreeSitterParserService {
                   row: capture.node.endPosition.row,
                   column: capture.node.endPosition.column,
                 },
-              })
+              }),
             ),
-          })
+          }),
         );
 
         this.logger.debug(
-          `Query returned ${results.length} matches for language: ${language}`
+          `Query returned ${results.length} matches for language: ${language}`,
         );
         return Result.ok(results);
       }
@@ -526,8 +526,8 @@ export class TreeSitterParserService {
       return Result.err(
         this._handleAndLogError(
           `Error during tree-sitter query for ${language}`,
-          error
-        )
+          error,
+        ),
       );
     }
   }
@@ -540,7 +540,7 @@ export class TreeSitterParserService {
    */
   queryFunctions(
     content: string,
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<QueryMatch[], Error> {
     const queries = LANGUAGE_QUERIES_MAP[language];
     if (!queries.functionQuery) {
@@ -557,7 +557,7 @@ export class TreeSitterParserService {
    */
   queryClasses(
     content: string,
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<QueryMatch[], Error> {
     const queries = LANGUAGE_QUERIES_MAP[language];
     if (!queries.classQuery) {
@@ -574,7 +574,7 @@ export class TreeSitterParserService {
    */
   queryImports(
     content: string,
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<QueryMatch[], Error> {
     const queries = LANGUAGE_QUERIES_MAP[language];
     if (!queries.importQuery) {
@@ -591,7 +591,7 @@ export class TreeSitterParserService {
    */
   queryExports(
     content: string,
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<QueryMatch[], Error> {
     const queries = LANGUAGE_QUERIES_MAP[language];
     if (!queries.exportQuery) {
@@ -614,10 +614,10 @@ export class TreeSitterParserService {
   parseAndCache(
     filePath: string,
     content: string,
-    language: SupportedLanguage
+    language: SupportedLanguage,
   ): Result<GenericAstNode, Error> {
     this.logger.debug(
-      `parseAndCache: Parsing and caching tree for ${filePath} (${language})`
+      `parseAndCache: Parsing and caching tree for ${filePath} (${language})`,
     );
 
     const initResult = this.initialize();
@@ -628,7 +628,7 @@ export class TreeSitterParserService {
     const parserResult = this.getOrCreateParser(language);
     if (parserResult.isErr()) {
       return Result.err(
-        parserResult.error ?? new Error('Unknown parser error')
+        parserResult.error ?? new Error('Unknown parser error'),
       );
     }
     const parser = parserResult.value;
@@ -657,19 +657,19 @@ export class TreeSitterParserService {
       const genericAstRoot = this._convertNodeToGenericAst(
         tree.rootNode,
         0,
-        null
+        null,
       );
 
       this.logger.debug(
-        `parseAndCache: Successfully parsed and cached tree for ${filePath}`
+        `parseAndCache: Successfully parsed and cached tree for ${filePath}`,
       );
       return Result.ok(genericAstRoot);
     } catch (error: unknown) {
       return Result.err(
         this._handleAndLogError(
           `Error during parseAndCache for ${filePath} (${language})`,
-          error
-        )
+          error,
+        ),
       );
     }
   }
@@ -691,13 +691,13 @@ export class TreeSitterParserService {
     filePath: string,
     content: string,
     language: SupportedLanguage,
-    editDelta: EditDelta
+    editDelta: EditDelta,
   ): Result<GenericAstNode, Error> {
     const cachedEntry = this.treeCache.get(filePath);
 
     if (!cachedEntry) {
       this.logger.debug(
-        `parseIncremental: Cache miss for ${filePath}, falling back to full parse`
+        `parseIncremental: Cache miss for ${filePath}, falling back to full parse`,
       );
       return this.parseAndCache(filePath, content, language);
     }
@@ -706,13 +706,13 @@ export class TreeSitterParserService {
     // not compatible for incremental re-parsing. Fall back to a full parse.
     if (cachedEntry.language !== language) {
       this.logger.debug(
-        `parseIncremental: Language mismatch for ${filePath} (cached: ${cachedEntry.language}, requested: ${language}), falling back to full parse`
+        `parseIncremental: Language mismatch for ${filePath} (cached: ${cachedEntry.language}, requested: ${language}), falling back to full parse`,
       );
       return this.parseAndCache(filePath, content, language);
     }
 
     this.logger.debug(
-      `parseIncremental: Cache hit for ${filePath}, performing incremental re-parse`
+      `parseIncremental: Cache hit for ${filePath}, performing incremental re-parse`,
     );
 
     const initResult = this.initialize();
@@ -723,7 +723,7 @@ export class TreeSitterParserService {
     const parserResult = this.getOrCreateParser(language);
     if (parserResult.isErr()) {
       return Result.err(
-        parserResult.error ?? new Error('Unknown parser error')
+        parserResult.error ?? new Error('Unknown parser error'),
       );
     }
     const parser = parserResult.value;
@@ -747,7 +747,7 @@ export class TreeSitterParserService {
       const newTree = parser.parse(content, cachedEntry.tree);
       if (!newTree?.rootNode) {
         throw new Error(
-          'Incremental parsing resulted in an undefined tree or rootNode.'
+          'Incremental parsing resulted in an undefined tree or rootNode.',
         );
       }
 
@@ -762,18 +762,18 @@ export class TreeSitterParserService {
       const genericAstRoot = this._convertNodeToGenericAst(
         newTree.rootNode,
         0,
-        null
+        null,
       );
 
       this.logger.debug(
-        `parseIncremental: Successfully performed incremental re-parse for ${filePath}`
+        `parseIncremental: Successfully performed incremental re-parse for ${filePath}`,
       );
       return Result.ok(genericAstRoot);
     } catch (error: unknown) {
       // On failure, remove the potentially corrupted cache entry and fall back
       this.treeCache.delete(filePath);
       this.logger.warn(
-        `parseIncremental: Incremental parse failed for ${filePath}, falling back to full parse`
+        `parseIncremental: Incremental parse failed for ${filePath}, falling back to full parse`,
       );
       return this.parseAndCache(filePath, content, language);
     }
@@ -800,7 +800,7 @@ export class TreeSitterParserService {
 
     if (oldestKey) {
       this.logger.debug(
-        `evictLRUTreeCache: Evicting cached tree for ${oldestKey}`
+        `evictLRUTreeCache: Evicting cached tree for ${oldestKey}`,
       );
       this.treeCache.delete(oldestKey);
     }

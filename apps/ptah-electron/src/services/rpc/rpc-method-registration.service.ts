@@ -118,7 +118,7 @@ export class ElectronRpcMethodRegistrationService {
     @inject(ElectronSkillsShRpcHandlers)
     private readonly skillsShHandlers: ElectronSkillsShRpcHandlers,
     @inject(ElectronLayoutRpcHandlers)
-    private readonly layoutHandlers: ElectronLayoutRpcHandlers
+    private readonly layoutHandlers: ElectronLayoutRpcHandlers,
   ) {}
 
   /**
@@ -180,7 +180,7 @@ export class ElectronRpcMethodRegistrationService {
           `[Electron RPC] Failed to register ${name} (shared)`,
           {
             error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error
+          } as unknown as Error,
         );
       }
     }
@@ -230,7 +230,7 @@ export class ElectronRpcMethodRegistrationService {
           `[Electron RPC] Failed to register ${name} (Electron)`,
           {
             error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error
+          } as unknown as Error,
         );
       }
     }

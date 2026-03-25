@@ -60,7 +60,7 @@ export class ContextEnrichmentService {
     private readonly fileSystem: FileSystemService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -78,7 +78,7 @@ export class ContextEnrichmentService {
   async generateStructuralSummary(
     filePath: string,
     language: SupportedLanguage | undefined,
-    fullContent?: string
+    fullContent?: string,
   ): Promise<StructuralSummaryResult> {
     // Read file content if not provided
     let content: string;
@@ -91,7 +91,7 @@ export class ContextEnrichmentService {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.error(
-          `ContextEnrichmentService.generateStructuralSummary() - Failed to read file ${filePath}: ${errorMessage}`
+          `ContextEnrichmentService.generateStructuralSummary() - Failed to read file ${filePath}: ${errorMessage}`,
         );
         return this.createFullContentResult('', 0);
       }
@@ -100,10 +100,10 @@ export class ContextEnrichmentService {
     // Handle empty files
     if (!content.trim()) {
       this.logger.debug(
-        `ContextEnrichmentService.generateStructuralSummary() - Empty file: ${filePath}`
+        `ContextEnrichmentService.generateStructuralSummary() - Empty file: ${filePath}`,
       );
       const emptyHeader = `// Structural summary: ${this.toRelativePath(
-        filePath
+        filePath,
       )}\n// Empty file\n`;
       const [headerTokens, originalTokens] = await Promise.all([
         this.tokenCounter.countTokens(emptyHeader),
@@ -121,7 +121,7 @@ export class ContextEnrichmentService {
     // Unsupported language: return full content
     if (!language) {
       this.logger.debug(
-        `ContextEnrichmentService.generateStructuralSummary() - Unsupported language for ${filePath}, using full content`
+        `ContextEnrichmentService.generateStructuralSummary() - Unsupported language for ${filePath}, using full content`,
       );
       return this.createFullContentResult(content);
     }
@@ -130,12 +130,12 @@ export class ContextEnrichmentService {
     const insightsResult = this.astAnalysis.analyzeSource(
       content,
       language,
-      filePath
+      filePath,
     );
 
     if (insightsResult.isErr()) {
       this.logger.warn(
-        `ContextEnrichmentService.generateStructuralSummary() - AST analysis failed for ${filePath}: ${insightsResult.error?.message}. Falling back to full content.`
+        `ContextEnrichmentService.generateStructuralSummary() - AST analysis failed for ${filePath}: ${insightsResult.error?.message}. Falling back to full content.`,
       );
       return this.createFullContentResult(content);
     }
@@ -201,7 +201,7 @@ export class ContextEnrichmentService {
 
     // Standalone functions (not class methods)
     const standaloneFunctions = insights.functions.filter(
-      (fn) => !this.isMemberOfAnyClass(fn, insights.classes)
+      (fn) => !this.isMemberOfAnyClass(fn, insights.classes),
     );
 
     for (const fn of standaloneFunctions) {
@@ -237,7 +237,7 @@ export class ContextEnrichmentService {
    * Build a set of exported symbol names for quick lookup.
    */
   private buildExportedNamesSet(
-    exports: ExportInfo[] | undefined
+    exports: ExportInfo[] | undefined,
   ): Set<string> {
     const names = new Set<string>();
     if (exports) {
@@ -257,7 +257,7 @@ export class ContextEnrichmentService {
     const parts: string[] = [];
 
     const standaloneFunctions = insights.functions.filter(
-      (fn) => !this.isMemberOfAnyClass(fn, insights.classes)
+      (fn) => !this.isMemberOfAnyClass(fn, insights.classes),
     );
 
     if (standaloneFunctions.length > 0) {
@@ -379,7 +379,7 @@ export class ContextEnrichmentService {
    */
   private async createFullContentResult(
     content: string,
-    precomputedTokenCount?: number
+    precomputedTokenCount?: number,
   ): Promise<StructuralSummaryResult> {
     const tokenCount =
       precomputedTokenCount ?? (await this.tokenCounter.countTokens(content));

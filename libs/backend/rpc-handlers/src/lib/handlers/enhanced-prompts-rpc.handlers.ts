@@ -94,7 +94,7 @@ export class EnhancedPromptsRpcHandlers {
     @inject(TOKENS.SAVE_DIALOG_PROVIDER)
     private readonly saveDialogProvider: ISaveDialogProvider,
     @inject('DependencyContainer')
-    private readonly container: DependencyContainer
+    private readonly container: DependencyContainer,
   ) {}
 
   /**
@@ -154,9 +154,8 @@ export class EnhancedPromptsRpcHandlers {
           workspacePath,
         });
 
-        const status = await this.enhancedPromptsService.getStatus(
-          workspacePath
-        );
+        const status =
+          await this.enhancedPromptsService.getStatus(workspacePath);
 
         return {
           enabled: status.enabled,
@@ -169,7 +168,7 @@ export class EnhancedPromptsRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: enhancedPrompts:getStatus failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
 
         return {
@@ -257,15 +256,15 @@ export class EnhancedPromptsRpcHandlers {
               ...(params.analysisData.keyFileLocations?.configs ?? []),
               ...(params.analysisData.keyFileLocations?.apiRoutes ?? []).slice(
                 0,
-                3
+                3,
               ),
               ...(params.analysisData.keyFileLocations?.components ?? []).slice(
                 0,
-                3
+                3,
               ),
               ...(params.analysisData.keyFileLocations?.services ?? []).slice(
                 0,
-                3
+                3,
               ),
             ].slice(0, 15),
             languages: params.analysisData.languageDistribution?.length
@@ -293,7 +292,7 @@ export class EnhancedPromptsRpcHandlers {
                     priority: issue.severity as 'high' | 'medium' | 'low',
                     description: issue.description,
                     recommendation: issue.recommendation,
-                  })
+                  }),
                 ),
                 strengths: params.analysisData.qualityStrengths ?? [],
                 sampledFiles: [],
@@ -319,7 +318,7 @@ export class EnhancedPromptsRpcHandlers {
                           category: r.category,
                           issue: r.issue,
                           solution: r.solution,
-                        })
+                        }),
                       ),
                     totalTokens: 0,
                     wasTruncated: false,
@@ -334,7 +333,7 @@ export class EnhancedPromptsRpcHandlers {
               projectType: preComputedInput.projectType,
               framework: preComputedInput.framework,
               isMonorepo: preComputedInput.isMonorepo,
-            }
+            },
           );
         }
 
@@ -345,7 +344,7 @@ export class EnhancedPromptsRpcHandlers {
         const sdkConfig = this.resolveSdkConfig(
           isPremium,
           onStreamEvent,
-          params.model
+          params.model,
         );
 
         // Run the wizard (pass analysisDir for multi-phase enrichment)
@@ -355,7 +354,7 @@ export class EnhancedPromptsRpcHandlers {
           undefined,
           preComputedInput,
           sdkConfig,
-          params.analysisDir
+          params.analysisDir,
         );
 
         if (result.success && result.state) {
@@ -379,7 +378,7 @@ export class EnhancedPromptsRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: enhancedPrompts:runWizard failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
 
         return {
@@ -434,7 +433,7 @@ export class EnhancedPromptsRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: enhancedPrompts:setEnabled failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
 
         return {
@@ -514,7 +513,7 @@ export class EnhancedPromptsRpcHandlers {
             config: params.config,
           },
           undefined,
-          sdkConfig
+          sdkConfig,
         );
 
         if (result.success && result.status) {
@@ -535,7 +534,7 @@ export class EnhancedPromptsRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: enhancedPrompts:regenerate failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
 
         return {
@@ -577,14 +576,14 @@ export class EnhancedPromptsRpcHandlers {
 
         const content =
           await this.enhancedPromptsService.getFullCombinedPromptContent(
-            workspacePath
+            workspacePath,
           );
 
         return { content };
       } catch (error) {
         this.logger.error(
           'RPC: enhancedPrompts:getPromptContent failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
 
         return {
@@ -627,7 +626,7 @@ export class EnhancedPromptsRpcHandlers {
 
         const content =
           await this.enhancedPromptsService.getFullCombinedPromptContent(
-            workspacePath
+            workspacePath,
           );
 
         if (!content) {
@@ -665,7 +664,7 @@ export class EnhancedPromptsRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: enhancedPrompts:download failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
 
         return {
@@ -687,18 +686,18 @@ export class EnhancedPromptsRpcHandlers {
    * registerRegenerate().
    */
   private createEnhanceStreamBroadcaster(): (
-    event: AnalysisStreamPayload
+    event: AnalysisStreamPayload,
   ) => void {
     let webviewManager: WebviewBroadcaster | null = null;
     try {
       if (this.container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
         webviewManager = this.container.resolve<WebviewBroadcaster>(
-          TOKENS.WEBVIEW_MANAGER
+          TOKENS.WEBVIEW_MANAGER,
         );
       }
     } catch {
       this.logger.debug(
-        'Could not resolve WebviewManager for enhance stream broadcasting'
+        'Could not resolve WebviewManager for enhance stream broadcasting',
       );
     }
 
@@ -731,7 +730,7 @@ export class EnhancedPromptsRpcHandlers {
   private resolveSdkConfig(
     isPremium: boolean,
     onStreamEvent?: (event: AnalysisStreamPayload) => void,
-    model?: string
+    model?: string,
   ): EnhancedPromptsSdkConfig {
     let mcpServerRunning = false;
     let mcpPort: number | undefined;
@@ -739,7 +738,7 @@ export class EnhancedPromptsRpcHandlers {
     try {
       if (this.container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
         const codeExecutionMcp = this.container.resolve<CodeExecutionMCP>(
-          TOKENS.CODE_EXECUTION_MCP
+          TOKENS.CODE_EXECUTION_MCP,
         );
         const actualPort = codeExecutionMcp.getPort();
         mcpServerRunning = actualPort !== null;
@@ -756,7 +755,7 @@ export class EnhancedPromptsRpcHandlers {
         const config = this.pluginLoader.getWorkspacePluginConfig();
         if (config.enabledPluginIds && config.enabledPluginIds.length > 0) {
           const paths = this.pluginLoader.resolvePluginPaths(
-            config.enabledPluginIds
+            config.enabledPluginIds,
           );
           if (paths.length > 0) {
             pluginPaths = paths;
@@ -764,7 +763,7 @@ export class EnhancedPromptsRpcHandlers {
         }
       } catch {
         this.logger.debug(
-          'Failed to resolve plugin paths for enhanced prompts'
+          'Failed to resolve plugin paths for enhanced prompts',
         );
       }
     }
