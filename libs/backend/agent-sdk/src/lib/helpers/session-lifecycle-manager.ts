@@ -125,7 +125,7 @@ export interface ExecuteQueryConfig {
   /**
    * Explicit path to Claude Code CLI executable (cli.js).
    * TASK_2025_194: Passed through to SdkQueryOptionsBuilder to override
-   * the default import.meta.url-based resolution baked at webpack time.
+   * the default import.meta.url-based resolution baked at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
 }

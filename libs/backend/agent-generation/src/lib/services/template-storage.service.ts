@@ -12,14 +12,14 @@ import { readdir, readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import matter from 'gray-matter';
-
-// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
-const __dirname = dirname(fileURLToPath(import.meta.url));
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
 import { AgentTemplate } from '../types/core.types';
 import { TemplateError } from '../errors/template.error';
+
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Service for loading and managing agent templates from storage.

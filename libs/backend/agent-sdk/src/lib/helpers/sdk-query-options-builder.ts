@@ -295,7 +295,7 @@ export interface QueryOptionsInput {
    * Explicit path to Claude Code CLI executable (cli.js).
    * TASK_2025_194: Passed through to SDK SessionOptions to override
    * the default import.meta.url-based resolution which bakes in
-   * the CI runner path at webpack bundle time.
+   * the CI runner path at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
 }

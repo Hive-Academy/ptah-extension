@@ -11,9 +11,6 @@
     "picomatch": "*",
     "tsyringe": "*",
     "@ptah-extension/vscode-core": "*",
-    "tree-sitter": "*",
-    "tree-sitter-javascript": "*",
-    "tree-sitter-typescript": "*",
     "gray-matter": "*"
   }
 }

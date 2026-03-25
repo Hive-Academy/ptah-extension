@@ -13,7 +13,7 @@
         "outputPath": "dist/apps/ptah-electron",
         "main": "apps/ptah-electron/src/main.ts",
         "outputFileName": "main.mjs",
-        "tsConfig": "apps/ptah-electron/tsconfig.app.json",
+        "tsConfig": "apps/ptah-electron/tsconfig.build.json",
         "format": ["esm"],
         "platform": "node",
         "target": "node20",

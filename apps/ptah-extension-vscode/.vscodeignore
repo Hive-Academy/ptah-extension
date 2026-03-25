@@ -70,6 +70,3 @@ Thumbs.db
 **/node_modules/**/scripts/**
 **/node_modules/**/*.d.ts.map
 **/node_modules/**/.package-lock.json
-
-# Exclude Claude Agent SDK cli.js from VSIX (12MB obfuscated file, not needed at runtime)
-**/node_modules/@anthropic-ai/claude-agent-sdk/cli.js

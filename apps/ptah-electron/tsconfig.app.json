@@ -9,40 +9,7 @@
     "experimentalDecorators": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "strict": true,
-    "paths": {
-      "vscode": ["apps/ptah-electron/src/shims/vscode-shim.ts"],
-      "@ptah-extension/vscode-lm-tools": [
-        "apps/ptah-electron/src/shims/vscode-lm-tools-shim.ts"
-      ],
-      "@ptah-extension/agent-generation": [
-        "libs/backend/agent-generation/src/index.ts"
-      ],
-      "@ptah-extension/agent-sdk": ["libs/backend/agent-sdk/src/index.ts"],
-      "@ptah-extension/llm-abstraction": [
-        "libs/backend/llm-abstraction/src/index.ts"
-      ],
-      "@ptah-extension/llm-abstraction/vscode-lm": [
-        "libs/backend/llm-abstraction/src/vscode-lm.ts"
-      ],
-      "@ptah-extension/platform-core": [
-        "libs/backend/platform-core/src/index.ts"
-      ],
-      "@ptah-extension/platform-electron": [
-        "libs/backend/platform-electron/src/index.ts"
-      ],
-      "@ptah-extension/rpc-handlers": [
-        "libs/backend/rpc-handlers/src/index.ts"
-      ],
-      "@ptah-extension/shared": ["libs/shared/src/index.ts"],
-      "@ptah-extension/template-generation": [
-        "libs/backend/template-generation/src/index.ts"
-      ],
-      "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
-      "@ptah-extension/workspace-intelligence": [
-        "libs/backend/workspace-intelligence/src/index.ts"
-      ]
-    }
+    "strict": true
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/preload.ts", "**/*.spec.ts"]

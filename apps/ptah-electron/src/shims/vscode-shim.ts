@@ -17,8 +17,8 @@
  * it will get undefined/no-op behavior. This is intentional -- those code
  * paths should never execute in Electron.
  *
- * Uses named exports so both webpack (resolve.alias) and esbuild (tsconfig paths)
- * can resolve `import * as vscode from 'vscode'` correctly.
+ * Uses named exports so esbuild (tsconfig paths / external alias) can resolve
+ * `import * as vscode from 'vscode'` correctly.
  */
 
 // Named exports matching the vscode API surface used by our codebase

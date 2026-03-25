@@ -9,8 +9,6 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
 import { createRequire } from 'module';
-// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
-const esmRequire = createRequire(import.meta.url);
 import type {
   IFileSystemProvider,
   FileStat,
@@ -18,6 +16,9 @@ import type {
   IFileWatcher,
 } from '@ptah-extension/platform-core';
 import { FileType, createEvent } from '@ptah-extension/platform-core';
+
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
+const esmRequire = createRequire(import.meta.url);
 
 export class ElectronFileSystemProvider implements IFileSystemProvider {
   async readFile(filePath: string): Promise<string> {
