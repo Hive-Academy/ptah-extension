@@ -9,8 +9,12 @@
 
 import { injectable, inject } from 'tsyringe';
 import { readdir, readFile } from 'fs/promises';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import matter from 'gray-matter';
+
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';

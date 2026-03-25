@@ -8,24 +8,19 @@
  * 1. Try bare import (standard Node.js resolution)
  * 2. Fall back to locating the package relative to the CLI binary's install location
  * 3. Throw a descriptive error with install instructions if both fail
- *
- * The `new Function('specifier', 'return import(specifier)')` pattern prevents
- * webpack from transforming the dynamic import into __webpack_require__.
  */
 import { realpathSync, existsSync } from 'fs';
 import { dirname, join, sep } from 'path';
 import { pathToFileURL } from 'url';
 
 /**
- * Webpack-opaque dynamic import function.
- * Using `new Function` prevents webpack from intercepting and transforming
- * the import() call into its own module resolution (__webpack_require__).
- * At runtime, this executes a real Node.js dynamic import().
+ * Dynamic import wrapper. With esbuild ESM output, native import() works directly
+ * and is not transformed by the bundler. This thin wrapper keeps a single call site
+ * for easier debugging and future extensibility.
  */
-// TODO: TASK_2025_221 Batch 5 - Replace with standard import() after webpack removal
-const dynamicImport = new Function('specifier', 'return import(specifier)') as (
-  specifier: string
-) => Promise<unknown>;
+async function dynamicImport(specifier: string): Promise<unknown> {
+  return import(specifier);
+}
 
 /**
  * Resolve and dynamically import an ESM-only SDK package that is NOT bundled

@@ -12,9 +12,9 @@
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "apps/ptah-electron/src/main.ts",
-        "outputFileName": "main.js",
+        "outputFileName": "main.mjs",
         "tsConfig": "apps/ptah-electron/tsconfig.app.json",
-        "format": ["cjs"],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
@@ -23,7 +23,7 @@
         "deleteOutputPath": false,
         "esbuildOptions": {
           "outExtension": {
-            ".js": ".js"
+            ".js": ".mjs"
           }
         },
         "external": [

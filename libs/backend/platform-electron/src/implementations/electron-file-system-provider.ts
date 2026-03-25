@@ -8,6 +8,9 @@
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
+import { createRequire } from 'module';
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
+const esmRequire = createRequire(import.meta.url);
 import type {
   IFileSystemProvider,
   FileStat,
@@ -120,10 +123,8 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
   }
 
   createFileWatcher(pattern: string): IFileWatcher {
-    // Use require for chokidar — synchronous return required by interface
-
-    // TODO: TASK_2025_221 Batch 5 - Replace with createRequire(import.meta.url) for ESM
-    const chokidar = require('chokidar');
+    // Use esmRequire for chokidar — synchronous return required by interface
+    const chokidar = esmRequire('chokidar');
     const watcher = chokidar.watch(pattern, {
       ignoreInitial: true,
       persistent: true,

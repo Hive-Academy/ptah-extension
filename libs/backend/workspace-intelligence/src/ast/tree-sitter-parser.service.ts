@@ -97,11 +97,13 @@ export interface QueryMatch {
   captures: QueryCapture[];
 }
 
-// TODO: TASK_2025_221 Batch 5 - Replace with createRequire(import.meta.url) for ESM
-// Use require based on documentation and user feedback
-const Parser = require('tree-sitter');
-const JavaScript = require('tree-sitter-javascript');
-const TypeScript = require('tree-sitter-typescript').typescript; // Use named import for TypeScript
+import { createRequire } from 'module';
+
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
+const esmRequire = createRequire(import.meta.url);
+const Parser = esmRequire('tree-sitter');
+const JavaScript = esmRequire('tree-sitter-javascript');
+const TypeScript = esmRequire('tree-sitter-typescript').typescript; // Use named import for TypeScript
 
 // --- Service Implementation ---
 

@@ -3,7 +3,11 @@ import 'reflect-metadata';
 
 import { app, BrowserWindow, safeStorage, dialog, ipcMain } from 'electron';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
+
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import { ElectronDIContainer } from './di/container';
 import { ElectronRpcMethodRegistrationService } from './services/rpc/rpc-method-registration.service';
 import { IpcBridge } from './ipc/ipc-bridge';

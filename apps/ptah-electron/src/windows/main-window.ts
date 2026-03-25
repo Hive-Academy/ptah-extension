@@ -1,6 +1,10 @@
 import { BrowserWindow, screen } from 'electron';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Saved window bounds shape for type-safe persistence.

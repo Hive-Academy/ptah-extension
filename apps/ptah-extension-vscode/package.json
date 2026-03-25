@@ -13,7 +13,7 @@
   },
   "homepage": "https://github.com/Hive-Academy/ptah-extension#readme",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.100.0"
   },
   "categories": [
     "Machine Learning",
@@ -47,7 +47,7 @@
     "color": "#1a1a2e",
     "theme": "dark"
   },
-  "main": "./main.js",
+  "main": "./main.mjs",
   "icon": "assets/images/ptah-icon.png",
   "contributes": {
     "authentication": [

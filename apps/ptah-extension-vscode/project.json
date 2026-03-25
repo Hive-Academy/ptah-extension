@@ -17,16 +17,16 @@
       "options": {
         "outputPath": "dist/apps/ptah-extension-vscode",
         "main": "apps/ptah-extension-vscode/src/main.ts",
-        "outputFileName": "main.js",
+        "outputFileName": "main.mjs",
         "tsConfig": "apps/ptah-extension-vscode/tsconfig.app.json",
-        "format": ["cjs"],
+        "format": ["esm"],
         "platform": "node",
         "target": "node20",
         "bundle": true,
         "thirdParty": false,
         "esbuildOptions": {
           "outExtension": {
-            ".js": ".js"
+            ".js": ".mjs"
           }
         },
         "external": [
