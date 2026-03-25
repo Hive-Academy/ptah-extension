@@ -461,7 +461,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       // DIAGNOSTIC: WARN level - this is a problem!
       this.logger.warn('[AgentSessionWatcher] Sessions directory NOT FOUND!', {
         workspacePath,
-        homeDir: require('os').homedir(),
+        homeDir: os.homedir(),
         expectedPattern: workspacePath.replace(/[:\\/]/g, '-'),
       });
       return;

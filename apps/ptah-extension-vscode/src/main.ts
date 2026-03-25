@@ -23,6 +23,7 @@ import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
 import { SettingsCommands } from './commands/settings-commands';
+import { WebviewHtmlGenerator } from './services/webview-html-generator';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -95,7 +96,6 @@ async function handleLicenseBlocking(
 
   // TASK_2025_126: Show webview with welcome view instead of modal
 
-  const { WebviewHtmlGenerator } = require('./services/webview-html-generator');
   const htmlGenerator = new WebviewHtmlGenerator(context);
 
   // Map backend license reason to frontend reason format

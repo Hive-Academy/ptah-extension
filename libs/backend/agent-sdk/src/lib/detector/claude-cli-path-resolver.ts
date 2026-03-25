@@ -6,6 +6,7 @@
  * instead of spawning the .cmd wrapper with shell:true
  */
 
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -238,7 +239,6 @@ export class ClaudeCliPathResolver {
     commandName: string
   ): Promise<string | null> {
     return new Promise((resolve) => {
-      const { spawn } = require('child_process');
       const isWindows = os.platform() === 'win32';
       const command = isWindows ? 'where' : 'which';
 

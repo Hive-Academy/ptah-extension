@@ -97,6 +97,7 @@ export interface QueryMatch {
   captures: QueryCapture[];
 }
 
+// TODO: TASK_2025_221 Batch 5 - Replace with createRequire(import.meta.url) for ESM
 // Use require based on documentation and user feedback
 const Parser = require('tree-sitter');
 const JavaScript = require('tree-sitter-javascript');

@@ -122,6 +122,7 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
   createFileWatcher(pattern: string): IFileWatcher {
     // Use require for chokidar — synchronous return required by interface
 
+    // TODO: TASK_2025_221 Batch 5 - Replace with createRequire(import.meta.url) for ESM
     const chokidar = require('chokidar');
     const watcher = chokidar.watch(pattern, {
       ignoreInitial: true,

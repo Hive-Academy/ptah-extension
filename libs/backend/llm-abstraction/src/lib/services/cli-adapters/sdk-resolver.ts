@@ -22,6 +22,7 @@ import { pathToFileURL } from 'url';
  * the import() call into its own module resolution (__webpack_require__).
  * At runtime, this executes a real Node.js dynamic import().
  */
+// TODO: TASK_2025_221 Batch 5 - Replace with standard import() after webpack removal
 const dynamicImport = new Function('specifier', 'return import(specifier)') as (
   specifier: string
 ) => Promise<unknown>;

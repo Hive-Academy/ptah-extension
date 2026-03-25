@@ -18,6 +18,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import { existsSync } from 'fs';
 import * as path from 'path';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
@@ -1031,27 +1032,20 @@ export class AgentGenerationOrchestratorService {
    * @private
    */
   private detectPackageManager(workspacePath: string): string {
-    const fs = require('fs');
-    const path = require('path');
-
     // Check for lock files
-    if (fs.existsSync(path.join(workspacePath, 'pnpm-lock.yaml')))
-      return 'pnpm';
-    if (fs.existsSync(path.join(workspacePath, 'yarn.lock'))) return 'yarn';
-    if (fs.existsSync(path.join(workspacePath, 'package-lock.json')))
-      return 'npm';
-    if (fs.existsSync(path.join(workspacePath, 'bun.lockb'))) return 'bun';
+    if (existsSync(path.join(workspacePath, 'pnpm-lock.yaml'))) return 'pnpm';
+    if (existsSync(path.join(workspacePath, 'yarn.lock'))) return 'yarn';
+    if (existsSync(path.join(workspacePath, 'package-lock.json'))) return 'npm';
+    if (existsSync(path.join(workspacePath, 'bun.lockb'))) return 'bun';
 
     // Fallbacks based on project type
-    if (fs.existsSync(path.join(workspacePath, 'requirements.txt')))
-      return 'pip';
-    if (fs.existsSync(path.join(workspacePath, 'Cargo.toml'))) return 'cargo';
-    if (fs.existsSync(path.join(workspacePath, 'go.mod'))) return 'go mod';
-    if (fs.existsSync(path.join(workspacePath, 'pom.xml'))) return 'maven';
-    if (fs.existsSync(path.join(workspacePath, 'build.gradle')))
-      return 'gradle';
-    if (fs.existsSync(path.join(workspacePath, 'Gemfile'))) return 'bundler';
-    if (fs.existsSync(path.join(workspacePath, 'composer.json')))
+    if (existsSync(path.join(workspacePath, 'requirements.txt'))) return 'pip';
+    if (existsSync(path.join(workspacePath, 'Cargo.toml'))) return 'cargo';
+    if (existsSync(path.join(workspacePath, 'go.mod'))) return 'go mod';
+    if (existsSync(path.join(workspacePath, 'pom.xml'))) return 'maven';
+    if (existsSync(path.join(workspacePath, 'build.gradle'))) return 'gradle';
+    if (existsSync(path.join(workspacePath, 'Gemfile'))) return 'bundler';
+    if (existsSync(path.join(workspacePath, 'composer.json')))
       return 'composer';
 
     return 'npm'; // Default fallback
