@@ -70,6 +70,7 @@ const AST_NODE_TYPES = {
 export class AstAnalysisService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(TOKENS.TREE_SITTER_PARSER_SERVICE)
     private readonly parserService: TreeSitterParserService
   ) {}
 

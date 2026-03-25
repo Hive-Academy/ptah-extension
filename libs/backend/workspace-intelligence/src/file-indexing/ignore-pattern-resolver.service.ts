@@ -19,8 +19,9 @@
  * @see .claude/specs/TASK_PRV_005/implementation-plan.md - Phase 2 Step 2.5
  */
 
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { FileSystemService } from '../services/file-system.service';
 import { PatternMatcherService } from './pattern-matcher.service';
 
@@ -89,7 +90,9 @@ export interface IgnoreTestResult {
 @injectable()
 export class IgnorePatternResolverService {
   constructor(
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
+    @inject(TOKENS.PATTERN_MATCHER_SERVICE)
     private readonly patternMatcher: PatternMatcherService
   ) {}
 

@@ -15,6 +15,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS, FileType } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -147,10 +148,15 @@ export class WorkspaceService implements IDisposable {
   private currentAnalysis?: WorkspaceAnalysisResult;
 
   constructor(
+    @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
+    @inject(TOKENS.FRAMEWORK_DETECTOR_SERVICE)
     private readonly frameworkDetector: FrameworkDetectorService,
+    @inject(TOKENS.DEPENDENCY_ANALYZER_SERVICE)
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
+    @inject(TOKENS.MONOREPO_DETECTOR_SERVICE)
     private readonly monorepoDetector: MonorepoDetectorService,
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider

@@ -148,6 +148,7 @@ export class WizardGenerationRpcHandlers {
     private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
+    @inject('DependencyContainer')
     private readonly container: DependencyContainer
   ) {}
 

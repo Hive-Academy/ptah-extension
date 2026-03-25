@@ -1,5 +1,6 @@
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { MonorepoType } from '../types/workspace.types';
@@ -29,6 +30,7 @@ export interface MonorepoDetectionResult {
 @injectable()
 export class MonorepoDetectorService {
   constructor(
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider

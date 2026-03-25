@@ -95,26 +95,41 @@ export class RpcMethodRegistrationService {
     @inject(SDK_TOKENS.SDK_AGENT_ADAPTER)
     private readonly sdkAdapter: SdkAgentAdapter,
     // Domain-specific handlers
-    private readonly chatHandlers: ChatRpcHandlers,
+    @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
+    @inject(SessionRpcHandlers)
     private readonly sessionHandlers: SessionRpcHandlers,
+    @inject(ContextRpcHandlers)
     private readonly contextHandlers: ContextRpcHandlers,
+    @inject(AutocompleteRpcHandlers)
     private readonly autocompleteHandlers: AutocompleteRpcHandlers,
-    private readonly fileHandlers: FileRpcHandlers,
+    @inject(FileRpcHandlers) private readonly fileHandlers: FileRpcHandlers,
+    @inject(ConfigRpcHandlers)
     private readonly configHandlers: ConfigRpcHandlers,
-    private readonly authHandlers: AuthRpcHandlers,
-    private readonly setupHandlers: SetupRpcHandlers,
+    @inject(AuthRpcHandlers) private readonly authHandlers: AuthRpcHandlers,
+    @inject(SetupRpcHandlers) private readonly setupHandlers: SetupRpcHandlers,
+    @inject(LicenseRpcHandlers)
     private readonly licenseHandlers: LicenseRpcHandlers,
-    private readonly llmHandlers: LlmRpcHandlers,
+    @inject(LlmRpcHandlers) private readonly llmHandlers: LlmRpcHandlers,
+    @inject(ProviderRpcHandlers)
     private readonly providerHandlers: ProviderRpcHandlers,
+    @inject(SubagentRpcHandlers)
     private readonly subagentHandlers: SubagentRpcHandlers,
+    @inject(CommandRpcHandlers)
     private readonly commandHandlers: CommandRpcHandlers, // TASK_2025_126
+    @inject(EnhancedPromptsRpcHandlers)
     private readonly enhancedPromptsHandlers: EnhancedPromptsRpcHandlers, // TASK_2025_137
+    @inject(QualityRpcHandlers)
     private readonly qualityHandlers: QualityRpcHandlers, // TASK_2025_144
+    @inject(WizardGenerationRpcHandlers)
     private readonly wizardGenerationHandlers: WizardGenerationRpcHandlers, // TASK_2025_148
+    @inject(PluginRpcHandlers)
     private readonly pluginHandlers: PluginRpcHandlers, // TASK_2025_153
-    private readonly agentHandlers: AgentRpcHandlers, // TASK_2025_157
+    @inject(AgentRpcHandlers) private readonly agentHandlers: AgentRpcHandlers, // TASK_2025_157
+    @inject(PtahCliRpcHandlers)
     private readonly ptahCliHandlers: PtahCliRpcHandlers, // TASK_2025_167
+    @inject(SkillsShRpcHandlers)
     private readonly skillsShHandlers: SkillsShRpcHandlers, // TASK_2025_204
+    @inject('DependencyContainer')
     private readonly container: DependencyContainer
   ) {
     // Setup SDK callbacks and listeners

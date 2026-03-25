@@ -93,6 +93,7 @@ export class EnhancedPromptsRpcHandlers {
     private readonly workspaceProvider: IWorkspaceProvider,
     @inject(TOKENS.SAVE_DIALOG_PROVIDER)
     private readonly saveDialogProvider: ISaveDialogProvider,
+    @inject('DependencyContainer')
     private readonly container: DependencyContainer
   ) {}
 

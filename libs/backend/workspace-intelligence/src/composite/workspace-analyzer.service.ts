@@ -83,12 +83,19 @@ export class WorkspaceAnalyzerService implements IDisposable {
   private workspaceInfo?: WorkspaceInfo;
 
   constructor(
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystemService: FileSystemService,
+    @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
+    @inject(TOKENS.FRAMEWORK_DETECTOR_SERVICE)
     private readonly frameworkDetector: FrameworkDetectorService,
+    @inject(TOKENS.DEPENDENCY_ANALYZER_SERVICE)
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
+    @inject(TOKENS.WORKSPACE_SERVICE)
     private readonly workspaceService: WorkspaceService,
+    @inject(TOKENS.CONTEXT_SERVICE)
     private readonly contextService: ContextService,
+    @inject(TOKENS.WORKSPACE_INDEXER_SERVICE)
     private readonly indexer: WorkspaceIndexerService,
     @inject(TOKENS.TREE_SITTER_PARSER_SERVICE)
     private readonly treeSitterParser: TreeSitterParserService,

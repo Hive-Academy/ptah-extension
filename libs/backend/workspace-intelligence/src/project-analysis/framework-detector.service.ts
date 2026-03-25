@@ -1,5 +1,6 @@
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { Framework, ProjectType } from '../types/workspace.types';
 import { FileSystemService } from '../services/file-system.service';
 
@@ -17,7 +18,10 @@ import { FileSystemService } from '../services/file-system.service';
  */
 @injectable()
 export class FrameworkDetectorService {
-  constructor(private readonly fileSystem: FileSystemService) {}
+  constructor(
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
+    private readonly fileSystem: FileSystemService
+  ) {}
 
   /**
    * Detect framework(s) in a workspace folder.

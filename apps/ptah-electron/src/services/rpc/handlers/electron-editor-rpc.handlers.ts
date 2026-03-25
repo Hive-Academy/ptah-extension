@@ -37,6 +37,7 @@ export class ElectronEditorRpcHandlers {
     private readonly fs: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
+    @inject('DependencyContainer')
     private readonly container: DependencyContainer
   ) {}
 

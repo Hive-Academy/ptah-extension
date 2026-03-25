@@ -52,8 +52,11 @@ export interface StructuralSummaryResult {
 @injectable()
 export class ContextEnrichmentService {
   constructor(
+    @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
+    @inject(TOKENS.TOKEN_COUNTER_SERVICE)
     private readonly tokenCounter: TokenCounterService,
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)

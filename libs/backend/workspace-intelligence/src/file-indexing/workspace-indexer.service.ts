@@ -7,6 +7,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
@@ -66,10 +67,15 @@ export class WorkspaceIndexerService {
   private readonly defaultMaxFileSize = 1024 * 1024; // 1MB
 
   constructor(
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystemService: FileSystemService,
+    @inject(TOKENS.PATTERN_MATCHER_SERVICE)
     private readonly patternMatcher: PatternMatcherService,
+    @inject(TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE)
     private readonly ignoreResolver: IgnorePatternResolverService,
+    @inject(TOKENS.FILE_TYPE_CLASSIFIER_SERVICE)
     private readonly fileClassifier: FileTypeClassifierService,
+    @inject(TOKENS.TOKEN_COUNTER_SERVICE)
     private readonly tokenCounter: TokenCounterService,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fsProvider: IFileSystemProvider,

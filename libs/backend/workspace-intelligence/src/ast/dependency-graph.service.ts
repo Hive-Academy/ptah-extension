@@ -84,7 +84,9 @@ export class DependencyGraphService {
   private symbolIndex: SymbolIndex | null = null;
 
   constructor(
+    @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(TOKENS.LOGGER) private readonly logger: Logger
   ) {}

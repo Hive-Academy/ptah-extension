@@ -217,6 +217,7 @@ function formatFileResult(result: FileSearchResult) {
 @injectable()
 export class ContextOrchestrationService {
   constructor(
+    @inject(TOKENS.CONTEXT_SERVICE)
     private readonly contextService: ContextService,
     @inject(TOKENS.DEPENDENCY_GRAPH_SERVICE)
     private readonly dependencyGraph: DependencyGraphService,

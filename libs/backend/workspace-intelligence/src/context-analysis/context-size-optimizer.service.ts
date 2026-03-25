@@ -159,7 +159,9 @@ export class ContextSizeOptimizerService {
   private dependencyGraph: DependencyGraphInterface | null = null;
 
   constructor(
+    @inject(TOKENS.FILE_RELEVANCE_SCORER)
     private readonly relevanceScorer: FileRelevanceScorerService,
+    @inject(TOKENS.TOKEN_COUNTER_SERVICE)
     private readonly tokenCounter: TokenCounterService,
     @inject(TOKENS.CONTEXT_ENRICHMENT_SERVICE)
     private readonly enrichmentService: ContextEnrichmentService,
