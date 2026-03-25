@@ -61,7 +61,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
               </p>
             </div>
             <a
-              href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
+              href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
               target="_blank"
               rel="noopener noreferrer"
               class="cta-glow-button block relative overflow-hidden w-full px-6 py-3 rounded-xl text-white font-semibold text-sm text-center"

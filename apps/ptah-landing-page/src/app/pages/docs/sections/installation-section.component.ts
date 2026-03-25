@@ -47,7 +47,7 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
               >Ctrl+Shift+X</kbd
             >), or install directly from the
             <a
-              href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
+              href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
               target="_blank"
               rel="noopener noreferrer"
               class="text-secondary hover:text-secondary/80 underline underline-offset-2"
