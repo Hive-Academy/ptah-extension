@@ -1,7 +1,7 @@
 {
   "name": "ptah-extension-vscode",
   "displayName": "Ptah - Coding Orchestra",
-  "description": "The AI coding orchestra for VS Code. Intelligent workspace analysis, Code Execution MCP server, and project-adaptive AI agents — powered by Claude Agent SDK.",
+  "description": "The AI coding orchestra for VS Code. Provider-agnostic AI orchestration with intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows.",
   "version": "0.1.2",
   "publisher": "ptah-extensions",
   "repository": {
@@ -21,18 +21,18 @@
     "Other"
   ],
   "keywords": [
-    "claude",
     "ai",
     "chat",
     "code-review",
     "assistant",
-    "anthropic",
-    "cli-gui",
-    "claude-code",
     "llm",
     "agent",
     "ai-coding",
-    "developer-tools"
+    "developer-tools",
+    "coding-assistant",
+    "workspace-analysis",
+    "mcp-server",
+    "multi-agent"
   ],
   "activationEvents": [
     "onView:ptah.main",
@@ -195,11 +195,11 @@
             "openrouter"
           ],
           "default": "auto",
-          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key. Note: Claude OAuth tokens are restricted by Anthropic to Claude Code/Claude.ai only and will not work in third-party tools (Feb 2026 policy)."
+          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key."
         },
         "ptah.model.selected": {
           "type": "string",
-          "description": "Claude model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
+          "description": "AI model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
         },
         "ptah.autopilot.enabled": {
           "type": "boolean",
@@ -346,7 +346,7 @@
             "openai-codex"
           ],
           "default": "openrouter",
-          "description": "Selected Anthropic-compatible provider for API key authentication."
+          "description": "Selected AI provider for API key authentication."
         },
         "ptah.enhancedPrompts.enabled": {
           "type": "boolean",
@@ -357,7 +357,7 @@
         "ptah.compaction.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable automatic context compaction for long sessions. When enabled, Claude will summarize conversation history to stay within context limits."
+          "description": "Enable automatic context compaction for long sessions. When enabled, the AI will summarize conversation history to stay within context limits."
         },
         "ptah.compaction.threshold": {
           "type": "number",
@@ -389,7 +389,7 @@
             "max"
           ],
           "default": "",
-          "description": "Default reasoning effort level for the main Claude Agent SDK chat. Leave empty for SDK default."
+          "description": "Default reasoning effort level for the main AI agent chat. Leave empty for SDK default."
         },
         "ptah.mcpPort": {
           "type": "number",
@@ -505,7 +505,7 @@
         "ptah.ptahCliAgents": {
           "type": "array",
           "default": [],
-          "description": "Ptah CLI agent configurations for Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.).",
+          "description": "Ptah CLI agent configurations for AI providers (OpenRouter, Moonshot, Z.AI, etc.).",
           "scope": "resource",
           "items": {
             "type": "object",
@@ -520,7 +520,7 @@
               },
               "providerId": {
                 "type": "string",
-                "description": "Anthropic-compatible provider ID."
+                "description": "AI provider ID."
               },
               "enabled": {
                 "type": "boolean",
