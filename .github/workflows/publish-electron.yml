@@ -94,6 +94,8 @@ jobs:
         run: exit 1
 
       - name: Commit version bump
+        env:
+          HUSKY: '0'
         run: |
           git add apps/ptah-electron/package.json
           git commit --no-verify -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
@@ -134,7 +136,7 @@ jobs:
         run: npx nx copy-renderer ptah-electron
 
       - name: Package for platform
-        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron ${{ matrix.build-args }}
+        run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never ${{ matrix.build-args }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -169,7 +171,7 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f | head -50
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (private repo)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
@@ -183,3 +185,64 @@ jobs:
             artifacts/**/*.AppImage
             artifacts/**/*.deb
             artifacts/**/latest*.yml
+
+      - name: Publish release to public repo (ptah-app)
+        env:
+          GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
+        run: |
+          TAG="${{ needs.prepare.outputs.tag }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+
+          # Create the tag in the public repo via API
+          # Get the default branch SHA
+          DEFAULT_SHA=$(gh api repos/Hive-Academy/ptah-app/git/ref/heads/main --jq '.object.sha')
+
+          # Create tag object
+          TAG_SHA=$(gh api repos/Hive-Academy/ptah-app/git/tags \
+            -f tag="$TAG" \
+            -f message="Ptah Desktop v$VERSION" \
+            -f object="$DEFAULT_SHA" \
+            -f type="commit" \
+            --jq '.sha')
+
+          # Create tag reference
+          gh api repos/Hive-Academy/ptah-app/git/refs \
+            -f ref="refs/tags/$TAG" \
+            -f sha="$TAG_SHA" || true
+
+          # Collect installer files (exclude elevate.exe and unpacked Ptah.exe)
+          ASSET_FILES=$(find artifacts -type f \( \
+            -name "*.Setup.*.exe" -o \
+            -name "*.dmg" -o \
+            -name "*.zip" -o \
+            -name "*.AppImage" -o \
+            -name "*.deb" -o \
+            -name "latest*.yml" \
+          \) | tr '\n' ' ')
+
+          # Create release notes file
+          cat > /tmp/release-notes.md << NOTES_EOF
+          ## Ptah Desktop v$VERSION
+
+          Download the standalone desktop app for your platform:
+
+          | Platform | File |
+          | -------- | ---- |
+          | **Windows** | Ptah.Setup.$VERSION.exe |
+          | **macOS** | Ptah-$VERSION-arm64.dmg |
+          | **Linux** | Ptah-$VERSION.AppImage |
+          | **Linux (deb)** | ptah-desktop_${VERSION}_amd64.deb |
+
+          > Builds are currently unsigned. You may see platform warnings on first launch.
+
+          Learn more at [ptah.live](https://ptah.live)
+          NOTES_EOF
+
+          # Strip leading whitespace from each line
+          sed -i 's/^          //' /tmp/release-notes.md
+
+          gh release create "$TAG" \
+            --repo Hive-Academy/ptah-app \
+            --title "Ptah Desktop v$VERSION" \
+            --notes-file /tmp/release-notes.md \
+            $ASSET_FILES
