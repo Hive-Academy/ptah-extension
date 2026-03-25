@@ -97,13 +97,14 @@ export interface QueryMatch {
   captures: QueryCapture[];
 }
 
-import { createRequire } from 'module';
+// tree-sitter uses native .node bindings that require CommonJS require().
+// In the app's ESM bundle, esbuild preserves require() for externalized native modules.
 
-// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
-const esmRequire = createRequire(import.meta.url);
-const Parser = esmRequire('tree-sitter');
-const JavaScript = esmRequire('tree-sitter-javascript');
-const TypeScript = esmRequire('tree-sitter-typescript').typescript; // Use named import for TypeScript
+const Parser = require('tree-sitter');
+
+const JavaScript = require('tree-sitter-javascript');
+
+const TypeScript = require('tree-sitter-typescript').typescript;
 
 // --- Service Implementation ---
 

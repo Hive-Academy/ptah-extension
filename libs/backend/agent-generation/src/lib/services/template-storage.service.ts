@@ -9,17 +9,13 @@
 
 import { injectable, inject } from 'tsyringe';
 import { readdir, readFile } from 'fs/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import matter from 'gray-matter';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
 import { ITemplateStorageService } from '../interfaces/template-storage.interface';
 import { AgentTemplate } from '../types/core.types';
 import { TemplateError } from '../errors/template.error';
-
-// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Service for loading and managing agent templates from storage.
@@ -69,10 +65,10 @@ export class TemplateStorageService implements ITemplateStorageService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     templatesPath?: string
   ) {
-    // Default to extension/templates/agents/ if not specified
-    // In production, this will be injected by the extension's DI container
+    // In production, templatesPath is always injected by the DI container
+    // (resolved from extensionPath). The fallback is only for standalone testing.
     this.templatesPath =
-      templatesPath || join(__dirname, '..', '..', 'templates', 'agents');
+      templatesPath || join(process.cwd(), 'templates', 'agents');
 
     this.logger.debug('TemplateStorageService initialized', {
       templatesPath: this.templatesPath,

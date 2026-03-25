@@ -8,7 +8,6 @@
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
-import { createRequire } from 'module';
 import type {
   IFileSystemProvider,
   FileStat,
@@ -16,9 +15,6 @@ import type {
   IFileWatcher,
 } from '@ptah-extension/platform-core';
 import { FileType, createEvent } from '@ptah-extension/platform-core';
-
-// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because lib tsconfig targets CJS
-const esmRequire = createRequire(import.meta.url);
 
 export class ElectronFileSystemProvider implements IFileSystemProvider {
   async readFile(filePath: string): Promise<string> {
@@ -124,8 +120,7 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
   }
 
   createFileWatcher(pattern: string): IFileWatcher {
-    // Use esmRequire for chokidar — synchronous return required by interface
-    const chokidar = esmRequire('chokidar');
+    const chokidar = require('chokidar');
     const watcher = chokidar.watch(pattern, {
       ignoreInitial: true,
       persistent: true,
