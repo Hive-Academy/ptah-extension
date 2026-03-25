@@ -5,7 +5,7 @@ import {
   inject,
   OnInit,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { HttpClient } from '@angular/common/http';
 import { LucideAngularModule, GraduationCap } from 'lucide-angular';
 import { SESSION_TOPICS, SessionTopic } from '../../../config/sessions.config';
@@ -18,7 +18,6 @@ import { PADDLE_CONFIG } from '../../../config/paddle.config';
   selector: 'ptah-sessions-grid',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    CommonModule,
     LucideAngularModule,
     SessionCardComponent,
     SessionRegistrationModalComponent,
@@ -63,11 +62,11 @@ import { PADDLE_CONFIG } from '../../../config/paddle.config';
         <!-- Topic sections -->
         <div class="divide-y divide-secondary/10">
           @for (topic of topics; track topic.id) {
-          <ptah-session-card
-            [topic]="topic"
-            [isFreeEligible]="hasFreeSession()"
-            (register)="onRegister($event)"
-          />
+            <ptah-session-card
+              [topic]="topic"
+              [isFreeEligible]="hasFreeSession()"
+              (register)="onRegister($event)"
+            />
           }
         </div>
 
@@ -83,21 +82,22 @@ import { PADDLE_CONFIG } from '../../../config/paddle.config';
       </div>
 
       @if (successMessage()) {
-      <div class="mt-6">
-        <div
-          class="bg-success/10 border border-success/30 rounded-xl p-6 text-center"
-        >
-          <p class="text-success font-medium">{{ successMessage() }}</p>
+        <div class="mt-6">
+          <div
+            class="bg-success/10 border border-success/30 rounded-xl p-6 text-center"
+          >
+            <p class="text-success font-medium">{{ successMessage() }}</p>
+          </div>
         </div>
-      </div>
-      } @if (errorMessage()) {
-      <div class="mt-6">
-        <div
-          class="bg-error/10 border border-error/30 rounded-xl p-6 text-center"
-        >
-          <p class="text-error">{{ errorMessage() }}</p>
+      }
+      @if (errorMessage()) {
+        <div class="mt-6">
+          <div
+            class="bg-error/10 border border-error/30 rounded-xl p-6 text-center"
+          >
+            <p class="text-error">{{ errorMessage() }}</p>
+          </div>
         </div>
-      </div>
       }
     </div>
 
@@ -185,7 +185,8 @@ export class SessionsGridComponent implements OnInit {
         error: (err) => {
           this.isSubmitting.set(false);
           this.errorMessage.set(
-            err?.error?.message || 'Failed to submit request. Please try again.'
+            err?.error?.message ||
+              'Failed to submit request. Please try again.',
           );
         },
       });
@@ -193,12 +194,12 @@ export class SessionsGridComponent implements OnInit {
 
   private async startPaidCheckout(
     topic: SessionTopic,
-    notes: string
+    notes: string,
   ): Promise<void> {
     const sessionPriceId = this.paddleConfig.sessionPriceId;
     if (!sessionPriceId) {
       this.errorMessage.set(
-        'Session payments are not configured yet. Please contact us.'
+        'Session payments are not configured yet. Please contact us.',
       );
       this.selectedTopic.set(null);
       return;
@@ -219,7 +220,7 @@ export class SessionsGridComponent implements OnInit {
     } catch {
       this.isSubmitting.set(false);
       this.errorMessage.set(
-        'Payment system unavailable. Please try again later.'
+        'Payment system unavailable. Please try again later.',
       );
     }
   }
@@ -227,7 +228,7 @@ export class SessionsGridComponent implements OnInit {
   private submitPaidRequest(
     topic: SessionTopic,
     notes: string,
-    transactionId?: string
+    transactionId?: string,
   ): void {
     this.isSubmitting.set(true);
 
@@ -245,7 +246,8 @@ export class SessionsGridComponent implements OnInit {
         error: (err) => {
           this.isSubmitting.set(false);
           this.errorMessage.set(
-            err?.error?.message || 'Failed to submit request. Please try again.'
+            err?.error?.message ||
+              'Failed to submit request. Please try again.',
           );
         },
       });

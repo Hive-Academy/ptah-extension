@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -19,7 +19,6 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
 @Component({
   selector: 'ptah-docs-providers-api',
   imports: [
-    CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsSectionShellComponent,
@@ -107,20 +106,22 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
           </h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
             @for (model of moonshotModels; track model.name) {
-            <div
-              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="ArrowRightIcon"
-                class="w-3 h-3 text-secondary/60 shrink-0"
-                aria-hidden="true"
-              />
-              <span class="text-sm text-base-content/70">{{ model.name }}</span>
-              <span
-                class="text-xs text-neutral-content/40 ml-auto whitespace-nowrap"
-                >{{ model.note }}</span
+              <div
+                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
               >
-            </div>
+                <lucide-angular
+                  [img]="ArrowRightIcon"
+                  class="w-3 h-3 text-secondary/60 shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="text-sm text-base-content/70">{{
+                  model.name
+                }}</span>
+                <span
+                  class="text-xs text-neutral-content/40 ml-auto whitespace-nowrap"
+                  >{{ model.note }}</span
+                >
+              </div>
             }
           </div>
         </ptah-docs-collapsible-card>
@@ -143,20 +144,22 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
           </h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
             @for (model of glmModels; track model.name) {
-            <div
-              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="ArrowRightIcon"
-                class="w-3 h-3 text-secondary/60 shrink-0"
-                aria-hidden="true"
-              />
-              <span class="text-sm text-base-content/70">{{ model.name }}</span>
-              <span
-                class="text-xs text-neutral-content/40 ml-auto whitespace-nowrap"
-                >{{ model.note }}</span
+              <div
+                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
               >
-            </div>
+                <lucide-angular
+                  [img]="ArrowRightIcon"
+                  class="w-3 h-3 text-secondary/60 shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="text-sm text-base-content/70">{{
+                  model.name
+                }}</span>
+                <span
+                  class="text-xs text-neutral-content/40 ml-auto whitespace-nowrap"
+                  >{{ model.note }}</span
+                >
+              </div>
             }
           </div>
         </ptah-docs-collapsible-card>
@@ -173,21 +176,21 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
           </p>
           <div class="space-y-2">
             @for (tier of modelTiers; track tier.name) {
-            <div
-              class="flex items-center gap-3 px-3 py-2 rounded-lg bg-base-300/30 border border-secondary/10"
-            >
-              <span class="text-sm font-medium text-secondary/80 w-16">{{
-                tier.name
-              }}</span>
-              <lucide-angular
-                [img]="ArrowRightIcon"
-                class="w-3 h-3 text-neutral-content/20"
-                aria-hidden="true"
-              />
-              <span class="text-sm text-neutral-content">{{
-                tier.description
-              }}</span>
-            </div>
+              <div
+                class="flex items-center gap-3 px-3 py-2 rounded-lg bg-base-300/30 border border-secondary/10"
+              >
+                <span class="text-sm font-medium text-secondary/80 w-16">{{
+                  tier.name
+                }}</span>
+                <lucide-angular
+                  [img]="ArrowRightIcon"
+                  class="w-3 h-3 text-neutral-content/20"
+                  aria-hidden="true"
+                />
+                <span class="text-sm text-neutral-content">{{
+                  tier.description
+                }}</span>
+              </div>
             }
           </div>
           <p class="text-xs text-neutral-content/40 mt-3">

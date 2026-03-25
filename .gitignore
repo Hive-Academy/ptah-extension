@@ -81,3 +81,6 @@ generated-prisma-client
 # ============================================
 client_secret_*.json
 ptah-settings-export.json
+
+.claude/worktrees
+.claude/settings.local.json
