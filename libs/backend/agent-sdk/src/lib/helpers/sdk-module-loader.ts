@@ -2,8 +2,8 @@
  * SDK Module Loader - Handles dynamic import and caching of Claude Agent SDK
  *
  * Extracted from SdkAgentAdapter to separate SDK loading concerns.
- * The SDK is dynamically imported to handle ESM/CommonJS interop and
- * cached to avoid repeated import overhead (~100-200ms per import).
+ * The SDK is dynamically imported as an ESM module (externalized, resolved
+ * from node_modules) and cached to avoid repeated import overhead (~100-200ms per import).
  *
  * Single Responsibility: Load and cache the SDK query function
  *
@@ -51,8 +51,7 @@ export class SdkModuleLoader {
       '[SdkModuleLoader] Importing Claude Agent SDK (first use)...'
     );
 
-    // Dynamic import the ESM SDK module
-    // Note: SDK is bundled (not externalized) for proper ESM/CommonJS interop
+    // Dynamic import the ESM SDK module (externalized, resolved from node_modules)
     const sdkModule = await import('@anthropic-ai/claude-agent-sdk');
     const query = sdkModule.query as QueryFunction;
 
