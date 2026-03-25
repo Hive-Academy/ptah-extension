@@ -1,5 +1,12 @@
 {
   "name": "ptah-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "description": "Ptah - AI Coding Orchestra. Standalone desktop app.",
+  "main": "main.js",
+  "author": {
+    "name": "Hive Academy",
+    "email": "support@ptah.live"
+  },
+  "homepage": "https://github.com/Hive-Academy/ptah-app",
   "private": true
 }

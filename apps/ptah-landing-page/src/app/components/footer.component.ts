@@ -67,7 +67,7 @@ import {
             Documentation
           </a>
           <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
+            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
             target="_blank"
             rel="noopener noreferrer"
             class="text-base-content/70 hover:text-secondary transition-colors"

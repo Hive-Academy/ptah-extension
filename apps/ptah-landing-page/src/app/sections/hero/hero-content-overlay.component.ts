@@ -72,7 +72,7 @@ import {
             14 DAYS TRIAL
           </span>
           <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah.ptah"
+            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
             target="_blank"
             rel="noopener"
             class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
@@ -89,7 +89,7 @@ import {
             14 DAYS TRIAL
           </span>
           <a
-            href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
+            href="https://github.com/Hive-Academy/ptah-app/releases/latest"
             target="_blank"
             rel="noopener"
             class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"

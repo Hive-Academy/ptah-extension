@@ -1,4 +1,5 @@
 const path = require('path');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 /**
  * VS Code Extension Webpack Configuration
@@ -8,199 +9,228 @@ const path = require('path');
  * - externals: { vscode: 'commonjs vscode' } - Don't bundle VS Code API
  * - libraryTarget: 'commonjs2' - Required for VS Code extension loading
  * - No bundling for node_modules to avoid conflicts
+ *
+ * Exported as a function to receive Nx executor options (including assets).
  */
+module.exports = (config, ctx) => {
+  const options = ctx?.options ?? {};
+  /** @type {import('webpack').Configuration} */
+  const webpackConfig = {
+    target: 'node', // VS Code extensions run in Node.js environment
+    mode: 'development', // Will be overridden by Nx configurations
 
-/** @type {import('webpack').Configuration} */
-module.exports = {
-  target: 'node', // VS Code extensions run in Node.js environment
-  mode: 'development', // Will be overridden by Nx configurations
+    // Entry point with reflect-metadata loaded FIRST
+    entry: [
+      'reflect-metadata', // Load reflect-metadata polyfill before anything else
+      path.resolve(__dirname, './src/main.ts'),
+    ],
 
-  // Entry point with reflect-metadata loaded FIRST
-  entry: [
-    'reflect-metadata', // Load reflect-metadata polyfill before anything else
-    path.resolve(__dirname, './src/main.ts'),
-  ],
-
-  output: {
-    path: path.resolve(__dirname, '../../dist/apps/ptah-extension-vscode'),
-    filename: 'main.js',
-    libraryTarget: 'commonjs2', // Required for VS Code extension modules
-    clean: false, // Don't clean - we need to preserve webview and package.json
-  },
-
-  externals: [
-    {
-      vscode: 'commonjs vscode', // Don't bundle VS Code API, it's provided by the host
+    output: {
+      path: path.resolve(__dirname, '../../dist/apps/ptah-extension-vscode'),
+      filename: 'main.js',
+      libraryTarget: 'commonjs2', // Required for VS Code extension modules
+      clean: false, // Don't clean - we need to preserve webview and package.json
     },
-    // Custom externals function for LLM provider tree-shaking
-    function ({ request }, callback) {
-      // === BUNDLE THESE (critical for extension to work) ===
 
-      // Bundle reflect-metadata and tsyringe (required for DI)
-      if (request === 'reflect-metadata' || request === 'tsyringe') {
-        return callback(); // null means "bundle this"
-      }
-
-      // Bundle all @ptah-extension/* packages (our internal libraries)
-      // This includes dynamic imports like @ptah-extension/llm-abstraction/anthropic
-      if (request.startsWith('@ptah-extension/')) {
-        return callback(); // Bundle it
-      }
-
-      // Bundle @anthropic-ai/claude-agent-sdk - it's ESM-only and must be bundled
-      // for proper ESM/CommonJS interop in the VS Code extension host
-      if (request.startsWith('@anthropic-ai/claude-agent-sdk')) {
-        return callback(); // Bundle it
-      }
-
-      // @github/copilot-sdk and @openai/codex-sdk are NOT bundled.
-      // They are resolved at runtime from the user's system via sdk-resolver.ts.
-      // See TASK_2025_197 for details.
-
-      // @google/genai - REMOVED (SDK-only migration: Google GenAI provider removed)
-      // @google/gemini-cli-core - REMOVED (SDK-only migration: CLI auth removed)
-
-      // === EXTERNALIZE THESE (loaded at runtime from node_modules) ===
-
-      // Externalize other scoped packages (@anthropic-ai/*, etc.)
-      // These are loaded dynamically by agent-sdk
-      if (request.startsWith('@')) {
-        return callback(null, 'commonjs ' + request);
-      }
-
-      // Externalize other node_modules (lowercase packages like zod, uuid, etc.)
-      if (/^[a-z\-0-9]+/.test(request)) {
-        return callback(null, 'commonjs ' + request);
-      }
-
-      // Bundle everything else (relative imports, project files)
-      callback();
-    },
-  ],
-
-  resolve: {
-    extensions: ['.ts', '.js', '.json'],
-    alias: {
-      '@ptah-extension/platform-core': path.resolve(
-        __dirname,
-        '../../libs/backend/platform-core/src'
-      ),
-      '@ptah-extension/platform-vscode': path.resolve(
-        __dirname,
-        '../../libs/backend/platform-vscode/src'
-      ),
-      '@ptah-extension/shared': path.resolve(
-        __dirname,
-        '../../libs/shared/src'
-      ),
-      '@ptah-extension/vscode-core': path.resolve(
-        __dirname,
-        '../../libs/backend/vscode-core/src'
-      ),
-      '@ptah-extension/workspace-intelligence': path.resolve(
-        __dirname,
-        '../../libs/backend/workspace-intelligence/src'
-      ),
-      '@ptah-extension/vscode-lm-tools': path.resolve(
-        __dirname,
-        '../../libs/backend/vscode-lm-tools/src'
-      ),
-      '@ptah-extension/agent-sdk': path.resolve(
-        __dirname,
-        '../../libs/backend/agent-sdk/src'
-      ),
-      '@ptah-extension/agent-generation': path.resolve(
-        __dirname,
-        '../../libs/backend/agent-generation/src'
-      ),
-      '@ptah-extension/template-generation': path.resolve(
-        __dirname,
-        '../../libs/backend/template-generation/src'
-      ),
-      '@ptah-extension/rpc-handlers': path.resolve(
-        __dirname,
-        '../../libs/backend/rpc-handlers/src'
-      ),
-      // Main llm-abstraction entry point
-      '@ptah-extension/llm-abstraction': path.resolve(
-        __dirname,
-        '../../libs/backend/llm-abstraction/src'
-      ),
-      // Secondary entry points for tree-shaking (dynamic imports)
-      '@ptah-extension/llm-abstraction/vscode-lm': path.resolve(
-        __dirname,
-        '../../libs/backend/llm-abstraction/src/vscode-lm.ts'
-      ),
-      '@ptah-extension/llm-abstraction/anthropic': path.resolve(
-        __dirname,
-        '../../libs/backend/llm-abstraction/src/anthropic.ts'
-      ),
-      // '@ptah-extension/llm-abstraction/openai' - REMOVED (SDK-only migration)
-      // '@ptah-extension/llm-abstraction/google' - REMOVED (SDK-only migration)
-      '@ptah-extension/llm-abstraction/openrouter': path.resolve(
-        __dirname,
-        '../../libs/backend/llm-abstraction/src/openrouter.ts'
-      ),
-    },
-  },
-
-  module: {
-    rules: [
+    externals: [
       {
-        test: /\.ts$/,
-        exclude: /node_modules/,
-        use: {
-          loader: 'ts-loader',
-          options: {
-            transpileOnly: true, // Speed up compilation
-            configFile: 'tsconfig.app.json',
-          },
-        },
+        vscode: 'commonjs vscode', // Don't bundle VS Code API, it's provided by the host
       },
-      {
-        test: /\.node$/,
-        use: 'node-loader',
+      // Custom externals function for LLM provider tree-shaking
+      function ({ request }, callback) {
+        // === BUNDLE THESE (critical for extension to work) ===
+
+        // Bundle reflect-metadata and tsyringe (required for DI)
+        if (request === 'reflect-metadata' || request === 'tsyringe') {
+          return callback(); // null means "bundle this"
+        }
+
+        // Bundle all @ptah-extension/* packages (our internal libraries)
+        // This includes dynamic imports like @ptah-extension/llm-abstraction/anthropic
+        if (request.startsWith('@ptah-extension/')) {
+          return callback(); // Bundle it
+        }
+
+        // Bundle @anthropic-ai/claude-agent-sdk - it's ESM-only and must be bundled
+        // for proper ESM/CommonJS interop in the VS Code extension host
+        if (request.startsWith('@anthropic-ai/claude-agent-sdk')) {
+          return callback(); // Bundle it
+        }
+
+        // @github/copilot-sdk and @openai/codex-sdk are NOT bundled.
+        // They are resolved at runtime from the user's system via sdk-resolver.ts.
+        // See TASK_2025_197 for details.
+
+        // @google/genai - REMOVED (SDK-only migration: Google GenAI provider removed)
+        // @google/gemini-cli-core - REMOVED (SDK-only migration: CLI auth removed)
+
+        // === EXTERNALIZE THESE (loaded at runtime from node_modules) ===
+
+        // Externalize other scoped packages (@anthropic-ai/*, etc.)
+        // These are loaded dynamically by agent-sdk
+        if (request.startsWith('@')) {
+          return callback(null, 'commonjs ' + request);
+        }
+
+        // Externalize other node_modules (lowercase packages like zod, uuid, etc.)
+        if (/^[a-z\-0-9]+/.test(request)) {
+          return callback(null, 'commonjs ' + request);
+        }
+
+        // Bundle everything else (relative imports, project files)
+        callback();
       },
     ],
-  },
 
-  devtool: 'source-map', // Will be overridden in production
-
-  // Note: externalsPresets removed - we're handling externals explicitly above
-
-  // Optimization settings for VS Code extensions
-  optimization: {
-    minimize: false, // Don't minimize in development
-    concatenateModules: false, // Prevent issues with dynamic requires
-    // Ensure runtime chunk loads reflect-metadata first
-    runtimeChunk: false, // Don't split runtime - keep everything in main bundle
-  },
-
-  // Import reflect-metadata at the very start of the bundle
-  plugins: [
-    {
-      apply: (compiler) => {
-        compiler.hooks.afterEmit.tap('ReflectMetadataPlugin', () => {
-          // Log after build to confirm reflect-metadata is first
-          console.log(
-            '\n✓ Webpack build complete - reflect-metadata loaded first in entry array\n'
-          );
-        });
+    resolve: {
+      extensions: ['.ts', '.js', '.json'],
+      alias: {
+        '@ptah-extension/platform-core': path.resolve(
+          __dirname,
+          '../../libs/backend/platform-core/src'
+        ),
+        '@ptah-extension/platform-vscode': path.resolve(
+          __dirname,
+          '../../libs/backend/platform-vscode/src'
+        ),
+        '@ptah-extension/shared': path.resolve(
+          __dirname,
+          '../../libs/shared/src'
+        ),
+        '@ptah-extension/vscode-core': path.resolve(
+          __dirname,
+          '../../libs/backend/vscode-core/src'
+        ),
+        '@ptah-extension/workspace-intelligence': path.resolve(
+          __dirname,
+          '../../libs/backend/workspace-intelligence/src'
+        ),
+        '@ptah-extension/vscode-lm-tools': path.resolve(
+          __dirname,
+          '../../libs/backend/vscode-lm-tools/src'
+        ),
+        '@ptah-extension/agent-sdk': path.resolve(
+          __dirname,
+          '../../libs/backend/agent-sdk/src'
+        ),
+        '@ptah-extension/agent-generation': path.resolve(
+          __dirname,
+          '../../libs/backend/agent-generation/src'
+        ),
+        '@ptah-extension/template-generation': path.resolve(
+          __dirname,
+          '../../libs/backend/template-generation/src'
+        ),
+        '@ptah-extension/rpc-handlers': path.resolve(
+          __dirname,
+          '../../libs/backend/rpc-handlers/src'
+        ),
+        // Main llm-abstraction entry point
+        '@ptah-extension/llm-abstraction': path.resolve(
+          __dirname,
+          '../../libs/backend/llm-abstraction/src'
+        ),
+        // Secondary entry points for tree-shaking (dynamic imports)
+        '@ptah-extension/llm-abstraction/vscode-lm': path.resolve(
+          __dirname,
+          '../../libs/backend/llm-abstraction/src/vscode-lm.ts'
+        ),
+        '@ptah-extension/llm-abstraction/anthropic': path.resolve(
+          __dirname,
+          '../../libs/backend/llm-abstraction/src/anthropic.ts'
+        ),
+        // '@ptah-extension/llm-abstraction/openai' - REMOVED (SDK-only migration)
+        // '@ptah-extension/llm-abstraction/google' - REMOVED (SDK-only migration)
+        '@ptah-extension/llm-abstraction/openrouter': path.resolve(
+          __dirname,
+          '../../libs/backend/llm-abstraction/src/openrouter.ts'
+        ),
       },
     },
-  ],
 
-  // Performance settings
-  performance: {
-    hints: false, // VS Code extensions have different performance characteristics
-  },
+    module: {
+      rules: [
+        {
+          test: /\.ts$/,
+          exclude: /node_modules/,
+          use: {
+            loader: 'ts-loader',
+            options: {
+              transpileOnly: true, // Speed up compilation
+              configFile: 'tsconfig.app.json',
+            },
+          },
+        },
+        {
+          test: /\.node$/,
+          use: 'node-loader',
+        },
+      ],
+    },
 
-  // Stats configuration for cleaner output
-  stats: {
-    errorDetails: true,
-    colors: true,
-    modules: false,
-    chunks: false,
-    chunkModules: false,
-  },
+    devtool: 'source-map', // Will be overridden in production
+
+    // Note: externalsPresets removed - we're handling externals explicitly above
+
+    // Optimization settings for VS Code extensions
+    optimization: {
+      minimize: false, // Don't minimize in development
+      concatenateModules: false, // Prevent issues with dynamic requires
+      // Ensure runtime chunk loads reflect-metadata first
+      runtimeChunk: false, // Don't split runtime - keep everything in main bundle
+    },
+
+    // Import reflect-metadata at the very start of the bundle
+    plugins: [
+      {
+        apply: (compiler) => {
+          compiler.hooks.afterEmit.tap('ReflectMetadataPlugin', () => {
+            // Log after build to confirm reflect-metadata is first
+            console.log(
+              '\n✓ Webpack build complete - reflect-metadata loaded first in entry array\n'
+            );
+          });
+        },
+      },
+    ],
+
+    // Performance settings
+    performance: {
+      hints: false, // VS Code extensions have different performance characteristics
+    },
+
+    // Stats configuration for cleaner output
+    stats: {
+      errorDetails: true,
+      colors: true,
+      modules: false,
+      chunks: false,
+      chunkModules: false,
+    },
+  };
+
+  // Add CopyWebpackPlugin if Nx executor provided assets via project.json
+  if (Array.isArray(options.assets) && options.assets.length > 0) {
+    webpackConfig.plugins.push(
+      new CopyWebpackPlugin({
+        patterns: options.assets.map((asset) => ({
+          context: asset.input,
+          to: asset.output,
+          from: asset.glob,
+          noErrorOnMissing: true,
+          globOptions: {
+            ignore: [
+              '.gitkeep',
+              '**/.DS_Store',
+              '**/Thumbs.db',
+              ...(asset.ignore ?? []),
+            ],
+            dot: true,
+          },
+        })),
+      })
+    );
+  }
+
+  return webpackConfig;
 };

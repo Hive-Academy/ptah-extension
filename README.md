@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="apps/ptah-landing-page/public/assets/icons/ptah-logo.svg" width="100" alt="Ptah Logo" />
+  <img src="https://github.com/Hive-Academy/ptah-extension/raw/HEAD/apps/ptah-extension-vscode/src/assets/images/ptah-icon.png" width="100" alt="Ptah Logo" />
 </p>
 
 <h1 align="center">Ptah - AI Coding Orchestra</h1>
@@ -16,8 +16,8 @@
   <a href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode">
     <img src="https://img.shields.io/visual-studio-marketplace/i/ptah-extensions.ptah-extension-vscode?color=d4af37" alt="Installs" />
   </a>
-  <a href="https://github.com/Hive-Academy/ptah-extension/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Hive-Academy/ptah-extension?label=Desktop%20App&color=d4af37&filter=electron-v*" alt="Desktop App" />
+  <a href="https://github.com/Hive-Academy/ptah-app/releases/latest">
+    <img src="https://img.shields.io/github/v/release/Hive-Academy/ptah-app?label=Desktop%20App&color=d4af37&filter=electron-v*" alt="Desktop App" />
   </a>
   <a href="https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/Hive-Academy/ptah-extension?color=d4af37" alt="License" />
@@ -40,7 +40,7 @@ Search for **"Ptah"** in the Extensions panel (`Ctrl+Shift+X`) or install direct
 
 ### Option B: Desktop App (Standalone)
 
-Download the standalone desktop app for your platform from [GitHub Releases](https://github.com/Hive-Academy/ptah-extension/releases/latest):
+Download the standalone desktop app for your platform from [GitHub Releases](https://github.com/Hive-Academy/ptah-app/releases/latest):
 
 | Platform | Download                      |
 | -------- | ----------------------------- |
@@ -385,7 +385,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Links
 
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode)
-- [Desktop App Downloads](https://github.com/Hive-Academy/ptah-extension/releases/latest)
+- [Desktop App Downloads](https://github.com/Hive-Academy/ptah-app/releases/latest)
 - [Issue Tracker](https://github.com/Hive-Academy/ptah-extension/issues)
 - [Discussions](https://github.com/Hive-Academy/ptah-extension/discussions)
 
