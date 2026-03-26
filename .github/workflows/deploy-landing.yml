@@ -6,11 +6,15 @@ on:
       - release/landing
   workflow_dispatch:
 
+concurrency:
+  group: deploy-landing
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
-  quality-gates:
+  build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -23,21 +27,15 @@ jobs:
 
       - run: npm ci
 
-      - name: Quality gates
+      - name: Build landing page
         run: npx nx run-many -t build --projects=ptah-landing-page
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: quality-gates
-    steps:
-      - uses: actions/checkout@v4
 
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Update app spec and deploy
+      - name: Deploy
         run: |
           doctl apps update ${{ secrets.DO_APP_ID }} --spec .do/app.yaml
           doctl apps create-deployment ${{ secrets.DO_APP_ID }} --wait

@@ -5,6 +5,10 @@ on:
     branches:
       - release/server
 
+concurrency:
+  group: deploy-server
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write
