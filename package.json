@@ -56,7 +56,7 @@
     "affected:build": "nx affected -t build",
     "affected:test": "nx affected -t test",
     "affected:lint": "nx affected -t lint",
-    "package": "nx build ptah-extension-vscode && nx build ptah-extension-webview && vsce package --out dist/",
+    "package": "nx build ptah-extension-vscode && cd dist/apps/ptah-extension-vscode && vsce package --out ../../../dist/",
     "serve:webview": "nx serve ptah-extension-webview",
     "serve:extension": "nx serve ptah-extension-vscode",
     "prepare": "husky || true",

@@ -32,14 +32,16 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: publish-extension
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      NX_SKIP_NX_CACHE: 'true'
     steps:
       - uses: actions/checkout@v4
         with:
