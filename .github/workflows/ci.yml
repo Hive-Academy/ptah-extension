@@ -19,13 +19,6 @@ permissions:
   actions: read
   contents: read
 
-env:
-  NX_TUI: 'false'
-  NX_DAEMON: 'false'
-  NX_VERBOSE_LOGGING: 'false'
-  CI: 'true'
-  NODE_VERSION: '20'
-
 jobs:
   main:
     runs-on: ubuntu-latest

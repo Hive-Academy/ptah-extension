@@ -39,12 +39,6 @@ concurrency:
 permissions:
   contents: write
 
-env:
-  NX_TUI: 'false'
-  NX_DAEMON: 'false'
-  CI: 'true'
-  NODE_VERSION: '20'
-
 jobs:
   prepare:
     runs-on: ubuntu-latest

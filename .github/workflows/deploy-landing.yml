@@ -13,12 +13,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  NX_TUI: 'false'
-  NX_DAEMON: 'false'
-  CI: 'true'
-  NODE_VERSION: '20'
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
