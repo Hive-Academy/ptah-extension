@@ -398,7 +398,17 @@ export class CodexCliAdapter implements CliAdapter {
       }
 
       return body.access_token;
-    } catch {
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        console.warn(
+          `[CodexCliAdapter] Token refresh failed: HTTP ${error.response.status}`,
+        );
+      } else {
+        console.warn(
+          '[CodexCliAdapter] Token refresh failed:',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
       return null;
     }
   }

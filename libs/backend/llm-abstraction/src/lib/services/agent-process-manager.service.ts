@@ -1484,11 +1484,17 @@ export class AgentProcessManager {
           port: configuredPort,
         });
         return configuredPort;
-      } catch {
+      } catch (error) {
         this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
-        this.logger.info(
-          '[AgentProcessManager] MCP server not reachable, disabling for CLI agent',
-        );
+        if (axios.isAxiosError(error) && error.response) {
+          this.logger.info(
+            `[AgentProcessManager] MCP health check failed: HTTP ${error.response.status}, disabling for CLI agent`,
+          );
+        } else {
+          this.logger.info(
+            '[AgentProcessManager] MCP server not reachable, disabling for CLI agent',
+          );
+        }
         return undefined;
       }
     } catch {

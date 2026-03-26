@@ -431,13 +431,12 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       );
 
       try {
-        const { data: responseJson } = await axios.post(
+        const { data: responseJson } = await axios.post<
+          LicenseStatus & { signature?: string }
+        >(
           `${this.licenseServerUrl}/api/v1/licenses/verify`,
           { licenseKey },
-          {
-            headers: { 'Content-Type': 'application/json' },
-            timeout: LicenseService.NETWORK_TIMEOUT_MS,
-          },
+          { timeout: LicenseService.NETWORK_TIMEOUT_MS },
         );
 
         // TASK_2025_188: Verify response signature to prevent MITM attacks
@@ -533,8 +532,12 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         return status;
       } catch (fetchError) {
         if (axios.isAxiosError(fetchError) && fetchError.response) {
+          const bodySnippet =
+            typeof fetchError.response.data === 'string'
+              ? fetchError.response.data.substring(0, 200)
+              : JSON.stringify(fetchError.response.data).substring(0, 200);
           throw new Error(
-            `License verification failed: ${fetchError.response.status} ${fetchError.response.statusText}`,
+            `License verification failed: ${fetchError.response.status} ${fetchError.response.statusText} — ${bodySnippet}`,
           );
         }
         throw fetchError;
