@@ -146,8 +146,11 @@ jobs:
         run: npm ci
 
       # Python 3.12+ removed distutils; setuptools restores it for node-gyp native builds
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Fix Python distutils (native module builds)
-        run: pip install setuptools
+        run: python -m pip install setuptools
 
       - name: Build Electron app
         run: npx nx build ptah-electron
