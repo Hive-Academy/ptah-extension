@@ -1,7 +1,5 @@
 # Source files (not in dist)
 src/**
-**/*.ts
-!**/*.js
 **/*.map
 tsconfig*.json
 project.json
@@ -83,11 +81,8 @@ Thumbs.db
 **/node_modules/@anthropic-ai/claude-agent-sdk/vendor/**
 **/node_modules/@anthropic-ai/claude-agent-sdk/cli.js
 **/node_modules/@anthropic-ai/claude-agent-sdk/resvg.wasm
-# @github/copilot: CLI binary + bundled tools (237 MB)
-**/node_modules/@github/copilot/ripgrep/**
-**/node_modules/@github/copilot/prebuilds/**
-**/node_modules/@github/copilot/sharp/**
-**/node_modules/@github/copilot/clipboard/**
+# @github/copilot: entire CLI package (128+ MB) — only copilot-sdk is needed
+**/node_modules/@github/copilot/**
 **/node_modules/@github/copilot-win32-x64/**
 **/node_modules/@github/copilot-linux-x64/**
 **/node_modules/@github/copilot-darwin-arm64/**
@@ -100,3 +95,6 @@ Thumbs.db
 **/node_modules/@openai/codex/**
 # @img/sharp: not needed at runtime
 **/node_modules/@img/**
+# Native module C source files — prebuilt binaries are used at runtime
+**/node_modules/tree-sitter*/src/**
+**/node_modules/tree-sitter/vendor/**

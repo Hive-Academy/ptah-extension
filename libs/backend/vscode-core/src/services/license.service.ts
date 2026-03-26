@@ -545,6 +545,8 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     } catch (error) {
       this.logger.error('[LicenseService.verifyLicense] Verification failed', {
         error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        url: this.licenseServerUrl,
       });
 
       // TASK_2025_121: Check offline grace period cache

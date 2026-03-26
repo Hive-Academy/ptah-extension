@@ -147,7 +147,6 @@ jobs:
 
       # Python 3.12+ removed distutils; setuptools restores it for node-gyp native builds
       - name: Fix Python distutils (native module builds)
-        if: runner.os == 'Windows'
         run: pip install setuptools
 
       - name: Build Electron app
@@ -161,7 +160,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # tree-sitter 0.21.x binding.gyp forces C++17, but Electron 35 V8 headers require C++20
+          # _CL_ is for MSVC (Windows), CXXFLAGS is for GCC/Clang (Linux/macOS)
           _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
+          CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
