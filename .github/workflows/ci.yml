@@ -1,16 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '.vscode/**'
-      - '.claude/**'
-      - 'LICENSE'
-      - '.do/**'
   pull_request:
     paths-ignore:
       - '**/*.md'
@@ -28,6 +18,9 @@ concurrency:
 permissions:
   actions: read
   contents: read
+
+env:
+  NX_TUI: 'false'
 
 jobs:
   main:
