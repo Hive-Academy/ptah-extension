@@ -48,7 +48,7 @@ export class LicenseRpcHandlers {
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
     @inject(TOKENS.PLATFORM_COMMANDS)
-    private readonly platformCommands: IPlatformCommands
+    private readonly platformCommands: IPlatformCommands,
   ) {}
 
   /**
@@ -103,7 +103,7 @@ export class LicenseRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: license:getStatus failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
 
         // TASK_2025_128: On error, check cached status to determine fallback.
@@ -194,17 +194,22 @@ export class LicenseRpcHandlers {
           } else {
             this.logger.warn('RPC: license:setKey - verification failed', {
               reason: newStatus.reason,
+              tier: newStatus.tier,
             });
+            // Include the actual reason so users and logs can diagnose the issue.
+            // Common reasons: 'not_found' (key unknown), 'expired', 'revoked', 'trial_ended'
+            const reasonDetail = newStatus.reason
+              ? ` (reason: ${newStatus.reason})`
+              : '';
             return {
               success: false,
-              error:
-                'License verification failed. Please check your key and try again.',
+              error: `License verification failed${reasonDetail}. Please check your key and try again.`,
             };
           }
         } catch (error) {
           this.logger.error(
             'RPC: license:setKey failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
@@ -214,7 +219,7 @@ export class LicenseRpcHandlers {
                 : 'Failed to verify license key',
           };
         }
-      }
+      },
     );
   }
 
@@ -232,7 +237,7 @@ export class LicenseRpcHandlers {
    * @returns RPC response format for frontend
    */
   private mapLicenseStatusToResponse(
-    status: LicenseStatus
+    status: LicenseStatus,
   ): LicenseGetStatusResponse {
     // Determine if user has premium (Pro) features
     // Pro tier and Pro trial both have premium features

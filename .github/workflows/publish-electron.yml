@@ -40,6 +40,7 @@ permissions:
   contents: write
 
 env:
+  NODE_VERSION: 22
   NX_TUI: false
 
 jobs:
