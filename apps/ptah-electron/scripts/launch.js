@@ -17,11 +17,16 @@ const mainPath = path.resolve(
   '../../../dist/apps/ptah-electron/main.mjs',
 );
 
+// Support --production flag to test against live API (api.ptah.live)
+const useProd = process.argv.includes('--production');
+const nodeEnv = useProd ? 'production' : 'development';
+
 // Forward any extra args (e.g., workspace path) to the Electron app
-const extraArgs = process.argv.slice(2);
+const extraArgs = process.argv.slice(2).filter((a) => a !== '--production');
 
 console.log('[launch] Starting Electron app...');
 console.log(`[launch] Main: ${mainPath}`);
+console.log(`[launch] NODE_ENV: ${nodeEnv}`);
 if (extraArgs.length) {
   console.log(`[launch] Args: ${extraArgs.join(' ')}`);
 }
@@ -31,7 +36,7 @@ try {
     stdio: 'inherit',
     env: {
       ...process.env,
-      NODE_ENV: 'development',
+      NODE_ENV: nodeEnv,
     },
   });
 } catch (error) {
