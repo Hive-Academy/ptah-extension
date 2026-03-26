@@ -4,7 +4,6 @@ src/**
 !**/*.js
 **/*.map
 tsconfig*.json
-webpack.config.js
 project.json
 
 # Development files

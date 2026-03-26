@@ -1,4 +1,3 @@
-import { CommonModule } from '@angular/common';
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { NavigationComponent } from '../components/navigation.component';
 import { ComparisonSectionComponent } from '../sections/comparison/comparison-section.component';
@@ -73,7 +72,6 @@ import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcas
   selector: 'ptah-landing-page',
   standalone: true,
   imports: [
-    CommonModule,
     NavigationComponent,
     HeroComponent,
     VideoShowcaseComponent,
@@ -101,15 +99,16 @@ import { VideoShowcaseComponent } from '../sections/video-showcase/video-showcas
         </section>
 
         @defer (on viewport) {
-        <section id="features" aria-label="Features">
-          <ptah-features-hijacked-scroll />
-        </section>
+          <section id="features" aria-label="Features">
+            <ptah-features-hijacked-scroll />
+          </section>
         } @placeholder {
-        <div class="min-h-screen"></div>
-        } @defer (on viewport) {
-        <ptah-comparison-section />
+          <div class="min-h-screen"></div>
+        }
+        @defer (on viewport) {
+          <ptah-comparison-section />
         } @placeholder {
-        <div class="min-h-screen"></div>
+          <div class="min-h-screen"></div>
         }
 
         <ptah-cta-section />

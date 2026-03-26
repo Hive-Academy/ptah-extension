@@ -63,7 +63,7 @@ import { PTAH_MCP_PORT } from '../constants';
  */
 export function buildModelIdentityPrompt(
   providerId: string | null,
-  authEnv: AuthEnv
+  authEnv: AuthEnv,
 ): string | undefined {
   if (!providerId) {
     return undefined;
@@ -191,7 +191,7 @@ export interface SystemPromptAssemblyResult {
  * @returns Assembly result with mode and content (always preset-append)
  */
 export function assembleSystemPrompt(
-  input: AssembleSystemPromptInput
+  input: AssembleSystemPromptInput,
 ): SystemPromptAssemblyResult {
   const {
     providerId,
@@ -295,7 +295,7 @@ export interface QueryOptionsInput {
    * Explicit path to Claude Code CLI executable (cli.js).
    * TASK_2025_194: Passed through to SDK SessionOptions to override
    * the default import.meta.url-based resolution which bakes in
-   * the CI runner path at webpack bundle time.
+   * the CI runner path at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
 }
@@ -384,7 +384,7 @@ export class SdkQueryOptionsBuilder {
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
     private readonly compactionHookHandler: CompactionHookHandler,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
   ) {}
 
   /**
@@ -443,7 +443,7 @@ export class SdkQueryOptionsBuilder {
       sessionConfig,
       isPremium,
       enhancedPromptsContent,
-      mcpServerRunning
+      mcpServerRunning,
     );
 
     // Create permission callback with sessionId for UI routing (TASK_2025_187)
@@ -562,13 +562,13 @@ export class SdkQueryOptionsBuilder {
     sessionConfig?: AISessionConfig,
     isPremium = false,
     enhancedPromptsContent?: string,
-    mcpServerRunning = true
+    mcpServerRunning = true,
   ): SdkQueryOptions['systemPrompt'] {
     const activeProviderId = getActiveProviderId(this.authEnv);
 
     if (activeProviderId) {
       this.logger.info(
-        `[SdkQueryOptionsBuilder] Third-party provider detected (${activeProviderId}) - adding identity clarification`
+        `[SdkQueryOptionsBuilder] Third-party provider detected (${activeProviderId}) - adding identity clarification`,
       );
     }
 
@@ -619,13 +619,13 @@ export class SdkQueryOptionsBuilder {
    */
   private buildMcpServers(
     isPremium: boolean,
-    mcpServerRunning = true
+    mcpServerRunning = true,
   ): Record<string, McpHttpServerConfig> {
     // Free tier - disable MCP servers (TASK_2025_108)
     if (!isPremium) {
       this.logger.info(
         '[SdkQueryOptionsBuilder] MCP servers disabled (not premium)',
-        { isPremium, mcpServerRunning }
+        { isPremium, mcpServerRunning },
       );
       return {};
     }
@@ -635,7 +635,7 @@ export class SdkQueryOptionsBuilder {
     if (!mcpServerRunning) {
       this.logger.info(
         '[SdkQueryOptionsBuilder] MCP servers disabled (server not running)',
-        { isPremium, mcpServerRunning }
+        { isPremium, mcpServerRunning },
       );
       return {};
     }
@@ -661,7 +661,7 @@ export class SdkQueryOptionsBuilder {
    * Calculate max turns from session config
    */
   private calculateMaxTurns(
-    sessionConfig?: AISessionConfig
+    sessionConfig?: AISessionConfig,
   ): number | undefined {
     if (sessionConfig?.maxTokens) {
       return Math.floor(sessionConfig.maxTokens / 1000);
@@ -700,7 +700,7 @@ export class SdkQueryOptionsBuilder {
   private createHooks(
     cwd: string,
     sessionId?: string,
-    onCompactionStart?: CompactionStartCallback
+    onCompactionStart?: CompactionStartCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     // Create subagent hooks (existing functionality)
     // TASK_2025_186: Pass sessionId as parentSessionId so SubagentStart hook
@@ -712,7 +712,7 @@ export class SdkQueryOptionsBuilder {
     // Even without sessionId, we create hooks with empty string - SDK will provide session_id in hook input
     const compactionHooks = this.compactionHookHandler.createHooks(
       sessionId ?? '',
-      onCompactionStart
+      onCompactionStart,
     );
 
     // Merge hooks safely — concatenate arrays for same event key to prevent overwrites

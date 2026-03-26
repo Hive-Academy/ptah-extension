@@ -125,7 +125,7 @@ export interface ExecuteQueryConfig {
   /**
    * Explicit path to Claude Code CLI executable (cli.js).
    * TASK_2025_194: Passed through to SdkQueryOptionsBuilder to override
-   * the default import.meta.url-based resolution baked at webpack time.
+   * the default import.meta.url-based resolution baked at bundle time.
    */
   pathToClaudeCodeExecutable?: string;
 }
@@ -191,7 +191,7 @@ export class SessionLifecycleManager {
     private messageFactory: SdkMessageFactory,
     // TASK_2025_103: SubagentRegistryService for marking subagents as interrupted
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
-    private subagentRegistry: SubagentRegistryService
+    private subagentRegistry: SubagentRegistryService,
   ) {}
 
   /**
@@ -202,7 +202,7 @@ export class SessionLifecycleManager {
   preRegisterActiveSession(
     sessionId: SessionId,
     config: AISessionConfig,
-    abortController: AbortController
+    abortController: AbortController,
   ): void {
     const session: ActiveSession = {
       sessionId,
@@ -216,7 +216,7 @@ export class SessionLifecycleManager {
 
     this.activeSessions.set(sessionId as string, session);
     this.logger.info(
-      `[SessionLifecycle] Pre-registered active session: ${sessionId}`
+      `[SessionLifecycle] Pre-registered active session: ${sessionId}`,
     );
   }
 
@@ -227,7 +227,7 @@ export class SessionLifecycleManager {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
       this.logger.error(
-        `[SessionLifecycle] Cannot set query - session not found: ${sessionId}`
+        `[SessionLifecycle] Cannot set query - session not found: ${sessionId}`,
       );
       return;
     }
@@ -243,7 +243,7 @@ export class SessionLifecycleManager {
     sessionId: SessionId,
     query: Query,
     config: AISessionConfig,
-    abortController: AbortController
+    abortController: AbortController,
   ): void {
     const session: ActiveSession = {
       sessionId,
@@ -257,7 +257,7 @@ export class SessionLifecycleManager {
 
     this.activeSessions.set(sessionId as string, session);
     this.logger.info(
-      `[SessionLifecycle] Registered active session: ${sessionId}`
+      `[SessionLifecycle] Registered active session: ${sessionId}`,
     );
   }
 
@@ -277,7 +277,7 @@ export class SessionLifecycleManager {
     if (this.activeSessions.has(tabId)) {
       this.tabIdToRealId.set(tabId, realSessionId);
       this.logger.info(
-        `[SessionLifecycle] Resolved real session ID: ${tabId} -> ${realSessionId}`
+        `[SessionLifecycle] Resolved real session ID: ${tabId} -> ${realSessionId}`,
       );
     }
   }
@@ -288,7 +288,7 @@ export class SessionLifecycleManager {
    */
   getActiveSessionIds(): SessionId[] {
     return Array.from(this.activeSessions.keys()).map(
-      (key) => (this.tabIdToRealId.get(key) || key) as SessionId
+      (key) => (this.tabIdToRealId.get(key) || key) as SessionId,
     );
   }
 
@@ -327,7 +327,7 @@ export class SessionLifecycleManager {
 
     if (!session) {
       this.logger.warn(
-        `[SessionLifecycle] Cannot end session - not found: ${sessionId}`
+        `[SessionLifecycle] Cannot end session - not found: ${sessionId}`,
       );
       return;
     }
@@ -348,7 +348,7 @@ export class SessionLifecycleManager {
     this.subagentRegistry.markAllInterrupted(registrySessionId);
 
     this.logger.info(
-      `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`
+      `[SessionLifecycle] Marked running subagents as interrupted for session: ${sessionId}`,
     );
 
     // TASK_2025_175: Await interrupt() with timeout BEFORE abort()
@@ -364,19 +364,19 @@ export class SessionLifecycleManager {
             setTimeout(() => {
               timedOut = true;
               resolve();
-            }, 5000)
+            }, 5000),
           ),
         ]);
         this.logger.info(
           `[SessionLifecycle] Interrupt ${
             timedOut ? 'timed out (5s)' : 'completed'
-          } for session: ${sessionId}`
+          } for session: ${sessionId}`,
         );
       } catch (err) {
         // TASK_2025_175: Log at WARN level so failures are visible
         this.logger.warn(
           `[SessionLifecycle] Interrupt failed for session ${sessionId}`,
-          err instanceof Error ? err : new Error(String(err))
+          err instanceof Error ? err : new Error(String(err)),
         );
       }
     }
@@ -422,9 +422,9 @@ export class SessionLifecycleManager {
           ]).catch((err) => {
             this.logger.warn(
               `[SessionLifecycle] Failed to interrupt session ${sessionId}`,
-              err instanceof Error ? err : new Error(String(err))
+              err instanceof Error ? err : new Error(String(err)),
             );
-          })
+          }),
         );
       }
     }
@@ -464,7 +464,7 @@ export class SessionLifecycleManager {
    */
   createUserMessageStream(
     sessionId: SessionId,
-    abortController: AbortController
+    abortController: AbortController,
   ): AsyncIterable<SDKUserMessage> {
     const activeSessions = this.activeSessions;
     const logger = this.logger;
@@ -475,7 +475,7 @@ export class SessionLifecycleManager {
           const session = activeSessions.get(sessionId as string);
           if (!session) {
             logger.warn(
-              `[SessionLifecycle] Session ${sessionId} not found - ending stream`
+              `[SessionLifecycle] Session ${sessionId} not found - ending stream`,
             );
             return;
           }
@@ -485,7 +485,7 @@ export class SessionLifecycleManager {
             const message = session.messageQueue.shift();
             if (message) {
               logger.debug(
-                `[SessionLifecycle] Yielding message (${session.messageQueue.length} remaining)`
+                `[SessionLifecycle] Yielding message (${session.messageQueue.length} remaining)`,
               );
               yield message;
             }
@@ -508,7 +508,7 @@ export class SessionLifecycleManager {
               if (currentSession.messageQueue.length > 0) {
                 abortController.signal.removeEventListener(
                   'abort',
-                  abortHandler
+                  abortHandler,
                 );
                 resolve('message');
                 return;
@@ -518,15 +518,15 @@ export class SessionLifecycleManager {
               currentSession.resolveNext = () => {
                 abortController.signal.removeEventListener(
                   'abort',
-                  abortHandler
+                  abortHandler,
                 );
                 resolve('message');
               };
 
               logger.debug(
-                `[SessionLifecycle] Waiting for message (${sessionId})...`
+                `[SessionLifecycle] Waiting for message (${sessionId})...`,
               );
-            }
+            },
           );
 
           if (waitResult === 'aborted') {
@@ -574,7 +574,7 @@ export class SessionLifecycleManager {
       {
         isResume: !!resumeSessionId,
         hasInitialPrompt: !!initialPrompt,
-      }
+      },
     );
 
     // Step 1: Create abort controller
@@ -584,7 +584,7 @@ export class SessionLifecycleManager {
     this.preRegisterActiveSession(
       sessionId,
       sessionConfig || {},
-      abortController
+      abortController,
     );
 
     // Step 3: Determine if initial prompt is a slash command
@@ -611,7 +611,7 @@ export class SessionLifecycleManager {
         });
         session.messageQueue.push(sdkUserMessage);
         this.logger.info(
-          `[SessionLifecycle] Queued initial prompt for session ${sessionId}`
+          `[SessionLifecycle] Queued initial prompt for session ${sessionId}`,
         );
       }
     }
@@ -622,7 +622,7 @@ export class SessionLifecycleManager {
     // Step 5: Create user message stream
     const userMessageStream = this.createUserMessageStream(
       sessionId,
-      abortController
+      abortController,
     );
 
     // Step 6: Build query options
@@ -704,7 +704,7 @@ export class SessionLifecycleManager {
         });
       });
       this.logger.info(
-        `[SessionLifecycle] Connected streamInput for session: ${sessionId} (${promptMode})`
+        `[SessionLifecycle] Connected streamInput for session: ${sessionId} (${promptMode})`,
       );
     }
 
@@ -712,7 +712,7 @@ export class SessionLifecycleManager {
     this.setSessionQuery(sessionId, sdkQuery);
 
     this.logger.info(
-      `[SessionLifecycle] Query started for session: ${sessionId}`
+      `[SessionLifecycle] Query started for session: ${sessionId}`,
     );
 
     return {
@@ -735,7 +735,7 @@ export class SessionLifecycleManager {
     sessionId: SessionId,
     content: string,
     files?: string[],
-    images?: InlineImageAttachment[]
+    images?: InlineImageAttachment[],
   ): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
@@ -776,11 +776,11 @@ export class SessionLifecycleManager {
   async executeSlashCommandQuery(
     sessionId: SessionId,
     command: string,
-    config: SlashCommandConfig
+    config: SlashCommandConfig,
   ): Promise<ExecuteQueryResult> {
     this.logger.info(
       `[SessionLifecycle] Executing slash command query for session: ${sessionId}`,
-      { command: command.substring(0, 50) }
+      { command: command.substring(0, 50) },
     );
 
     // Resolve real SDK UUID before endSession deletes the tabIdToRealId mapping
@@ -817,7 +817,7 @@ export class SessionLifecycleManager {
    * Completes when the abort controller signals session end.
    */
   private createIdlePromptStream(
-    abortController: AbortController
+    abortController: AbortController,
   ): AsyncIterable<SDKUserMessage> {
     return {
       [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
@@ -834,7 +834,7 @@ export class SessionLifecycleManager {
                   done = true;
                   resolve({ done: true, value: undefined });
                 },
-                { once: true }
+                { once: true },
               );
             });
           },
@@ -872,7 +872,7 @@ export class SessionLifecycleManager {
       | 'plan'
       | 'default'
       | 'acceptEdits'
-      | 'bypassPermissions'
+      | 'bypassPermissions',
   ): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
@@ -884,7 +884,7 @@ export class SessionLifecycleManager {
     }
 
     this.logger.info(
-      `[SessionLifecycle] Setting permission level for ${sessionId}: ${level}`
+      `[SessionLifecycle] Setting permission level for ${sessionId}: ${level}`,
     );
 
     // Map frontend names to SDK mode names
@@ -893,12 +893,12 @@ export class SessionLifecycleManager {
     try {
       await session.query.setPermissionMode(sdkMode);
       this.logger.info(
-        `[SessionLifecycle] Permission level set for ${sessionId}`
+        `[SessionLifecycle] Permission level set for ${sessionId}`,
       );
     } catch (error) {
       this.logger.error(
         `[SessionLifecycle] Failed to set permission for ${sessionId}`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
       throw error;
     }
@@ -933,7 +933,7 @@ export class SessionLifecycleManager {
     }
 
     this.logger.info(
-      `[SessionLifecycle] Setting model for ${sessionId}: ${model}`
+      `[SessionLifecycle] Setting model for ${sessionId}: ${model}`,
     );
 
     try {
@@ -943,7 +943,7 @@ export class SessionLifecycleManager {
     } catch (error) {
       this.logger.error(
         `[SessionLifecycle] Failed to set model for ${sessionId}`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
       throw error;
     }

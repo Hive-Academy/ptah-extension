@@ -202,7 +202,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     sessionId: string,
     workspacePath: string,
     agentType: string,
-    toolUseId?: string
+    toolUseId?: string,
   ): Promise<void> {
     // DIAGNOSTIC: INFO level to trace execution
     this.logger.info('[AgentSessionWatcher] >>> startWatching CALLED <<<', {
@@ -291,7 +291,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         {
           agentId,
           toolUseId,
-        }
+        },
       );
       return;
     }
@@ -377,7 +377,7 @@ export class AgentSessionWatcherService extends EventEmitter {
           {
             agentId,
             error: err instanceof Error ? err.message : String(err),
-          }
+          },
         );
       }
     }
@@ -397,7 +397,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     if (!watch) {
       this.logger.debug(
         '[AgentSessionWatcher] markAsBackground: watch not found',
-        { agentId }
+        { agentId },
       );
       return;
     }
@@ -423,7 +423,7 @@ export class AgentSessionWatcherService extends EventEmitter {
   emitBackgroundAgentCompleted(
     agentId: string,
     toolCallId: string,
-    agentType?: string
+    agentType?: string,
   ): void {
     const watch = this.activeWatches.get(agentId);
     const duration = watch
@@ -432,7 +432,7 @@ export class AgentSessionWatcherService extends EventEmitter {
 
     this.logger.info(
       '[AgentSessionWatcher] Emitting background-agent-completed',
-      { agentId, toolCallId, agentType, duration }
+      { agentId, toolCallId, agentType, duration },
     );
 
     this.emit('background-agent-completed', {
@@ -461,7 +461,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       // DIAGNOSTIC: WARN level - this is a problem!
       this.logger.warn('[AgentSessionWatcher] Sessions directory NOT FOUND!', {
         workspacePath,
-        homeDir: require('os').homedir(),
+        homeDir: os.homedir(),
         expectedPattern: workspacePath.replace(/[:\\/]/g, '-'),
       });
       return;
@@ -513,7 +513,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       this.directoryWatcher.on('error', (error) => {
         this.logger.error(
           'AgentSessionWatcher: Directory watcher error',
-          error
+          error,
         );
         this.stopDirectoryWatcher();
       });
@@ -528,7 +528,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     } catch (error) {
       this.logger.error(
         'AgentSessionWatcher: Failed to start directory watcher',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
   }
@@ -563,7 +563,7 @@ export class AgentSessionWatcherService extends EventEmitter {
   private watchSubagentDirectories(sessionsDir: string): void {
     // Get unique sessionIds from active watches
     const sessionIds = new Set(
-      Array.from(this.activeWatches.values()).map((w) => w.sessionId)
+      Array.from(this.activeWatches.values()).map((w) => w.sessionId),
     );
 
     // Also scan the sessions directory for UUID-named directories.
@@ -602,7 +602,7 @@ export class AgentSessionWatcherService extends EventEmitter {
                   this.subagentDirWatchers.delete(sessionDir);
                   this.watchSubagentDir(sessionsDir, subagentsDir);
                 }
-              }
+              },
             );
             sessionDirWatcher.on('error', () => {
               sessionDirWatcher.close();
@@ -612,7 +612,7 @@ export class AgentSessionWatcherService extends EventEmitter {
 
             this.logger.debug(
               '[AgentSessionWatcher] Watching session dir for subagents creation',
-              { sessionDir }
+              { sessionDir },
             );
           }
           continue;
@@ -625,7 +625,7 @@ export class AgentSessionWatcherService extends EventEmitter {
           {
             subagentsDir,
             error: error instanceof Error ? error.message : String(error),
-          }
+          },
         );
       }
     }
@@ -657,7 +657,7 @@ export class AgentSessionWatcherService extends EventEmitter {
             filename,
             subagentsDir,
             isAgentFile: filename?.startsWith('agent-'),
-          }
+          },
         );
 
         if (
@@ -692,7 +692,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         {
           subagentsDir,
           error: error instanceof Error ? error.message : String(error),
-        }
+        },
       );
     }
   }
@@ -709,7 +709,7 @@ export class AgentSessionWatcherService extends EventEmitter {
    */
   private async handleNewAgentFile(
     sessionsDir: string,
-    filename: string
+    filename: string,
   ): Promise<void> {
     const filePath = path.join(sessionsDir, filename);
 
@@ -745,7 +745,7 @@ export class AgentSessionWatcherService extends EventEmitter {
               agentId: filenameAgentId,
               oldFilePath: directMatch.agentFilePath,
               newFilePath: filePath,
-            }
+            },
           );
           // Clear the old tail interval before re-matching
           if (directMatch.tailInterval) {
@@ -768,7 +768,7 @@ export class AgentSessionWatcherService extends EventEmitter {
             wasRematch:
               directMatch.agentFilePath !== null &&
               directMatch.agentFilePath !== filePath,
-          }
+          },
         );
         directMatch.agentFilePath = filePath;
         this.startTailingFile(filenameAgentId, filePath);
@@ -784,7 +784,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     if (!sessionId) {
       this.logger.warn(
         '[AgentSessionWatcher] Could not extract sessionId from file',
-        { filename, filePath, filenameAgentId }
+        { filename, filePath, filenameAgentId },
       );
       return;
     }
@@ -799,7 +799,7 @@ export class AgentSessionWatcherService extends EventEmitter {
           agentId: id,
           watchSessionId: w.sessionId,
           hasFilePath: !!w.agentFilePath,
-        })
+        }),
       ),
     });
 
@@ -816,7 +816,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         filenameAgentId,
         sessionId,
         note: 'SessionId fallback removed to prevent wrong matches',
-      }
+      },
     );
 
     // Store as pending (the correct watch might start later)
@@ -856,7 +856,7 @@ export class AgentSessionWatcherService extends EventEmitter {
       try {
         const files = await fs.promises.readdir(dir);
         const agentFiles = files.filter(
-          (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
+          (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
         );
 
         for (const filename of agentFiles) {
@@ -874,7 +874,7 @@ export class AgentSessionWatcherService extends EventEmitter {
               recentCount++;
               this.logger.info(
                 '[AgentSessionWatcher] Found recent agent file',
-                { filename, dir, ageMs: age, directAgentIdMatch: true }
+                { filename, dir, ageMs: age, directAgentIdMatch: true },
               );
               await this.handleNewAgentFile(dir, filename);
             }
@@ -892,7 +892,7 @@ export class AgentSessionWatcherService extends EventEmitter {
 
     // 2. Scan nested layout: {sessionsDir}/{sessionId}/subagents/agent-*.jsonl
     const sessionIds = new Set(
-      Array.from(this.activeWatches.values()).map((w) => w.sessionId)
+      Array.from(this.activeWatches.values()).map((w) => w.sessionId),
     );
     for (const sessionId of sessionIds) {
       const subagentsDir = path.join(sessionsDir, sessionId, 'subagents');
@@ -930,7 +930,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         if (timeDiff < AGENT_WATCHER_CONSTANTS.MATCH_WINDOW_MS) {
           this.logger.info(
             'AgentSessionWatcher: Matched pending file to agent by agentId',
-            { agentId, filenameAgentId, filePath }
+            { agentId, filenameAgentId, filePath },
           );
           watch.agentFilePath = filePath;
           this.pendingAgentFiles.delete(filePath);
@@ -979,7 +979,7 @@ export class AgentSessionWatcherService extends EventEmitter {
    */
   private async readNewContent(
     agentId: string,
-    filePath: string
+    filePath: string,
   ): Promise<void> {
     const watch = this.activeWatches.get(agentId);
     if (!watch) return;
@@ -1053,7 +1053,7 @@ export class AgentSessionWatcherService extends EventEmitter {
                 agentId,
                 lineLength: line.length,
                 linePreview: line.slice(0, 50),
-              }
+              },
             );
           } else {
             // Non-last line that failed to parse - this is genuinely malformed
@@ -1065,7 +1065,7 @@ export class AgentSessionWatcherService extends EventEmitter {
                 lineIndex: i,
                 lineLength: line.length,
                 linePreview: line.slice(0, 100),
-              }
+              },
             );
           }
         }
@@ -1114,7 +1114,7 @@ export class AgentSessionWatcherService extends EventEmitter {
             totalLength: watch.summaryContent.length,
             deltaPreview: summaryDelta.slice(0, 100),
             contentBlocksCount: allContentBlocks.length,
-          }
+          },
         );
       }
     } catch (error) {
@@ -1145,7 +1145,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         hasMessageContent: !!msg.message?.content,
         contentLength: msg.message?.content?.length,
         contentBlockTypes: msg.message?.content?.map(
-          (b: { type: string }) => b.type
+          (b: { type: string }) => b.type,
         ),
       });
     }
@@ -1194,19 +1194,19 @@ export class AgentSessionWatcherService extends EventEmitter {
    * Extract sessionId from the first line of an agent file
    */
   private async extractSessionIdFromFile(
-    filePath: string
+    filePath: string,
   ): Promise<string | null> {
     try {
       // Read first FIRST_LINE_BUFFER_SIZE bytes to get the first line
       const fd = await fs.promises.open(filePath, 'r');
       const buffer = Buffer.alloc(
-        AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE
+        AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE,
       );
       const { bytesRead } = await fd.read(
         buffer,
         0,
         AGENT_WATCHER_CONSTANTS.FIRST_LINE_BUFFER_SIZE,
-        0
+        0,
       );
       await fd.close();
 
@@ -1227,7 +1227,7 @@ export class AgentSessionWatcherService extends EventEmitter {
    * Find the Claude CLI sessions directory for a workspace
    */
   private async findSessionsDirectory(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<string | null> {
     const homeDir = os.homedir();
     const projectsDir = path.join(homeDir, '.claude', 'projects');
@@ -1260,7 +1260,7 @@ export class AgentSessionWatcherService extends EventEmitter {
     const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
     const normalizedEscaped = normalize(escapedPath);
     const normalizedMatch = dirs.find(
-      (d) => normalize(d) === normalizedEscaped
+      (d) => normalize(d) === normalizedEscaped,
     );
     if (normalizedMatch) {
       return path.join(projectsDir, normalizedMatch);
@@ -1275,7 +1275,7 @@ export class AgentSessionWatcherService extends EventEmitter {
         d.toLowerCase() === withoutLeadingLower ||
         d.toLowerCase().endsWith(withoutLeadingLower) ||
         normalize(d) === normalizedWithoutLeading ||
-        normalize(d).endsWith(normalizedWithoutLeading)
+        normalize(d).endsWith(normalizedWithoutLeading),
     );
     if (partialMatch) {
       return path.join(projectsDir, partialMatch);

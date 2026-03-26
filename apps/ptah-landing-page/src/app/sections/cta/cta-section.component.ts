@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterLink } from '@angular/router';
 import { LucideAngularModule, Check } from 'lucide-angular';
 import {
@@ -31,12 +31,7 @@ import {
  */
 @Component({
   selector: 'ptah-cta-section',
-  imports: [
-    CommonModule,
-    RouterLink,
-    ViewportAnimationDirective,
-    LucideAngularModule,
-  ],
+  imports: [RouterLink, ViewportAnimationDirective, LucideAngularModule],
   template: `
     <section id="cta" class="py-16 sm:py-24 md:py-32 bg-base-100">
       <div class="container mx-auto px-4 sm:px-6 text-center">
@@ -103,18 +98,18 @@ import {
           class="mt-8 sm:mt-10 md:mt-12 flex flex-wrap justify-center gap-4 sm:gap-6 md:gap-8"
         >
           @for (signal of trustSignals; track signal; let i = $index) {
-          <div
-            viewportAnimation
-            [viewportConfig]="getTrustSignalConfig(i)"
-            class="flex items-center gap-2 text-base-content/60"
-          >
-            <lucide-angular
-              [img]="CheckIcon"
-              class="w-5 h-5 text-success"
-              aria-hidden="true"
-            />
-            <span class="text-sm font-medium">{{ signal }}</span>
-          </div>
+            <div
+              viewportAnimation
+              [viewportConfig]="getTrustSignalConfig(i)"
+              class="flex items-center gap-2 text-base-content/60"
+            >
+              <lucide-angular
+                [img]="CheckIcon"
+                class="w-5 h-5 text-success"
+                aria-hidden="true"
+              />
+              <span class="text-sm font-medium">{{ signal }}</span>
+            </div>
           }
         </div>
       </div>

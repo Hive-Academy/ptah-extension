@@ -83,12 +83,19 @@ export class WorkspaceAnalyzerService implements IDisposable {
   private workspaceInfo?: WorkspaceInfo;
 
   constructor(
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystemService: FileSystemService,
+    @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
+    @inject(TOKENS.FRAMEWORK_DETECTOR_SERVICE)
     private readonly frameworkDetector: FrameworkDetectorService,
+    @inject(TOKENS.DEPENDENCY_ANALYZER_SERVICE)
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
+    @inject(TOKENS.WORKSPACE_SERVICE)
     private readonly workspaceService: WorkspaceService,
+    @inject(TOKENS.CONTEXT_SERVICE)
     private readonly contextService: ContextService,
+    @inject(TOKENS.WORKSPACE_INDEXER_SERVICE)
     private readonly indexer: WorkspaceIndexerService,
     @inject(TOKENS.TREE_SITTER_PARSER_SERVICE)
     private readonly treeSitterParser: TreeSitterParserService,
@@ -97,7 +104,7 @@ export class WorkspaceAnalyzerService implements IDisposable {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {
     this.initialize();
   }
@@ -110,7 +117,7 @@ export class WorkspaceAnalyzerService implements IDisposable {
     const workspaceWatcher = this.workspaceProvider.onDidChangeWorkspaceFolders(
       () => {
         this.updateWorkspaceInfo();
-      }
+      },
     );
 
     this.disposables.push(workspaceWatcher);
@@ -221,15 +228,13 @@ export class WorkspaceAnalyzerService implements IDisposable {
       const info = await this.getProjectInfo();
 
       // Detect project types and frameworks for this workspace
-      const projectType = await this.projectDetector.detectProjectType(
-        workspacePath
-      );
+      const projectType =
+        await this.projectDetector.detectProjectType(workspacePath);
       const projectTypesMap = new Map<string, ProjectType>();
       projectTypesMap.set(workspacePath, projectType);
 
-      const frameworksMap = await this.frameworkDetector.detectFrameworks(
-        projectTypesMap
-      );
+      const frameworksMap =
+        await this.frameworkDetector.detectFrameworks(projectTypesMap);
       const framework = frameworksMap.get(workspacePath);
 
       // Check for TypeScript by looking at dependencies or file statistics
@@ -300,15 +305,13 @@ export class WorkspaceAnalyzerService implements IDisposable {
     }
 
     // Detect project type and frameworks
-    const projectType = await this.projectDetector.detectProjectType(
-      workspaceRoot
-    );
+    const projectType =
+      await this.projectDetector.detectProjectType(workspaceRoot);
     const projectTypesMap = new Map<string, ProjectType>();
     projectTypesMap.set(workspaceRoot, projectType);
 
-    const frameworksMap = await this.frameworkDetector.detectFrameworks(
-      projectTypesMap
-    );
+    const frameworksMap =
+      await this.frameworkDetector.detectFrameworks(projectTypesMap);
     const framework = frameworksMap.get(workspaceRoot);
 
     if (!framework) {
@@ -368,20 +371,20 @@ export class WorkspaceAnalyzerService implements IDisposable {
           : 'javascript';
 
       this.logger.debug(
-        `Extracting code insights from ${filePath} (language: ${language})`
+        `Extracting code insights from ${filePath} (language: ${language})`,
       );
 
       // Analyze source directly using query-based extraction
       const insightsResult = this.astAnalyzer.analyzeSource(
         content,
         language,
-        filePath
+        filePath,
       );
 
       if (insightsResult.isErr()) {
         this.logger.error(
           `AST analysis failed for ${filePath}`,
-          insightsResult.error ?? new Error('Unknown analysis error')
+          insightsResult.error ?? new Error('Unknown analysis error'),
         );
         return null;
       }
@@ -391,7 +394,7 @@ export class WorkspaceAnalyzerService implements IDisposable {
     } catch (error) {
       this.logger.error(
         `Error extracting code insights from ${filePath}:`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
       return null;
     }

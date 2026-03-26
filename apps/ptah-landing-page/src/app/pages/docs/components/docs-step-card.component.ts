@@ -1,9 +1,8 @@
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
-import { CommonModule } from '@angular/common';
 
 @Component({
   selector: 'ptah-docs-step-card',
-  imports: [CommonModule],
+  imports: [],
   template: `
     <div class="flex gap-4 sm:gap-5">
       <!-- Step number -->

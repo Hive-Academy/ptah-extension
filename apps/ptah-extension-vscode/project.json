@@ -7,20 +7,58 @@
   "targets": {
     "build": {
       "executor": "nx:noop",
-      "dependsOn": ["build-webpack", "post-build-copy"]
+      "dependsOn": ["build-esbuild", "post-build-copy"]
     },
-    "build-webpack": {
-      "executor": "@nx/webpack:webpack",
+    "build-esbuild": {
+      "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
       "defaultConfiguration": "production",
       "dependsOn": ["^build"],
       "options": {
-        "target": "node",
-        "compiler": "tsc",
         "outputPath": "dist/apps/ptah-extension-vscode",
         "main": "apps/ptah-extension-vscode/src/main.ts",
+        "outputFileName": "main.mjs",
         "tsConfig": "apps/ptah-extension-vscode/tsconfig.app.json",
-        "webpackConfig": "apps/ptah-extension-vscode/webpack.config.js",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+          }
+        },
+        "external": [
+          "vscode",
+          "@anthropic-ai/claude-agent-sdk",
+          "@github/copilot-sdk",
+          "@openai/codex-sdk",
+          "reflect-metadata",
+          "tsyringe",
+          "tree-sitter",
+          "tree-sitter-javascript",
+          "tree-sitter-typescript",
+          "cross-spawn",
+          "eventemitter3",
+          "gray-matter",
+          "json2md",
+          "jsonrepair",
+          "minimatch",
+          "picomatch",
+          "rxjs",
+          "uuid",
+          "which",
+          "zod",
+          "tslib",
+          "chokidar",
+          "fast-glob",
+          "p-limit",
+          "p-queue"
+        ],
         "assets": [
           {
             "glob": "**/*",
@@ -38,11 +76,6 @@
             "output": "templates"
           },
           {
-            "glob": "cli.js",
-            "input": "node_modules/@anthropic-ai/claude-agent-sdk",
-            "output": "."
-          },
-          {
             "glob": "package.json",
             "input": "apps/ptah-extension-vscode",
             "output": "."
@@ -51,21 +84,18 @@
       },
       "configurations": {
         "development": {
-          "mode": "development",
-          "optimization": false,
-          "sourceMap": true
+          "sourcemap": true,
+          "minify": false
         },
         "production": {
-          "mode": "production",
-          "optimization": true,
-          "sourceMap": false,
-          "extractLicenses": false
+          "sourcemap": false,
+          "minify": true
         }
       }
     },
     "post-build-copy": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-webpack", "ptah-extension-webview:build"],
+      "dependsOn": ["build-esbuild", "ptah-extension-webview:build"],
       "outputs": ["{workspaceRoot}/dist/apps/ptah-extension-vscode/webview"],
       "options": {
         "commands": [

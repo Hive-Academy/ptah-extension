@@ -13,7 +13,7 @@
   },
   "homepage": "https://github.com/Hive-Academy/ptah-extension#readme",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.100.0"
   },
   "categories": [
     "Machine Learning",
@@ -21,18 +21,18 @@
     "Other"
   ],
   "keywords": [
-    "claude",
     "ai",
     "chat",
     "code-review",
     "assistant",
-    "anthropic",
-    "cli-gui",
-    "claude-code",
     "llm",
     "agent",
     "ai-coding",
-    "developer-tools"
+    "developer-tools",
+    "coding-assistant",
+    "workspace-analysis",
+    "mcp-server",
+    "multi-agent"
   ],
   "activationEvents": [
     "onView:ptah.main",
@@ -47,7 +47,7 @@
     "color": "#1a1a2e",
     "theme": "dark"
   },
-  "main": "./main.js",
+  "main": "./main.mjs",
   "icon": "assets/images/ptah-icon.png",
   "contributes": {
     "authentication": [
@@ -195,11 +195,11 @@
             "openrouter"
           ],
           "default": "auto",
-          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key. Note: Claude OAuth tokens are restricted by Anthropic to Claude Code/Claude.ai only and will not work in third-party tools (Feb 2026 policy)."
+          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key."
         },
         "ptah.model.selected": {
           "type": "string",
-          "description": "Claude model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
+          "description": "AI model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
         },
         "ptah.autopilot.enabled": {
           "type": "boolean",
@@ -346,7 +346,7 @@
             "openai-codex"
           ],
           "default": "openrouter",
-          "description": "Selected Anthropic-compatible provider for API key authentication."
+          "description": "Selected AI provider for API key authentication."
         },
         "ptah.enhancedPrompts.enabled": {
           "type": "boolean",
@@ -357,7 +357,7 @@
         "ptah.compaction.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable automatic context compaction for long sessions. When enabled, Claude will summarize conversation history to stay within context limits."
+          "description": "Enable automatic context compaction for long sessions. When enabled, the AI will summarize conversation history to stay within context limits."
         },
         "ptah.compaction.threshold": {
           "type": "number",
@@ -389,7 +389,7 @@
             "max"
           ],
           "default": "",
-          "description": "Default reasoning effort level for the main Claude Agent SDK chat. Leave empty for SDK default."
+          "description": "Default reasoning effort level for the main AI agent chat. Leave empty for SDK default."
         },
         "ptah.mcpPort": {
           "type": "number",
@@ -505,7 +505,7 @@
         "ptah.ptahCliAgents": {
           "type": "array",
           "default": [],
-          "description": "Ptah CLI agent configurations for Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.).",
+          "description": "Ptah CLI agent configurations for AI providers (OpenRouter, Moonshot, Z.AI, etc.).",
           "scope": "resource",
           "items": {
             "type": "object",
@@ -520,7 +520,7 @@
               },
               "providerId": {
                 "type": "string",
-                "description": "Anthropic-compatible provider ID."
+                "description": "AI provider ID."
               },
               "enabled": {
                 "type": "boolean",
@@ -569,20 +569,26 @@
   },
   "dependencies": {
     "async-mutex": "^0.5.0",
+    "chokidar": "^4.0.0",
     "cross-spawn": "^7.0.6",
     "eventemitter3": "^5.0.1",
+    "fast-glob": "^3.3.0",
     "gray-matter": "^4.0.3",
     "json2md": "^2.0.3",
     "jsonrepair": "^3.13.1",
     "minimatch": "^9.0.3",
+    "p-limit": "^7.1.1",
+    "p-queue": "^8.1.0",
     "picomatch": "^4.0.2",
+    "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.0",
     "tree-sitter": "^0.21.1",
     "tree-sitter-javascript": "^0.23.1",
     "tree-sitter-typescript": "^0.23.2",
     "tslib": "^2.3.0",
+    "tsyringe": "^4.10.0",
     "uuid": "^9.0.0",
     "which": "^6.0.1",
-    "zod": "^3.25.76"
+    "zod": "^4.1.12"
   }
 }

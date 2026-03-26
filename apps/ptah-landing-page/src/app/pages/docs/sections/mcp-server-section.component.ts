@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -26,7 +26,6 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
 @Component({
   selector: 'ptah-docs-mcp-server',
   imports: [
-    CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsCodeBlockComponent,
@@ -107,23 +106,23 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
         >
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             @for (tool of mcpTools; track tool.name) {
-            <div
-              class="flex items-start gap-3 px-4 py-3 rounded-xl bg-base-300/50 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="tool.icon"
-                class="w-4 h-4 text-secondary/70 shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <code class="text-sm font-mono text-base-content/80">{{
-                  tool.name
-                }}</code>
-                <p class="text-xs text-neutral-content/60 mt-0.5">
-                  {{ tool.description }}
-                </p>
+              <div
+                class="flex items-start gap-3 px-4 py-3 rounded-xl bg-base-300/50 border border-secondary/10"
+              >
+                <lucide-angular
+                  [img]="tool.icon"
+                  class="w-4 h-4 text-secondary/70 shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
+                <div>
+                  <code class="text-sm font-mono text-base-content/80">{{
+                    tool.name
+                  }}</code>
+                  <p class="text-xs text-neutral-content/60 mt-0.5">
+                    {{ tool.description }}
+                  </p>
+                </div>
               </div>
-            </div>
             }
           </div>
 
@@ -132,23 +131,23 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
           </h4>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             @for (tool of agentMcpTools; track tool.name) {
-            <div
-              class="flex items-start gap-3 px-4 py-3 rounded-xl bg-base-300/50 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="ServerIcon"
-                class="w-4 h-4 text-secondary/70 shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <code class="text-sm font-mono text-base-content/80">{{
-                  tool.name
-                }}</code>
-                <p class="text-xs text-neutral-content/60 mt-0.5">
-                  {{ tool.description }}
-                </p>
+              <div
+                class="flex items-start gap-3 px-4 py-3 rounded-xl bg-base-300/50 border border-secondary/10"
+              >
+                <lucide-angular
+                  [img]="ServerIcon"
+                  class="w-4 h-4 text-secondary/70 shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
+                <div>
+                  <code class="text-sm font-mono text-base-content/80">{{
+                    tool.name
+                  }}</code>
+                  <p class="text-xs text-neutral-content/60 mt-0.5">
+                    {{ tool.description }}
+                  </p>
+                </div>
               </div>
-            </div>
             }
           </div>
           <p class="text-xs text-neutral-content/40 mt-3">
@@ -179,23 +178,23 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
 
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
             @for (ns of apiNamespaces; track ns.name) {
-            <div
-              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/30 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="ArrowRightIcon"
-                class="w-3 h-3 text-secondary/50 shrink-0"
-                aria-hidden="true"
-              />
-              <div>
-                <code class="text-xs font-mono text-secondary/70">{{
-                  ns.name
-                }}</code>
-                <span class="text-xs text-neutral-content/40 ml-1.5">{{
-                  ns.hint
-                }}</span>
+              <div
+                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/30 border border-secondary/10"
+              >
+                <lucide-angular
+                  [img]="ArrowRightIcon"
+                  class="w-3 h-3 text-secondary/50 shrink-0"
+                  aria-hidden="true"
+                />
+                <div>
+                  <code class="text-xs font-mono text-secondary/70">{{
+                    ns.name
+                  }}</code>
+                  <span class="text-xs text-neutral-content/40 ml-1.5">{{
+                    ns.hint
+                  }}</span>
+                </div>
               </div>
-            </div>
             }
           </div>
         </ptah-docs-collapsible-card>
