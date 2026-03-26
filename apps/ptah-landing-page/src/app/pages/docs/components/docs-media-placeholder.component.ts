@@ -1,10 +1,10 @@
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { LucideAngularModule, Play, Image } from 'lucide-angular';
 
 @Component({
   selector: 'ptah-docs-media-placeholder',
-  imports: [CommonModule, LucideAngularModule],
+  imports: [LucideAngularModule],
   template: `
     <div
       class="relative rounded-xl overflow-hidden border border-amber-500/20 bg-slate-800/40 backdrop-blur-sm group lg:min-h-[50vh]"
@@ -25,25 +25,25 @@ import { LucideAngularModule, Play, Image } from 'lucide-angular';
         class="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4"
       >
         @if (mediaType() === 'video') {
-        <div
-          class="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center group-hover:bg-amber-500/30 transition-colors"
-        >
-          <lucide-angular
-            [img]="PlayIcon"
-            class="w-6 h-6 text-amber-400 ml-0.5"
-            aria-hidden="true"
-          />
-        </div>
+          <div
+            class="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center group-hover:bg-amber-500/30 transition-colors"
+          >
+            <lucide-angular
+              [img]="PlayIcon"
+              class="w-6 h-6 text-amber-400 ml-0.5"
+              aria-hidden="true"
+            />
+          </div>
         } @else {
-        <div
-          class="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center"
-        >
-          <lucide-angular
-            [img]="ImageIcon"
-            class="w-6 h-6 text-amber-400/60"
-            aria-hidden="true"
-          />
-        </div>
+          <div
+            class="w-14 h-14 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center"
+          >
+            <lucide-angular
+              [img]="ImageIcon"
+              class="w-6 h-6 text-amber-400/60"
+              aria-hidden="true"
+            />
+          </div>
         }
         <span class="text-sm text-white/40 font-medium text-center">{{
           title()

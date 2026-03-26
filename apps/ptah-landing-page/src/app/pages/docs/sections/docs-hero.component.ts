@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -7,7 +7,7 @@ import {
 
 @Component({
   selector: 'ptah-docs-hero',
-  imports: [CommonModule, ViewportAnimationDirective],
+  imports: [ViewportAnimationDirective],
   template: `
     <section id="docs-hero" class="pt-28 pb-12 sm:pt-32 sm:pb-16">
       <div class="max-w-3xl">

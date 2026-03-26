@@ -5,8 +5,8 @@
 <h1 align="center">Ptah - AI Coding Orchestra</h1>
 
 <p align="center">
-  <strong>The AI coding orchestra for VS Code, powered by Claude Agent SDK.</strong><br/>
-  Intelligent workspace analysis, Code Execution MCP server, and project-adaptive AI agents — all natively integrated into VS Code.
+  <strong>Provider-agnostic AI orchestration for VS Code.</strong><br/>
+  Intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows — all natively integrated into VS Code.
 </p>
 
 <p align="center">
@@ -61,21 +61,18 @@ Download the standalone desktop app for your platform from [GitHub Releases](htt
 
 Ptah supports multiple authentication methods. **API Key** or **third-party Provider** is recommended.
 
-> **Note:** As of February 2026, Anthropic restricts Claude subscription OAuth tokens to their own apps only. The OAuth method is no longer functional.
-
-Access settings via: **Ptah sidebar → gear icon → four tabs: Provider, OAuth, API Key, Auto**
+Access settings via: **Ptah sidebar → gear icon → four tabs: Provider, API Key, Auto**
 
 ### API Key (Recommended)
 
-Pay-per-token billing via Anthropic Console — no subscription required.
+Use your own API key for pay-per-token billing — no subscription required.
 
-1. Go to [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) → **Create Key**
-2. Keys start with `sk-ant-api03-`
-3. Open Ptah settings → **API Key** tab → paste key → **Save & Test**
+1. Obtain an API key from your AI provider
+2. Open Ptah settings → **API Key** tab → paste key → **Save & Test**
 
 ### Provider (OpenRouter, Moonshot, Z.AI)
 
-Use third-party AI providers with your own API key — no Claude subscription needed. Each provider speaks Anthropic-compatible API.
+Use third-party AI providers with your own API key. Each provider offers access to hundreds of models through a single key.
 
 1. Select **Provider** tab
 2. Choose your provider
@@ -84,7 +81,6 @@ Use third-party AI providers with your own API key — no Claude subscription ne
 ### Auto Mode
 
 Tries all configured credentials automatically.
-Priority order: **Provider → OAuth → API Key**
 
 > Always click **"Save & Test Connection"** to verify credentials.
 
@@ -96,7 +92,7 @@ Bring your own API key and use the full agentic experience with the model of you
 
 ### OpenRouter
 
-200+ models through a single API key — multi-provider gateway (Anthropic, OpenAI, Google, Meta, etc.).
+200+ models through a single API key — multi-provider gateway supporting all major AI providers.
 
 - Key format: `sk-or-v1-...`
 - Get your key at [openrouter.ai/keys](https://openrouter.ai/keys)
@@ -175,7 +171,7 @@ Spawn **Gemini CLI**, **Codex**, and **GitHub Copilot** as headless background w
 
 ### Ptah CLI Agents (User-configurable)
 
-Connect any Anthropic-compatible provider as a background agent. Each gets its own API key, model selection, and tier mappings. Supported: **OpenRouter**, **Moonshot (Kimi)**, **Z.AI (GLM)**.
+Connect any compatible provider as a background agent. Each gets its own API key, model selection, and tier mappings. Supported: **OpenRouter**, **Moonshot (Kimi)**, **Z.AI (GLM)**.
 
 ### Agent MCP Tools
 
@@ -229,13 +225,13 @@ The setup wizard scans your workspace and configures Ptah's AI agents for your p
 
 1. **Open Setup Wizard** — Click "Setup Wizard" in the Ptah sidebar or run `Ptah: Run Setup Wizard` from Command Palette (`Ctrl+Shift+P`)
 2. **Let it scan** — Wizard detects project type, frameworks, dependencies, and configurations. Supports 13+ project types (React, Angular, Node.js, Python, etc.)
-3. **Review and generate** — Review detected agents, adjust selections, generate project-specific `CLAUDE.md` rules and agent configurations
+3. **Review and generate** — Review detected agents, adjust selections, generate project-specific rules and agent configurations
 
 ---
 
 ## Ptah MCP Server
 
-Built-in MCP (Model Context Protocol) server runs inside the VS Code extension host. Gives AI subagents direct access to VS Code capabilities — LSP, diagnostics, workspace analysis, git, and more.
+Built-in MCP (Model Context Protocol) server runs inside the VS Code extension host. Gives AI agents direct access to VS Code capabilities — LSP, diagnostics, workspace analysis, git, and more.
 
 > **Pro feature** — automatically enabled with active license. Agents query Ptah APIs for structured, accurate results in a single call instead of manual file exploration and bash commands.
 
@@ -243,7 +239,7 @@ Built-in MCP (Model Context Protocol) server runs inside the VS Code extension h
 
 1. Extension startup launches MCP server on local port
 2. Server registers in workspace's `.mcp.json`
-3. Every AI subagent spawned via `Task` tool auto-discovers it
+3. Every AI agent spawned via `Task` tool auto-discovers it
 4. Gets system prompt preferring Ptah tools over built-ins
 
 ### Available MCP Tools

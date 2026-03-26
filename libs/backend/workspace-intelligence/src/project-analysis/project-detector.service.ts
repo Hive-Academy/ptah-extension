@@ -1,5 +1,6 @@
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import { ProjectType } from '../types/workspace.types';
@@ -31,9 +32,10 @@ import { FileSystemService } from '../services/file-system.service';
 @injectable()
 export class ProjectDetectorService {
   constructor(
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -160,7 +162,7 @@ export class ProjectDetectorService {
       // Never throw - always return a valid project type
       console.warn(
         `Failed to detect project type for ${workspacePath}:`,
-        _error instanceof Error ? _error.message : String(_error)
+        _error instanceof Error ? _error.message : String(_error),
       );
       return ProjectType.General;
     }
@@ -181,7 +183,7 @@ export class ProjectDetectorService {
    * @returns Detected Node.js project type
    */
   private async detectNodeProjectType(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<ProjectType> {
     try {
       const packageJsonPath = path.join(workspacePath, 'package.json');

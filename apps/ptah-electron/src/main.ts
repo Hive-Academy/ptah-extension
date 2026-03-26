@@ -3,6 +3,7 @@ import 'reflect-metadata';
 
 import { app, BrowserWindow, safeStorage, dialog, ipcMain } from 'electron';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
 import { ElectronDIContainer } from './di/container';
 import { ElectronRpcMethodRegistrationService } from './services/rpc/rpc-method-registration.service';
@@ -27,6 +28,9 @@ import type {
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import type { WorkspaceContextManager } from './services/workspace-context-manager';
 
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 // Prevent multiple instances
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -44,7 +48,7 @@ if (!gotLock) {
       (arg) =>
         !arg.startsWith('-') &&
         arg !== process.argv[0] &&
-        arg !== process.argv[1]
+        arg !== process.argv[1],
     );
     const initialFolders = workspacePath
       ? [path.resolve(workspacePath)]
@@ -74,7 +78,7 @@ if (!gotLock) {
         showMessageBox: (win: unknown, options: unknown) =>
           dialog.showMessageBox(
             win as Electron.BaseWindow,
-            options as Electron.MessageBoxOptions
+            options as Electron.MessageBoxOptions,
           ),
       },
       getWindow: () => {
@@ -126,13 +130,13 @@ if (!gotLock) {
         } catch (err) {
           console.error(
             `[Ptah Electron] DI verify: ${name} -- FAILED:`,
-            err instanceof Error ? err.message : String(err)
+            err instanceof Error ? err.message : String(err),
           );
         }
       }
 
       console.log(
-        `[Ptah Electron] DI verification: ${resolved}/${tokensToVerify.length} tokens resolved`
+        `[Ptah Electron] DI verification: ${resolved}/${tokensToVerify.length} tokens resolved`,
       );
     }
 
@@ -152,15 +156,15 @@ if (!gotLock) {
     let startupWorkspaceRoot: string | undefined;
     try {
       const globalStateStorage = container.resolve<IStateStorage>(
-        PLATFORM_TOKENS.STATE_STORAGE
+        PLATFORM_TOKENS.STATE_STORAGE,
       );
       const workspaceContextManager =
         container.resolve<WorkspaceContextManager>(
-          TOKENS.WORKSPACE_CONTEXT_MANAGER
+          TOKENS.WORKSPACE_CONTEXT_MANAGER,
         );
       const workspaceProviderForRestore =
         container.resolve<ElectronWorkspaceProvider>(
-          PLATFORM_TOKENS.WORKSPACE_PROVIDER
+          PLATFORM_TOKENS.WORKSPACE_PROVIDER,
         );
 
       // Read persisted workspace list
@@ -181,7 +185,7 @@ if (!gotLock) {
             validFolders.push(folder);
           } catch {
             console.warn(
-              `[Ptah Electron] Skipping stale workspace path (no longer exists): ${folder}`
+              `[Ptah Electron] Skipping stale workspace path (no longer exists): ${folder}`,
             );
           }
         }
@@ -190,7 +194,7 @@ if (!gotLock) {
           // Clamp activeIndex to valid range
           const activeIndex = Math.min(
             Math.max(persisted.activeIndex ?? 0, 0),
-            validFolders.length - 1
+            validFolders.length - 1,
           );
 
           if (cliWorkspacePath) {
@@ -202,7 +206,7 @@ if (!gotLock) {
             // Restore workspaces with CLI path as active
             await workspaceContextManager.restoreWorkspaces(
               validFolders,
-              cliResolved
+              cliResolved,
             );
             // Sync the provider's folder list
             workspaceProviderForRestore.setWorkspaceFolders(validFolders);
@@ -212,7 +216,7 @@ if (!gotLock) {
             const activePath = validFolders[activeIndex];
             await workspaceContextManager.restoreWorkspaces(
               validFolders,
-              activePath
+              activePath,
             );
             // Sync the provider's folder list
             workspaceProviderForRestore.setWorkspaceFolders(validFolders);
@@ -220,7 +224,7 @@ if (!gotLock) {
           }
 
           console.log(
-            `[Ptah Electron] Restored ${validFolders.length} workspace(s) from persisted state`
+            `[Ptah Electron] Restored ${validFolders.length} workspace(s) from persisted state`,
           );
         }
       } else if (cliWorkspacePath) {
@@ -228,12 +232,12 @@ if (!gotLock) {
         // Container setup already created the initial workspace context
         // (in container.ts Phase 1.6), so no extra restore needed.
         console.log(
-          '[Ptah Electron] No persisted workspaces; using CLI workspace'
+          '[Ptah Electron] No persisted workspaces; using CLI workspace',
         );
       } else {
         // No persisted workspaces, no CLI arg — app opens with no workspace
         console.log(
-          '[Ptah Electron] No persisted workspaces and no CLI arg — starting without workspace'
+          '[Ptah Electron] No persisted workspaces and no CLI arg — starting without workspace',
         );
       }
 
@@ -262,7 +266,7 @@ if (!gotLock) {
           .catch((err: unknown) => {
             console.error(
               '[Ptah Electron] Failed to persist workspace list:',
-              err instanceof Error ? err.message : String(err)
+              err instanceof Error ? err.message : String(err),
             );
           });
       };
@@ -280,7 +284,7 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] Workspace restoration failed (non-fatal):',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
 
@@ -299,7 +303,7 @@ if (!gotLock) {
     // Load saved Anthropic API key and set in environment for Claude Agent SDK.
     try {
       const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE
+        PLATFORM_TOKENS.SECRET_STORAGE,
       );
       const apiKey = await secretStorage.get('ptah.apiKey.anthropic');
       if (apiKey) {
@@ -309,7 +313,7 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] Failed to load API key from secret storage:',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
 
@@ -344,18 +348,18 @@ if (!gotLock) {
         console.log(
           `[Ptah Electron] License invalid (reason: ${
             licenseStatus.reason ?? 'unknown'
-          }, tier: ${licenseStatus.tier ?? 'unknown'}), showing welcome screen`
+          }, tier: ${licenseStatus.tier ?? 'unknown'}), showing welcome screen`,
         );
       } else {
         console.log(
-          `[Ptah Electron] License verified (tier: ${licenseStatus.tier})`
+          `[Ptah Electron] License verified (tier: ${licenseStatus.tier})`,
         );
       }
     } catch (error) {
       // Non-fatal: default to licensed so users aren't blocked by verification errors
       console.warn(
         '[Ptah Electron] License verification failed (non-fatal, defaulting to licensed):',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
 
@@ -392,16 +396,16 @@ if (!gotLock) {
     // requires TOKENS.WEBVIEW_MANAGER which was just registered above.
     try {
       const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE
+        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
       );
       const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
-        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
       );
       enhancedPrompts.setAnalysisReader(analysisStorage);
     } catch (error) {
       console.warn(
         '[Ptah Electron] Failed to wire multi-phase analysis reader:',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
 
@@ -412,12 +416,12 @@ if (!gotLock) {
     // class-based orchestrator. This replaces both setupRpcHandlers() and
     // registerExtendedRpcMethods() with a single unified registration.
     const rpcRegistration = container.resolve(
-      ElectronRpcMethodRegistrationService
+      ElectronRpcMethodRegistrationService,
     );
     rpcRegistration.registerAll();
 
     console.log(
-      '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized'
+      '[Ptah Electron] IPC bridge, WebviewManager, and RPC methods initialized',
     );
 
     // ========================================
@@ -429,16 +433,16 @@ if (!gotLock) {
     // Failure is non-fatal: the app works without plugins, just logs a warning.
     try {
       const pluginLoader = container.resolve<PluginLoaderService>(
-        SDK_TOKENS.SDK_PLUGIN_LOADER
+        SDK_TOKENS.SDK_PLUGIN_LOADER,
       );
       const workspaceStateStorage = container.resolve<IStateStorage>(
-        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
       );
       pluginLoader.initialize(app.getAppPath(), workspaceStateStorage);
 
       const pluginConfig = pluginLoader.getWorkspacePluginConfig();
       const pluginPaths = pluginLoader.resolvePluginPaths(
-        pluginConfig.enabledPluginIds
+        pluginConfig.enabledPluginIds,
       );
 
       // Wire into command discovery for slash command autocomplete.
@@ -446,22 +450,22 @@ if (!gotLock) {
       // so we guard with isRegistered() to avoid resolution failure.
       if (container.isRegistered(TOKENS.COMMAND_DISCOVERY_SERVICE)) {
         const cmdDiscovery = container.resolve(
-          TOKENS.COMMAND_DISCOVERY_SERVICE
+          TOKENS.COMMAND_DISCOVERY_SERVICE,
         ) as { setPluginPaths: (paths: string[]) => void };
         cmdDiscovery.setPluginPaths(pluginPaths);
       } else {
         console.log(
-          '[Ptah Electron] COMMAND_DISCOVERY_SERVICE not registered, skipping plugin path wiring'
+          '[Ptah Electron] COMMAND_DISCOVERY_SERVICE not registered, skipping plugin path wiring',
         );
       }
 
       console.log(
-        `[Ptah Electron] Plugin loader initialized (${pluginPaths.length} plugin paths)`
+        `[Ptah Electron] Plugin loader initialized (${pluginPaths.length} plugin paths)`,
       );
     } catch (error) {
       console.warn(
         '[Ptah Electron] Plugin loader initialization failed (non-fatal):',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
 
@@ -476,13 +480,13 @@ if (!gotLock) {
     // Failure is non-fatal: the app works without junctions, just logs a warning.
     try {
       const skillJunction = container.resolve<SkillJunctionService>(
-        SDK_TOKENS.SDK_SKILL_JUNCTION
+        SDK_TOKENS.SDK_SKILL_JUNCTION,
       );
       skillJunction.initialize(app.getAppPath());
 
       // Re-resolve plugin loader (singleton) and get current paths
       const pluginLoader = container.resolve<PluginLoaderService>(
-        SDK_TOKENS.SDK_PLUGIN_LOADER
+        SDK_TOKENS.SDK_PLUGIN_LOADER,
       );
       const config = pluginLoader.getWorkspacePluginConfig();
       const paths = pluginLoader.resolvePluginPaths(config.enabledPluginIds);
@@ -497,7 +501,7 @@ if (!gotLock) {
 
       if (junctionResult.created > 0 || junctionResult.errors.length > 0) {
         console.log(
-          `[Ptah Electron] Skill junctions: ${junctionResult.created} created, ${junctionResult.skipped} skipped, ${junctionResult.removed} removed, ${junctionResult.errors.length} errors`
+          `[Ptah Electron] Skill junctions: ${junctionResult.created} created, ${junctionResult.skipped} skipped, ${junctionResult.removed} removed, ${junctionResult.errors.length} errors`,
         );
       } else {
         console.log('[Ptah Electron] Skill junctions activated');
@@ -505,7 +509,7 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] Skill junction activation failed (non-fatal):',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
 
@@ -521,17 +525,17 @@ if (!gotLock) {
       if (workspaceRoot) {
         try {
           const sessionImporter = container.resolve(
-            SDK_TOKENS.SDK_SESSION_IMPORTER
+            SDK_TOKENS.SDK_SESSION_IMPORTER,
           ) as {
             scanAndImport: (path: string, limit?: number) => Promise<number>;
           };
           const imported = await sessionImporter.scanAndImport(
             workspaceRoot,
-            50
+            50,
           );
           if (imported > 0) {
             console.log(
-              `[Ptah Electron] Imported ${imported} existing Claude session(s)`
+              `[Ptah Electron] Imported ${imported} existing Claude session(s)`,
             );
           }
         } catch (importError) {
@@ -539,7 +543,7 @@ if (!gotLock) {
             '[Ptah Electron] Session import skipped (non-fatal):',
             importError instanceof Error
               ? importError.message
-              : String(importError)
+              : String(importError),
           );
         }
       }
@@ -555,12 +559,12 @@ if (!gotLock) {
     // ========================================
     try {
       resolvedStateStorage = container.resolve<IStateStorage>(
-        PLATFORM_TOKENS.STATE_STORAGE
+        PLATFORM_TOKENS.STATE_STORAGE,
       );
     } catch (error) {
       console.warn(
         '[Ptah Electron] Could not resolve STATE_STORAGE for window persistence:',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
 
@@ -589,7 +593,7 @@ if (!gotLock) {
         startupConfig.initialView
       }, isLicensed=${startupConfig.isLicensed}, workspace=${
         startupConfig.workspaceName || '(none)'
-      }`
+      }`,
     );
 
     // ========================================
@@ -625,7 +629,7 @@ if (!gotLock) {
       } catch (error) {
         console.error(
           '[Ptah Electron] Auto-updater failed (non-fatal):',
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
       }
     }
@@ -660,7 +664,7 @@ if (!gotLock) {
     } catch (error) {
       console.warn(
         '[Ptah Electron] Skill junction cleanup failed (non-fatal):',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
   });

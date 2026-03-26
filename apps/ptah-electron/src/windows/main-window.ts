@@ -1,6 +1,10 @@
 import { BrowserWindow, screen } from 'electron';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+
+// @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Saved window bounds shape for type-safe persistence.
@@ -77,14 +81,14 @@ export function createMainWindow(stateStorage?: IStateStorage): BrowserWindow {
   mainWindow.on('close', () => {
     const bounds = mainWindow.getBounds();
     console.log(
-      `[Ptah Electron] Saving window bounds: ${JSON.stringify(bounds)}`
+      `[Ptah Electron] Saving window bounds: ${JSON.stringify(bounds)}`,
     );
     // Fire-and-forget: persist bounds for next launch
     if (stateStorage) {
       stateStorage.update('window.bounds', bounds).catch((err: unknown) => {
         console.error(
           '[Ptah Electron] Failed to persist window bounds:',
-          err instanceof Error ? err.message : String(err)
+          err instanceof Error ? err.message : String(err),
         );
       });
     }

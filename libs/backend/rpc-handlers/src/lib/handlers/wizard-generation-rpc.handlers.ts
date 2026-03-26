@@ -92,7 +92,7 @@ interface SetupWizardServiceInterface {
   getCurrentSession(): { id: string } | null;
   cancelWizard(
     sessionId: string,
-    saveProgress: boolean
+    saveProgress: boolean,
   ): Promise<Result<void, Error>>;
 }
 
@@ -103,7 +103,7 @@ interface SetupWizardServiceInterface {
 interface OrchestratorServiceInterface {
   generateAgents(
     options: OrchestratorGenerationOptions,
-    progressCallback?: (progress: GenerationProgress) => void
+    progressCallback?: (progress: GenerationProgress) => void,
   ): Promise<Result<GenerationSummary, Error>>;
 }
 
@@ -148,7 +148,8 @@ export class WizardGenerationRpcHandlers {
     private readonly pluginLoader: PluginLoaderService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspaceProvider: IWorkspaceProvider,
-    private readonly container: DependencyContainer
+    @inject('DependencyContainer')
+    private readonly container: DependencyContainer,
   ) {}
 
   /**
@@ -162,7 +163,7 @@ export class WizardGenerationRpcHandlers {
         return undefined;
       }
       const paths = this.pluginLoader.resolvePluginPaths(
-        config.enabledPluginIds
+        config.enabledPluginIds,
       );
       return paths.length > 0 ? paths : undefined;
     } catch (error) {
@@ -200,7 +201,7 @@ export class WizardGenerationRpcHandlers {
         error: message,
       });
       throw new Error(
-        `${serviceName} not available. Ensure the agent-generation module is properly initialized. Details: ${message}`
+        `${serviceName} not available. Ensure the agent-generation module is properly initialized. Details: ${message}`,
       );
     }
   }
@@ -248,7 +249,7 @@ export class WizardGenerationRpcHandlers {
       // Validate selectedAgentIds is non-empty
       if (!params?.selectedAgentIds?.length) {
         this.logger.warn(
-          'RPC: wizard:submit-selection called with empty agent selection'
+          'RPC: wizard:submit-selection called with empty agent selection',
         );
         return {
           success: false,
@@ -259,7 +260,7 @@ export class WizardGenerationRpcHandlers {
       // Concurrent generation guard
       if (this.isGenerating) {
         this.logger.warn(
-          'RPC: wizard:submit-selection rejected - generation already in progress'
+          'RPC: wizard:submit-selection rejected - generation already in progress',
         );
         return {
           success: false,
@@ -291,7 +292,7 @@ export class WizardGenerationRpcHandlers {
         // Resolve orchestrator from DI container
         const orchestrator = this.resolveService<OrchestratorServiceInterface>(
           AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
-          'AgentGenerationOrchestratorService'
+          'AgentGenerationOrchestratorService',
         );
 
         // Resolve WebviewManager for progress broadcasting (best-effort)
@@ -299,12 +300,12 @@ export class WizardGenerationRpcHandlers {
         try {
           webviewManager = this.resolveService<WebviewBroadcaster>(
             TOKENS.WEBVIEW_MANAGER,
-            'WebviewManager'
+            'WebviewManager',
           );
         } catch {
           this.logger.warn(
             'WebviewManager not available for progress broadcasting. ' +
-              'Generation will proceed without progress updates.'
+              'Generation will proceed without progress updates.',
           );
         }
 
@@ -314,24 +315,25 @@ export class WizardGenerationRpcHandlers {
           const enhancedPromptsService =
             this.resolveService<EnhancedPromptsServiceInterface>(
               SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
-              'EnhancedPromptsService'
+              'EnhancedPromptsService',
             );
-          const content = await enhancedPromptsService.getEnhancedPromptContent(
-            workspaceRoot
-          );
+          const content =
+            await enhancedPromptsService.getEnhancedPromptContent(
+              workspaceRoot,
+            );
           if (content) {
             enhancedPromptContent = content;
             this.logger.info(
               'Enhanced prompt content resolved for generation pipeline',
               {
                 contentLength: content.length,
-              }
+              },
             );
           }
         } catch {
           this.logger.warn(
             'EnhancedPromptsService not available. ' +
-              'Generation will proceed without enhanced prompt context.'
+              'Generation will proceed without enhanced prompt context.',
           );
         }
 
@@ -343,7 +345,7 @@ export class WizardGenerationRpcHandlers {
         if (analysisDir) {
           this.logger.info(
             'Passing multi-phase analysisDir to generation pipeline',
-            { analysisDir }
+            { analysisDir },
           );
         } else if (preComputedAnalysis) {
           this.logger.info(
@@ -351,7 +353,7 @@ export class WizardGenerationRpcHandlers {
             {
               projectType: preComputedAnalysis.projectType,
               frameworkCount: preComputedAnalysis.frameworks?.length ?? 0,
-            }
+            },
           );
         }
 
@@ -362,7 +364,7 @@ export class WizardGenerationRpcHandlers {
         try {
           const licenseService = this.resolveService<LicenseService>(
             TOKENS.LICENSE_SERVICE,
-            'LicenseService'
+            'LicenseService',
           );
           const licenseStatus = await licenseService.verifyLicense();
           isPremium =
@@ -370,7 +372,7 @@ export class WizardGenerationRpcHandlers {
 
           const codeExecutionMcp = this.resolveService<CodeExecutionMCP>(
             TOKENS.CODE_EXECUTION_MCP,
-            'CodeExecutionMCP'
+            'CodeExecutionMCP',
           );
           const actualPort = codeExecutionMcp.getPort();
           mcpServerRunning = actualPort !== null;
@@ -380,7 +382,7 @@ export class WizardGenerationRpcHandlers {
             'Could not resolve license/MCP services for generation',
             {
               error: error instanceof Error ? error.message : String(error),
-            }
+            },
           );
         }
 
@@ -391,20 +393,20 @@ export class WizardGenerationRpcHandlers {
           try {
             const cliDetection = this.resolveService<CliDetectionService>(
               TOKENS.CLI_DETECTION_SERVICE,
-              'CliDetectionService'
+              'CliDetectionService',
             );
             const installedClis = await cliDetection.detectAll();
             const cliTargets = installedClis
               .filter(
                 (c) =>
-                  (c.cli === 'copilot' || c.cli === 'gemini') && c.installed
+                  (c.cli === 'copilot' || c.cli === 'gemini') && c.installed,
               )
               .map((c) => c.cli as CliTarget);
             if (cliTargets.length > 0) {
               targetClis = cliTargets;
               this.logger.info(
                 'CLI targets detected for multi-CLI generation',
-                { targetClis }
+                { targetClis },
               );
             }
           } catch (cliError) {
@@ -415,7 +417,7 @@ export class WizardGenerationRpcHandlers {
                   cliError instanceof Error
                     ? cliError.message
                     : String(cliError),
-              }
+              },
             );
           }
         }
@@ -435,7 +437,7 @@ export class WizardGenerationRpcHandlers {
                       broadcastError instanceof Error
                         ? broadcastError.message
                         : String(broadcastError),
-                  }
+                  },
                 );
               });
           } catch {
@@ -522,7 +524,7 @@ export class WizardGenerationRpcHandlers {
           options,
           progressCallback,
           webviewManager,
-          startTime
+          startTime,
         );
 
         return { success: true };
@@ -531,7 +533,7 @@ export class WizardGenerationRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: wizard:submit-selection unexpected error',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         this.isGenerating = false;
         return {
@@ -552,7 +554,7 @@ export class WizardGenerationRpcHandlers {
     options: OrchestratorGenerationOptions,
     progressCallback: (progress: GenerationProgress) => void,
     webviewManager: WebviewBroadcaster | null,
-    startTime: number
+    startTime: number,
   ): void {
     orchestrator
       .generateAgents(options, progressCallback)
@@ -582,7 +584,7 @@ export class WizardGenerationRpcHandlers {
             webviewManager
               .broadcastMessage(
                 'setup-wizard:generation-complete',
-                completePayload
+                completePayload,
               )
               .catch((broadcastError) => {
                 this.logger.warn('Failed to broadcast generation complete', {
@@ -627,7 +629,7 @@ export class WizardGenerationRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: wizard:submit-selection unexpected error',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
 
         if (webviewManager) {
@@ -676,7 +678,7 @@ export class WizardGenerationRpcHandlers {
           const setupWizardService =
             this.resolveService<SetupWizardServiceInterface>(
               AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
-              'SetupWizardService'
+              'SetupWizardService',
             );
 
           // Get current session
@@ -684,14 +686,14 @@ export class WizardGenerationRpcHandlers {
 
           if (!currentSession) {
             this.logger.debug(
-              'RPC: wizard:cancel - no active session to cancel'
+              'RPC: wizard:cancel - no active session to cancel',
             );
 
             // Still reset the generation flag if it was stuck
             if (this.isGenerating) {
               this.isGenerating = false;
               this.logger.info(
-                'RPC: wizard:cancel - reset stuck isGenerating flag'
+                'RPC: wizard:cancel - reset stuck isGenerating flag',
               );
             }
 
@@ -701,7 +703,7 @@ export class WizardGenerationRpcHandlers {
           // Cancel the wizard session
           const cancelResult = await setupWizardService.cancelWizard(
             currentSession.id,
-            saveProgress
+            saveProgress,
           );
 
           // Reset generation flag to unlock future submissions
@@ -745,7 +747,7 @@ export class WizardGenerationRpcHandlers {
           // Return cancelled: false since we could not perform the cancellation
           return { cancelled: false };
         }
-      }
+      },
     );
   }
 
@@ -805,7 +807,7 @@ export class WizardGenerationRpcHandlers {
         // Resolve orchestrator
         const orchestrator = this.resolveService<OrchestratorServiceInterface>(
           AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
-          'AgentGenerationOrchestratorService'
+          'AgentGenerationOrchestratorService',
         );
 
         // Resolve WebviewManager for progress broadcasting (best-effort)
@@ -813,7 +815,7 @@ export class WizardGenerationRpcHandlers {
         try {
           webviewManager = this.resolveService<WebviewBroadcaster>(
             TOKENS.WEBVIEW_MANAGER,
-            'WebviewManager'
+            'WebviewManager',
           );
         } catch {
           // Progress broadcasting will be skipped
@@ -834,7 +836,7 @@ export class WizardGenerationRpcHandlers {
                       broadcastError instanceof Error
                         ? broadcastError.message
                         : String(broadcastError),
-                  }
+                  },
                 );
               });
           } catch {
@@ -871,7 +873,7 @@ export class WizardGenerationRpcHandlers {
             webviewManager
               .broadcastMessage(
                 'setup-wizard:generation-complete',
-                completePayload
+                completePayload,
               )
               .catch((broadcastError) => {
                 this.logger.warn('Failed to broadcast retry completion', {
@@ -899,7 +901,7 @@ export class WizardGenerationRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: wizard:retry-item unexpected error',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return {
           success: false,

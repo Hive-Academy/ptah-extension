@@ -14,7 +14,7 @@ const path = require('path');
 const electronPath = require('electron');
 const mainPath = path.resolve(
   __dirname,
-  '../../../dist/apps/ptah-electron/main.js'
+  '../../../dist/apps/ptah-electron/main.mjs',
 );
 
 // Forward any extra args (e.g., workspace path) to the Electron app

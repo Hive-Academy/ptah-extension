@@ -31,7 +31,7 @@ interface TokenResponse {
 
 async function fetchJson(
   url: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
 ): Promise<any> {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(url);
@@ -52,7 +52,7 @@ async function fetchJson(
             resolve(Buffer.concat(chunks).toString('utf8'));
           }
         });
-      }
+      },
     );
     req.on('error', reject);
     req.end();
@@ -62,7 +62,7 @@ async function fetchJson(
 async function postJson(
   url: string,
   headers: Record<string, string>,
-  body: object
+  body: object,
 ): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
     const parsedUrl = new URL(url);
@@ -93,7 +93,7 @@ async function postJson(
           }
           resolve({ status: res.statusCode ?? 0, body: parsed });
         });
-      }
+      },
     );
     req.on('error', reject);
     req.write(bodyStr);
@@ -103,8 +103,8 @@ async function postJson(
 
 async function getGitHubToken(): Promise<string> {
   // Try to read from environment or a local token file
-  if (process.env.GITHUB_TOKEN) {
-    return process.env.GITHUB_TOKEN;
+  if (process.env['GITHUB_TOKEN']) {
+    return process.env['GITHUB_TOKEN'];
   }
 
   // Try VS Code auth - this only works inside VS Code extension host
@@ -112,12 +112,12 @@ async function getGitHubToken(): Promise<string> {
   throw new Error(
     'Set GITHUB_TOKEN env var with a GitHub token that has copilot scope.\n' +
       'Get one from: https://github.com/settings/tokens (needs "copilot" scope)\n' +
-      'Or extract from VS Code: Developer Tools > Application > Session Storage'
+      'Or extract from VS Code: Developer Tools > Application > Session Storage',
   );
 }
 
 async function exchangeForCopilotToken(
-  githubToken: string
+  githubToken: string,
 ): Promise<TokenResponse> {
   console.log('  Exchanging GitHub token for Copilot bearer token...');
 
@@ -141,15 +141,15 @@ async function exchangeForCopilotToken(
             reject(
               new Error(
                 `Token exchange failed (${res.statusCode}): ${Buffer.concat(
-                  chunks
-                ).toString()}`
-              )
+                  chunks,
+                ).toString()}`,
+              ),
             );
             return;
           }
           resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
         });
-      }
+      },
     );
     req.on('error', reject);
     req.end();
@@ -159,7 +159,7 @@ async function exchangeForCopilotToken(
 async function testModelFormat(
   model: string,
   apiEndpoint: string,
-  bearerToken: string
+  bearerToken: string,
 ): Promise<{
   model: string;
   status: number;
@@ -186,15 +186,15 @@ async function testModelFormat(
     const result = await postJson(
       `${apiEndpoint}/chat/completions`,
       headers,
-      body
+      body,
     );
 
     const success = result.status >= 200 && result.status < 300;
     const error = success
       ? undefined
       : typeof result.body === 'object'
-      ? JSON.stringify(result.body).substring(0, 200)
-      : String(result.body).substring(0, 200);
+        ? JSON.stringify(result.body).substring(0, 200)
+        : String(result.body).substring(0, 200);
 
     return { model, status: result.status, error, success };
   } catch (err) {
@@ -231,7 +231,7 @@ async function main() {
     console.log(`✓ Copilot token obtained`);
     console.log(`  API endpoint: ${apiEndpoint}`);
     console.log(
-      `  Expires: ${new Date(tokenResponse.expires_at * 1000).toISOString()}\n`
+      `  Expires: ${new Date(tokenResponse.expires_at * 1000).toISOString()}\n`,
     );
   } catch (err) {
     console.error(`✗ Token exchange failed: ${(err as Error).message}`);
@@ -250,7 +250,7 @@ async function main() {
     const result = await testModelFormat(
       model,
       apiEndpoint,
-      tokenResponse.token
+      tokenResponse.token,
     );
 
     const statusStr = result.status.toString().padEnd(6);

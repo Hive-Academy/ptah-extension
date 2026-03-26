@@ -43,10 +43,10 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
       type: entry.isFile()
         ? FileType.File
         : entry.isDirectory()
-        ? FileType.Directory
-        : entry.isSymbolicLink()
-        ? FileType.SymbolicLink
-        : FileType.Unknown,
+          ? FileType.Directory
+          : entry.isSymbolicLink()
+            ? FileType.SymbolicLink
+            : FileType.Unknown,
     }));
   }
 
@@ -56,10 +56,10 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
       type: stats.isFile()
         ? FileType.File
         : stats.isDirectory()
-        ? FileType.Directory
-        : stats.isSymbolicLink()
-        ? FileType.SymbolicLink
-        : FileType.Unknown,
+          ? FileType.Directory
+          : stats.isSymbolicLink()
+            ? FileType.SymbolicLink
+            : FileType.Unknown,
       ctime: stats.ctimeMs,
       mtime: stats.mtimeMs,
       size: stats.size,
@@ -77,7 +77,7 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
 
   async delete(
     filePath: string,
-    options?: { recursive?: boolean }
+    options?: { recursive?: boolean },
   ): Promise<void> {
     await fs.rm(filePath, {
       recursive: options?.recursive ?? false,
@@ -92,7 +92,7 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
   async copy(
     source: string,
     destination: string,
-    options?: { overwrite?: boolean }
+    options?: { overwrite?: boolean },
   ): Promise<void> {
     const destExists = await this.exists(destination);
     if (destExists && !options?.overwrite) {
@@ -107,7 +107,7 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
   async findFiles(
     pattern: string,
     exclude?: string,
-    maxResults?: number
+    maxResults?: number,
   ): Promise<string[]> {
     // Dynamic import to avoid issues if fast-glob not installed in test environments
     const fg = await import('fast-glob');
@@ -120,8 +120,6 @@ export class ElectronFileSystemProvider implements IFileSystemProvider {
   }
 
   createFileWatcher(pattern: string): IFileWatcher {
-    // Use require for chokidar — synchronous return required by interface
-
     const chokidar = require('chokidar');
     const watcher = chokidar.watch(pattern, {
       ignoreInitial: true,
