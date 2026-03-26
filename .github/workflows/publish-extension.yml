@@ -142,12 +142,17 @@ jobs:
       - name: Publish to VS Code Marketplace
         run: |
           cd dist/apps/ptah-extension-vscode
-          DIST_VERSION=$(node -p "require('./package.json').version")
-          echo "Publishing version: $DIST_VERSION"
+          VSIX_FILE=$(ls *.vsix 2>/dev/null | head -1)
+          if [ -z "$VSIX_FILE" ]; then
+            echo "::error::No .vsix file found in dist"
+            exit 1
+          fi
+          VSIX_SIZE=$(du -h "$VSIX_FILE" | cut -f1)
+          echo "Publishing $VSIX_FILE ($VSIX_SIZE)"
           if [ "${{ github.event.inputs.pre-release }}" = "true" ]; then
-            npx @vscode/vsce publish --pre-release --pat ${{ secrets.VSCE_PAT }}
+            npx @vscode/vsce publish --packagePath "$VSIX_FILE" --pre-release --pat ${{ secrets.VSCE_PAT }}
           else
-            npx @vscode/vsce publish --pat ${{ secrets.VSCE_PAT }}
+            npx @vscode/vsce publish --packagePath "$VSIX_FILE" --pat ${{ secrets.VSCE_PAT }}
           fi
 
       - name: Commit version bump and tag

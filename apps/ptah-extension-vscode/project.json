@@ -23,7 +23,7 @@
         "platform": "node",
         "target": "node20",
         "bundle": true,
-        "thirdParty": false,
+        "thirdParty": true,
         "esbuildOptions": {
           "outExtension": {
             ".js": ".mjs"
@@ -37,12 +37,9 @@
           "@anthropic-ai/claude-agent-sdk",
           "@github/copilot-sdk",
           "@openai/codex-sdk",
-          "reflect-metadata",
-          "tsyringe",
           "tree-sitter",
           "tree-sitter-javascript",
-          "tree-sitter-typescript",
-          "axios"
+          "tree-sitter-typescript"
         ],
         "assets": [
           {

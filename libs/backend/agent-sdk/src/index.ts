@@ -270,5 +270,10 @@ export type {
   StreamProcessorResult,
 } from './lib/stream-processing';
 
+// ============================================================
+// MCP Port Management
+// ============================================================
+export { setPtahMcpPort } from './lib/constants';
+
 // Library version
 export const AGENT_SDK_VERSION = '0.0.1';
