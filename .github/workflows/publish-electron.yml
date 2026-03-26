@@ -39,6 +39,10 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  NODE_VERSION: 22
+  NX_TUI: false
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
@@ -127,10 +131,18 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Cache node_modules per OS — skips npm ci on cache hit
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
         run: npm ci
 
       # Python 3.12+ removed distutils; setuptools restores it for node-gyp native builds

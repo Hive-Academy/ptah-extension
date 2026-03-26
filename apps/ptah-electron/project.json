@@ -56,7 +56,8 @@
           "chokidar",
           "fast-glob",
           "p-limit",
-          "p-queue"
+          "p-queue",
+          "axios"
         ],
         "assets": [
           {

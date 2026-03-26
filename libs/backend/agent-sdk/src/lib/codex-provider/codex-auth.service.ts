@@ -24,6 +24,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import axios from 'axios';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -118,7 +119,7 @@ export class CodexAuthService implements ICodexAuthService {
     const token = await this.resolveAccessToken();
     if (!token) {
       throw new Error(
-        'Not authenticated with Codex. Run `codex login` to authenticate.'
+        'Not authenticated with Codex. Run `codex login` to authenticate.',
       );
     }
 
@@ -214,7 +215,7 @@ export class CodexAuthService implements ICodexAuthService {
       if (this.getApiKey(auth)) {
         this.logger.warn(
           '[CodexAuth] ensureTokensFresh called with API key auth -- API keys cannot be refreshed. ' +
-            'If you are seeing 401 errors, your API key may be invalid or revoked.'
+            'If you are seeing 401 errors, your API key may be invalid or revoked.',
         );
         return false;
       }
@@ -227,7 +228,7 @@ export class CodexAuthService implements ICodexAuthService {
       // Refresh if stale
       if (this.isTokenStale(auth.last_refresh)) {
         this.logger.info(
-          '[CodexAuth] Token appears stale, refreshing proactively...'
+          '[CodexAuth] Token appears stale, refreshing proactively...',
         );
         const refreshed = await this.refreshAccessToken(auth);
         return refreshed !== null;
@@ -238,7 +239,7 @@ export class CodexAuthService implements ICodexAuthService {
       this.logger.error(
         `[CodexAuth] ensureTokensFresh failed: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return false;
     }
@@ -269,7 +270,7 @@ export class CodexAuthService implements ICodexAuthService {
       // Proactively refresh if token looks stale
       if (auth.tokens.refresh_token && this.isTokenStale(auth.last_refresh)) {
         this.logger.info(
-          '[CodexAuth] Token stale, attempting refresh before use...'
+          '[CodexAuth] Token stale, attempting refresh before use...',
         );
         const refreshed = await this.refreshAccessToken(auth);
         if (refreshed) return refreshed;
@@ -280,7 +281,7 @@ export class CodexAuthService implements ICodexAuthService {
       this.logger.error(
         `[CodexAuth] Failed to resolve access token: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return null;
     }
@@ -316,13 +317,13 @@ export class CodexAuthService implements ICodexAuthService {
         (error as NodeJS.ErrnoException).code === 'ENOENT'
       ) {
         this.logger.debug(
-          '[CodexAuth] Auth file not found at ~/.codex/auth.json'
+          '[CodexAuth] Auth file not found at ~/.codex/auth.json',
         );
       } else {
         this.logger.warn(
           `[CodexAuth] Failed to read auth file: ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
       }
       return null;
@@ -349,14 +350,14 @@ export class CodexAuthService implements ICodexAuthService {
    * On success, writes updated tokens back to auth.json atomically.
    */
   private async refreshAccessToken(
-    auth: CodexAuthFile
+    auth: CodexAuthFile,
   ): Promise<string | null> {
     if (!auth.tokens?.refresh_token) return null;
 
     // Deduplicate concurrent refresh calls
     if (this.refreshInFlight) {
       this.logger.debug(
-        '[CodexAuth] Refresh already in flight, waiting for result...'
+        '[CodexAuth] Refresh already in flight, waiting for result...',
       );
       return this.refreshInFlight;
     }
@@ -374,13 +375,13 @@ export class CodexAuthService implements ICodexAuthService {
    * POST to https://auth.openai.com/oauth/token with the refresh token.
    */
   private async doRefreshAccessToken(
-    auth: CodexAuthFile
+    auth: CodexAuthFile,
   ): Promise<string | null> {
     // Guard: verify tokens and refresh_token are present
     const refreshToken = auth.tokens?.refresh_token;
     if (!refreshToken) {
       this.logger.warn(
-        '[CodexAuth] Cannot refresh: auth file has no refresh_token'
+        '[CodexAuth] Cannot refresh: auth file has no refresh_token',
       );
       return null;
     }
@@ -388,34 +389,27 @@ export class CodexAuthService implements ICodexAuthService {
     try {
       this.logger.debug(
         `[CodexAuth] Refreshing OAuth token (refresh_token: ${describeToken(
-          refreshToken
-        )})`
+          refreshToken,
+        )})`,
       );
 
-      const response = await fetch(REFRESH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: refreshToken,
-          client_id: OAUTH_CLIENT_ID,
-        }).toString(),
-        signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
-      });
-
-      if (!response.ok) {
-        this.logger.warn(
-          `[CodexAuth] Token refresh failed: HTTP ${response.status}`
-        );
-        return null;
-      }
-
-      const body = (await response.json()) as {
+      const { data: body } = await axios.post<{
         access_token?: string;
         refresh_token?: string;
         id_token?: string;
         expires_in?: number;
-      };
+      }>(
+        REFRESH_URL,
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+          client_id: OAUTH_CLIENT_ID,
+        }),
+        {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: REFRESH_TIMEOUT_MS,
+        },
+      );
 
       if (!body.access_token) {
         this.logger.warn('[CodexAuth] Token refresh returned no access_token');
@@ -424,8 +418,8 @@ export class CodexAuthService implements ICodexAuthService {
 
       this.logger.info(
         `[CodexAuth] Token refreshed successfully (new token: ${describeToken(
-          body.access_token
-        )})`
+          body.access_token,
+        )})`,
       );
 
       // Persist updated tokens atomically (write to .tmp, then rename)
@@ -448,10 +442,16 @@ export class CodexAuthService implements ICodexAuthService {
 
       return body.access_token;
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        this.logger.warn(
+          `[CodexAuth] Token refresh failed: HTTP ${error.response.status}`,
+        );
+        return null;
+      }
       this.logger.error(
         `[CodexAuth] Token refresh error: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return null;
     }
@@ -488,7 +488,7 @@ export class CodexAuthService implements ICodexAuthService {
         this.logger.warn(
           `[CodexAuth] Auth file write attempt ${attempt}/${
             CodexAuthService.WRITE_RETRY_COUNT
-          } failed: ${error instanceof Error ? error.message : String(error)}`
+          } failed: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
@@ -498,14 +498,14 @@ export class CodexAuthService implements ICodexAuthService {
     this.logger.error(
       `[CodexAuth] CRITICAL: Failed to persist refreshed auth tokens after ${CodexAuthService.WRITE_RETRY_COUNT} attempts. ` +
         'The OAuth refresh token was consumed but not saved to disk. ' +
-        'On next restart, authentication will fail. Run `codex login` to re-authenticate.'
+        'On next restart, authentication will fail. Run `codex login` to re-authenticate.',
     );
     throw new Error(
       `Failed to write auth file after ${
         CodexAuthService.WRITE_RETRY_COUNT
       } attempts: ${
         lastError instanceof Error ? lastError.message : String(lastError)
-      }`
+      }`,
     );
   }
 }
