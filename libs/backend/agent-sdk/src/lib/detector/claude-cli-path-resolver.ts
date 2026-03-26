@@ -6,6 +6,7 @@
  * instead of spawning the .cmd wrapper with shell:true
  */
 
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -37,7 +38,7 @@ export class ClaudeCliPathResolver {
    * @returns Resolved path info or null if cannot resolve
    */
   async resolve(
-    installationPath: string
+    installationPath: string,
   ): Promise<ResolvedClaudeCliPath | null> {
     const platform = os.platform();
 
@@ -97,7 +98,7 @@ export class ClaudeCliPathResolver {
    * Handles both Windows .cmd and Unix bash wrappers
    */
   private async parseWrapperScript(
-    wrapperPath: string
+    wrapperPath: string,
   ): Promise<string | null> {
     try {
       // If it's a command name (not a path), try to resolve it
@@ -208,7 +209,7 @@ export class ClaudeCliPathResolver {
         'node_modules',
         '@anthropic-ai',
         'claude-code',
-        'cli.js'
+        'cli.js',
       );
     }
 
@@ -223,7 +224,7 @@ export class ClaudeCliPathResolver {
         'node_modules',
         '@anthropic-ai',
         'claude-code',
-        'cli.js'
+        'cli.js',
       );
     }
 
@@ -235,10 +236,9 @@ export class ClaudeCliPathResolver {
    * Uses 'where' on Windows, 'which' on Unix
    */
   private async resolveCommandPath(
-    commandName: string
+    commandName: string,
   ): Promise<string | null> {
     return new Promise((resolve) => {
-      const { spawn } = require('child_process');
       const isWindows = os.platform() === 'win32';
       const command = isWindows ? 'where' : 'which';
 

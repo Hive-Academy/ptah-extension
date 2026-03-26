@@ -70,33 +70,55 @@ export class ElectronRpcMethodRegistrationService {
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     // Shared handlers (all 16)
+    @inject(SessionRpcHandlers)
     private readonly sessionHandlers: SessionRpcHandlers,
-    private readonly chatHandlers: ChatRpcHandlers,
+    @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
+    @inject(ConfigRpcHandlers)
     private readonly configHandlers: ConfigRpcHandlers,
-    private readonly authHandlers: AuthRpcHandlers,
+    @inject(AuthRpcHandlers) private readonly authHandlers: AuthRpcHandlers,
+    @inject(ContextRpcHandlers)
     private readonly contextHandlers: ContextRpcHandlers,
-    private readonly setupHandlers: SetupRpcHandlers,
+    @inject(SetupRpcHandlers) private readonly setupHandlers: SetupRpcHandlers,
+    @inject(LicenseRpcHandlers)
     private readonly licenseHandlers: LicenseRpcHandlers,
+    @inject(WizardGenerationRpcHandlers)
     private readonly wizardGenerationHandlers: WizardGenerationRpcHandlers,
+    @inject(AutocompleteRpcHandlers)
     private readonly autocompleteHandlers: AutocompleteRpcHandlers,
+    @inject(SubagentRpcHandlers)
     private readonly subagentHandlers: SubagentRpcHandlers,
+    @inject(PluginRpcHandlers)
     private readonly pluginHandlers: PluginRpcHandlers,
+    @inject(PtahCliRpcHandlers)
     private readonly ptahCliHandlers: PtahCliRpcHandlers,
+    @inject(EnhancedPromptsRpcHandlers)
     private readonly enhancedPromptsHandlers: EnhancedPromptsRpcHandlers,
+    @inject(QualityRpcHandlers)
     private readonly qualityHandlers: QualityRpcHandlers,
+    @inject(ProviderRpcHandlers)
     private readonly providerHandlers: ProviderRpcHandlers,
-    private readonly llmHandlers: LlmRpcHandlers,
+    @inject(LlmRpcHandlers) private readonly llmHandlers: LlmRpcHandlers,
     // Electron-specific handlers
+    @inject(ElectronWorkspaceRpcHandlers)
     private readonly workspaceHandlers: ElectronWorkspaceRpcHandlers,
+    @inject(ElectronEditorRpcHandlers)
     private readonly editorHandlers: ElectronEditorRpcHandlers,
+    @inject(ElectronFileRpcHandlers)
     private readonly fileHandlers: ElectronFileRpcHandlers,
+    @inject(ElectronConfigExtendedRpcHandlers)
     private readonly configExtendedHandlers: ElectronConfigExtendedRpcHandlers,
+    @inject(ElectronCommandRpcHandlers)
     private readonly commandHandlers: ElectronCommandRpcHandlers,
+    @inject(ElectronAuthExtendedRpcHandlers)
     private readonly authExtendedHandlers: ElectronAuthExtendedRpcHandlers,
+    @inject(ElectronSettingsRpcHandlers)
     private readonly settingsHandlers: ElectronSettingsRpcHandlers,
+    @inject(ElectronAgentRpcHandlers)
     private readonly agentHandlers: ElectronAgentRpcHandlers,
+    @inject(ElectronSkillsShRpcHandlers)
     private readonly skillsShHandlers: ElectronSkillsShRpcHandlers,
-    private readonly layoutHandlers: ElectronLayoutRpcHandlers
+    @inject(ElectronLayoutRpcHandlers)
+    private readonly layoutHandlers: ElectronLayoutRpcHandlers,
   ) {}
 
   /**
@@ -158,7 +180,7 @@ export class ElectronRpcMethodRegistrationService {
           `[Electron RPC] Failed to register ${name} (shared)`,
           {
             error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error
+          } as unknown as Error,
         );
       }
     }
@@ -208,7 +230,7 @@ export class ElectronRpcMethodRegistrationService {
           `[Electron RPC] Failed to register ${name} (Electron)`,
           {
             error: error instanceof Error ? error.message : String(error),
-          } as unknown as Error
+          } as unknown as Error,
         );
       }
     }

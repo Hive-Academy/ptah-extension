@@ -14,7 +14,7 @@ export class TemplateError extends Error {
     message: string,
     public readonly code = 'TEMPLATE_ERROR',
     public readonly context?: Record<string, unknown>,
-    public readonly cause?: Error
+    public override readonly cause?: Error,
   ) {
     super(message);
     this.name = 'TemplateError';
@@ -33,13 +33,13 @@ export class TemplateGenerationError extends TemplateError {
   constructor(
     message: string,
     context?: Record<string, unknown>,
-    cause?: Error
+    cause?: Error,
   ) {
     super(
       message,
       'TEMPLATE_GENERATION_ERROR',
       { ...context, errorType: 'generation' },
-      cause
+      cause,
     );
     this.name = 'TemplateGenerationError';
   }
@@ -53,13 +53,13 @@ export class TemplateFileError extends TemplateError {
     message: string,
     public readonly filePath: string,
     context?: Record<string, unknown>,
-    cause?: Error
+    cause?: Error,
   ) {
     super(
       message,
       'TEMPLATE_FILE_ERROR',
       { ...context, filePath, errorType: 'file' },
-      cause
+      cause,
     );
     this.name = 'TemplateFileError';
   }
@@ -73,13 +73,13 @@ export class TemplateProcessingError extends TemplateError {
     message: string,
     public readonly templateName: string,
     context?: Record<string, unknown>,
-    cause?: Error
+    cause?: Error,
   ) {
     super(
       message,
       'TEMPLATE_PROCESSING_ERROR',
       { ...context, templateName, errorType: 'template' },
-      cause
+      cause,
     );
     this.name = 'TemplateProcessingError';
   }
@@ -92,13 +92,13 @@ export class TemplateValidationError extends TemplateError {
   constructor(
     message: string,
     context?: Record<string, unknown>,
-    cause?: Error
+    cause?: Error,
   ) {
     super(
       message,
       'TEMPLATE_VALIDATION_ERROR',
       { ...context, errorType: 'validation' },
-      cause
+      cause,
     );
     this.name = 'TemplateValidationError';
   }

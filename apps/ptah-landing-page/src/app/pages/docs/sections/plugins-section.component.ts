@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -32,7 +32,6 @@ interface PluginData {
 @Component({
   selector: 'ptah-docs-plugins',
   imports: [
-    CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsSectionShellComponent,
@@ -61,49 +60,51 @@ interface PluginData {
 
       <div class="space-y-8" viewportAnimation [viewportConfig]="contentConfig">
         @for (plugin of plugins; track plugin.name; let first = $first) {
-        <ptah-docs-collapsible-card
-          [icon]="plugin.isDefault ? PackageIcon : PuzzleIcon"
-          [title]="plugin.name"
-          [subtitle]="plugin.isDefault ? 'Default' : ''"
-          [expanded]="first"
-        >
-          <p class="text-sm text-neutral-content mb-4">
-            {{ plugin.description }}
-          </p>
+          <ptah-docs-collapsible-card
+            [icon]="plugin.isDefault ? PackageIcon : PuzzleIcon"
+            [title]="plugin.name"
+            [subtitle]="plugin.isDefault ? 'Default' : ''"
+            [expanded]="first"
+          >
+            <p class="text-sm text-neutral-content mb-4">
+              {{ plugin.description }}
+            </p>
 
-          <!-- Badges -->
-          <div class="flex items-center gap-3 mb-4">
-            <span
-              class="px-2.5 py-1 rounded-lg bg-base-300/50 border border-secondary/10 text-xs text-neutral-content"
-            >
-              {{ plugin.skillCount }}
-              {{ plugin.skillCount === 1 ? 'skill' : 'skills' }}
-            </span>
-            @if (plugin.commandCount > 0) {
-            <span
-              class="px-2.5 py-1 rounded-lg bg-base-300/50 border border-secondary/10 text-xs text-neutral-content"
-            >
-              {{ plugin.commandCount }}+ commands
-            </span>
-            }
-          </div>
-
-          <!-- Skills grid -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            @for (skill of plugin.skills; track skill.name) {
-            <div
-              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="ArrowRightIcon"
-                class="w-3 h-3 text-secondary/60 shrink-0"
-                aria-hidden="true"
-              />
-              <span class="text-sm text-base-content/70">{{ skill.name }}</span>
+            <!-- Badges -->
+            <div class="flex items-center gap-3 mb-4">
+              <span
+                class="px-2.5 py-1 rounded-lg bg-base-300/50 border border-secondary/10 text-xs text-neutral-content"
+              >
+                {{ plugin.skillCount }}
+                {{ plugin.skillCount === 1 ? 'skill' : 'skills' }}
+              </span>
+              @if (plugin.commandCount > 0) {
+                <span
+                  class="px-2.5 py-1 rounded-lg bg-base-300/50 border border-secondary/10 text-xs text-neutral-content"
+                >
+                  {{ plugin.commandCount }}+ commands
+                </span>
+              }
             </div>
-            }
-          </div>
-        </ptah-docs-collapsible-card>
+
+            <!-- Skills grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              @for (skill of plugin.skills; track skill.name) {
+                <div
+                  class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
+                >
+                  <lucide-angular
+                    [img]="ArrowRightIcon"
+                    class="w-3 h-3 text-secondary/60 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span class="text-sm text-base-content/70">{{
+                    skill.name
+                  }}</span>
+                </div>
+              }
+            </div>
+          </ptah-docs-collapsible-card>
         }
       </div>
 

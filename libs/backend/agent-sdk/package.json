@@ -8,7 +8,6 @@
   "dependencies": {
     "@ptah-extension/shared": "0.0.1",
     "@ptah-extension/vscode-core": "0.0.1",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.25",
     "tsyringe": "^4.10.0",
     "@types/vscode": "^1.103.0",
     "zod": "^4.1.12",

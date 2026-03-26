@@ -23,7 +23,7 @@ import type {
 export class FileSystemService {
   constructor(
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
-    private readonly fsProvider: IFileSystemProvider
+    private readonly fsProvider: IFileSystemProvider,
   ) {}
 
   /**
@@ -38,7 +38,7 @@ export class FileSystemService {
     } catch (error) {
       throw new FileSystemError(
         `Failed to read file: ${path}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined,
       );
     }
   }
@@ -55,7 +55,7 @@ export class FileSystemService {
     } catch (error) {
       throw new FileSystemError(
         `Failed to read directory: ${path}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined,
       );
     }
   }
@@ -72,7 +72,7 @@ export class FileSystemService {
     } catch (error) {
       throw new FileSystemError(
         `Failed to stat: ${path}`,
-        error instanceof Error ? error : undefined
+        error instanceof Error ? error : undefined,
       );
     }
   }
@@ -111,7 +111,10 @@ export class FileSystemService {
  * File system error with context
  */
 export class FileSystemError extends Error {
-  constructor(message: string, public readonly cause?: Error) {
+  constructor(
+    message: string,
+    public override readonly cause?: Error,
+  ) {
     super(message);
     this.name = 'FileSystemError';
 

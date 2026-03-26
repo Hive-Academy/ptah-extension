@@ -8,23 +8,19 @@
  * 1. Try bare import (standard Node.js resolution)
  * 2. Fall back to locating the package relative to the CLI binary's install location
  * 3. Throw a descriptive error with install instructions if both fail
- *
- * The `new Function('specifier', 'return import(specifier)')` pattern prevents
- * webpack from transforming the dynamic import into __webpack_require__.
  */
 import { realpathSync, existsSync } from 'fs';
 import { dirname, join, sep } from 'path';
 import { pathToFileURL } from 'url';
 
 /**
- * Webpack-opaque dynamic import function.
- * Using `new Function` prevents webpack from intercepting and transforming
- * the import() call into its own module resolution (__webpack_require__).
- * At runtime, this executes a real Node.js dynamic import().
+ * Dynamic import wrapper. With esbuild ESM output, native import() works directly
+ * and is not transformed by the bundler. This thin wrapper keeps a single call site
+ * for easier debugging and future extensibility.
  */
-const dynamicImport = new Function('specifier', 'return import(specifier)') as (
-  specifier: string
-) => Promise<unknown>;
+async function dynamicImport(specifier: string): Promise<unknown> {
+  return import(specifier);
+}
 
 /**
  * Resolve and dynamically import an ESM-only SDK package that is NOT bundled
@@ -38,7 +34,7 @@ const dynamicImport = new Function('specifier', 'return import(specifier)') as (
  */
 export async function resolveAndImportSdk<T>(
   packageName: string,
-  cliBinaryPath?: string
+  cliBinaryPath?: string,
 ): Promise<T> {
   let lastError: unknown;
 
@@ -70,7 +66,7 @@ export async function resolveAndImportSdk<T>(
   throw new Error(
     `${packageName} is not installed or could not be loaded.` +
       `${detail ? ` (${detail})` : ''} ` +
-      `Install it globally: npm install -g ${packageName}`
+      `Install it globally: npm install -g ${packageName}`,
   );
 }
 
@@ -86,7 +82,7 @@ export async function resolveAndImportSdk<T>(
  */
 function findPackageFromBinary(
   binaryPath: string,
-  packageName: string
+  packageName: string,
 ): string | null {
   try {
     const realPath = realpathSync(binaryPath);

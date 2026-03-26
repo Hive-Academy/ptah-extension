@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -21,7 +21,6 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
 @Component({
   selector: 'ptah-docs-chat-dashboard',
   imports: [
-    CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsMediaPlaceholderComponent,
@@ -112,23 +111,23 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
         >
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             @for (feature of chatFeatures; track feature.label) {
-            <div
-              class="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="feature.icon"
-                class="w-4 h-4 text-secondary/60 shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div>
-                <span class="text-sm text-base-content/80 font-medium">{{
-                  feature.label
-                }}</span>
-                <p class="text-xs text-neutral-content/60 mt-0.5">
-                  {{ feature.description }}
-                </p>
+              <div
+                class="flex items-start gap-2.5 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
+              >
+                <lucide-angular
+                  [img]="feature.icon"
+                  class="w-4 h-4 text-secondary/60 shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
+                <div>
+                  <span class="text-sm text-base-content/80 font-medium">{{
+                    feature.label
+                  }}</span>
+                  <p class="text-xs text-neutral-content/60 mt-0.5">
+                    {{ feature.description }}
+                  </p>
+                </div>
               </div>
-            </div>
             }
           </div>
         </ptah-docs-collapsible-card>
@@ -147,18 +146,18 @@ import { DocsCollapsibleCardComponent } from '../components/docs-collapsible-car
 
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
             @for (metric of dashboardMetrics; track metric.label) {
-            <div
-              class="text-center px-3 py-3 rounded-lg bg-base-300/30 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="metric.icon"
-                class="w-4 h-4 text-secondary/50 mx-auto mb-1.5"
-                aria-hidden="true"
-              />
-              <span class="text-xs text-neutral-content block">{{
-                metric.label
-              }}</span>
-            </div>
+              <div
+                class="text-center px-3 py-3 rounded-lg bg-base-300/30 border border-secondary/10"
+              >
+                <lucide-angular
+                  [img]="metric.icon"
+                  class="w-4 h-4 text-secondary/50 mx-auto mb-1.5"
+                  aria-hidden="true"
+                />
+                <span class="text-xs text-neutral-content block">{{
+                  metric.label
+                }}</span>
+              </div>
             }
           </div>
         </ptah-docs-collapsible-card>

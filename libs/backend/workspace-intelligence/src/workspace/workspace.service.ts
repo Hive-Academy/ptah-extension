@@ -15,6 +15,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS, FileType } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -147,13 +148,18 @@ export class WorkspaceService implements IDisposable {
   private currentAnalysis?: WorkspaceAnalysisResult;
 
   constructor(
+    @inject(TOKENS.PROJECT_DETECTOR_SERVICE)
     private readonly projectDetector: ProjectDetectorService,
+    @inject(TOKENS.FRAMEWORK_DETECTOR_SERVICE)
     private readonly frameworkDetector: FrameworkDetectorService,
+    @inject(TOKENS.DEPENDENCY_ANALYZER_SERVICE)
     private readonly dependencyAnalyzer: DependencyAnalyzerService,
+    @inject(TOKENS.MONOREPO_DETECTOR_SERVICE)
     private readonly monorepoDetector: MonorepoDetectorService,
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {
     // Initialize workspace analysis on construction
     this.updateWorkspaceAnalysis().catch((error) => {
@@ -205,27 +211,25 @@ export class WorkspaceService implements IDisposable {
       const workspaceName = path.basename(workspacePath);
 
       // Detect project type
-      const projectType = await this.projectDetector.detectProjectType(
-        workspacePath
-      );
+      const projectType =
+        await this.projectDetector.detectProjectType(workspacePath);
 
       // Detect framework (if applicable)
       const framework = await this.frameworkDetector.detectFramework(
         workspacePath,
-        projectType
+        projectType,
       );
 
       // Detect monorepo
-      const monorepoResult = await this.monorepoDetector.detectMonorepo(
-        workspacePath
-      );
+      const monorepoResult =
+        await this.monorepoDetector.detectMonorepo(workspacePath);
       const isMonorepo = monorepoResult.isMonorepo;
       const monorepoType = isMonorepo ? monorepoResult.type : undefined;
 
       // Analyze dependencies
       const dependencyInfo = await this.dependencyAnalyzer.analyzeDependencies(
         workspacePath,
-        projectType
+        projectType,
       );
 
       // Count files
@@ -271,7 +275,7 @@ export class WorkspaceService implements IDisposable {
       console.info(
         `Workspace analyzed: ${workspaceName} (${projectType}${
           framework ? ` - ${framework}` : ''
-        })`
+        })`,
       );
 
       return this.currentAnalysis;
@@ -305,7 +309,7 @@ export class WorkspaceService implements IDisposable {
     const workspacePath = analysis.info.path;
     const fileStatistics = await this.getFileStatistics(
       workspacePath,
-      analysis.projectType
+      analysis.projectType,
     );
 
     return {
@@ -378,7 +382,7 @@ export class WorkspaceService implements IDisposable {
       const workspacePath = analysis.info.path;
       const structure = await this.getDirectoryStructure(workspacePath, 3);
       const recommendations = this.getContextRecommendations(
-        analysis.projectType
+        analysis.projectType,
       );
 
       return {
@@ -413,7 +417,7 @@ export class WorkspaceService implements IDisposable {
           'Include src/ directory for main application code',
           'Include package.json for dependencies',
           'Exclude node_modules and build directories',
-          'Consider excluding test files if focusing on implementation'
+          'Consider excluding test files if focusing on implementation',
         );
         break;
 
@@ -422,7 +426,7 @@ export class WorkspaceService implements IDisposable {
           'Include src/app/ for application code',
           'Include angular.json for project configuration',
           'Exclude node_modules and dist directories',
-          'Consider including routing configuration'
+          'Consider including routing configuration',
         );
         break;
 
@@ -431,7 +435,7 @@ export class WorkspaceService implements IDisposable {
           'Include src/ directory for components and views',
           'Include package.json for dependencies',
           'Exclude node_modules and dist directories',
-          'Consider including router configuration'
+          'Consider including router configuration',
         );
         break;
 
@@ -440,7 +444,7 @@ export class WorkspaceService implements IDisposable {
           'Include all .py files for source code',
           'Include requirements.txt or pyproject.toml for dependencies',
           'Exclude __pycache__ and virtual environment directories',
-          'Consider excluding test files if not needed'
+          'Consider excluding test files if not needed',
         );
         break;
 
@@ -449,7 +453,7 @@ export class WorkspaceService implements IDisposable {
           'Include src/main/java for source code',
           'Include pom.xml or build.gradle for configuration',
           'Exclude target/ or build/ directories',
-          'Consider including only specific packages if project is large'
+          'Consider including only specific packages if project is large',
         );
         break;
 
@@ -458,7 +462,7 @@ export class WorkspaceService implements IDisposable {
           'Include src/ for source code',
           'Include Cargo.toml for dependencies',
           'Exclude target/ directory',
-          'Consider including Cargo.lock for exact dependency versions'
+          'Consider including Cargo.lock for exact dependency versions',
         );
         break;
 
@@ -467,7 +471,7 @@ export class WorkspaceService implements IDisposable {
           'Include all .go files',
           'Include go.mod for dependencies',
           'Exclude vendor/ directory if present',
-          'Consider including go.sum for dependency verification'
+          'Consider including go.sum for dependency verification',
         );
         break;
 
@@ -476,7 +480,7 @@ export class WorkspaceService implements IDisposable {
           'Include main source files relevant to your task',
           'Include configuration files (package.json, etc.)',
           'Exclude build artifacts and dependencies',
-          'Use token optimization for large projects'
+          'Use token optimization for large projects',
         );
     }
 
@@ -497,7 +501,7 @@ export class WorkspaceService implements IDisposable {
   private async getDirectoryStructure(
     dirPath: string,
     maxDepth = 3,
-    currentDepth = 0
+    currentDepth = 0,
   ): Promise<DirectoryStructure> {
     if (currentDepth >= maxDepth) {
       return { directories: [], files: [] };
@@ -521,7 +525,7 @@ export class WorkspaceService implements IDisposable {
           const subStructure = await this.getDirectoryStructure(
             subPath,
             maxDepth,
-            currentDepth + 1
+            currentDepth + 1,
           );
           structure.directories.push({
             name: entry.name,
@@ -555,7 +559,7 @@ export class WorkspaceService implements IDisposable {
    */
   private async getFileStatistics(
     workspacePath: string,
-    projectType: ProjectType
+    projectType: ProjectType,
   ): Promise<Record<string, number>> {
     const statistics: Record<string, number> = {};
 
@@ -628,7 +632,7 @@ export class WorkspaceService implements IDisposable {
    */
   private async countFilesByExtension(
     dirPath: string,
-    extensions: string[]
+    extensions: string[],
   ): Promise<number> {
     try {
       const entries = await this.fileSystem.readDirectory(dirPath);
@@ -662,7 +666,7 @@ export class WorkspaceService implements IDisposable {
    * @returns Parsed package.json or undefined on error
    */
   private async readPackageJson(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<{ version?: string; description?: string } | undefined> {
     try {
       const packageJsonPath = path.join(workspacePath, 'package.json');
@@ -684,7 +688,7 @@ export class WorkspaceService implements IDisposable {
    * @returns Cargo.toml metadata or undefined on error
    */
   private async readCargoToml(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<{ version?: string; description?: string } | undefined> {
     try {
       const cargoTomlPath = path.join(workspacePath, 'Cargo.toml');
@@ -699,7 +703,7 @@ export class WorkspaceService implements IDisposable {
       const packageSection = packageMatch[1];
       const versionMatch = packageSection.match(/version\s*=\s*"([^"]+)"/);
       const descriptionMatch = packageSection.match(
-        /description\s*=\s*"([^"]+)"/
+        /description\s*=\s*"([^"]+)"/,
       );
 
       return {
@@ -779,7 +783,7 @@ export class WorkspaceService implements IDisposable {
         this.updateWorkspaceAnalysis().catch((error) => {
           console.error('Failed to update workspace on folder change:', error);
         });
-      }
+      },
     );
     this.disposables.push(disposable);
   }

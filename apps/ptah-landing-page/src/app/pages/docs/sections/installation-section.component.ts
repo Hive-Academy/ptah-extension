@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -17,7 +17,6 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
 @Component({
   selector: 'ptah-docs-installation',
   imports: [
-    CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsStepCardComponent,

@@ -1,5 +1,5 @@
 import { Component, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
 
 /**
@@ -19,27 +19,30 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
 @Component({
   selector: 'ptah-confirmation-dialog',
   standalone: true,
-  imports: [CommonModule],
+  imports: [],
   template: `
     <dialog #dialog class="modal" [class.modal-open]="dialogService.isOpen()">
       <div class="modal-box max-w-sm">
         @if (dialogService.options(); as options) {
-        <h3 class="font-bold text-lg">{{ options.title }}</h3>
-        <p class="py-4 text-base-content/80">{{ options.message }}</p>
-        <div class="modal-action">
-          <button class="btn btn-ghost" (click)="dialogService.handleCancel()">
-            {{ options.cancelLabel }}
-          </button>
-          <button
-            class="btn"
-            [class.btn-primary]="options.confirmStyle === 'primary'"
-            [class.btn-error]="options.confirmStyle === 'error'"
-            [class.btn-warning]="options.confirmStyle === 'warning'"
-            (click)="dialogService.handleConfirm()"
-          >
-            {{ options.confirmLabel }}
-          </button>
-        </div>
+          <h3 class="font-bold text-lg">{{ options.title }}</h3>
+          <p class="py-4 text-base-content/80">{{ options.message }}</p>
+          <div class="modal-action">
+            <button
+              class="btn btn-ghost"
+              (click)="dialogService.handleCancel()"
+            >
+              {{ options.cancelLabel }}
+            </button>
+            <button
+              class="btn"
+              [class.btn-primary]="options.confirmStyle === 'primary'"
+              [class.btn-error]="options.confirmStyle === 'error'"
+              [class.btn-warning]="options.confirmStyle === 'warning'"
+              (click)="dialogService.handleConfirm()"
+            >
+              {{ options.confirmLabel }}
+            </button>
+          </div>
         }
       </div>
       <!-- Click outside to cancel -->

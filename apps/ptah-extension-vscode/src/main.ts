@@ -23,6 +23,7 @@ import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
 import { SettingsCommands } from './commands/settings-commands';
+import { WebviewHtmlGenerator } from './services/webview-html-generator';
 
 let ptahExtension: PtahExtension | undefined;
 
@@ -39,7 +40,7 @@ let ptahExtension: PtahExtension | undefined;
  */
 function registerLicenseOnlyCommands(
   context: vscode.ExtensionContext,
-  licenseService: LicenseService
+  licenseService: LicenseService,
 ): void {
   // Create LicenseCommands instance manually (DI not fully setup)
   const licenseCommands = new LicenseCommands(licenseService);
@@ -60,12 +61,12 @@ function registerLicenseOnlyCommands(
     }),
     vscode.commands.registerCommand('ptah.openSignup', () => {
       vscode.env.openExternal(
-        vscode.Uri.parse(urls.SIGNUP_URL + '?source=vscode')
+        vscode.Uri.parse(urls.SIGNUP_URL + '?source=vscode'),
       );
     }),
     vscode.commands.registerCommand('ptah.toggleChat', () => {
       vscode.commands.executeCommand('ptah.main.focus');
-    })
+    }),
   );
 }
 
@@ -88,14 +89,13 @@ function registerLicenseOnlyCommands(
 async function handleLicenseBlocking(
   context: vscode.ExtensionContext,
   licenseService: LicenseService,
-  status: LicenseStatus
+  status: LicenseStatus,
 ): Promise<void> {
   // Register minimal commands for license management
   registerLicenseOnlyCommands(context, licenseService);
 
   // TASK_2025_126: Show webview with welcome view instead of modal
 
-  const { WebviewHtmlGenerator } = require('./services/webview-html-generator');
   const htmlGenerator = new WebviewHtmlGenerator(context);
 
   // Map backend license reason to frontend reason format
@@ -137,7 +137,7 @@ async function handleLicenseBlocking(
 
       webviewView.webview.html = htmlGenerator.generateAngularWebviewContent(
         webviewView.webview,
-        { workspaceInfo, initialView: 'welcome', isLicensed: false }
+        { workspaceInfo, initialView: 'welcome', isLicensed: false },
       );
 
       // Setup minimal message listener for RPC calls (license status, command execution)
@@ -218,9 +218,9 @@ async function handleLicenseBlocking(
                 setTimeout(
                   () =>
                     vscode.commands.executeCommand(
-                      'workbench.action.reloadWindow'
+                      'workbench.action.reloadWindow',
                     ),
-                  1500
+                  1500,
                 );
               } else {
                 webviewView.webview.postMessage({
@@ -259,7 +259,7 @@ async function handleLicenseBlocking(
               ) {
                 await vscode.commands.executeCommand(
                   command,
-                  ...(params?.args || [])
+                  ...(params?.args || []),
                 );
                 webviewView.webview.postMessage({
                   type: 'rpc:response',
@@ -289,6 +289,170 @@ async function handleLicenseBlocking(
                 correlationId,
               });
             }
+          } else if (method === 'settings:import') {
+            // Inline settings import for unlicensed users (TASK_2025_210)
+            // Full SettingsImportService requires DI container which isn't set up yet.
+            // Handle file dialog + secret storage directly via VS Code APIs.
+            try {
+              const fileUris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                filters: { 'JSON Files': ['json'] },
+                title: 'Import Ptah Settings',
+                openLabel: 'Import',
+              });
+
+              if (!fileUris || fileUris.length === 0) {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: true,
+                  data: { cancelled: true },
+                  correlationId,
+                });
+                return;
+              }
+
+              // Read and parse JSON file
+              const fileContent = await vscode.workspace.fs.readFile(
+                fileUris[0],
+              );
+              const jsonString = new TextDecoder().decode(fileContent);
+              let importData: Record<string, unknown>;
+              try {
+                importData = JSON.parse(jsonString);
+              } catch {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: false,
+                  error: 'File is not valid JSON',
+                  correlationId,
+                });
+                return;
+              }
+
+              // Validate basic structure (version 1, has auth section)
+              if (
+                !importData ||
+                typeof importData !== 'object' ||
+                importData['version'] !== 1 ||
+                !importData['auth']
+              ) {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: false,
+                  error:
+                    'Invalid settings file. Expected a Ptah settings export (version 1).',
+                  correlationId,
+                });
+                return;
+              }
+
+              // Import secrets directly via context.secrets (VS Code SecretStorage)
+              const imported: string[] = [];
+              const errors: string[] = [];
+              const auth = importData['auth'] as Record<string, unknown>;
+
+              if (
+                importData['licenseKey'] &&
+                typeof importData['licenseKey'] === 'string'
+              ) {
+                try {
+                  await context.secrets.store(
+                    'ptah.licenseKey',
+                    importData['licenseKey'] as string,
+                  );
+                  imported.push('ptah.licenseKey');
+                } catch (e) {
+                  errors.push(
+                    `licenseKey: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+              }
+
+              if (
+                auth['oauthToken'] &&
+                typeof auth['oauthToken'] === 'string'
+              ) {
+                try {
+                  await context.secrets.store(
+                    'ptah.auth.claudeOAuthToken',
+                    auth['oauthToken'] as string,
+                  );
+                  imported.push('ptah.auth.claudeOAuthToken');
+                } catch (e) {
+                  errors.push(
+                    `oauthToken: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+              }
+
+              if (auth['apiKey'] && typeof auth['apiKey'] === 'string') {
+                try {
+                  await context.secrets.store(
+                    'ptah.auth.anthropicApiKey',
+                    auth['apiKey'] as string,
+                  );
+                  imported.push('ptah.auth.anthropicApiKey');
+                } catch (e) {
+                  errors.push(
+                    `apiKey: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+              }
+
+              if (
+                auth['providerKeys'] &&
+                typeof auth['providerKeys'] === 'object'
+              ) {
+                for (const [providerId, value] of Object.entries(
+                  auth['providerKeys'] as Record<string, unknown>,
+                )) {
+                  if (typeof value === 'string' && value) {
+                    try {
+                      await context.secrets.store(
+                        `ptah.auth.provider.${providerId}`,
+                        value,
+                      );
+                      imported.push(`provider:${providerId}`);
+                    } catch (e) {
+                      errors.push(
+                        `provider:${providerId}: ${e instanceof Error ? e.message : String(e)}`,
+                      );
+                    }
+                  }
+                }
+              }
+
+              webviewView.webview.postMessage({
+                type: 'rpc:response',
+                success: true,
+                data: { cancelled: false, imported, errors },
+                correlationId,
+              });
+
+              // If a license key was imported, schedule a window reload so the
+              // extension re-runs activation with the new credentials.
+              // Same pattern as Electron's ElectronSettingsRpcHandlers — 1.5s
+              // delay lets the RPC response reach the webview before reload.
+              if (imported.includes('ptah.licenseKey')) {
+                setTimeout(
+                  () =>
+                    vscode.commands.executeCommand(
+                      'workbench.action.reloadWindow',
+                    ),
+                  1500,
+                );
+              }
+            } catch (error) {
+              webviewView.webview.postMessage({
+                type: 'rpc:response',
+                success: false,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : 'Import failed. Please try again.',
+                correlationId,
+              });
+            }
           }
         }
       });
@@ -299,17 +463,17 @@ async function handleLicenseBlocking(
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('ptah.main', provider, {
       webviewOptions: { retainContextWhenHidden: true },
-    })
+    }),
   );
 
   console.log(
-    '[Activate] Webview registered with welcome view for unlicensed user'
+    '[Activate] Webview registered with welcome view for unlicensed user',
   );
   // DO NOT call showLicenseRequiredUI() - webview handles onboarding
 }
 
 export async function activate(
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): Promise<void> {
   console.log('===== PTAH ACTIVATION START =====');
   try {
@@ -319,7 +483,7 @@ export async function activate(
     // Initialize minimal DI container with only license-related services
     // This allows license verification before full service initialization
     console.log(
-      '[Activate] Step 1: Setting up minimal DI for license check...'
+      '[Activate] Step 1: Setting up minimal DI for license check...',
     );
     DIContainer.setupMinimal(context);
     console.log('[Activate] Step 1: Minimal DI setup complete');
@@ -331,7 +495,7 @@ export async function activate(
     // If license is invalid, block extension and show license UI
     console.log('[Activate] Step 2: Verifying license (BLOCKING)...');
     const licenseService = DIContainer.resolve<LicenseService>(
-      TOKENS.LICENSE_SERVICE
+      TOKENS.LICENSE_SERVICE,
     );
     const licenseStatus: LicenseStatus = await licenseService.verifyLicense();
 
@@ -343,7 +507,7 @@ export async function activate(
       console.log(
         `[Activate] BLOCKED: License invalid (reason: ${
           licenseStatus.reason || 'unknown'
-        })`
+        })`,
       );
 
       // Handle blocking flow (show UI, register minimal commands)
@@ -356,7 +520,7 @@ export async function activate(
 
     // Community and Pro users both reach here
     console.log(
-      `[Activate] Step 2: License verified (tier: ${licenseStatus.tier})`
+      `[Activate] Step 2: License verified (tier: ${licenseStatus.tier})`,
     );
 
     // ========================================
@@ -379,7 +543,7 @@ export async function activate(
     // Extracted to RpcMethodRegistrationService for clean separation
     console.log('[Activate] Step 5: Registering RPC methods...');
     const rpcMethodRegistration = DIContainer.resolve(
-      TOKENS.RPC_METHOD_REGISTRATION_SERVICE
+      TOKENS.RPC_METHOD_REGISTRATION_SERVICE,
     ) as { registerAll: () => void };
     rpcMethodRegistration.registerAll();
     console.log('[Activate] Step 5: RPC methods registered');
@@ -388,10 +552,10 @@ export async function activate(
     // NOTE: MCP discovery service was planned but never implemented - only agent and command discovery exist
     console.log('[Activate] Step 6: Initializing autocomplete watchers...');
     const agentDiscovery = DIContainer.resolve(
-      TOKENS.AGENT_DISCOVERY_SERVICE
+      TOKENS.AGENT_DISCOVERY_SERVICE,
     ) as { initializeWatchers: () => void };
     const commandDiscovery = DIContainer.resolve(
-      TOKENS.COMMAND_DISCOVERY_SERVICE
+      TOKENS.COMMAND_DISCOVERY_SERVICE,
     ) as { initializeWatchers: () => void };
     agentDiscovery.initializeWatchers();
     commandDiscovery.initializeWatchers();
@@ -408,7 +572,7 @@ export async function activate(
 
     if (!authInitialized) {
       logger.info(
-        'SDK authentication not configured - users can configure in Ptah Settings'
+        'SDK authentication not configured - users can configure in Ptah Settings',
       );
     } else {
       logger.info('SDK authentication initialized successfully');
@@ -423,20 +587,20 @@ export async function activate(
       });
     }
     console.log(
-      '[Activate] Step 7: SDK authentication initialization complete'
+      '[Activate] Step 7: SDK authentication initialization complete',
     );
 
     // Step 7.1.5: Initialize plugin loader with extension path (TASK_2025_153)
     console.log('[Activate] Step 7.1.5: Initializing plugin loader...');
     try {
       const pluginLoader = DIContainer.resolve<PluginLoaderService>(
-        SDK_TOKENS.SDK_PLUGIN_LOADER
+        SDK_TOKENS.SDK_PLUGIN_LOADER,
       );
       // TASK_2025_199: Resolve IStateStorage from DI container instead of passing
       // raw context.workspaceState (vscode.Memento). The VscodeStateStorage wrapper
       // is registered as PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE in Phase 0.5.
       const workspaceStateStorage = DIContainer.resolve<IStateStorage>(
-        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
       );
       pluginLoader.initialize(context.extensionPath, workspaceStateStorage);
       logger.info('Plugin loader initialized');
@@ -444,10 +608,10 @@ export async function activate(
       // Wire plugin paths into command discovery for slash command autocomplete
       const pluginConfig = pluginLoader.getWorkspacePluginConfig();
       const pluginPaths = pluginLoader.resolvePluginPaths(
-        pluginConfig.enabledPluginIds
+        pluginConfig.enabledPluginIds,
       );
       const cmdDiscovery = DIContainer.resolve(
-        TOKENS.COMMAND_DISCOVERY_SERVICE
+        TOKENS.COMMAND_DISCOVERY_SERVICE,
       ) as { setPluginPaths: (paths: string[]) => void };
       cmdDiscovery.setPluginPaths(pluginPaths);
       logger.info('Plugin paths wired into command discovery', {
@@ -467,22 +631,22 @@ export async function activate(
     // Project skill files from extension assets into workspace .claude/skills/ via junctions
     // So third-party providers (Copilot, Codex) can find skills via MCP workspace search
     console.log(
-      '[Activate] Step 7.1.5.1: Creating workspace skill junctions...'
+      '[Activate] Step 7.1.5.1: Creating workspace skill junctions...',
     );
     try {
       const skillJunction = DIContainer.resolve<SkillJunctionService>(
-        SDK_TOKENS.SDK_SKILL_JUNCTION
+        SDK_TOKENS.SDK_SKILL_JUNCTION,
       );
       skillJunction.initialize(context.extensionPath);
 
       // Reuse the same pluginLoader singleton resolved in Step 7.1.5
       const junctionPluginLoader = DIContainer.resolve<PluginLoaderService>(
-        SDK_TOKENS.SDK_PLUGIN_LOADER
+        SDK_TOKENS.SDK_PLUGIN_LOADER,
       );
       const junctionPluginConfig =
         junctionPluginLoader.getWorkspacePluginConfig();
       const junctionPluginPaths = junctionPluginLoader.resolvePluginPaths(
-        junctionPluginConfig.enabledPluginIds
+        junctionPluginConfig.enabledPluginIds,
       );
 
       // Always call activate() even with zero plugins, so the workspace change
@@ -519,12 +683,12 @@ export async function activate(
     if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
       try {
         const cliPluginSync = DIContainer.getContainer().resolve(
-          TOKENS.CLI_PLUGIN_SYNC_SERVICE
+          TOKENS.CLI_PLUGIN_SYNC_SERVICE,
         ) as {
           initialize: (
             globalState: IStateStorage,
             extensionPath: string,
-            pluginPathResolver?: (ids: string[]) => string[]
+            pluginPathResolver?: (ids: string[]) => string[],
           ) => void;
           syncOnActivation: (enabledPluginIds: string[]) => Promise<unknown[]>;
         };
@@ -532,17 +696,17 @@ export async function activate(
         // Resolve enabled plugin IDs (pluginLoader must be resolved before initialize
         // so we can pass its resolvePluginPaths as the validated path resolver)
         const pluginLoader = DIContainer.resolve<PluginLoaderService>(
-          SDK_TOKENS.SDK_PLUGIN_LOADER
+          SDK_TOKENS.SDK_PLUGIN_LOADER,
         );
 
         // Late-initialize with global state storage, extension path, and validated path resolver
         const globalStateStorage = DIContainer.resolve<IStateStorage>(
-          PLATFORM_TOKENS.STATE_STORAGE
+          PLATFORM_TOKENS.STATE_STORAGE,
         );
         cliPluginSync.initialize(
           globalStateStorage,
           context.extensionPath,
-          (ids: string[]) => pluginLoader.resolvePluginPaths(ids)
+          (ids: string[]) => pluginLoader.resolvePluginPaths(ids),
         );
         const pluginConfig = pluginLoader.getWorkspacePluginConfig();
         const enabledPluginIds = pluginConfig.enabledPluginIds || [];
@@ -577,7 +741,7 @@ export async function activate(
       }
     } else {
       logger.debug(
-        'CLI skill sync skipped (Community tier - Pro feature only)'
+        'CLI skill sync skipped (Community tier - Pro feature only)',
       );
     }
     console.log('[Activate] Step 7.1.6: CLI skill sync initiated');
@@ -588,7 +752,7 @@ export async function activate(
     console.log('[Activate] Step 7.2: Pre-fetching model pricing...');
     try {
       const providerModels = DIContainer.getContainer().resolve(
-        SDK_TOKENS.SDK_PROVIDER_MODELS
+        SDK_TOKENS.SDK_PROVIDER_MODELS,
       ) as { prefetchPricing: () => Promise<number> };
       // Fire-and-forget: prefetchPricing handles errors internally
       providerModels.prefetchPricing();
@@ -602,7 +766,7 @@ export async function activate(
       });
     }
     console.log(
-      '[Activate] Step 7.2: Pricing pre-fetch initiated (background)'
+      '[Activate] Step 7.2: Pricing pre-fetch initiated (background)',
     );
 
     // Step 7.3: Proactive CLI detection (non-blocking, warms cache for agent orchestration)
@@ -610,7 +774,7 @@ export async function activate(
     console.log('[Activate] Step 7.3: Proactive CLI detection...');
     try {
       const cliDetection = DIContainer.getContainer().resolve(
-        TOKENS.CLI_DETECTION_SERVICE
+        TOKENS.CLI_DETECTION_SERVICE,
       ) as {
         detectAll: () => Promise<
           Array<{ cli: string; installed: boolean; version?: string }>
@@ -627,7 +791,7 @@ export async function activate(
             `CLI detection complete: ${installed.length}/${results.length} CLIs found`,
             {
               clis: installed.map((r) => `${r.cli}@${r.version || 'unknown'}`),
-            }
+            },
           );
 
           // Background token refresh for CLIs that use OAuth (Codex)
@@ -664,12 +828,12 @@ export async function activate(
     const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     console.log(
       '[Activate] Step 8: workspacePath for session import:',
-      JSON.stringify(workspacePath)
+      JSON.stringify(workspacePath),
     );
     if (workspacePath) {
       try {
         const sessionImporter = DIContainer.getContainer().resolve(
-          SDK_TOKENS.SDK_SESSION_IMPORTER
+          SDK_TOKENS.SDK_SESSION_IMPORTER,
         ) as {
           scanAndImport: (path: string, limit?: number) => Promise<number>;
         };
@@ -692,16 +856,16 @@ export async function activate(
     console.log('[Activate] Step 8.1: Registering settings commands...');
     try {
       const settingsExportService = DIContainer.getContainer().resolve(
-        SDK_TOKENS.SDK_SETTINGS_EXPORT
+        SDK_TOKENS.SDK_SETTINGS_EXPORT,
       ) as SettingsExportService;
       const settingsImportService = DIContainer.getContainer().resolve(
-        SDK_TOKENS.SDK_SETTINGS_IMPORT
+        SDK_TOKENS.SDK_SETTINGS_IMPORT,
       ) as SettingsImportService;
 
       const settingsCommands = new SettingsCommands(
         settingsExportService,
         settingsImportService,
-        logger
+        logger,
       );
       settingsCommands.registerCommands(context);
     } catch (settingsError) {
@@ -727,7 +891,7 @@ export async function activate(
     // Users can configure authentication via Ptah Settings > Authentication tab.
     if (!authInitialized) {
       console.log(
-        '[Activate] Step 10.1: Auth not configured — users can set up in Ptah Settings'
+        '[Activate] Step 10.1: Auth not configured — users can set up in Ptah Settings',
       );
     }
 
@@ -752,7 +916,7 @@ export async function activate(
       context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
       logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
       console.log(
-        `[Activate] Step 12: Pro MCP Server started (port ${mcpPort})`
+        `[Activate] Step 12: Pro MCP Server started (port ${mcpPort})`,
       );
     } else {
       // COMMUNITY USER: Skip MCP Server (Pro-only feature)
@@ -760,7 +924,7 @@ export async function activate(
         tier: licenseStatus.tier,
       });
       console.log(
-        `[Activate] Step 12: MCP Server skipped (tier: ${licenseStatus.tier})`
+        `[Activate] Step 12: MCP Server skipped (tier: ${licenseStatus.tier})`,
       );
     }
 
@@ -781,7 +945,7 @@ export async function activate(
       vscode.window
         .showInformationMessage(
           'License status updated! Reload window to apply changes.',
-          'Reload Window'
+          'Reload Window',
         )
         .then((action) => {
           if (action === 'Reload Window') {
@@ -795,13 +959,13 @@ export async function activate(
         newStatus,
       });
       vscode.window.showWarningMessage(
-        'Your Ptah license has expired. Please renew your subscription to continue using the extension.'
+        'Your Ptah license has expired. Please renew your subscription to continue using the extension.',
       );
 
       // TASK_2025_160: Clean up CLI skills and agents on premium expiry
       try {
         const cliPluginSync = DIContainer.getContainer().resolve(
-          TOKENS.CLI_PLUGIN_SYNC_SERVICE
+          TOKENS.CLI_PLUGIN_SYNC_SERVICE,
         ) as { cleanupAll: () => Promise<void> };
         cliPluginSync.cleanupAll().catch((err: unknown) => {
           logger.warn('CLI plugin cleanup on expiry failed (non-fatal)', {
@@ -818,7 +982,7 @@ export async function activate(
     // Background revalidation (every 24 hours)
     const revalidationInterval = setInterval(
       () => licenseService.revalidate(),
-      24 * 60 * 60 * 1000
+      24 * 60 * 60 * 1000,
     );
     context.subscriptions.push({
       dispose: () => clearInterval(revalidationInterval),
@@ -838,17 +1002,17 @@ export async function activate(
     console.error('[Activate] Error details:', error);
     console.error(
       '[Activate] Error stack:',
-      error instanceof Error ? error.stack : 'No stack trace'
+      error instanceof Error ? error.stack : 'No stack trace',
     );
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
     logger.error(
       'Failed to activate Ptah extension',
-      error instanceof Error ? error : new Error(String(error))
+      error instanceof Error ? error : new Error(String(error)),
     );
     vscode.window.showErrorMessage(
       `Ptah activation failed: ${
         error instanceof Error ? error.message : 'Unknown error'
-      }`
+      }`,
     );
   }
 }
@@ -864,7 +1028,7 @@ export function deactivate(): void {
   // TASK_2025_201: Remove workspace skill junctions
   try {
     const skillJunction = DIContainer.resolve<SkillJunctionService>(
-      SDK_TOKENS.SDK_SKILL_JUNCTION
+      SDK_TOKENS.SDK_SKILL_JUNCTION,
     );
     skillJunction.deactivateSync();
   } catch {
@@ -874,7 +1038,7 @@ export function deactivate(): void {
   // TASK_2025_167: Dispose all Ptah CLI adapters before clearing the container
   try {
     const ptahCliRegistry = DIContainer.resolve<PtahCliRegistry>(
-      SDK_TOKENS.SDK_PTAH_CLI_REGISTRY
+      SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
     );
     ptahCliRegistry.disposeAll();
   } catch {

@@ -63,12 +63,12 @@ export class TemplateStorageService implements ITemplateStorageService {
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    templatesPath?: string
+    templatesPath?: string,
   ) {
-    // Default to extension/templates/agents/ if not specified
-    // In production, this will be injected by the extension's DI container
+    // In production, templatesPath is always injected by the DI container
+    // (resolved from extensionPath). The fallback is only for standalone testing.
     this.templatesPath =
-      templatesPath || join(__dirname, '..', '..', 'templates', 'agents');
+      templatesPath || join(process.cwd(), 'templates', 'agents');
 
     this.logger.debug('TemplateStorageService initialized', {
       templatesPath: this.templatesPath,
@@ -126,7 +126,7 @@ export class TemplateStorageService implements ITemplateStorageService {
 
       // Filter to only .template.md files
       const templateFiles = files.filter((file) =>
-        file.endsWith(this.TEMPLATE_EXTENSION)
+        file.endsWith(this.TEMPLATE_EXTENSION),
       );
 
       if (templateFiles.length === 0) {
@@ -164,8 +164,8 @@ export class TemplateStorageService implements ITemplateStorageService {
             `Failed to load all templates. First error: ${errors[0].message}`,
             'all-templates',
             'TEMPLATE_PARSE_ERROR',
-            { errorCount: errors.length }
-          )
+            { errorCount: errors.length },
+          ),
         );
       }
 
@@ -181,8 +181,8 @@ export class TemplateStorageService implements ITemplateStorageService {
         new TemplateError(
           `Unexpected error loading templates: ${(error as Error).message}`,
           'all-templates',
-          'TEMPLATE_PARSE_ERROR'
-        )
+          'TEMPLATE_PARSE_ERROR',
+        ),
       );
     }
   }
@@ -206,7 +206,7 @@ export class TemplateStorageService implements ITemplateStorageService {
    * ```
    */
   async loadTemplate(
-    templateId: string
+    templateId: string,
   ): Promise<Result<AgentTemplate, Error>> {
     try {
       this.logger.debug('Loading template', { templateId });
@@ -232,14 +232,14 @@ export class TemplateStorageService implements ITemplateStorageService {
     } catch (error) {
       this.logger.error(
         `Error loading template: ${templateId}`,
-        error as Error
+        error as Error,
       );
       return Result.err(
         new TemplateError(
           `Error loading template ${templateId}: ${(error as Error).message}`,
           templateId,
-          'TEMPLATE_PARSE_ERROR'
-        )
+          'TEMPLATE_PARSE_ERROR',
+        ),
       );
     }
   }
@@ -263,7 +263,7 @@ export class TemplateStorageService implements ITemplateStorageService {
    * ```
    */
   async getApplicableTemplates(
-    projectType: string
+    projectType: string,
   ): Promise<Result<AgentTemplate[], Error>> {
     try {
       this.logger.debug('Getting applicable templates', { projectType });
@@ -290,7 +290,7 @@ export class TemplateStorageService implements ITemplateStorageService {
 
         // Include if project type matches
         return template.applicabilityRules.projectTypes.some(
-          (type) => type.toString().toLowerCase() === projectType.toLowerCase()
+          (type) => type.toString().toLowerCase() === projectType.toLowerCase(),
         );
       });
 
@@ -304,7 +304,7 @@ export class TemplateStorageService implements ITemplateStorageService {
     } catch (error) {
       this.logger.error(
         `Error filtering templates for project type: ${projectType}`,
-        error as Error
+        error as Error,
       );
       return Result.err(
         new TemplateError(
@@ -312,8 +312,8 @@ export class TemplateStorageService implements ITemplateStorageService {
             (error as Error).message
           }`,
           projectType,
-          'TEMPLATE_PARSE_ERROR'
-        )
+          'TEMPLATE_PARSE_ERROR',
+        ),
       );
     }
   }
@@ -327,7 +327,7 @@ export class TemplateStorageService implements ITemplateStorageService {
    */
   private async loadTemplateFromDisk(
     templateId: string,
-    fileName: string
+    fileName: string,
   ): Promise<Result<AgentTemplate, Error>> {
     try {
       const filePath = join(this.templatesPath, fileName);
@@ -343,8 +343,8 @@ export class TemplateStorageService implements ITemplateStorageService {
               `Template file not found: ${fileName}`,
               templateId,
               'TEMPLATE_NOT_FOUND',
-              { filePath }
-            )
+              { filePath },
+            ),
           );
         }
         throw error; // Re-throw other errors
@@ -362,8 +362,8 @@ export class TemplateStorageService implements ITemplateStorageService {
             }`,
             templateId,
             'TEMPLATE_PARSE_ERROR',
-            { filePath }
-          )
+            { filePath },
+          ),
         );
       }
 
@@ -379,7 +379,7 @@ export class TemplateStorageService implements ITemplateStorageService {
         // Derive agent name from templateId by stripping version suffix (e.g. "project-manager-v2" → "project-manager")
         frontmatter['name'] = (frontmatter['templateId'] as string).replace(
           /-v\d+$/,
-          ''
+          '',
         );
       }
       if (!frontmatter['version'] && frontmatter['templateVersion']) {
@@ -403,7 +403,7 @@ export class TemplateStorageService implements ITemplateStorageService {
       const validationResult = this.validateTemplate(
         templateId,
         frontmatter,
-        content
+        content,
       );
       if (validationResult.isErr()) {
         return Result.err(validationResult.error!);
@@ -428,8 +428,8 @@ export class TemplateStorageService implements ITemplateStorageService {
             (error as Error).message
           }`,
           templateId,
-          'TEMPLATE_PARSE_ERROR'
-        )
+          'TEMPLATE_PARSE_ERROR',
+        ),
       );
     }
   }
@@ -445,7 +445,7 @@ export class TemplateStorageService implements ITemplateStorageService {
   private validateTemplate(
     templateId: string,
     frontmatter: Record<string, unknown>,
-    content: string
+    content: string,
   ): Result<void, Error> {
     // Required fields in frontmatter
     const requiredFields = ['name', 'version', 'applicabilityRules'];
@@ -457,8 +457,8 @@ export class TemplateStorageService implements ITemplateStorageService {
             `Missing required field in template: ${field}`,
             templateId,
             'TEMPLATE_VALIDATION_ERROR',
-            { missingField: field }
-          )
+            { missingField: field },
+          ),
         );
       }
     }
@@ -470,8 +470,8 @@ export class TemplateStorageService implements ITemplateStorageService {
         new TemplateError(
           'Missing applicabilityRules in template',
           templateId,
-          'TEMPLATE_VALIDATION_ERROR'
-        )
+          'TEMPLATE_VALIDATION_ERROR',
+        ),
       );
     }
 
@@ -491,8 +491,8 @@ export class TemplateStorageService implements ITemplateStorageService {
             `Missing required field in applicabilityRules: ${field}`,
             templateId,
             'TEMPLATE_VALIDATION_ERROR',
-            { missingField: `applicabilityRules.${field}` }
-          )
+            { missingField: `applicabilityRules.${field}` },
+          ),
         );
       }
     }
@@ -503,8 +503,8 @@ export class TemplateStorageService implements ITemplateStorageService {
         new TemplateError(
           'applicabilityRules.projectTypes must be an array',
           templateId,
-          'TEMPLATE_VALIDATION_ERROR'
-        )
+          'TEMPLATE_VALIDATION_ERROR',
+        ),
       );
     }
 
@@ -513,8 +513,8 @@ export class TemplateStorageService implements ITemplateStorageService {
         new TemplateError(
           'applicabilityRules.frameworks must be an array',
           templateId,
-          'TEMPLATE_VALIDATION_ERROR'
-        )
+          'TEMPLATE_VALIDATION_ERROR',
+        ),
       );
     }
 
@@ -523,8 +523,8 @@ export class TemplateStorageService implements ITemplateStorageService {
         new TemplateError(
           'applicabilityRules.monorepoTypes must be an array',
           templateId,
-          'TEMPLATE_VALIDATION_ERROR'
-        )
+          'TEMPLATE_VALIDATION_ERROR',
+        ),
       );
     }
 
@@ -538,8 +538,8 @@ export class TemplateStorageService implements ITemplateStorageService {
         new TemplateError(
           'applicabilityRules.minimumRelevanceScore must be a number between 0 and 100',
           templateId,
-          'TEMPLATE_VALIDATION_ERROR'
-        )
+          'TEMPLATE_VALIDATION_ERROR',
+        ),
       );
     }
 
@@ -549,8 +549,8 @@ export class TemplateStorageService implements ITemplateStorageService {
         new TemplateError(
           'applicabilityRules.alwaysInclude must be a boolean',
           templateId,
-          'TEMPLATE_VALIDATION_ERROR'
-        )
+          'TEMPLATE_VALIDATION_ERROR',
+        ),
       );
     }
 
@@ -560,8 +560,8 @@ export class TemplateStorageService implements ITemplateStorageService {
         new TemplateError(
           'Template content cannot be empty',
           templateId,
-          'TEMPLATE_VALIDATION_ERROR'
-        )
+          'TEMPLATE_VALIDATION_ERROR',
+        ),
       );
     }
 

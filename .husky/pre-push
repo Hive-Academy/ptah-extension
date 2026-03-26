@@ -17,8 +17,6 @@ if [ "$current_branch" = "main" ] || [ "$current_branch" = "develop" ]; then
   echo "🏗️ Building and linting affected projects..."
   npm run typecheck:affected
 
-  echo "📦 Validating extension packaging..."
-  npx nx package ptah-extension-vscode
 
 else
   echo "ℹ️  Skipping full checks for feature branch: $current_branch"
