@@ -85,7 +85,7 @@
       "options": {
         "commands": [
           {
-            "command": "node -e \"const fs=require('fs'); fs.mkdirSync('dist/apps/ptah-extension-vscode/webview', {recursive:true}); fs.cpSync('dist/apps/ptah-extension-webview/browser', 'dist/apps/ptah-extension-vscode/webview/browser', {recursive:true}); fs.copyFileSync('README.md', 'dist/apps/ptah-extension-vscode/README.md'); if(fs.existsSync('CHANGELOG.md')) fs.copyFileSync('CHANGELOG.md', 'dist/apps/ptah-extension-vscode/CHANGELOG.md'); if(fs.existsSync('LICENSE')) fs.copyFileSync('LICENSE', 'dist/apps/ptah-extension-vscode/LICENSE');\"",
+            "command": "node scripts/copy-webview.js",
             "forwardAllArgs": false
           }
         ],
