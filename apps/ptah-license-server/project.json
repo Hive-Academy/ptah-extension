@@ -6,15 +6,51 @@
   "tags": ["scope:app"],
   "targets": {
     "build": {
-      "executor": "nx:run-commands",
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
       "options": {
-        "command": "webpack-cli build",
-        "args": ["--node-env=production"],
-        "cwd": "apps/ptah-license-server"
+        "outputPath": "dist/apps/ptah-license-server",
+        "main": "apps/ptah-license-server/src/main.ts",
+        "tsConfig": "apps/ptah-license-server/tsconfig.app.json",
+        "format": ["cjs"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "generatePackageJson": true,
+        "thirdParty": false,
+        "esbuildOptions": {
+          "sourcemap": true
+        },
+        "external": [
+          "@workos-inc/node",
+          "@paddle/paddle-node-sdk",
+          "resend",
+          "@prisma/client",
+          "@prisma/adapter-pg",
+          "pg",
+          "@nestjs/microservices",
+          "@nestjs/websockets",
+          "@nestjs/platform-socket.io"
+        ],
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "apps/ptah-license-server/src/assets",
+            "output": "assets"
+          }
+        ]
       },
       "configurations": {
         "development": {
-          "args": ["--node-env=development"]
+          "esbuildOptions": {
+            "sourcemap": true
+          }
+        },
+        "production": {
+          "esbuildOptions": {
+            "sourcemap": false
+          }
         }
       }
     },

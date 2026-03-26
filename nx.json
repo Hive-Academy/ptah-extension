@@ -80,17 +80,6 @@
       "options": {
         "targetName": "eslint:lint"
       }
-    },
-    {
-      "plugin": "@nx/webpack/plugin",
-      "options": {
-        "buildTargetName": "webpack:build",
-        "serveTargetName": "webpack:serve",
-        "previewTargetName": "preview",
-        "buildDepsTargetName": "build-deps",
-        "watchDepsTargetName": "watch-deps",
-        "serveStaticTargetName": "serve-static"
-      }
     }
   ],
   "analytics": true
