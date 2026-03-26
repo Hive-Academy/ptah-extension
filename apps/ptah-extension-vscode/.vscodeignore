@@ -70,3 +70,26 @@ Thumbs.db
 **/node_modules/**/scripts/**
 **/node_modules/**/*.d.ts.map
 **/node_modules/**/.package-lock.json
+
+# SDK CLI binaries — only the SDK JS API is needed, not the CLI tools
+# @anthropic-ai/claude-agent-sdk: vendor/ has CLI binary (43 MB), cli.js (13 MB)
+**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/**
+**/node_modules/@anthropic-ai/claude-agent-sdk/cli.js
+**/node_modules/@anthropic-ai/claude-agent-sdk/resvg.wasm
+# @github/copilot: CLI binary + bundled tools (237 MB)
+**/node_modules/@github/copilot/ripgrep/**
+**/node_modules/@github/copilot/prebuilds/**
+**/node_modules/@github/copilot/sharp/**
+**/node_modules/@github/copilot/clipboard/**
+**/node_modules/@github/copilot-win32-x64/**
+**/node_modules/@github/copilot-linux-x64/**
+**/node_modules/@github/copilot-darwin-arm64/**
+**/node_modules/@github/copilot-darwin-x64/**
+# @openai/codex: CLI binary (102 MB)
+**/node_modules/@openai/codex-win32-x64/**
+**/node_modules/@openai/codex-linux-x64/**
+**/node_modules/@openai/codex-darwin-arm64/**
+**/node_modules/@openai/codex-darwin-x64/**
+**/node_modules/@openai/codex/**
+# @img/sharp: not needed at runtime
+**/node_modules/@img/**
