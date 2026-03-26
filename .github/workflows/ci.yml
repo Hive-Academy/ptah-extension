@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  NX_TUI: 'false'
+  NX_TUI: false
 
 jobs:
   main:
@@ -38,21 +38,35 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
 
-      - run: npm ci
+      # Cache node_modules directly — skips npm ci entirely on cache hit
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      # Generate Prisma client types (required for typecheck/build of license server)
-      - run: npx nx run ptah-license-server:prisma:generate
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: npm ci
 
-      # Set NX_BASE for affected comparison
-      # PR: compare against the base branch; Push to main: compare against previous commit
+      # Cache Prisma generated client
+      - name: Cache Prisma client
+        id: cache-prisma
+        uses: actions/cache@v4
+        with:
+          path: node_modules/.prisma
+          key: prisma-${{ runner.os }}-${{ hashFiles('apps/ptah-license-server/prisma/schema.prisma') }}
+
+      - name: Generate Prisma client
+        if: steps.cache-prisma.outputs.cache-hit != 'true'
+        run: npx nx run ptah-license-server:prisma:generate
+
       - name: Set NX SHAs
         uses: nrwl/nx-set-shas@v4
         with:
           main-branch-name: main
 
       - run: npx nx affected -t build --exclude=infra-test
-        env:
-          NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}

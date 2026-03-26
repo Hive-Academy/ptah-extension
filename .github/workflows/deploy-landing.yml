@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  NX_TUI: 'false'
+  NX_TUI: false
 
 jobs:
   build-and-deploy:
@@ -25,10 +25,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
 
-      - run: npm ci
+      # Cache node_modules — skips npm ci on cache hit
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: npm ci
 
       - name: Build landing page
         run: npx nx run-many -t build --projects=ptah-landing-page

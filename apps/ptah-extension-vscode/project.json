@@ -41,23 +41,7 @@
           "tsyringe",
           "tree-sitter",
           "tree-sitter-javascript",
-          "tree-sitter-typescript",
-          "cross-spawn",
-          "eventemitter3",
-          "gray-matter",
-          "json2md",
-          "jsonrepair",
-          "minimatch",
-          "picomatch",
-          "rxjs",
-          "uuid",
-          "which",
-          "zod",
-          "tslib",
-          "chokidar",
-          "fast-glob",
-          "p-limit",
-          "p-queue"
+          "tree-sitter-typescript"
         ],
         "assets": [
           {
