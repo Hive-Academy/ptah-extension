@@ -1,28 +1,9 @@
-<p align="center">
-  <img src="https://github.com/Hive-Academy/ptah-extension/raw/HEAD/apps/ptah-extension-vscode/src/assets/images/ptah-icon.png" width="100" alt="Ptah Logo" />
-</p>
+# Ptah - AI Coding Orchestra
 
-<h1 align="center">Ptah - AI Coding Orchestra</h1>
+**Provider-agnostic AI orchestration for VS Code.**
+Intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows — all natively integrated into VS Code.
 
-<p align="center">
-  <strong>Provider-agnostic AI orchestration for VS Code.</strong><br/>
-  Intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows — all natively integrated into VS Code.
-</p>
-
-<p align="center">
-  <a href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode">
-    <img src="https://img.shields.io/visual-studio-marketplace/v/ptah-extensions.ptah-extension-vscode?label=VS%20Code%20Marketplace&color=d4af37" alt="VS Code Marketplace" />
-  </a>
-  <a href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode">
-    <img src="https://img.shields.io/visual-studio-marketplace/i/ptah-extensions.ptah-extension-vscode?color=d4af37" alt="Installs" />
-  </a>
-  <a href="https://github.com/Hive-Academy/ptah-app/releases/latest">
-    <img src="https://img.shields.io/github/v/release/Hive-Academy/ptah-app?label=Desktop%20App&color=d4af37&filter=electron-v*" alt="Desktop App" />
-  </a>
-  <a href="https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/Hive-Academy/ptah-extension?color=d4af37" alt="License" />
-  </a>
-</p>
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode) | [Desktop App](https://github.com/Hive-Academy/ptah-app/releases/latest) | [License](https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE)
 
 ---
 
