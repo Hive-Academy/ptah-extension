@@ -32,6 +32,10 @@ on:
           - major
         default: patch
 
+concurrency:
+  group: publish-electron
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -129,6 +133,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Python 3.12+ removed distutils; setuptools restores it for node-gyp native builds
+      - name: Fix Python distutils (native module builds)
+        if: runner.os == 'Windows'
+        run: pip install setuptools
+
       - name: Build Electron app
         run: npx nx build ptah-electron
 
@@ -139,6 +148,8 @@ jobs:
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never ${{ matrix.build-args }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # tree-sitter 0.21.x binding.gyp forces C++17, but Electron 35 V8 headers require C++20
+          _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
