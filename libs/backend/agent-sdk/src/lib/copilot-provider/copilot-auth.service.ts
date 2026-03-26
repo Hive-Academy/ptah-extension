@@ -9,6 +9,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import axios from 'axios';
 // APPROVED EXCEPTION: vscode import required — CopilotAuthService uses VS Code-specific APIs
 // (vscode.authentication, vscode.extensions, vscode.version) that have no platform-agnostic
 // equivalent. GitHub Copilot integration is inherently VS Code-only. See TASK_2025_199.
@@ -29,7 +30,7 @@ const DEFAULT_COPILOT_API_ENDPOINT = 'https://api.githubcopilot.com';
 /** Lazily resolved extension version for User-Agent headers */
 function getExtensionVersion(): string {
   const ext = vscode.extensions.getExtension(
-    'ptah-extensions.ptah-extension-vscode'
+    'ptah-extensions.ptah-extension-vscode',
   );
   return ext?.packageJSON?.version ?? '0.0.0';
 }
@@ -67,19 +68,19 @@ export class CopilotAuthService implements ICopilotAuthService {
   async login(): Promise<boolean> {
     try {
       this.logger.info(
-        '[CopilotAuth] Starting GitHub authentication for Copilot...'
+        '[CopilotAuth] Starting GitHub authentication for Copilot...',
       );
 
       const session = await this.getGitHubSession(true);
       if (!session) {
         this.logger.warn(
-          '[CopilotAuth] GitHub authentication was cancelled or failed'
+          '[CopilotAuth] GitHub authentication was cancelled or failed',
         );
         return false;
       }
 
       this.logger.info(
-        `[CopilotAuth] GitHub session obtained (account: ${session.account.label})`
+        `[CopilotAuth] GitHub session obtained (account: ${session.account.label})`,
       );
 
       const exchanged = await this.exchangeToken(session.accessToken);
@@ -93,7 +94,7 @@ export class CopilotAuthService implements ICopilotAuthService {
       this.logger.error(
         `[CopilotAuth] Login failed: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return false;
     }
@@ -111,7 +112,7 @@ export class CopilotAuthService implements ICopilotAuthService {
     // Check if token needs refresh (expired or within buffer)
     if (this.isTokenExpiringSoon()) {
       this.logger.info(
-        '[CopilotAuth] Token expiring soon, attempting auto-refresh...'
+        '[CopilotAuth] Token expiring soon, attempting auto-refresh...',
       );
       const refreshed = await this.refreshToken();
       return refreshed;
@@ -150,7 +151,7 @@ export class CopilotAuthService implements ICopilotAuthService {
     const state = await this.getAuthState();
     if (!state) {
       throw new Error(
-        'Not authenticated with GitHub Copilot. Call login() first.'
+        'Not authenticated with GitHub Copilot. Call login() first.',
       );
     }
 
@@ -186,14 +187,14 @@ export class CopilotAuthService implements ICopilotAuthService {
    * @param createIfNone - If true, prompt the user to sign in if not already
    */
   private async getGitHubSession(
-    createIfNone: boolean
+    createIfNone: boolean,
   ): Promise<vscode.AuthenticationSession | undefined> {
     // Try 'copilot' scope first (required for Copilot API access)
     try {
       const session = await vscode.authentication.getSession(
         'github',
         ['copilot'],
-        { createIfNone }
+        { createIfNone },
       );
       if (session) {
         return session;
@@ -202,7 +203,7 @@ export class CopilotAuthService implements ICopilotAuthService {
       this.logger.warn(
         `[CopilotAuth] 'copilot' scope failed, trying 'read:user' fallback: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     }
 
@@ -211,14 +212,14 @@ export class CopilotAuthService implements ICopilotAuthService {
       const session = await vscode.authentication.getSession(
         'github',
         ['read:user'],
-        { createIfNone }
+        { createIfNone },
       );
       return session;
     } catch (error) {
       this.logger.error(
         `[CopilotAuth] GitHub authentication failed: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return undefined;
     }
@@ -234,45 +235,26 @@ export class CopilotAuthService implements ICopilotAuthService {
   private async exchangeToken(githubToken: string): Promise<boolean> {
     this.logger.info(
       `[CopilotAuth] Exchanging GitHub token for Copilot bearer (${describeToken(
-        githubToken
-      )})`
+        githubToken,
+      )})`,
     );
 
     try {
-      const response = await fetch(COPILOT_TOKEN_URL, {
-        method: 'GET',
-        headers: {
-          Authorization: `token ${githubToken}`,
-          Accept: 'application/json',
-          'User-Agent': `ptah-extension/${getExtensionVersion()}`,
+      const { data: tokenResponse } = await axios.get<CopilotTokenResponse>(
+        COPILOT_TOKEN_URL,
+        {
+          headers: {
+            Authorization: `token ${githubToken}`,
+            Accept: 'application/json',
+            'User-Agent': `ptah-extension/${getExtensionVersion()}`,
+          },
+          timeout: 15_000,
         },
-        signal: AbortSignal.timeout(15_000),
-      });
-
-      if (!response.ok) {
-        const body = await response.text();
-        this.logger.error(
-          `[CopilotAuth] Token exchange failed: HTTP ${response.status} — ${body}`
-        );
-
-        if (response.status === 401) {
-          this.logger.error(
-            '[CopilotAuth] GitHub token may be invalid or expired'
-          );
-        } else if (response.status === 403) {
-          this.logger.error(
-            '[CopilotAuth] GitHub Copilot subscription may not be active. ' +
-              'Ensure your GitHub account has an active Copilot subscription.'
-          );
-        }
-        return false;
-      }
-
-      const tokenResponse: CopilotTokenResponse = await response.json();
+      );
 
       if (!tokenResponse.token || !tokenResponse.expires_at) {
         this.logger.error(
-          '[CopilotAuth] Token exchange returned invalid response (missing token or expires_at)'
+          '[CopilotAuth] Token exchange returned invalid response (missing token or expires_at)',
         );
         return false;
       }
@@ -291,16 +273,37 @@ export class CopilotAuthService implements ICopilotAuthService {
         tokenResponse.expires_at - Math.floor(Date.now() / 1000);
       this.logger.info(
         `[CopilotAuth] Bearer token obtained (${describeToken(
-          tokenResponse.token
+          tokenResponse.token,
         )}, ` +
-          `expires in ${Math.floor(expiresIn / 60)}m, endpoint: ${apiEndpoint})`
+          `expires in ${Math.floor(expiresIn / 60)}m, endpoint: ${apiEndpoint})`,
       );
       return true;
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        const body =
+          typeof error.response.data === 'string'
+            ? error.response.data
+            : JSON.stringify(error.response.data);
+        this.logger.error(
+          `[CopilotAuth] Token exchange failed: HTTP ${error.response.status} — ${body}`,
+        );
+
+        if (error.response.status === 401) {
+          this.logger.error(
+            '[CopilotAuth] GitHub token may be invalid or expired',
+          );
+        } else if (error.response.status === 403) {
+          this.logger.error(
+            '[CopilotAuth] GitHub Copilot subscription may not be active. ' +
+              'Ensure your GitHub account has an active Copilot subscription.',
+          );
+        }
+        return false;
+      }
       this.logger.error(
         `[CopilotAuth] Token exchange request failed: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return false;
     }
@@ -344,12 +347,12 @@ export class CopilotAuthService implements ICopilotAuthService {
     }
 
     this.logger.info(
-      '[CopilotAuth] Cached GitHub token may be stale, requesting fresh session...'
+      '[CopilotAuth] Cached GitHub token may be stale, requesting fresh session...',
     );
     const session = await this.getGitHubSession(false);
     if (!session) {
       this.logger.warn(
-        '[CopilotAuth] No active GitHub session available for refresh'
+        '[CopilotAuth] No active GitHub session available for refresh',
       );
       this.authState = null;
       return false;

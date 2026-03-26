@@ -14,6 +14,7 @@ import { execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as vscode from 'vscode';
 import { EventEmitter } from 'eventemitter3';
+import axios from 'axios';
 import {
   TOKENS,
   Logger,
@@ -180,7 +181,7 @@ export class AgentProcessManager {
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
-    private readonly subagentRegistry: SubagentRegistryService
+    private readonly subagentRegistry: SubagentRegistryService,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -212,7 +213,7 @@ export class AgentProcessManager {
       throw new Error(
         `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
           `Stop a running agent before spawning a new one. ` +
-          `Running agents: ${this.getRunningAgentIds().join(', ')}`
+          `Running agents: ${this.getRunningAgentIds().join(', ')}`,
       );
     }
 
@@ -233,7 +234,7 @@ export class AgentProcessManager {
     if (!cli) {
       throw new Error(
         'No CLI agent available. Install Gemini CLI (`npm install -g @google/gemini-cli`) ' +
-          'or Codex CLI and authenticate before using agent orchestration.'
+          'or Codex CLI and authenticate before using agent orchestration.',
       );
     }
 
@@ -256,7 +257,7 @@ export class AgentProcessManager {
           : 'no detection result',
       });
       throw new Error(
-        `${cli} CLI is not installed. Install it and run authentication before using.`
+        `${cli} CLI is not installed. Install it and run authentication before using.`,
       );
     }
 
@@ -298,7 +299,7 @@ export class AgentProcessManager {
         cli,
         adapter.displayName,
         detection.path,
-        mcpPort
+        mcpPort,
       );
     }
 
@@ -309,14 +310,14 @@ export class AgentProcessManager {
       (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
     ) {
       const agentConfig = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration'
+        'ptah.agentOrchestration',
       );
       const configKey =
         cli === 'gemini'
           ? 'geminiModel'
           : cli === 'codex'
-          ? 'codexModel'
-          : 'copilotModel';
+            ? 'codexModel'
+            : 'copilotModel';
       const configuredModel = agentConfig.get<string>(configKey, '');
       if (configuredModel) {
         cliModel = configuredModel;
@@ -448,7 +449,7 @@ export class AgentProcessManager {
     cli: CliType,
     displayName: string,
     binaryPath?: string,
-    mcpPort?: number
+    mcpPort?: number,
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
@@ -460,14 +461,14 @@ export class AgentProcessManager {
       (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
     ) {
       const agentConfig = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration'
+        'ptah.agentOrchestration',
       );
       const configKey =
         cli === 'gemini'
           ? 'geminiModel'
           : cli === 'codex'
-          ? 'codexModel'
-          : 'copilotModel';
+            ? 'codexModel'
+            : 'copilotModel';
       const configuredModel = agentConfig.get<string>(configKey, '');
       if (configuredModel) {
         resolvedModel = configuredModel;
@@ -508,7 +509,7 @@ export class AgentProcessManager {
       request.cli !== 'copilot'
     ) {
       this.logger.warn(
-        `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`
+        `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`,
       );
     }
 
@@ -541,7 +542,7 @@ export class AgentProcessManager {
       timeout,
       // Late capture: session_id arrives in init event (first JSONL line).
       // Passed as callback so trackSdkHandle can invoke it on each segment.
-      () => sdkHandle.getSessionId?.()
+      () => sdkHandle.getSessionId?.(),
     );
   }
 
@@ -561,7 +562,7 @@ export class AgentProcessManager {
       ptahCliId?: string;
       timeout?: number;
       resumedFromAgentId?: string;
-    }
+    },
   ): Promise<SpawnAgentResult> {
     return this.acquireSpawnLock(async () => {
       // Increment spawning counter synchronously before any async work
@@ -575,7 +576,7 @@ export class AgentProcessManager {
           throw new Error(
             `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
               `Stop a running agent before spawning a new one. ` +
-              `Running agents: ${this.getRunningAgentIds().join(', ')}`
+              `Running agents: ${this.getRunningAgentIds().join(', ')}`,
           );
         }
 
@@ -633,7 +634,7 @@ export class AgentProcessManager {
     sdkHandle: SdkHandle,
     info: AgentProcessInfo,
     timeout: number,
-    captureSessionId?: () => string | undefined
+    captureSessionId?: () => string | undefined,
   ): SpawnAgentResult {
     const agentId = info.agentId;
 
@@ -715,7 +716,7 @@ export class AgentProcessManager {
           error: message,
         });
         this.handleExit(agentId, 1, null);
-      }
+      },
     );
 
     const spawnResult: SpawnAgentResult = {
@@ -844,7 +845,7 @@ export class AgentProcessManager {
 
     if (tracked.info.status !== 'running') {
       throw new Error(
-        `Agent ${agentId} is not running (status: ${tracked.info.status})`
+        `Agent ${agentId} is not running (status: ${tracked.info.status})`,
       );
     }
 
@@ -852,14 +853,14 @@ export class AgentProcessManager {
     if (!adapter?.supportsSteer()) {
       throw new Error(
         `Steering is not supported for ${tracked.info.cli} CLI. ` +
-          `The agent will complete its task based on the original prompt.`
+          `The agent will complete its task based on the original prompt.`,
       );
     }
 
     // SDK agents have no child process - steering requires stdin pipe
     if (!tracked.process) {
       throw new Error(
-        `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`
+        `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`,
       );
     }
 
@@ -910,7 +911,7 @@ export class AgentProcessManager {
   async shutdownAll(): Promise<void> {
     this.logger.info('[AgentProcessManager] Shutting down all agents...');
     const running = Array.from(this.agents.entries()).filter(
-      ([, t]) => t.info.status === 'running'
+      ([, t]) => t.info.status === 'running',
     );
 
     await Promise.all(running.map(([id]) => this.stop(id)));
@@ -939,12 +940,12 @@ export class AgentProcessManager {
     } catch (error) {
       this.logger.warn(
         '[AgentProcessManager] Failed to dispose Copilot SDK adapter',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
 
     this.logger.info(
-      `[AgentProcessManager] ${running.length} agents shut down`
+      `[AgentProcessManager] ${running.length} agents shut down`,
     );
   }
 
@@ -981,7 +982,7 @@ export class AgentProcessManager {
   private appendBuffer(
     agentId: string,
     stream: 'stdout' | 'stderr',
-    data: string
+    data: string,
   ): void {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
@@ -1015,7 +1016,7 @@ export class AgentProcessManager {
   private accumulateDelta(
     agentId: string,
     stream: 'stdout' | 'stderr',
-    data: string
+    data: string,
   ): void {
     let pending = this.pendingDeltas.get(agentId);
     if (!pending) {
@@ -1070,7 +1071,7 @@ export class AgentProcessManager {
    */
   private accumulateStreamEvent(
     agentId: string,
-    event: FlatStreamEventUnion
+    event: FlatStreamEventUnion,
   ): void {
     let pending = this.pendingDeltas.get(agentId);
     if (!pending) {
@@ -1089,14 +1090,14 @@ export class AgentProcessManager {
       ) {
         tracked.accumulatedStreamEvents = capStreamEvents(
           tracked.accumulatedStreamEvents,
-          MAX_ACCUMULATED_STREAM_EVENTS
+          MAX_ACCUMULATED_STREAM_EVENTS,
         );
         this.logger.debug(
           '[AgentProcessManager] Stream events cap reached, dropped oldest deltas',
           {
             agentId,
             cap: MAX_ACCUMULATED_STREAM_EVENTS,
-          }
+          },
         );
       }
     }
@@ -1168,7 +1169,7 @@ export class AgentProcessManager {
   private handleExit(
     agentId: string,
     code: number | null,
-    signal: string | null
+    signal: string | null,
   ): void {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
@@ -1308,7 +1309,7 @@ export class AgentProcessManager {
 
   private getRunningCount(): number {
     return Array.from(this.agents.values()).filter(
-      (t) => t.info.status === 'running'
+      (t) => t.info.status === 'running',
     ).length;
   }
 
@@ -1336,18 +1337,18 @@ export class AgentProcessManager {
       const adapter = this.cliDetection.getAdapter(preferred as CliType);
       if (adapter) {
         const detection = await this.cliDetection.getDetection(
-          preferred as CliType
+          preferred as CliType,
         );
         if (detection?.installed) {
           this.logger.info(
             '[AgentProcessManager] getDefaultCli: using user-preferred CLI',
-            { cli: preferred }
+            { cli: preferred },
           );
           return preferred as CliType;
         }
         this.logger.warn(
           '[AgentProcessManager] getDefaultCli: preferred CLI not installed, falling back',
-          { preferred, installed: detection?.installed }
+          { preferred, installed: detection?.installed },
         );
       }
     }
@@ -1389,7 +1390,7 @@ export class AgentProcessManager {
    * or explicit user action.
    */
   private markParentSubagentsAsCliAgent(
-    parentSessionId: string | undefined
+    parentSessionId: string | undefined,
   ): void {
     if (!parentSessionId) return;
 
@@ -1398,7 +1399,7 @@ export class AgentProcessManager {
     if (running.length === 0) {
       this.logger.debug(
         '[AgentProcessManager] No running subagents found to mark as CLI-orchestrating',
-        { parentSessionId }
+        { parentSessionId },
       );
       return;
     }
@@ -1411,7 +1412,7 @@ export class AgentProcessManager {
           toolCallId: record.toolCallId,
           agentType: record.agentType,
           parentSessionId,
-        }
+        },
       );
     }
   }
@@ -1424,7 +1425,7 @@ export class AgentProcessManager {
     if (!normalizedDir.startsWith(normalizedRoot)) {
       throw new Error(
         `Working directory must be within workspace root. ` +
-          `Got: ${dir}, Expected prefix: ${workspaceRoot}`
+          `Got: ${dir}, Expected prefix: ${workspaceRoot}`,
       );
     }
   }
@@ -1453,7 +1454,7 @@ export class AgentProcessManager {
           '[AgentProcessManager] MCP disabled for CLI agent (not premium)',
           {
             tier: status.tier,
-          }
+          },
         );
         return undefined;
       }
@@ -1473,40 +1474,26 @@ export class AgentProcessManager {
 
       // Health check: verify server is actually running
       try {
-        const response = await fetch(
-          `http://localhost:${configuredPort}/health`,
-          {
-            signal: AbortSignal.timeout(2000),
-          }
-        );
+        await axios.get(`http://localhost:${configuredPort}/health`, {
+          timeout: 2000,
+        });
 
-        if (response.ok) {
-          this.mcpHealthCache = { port: configuredPort, timestamp: Date.now() };
-          this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
-            port: configuredPort,
-          });
-          return configuredPort;
-        }
-
-        this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
-        this.logger.info(
-          '[AgentProcessManager] MCP server health check failed',
-          {
-            port: configuredPort,
-            status: response.status,
-          }
-        );
-        return undefined;
+        // If we reach here, status was 2xx
+        this.mcpHealthCache = { port: configuredPort, timestamp: Date.now() };
+        this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
+          port: configuredPort,
+        });
+        return configuredPort;
       } catch {
         this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
         this.logger.info(
-          '[AgentProcessManager] MCP server not reachable, disabling for CLI agent'
+          '[AgentProcessManager] MCP server not reachable, disabling for CLI agent',
         );
         return undefined;
       }
     } catch {
       this.logger.info(
-        '[AgentProcessManager] MCP port resolution failed (license check error)'
+        '[AgentProcessManager] MCP port resolution failed (license check error)',
       );
       return undefined;
     }
@@ -1540,7 +1527,7 @@ export class AgentProcessManager {
  */
 function capStreamEvents(
   events: FlatStreamEventUnion[],
-  max: number
+  max: number,
 ): FlatStreamEventUnion[] {
   if (events.length <= max) return events;
 
@@ -1561,13 +1548,13 @@ function capStreamEvents(
 
   const keptDeltas = deltas.slice(-deltasBudget);
   const merged = [...landmarks, ...keptDeltas].sort(
-    (a, b) => a.index - b.index
+    (a, b) => a.index - b.index,
   );
   return merged.map((m) => m.event);
 }
 
 function mergeConsecutiveTextSegments(
-  segments: CliOutputSegment[]
+  segments: CliOutputSegment[],
 ): CliOutputSegment[] {
   if (segments.length <= 1) return segments;
 

@@ -11,6 +11,7 @@
 import { readFile, rename, writeFile } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
+import axios from 'axios';
 import type {
   CliDetectionResult,
   CliOutputSegment,
@@ -70,7 +71,7 @@ interface CodexClient {
 interface CodexThread {
   runStreamed(
     input: string,
-    turnOptions?: { signal?: AbortSignal }
+    turnOptions?: { signal?: AbortSignal },
   ): Promise<{ events: AsyncGenerator<CodexThreadEvent> }>;
 }
 
@@ -152,7 +153,7 @@ async function getCodexSdk(binaryPath?: string): Promise<CodexSdkModule> {
   }
   const mod = await resolveAndImportSdk<CodexSdkModule>(
     '@openai/codex-sdk',
-    binaryPath
+    binaryPath,
   );
   codexSdkModule = mod;
   return mod;
@@ -333,7 +334,7 @@ export class CodexCliAdapter implements CliAdapter {
    * On success, writes updated tokens back to auth.json.
    */
   private async refreshAccessToken(
-    auth: CodexAuthFile
+    auth: CodexAuthFile,
   ): Promise<string | null> {
     if (!auth.tokens?.refresh_token) return null;
 
@@ -349,28 +350,27 @@ export class CodexCliAdapter implements CliAdapter {
   }
 
   private async doRefreshAccessToken(
-    auth: CodexAuthFile
+    auth: CodexAuthFile,
   ): Promise<string | null> {
     try {
-      const response = await fetch(CodexCliAdapter.REFRESH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: auth.tokens!.refresh_token!,
-          client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
-        }).toString(),
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!response.ok) return null;
-
-      const body = (await response.json()) as {
+      const { data: body } = await axios.post<{
         access_token?: string;
         refresh_token?: string;
         id_token?: string;
         expires_in?: number;
-      };
+      }>(
+        CodexCliAdapter.REFRESH_URL,
+        new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: auth.tokens!.refresh_token!,
+          client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
+        }),
+        {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          timeout: 10_000,
+        },
+      );
+
       if (!body.access_token) return null;
 
       // Persist updated tokens to auth.json. Use write-to-temp-then-rename
@@ -499,7 +499,7 @@ export class CodexCliAdapter implements CliAdapter {
     if (
       options.reasoningEffort &&
       (CODEX_REASONING_EFFORTS as readonly string[]).includes(
-        options.reasoningEffort
+        options.reasoningEffort,
       )
     ) {
       threadOptions.modelReasoningEffort =
@@ -589,8 +589,8 @@ export class CodexCliAdapter implements CliAdapter {
           new Promise<never>((_, reject) =>
             setTimeout(
               () => reject(new Error('Codex SDK startup timed out after 30s')),
-              STARTUP_TIMEOUT_MS
-            )
+              STARTUP_TIMEOUT_MS,
+            ),
           ),
         ]);
 
@@ -609,7 +609,7 @@ export class CodexCliAdapter implements CliAdapter {
             emitOutput,
             emitSegment,
             itemTextTracker,
-            itemsWithDeltas
+            itemsWithDeltas,
           );
         }
 
@@ -658,7 +658,7 @@ export class CodexCliAdapter implements CliAdapter {
     emitOutput: (data: string) => void,
     emitSegment: (segment: CliOutputSegment) => void,
     itemTextTracker: Map<string, string>,
-    itemsWithDeltas: Set<string>
+    itemsWithDeltas: Set<string>,
   ): void {
     switch (event.type) {
       case 'item.started': {
@@ -798,7 +798,7 @@ export class CodexCliAdapter implements CliAdapter {
           case 'mcp_tool_call':
             if (item.error) {
               emitOutput(
-                `[MCP Error] ${item.server}:${item.tool}: ${item.error}\n`
+                `[MCP Error] ${item.server}:${item.tool}: ${item.error}\n`,
               );
               emitSegment({
                 type: 'tool-result-error',
@@ -817,7 +817,7 @@ export class CodexCliAdapter implements CliAdapter {
               emitOutput(
                 `[MCP] ${item.server}:${item.tool} (${
                   item.status || 'completed'
-                })\n`
+                })\n`,
               );
               emitSegment({
                 type: 'tool-result',

@@ -1,14 +1,7 @@
 // CRITICAL: reflect-metadata MUST be imported first for TSyringe to work
 import 'reflect-metadata';
 
-import {
-  app,
-  BrowserWindow,
-  safeStorage,
-  dialog,
-  ipcMain,
-  net,
-} from 'electron';
+import { app, BrowserWindow, safeStorage, dialog, ipcMain } from 'electron';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { createMainWindow } from './windows/main-window';
@@ -48,15 +41,6 @@ if (!gotLock) {
   let skillJunctionRef: { deactivateSync: () => void } | null = null;
 
   app.whenReady().then(async () => {
-    // ========================================
-    // PHASE 0: Use Electron's net.fetch for all network requests
-    // ========================================
-    // Node.js's native fetch bypasses Chromium's network stack — it ignores
-    // system proxy settings, custom certificates, and authentication challenges.
-    // Electron's net.fetch uses Chromium's networking, which handles all of these.
-    // This is critical for license verification and any other HTTPS calls.
-    globalThis.fetch = net.fetch as typeof globalThis.fetch;
-
     // ========================================
     // PHASE 1: Parse command-line args
     // ========================================

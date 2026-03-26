@@ -19,6 +19,7 @@
 import { injectable, inject } from 'tsyringe';
 import type * as vscode from 'vscode';
 import EventEmitter from 'eventemitter3';
+import axios from 'axios';
 import { createPublicKey, verify, KeyObject } from 'crypto';
 import {
   resolveEnvironment,
@@ -236,7 +237,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     @inject(TOKENS.LOGGER)
     private readonly logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER)
-    private readonly configManager: ConfigManager
+    private readonly configManager: ConfigManager,
   ) {
     super();
     this.logger.info('[LicenseService.constructor] Service initialized', {
@@ -257,7 +258,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             tier: persistedCache.status.tier,
             persistedAt: new Date(persistedCache.persistedAt).toISOString(),
             isWithinGracePeriod: this.isWithinGracePeriod(persistedCache),
-          }
+          },
         );
       }
     });
@@ -280,7 +281,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     } catch (error) {
       this.logger.error(
         '[LicenseService] Failed to load Ed25519 public key for signature verification',
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
       return null;
     }
@@ -312,7 +313,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         null,
         Buffer.from(data),
         this.publicKey,
-        Buffer.from(signature, 'base64')
+        Buffer.from(signature, 'base64'),
       );
     } catch (error) {
       this.logger.error('[LicenseService] Signature verification error', {
@@ -356,21 +357,21 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             tier: this.cache.status.tier,
             valid: this.cache.status.valid,
             cacheAge: Date.now() - this.cache.timestamp,
-          }
+          },
         );
         return this.cache.status;
       }
 
       // Step 2: Get license key from SecretStorage
       const licenseKey = await this.context.secrets.get(
-        LicenseService.SECRET_KEY
+        LicenseService.SECRET_KEY,
       );
 
       if (!licenseKey) {
         // Check for previousUserContext (returning user with expired/trial-ended license)
         const previousContext =
           this.context.globalState.get<PreviousUserContext>(
-            LicenseService.PREVIOUS_USER_CONTEXT_KEY
+            LicenseService.PREVIOUS_USER_CONTEXT_KEY,
           );
 
         const isValidContext =
@@ -393,17 +394,17 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
           this.updateCache(communityWithContext);
           this.logger.info(
             '[LicenseService.verifyLicense] Returning user with expired context, activating as community',
-            { reason: previousContext.reason }
+            { reason: previousContext.reason },
           );
           return communityWithContext;
         } else if (previousContext) {
           // Invalid structure - clear it
           this.logger.warn(
-            '[LicenseService.verifyLicense] Invalid previousUserContext structure, clearing'
+            '[LicenseService.verifyLicense] Invalid previousUserContext structure, clearing',
           );
           await this.context.globalState.update(
             LicenseService.PREVIOUS_USER_CONTEXT_KEY,
-            undefined
+            undefined,
           );
         }
 
@@ -415,7 +416,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         };
         this.updateCache(noAccountStatus);
         this.logger.info(
-          '[LicenseService.verifyLicense] No license key found, prompting registration'
+          '[LicenseService.verifyLicense] No license key found, prompting registration',
         );
         return noAccountStatus;
       }
@@ -426,34 +427,18 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
         {
           keyPrefix: licenseKey.substring(0, 10) + '...',
           serverUrl: this.licenseServerUrl,
-        }
+        },
       );
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, LicenseService.NETWORK_TIMEOUT_MS);
-
       try {
-        const response = await fetch(
+        const { data: responseJson } = await axios.post(
           `${this.licenseServerUrl}/api/v1/licenses/verify`,
+          { licenseKey },
           {
-            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ licenseKey }),
-            signal: controller.signal,
-          }
+            timeout: LicenseService.NETWORK_TIMEOUT_MS,
+          },
         );
-
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error(
-            `License verification failed: ${response.status} ${response.statusText}`
-          );
-        }
-
-        const responseJson = await response.json();
 
         // TASK_2025_188: Verify response signature to prevent MITM attacks
         // Extract signature before creating the LicenseStatus object
@@ -462,19 +447,19 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
           // When a real public key is configured, signature is mandatory
           if (!responseSignature) {
             throw new Error(
-              'License response missing required signature — possible tampering'
+              'License response missing required signature — possible tampering',
             );
           }
           if (!this.verifySignature(licenseData, responseSignature)) {
             this.logger.error(
-              '[LicenseService.verifyLicense] License response signature verification failed - possible MITM attack'
+              '[LicenseService.verifyLicense] License response signature verification failed - possible MITM attack',
             );
             throw new Error(
-              'License response signature verification failed — possible tampering'
+              'License response signature verification failed — possible tampering',
             );
           }
           this.logger.debug(
-            '[LicenseService.verifyLicense] Response signature verified successfully'
+            '[LicenseService.verifyLicense] Response signature verified successfully',
           );
         }
 
@@ -490,7 +475,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             {
               originalTier: status.tier,
               reason: status.reason,
-            }
+            },
           );
 
           // Persist user context before clearing key so returning users
@@ -503,11 +488,11 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             };
             await this.context.globalState.update(
               LicenseService.PREVIOUS_USER_CONTEXT_KEY,
-              previousContext
+              previousContext,
             );
             this.logger.debug(
               '[LicenseService.verifyLicense] Persisted previousUserContext',
-              { reason: status.reason }
+              { reason: status.reason },
             );
           }
 
@@ -542,12 +527,16 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             tier: status.tier,
             valid: status.valid,
             expiresAt: status.expiresAt,
-          }
+          },
         );
 
         return status;
       } catch (fetchError) {
-        clearTimeout(timeoutId);
+        if (axios.isAxiosError(fetchError) && fetchError.response) {
+          throw new Error(
+            `License verification failed: ${fetchError.response.status} ${fetchError.response.statusText}`,
+          );
+        }
         throw fetchError;
       }
     } catch (error) {
@@ -567,7 +556,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
             tier: persistedCache.status.tier,
             persistedAt: new Date(persistedCache.persistedAt).toISOString(),
             gracePeriodRemaining: this.getGracePeriodRemaining(persistedCache),
-          }
+          },
         );
 
         // Update in-memory cache from persisted cache
@@ -588,20 +577,20 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
           {
             tier: this.cache.status.tier,
             cacheAge: Date.now() - (this.cache.timestamp ?? 0),
-          }
+          },
         );
         return this.cache.status;
       }
 
       // No cache and outside grace period - check if user had a license key
       const licenseKey = await this.context.secrets.get(
-        LicenseService.SECRET_KEY
+        LicenseService.SECRET_KEY,
       );
 
       if (licenseKey) {
         // User has a key but server is unreachable and grace period expired
         this.logger.warn(
-          '[LicenseService.verifyLicense] License key exists but cannot verify (grace period expired)'
+          '[LicenseService.verifyLicense] License key exists but cannot verify (grace period expired)',
         );
         const expiredStatus: LicenseStatus = {
           valid: false,
@@ -647,7 +636,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     // Clear any stale previousUserContext (user is entering a fresh key)
     await this.context.globalState.update(
       LicenseService.PREVIOUS_USER_CONTEXT_KEY,
-      undefined
+      undefined,
     );
 
     // Invalidate cache and re-verify
@@ -681,7 +670,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
     // Clear previousUserContext (manual removal = voluntary, not expiration)
     await this.context.globalState.update(
       LicenseService.PREVIOUS_USER_CONTEXT_KEY,
-      undefined
+      undefined,
     );
 
     // No license key = prompt registration on next activation
@@ -788,7 +777,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
 
     await this.context.globalState.update(
       LicenseService.PERSISTED_CACHE_KEY,
-      persistedCache
+      persistedCache,
     );
 
     this.logger.debug(
@@ -796,7 +785,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       {
         tier: status.tier,
         persistedAt: new Date(persistedCache.persistedAt).toISOString(),
-      }
+      },
     );
   }
 
@@ -809,7 +798,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
    */
   private async loadPersistedCache(): Promise<PersistedLicenseCache | null> {
     const persistedCache = this.context.globalState.get<PersistedLicenseCache>(
-      LicenseService.PERSISTED_CACHE_KEY
+      LicenseService.PERSISTED_CACHE_KEY,
     );
 
     if (!persistedCache) {
@@ -822,7 +811,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
       typeof persistedCache.persistedAt !== 'number'
     ) {
       this.logger.warn(
-        '[LicenseService.loadPersistedCache] Invalid persisted cache structure, clearing'
+        '[LicenseService.loadPersistedCache] Invalid persisted cache structure, clearing',
       );
       await this.clearPersistedCache();
       return null;
@@ -839,11 +828,11 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
   private async clearPersistedCache(): Promise<void> {
     await this.context.globalState.update(
       LicenseService.PERSISTED_CACHE_KEY,
-      undefined
+      undefined,
     );
 
     this.logger.debug(
-      '[LicenseService.clearPersistedCache] Persisted cache cleared'
+      '[LicenseService.clearPersistedCache] Persisted cache cleared',
     );
   }
 
@@ -875,7 +864,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
           {
             expiresAt: cache.status.expiresAt,
             now: new Date().toISOString(),
-          }
+          },
         );
         return false;
       }
@@ -901,7 +890,7 @@ export class LicenseService extends EventEmitter<LicenseEvents> {
 
     const days = Math.floor(remainingMs / (24 * 60 * 60 * 1000));
     const hours = Math.floor(
-      (remainingMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000)
+      (remainingMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000),
     );
 
     if (days > 0) {

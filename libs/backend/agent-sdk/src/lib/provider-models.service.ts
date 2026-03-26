@@ -16,6 +16,7 @@
  */
 
 import { injectable, inject } from 'tsyringe';
+import axios from 'axios';
 import { Logger, ConfigManager, TOKENS } from '@ptah-extension/vscode-core';
 import type {
   AuthEnv,
@@ -84,7 +85,7 @@ export class ProviderModelsService {
   constructor(
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(TOKENS.CONFIG_MANAGER) private config: ConfigManager,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private authEnv: AuthEnv,
   ) {}
 
   /**
@@ -94,12 +95,12 @@ export class ProviderModelsService {
    */
   registerDynamicFetcher(
     providerId: string,
-    fetcher: DynamicModelFetcher
+    fetcher: DynamicModelFetcher,
   ): void {
     this.dynamicFetchers.set(providerId, fetcher);
     this.logger.debug(
       '[ProviderModelsService] Registered dynamic model fetcher',
-      { providerId }
+      { providerId },
     );
   }
 
@@ -108,7 +109,7 @@ export class ProviderModelsService {
    */
   private getTierConfigKey(
     providerId: string,
-    tier: ProviderModelTier
+    tier: ProviderModelTier,
   ): string {
     return `provider.${providerId}.modelTier.${tier}`;
   }
@@ -127,7 +128,7 @@ export class ProviderModelsService {
   async fetchModels(
     providerId: string,
     apiKey: string | null,
-    toolUseOnly = false
+    toolUseOnly = false,
   ): Promise<{
     models: ProviderModelInfo[];
     totalCount: number;
@@ -180,7 +181,7 @@ export class ProviderModelsService {
           {
             providerId,
             error: error instanceof Error ? error.message : String(error),
-          }
+          },
         );
         // Fall through to existing paths
       }
@@ -193,7 +194,7 @@ export class ProviderModelsService {
           providerId,
           provider,
           apiKey,
-          toolUseOnly
+          toolUseOnly,
         );
         // Merge static metadata (pricing, toolUse flags) into dynamic results
         result.models = this.mergeStaticMetadata(result.models, provider);
@@ -204,7 +205,7 @@ export class ProviderModelsService {
           {
             providerId,
             error: error instanceof Error ? error.message : String(error),
-          }
+          },
         );
         // Fall through to static fallback
       }
@@ -235,7 +236,7 @@ export class ProviderModelsService {
         hasEndpoint: !!provider.modelsEndpoint,
         hasStatic: !!provider.staticModels?.length,
         hasKey: !!apiKey,
-      }
+      },
     );
     return { models: [], totalCount: 0, isStatic: false };
   }
@@ -247,7 +248,7 @@ export class ProviderModelsService {
     providerId: string,
     provider: AnthropicProvider,
     apiKey: string | null,
-    toolUseOnly: boolean
+    toolUseOnly: boolean,
   ): Promise<{
     models: ProviderModelInfo[];
     totalCount: number;
@@ -265,7 +266,7 @@ export class ProviderModelsService {
         `[ProviderModelsService] Returning cached models for ${providerId}`,
         {
           count: cached.models.length,
-        }
+        },
       );
       const filtered = toolUseOnly
         ? cached.models.filter((m) => m.supportsToolUse)
@@ -279,37 +280,26 @@ export class ProviderModelsService {
 
     if (!apiKey) {
       throw new Error(
-        `${provider.name} API key not configured. Please add your key in Settings.`
+        `${provider.name} API key not configured. Please add your key in Settings.`,
       );
     }
 
     try {
       this.logger.info(
-        `[ProviderModelsService] Fetching models from ${provider.name} API`
+        `[ProviderModelsService] Fetching models from ${provider.name} API`,
       );
 
-      const response = await fetch(provider.modelsEndpoint as string, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'User-Agent': 'Ptah-Extension/1.0',
+      const { data } = await axios.get<ModelsApiResponse>(
+        provider.modelsEndpoint as string,
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'User-Agent': 'Ptah-Extension/1.0',
+          },
+          timeout: 10_000,
         },
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          throw new Error(
-            `${provider.name} API key is invalid or expired. Please delete your key and re-enter a valid one.`
-          );
-        }
-        throw new Error(
-          `${provider.name} API error: ${response.status} ${response.statusText}`
-        );
-      }
-
-      const data = (await response.json()) as ModelsApiResponse;
+      );
 
       if (!data.data || !Array.isArray(data.data)) {
         throw new Error(`Invalid response format from ${provider.name} API`);
@@ -329,7 +319,7 @@ export class ProviderModelsService {
         {
           total: models.length,
           withToolUse: models.filter((m) => m.supportsToolUse).length,
-        }
+        },
       );
 
       const filtered = toolUseOnly
@@ -338,9 +328,19 @@ export class ProviderModelsService {
 
       return { models: filtered, totalCount: models.length, isStatic: false };
     } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        if (error.response.status === 401 || error.response.status === 403) {
+          throw new Error(
+            `${provider.name} API key is invalid or expired. Please delete your key and re-enter a valid one.`,
+          );
+        }
+        throw new Error(
+          `${provider.name} API error: ${error.response.status} ${error.response.statusText}`,
+        );
+      }
       this.logger.error(
         `[ProviderModelsService] Failed to fetch models from ${provider.name}`,
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
       throw error;
     }
@@ -354,12 +354,12 @@ export class ProviderModelsService {
    */
   private mergeStaticMetadata(
     dynamicModels: ProviderModelInfo[],
-    provider: AnthropicProvider
+    provider: AnthropicProvider,
   ): ProviderModelInfo[] {
     if (!provider.staticModels?.length) return dynamicModels;
 
     const staticMap = new Map(
-      provider.staticModels.map((m) => [m.id.toLowerCase(), m])
+      provider.staticModels.map((m) => [m.id.toLowerCase(), m]),
     );
 
     return dynamicModels.map((model) => {
@@ -402,7 +402,7 @@ export class ProviderModelsService {
   async setModelTier(
     providerId: string,
     tier: ProviderModelTier,
-    modelId: string
+    modelId: string,
   ): Promise<void> {
     const envVar = TIER_ENV_VARS[tier];
     const configKey = this.getTierConfigKey(providerId, tier);
@@ -448,7 +448,7 @@ export class ProviderModelsService {
    */
   async clearModelTier(
     providerId: string,
-    tier: ProviderModelTier
+    tier: ProviderModelTier,
   ): Promise<void> {
     const envVar = TIER_ENV_VARS[tier];
     const configKey = this.getTierConfigKey(providerId, tier);
@@ -487,7 +487,7 @@ export class ProviderModelsService {
 
     this.logger.debug(
       '[ProviderModelsService] Applied persisted tier mappings',
-      { providerId, tiers }
+      { providerId, tiers },
     );
   }
 
@@ -504,7 +504,7 @@ export class ProviderModelsService {
     delete process.env['ANTHROPIC_DEFAULT_HAIKU_MODEL'];
 
     this.logger.debug(
-      '[ProviderModelsService] Cleared all tier environment variables'
+      '[ProviderModelsService] Cleared all tier environment variables',
     );
   }
 
@@ -517,7 +517,7 @@ export class ProviderModelsService {
     this.applyPersistedTiers(providerId);
 
     this.logger.info(
-      `[ProviderModelsService] Switched active provider tiers to ${providerId}`
+      `[ProviderModelsService] Switched active provider tiers to ${providerId}`,
     );
   }
 
@@ -574,26 +574,19 @@ export class ProviderModelsService {
       try {
         this.logger.info(
           '[ProviderModelsService] Pre-fetching pricing from OpenRouter (no auth)',
-          { attempt }
+          { attempt },
         );
 
-        const response = await fetch(openRouter.modelsEndpoint, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Ptah-Extension/1.0',
+        const { data } = await axios.get<ModelsApiResponse>(
+          openRouter.modelsEndpoint,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'Ptah-Extension/1.0',
+            },
+            timeout: 15_000,
           },
-          signal: AbortSignal.timeout(15_000),
-        });
-
-        if (!response.ok) {
-          this.logger.warn(
-            `[ProviderModelsService] OpenRouter pricing pre-fetch failed: ${response.status}`
-          );
-          return 0;
-        }
-
-        const data = (await response.json()) as ModelsApiResponse;
+        );
         if (!data.data || !Array.isArray(data.data)) {
           return 0;
         }
@@ -610,23 +603,31 @@ export class ProviderModelsService {
 
         this.logger.info(
           '[ProviderModelsService] Pre-fetched pricing from OpenRouter',
-          { totalModels: models.length, modelsWithPricing: pricedCount }
+          { totalModels: models.length, modelsWithPricing: pricedCount },
         );
 
         return pricedCount;
       } catch (error) {
+        // HTTP errors (non-2xx) return 0 immediately — no retry
+        if (axios.isAxiosError(error) && error.response) {
+          this.logger.warn(
+            `[ProviderModelsService] OpenRouter pricing pre-fetch failed: ${error.response.status}`,
+          );
+          return 0;
+        }
+
         const errorMsg = error instanceof Error ? error.message : String(error);
 
         if (attempt < maxAttempts) {
           this.logger.info(
             `[ProviderModelsService] Pricing pre-fetch attempt ${attempt} failed, retrying in 5s`,
-            { error: errorMsg }
+            { error: errorMsg },
           );
           await new Promise((resolve) => setTimeout(resolve, 5000));
         } else {
           this.logger.warn(
             '[ProviderModelsService] Pricing pre-fetch failed after retries (will use bundled fallback)',
-            { error: errorMsg, attempts: maxAttempts }
+            { error: errorMsg, attempts: maxAttempts },
           );
         }
       }
@@ -649,10 +650,10 @@ export class ProviderModelsService {
       inputCostPerToken: this.parsePricingField(model.pricing?.prompt),
       outputCostPerToken: this.parsePricingField(model.pricing?.completion),
       cacheReadCostPerToken: this.parsePricingField(
-        model.pricing?.input_cache_read
+        model.pricing?.input_cache_read,
       ),
       cacheCreationCostPerToken: this.parsePricingField(
-        model.pricing?.input_cache_write
+        model.pricing?.input_cache_write,
       ),
     }));
   }
@@ -735,7 +736,7 @@ export class ProviderModelsService {
    */
   private getPersistedTierValue(
     providerId: string,
-    tier: ProviderModelTier
+    tier: ProviderModelTier,
   ): string | null {
     const configKey = this.getTierConfigKey(providerId, tier);
     const configValue = this.config.get<string>(configKey);
