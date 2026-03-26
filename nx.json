@@ -92,5 +92,6 @@
         "serveStaticTargetName": "serve-static"
       }
     }
-  ]
+  ],
+  "analytics": true
 }

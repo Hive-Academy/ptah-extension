@@ -289,6 +289,170 @@ async function handleLicenseBlocking(
                 correlationId,
               });
             }
+          } else if (method === 'settings:import') {
+            // Inline settings import for unlicensed users (TASK_2025_210)
+            // Full SettingsImportService requires DI container which isn't set up yet.
+            // Handle file dialog + secret storage directly via VS Code APIs.
+            try {
+              const fileUris = await vscode.window.showOpenDialog({
+                canSelectMany: false,
+                filters: { 'JSON Files': ['json'] },
+                title: 'Import Ptah Settings',
+                openLabel: 'Import',
+              });
+
+              if (!fileUris || fileUris.length === 0) {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: true,
+                  data: { cancelled: true },
+                  correlationId,
+                });
+                return;
+              }
+
+              // Read and parse JSON file
+              const fileContent = await vscode.workspace.fs.readFile(
+                fileUris[0],
+              );
+              const jsonString = new TextDecoder().decode(fileContent);
+              let importData: Record<string, unknown>;
+              try {
+                importData = JSON.parse(jsonString);
+              } catch {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: false,
+                  error: 'File is not valid JSON',
+                  correlationId,
+                });
+                return;
+              }
+
+              // Validate basic structure (version 1, has auth section)
+              if (
+                !importData ||
+                typeof importData !== 'object' ||
+                importData['version'] !== 1 ||
+                !importData['auth']
+              ) {
+                webviewView.webview.postMessage({
+                  type: 'rpc:response',
+                  success: false,
+                  error:
+                    'Invalid settings file. Expected a Ptah settings export (version 1).',
+                  correlationId,
+                });
+                return;
+              }
+
+              // Import secrets directly via context.secrets (VS Code SecretStorage)
+              const imported: string[] = [];
+              const errors: string[] = [];
+              const auth = importData['auth'] as Record<string, unknown>;
+
+              if (
+                importData['licenseKey'] &&
+                typeof importData['licenseKey'] === 'string'
+              ) {
+                try {
+                  await context.secrets.store(
+                    'ptah.licenseKey',
+                    importData['licenseKey'] as string,
+                  );
+                  imported.push('ptah.licenseKey');
+                } catch (e) {
+                  errors.push(
+                    `licenseKey: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+              }
+
+              if (
+                auth['oauthToken'] &&
+                typeof auth['oauthToken'] === 'string'
+              ) {
+                try {
+                  await context.secrets.store(
+                    'ptah.auth.claudeOAuthToken',
+                    auth['oauthToken'] as string,
+                  );
+                  imported.push('ptah.auth.claudeOAuthToken');
+                } catch (e) {
+                  errors.push(
+                    `oauthToken: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+              }
+
+              if (auth['apiKey'] && typeof auth['apiKey'] === 'string') {
+                try {
+                  await context.secrets.store(
+                    'ptah.auth.anthropicApiKey',
+                    auth['apiKey'] as string,
+                  );
+                  imported.push('ptah.auth.anthropicApiKey');
+                } catch (e) {
+                  errors.push(
+                    `apiKey: ${e instanceof Error ? e.message : String(e)}`,
+                  );
+                }
+              }
+
+              if (
+                auth['providerKeys'] &&
+                typeof auth['providerKeys'] === 'object'
+              ) {
+                for (const [providerId, value] of Object.entries(
+                  auth['providerKeys'] as Record<string, unknown>,
+                )) {
+                  if (typeof value === 'string' && value) {
+                    try {
+                      await context.secrets.store(
+                        `ptah.auth.provider.${providerId}`,
+                        value,
+                      );
+                      imported.push(`provider:${providerId}`);
+                    } catch (e) {
+                      errors.push(
+                        `provider:${providerId}: ${e instanceof Error ? e.message : String(e)}`,
+                      );
+                    }
+                  }
+                }
+              }
+
+              webviewView.webview.postMessage({
+                type: 'rpc:response',
+                success: true,
+                data: { cancelled: false, imported, errors },
+                correlationId,
+              });
+
+              // If a license key was imported, schedule a window reload so the
+              // extension re-runs activation with the new credentials.
+              // Same pattern as Electron's ElectronSettingsRpcHandlers — 1.5s
+              // delay lets the RPC response reach the webview before reload.
+              if (imported.includes('ptah.licenseKey')) {
+                setTimeout(
+                  () =>
+                    vscode.commands.executeCommand(
+                      'workbench.action.reloadWindow',
+                    ),
+                  1500,
+                );
+              }
+            } catch (error) {
+              webviewView.webview.postMessage({
+                type: 'rpc:response',
+                success: false,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : 'Import failed. Please try again.',
+                correlationId,
+              });
+            }
           }
         }
       });

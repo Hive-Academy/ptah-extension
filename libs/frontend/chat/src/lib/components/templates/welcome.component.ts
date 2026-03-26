@@ -74,7 +74,7 @@ export class WelcomeComponent implements OnInit {
 
   // State signals
   readonly licenseReason = signal<LicenseGetStatusResponse['reason'] | null>(
-    null
+    null,
   );
   readonly isLoadingStatus = signal(true);
   readonly errorMessage = signal<string | null>(null);
@@ -180,7 +180,7 @@ export class WelcomeComponent implements OnInit {
     } catch (error) {
       console.error(
         '[WelcomeComponent] Failed to fetch license status:',
-        error
+        error,
       );
       this.errorMessage.set('Failed to check license status');
     } finally {
@@ -211,7 +211,7 @@ export class WelcomeComponent implements OnInit {
     }
     if (!/^ptah_lic_[a-f0-9]{64}$/.test(key)) {
       this.keyError.set(
-        'Invalid format. License keys start with ptah_lic_ followed by 64 characters.'
+        'Invalid format. License keys start with ptah_lic_ followed by 64 characters.',
       );
       return;
     }
@@ -279,8 +279,8 @@ export class WelcomeComponent implements OnInit {
    * Brings license key, API keys, and config — enabling seamless
    * transition between VS Code extension and Electron desktop app.
    *
-   * Platform-aware: uses settings:import RPC for Electron,
-   * command:execute for VS Code (same pattern as settings.component.ts).
+   * Uses settings:import RPC on both platforms. The backend handles
+   * the native file dialog and secret storage directly.
    *
    * If a license key is included in the import, the backend will
    * verify it and trigger a window reload on success.
@@ -291,22 +291,18 @@ export class WelcomeComponent implements OnInit {
     this.errorMessage.set(null);
 
     try {
-      let result;
-      if (this.vscodeService.isElectron) {
-        result = await this.rpcService.call(
-          'settings:import' as never,
-          {} as never
-        );
-      } else {
-        result = await this.rpcService.call('command:execute', {
-          command: 'ptah.importSettings',
-        });
-      }
+      const result = await this.rpcService.call(
+        'settings:import' as never,
+        {} as never,
+      );
 
-      // Check RPC result — don't show success if backend rejected the call
       if (result.isSuccess()) {
-        this.importSuccess.set(true);
-        // Backend handles window reload if a license key was imported
+        const data = result.data as { cancelled?: boolean } | undefined;
+        // Don't show success if user cancelled the file dialog
+        if (!data?.cancelled) {
+          this.importSuccess.set(true);
+          // Backend handles window reload if a license key was imported
+        }
       } else {
         const errorMsg =
           (result as { error?: string }).error ||
