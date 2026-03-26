@@ -19,6 +19,9 @@ permissions:
   actions: read
   contents: read
 
+env:
+  NX_TUI: false
+
 jobs:
   main:
     runs-on: ubuntu-latest

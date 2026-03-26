@@ -13,6 +13,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  NX_TUI: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest

@@ -39,6 +39,9 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  NX_TUI: false
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
