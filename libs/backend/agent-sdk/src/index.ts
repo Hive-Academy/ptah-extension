@@ -193,14 +193,18 @@ export type { PtahCliPremiumConfig } from './lib/ptah-cli';
 // ============================================================
 export {
   CopilotAuthService,
+  VscodeCopilotAuthService,
   CopilotTranslationProxy,
   COPILOT_PROVIDER_ENTRY,
   COPILOT_DEFAULT_TIERS,
+  readCopilotToken,
+  getCopilotHostsPath,
 } from './lib/copilot-provider';
 export type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
   CopilotAuthState,
+  CopilotHostsFile,
 } from './lib/copilot-provider';
 
 // ============================================================

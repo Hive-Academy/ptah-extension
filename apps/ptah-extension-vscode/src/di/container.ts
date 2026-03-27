@@ -18,7 +18,7 @@
  */
 
 import 'reflect-metadata';
-import { container, DependencyContainer } from 'tsyringe';
+import { container, DependencyContainer, Lifecycle } from 'tsyringe';
 import * as vscode from 'vscode';
 
 // Import Logger and OutputManager (must be registered directly - cannot be in registration function)
@@ -64,6 +64,7 @@ import {
   registerSdkServices,
   SDK_TOKENS,
   EnhancedPromptsService,
+  VscodeCopilotAuthService,
 } from '@ptah-extension/agent-sdk';
 import type { IMultiPhaseAnalysisReader } from '@ptah-extension/agent-sdk';
 
@@ -222,11 +223,11 @@ export class DIContainer {
     // Must be registered BEFORE handler classes that depend on these tokens
     container.registerSingleton(
       TOKENS.PLATFORM_COMMANDS,
-      VsCodePlatformCommands
+      VsCodePlatformCommands,
     );
     container.registerSingleton(
       TOKENS.PLATFORM_AUTH_PROVIDER,
-      VsCodePlatformAuth
+      VsCodePlatformAuth,
     );
     container.registerSingleton(TOKENS.SAVE_DIALOG_PROVIDER, VsCodeSaveDialog);
     container.registerSingleton(TOKENS.MODEL_DISCOVERY, VsCodeModelDiscovery);
@@ -238,7 +239,7 @@ export class DIContainer {
     // Must be registered AFTER vscode-core (Logger dependency) but BEFORE RPC handlers
     container.registerSingleton(
       TOKENS.SUBAGENT_REGISTRY_SERVICE,
-      SubagentRegistryService
+      SubagentRegistryService,
     );
 
     // ========================================
@@ -265,7 +266,7 @@ export class DIContainer {
           c.resolve(TOKENS.CONFIG_MANAGER),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c
+          c,
         ),
     });
 
@@ -274,7 +275,7 @@ export class DIContainer {
         new AppLlmRpcHandlers(
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
-          c
+          c,
         ),
     });
 
@@ -303,7 +304,7 @@ export class DIContainer {
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
-          c
+          c,
         ),
     });
 
@@ -331,7 +332,7 @@ export class DIContainer {
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c
+          c,
         ),
     });
 
@@ -370,7 +371,7 @@ export class DIContainer {
           c.resolve(AgentRpcHandlers), // TASK_2025_157
           c.resolve(PtahCliRpcHandlers), // TASK_2025_167
           c.resolve(SkillsShRpcHandlers), // TASK_2025_204
-          c // Pass container instance
+          c, // Pass container instance
         );
       },
     });
@@ -396,6 +397,15 @@ export class DIContainer {
     // vscode.ExtensionContext directly.
     registerSdkServices(container, logger);
 
+    // TASK_2025_224: Override CopilotAuthService with VS Code-enhanced version.
+    // VscodeCopilotAuthService adds native GitHub OAuth via vscode.authentication
+    // (best UX in VS Code) before falling back to file-based/device-code flow.
+    container.register(
+      SDK_TOKENS.SDK_COPILOT_AUTH,
+      { useClass: VscodeCopilotAuthService },
+      { lifecycle: Lifecycle.Singleton },
+    );
+
     // TASK_2025_140: Bridge registration removed. TOKENS.SDK_AGENT_ADAPTER and
     // SDK_TOKENS.SDK_AGENT_ADAPTER both use Symbol.for('SdkAgentAdapter'), so
     // they are the same symbol. registerSdkServices() registers the adapter
@@ -416,16 +426,16 @@ export class DIContainer {
     // safely resolve and connect them for optional multi-phase enrichment.
     try {
       const enhancedPrompts = container.resolve<EnhancedPromptsService>(
-        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE
+        SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
       );
       const analysisStorage = container.resolve<IMultiPhaseAnalysisReader>(
-        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE
+        AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
       );
       enhancedPrompts.setAnalysisReader(analysisStorage);
     } catch (error) {
       logger.warn(
         '[DI] Failed to wire multi-phase analysis reader into EnhancedPromptsService',
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
     }
 
@@ -480,7 +490,7 @@ export class DIContainer {
 
     container.registerSingleton(
       TOKENS.ANGULAR_WEBVIEW_PROVIDER,
-      AngularWebviewProvider
+      AngularWebviewProvider,
     );
 
     // ========================================
