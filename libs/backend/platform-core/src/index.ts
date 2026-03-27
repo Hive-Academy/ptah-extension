@@ -27,6 +27,7 @@ export type { IUserInteraction } from './interfaces/user-interaction.interface';
 export type { IOutputChannel } from './interfaces/output-channel.interface';
 export type { ICommandRegistry } from './interfaces/command-registry.interface';
 export type { IEditorProvider } from './interfaces/editor-provider.interface';
+export type { ITokenCounter } from './interfaces/token-counter.interface';
 
 // DI Tokens
 export { PLATFORM_TOKENS } from './tokens';
