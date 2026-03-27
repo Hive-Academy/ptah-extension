@@ -177,7 +177,7 @@ function handleToolsList(
     buildSearchFilesTool(),
     buildGetDiagnosticsTool(),
     // VS Code-only IDE tools — excluded on platforms without IDE capabilities (e.g. Electron)
-    ...(deps.hasIDECapabilities !== false
+    ...(deps.hasIDECapabilities === true
       ? [
           buildLspReferencesTool(),
           buildLspDefinitionsTool(),

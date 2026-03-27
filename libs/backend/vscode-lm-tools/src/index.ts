@@ -14,7 +14,8 @@ export type { PtahAPI } from './lib/code-execution/types';
 
 // IDE capabilities exports (TASK_2025_226 - platform decoupling)
 export type { IIDECapabilities } from './lib/code-execution/namespace-builders/ide-namespace.builder';
-export { VscodeIDECapabilities } from './lib/code-execution/namespace-builders/ide-capabilities.vscode';
+// NOTE: VscodeIDECapabilities is exported from '@ptah-extension/vscode-lm-tools/vscode'
+// subpath to prevent the Electron bundler from resolving the vscode-importing file.
 export type { ToolResultCallback } from './lib/code-execution/mcp-handlers';
 
 // System Prompt exports (TASK_2025_039 Phase 9)

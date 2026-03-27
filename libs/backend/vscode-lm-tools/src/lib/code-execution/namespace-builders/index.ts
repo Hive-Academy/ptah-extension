@@ -39,7 +39,9 @@ export {
   buildIDENamespace,
   type IIDECapabilities,
 } from './ide-namespace.builder';
-export { VscodeIDECapabilities } from './ide-capabilities.vscode';
+// NOTE: VscodeIDECapabilities is NOT exported here to prevent the Electron bundler
+// from resolving ide-capabilities.vscode.ts (which imports `vscode` directly).
+// Import it from the subpath: '@ptah-extension/vscode-lm-tools/vscode'
 
 // Orchestration namespace (TASK_2025_111 - workflow state management)
 export {

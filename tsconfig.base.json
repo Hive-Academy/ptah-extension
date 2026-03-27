@@ -56,6 +56,9 @@
       "@ptah-extension/vscode-lm-tools": [
         "libs/backend/vscode-lm-tools/src/index.ts"
       ],
+      "@ptah-extension/vscode-lm-tools/vscode": [
+        "libs/backend/vscode-lm-tools/src/vscode.ts"
+      ],
       "@ptah-extension/workspace-intelligence": [
         "libs/backend/workspace-intelligence/src/index.ts"
       ]

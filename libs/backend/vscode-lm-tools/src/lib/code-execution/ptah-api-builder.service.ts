@@ -197,7 +197,12 @@ export class PtahAPIBuilder {
   }
 
   /**
-   * Build the complete Ptah API object with all 13 namespaces
+   * Build the complete Ptah API object with all 13 namespaces.
+   *
+   * Each namespace builder is wrapped in try/catch so that one failing
+   * namespace does not prevent the remaining namespaces (and their tools)
+   * from being available. A failed namespace is replaced with a proxy that
+   * throws a descriptive error on any method call.
    */
   build(): PtahAPI {
     this.logger.debug('Building Ptah API with all namespaces');
@@ -243,179 +248,249 @@ export class PtahAPIBuilder {
 
     return {
       // Core namespaces (workspace discovery)
-      workspace: buildWorkspaceNamespace(coreDeps),
-      search: buildSearchNamespace(coreDeps),
-      diagnostics: buildDiagnosticsNamespace(this.diagnosticsProvider),
+      workspace: this.buildNamespaceSafe('workspace', () =>
+        buildWorkspaceNamespace(coreDeps),
+      ),
+      search: this.buildNamespaceSafe('search', () =>
+        buildSearchNamespace(coreDeps),
+      ),
+      diagnostics: this.buildNamespaceSafe('diagnostics', () =>
+        buildDiagnosticsNamespace(this.diagnosticsProvider),
+      ),
 
       // System namespaces (VS Code integration)
-      files: buildFilesNamespace(systemDeps),
+      files: this.buildNamespaceSafe('files', () =>
+        buildFilesNamespace(systemDeps),
+      ),
 
       // Analysis namespaces (workspace intelligence)
-      context: buildContextNamespace(analysisDeps),
-      project: buildProjectNamespace(analysisDeps),
-      relevance: buildRelevanceNamespace(analysisDeps),
+      context: this.buildNamespaceSafe('context', () =>
+        buildContextNamespace(analysisDeps),
+      ),
+      project: this.buildNamespaceSafe('project', () =>
+        buildProjectNamespace(analysisDeps),
+      ),
+      relevance: this.buildNamespaceSafe('relevance', () =>
+        buildRelevanceNamespace(analysisDeps),
+      ),
 
       // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
-      dependencies: buildDependencyNamespace(analysisDeps),
+      dependencies: this.buildNamespaceSafe('dependencies', () =>
+        buildDependencyNamespace(analysisDeps),
+      ),
 
       // AST namespace (code structure)
-      ast: buildAstNamespace(astDeps),
+      ast: this.buildNamespaceSafe('ast', () => buildAstNamespace(astDeps)),
 
       // IDE namespace (TASK_2025_039 - LSP, editor, actions, testing)
       // Resolved lazily: if IDE_CAPABILITIES_TOKEN is not registered (Electron/standalone),
       // buildIDENamespace receives undefined and returns graceful degradation stubs.
-      ide: buildIDENamespace(this.resolveIDECapabilities()),
+      ide: this.buildNamespaceSafe('ide', () =>
+        buildIDENamespace(this.resolveIDECapabilities()),
+      ),
 
       // Orchestration namespace (TASK_2025_111 - workflow state management)
-      orchestration: buildOrchestrationNamespace(orchestrationDeps),
+      orchestration: this.buildNamespaceSafe('orchestration', () =>
+        buildOrchestrationNamespace(orchestrationDeps),
+      ),
 
       // Agent orchestration namespace (TASK_2025_157, session linking TASK_2025_161)
-      agent: buildAgentNamespace({
-        agentProcessManager: this.agentProcessManager,
-        cliDetectionService: this.cliDetectionService,
-        workspaceRoot,
-        getActiveSessionId: () => {
-          // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
-          // In single-session mode (current), there's at most one.
-          // Resolved lazily: if SDK_SESSION_LIFECYCLE_MANAGER token is unregistered, returns undefined
-          // instead of crashing the MCP server during DI resolution.
-          if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
-            return undefined;
-          }
-          try {
-            const manager = container.resolve<{
-              getActiveSessionIds(): string[];
-            }>(SDK_SESSION_LIFECYCLE_MANAGER);
-            const ids = manager.getActiveSessionIds();
-            return ids.length > 0 ? (ids[0] as string) : undefined;
-          } catch {
-            return undefined;
-          }
-        },
-        getProjectGuidance: async () => {
-          // Resolve EnhancedPromptsService lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
-          // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
-          if (!container.isRegistered(SDK_ENHANCED_PROMPTS_SERVICE)) {
-            return undefined;
-          }
-          try {
-            const service = container.resolve<{
-              getProjectGuidanceContent(
-                workspacePath: string,
-              ): Promise<string | null>;
-            }>(SDK_ENHANCED_PROMPTS_SERVICE);
-            const workspacePath = this.getWorkspaceRoot();
-            const content =
-              await service.getProjectGuidanceContent(workspacePath);
-            return content ?? undefined;
-          } catch {
-            return undefined;
-          }
-        },
-        getSystemPrompt: async () => {
-          // Resolve EnhancedPromptsService lazily for the full enhanced prompt content.
-          // Returns the full enhanced prompts (project guidance + framework guidelines +
-          // coding standards + architecture notes) for use as CLI agent system prompt.
-          if (!container.isRegistered(SDK_ENHANCED_PROMPTS_SERVICE)) {
-            return undefined;
-          }
-          try {
-            const service = container.resolve<{
-              getEnhancedPromptContent(
-                workspacePath: string,
-              ): Promise<string | null>;
-            }>(SDK_ENHANCED_PROMPTS_SERVICE);
-            const workspacePath = this.getWorkspaceRoot();
-            const content =
-              await service.getEnhancedPromptContent(workspacePath);
-            return content ?? undefined;
-          } catch {
-            return undefined;
-          }
-        },
-        getPluginPaths: async () => {
-          // Resolve PluginLoaderService lazily to get enabled plugin paths (premium-gated).
-          // Skills are synced to CLI directories by CliPluginSyncService on activation.
-          if (!container.isRegistered(SDK_PLUGIN_LOADER)) {
-            return undefined;
-          }
-          try {
-            const pluginLoader = container.resolve<{
-              getWorkspacePluginConfig(): {
-                enabledPluginIds: string[];
-              };
-              resolvePluginPaths(pluginIds: string[]): string[];
-            }>(SDK_PLUGIN_LOADER);
-            const config = pluginLoader.getWorkspacePluginConfig();
-            if (
-              !config.enabledPluginIds ||
-              config.enabledPluginIds.length === 0
-            ) {
+      agent: this.buildNamespaceSafe('agent', () =>
+        buildAgentNamespace({
+          agentProcessManager: this.agentProcessManager,
+          cliDetectionService: this.cliDetectionService,
+          workspaceRoot,
+          getActiveSessionId: () => {
+            // SessionLifecycleManager.getActiveSessionIds() returns all active sessions.
+            // In single-session mode (current), there's at most one.
+            // Resolved lazily: if SDK_SESSION_LIFECYCLE_MANAGER token is unregistered, returns undefined
+            // instead of crashing the MCP server during DI resolution.
+            if (!container.isRegistered(SDK_SESSION_LIFECYCLE_MANAGER)) {
               return undefined;
             }
-            return pluginLoader.resolvePluginPaths(config.enabledPluginIds);
-          } catch {
-            return undefined;
-          }
-        },
-        getPtahCliRegistry: () => {
-          // Resolve PtahCliRegistry lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
-          // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
-          if (!container.isRegistered(SDK_PTAH_CLI_REGISTRY)) {
-            return undefined;
-          }
-          try {
-            return container.resolve<{
-              listAgents(): Promise<
-                Array<{
-                  id: string;
-                  name: string;
-                  providerName: string;
-                  hasApiKey: boolean;
-                  enabled: boolean;
-                }>
-              >;
-              spawnAgent(
-                id: string,
-                task: string,
-                options?: {
-                  projectGuidance?: string;
-                  workingDirectory?: string;
-                },
-              ): Promise<
-                | {
-                    handle: {
-                      abort: AbortController;
-                      done: Promise<number>;
-                      onOutput: (cb: (data: string) => void) => void;
-                    };
-                    agentName: string;
-                  }
-                | {
-                    status:
-                      | 'not_found'
-                      | 'disabled'
-                      | 'no_api_key'
-                      | 'unknown_provider';
-                    message: string;
-                  }
-              >;
-            }>(SDK_PTAH_CLI_REGISTRY);
-          } catch {
-            return undefined;
-          }
-        },
-      }),
+            try {
+              const manager = container.resolve<{
+                getActiveSessionIds(): string[];
+              }>(SDK_SESSION_LIFECYCLE_MANAGER);
+              const ids = manager.getActiveSessionIds();
+              return ids.length > 0 ? (ids[0] as string) : undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getProjectGuidance: async () => {
+            // Resolve EnhancedPromptsService lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
+            // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
+            if (!container.isRegistered(SDK_ENHANCED_PROMPTS_SERVICE)) {
+              return undefined;
+            }
+            try {
+              const service = container.resolve<{
+                getProjectGuidanceContent(
+                  workspacePath: string,
+                ): Promise<string | null>;
+              }>(SDK_ENHANCED_PROMPTS_SERVICE);
+              const workspacePath = this.getWorkspaceRoot();
+              const content =
+                await service.getProjectGuidanceContent(workspacePath);
+              return content ?? undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getSystemPrompt: async () => {
+            // Resolve EnhancedPromptsService lazily for the full enhanced prompt content.
+            // Returns the full enhanced prompts (project guidance + framework guidelines +
+            // coding standards + architecture notes) for use as CLI agent system prompt.
+            if (!container.isRegistered(SDK_ENHANCED_PROMPTS_SERVICE)) {
+              return undefined;
+            }
+            try {
+              const service = container.resolve<{
+                getEnhancedPromptContent(
+                  workspacePath: string,
+                ): Promise<string | null>;
+              }>(SDK_ENHANCED_PROMPTS_SERVICE);
+              const workspacePath = this.getWorkspaceRoot();
+              const content =
+                await service.getEnhancedPromptContent(workspacePath);
+              return content ?? undefined;
+            } catch {
+              return undefined;
+            }
+          },
+          getPluginPaths: async () => {
+            // Resolve PluginLoaderService lazily to get enabled plugin paths (premium-gated).
+            // Skills are synced to CLI directories by CliPluginSyncService on activation.
+            if (!container.isRegistered(SDK_PLUGIN_LOADER)) {
+              return undefined;
+            }
+            try {
+              const pluginLoader = container.resolve<{
+                getWorkspacePluginConfig(): {
+                  enabledPluginIds: string[];
+                };
+                resolvePluginPaths(pluginIds: string[]): string[];
+              }>(SDK_PLUGIN_LOADER);
+              const config = pluginLoader.getWorkspacePluginConfig();
+              if (
+                !config.enabledPluginIds ||
+                config.enabledPluginIds.length === 0
+              ) {
+                return undefined;
+              }
+              return pluginLoader.resolvePluginPaths(config.enabledPluginIds);
+            } catch {
+              return undefined;
+            }
+          },
+          getPtahCliRegistry: () => {
+            // Resolve PtahCliRegistry lazily via DI (same pattern as SDK_SESSION_LIFECYCLE_MANAGER).
+            // Avoids hard dependency from vscode-lm-tools -> agent-sdk.
+            if (!container.isRegistered(SDK_PTAH_CLI_REGISTRY)) {
+              return undefined;
+            }
+            try {
+              return container.resolve<{
+                listAgents(): Promise<
+                  Array<{
+                    id: string;
+                    name: string;
+                    providerName: string;
+                    hasApiKey: boolean;
+                    enabled: boolean;
+                  }>
+                >;
+                spawnAgent(
+                  id: string,
+                  task: string,
+                  options?: {
+                    projectGuidance?: string;
+                    workingDirectory?: string;
+                  },
+                ): Promise<
+                  | {
+                      handle: {
+                        abort: AbortController;
+                        done: Promise<number>;
+                        onOutput: (cb: (data: string) => void) => void;
+                      };
+                      agentName: string;
+                    }
+                  | {
+                      status:
+                        | 'not_found'
+                        | 'disabled'
+                        | 'no_api_key'
+                        | 'unknown_provider';
+                      message: string;
+                    }
+                >;
+              }>(SDK_PTAH_CLI_REGISTRY);
+            } catch {
+              return undefined;
+            }
+          },
+        }),
+      ),
 
       // Web search namespace (TASK_2025_189 - Gemini CLI web search)
-      webSearch: new WebSearchService({
-        cliDetectionService: this.cliDetectionService,
-        logger: this.logger,
-      }),
+      webSearch: this.buildNamespaceSafe(
+        'webSearch',
+        () =>
+          new WebSearchService({
+            cliDetectionService: this.cliDetectionService,
+            logger: this.logger,
+          }),
+      ),
 
       // Help method at root level (ptah.help())
       help: buildHelpMethod(),
     };
+  }
+
+  /**
+   * Safely build a namespace, catching any errors during construction.
+   *
+   * If a namespace builder throws (e.g., missing dependency, initialization error),
+   * the failure is logged and a proxy is returned that throws descriptive errors
+   * when any method is called. This prevents one broken namespace from killing
+   * all 16 MCP tools.
+   *
+   * @param name - Namespace name for logging (e.g., 'workspace', 'ide')
+   * @param builder - Factory function that builds the namespace
+   * @returns The built namespace, or a proxy that throws on access
+   */
+  private buildNamespaceSafe<T extends object>(
+    name: string,
+    builder: () => T,
+  ): T {
+    try {
+      return builder();
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `[PtahAPIBuilder] Failed to build '${name}' namespace: ${errorMessage}. ` +
+          `Methods on ptah.${name} will return errors.`,
+        'PtahAPIBuilder',
+      );
+
+      // Return a proxy that throws descriptive errors on any property access
+      // that results in a function call. Property reads return functions that throw.
+      return new Proxy({} as T, {
+        get: (_target, prop) => {
+          if (typeof prop === 'symbol') return undefined;
+          // Return a function that throws, so ptah.<namespace>.<method>() gives a clear error
+          return (..._args: unknown[]) => {
+            throw new Error(
+              `ptah.${name}.${String(prop)}() is unavailable: the '${name}' namespace ` +
+                `failed to initialize (${errorMessage}). Other ptah namespaces are still available.`,
+            );
+          };
+        },
+      });
+    }
   }
 
   /**

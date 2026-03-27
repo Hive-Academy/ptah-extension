@@ -79,9 +79,9 @@ import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace
 
 import {
   registerVsCodeLmToolsServices,
-  VscodeIDECapabilities,
   IDE_CAPABILITIES_TOKEN,
 } from '@ptah-extension/vscode-lm-tools';
+import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 

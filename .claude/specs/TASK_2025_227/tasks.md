@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_227: Workspace Context Panel
 
-**Total Tasks**: 27 | **Batches**: 6 | **Status**: 1/6 complete
+**Total Tasks**: 27 | **Batches**: 6 | **Status**: 5/6 complete
 
 ---
 
@@ -119,12 +119,13 @@
 
 ---
 
-## Batch 2: Backend Git RPC Handlers + DI Registration - IN PROGRESS
+## Batch 2: Backend Git RPC Handlers + DI Registration - COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: Batch 1 (COMPLETE)
+**Commit**: 152ed89b
 
-### Task 2.1: Create ElectronGitRpcHandlers - IMPLEMENTED
+### Task 2.1: Create ElectronGitRpcHandlers - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\electron-git-rpc.handlers.ts`
 **Action**: CREATE
@@ -139,7 +140,7 @@
 - Phase 3: `git:addWorktree` and `git:removeWorktree` also have full implementations (implement all 4 now since GitInfoService already supports them)
 - **Pattern to Follow**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\electron-editor-rpc.handlers.ts` lines 12-50
 
-### Task 2.2: Export ElectronGitRpcHandlers from Index - IMPLEMENTED
+### Task 2.2: Export ElectronGitRpcHandlers from Index - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\index.ts`
 **Action**: MODIFY
@@ -148,7 +149,7 @@
 
 - Add: `export { ElectronGitRpcHandlers } from './electron-git-rpc.handlers';`
 
-### Task 2.3: Register GitInfoService + ElectronGitRpcHandlers in DI Container - IMPLEMENTED
+### Task 2.3: Register GitInfoService + ElectronGitRpcHandlers in DI Container - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\di\container.ts`
 **Action**: MODIFY
@@ -164,7 +165,7 @@
 - Register: `container.registerSingleton(ElectronGitRpcHandlers);`
 - **Pattern to Follow**: See existing Phase 4.2 registrations at container.ts line 750-783
 
-### Task 2.4: Add ElectronGitRpcHandlers to Registration Service - IMPLEMENTED
+### Task 2.4: Add ElectronGitRpcHandlers to Registration Service - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Action**: MODIFY
@@ -187,12 +188,13 @@
 
 ---
 
-## Batch 3: Frontend Git Status Service + Components - PENDING
+## Batch 3: Frontend Git Status Service + Components - COMPLETE
 
 **Developer**: frontend-developer
 **Tasks**: 5 | **Dependencies**: Batch 2
+**Commit**: 494080b6
 
-### Task 3.1: Create GitStatusService (Angular Service) - PENDING
+### Task 3.1: Create GitStatusService (Angular Service) - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\services\git-status.service.ts`
 **Action**: CREATE
@@ -217,7 +219,7 @@
 
 - RISK: Git status file paths are relative to repo root. The `fileStatusMap` must use relative paths as keys. FileTreeNodeComponent will need to derive relative paths from absolute `node.path` for lookup.
 
-### Task 3.2: Create GitStatusBarComponent - PENDING
+### Task 3.2: Create GitStatusBarComponent - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\git-status-bar\git-status-bar.component.ts`
 **Action**: CREATE
@@ -235,7 +237,7 @@
   - Changed file count (ml-auto) with FileEdit icon when hasChanges
 - Only renders when `gitStatus.isGitRepo()` is true (`@if` guard)
 
-### Task 3.3: Modify FileTreeNodeComponent for Git Badges - PENDING
+### Task 3.3: Modify FileTreeNodeComponent for Git Badges - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\file-tree\file-tree-node.component.ts`
 **Action**: MODIFY
@@ -256,7 +258,7 @@
   ```
 - Add `gitStatusColor()` method: M=text-warning, A=text-success, D=text-error, ??=text-info, default=text-base-content/50
 
-### Task 3.4: Modify EditorPanelComponent for Git Status Bar - PENDING
+### Task 3.4: Modify EditorPanelComponent for Git Status Bar - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\editor-panel\editor-panel.component.ts`
 **Action**: MODIFY
@@ -270,7 +272,7 @@
 - In `ngOnInit()`: add `this.gitStatus.startPolling();`
 - In template: add `<ptah-git-status-bar />` between toolbar `<div>` and content `<div class="flex flex-1 min-h-0">`
 
-### Task 3.5: Update Editor Library Exports + WorkspaceCoordinator for Git - PENDING
+### Task 3.5: Update Editor Library Exports + WorkspaceCoordinator for Git - COMPLETE
 
 **File 1**: `D:\projects\ptah-extension\libs\frontend\editor\src\index.ts`
 **Action**: MODIFY
@@ -301,12 +303,13 @@
 
 ---
 
-## Batch 4: Backend Terminal (PTY + IPC) - PENDING
+## Batch 4: Backend Terminal (PTY + IPC) - COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 5 | **Dependencies**: Batch 1 (shared types)
+**Commit**: b1bb370e
 
-### Task 4.1: Install xterm + node-pty Dependencies - PENDING
+### Task 4.1: Install xterm + node-pty Dependencies - COMPLETE
 
 **File**: `D:\projects\ptah-extension\package.json`
 **Action**: MODIFY
@@ -319,7 +322,7 @@
 - Note: `node-pty` must be marked as `external` in webpack config if applicable
 - Run `npm install` after modifying package.json
 
-### Task 4.2: Create PtyManagerService (Main Process) - PENDING
+### Task 4.2: Create PtyManagerService (Main Process) - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\pty-manager.service.ts`
 **Action**: CREATE
@@ -344,7 +347,7 @@
 - PTY spawn: `pty.spawn(shell, [], { cwd, cols: 80, rows: 24, env: process.env })`
 - Limits: Max 20 total sessions, max 5 per workspace
 
-### Task 4.3: Modify Preload for Terminal Binary IPC - PENDING
+### Task 4.3: Modify Preload for Terminal Binary IPC - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\preload.ts`
 **Action**: MODIFY
@@ -357,7 +360,7 @@
 - Each `on*` method returns a cleanup function for unsubscribing
 - Uses direct `ipcRenderer.send()` / `ipcRenderer.on()` -- NOT the JSON RPC channel
 
-### Task 4.4: Modify IpcBridge for Terminal Channels - PENDING
+### Task 4.4: Modify IpcBridge for Terminal Channels - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\ipc\ipc-bridge.ts`
 **Action**: MODIFY
@@ -374,7 +377,7 @@
 - Call `setupTerminalHandlers()` in `initialize()`
 - In `dispose()`: Remove terminal IPC listeners + `ptyManager.disposeAll()`
 
-### Task 4.5: Create ElectronTerminalRpcHandlers + DI Registration - PENDING
+### Task 4.5: Create ElectronTerminalRpcHandlers + DI Registration - COMPLETE
 
 **File 1**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\electron-terminal-rpc.handlers.ts`
 **Action**: CREATE
@@ -411,12 +414,13 @@
 
 ---
 
-## Batch 5: Frontend Terminal Components - PENDING
+## Batch 5: Frontend Terminal Components - COMPLETE
 
 **Developer**: frontend-developer
 **Tasks**: 5 | **Dependencies**: Batch 4
+**Commit**: e5253806
 
-### Task 5.1: Create Terminal Type Definitions - PENDING
+### Task 5.1: Create Terminal Type Definitions - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\types\terminal.types.ts`
 **Action**: CREATE
@@ -428,7 +432,7 @@
 - `declare global { interface Window { ptahTerminal?: PtahTerminalApi; } }`
 - `TerminalTab` interface: `{ id, name, pid, isActive, hasExited, exitCode? }`
 
-### Task 5.2: Create TerminalService (Angular Service) - PENDING
+### Task 5.2: Create TerminalService (Angular Service) - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\services\terminal.service.ts`
 **Action**: CREATE
@@ -451,7 +455,7 @@
 - `switchWorkspace(path)` / `removeWorkspaceState(path)`: Workspace partition management
 - Private `rpcCall<T>()`: Same pattern as EditorService
 
-### Task 5.3: Create TerminalComponent (xterm.js Wrapper) - PENDING
+### Task 5.3: Create TerminalComponent (xterm.js Wrapper) - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\terminal\terminal.component.ts`
 **Action**: CREATE
@@ -469,7 +473,7 @@
 - `ResizeObserver` for auto-resize: `fitAddon.fit()` + `terminalService.resizeTerminal()`
 - `ngOnDestroy()`: Unregister writer, disconnect observer, dispose addons + terminal
 
-### Task 5.4: Create TerminalTabBarComponent + TerminalPanelComponent - PENDING
+### Task 5.4: Create TerminalTabBarComponent + TerminalPanelComponent - COMPLETE
 
 **File 1**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\terminal\terminal-tab-bar.component.ts`
 **Action**: CREATE
@@ -489,7 +493,7 @@
   - Empty state: "Click + to open a terminal"
   - Uses `@if (terminalService.activeTab(); as activeTab)` pattern
 
-### Task 5.5: Modify EditorPanelComponent for Terminal Split + Update Exports + WorkspaceCoordinator - PENDING
+### Task 5.5: Modify EditorPanelComponent for Terminal Split + Update Exports + WorkspaceCoordinator - COMPLETE
 
 **File 1**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\editor-panel\editor-panel.component.ts`
 **Action**: MODIFY
@@ -533,12 +537,12 @@
 
 ---
 
-## Batch 6: Worktree Management (Fullstack) - PENDING
+## Batch 6: Worktree Management (Fullstack) - IMPLEMENTED
 
 **Developer**: frontend-developer
 **Tasks**: 4 | **Dependencies**: Batch 2 (git handlers already support worktree CRUD), Batch 3 (GitStatusBar exists)
 
-### Task 6.1: Create WorktreeService (Angular Service) - PENDING
+### Task 6.1: Create WorktreeService (Angular Service) - IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\services\worktree.service.ts`
 **Action**: CREATE
@@ -553,7 +557,7 @@
 - `removeWorktree(path, force?)`: RPC `git:removeWorktree`, on success remove workspace folder
 - Private `rpcCall<T>()`: Same pattern as EditorService
 
-### Task 6.2: Create AddWorktreeDialogComponent - PENDING
+### Task 6.2: Create AddWorktreeDialogComponent - IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\worktree\add-worktree-dialog.component.ts`
 **Action**: CREATE
@@ -568,7 +572,7 @@
 - Error display for failed operations
 - Loading state while RPC in progress
 
-### Task 6.3: Modify GitStatusBarComponent for Worktree Indicator - PENDING
+### Task 6.3: Modify GitStatusBarComponent for Worktree Indicator - IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\lib\git-status-bar\git-status-bar.component.ts`
 **Action**: MODIFY
@@ -583,7 +587,7 @@
 - Import `GitFork` from lucide-angular
 - Add "Add Worktree" button (small, in the status bar) that opens the dialog
 
-### Task 6.4: Update Editor Library Exports for Worktree - PENDING
+### Task 6.4: Update Editor Library Exports for Worktree - IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\libs\frontend\editor\src\index.ts`
 **Action**: MODIFY
