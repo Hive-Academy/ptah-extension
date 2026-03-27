@@ -66,7 +66,8 @@
     "electron:launch": "node apps/ptah-electron/scripts/launch.js",
     "electron:build": "nx build ptah-electron",
     "electron:build:dev": "nx build-dev ptah-electron",
-    "electron:package": "nx package ptah-electron"
+    "electron:package": "nx package ptah-electron",
+    "electron:rebuild": "electron-rebuild -f -w node-pty"
   },
   "private": true,
   "dependencies": {
@@ -89,6 +90,9 @@
     "@nestjs/schedule": "^6.1.1",
     "@nestjs/throttler": "^6.4.0",
     "@openai/codex-sdk": "^0.104.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
     "@paddle/paddle-js": "^1.6.1",
     "@paddle/paddle-node-sdk": "^2.0.0",
     "@prisma/adapter-pg": "7.5.0",
@@ -112,6 +116,7 @@
     "lucide-angular": "^1.0.0",
     "monaco-editor": "^0.55.1",
     "ngx-monaco-editor-v2": "^21.1.4",
+    "node-pty": "^1.0.0",
     "p-limit": "^7.1.1",
     "p-queue": "^8.1.0",
     "pg": "^8.20.0",

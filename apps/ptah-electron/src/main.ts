@@ -27,6 +27,9 @@ import type {
 } from '@ptah-extension/agent-sdk';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import type { WorkspaceContextManager } from './services/workspace-context-manager';
+import type { PtyManagerService } from './services/pty-manager.service';
+
+const PTY_MANAGER_SERVICE = Symbol.for('PtyManagerService');
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -369,16 +372,24 @@ if (!gotLock) {
     // The IPC bridge connects ipcMain to the RpcHandler for renderer <-> main communication.
     // It must be initialized BEFORE loading the renderer so that IPC listeners are ready
     // when the Angular app boots and starts sending RPC calls.
-    const ipcBridge = new IpcBridge(container, () => {
-      const win = mainWindow;
-      if (!win) return null;
-      return {
-        webContents: {
-          send: (channel: string, ...args: unknown[]) =>
-            win.webContents.send(channel, ...args),
-        },
-      };
-    });
+    // Resolve PtyManagerService for terminal binary IPC (TASK_2025_227)
+    const ptyManager =
+      container.resolve<PtyManagerService>(PTY_MANAGER_SERVICE);
+
+    const ipcBridge = new IpcBridge(
+      container,
+      () => {
+        const win = mainWindow;
+        if (!win) return null;
+        return {
+          webContents: {
+            send: (channel: string, ...args: unknown[]) =>
+              win.webContents.send(channel, ...args),
+          },
+        };
+      },
+      ptyManager,
+    );
     ipcBridge.initialize();
 
     // Register WebviewManager adapter so that backend services (AgentSessionWatcherService,
@@ -575,7 +586,10 @@ if (!gotLock) {
     // (via ipcRenderer.sendSync) to get license status and workspace info
     // BEFORE exposing ptahConfig to the Angular renderer.
     // Must be registered BEFORE Phase 5 (window creation + loadFile).
-    const startupConfig = {
+    // Base config from initial verification. On first load these are used directly.
+    // On webContents.reload() the handler dynamically queries LicenseService
+    // to pick up any license changes that happened since startup.
+    const baseStartupConfig = {
       initialView: startupInitialView,
       isLicensed: startupIsLicensed,
       workspaceRoot: startupWorkspaceRoot || '',
@@ -585,14 +599,38 @@ if (!gotLock) {
     };
 
     ipcMain.on('get-startup-config', (event: Electron.IpcMainEvent) => {
-      event.returnValue = startupConfig;
+      // Dynamically resolve license status so webContents.reload() gets fresh
+      // state after license key set/clear or settings import.
+      let isLicensed = baseStartupConfig.isLicensed;
+      let initialView = baseStartupConfig.initialView;
+      try {
+        const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
+          getCachedStatus: () => {
+            valid: boolean;
+            tier?: string;
+          } | null;
+        };
+        const cached = licenseService.getCachedStatus();
+        if (cached) {
+          isLicensed = cached.valid;
+          initialView = cached.valid ? null : 'welcome';
+        }
+      } catch {
+        // Fallback to base startup values if service unavailable
+      }
+
+      event.returnValue = {
+        ...baseStartupConfig,
+        isLicensed,
+        initialView,
+      };
     });
 
     console.log(
       `[Ptah Electron] Startup config registered: initialView=${
-        startupConfig.initialView
-      }, isLicensed=${startupConfig.isLicensed}, workspace=${
-        startupConfig.workspaceName || '(none)'
+        baseStartupConfig.initialView
+      }, isLicensed=${baseStartupConfig.isLicensed}, workspace=${
+        baseStartupConfig.workspaceName || '(none)'
       }`,
     );
 

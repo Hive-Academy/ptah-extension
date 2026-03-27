@@ -145,11 +145,16 @@ import {
   ElectronSkillsShRpcHandlers,
   ElectronLayoutRpcHandlers,
   ElectronGitRpcHandlers,
+  ElectronTerminalRpcHandlers,
 } from '../services/rpc/handlers';
 
 // Git info service (TASK_2025_227)
 import { GitInfoService } from '../services/git-info.service';
 const GIT_INFO_SERVICE = Symbol.for('GitInfoService');
+
+// PTY manager service (TASK_2025_227)
+import { PtyManagerService } from '../services/pty-manager.service';
+const PTY_MANAGER_SERVICE = Symbol.for('PtyManagerService');
 
 // Electron RPC Method Registration Service (TASK_2025_203 Batch 5)
 import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
@@ -781,6 +786,11 @@ export class ElectronDIContainer {
     container.register(GIT_INFO_SERVICE, { useValue: gitInfoService });
     container.registerSingleton(ElectronGitRpcHandlers);
 
+    // PtyManagerService (TASK_2025_227): Terminal PTY session management
+    const ptyManagerService = new PtyManagerService(logger);
+    container.register(PTY_MANAGER_SERVICE, { useValue: ptyManagerService });
+    container.registerSingleton(ElectronTerminalRpcHandlers);
+
     // Register the orchestrator itself
     container.registerSingleton(ElectronRpcMethodRegistrationService);
 
@@ -799,6 +809,7 @@ export class ElectronDIContainer {
           'ElectronSkillsShRpcHandlers',
           'ElectronLayoutRpcHandlers',
           'ElectronGitRpcHandlers',
+          'ElectronTerminalRpcHandlers',
         ],
       },
     );
