@@ -33,7 +33,7 @@ import type {
   CopilotAuthState,
   CopilotTokenResponse,
 } from './copilot-provider.types';
-import { readCopilotToken } from './copilot-file-auth';
+import { readCopilotToken, writeCopilotToken } from './copilot-file-auth';
 import {
   executeDeviceCodeFlow,
   type DeviceCodeCallbacks,
@@ -135,7 +135,24 @@ export class CopilotAuthService implements ICopilotAuthService {
         return false;
       }
 
-      return this.exchangeToken(deviceToken);
+      const exchanged = await this.exchangeToken(deviceToken);
+      if (exchanged) {
+        // Persist token to disk so the user doesn't need to re-authenticate
+        // on app restart (especially important for Electron users).
+        // writeCopilotToken is best-effort — failure is logged but doesn't
+        // break the auth flow.
+        try {
+          await writeCopilotToken(deviceToken);
+          this.logger.info(
+            '[CopilotAuth] Device code token persisted to hosts.json',
+          );
+        } catch (persistError) {
+          this.logger.warn(
+            `[CopilotAuth] Failed to persist device code token: ${persistError instanceof Error ? persistError.message : String(persistError)}`,
+          );
+        }
+      }
+      return exchanged;
     } catch (error) {
       this.logger.error(
         `[CopilotAuth] Login failed: ${error instanceof Error ? error.message : String(error)}`,

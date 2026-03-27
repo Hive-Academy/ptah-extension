@@ -11,8 +11,13 @@ export { CopilotAuthService } from './copilot-auth.service';
 // VS Code-enhanced auth service (adds native GitHub OAuth via vscode.authentication)
 export { VscodeCopilotAuthService } from './vscode-copilot-auth.service';
 
-// File-based auth utilities (cross-platform token reading)
-export { readCopilotToken, getCopilotHostsPath } from './copilot-file-auth';
+// File-based auth utilities (cross-platform token reading and writing)
+export {
+  readCopilotToken,
+  getCopilotHostsPath,
+  getCopilotAppsPath,
+  writeCopilotToken,
+} from './copilot-file-auth';
 export type { CopilotHostsFile } from './copilot-file-auth';
 
 // Translation proxy (injectable, thin subclass of TranslationProxyBase)

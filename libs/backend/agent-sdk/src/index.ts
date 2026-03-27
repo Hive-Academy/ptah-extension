@@ -199,6 +199,8 @@ export {
   COPILOT_DEFAULT_TIERS,
   readCopilotToken,
   getCopilotHostsPath,
+  getCopilotAppsPath,
+  writeCopilotToken,
 } from './lib/copilot-provider';
 export type {
   ICopilotAuthService,
