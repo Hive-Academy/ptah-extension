@@ -35,7 +35,11 @@ export {
 } from './system-namespace.builders';
 
 // IDE namespace (lsp, editor, actions, testing)
-export { buildIDENamespace } from './ide-namespace.builder';
+export {
+  buildIDENamespace,
+  type IIDECapabilities,
+} from './ide-namespace.builder';
+export { VscodeIDECapabilities } from './ide-capabilities.vscode';
 
 // Orchestration namespace (TASK_2025_111 - workflow state management)
 export {

@@ -63,8 +63,9 @@ import {
   buildDependencyNamespace,
   // AST namespace builder
   buildAstNamespace,
-  // IDE namespace builder (TASK_2025_039)
+  // IDE namespace builder (TASK_2025_039, decoupled TASK_2025_226)
   buildIDENamespace,
+  type IIDECapabilities,
   // Orchestration namespace builder (TASK_2025_111)
   buildOrchestrationNamespace,
   // Agent namespace builder (TASK_2025_157)
@@ -114,6 +115,16 @@ const SDK_PTAH_CLI_REGISTRY = Symbol.for('SdkPtahCliRegistry');
  * @warning Keep Symbol.for() string value in sync with the canonical definition
  */
 const SDK_PLUGIN_LOADER = Symbol.for('SdkPluginLoader');
+
+/**
+ * DI token for IDE capabilities (VS Code-specific).
+ * In VS Code, VscodeIDECapabilities is registered under this token.
+ * In Electron/standalone, this token is NOT registered, so buildIDENamespace()
+ * receives undefined and returns graceful degradation stubs.
+ *
+ * @see VscodeIDECapabilities in namespace-builders/ide-capabilities.vscode.ts
+ */
+export const IDE_CAPABILITIES_TOKEN = Symbol.for('IDECapabilities');
 
 @injectable()
 export class PtahAPIBuilder {
@@ -251,7 +262,9 @@ export class PtahAPIBuilder {
       ast: buildAstNamespace(astDeps),
 
       // IDE namespace (TASK_2025_039 - LSP, editor, actions, testing)
-      ide: buildIDENamespace(),
+      // Resolved lazily: if IDE_CAPABILITIES_TOKEN is not registered (Electron/standalone),
+      // buildIDENamespace receives undefined and returns graceful degradation stubs.
+      ide: buildIDENamespace(this.resolveIDECapabilities()),
 
       // Orchestration namespace (TASK_2025_111 - workflow state management)
       orchestration: buildOrchestrationNamespace(orchestrationDeps),
@@ -416,5 +429,25 @@ export class PtahAPIBuilder {
     }
     // Fallback to current working directory
     return process.cwd();
+  }
+
+  /**
+   * Lazily resolve IDE capabilities from DI container.
+   *
+   * In VS Code, VscodeIDECapabilities is registered under IDE_CAPABILITIES_TOKEN.
+   * In Electron/standalone, the token is NOT registered, so this returns undefined
+   * and buildIDENamespace() uses graceful degradation stubs instead.
+   *
+   * Follows the same pattern as SDK_SESSION_LIFECYCLE_MANAGER lazy resolution.
+   */
+  private resolveIDECapabilities(): IIDECapabilities | undefined {
+    if (!container.isRegistered(IDE_CAPABILITIES_TOKEN)) {
+      return undefined;
+    }
+    try {
+      return container.resolve<IIDECapabilities>(IDE_CAPABILITIES_TOKEN);
+    } catch {
+      return undefined;
+    }
   }
 }
