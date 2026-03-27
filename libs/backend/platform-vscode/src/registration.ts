@@ -19,6 +19,7 @@ import { VscodeUserInteraction } from './implementations/vscode-user-interaction
 import { VscodeOutputChannel } from './implementations/vscode-output-channel';
 import { VscodeCommandRegistry } from './implementations/vscode-command-registry';
 import { VscodeEditorProvider } from './implementations/vscode-editor-provider';
+import { VscodeTokenCounter } from './implementations/vscode-token-counter';
 
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { PlatformType } from '@ptah-extension/platform-core';
@@ -34,7 +35,7 @@ import { PlatformType } from '@ptah-extension/platform-core';
  */
 export function registerPlatformVscodeServices(
   container: DependencyContainer,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): void {
   // Platform Info
   const platformInfo: IPlatformInfo = {
@@ -58,7 +59,7 @@ export function registerPlatformVscodeServices(
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
     useValue: new VscodeDiskStateStorage(
       context.storageUri?.fsPath ?? context.globalStorageUri.fsPath,
-      'workspace-state.json'
+      'workspace-state.json',
     ),
   });
 
@@ -99,4 +100,9 @@ export function registerPlatformVscodeServices(
     useValue: editorProvider,
   });
   context.subscriptions.push(editorProvider);
+
+  // Token Counter (uses VS Code LM API with gpt-tokenizer fallback)
+  container.register(PLATFORM_TOKENS.TOKEN_COUNTER, {
+    useValue: new VscodeTokenCounter(),
+  });
 }
