@@ -28,8 +28,7 @@ import type {
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
 import type { WorkspaceContextManager } from './services/workspace-context-manager';
 import type { PtyManagerService } from './services/pty-manager.service';
-
-const PTY_MANAGER_SERVICE = Symbol.for('PtyManagerService');
+import { ELECTRON_TOKENS } from './di/electron-tokens';
 
 // @ts-expect-error import.meta.url is valid in ESM bundle output; TS flags it because tsconfig targets CJS
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -373,8 +372,9 @@ if (!gotLock) {
     // It must be initialized BEFORE loading the renderer so that IPC listeners are ready
     // when the Angular app boots and starts sending RPC calls.
     // Resolve PtyManagerService for terminal binary IPC (TASK_2025_227)
-    const ptyManager =
-      container.resolve<PtyManagerService>(PTY_MANAGER_SERVICE);
+    const ptyManager = container.resolve<PtyManagerService>(
+      ELECTRON_TOKENS.PTY_MANAGER_SERVICE,
+    );
 
     const ipcBridge = new IpcBridge(
       container,

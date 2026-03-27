@@ -23,8 +23,7 @@ import type {
   TerminalKillResult,
 } from '@ptah-extension/shared';
 import type { PtyManagerService } from '../../pty-manager.service';
-
-const PTY_MANAGER_SERVICE = Symbol.for('PtyManagerService');
+import { ELECTRON_TOKENS } from '../../../di/electron-tokens';
 
 @injectable()
 export class ElectronTerminalRpcHandlers {
@@ -33,7 +32,7 @@ export class ElectronTerminalRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(PTY_MANAGER_SERVICE)
+    @inject(ELECTRON_TOKENS.PTY_MANAGER_SERVICE)
     private readonly ptyManager: PtyManagerService,
   ) {}
 

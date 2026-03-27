@@ -24,8 +24,7 @@ import type {
   GitRemoveWorktreeResult,
 } from '@ptah-extension/shared';
 import type { GitInfoService } from '../../git-info.service';
-
-const GIT_INFO_SERVICE = Symbol.for('GitInfoService');
+import { ELECTRON_TOKENS } from '../../../di/electron-tokens';
 
 @injectable()
 export class ElectronGitRpcHandlers {
@@ -34,7 +33,8 @@ export class ElectronGitRpcHandlers {
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
-    @inject(GIT_INFO_SERVICE) private readonly gitInfo: GitInfoService,
+    @inject(ELECTRON_TOKENS.GIT_INFO_SERVICE)
+    private readonly gitInfo: GitInfoService,
   ) {}
 
   register(): void {

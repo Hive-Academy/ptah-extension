@@ -276,24 +276,46 @@ export class GitInfoService {
     const lines = output.split('\n');
 
     for (const line of lines) {
-      if (line.startsWith('1 ') || line.startsWith('2 ')) {
-        // Ordinary or rename/copy entry
+      if (line.startsWith('1 ')) {
+        // Ordinary changed entry: 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+        // 8 space-separated fields before the path. The path may contain spaces,
+        // so we must use fixed-index slicing instead of taking the last field.
         const xy = line.substring(2, 4);
         const indexStatus = xy[0];
         const worktreeStatus = xy[1];
 
-        // Extract path: for type 1, path is the last space-separated field
-        // For type 2, path is before the tab character
-        let filePath: string;
-        if (line.startsWith('2 ')) {
-          const tabIndex = line.indexOf('\t');
-          const beforeTab = tabIndex >= 0 ? line.substring(0, tabIndex) : line;
-          const parts = beforeTab.split(' ');
-          filePath = parts[parts.length - 1];
-        } else {
-          const parts = line.split(' ');
-          filePath = parts[parts.length - 1];
+        const parts = line.split(' ');
+        const filePath = parts.slice(8).join(' ');
+
+        // Emit staged entry if index has a change
+        if (indexStatus !== '.') {
+          files.push({
+            path: filePath,
+            status: this.mapStatusCode(indexStatus),
+            staged: true,
+          });
         }
+
+        // Emit unstaged entry if worktree has a change
+        if (worktreeStatus !== '.') {
+          files.push({
+            path: filePath,
+            status: this.mapStatusCode(worktreeStatus),
+            staged: false,
+          });
+        }
+      } else if (line.startsWith('2 ')) {
+        // Rename/copy entry: 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path>\t<origPath>
+        // The path and origPath are tab-separated. Before the tab, there are 9
+        // space-separated fields before the path (fields 0-8, path starts at index 9).
+        const xy = line.substring(2, 4);
+        const indexStatus = xy[0];
+        const worktreeStatus = xy[1];
+
+        const tabIndex = line.indexOf('\t');
+        const beforeTab = tabIndex >= 0 ? line.substring(0, tabIndex) : line;
+        const beforeTabParts = beforeTab.split(' ');
+        const filePath = beforeTabParts.slice(9).join(' ');
 
         // Emit staged entry if index has a change
         if (indexStatus !== '.') {
@@ -313,9 +335,10 @@ export class GitInfoService {
           });
         }
       } else if (line.startsWith('u ')) {
-        // Unmerged entry - treat as modified, unstaged
+        // Unmerged entry: u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
+        // 10 space-separated fields before the path. The path may contain spaces.
         const parts = line.split(' ');
-        const filePath = parts[parts.length - 1];
+        const filePath = parts.slice(10).join(' ');
         files.push({ path: filePath, status: 'M', staged: false });
       } else if (line.startsWith('? ')) {
         // Untracked entry

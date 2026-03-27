@@ -150,11 +150,12 @@ import {
 
 // Git info service (TASK_2025_227)
 import { GitInfoService } from '../services/git-info.service';
-const GIT_INFO_SERVICE = Symbol.for('GitInfoService');
 
 // PTY manager service (TASK_2025_227)
 import { PtyManagerService } from '../services/pty-manager.service';
-const PTY_MANAGER_SERVICE = Symbol.for('PtyManagerService');
+
+// Centralized Electron DI tokens (TASK_2025_228)
+import { ELECTRON_TOKENS } from './electron-tokens';
 
 // Electron RPC Method Registration Service (TASK_2025_203 Batch 5)
 import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
@@ -783,12 +784,16 @@ export class ElectronDIContainer {
 
     // GitInfoService (TASK_2025_227): Plain class instantiated with logger
     const gitInfoService = new GitInfoService(logger);
-    container.register(GIT_INFO_SERVICE, { useValue: gitInfoService });
+    container.register(ELECTRON_TOKENS.GIT_INFO_SERVICE, {
+      useValue: gitInfoService,
+    });
     container.registerSingleton(ElectronGitRpcHandlers);
 
     // PtyManagerService (TASK_2025_227): Terminal PTY session management
     const ptyManagerService = new PtyManagerService(logger);
-    container.register(PTY_MANAGER_SERVICE, { useValue: ptyManagerService });
+    container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
+      useValue: ptyManagerService,
+    });
     container.registerSingleton(ElectronTerminalRpcHandlers);
 
     // Register the orchestrator itself
