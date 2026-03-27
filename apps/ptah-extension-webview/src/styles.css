@@ -9,6 +9,9 @@ Egyptian-Inspired Theme with DaisyUI v4 + Tailwind CSS v3.4
 /* Angular CDK Overlay Prebuilt Styles - MUST come before Tailwind directives */
 @import '@angular/cdk/overlay-prebuilt.css';
 
+/* xterm.js terminal styles - TASK_2025_227 terminal integration */
+@import '@xterm/xterm/css/xterm.css';
+
 /* Tailwind CSS v3.4.x directives */
 @tailwind base;
 @tailwind components;
