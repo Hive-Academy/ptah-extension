@@ -41,4 +41,7 @@ export const PLATFORM_TOKENS = {
 
   /** ITokenCounter — platform-agnostic token counting */
   TOKEN_COUNTER: Symbol.for('PlatformTokenCounter'),
+
+  /** IDiagnosticsProvider — workspace diagnostics (errors, warnings) */
+  DIAGNOSTICS_PROVIDER: Symbol.for('PlatformDiagnosticsProvider'),
 } as const;

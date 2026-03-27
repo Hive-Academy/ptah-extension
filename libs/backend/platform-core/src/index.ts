@@ -28,6 +28,7 @@ export type { IOutputChannel } from './interfaces/output-channel.interface';
 export type { ICommandRegistry } from './interfaces/command-registry.interface';
 export type { IEditorProvider } from './interfaces/editor-provider.interface';
 export type { ITokenCounter } from './interfaces/token-counter.interface';
+export type { IDiagnosticsProvider } from './interfaces/diagnostics-provider.interface';
 
 // DI Tokens
 export { PLATFORM_TOKENS } from './tokens';

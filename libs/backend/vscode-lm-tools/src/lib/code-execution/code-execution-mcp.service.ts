@@ -62,7 +62,7 @@ export class CodeExecutionMCP implements IDisposable {
     private readonly permissionPromptService: PermissionPromptService,
 
     @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager
+    private readonly webviewManager: WebviewManager,
   ) {
     // Build ptah API once at construction (reused for all executions)
     this.ptahAPI = this.apiBuilder.build();
@@ -78,7 +78,7 @@ export class CodeExecutionMCP implements IDisposable {
       return this.port as number;
     }
 
-    const configuredPort = getConfiguredPort();
+    const configuredPort = getConfiguredPort(this.workspaceProvider);
 
     const result = await startHttpServer({
       port: configuredPort,
@@ -181,14 +181,14 @@ export class CodeExecutionMCP implements IDisposable {
       fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
       this.logger.info(
         `[CodeExecutionMCP] Registered ptah in ${mcpJsonPath} (port ${port})`,
-        'CodeExecutionMCP'
+        'CodeExecutionMCP',
       );
     } catch (error) {
       this.logger.warn(
         `[CodeExecutionMCP] Failed to register in .mcp.json: ${
           error instanceof Error ? error.message : error
         }`,
-        'CodeExecutionMCP'
+        'CodeExecutionMCP',
       );
     }
   }
@@ -216,14 +216,14 @@ export class CodeExecutionMCP implements IDisposable {
       fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
       this.logger.info(
         '[CodeExecutionMCP] Unregistered ptah from .mcp.json',
-        'CodeExecutionMCP'
+        'CodeExecutionMCP',
       );
     } catch (error) {
       this.logger.warn(
         `[CodeExecutionMCP] Failed to unregister from .mcp.json: ${
           error instanceof Error ? error.message : error
         }`,
-        'CodeExecutionMCP'
+        'CodeExecutionMCP',
       );
     }
   }
