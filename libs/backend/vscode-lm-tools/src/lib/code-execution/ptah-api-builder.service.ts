@@ -29,6 +29,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
   IFileSystemProvider,
+  IDiagnosticsProvider,
 } from '@ptah-extension/platform-core';
 import {
   WorkspaceAnalyzerService,
@@ -176,7 +177,10 @@ export class PtahAPIBuilder {
     private readonly workspaceProvider: IWorkspaceProvider,
 
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
-    private readonly fileSystemProvider: IFileSystemProvider
+    private readonly fileSystemProvider: IFileSystemProvider,
+
+    @inject(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER)
+    private readonly diagnosticsProvider: IDiagnosticsProvider,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 13 namespaces');
   }
@@ -230,7 +234,7 @@ export class PtahAPIBuilder {
       // Core namespaces (workspace discovery)
       workspace: buildWorkspaceNamespace(coreDeps),
       search: buildSearchNamespace(coreDeps),
-      diagnostics: buildDiagnosticsNamespace(),
+      diagnostics: buildDiagnosticsNamespace(this.diagnosticsProvider),
 
       // System namespaces (VS Code integration)
       files: buildFilesNamespace(systemDeps),
@@ -284,13 +288,12 @@ export class PtahAPIBuilder {
           try {
             const service = container.resolve<{
               getProjectGuidanceContent(
-                workspacePath: string
+                workspacePath: string,
               ): Promise<string | null>;
             }>(SDK_ENHANCED_PROMPTS_SERVICE);
             const workspacePath = this.getWorkspaceRoot();
-            const content = await service.getProjectGuidanceContent(
-              workspacePath
-            );
+            const content =
+              await service.getProjectGuidanceContent(workspacePath);
             return content ?? undefined;
           } catch {
             return undefined;
@@ -306,13 +309,12 @@ export class PtahAPIBuilder {
           try {
             const service = container.resolve<{
               getEnhancedPromptContent(
-                workspacePath: string
+                workspacePath: string,
               ): Promise<string | null>;
             }>(SDK_ENHANCED_PROMPTS_SERVICE);
             const workspacePath = this.getWorkspaceRoot();
-            const content = await service.getEnhancedPromptContent(
-              workspacePath
-            );
+            const content =
+              await service.getEnhancedPromptContent(workspacePath);
             return content ?? undefined;
           } catch {
             return undefined;
@@ -366,7 +368,7 @@ export class PtahAPIBuilder {
                 options?: {
                   projectGuidance?: string;
                   workingDirectory?: string;
-                }
+                },
               ): Promise<
                 | {
                     handle: {

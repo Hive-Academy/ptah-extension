@@ -20,6 +20,7 @@ import { VscodeOutputChannel } from './implementations/vscode-output-channel';
 import { VscodeCommandRegistry } from './implementations/vscode-command-registry';
 import { VscodeEditorProvider } from './implementations/vscode-editor-provider';
 import { VscodeTokenCounter } from './implementations/vscode-token-counter';
+import { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
 
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { PlatformType } from '@ptah-extension/platform-core';
@@ -104,5 +105,10 @@ export function registerPlatformVscodeServices(
   // Token Counter (uses VS Code LM API with gpt-tokenizer fallback)
   container.register(PLATFORM_TOKENS.TOKEN_COUNTER, {
     useValue: new VscodeTokenCounter(),
+  });
+
+  // Diagnostics Provider (wraps vscode.languages.getDiagnostics())
+  container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
+    useValue: new VscodeDiagnosticsProvider(),
   });
 }

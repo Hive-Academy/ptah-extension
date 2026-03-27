@@ -33,6 +33,7 @@ import { ElectronOutputChannel } from './implementations/electron-output-channel
 import { ElectronCommandRegistry } from './implementations/electron-command-registry';
 import { ElectronEditorProvider } from './implementations/electron-editor-provider';
 import { ElectronTokenCounter } from './implementations/electron-token-counter';
+import { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
 
 /**
  * Options for Electron platform registration.
@@ -157,6 +158,11 @@ export function registerPlatformElectronServices(
   // Token Counter (uses gpt-tokenizer BPE tokenization)
   container.register(PLATFORM_TOKENS.TOKEN_COUNTER, {
     useValue: new ElectronTokenCounter(),
+  });
+
+  // Diagnostics Provider (returns empty — no live language server in Electron)
+  container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
+    useValue: new ElectronDiagnosticsProvider(),
   });
 }
 
