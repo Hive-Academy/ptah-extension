@@ -5,12 +5,14 @@ import {
 } from '@ptah-extension/core';
 import { type SessionId } from '@ptah-extension/shared';
 import { TabManagerService } from './tab-manager.service';
-import { EditorService } from '@ptah-extension/editor';
+import { EditorService, GitStatusService } from '@ptah-extension/editor';
 import { ConfirmationDialogService } from './confirmation-dialog.service';
+import { SessionLoaderService } from './chat-store/session-loader.service';
 
 /**
  * Orchestrates workspace operations across TabManagerService (chat),
- * EditorService (editor), and ConfirmationDialogService.
+ * EditorService (editor), GitStatusService (git state),
+ * SessionLoaderService (session cache), and ConfirmationDialogService.
  *
  * @see IWorkspaceCoordinator for the contract and dependency inversion rationale.
  */
@@ -18,16 +20,22 @@ import { ConfirmationDialogService } from './confirmation-dialog.service';
 export class WorkspaceCoordinatorService implements IWorkspaceCoordinator {
   private readonly tabManager = inject(TabManagerService);
   private readonly editorService = inject(EditorService);
+  private readonly gitStatus = inject(GitStatusService);
   private readonly confirmDialog = inject(ConfirmationDialogService);
+  private readonly sessionLoader = inject(SessionLoaderService);
 
   switchWorkspace(newPath: string): void {
     this.tabManager.switchWorkspace(newPath);
     this.editorService.switchWorkspace(newPath);
+    this.gitStatus.switchWorkspace(newPath);
+    this.sessionLoader.switchWorkspace(newPath);
   }
 
   removeWorkspaceState(workspacePath: string): void {
     this.tabManager.removeWorkspaceState(workspacePath);
     this.editorService.removeWorkspaceState(workspacePath);
+    this.gitStatus.removeWorkspaceState(workspacePath);
+    this.sessionLoader.removeWorkspaceCache(workspacePath);
   }
 
   getStreamingSessionIds(workspacePath: string): SessionId[] {
