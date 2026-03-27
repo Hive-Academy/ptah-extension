@@ -69,6 +69,10 @@ export type ToolResultCallback = (
  *
  * webviewManager is optional: present in VS Code for user approval prompts,
  * absent in Electron where approval_prompt auto-allows (no webview UI).
+ *
+ * hasIDECapabilities indicates whether the host platform supports VS Code-exclusive
+ * IDE features (LSP, editor state, code actions). When false (Electron), tools that
+ * depend on these capabilities are excluded from the tools/list response.
  */
 export interface ProtocolHandlerDependencies {
   ptahAPI: PtahAPI;
@@ -76,6 +80,7 @@ export interface ProtocolHandlerDependencies {
   webviewManager?: WebviewManager;
   logger: Logger;
   onToolResult?: ToolResultCallback;
+  hasIDECapabilities?: boolean;
 }
 
 /**
@@ -98,7 +103,7 @@ export async function handleMCPRequest(
         return handleInitialize(request, logger);
 
       case 'tools/list':
-        return handleToolsList(request);
+        return handleToolsList(request, deps);
 
       case 'tools/call':
         return await handleToolsCall(request, deps);
@@ -151,36 +156,53 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
 
 /**
  * Handle tools/list request
- * Returns all available tools: individual ptah_* tools, execute_code, and approval_prompt
+ * Returns available tools, conditionally excluding VS Code-only tools on non-IDE platforms.
+ *
+ * VS Code-only tools (excluded when hasIDECapabilities is false):
+ * - ptah_lsp_references: Requires VS Code LSP executeReferenceProvider
+ * - ptah_lsp_definitions: Requires VS Code LSP executeDefinitionProvider
+ * - ptah_get_dirty_files: Requires VS Code editor state (unsaved file tracking)
+ *
+ * Platform-agnostic tools (always included):
+ * - ptah_get_diagnostics: Uses IDiagnosticsProvider abstraction (works on both platforms)
+ * - All other ptah_* tools, execute_code, approval_prompt
  */
-function handleToolsList(request: MCPRequest): MCPResponse {
+function handleToolsList(
+  request: MCPRequest,
+  deps: ProtocolHandlerDependencies,
+): MCPResponse {
+  const tools = [
+    // Individual first-class tools (simple params, high discoverability)
+    buildWorkspaceAnalyzeTool(),
+    buildSearchFilesTool(),
+    buildGetDiagnosticsTool(),
+    // VS Code-only IDE tools — excluded on platforms without IDE capabilities (e.g. Electron)
+    ...(deps.hasIDECapabilities !== false
+      ? [
+          buildLspReferencesTool(),
+          buildLspDefinitionsTool(),
+          buildGetDirtyFilesTool(),
+        ]
+      : []),
+    buildCountTokensTool(),
+    // Agent orchestration tools (TASK_2025_157)
+    buildAgentSpawnTool(),
+    buildAgentStatusTool(),
+    buildAgentReadTool(),
+    buildAgentSteerTool(),
+    buildAgentStopTool(),
+    buildAgentListTool(),
+    // Web search tool (TASK_2025_189)
+    buildWebSearchTool(),
+    // Power-user tools
+    buildExecuteCodeTool(),
+    buildApprovalPromptTool(),
+  ];
+
   return {
     jsonrpc: '2.0',
     id: request.id,
-    result: {
-      tools: [
-        // Individual first-class tools (simple params, high discoverability)
-        buildWorkspaceAnalyzeTool(),
-        buildSearchFilesTool(),
-        buildGetDiagnosticsTool(),
-        buildLspReferencesTool(),
-        buildLspDefinitionsTool(),
-        buildGetDirtyFilesTool(),
-        buildCountTokensTool(),
-        // Agent orchestration tools (TASK_2025_157)
-        buildAgentSpawnTool(),
-        buildAgentStatusTool(),
-        buildAgentReadTool(),
-        buildAgentSteerTool(),
-        buildAgentStopTool(),
-        buildAgentListTool(),
-        // Web search tool (TASK_2025_189)
-        buildWebSearchTool(),
-        // Power-user tools
-        buildExecuteCodeTool(),
-        buildApprovalPromptTool(),
-      ],
-    },
+    result: { tools },
   };
 }
 

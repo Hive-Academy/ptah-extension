@@ -21,6 +21,7 @@ export type { ToolResultCallback } from './lib/code-execution/mcp-handlers';
 export {
   PTAH_SYSTEM_PROMPT,
   PTAH_SYSTEM_PROMPT_TOKENS,
+  buildPlatformSystemPrompt,
 } from './lib/code-execution/ptah-system-prompt.constant';
 
 // Permission Prompt Service exports (TASK_2025_026)
