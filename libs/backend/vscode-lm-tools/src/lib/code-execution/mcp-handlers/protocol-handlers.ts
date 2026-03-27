@@ -61,16 +61,19 @@ import {
 export type ToolResultCallback = (
   toolCallId: string,
   content: string,
-  isError: boolean
+  isError: boolean,
 ) => void;
 
 /**
- * Dependencies for protocol handlers
+ * Dependencies for protocol handlers.
+ *
+ * webviewManager is optional: present in VS Code for user approval prompts,
+ * absent in Electron where approval_prompt auto-allows (no webview UI).
  */
 export interface ProtocolHandlerDependencies {
   ptahAPI: PtahAPI;
   permissionPromptService: PermissionPromptService;
-  webviewManager: WebviewManager;
+  webviewManager?: WebviewManager;
   logger: Logger;
   onToolResult?: ToolResultCallback;
 }
@@ -81,7 +84,7 @@ export interface ProtocolHandlerDependencies {
  */
 export async function handleMCPRequest(
   request: MCPRequest,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
   const { logger } = deps;
 
@@ -104,7 +107,7 @@ export async function handleMCPRequest(
         return createErrorResponse(
           request.id,
           -32601,
-          `Method not found: ${request.method}`
+          `Method not found: ${request.method}`,
         );
     }
   } catch (error) {
@@ -114,7 +117,7 @@ export async function handleMCPRequest(
 
     logger.error(
       `MCP request failed: ${request.method}`,
-      error instanceof Error ? error : new Error(String(error))
+      error instanceof Error ? error : new Error(String(error)),
     );
 
     return createErrorResponse(request.id, -32603, errorMessage, errorStack);
@@ -187,7 +190,7 @@ function handleToolsList(request: MCPRequest): MCPResponse {
  */
 async function handleToolsCall(
   request: MCPRequest,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
   const params = request.params as
     | { name: string; arguments?: Record<string, unknown> }
@@ -199,7 +202,7 @@ async function handleToolsCall(
     name,
     args || {},
     request,
-    deps
+    deps,
   );
   if (individualResult) return individualResult;
 
@@ -207,11 +210,38 @@ async function handleToolsCall(
     return await handleExecuteCodeCall(
       request,
       args as unknown as ExecuteCodeParams,
-      deps
+      deps,
     );
   }
 
   if (name === 'approval_prompt') {
+    // When WebviewManager is absent (Electron), auto-allow all approval prompts.
+    // Electron has no webview UI for user interaction, so permissions are granted automatically.
+    if (!deps.webviewManager) {
+      const approvalParams = args as unknown as ApprovalPromptParams;
+      deps.logger.info(
+        'approval_prompt auto-allowed (no WebviewManager — Electron mode)',
+        {
+          tool: approvalParams.tool_name,
+        },
+      );
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                behavior: 'allow',
+                updatedInput: approvalParams.input,
+              }),
+            },
+          ],
+        },
+      };
+    }
+
     return await handleApprovalPrompt(
       request,
       args as unknown as ApprovalPromptParams,
@@ -219,7 +249,7 @@ async function handleToolsCall(
         permissionPromptService: deps.permissionPromptService,
         webviewManager: deps.webviewManager,
         logger: deps.logger,
-      }
+      },
     );
   }
 
@@ -235,7 +265,7 @@ async function handleIndividualTool(
   name: string,
   args: Record<string, unknown>,
   request: MCPRequest,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse | null> {
   const { ptahAPI, logger } = deps;
 
@@ -246,7 +276,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatWorkspaceAnalysis(result),
-          deps
+          deps,
         );
       }
 
@@ -256,7 +286,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatSearchFiles(files),
-          deps
+          deps,
         );
       }
 
@@ -273,7 +303,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatDiagnostics(result),
-          deps
+          deps,
         );
       }
 
@@ -287,7 +317,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatLspReferences(refs),
-          deps
+          deps,
         );
       }
 
@@ -301,7 +331,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatLspDefinitions(defs),
-          deps
+          deps,
         );
       }
 
@@ -310,7 +340,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatDirtyFiles(dirtyFiles),
-          deps
+          deps,
         );
       }
 
@@ -321,7 +351,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatTokenCount({ file, tokens: tokenCount }),
-          deps
+          deps,
         );
       }
 
@@ -417,7 +447,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentSpawn(result),
-          deps
+          deps,
         );
       }
 
@@ -427,7 +457,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentStatus(result),
-          deps
+          deps,
         );
       }
 
@@ -440,7 +470,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentRead(result),
-          deps
+          deps,
         );
       }
 
@@ -453,7 +483,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentSteer({ agentId, steered: true }),
-          deps
+          deps,
         );
       }
 
@@ -463,7 +493,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentStop(result),
-          deps
+          deps,
         );
       }
 
@@ -473,7 +503,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentList(agents),
-          deps
+          deps,
         );
       }
 
@@ -498,7 +528,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatWebSearch(result),
-          deps
+          deps,
         );
       }
 
@@ -510,7 +540,7 @@ async function handleIndividualTool(
       error instanceof Error ? error.message : 'Unknown error';
     logger.error(
       `Individual tool ${name} failed: ${errorMessage}`,
-      error instanceof Error ? error : new Error(String(error))
+      error instanceof Error ? error : new Error(String(error)),
     );
 
     deps.onToolResult?.(request.id.toString(), errorMessage, true);
@@ -534,7 +564,7 @@ async function handleIndividualTool(
 function createToolSuccessResponse(
   request: MCPRequest,
   text: string,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): MCPResponse {
   deps.onToolResult?.(request.id.toString(), text, false);
   return {
@@ -555,7 +585,7 @@ function createToolSuccessResponse(
 async function handleExecuteCodeCall(
   request: MCPRequest,
   params: ExecuteCodeParams,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
   const { code, timeout = 15000 } = params;
   const { ptahAPI, logger } = deps;
@@ -675,7 +705,7 @@ function createErrorResponse(
   id: string | number,
   code: number,
   message: string,
-  data?: string
+  data?: string,
 ): MCPResponse {
   return {
     jsonrpc: '2.0',

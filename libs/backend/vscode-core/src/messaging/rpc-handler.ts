@@ -68,6 +68,8 @@ const ALLOWED_METHOD_PREFIXES = [
   'layout:', // Electron desktop layout persistence (sidebar/editor panel widths)
   'skillsSh:', // TASK_2025_204: Skills.sh marketplace (search, install, recommend)
   'settings:', // TASK_2025_210: Settings export/import (Electron desktop)
+  'git:', // TASK_2025_227: Git info and worktree management
+  'terminal:', // TASK_2025_227: Terminal PTY session management
 ] as const;
 
 /**
@@ -149,7 +151,7 @@ export class RpcHandler {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.LICENSE_SERVICE)
-    private readonly licenseService: LicenseService
+    private readonly licenseService: LicenseService,
   ) {
     this.logger.debug('RpcHandler: Initialized with license middleware');
   }
@@ -180,12 +182,12 @@ export class RpcHandler {
    */
   registerMethod<TParams = unknown, TResult = unknown>(
     name: string,
-    handler: RpcMethodHandler<TParams, TResult>
+    handler: RpcMethodHandler<TParams, TResult>,
   ): void {
     // Security validation: Check method name against whitelist
     if (!this.isValidMethodName(name)) {
       const error = `Invalid method name "${name}" - must start with allowed prefix: ${ALLOWED_METHOD_PREFIXES.join(
-        ', '
+        ', ',
       )}`;
       this.logger.error(`RpcHandler: ${error}`);
       throw new Error(error);
@@ -361,7 +363,7 @@ export class RpcHandler {
           'RpcHandler: No cached license status, rejecting RPC',
           {
             method,
-          }
+          },
         );
         return {
           allowed: false,

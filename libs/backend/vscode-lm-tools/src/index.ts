@@ -5,9 +5,16 @@
  */
 
 // Code Execution MCP exports
-export { PtahAPIBuilder } from './lib/code-execution/ptah-api-builder.service';
+export {
+  PtahAPIBuilder,
+  IDE_CAPABILITIES_TOKEN,
+} from './lib/code-execution/ptah-api-builder.service';
 export { CodeExecutionMCP } from './lib/code-execution/code-execution-mcp.service';
 export type { PtahAPI } from './lib/code-execution/types';
+
+// IDE capabilities exports (TASK_2025_226 - platform decoupling)
+export type { IIDECapabilities } from './lib/code-execution/namespace-builders/ide-namespace.builder';
+export { VscodeIDECapabilities } from './lib/code-execution/namespace-builders/ide-capabilities.vscode';
 export type { ToolResultCallback } from './lib/code-execution/mcp-handlers';
 
 // System Prompt exports (TASK_2025_039 Phase 9)

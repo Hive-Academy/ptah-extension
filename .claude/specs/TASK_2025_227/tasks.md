@@ -1,6 +1,6 @@
 # Development Tasks - TASK_2025_227: Workspace Context Panel
 
-**Total Tasks**: 27 | **Batches**: 6 | **Status**: 0/6 complete
+**Total Tasks**: 27 | **Batches**: 6 | **Status**: 1/6 complete
 
 ---
 
@@ -41,12 +41,13 @@
 
 ---
 
-## Batch 1: Shared Type Definitions + Backend Git Service - IN PROGRESS
+## Batch 1: Shared Type Definitions + Backend Git Service - COMPLETE
 
 **Developer**: backend-developer
 **Tasks**: 4 | **Dependencies**: None
+**Commit**: 71aed800
 
-### Task 1.1: Create Git RPC Type Definitions - IMPLEMENTED
+### Task 1.1: Create Git RPC Type Definitions - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc\rpc-git.types.ts`
 **Action**: CREATE
@@ -58,7 +59,7 @@
 - Types: `GitFileStatus`, `GitBranchInfo`, `GitInfoParams`, `GitInfoResult`, `GitWorktreesParams`, `GitWorktreesResult`, `GitWorktreeInfo`, `GitAddWorktreeParams`, `GitAddWorktreeResult`, `GitRemoveWorktreeParams`, `GitRemoveWorktreeResult`
 - All types fully specified in the implementation plan Section 1.1
 
-### Task 1.2: Create Terminal RPC Type Definitions - IMPLEMENTED
+### Task 1.2: Create Terminal RPC Type Definitions - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc\rpc-terminal.types.ts`
 **Action**: CREATE
@@ -70,7 +71,7 @@
 - Types: `TerminalCreateParams`, `TerminalCreateResult`, `TerminalKillParams`, `TerminalKillResult`, `TerminalResizeParams`
 - Note: Binary IPC types (data-in/data-out/resize) are NOT in this file -- they use direct IPC, not JSON RPC
 
-### Task 1.3: Register Git and Terminal Methods in RPC Registry - IMPLEMENTED
+### Task 1.3: Register Git and Terminal Methods in RPC Registry - COMPLETE
 
 **File**: `D:\projects\ptah-extension\libs\shared\src\lib\types\rpc.types.ts`
 **Action**: MODIFY
@@ -84,7 +85,7 @@
 - Add all 6 method names to `RPC_METHOD_NAMES` array (CRITICAL: must stay in sync)
 - **Pattern to Follow**: See existing entries like `editor:openFile` at line 668-676
 
-### Task 1.4: Create GitInfoService (Main Process) - IMPLEMENTED
+### Task 1.4: Create GitInfoService (Main Process) - COMPLETE
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\git-info.service.ts`
 **Action**: CREATE
@@ -118,12 +119,12 @@
 
 ---
 
-## Batch 2: Backend Git RPC Handlers + DI Registration - PENDING
+## Batch 2: Backend Git RPC Handlers + DI Registration - IN PROGRESS
 
 **Developer**: backend-developer
-**Tasks**: 4 | **Dependencies**: Batch 1
+**Tasks**: 4 | **Dependencies**: Batch 1 (COMPLETE)
 
-### Task 2.1: Create ElectronGitRpcHandlers - PENDING
+### Task 2.1: Create ElectronGitRpcHandlers - IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\electron-git-rpc.handlers.ts`
 **Action**: CREATE
@@ -138,7 +139,7 @@
 - Phase 3: `git:addWorktree` and `git:removeWorktree` also have full implementations (implement all 4 now since GitInfoService already supports them)
 - **Pattern to Follow**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\electron-editor-rpc.handlers.ts` lines 12-50
 
-### Task 2.2: Export ElectronGitRpcHandlers from Index - PENDING
+### Task 2.2: Export ElectronGitRpcHandlers from Index - IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\handlers\index.ts`
 **Action**: MODIFY
@@ -147,7 +148,7 @@
 
 - Add: `export { ElectronGitRpcHandlers } from './electron-git-rpc.handlers';`
 
-### Task 2.3: Register GitInfoService + ElectronGitRpcHandlers in DI Container - PENDING
+### Task 2.3: Register GitInfoService + ElectronGitRpcHandlers in DI Container - IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\di\container.ts`
 **Action**: MODIFY
@@ -163,7 +164,7 @@
 - Register: `container.registerSingleton(ElectronGitRpcHandlers);`
 - **Pattern to Follow**: See existing Phase 4.2 registrations at container.ts line 750-783
 
-### Task 2.4: Add ElectronGitRpcHandlers to Registration Service - PENDING
+### Task 2.4: Add ElectronGitRpcHandlers to Registration Service - IMPLEMENTED
 
 **File**: `D:\projects\ptah-extension\apps\ptah-electron\src\services\rpc\rpc-method-registration.service.ts`
 **Action**: MODIFY

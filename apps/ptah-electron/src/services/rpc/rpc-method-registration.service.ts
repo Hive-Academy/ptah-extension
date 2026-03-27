@@ -55,6 +55,7 @@ import {
   ElectronAgentRpcHandlers,
   ElectronSkillsShRpcHandlers,
   ElectronLayoutRpcHandlers,
+  ElectronGitRpcHandlers,
 } from './handlers';
 
 /**
@@ -119,6 +120,8 @@ export class ElectronRpcMethodRegistrationService {
     private readonly skillsShHandlers: ElectronSkillsShRpcHandlers,
     @inject(ElectronLayoutRpcHandlers)
     private readonly layoutHandlers: ElectronLayoutRpcHandlers,
+    @inject(ElectronGitRpcHandlers)
+    private readonly gitHandlers: ElectronGitRpcHandlers,
   ) {}
 
   /**
@@ -218,6 +221,10 @@ export class ElectronRpcMethodRegistrationService {
       {
         name: 'ElectronLayoutRpcHandlers',
         handler: this.layoutHandlers,
+      },
+      {
+        name: 'ElectronGitRpcHandlers',
+        handler: this.gitHandlers,
       },
     ];
 

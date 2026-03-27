@@ -17,7 +17,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -45,6 +45,13 @@ export class CodeExecutionMCP implements IDisposable {
   private toolResultCallback: ToolResultCallback | undefined;
   private registeredInMcpJson = false;
 
+  /**
+   * WebviewManager is optional: present in VS Code for user approval prompts,
+   * absent in Electron where approval_prompt auto-allows (no webview UI).
+   * Resolved lazily via container.isRegistered() to avoid DI crash in Electron.
+   */
+  private readonly webviewManager: WebviewManager | undefined;
+
   constructor(
     @inject(TOKENS.PTAH_API_BUILDER)
     private readonly apiBuilder: PtahAPIBuilder,
@@ -60,10 +67,14 @@ export class CodeExecutionMCP implements IDisposable {
 
     @inject(TOKENS.PERMISSION_PROMPT_SERVICE)
     private readonly permissionPromptService: PermissionPromptService,
-
-    @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager,
   ) {
+    // Resolve WebviewManager lazily: in Electron the token is not registered.
+    // Uses the same container.isRegistered() pattern as SDK_SESSION_LIFECYCLE_MANAGER
+    // in ptah-api-builder.service.ts.
+    this.webviewManager = container.isRegistered(TOKENS.WEBVIEW_MANAGER)
+      ? container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER)
+      : undefined;
+
     // Build ptah API once at construction (reused for all executions)
     this.ptahAPI = this.apiBuilder.build();
   }

@@ -3,9 +3,6 @@
   "compilerOptions": {
     "paths": {
       "vscode": ["apps/ptah-electron/src/shims/vscode-shim.ts"],
-      "@ptah-extension/vscode-lm-tools": [
-        "apps/ptah-electron/src/shims/vscode-lm-tools-shim.ts"
-      ],
       "@ptah-extension/agent-generation": [
         "libs/backend/agent-generation/src/index.ts"
       ],
@@ -30,6 +27,9 @@
         "libs/backend/template-generation/src/index.ts"
       ],
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
+      "@ptah-extension/vscode-lm-tools": [
+        "libs/backend/vscode-lm-tools/src/index.ts"
+      ],
       "@ptah-extension/workspace-intelligence": [
         "libs/backend/workspace-intelligence/src/index.ts"
       ]

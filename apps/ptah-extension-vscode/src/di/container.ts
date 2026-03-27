@@ -77,7 +77,11 @@ import {
 
 import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace-intelligence';
 
-import { registerVsCodeLmToolsServices } from '@ptah-extension/vscode-lm-tools';
+import {
+  registerVsCodeLmToolsServices,
+  VscodeIDECapabilities,
+  IDE_CAPABILITIES_TOKEN,
+} from '@ptah-extension/vscode-lm-tools';
 
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 
@@ -385,6 +389,15 @@ export class DIContainer {
     // PHASE 2.5: Code Execution MCP (TASK_2025_025)
     // ========================================
     registerVsCodeLmToolsServices(container, logger);
+
+    // TASK_2025_226: Register VS Code IDE capabilities for PtahAPIBuilder.
+    // VscodeIDECapabilities wraps VS Code's LSP commands, editor state, and code actions.
+    // PtahAPIBuilder resolves this lazily via container.isRegistered(IDE_CAPABILITIES_TOKEN).
+    // In Electron, this token is NOT registered, so buildIDENamespace() returns graceful
+    // degradation stubs instead.
+    container.register(IDE_CAPABILITIES_TOKEN, {
+      useValue: new VscodeIDECapabilities(),
+    });
 
     // ========================================
     // PHASE 2.7: Agent SDK Integration (TASK_2025_044 Batch 3)
