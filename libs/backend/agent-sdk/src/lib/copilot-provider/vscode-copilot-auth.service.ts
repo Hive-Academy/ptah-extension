@@ -64,6 +64,47 @@ export class VscodeCopilotAuthService extends CopilotAuthService {
   }
 
   /**
+   * Override token refresh to use VS Code native auth as a refresh source.
+   *
+   * The base class only tries cached token exchange + file-based refresh.
+   * In VS Code, we can silently obtain a fresh GitHub session via
+   * vscode.authentication.getSession(false) without prompting the user.
+   */
+  protected override async doRefreshToken(): Promise<boolean> {
+    // Try base class refresh first (cached token + file)
+    const baseResult = await super.doRefreshToken();
+    if (baseResult) return true;
+
+    // VS Code-specific: try getting a fresh GitHub session silently (no prompt)
+    try {
+      const session = await this.getVscodeGitHubSession(false);
+      if (session) {
+        this.logger.info(
+          '[VscodeCopilotAuth] Refreshing via VS Code GitHub session',
+        );
+        return this.exchangeToken(session.accessToken);
+      }
+    } catch {
+      // VS Code auth unavailable during refresh
+    }
+
+    this.authState = null;
+    return false;
+  }
+
+  /**
+   * Override headers to send the correct Editor-Version for VS Code.
+   *
+   * GitHub Copilot servers expect `vscode/X.Y.Z` as the Editor-Version
+   * header from VS Code clients. The base class sends `ptah/X.Y.Z`.
+   */
+  override async getHeaders(): Promise<Record<string, string>> {
+    const headers = await super.getHeaders();
+    headers['Editor-Version'] = `vscode/${vscode.version}`;
+    return headers;
+  }
+
+  /**
    * Obtain a GitHub authentication session from VS Code.
    * Tries the 'copilot' scope first, falls back to 'read:user' if that fails.
    *

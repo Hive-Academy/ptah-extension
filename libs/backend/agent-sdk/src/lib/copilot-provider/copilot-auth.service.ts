@@ -59,7 +59,7 @@ function describeToken(token: string): string {
 @injectable()
 export class CopilotAuthService implements ICopilotAuthService {
   /** Cached authentication state (in-memory only) */
-  private authState: CopilotAuthState | null = null;
+  protected authState: CopilotAuthState | null = null;
 
   /** In-flight refresh promise for deduplication */
   private refreshPromise: Promise<boolean> | null = null;
@@ -356,7 +356,7 @@ export class CopilotAuthService implements ICopilotAuthService {
     return this.refreshPromise;
   }
 
-  private async doRefreshToken(): Promise<boolean> {
+  protected async doRefreshToken(): Promise<boolean> {
     if (!this.authState) return false;
 
     this.logger.info('[CopilotAuth] Refreshing Copilot bearer token...');

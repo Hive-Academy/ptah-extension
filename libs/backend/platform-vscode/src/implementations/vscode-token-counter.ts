@@ -18,7 +18,11 @@ export class VscodeTokenCounter implements ITokenCounter {
     } catch {
       // VS Code LM API unavailable, fall through to gpt-tokenizer
     }
-    return encode(text).length;
+    try {
+      return encode(text).length;
+    } catch {
+      return Math.ceil(text.length / 4);
+    }
   }
 
   async getMaxInputTokens(): Promise<number | null> {

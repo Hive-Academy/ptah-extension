@@ -9,7 +9,11 @@ import { encode } from 'gpt-tokenizer';
 
 export class ElectronTokenCounter implements ITokenCounter {
   async countTokens(text: string): Promise<number> {
-    return encode(text).length;
+    try {
+      return encode(text).length;
+    } catch {
+      return Math.ceil(text.length / 4);
+    }
   }
 
   async getMaxInputTokens(): Promise<number | null> {
