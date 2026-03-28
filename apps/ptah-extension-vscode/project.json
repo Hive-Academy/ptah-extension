@@ -34,9 +34,6 @@
         },
         "external": [
           "vscode",
-          "@anthropic-ai/claude-agent-sdk",
-          "@github/copilot-sdk",
-          "@openai/codex-sdk",
           "tree-sitter",
           "tree-sitter-javascript",
           "tree-sitter-typescript"
