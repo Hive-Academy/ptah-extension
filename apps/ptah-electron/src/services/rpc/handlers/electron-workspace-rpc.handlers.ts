@@ -35,7 +35,7 @@ export class ElectronWorkspaceRpcHandlers {
     @inject(TOKENS.WORKSPACE_CONTEXT_MANAGER)
     workspaceContextManager: WorkspaceContextManager,
     @inject(SDK_TOKENS.SDK_SESSION_IMPORTER)
-    private readonly sessionImporter: SessionImporterService
+    private readonly sessionImporter: SessionImporterService,
   ) {
     this.workspaceContextManager = workspaceContextManager;
   }
@@ -67,7 +67,7 @@ export class ElectronWorkspaceRpcHandlers {
           root,
           activeFolder,
           name: root
-            ? root.split(/[/\\]/).pop() ?? 'Workspace'
+            ? (root.split(/[/\\]/).pop() ?? 'Workspace')
             : 'No Workspace',
         };
       } catch {
@@ -99,13 +99,12 @@ export class ElectronWorkspaceRpcHandlers {
 
         // CRITICAL ORDER: Create workspace context FIRST, then add to provider.
         // If context creation fails, the provider stays clean (no folder added).
-        const createResult = await this.workspaceContextManager.createWorkspace(
-          folderPath
-        );
+        const createResult =
+          await this.workspaceContextManager.createWorkspace(folderPath);
         if (!createResult.success) {
           this.logger.error(
             '[Electron RPC] workspace:addFolder - failed to create workspace context',
-            { folderPath, error: createResult.error }
+            { folderPath, error: createResult.error },
           );
           return {
             path: null,
@@ -123,14 +122,14 @@ export class ElectronWorkspaceRpcHandlers {
             if (count > 0) {
               this.logger.info(
                 `[Electron RPC] workspace:addFolder imported ${count} session(s)`,
-                { folderPath }
+                { folderPath },
               );
             }
           })
           .catch((err: unknown) => {
             this.logger.warn(
               '[Electron RPC] workspace:addFolder session import failed (non-fatal)',
-              { error: err instanceof Error ? err.message : String(err) }
+              { error: err instanceof Error ? err.message : String(err) },
             );
           });
 
@@ -139,7 +138,7 @@ export class ElectronWorkspaceRpcHandlers {
       } catch (error) {
         this.logger.error(
           '[Electron RPC] workspace:addFolder failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { path: null, name: null, error: String(error) };
       }
@@ -166,11 +165,11 @@ export class ElectronWorkspaceRpcHandlers {
         } catch (error) {
           this.logger.error(
             '[Electron RPC] workspace:removeFolder failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return { success: false, error: String(error) };
         }
-      }
+      },
     );
   }
 
@@ -196,23 +195,25 @@ export class ElectronWorkspaceRpcHandlers {
 
           this.electronProvider.setActiveFolder(params.path);
 
-          // Import existing Claude sessions for the switched workspace (fire-and-forget)
-          this.sessionImporter
-            .scanAndImport(params.path, 50)
-            .then((count) => {
-              if (count > 0) {
-                this.logger.info(
-                  `[Electron RPC] workspace:switch imported ${count} session(s)`,
-                  { path: params.path }
-                );
-              }
-            })
-            .catch((err: unknown) => {
-              this.logger.warn(
-                '[Electron RPC] workspace:switch session import failed (non-fatal)',
-                { error: err instanceof Error ? err.message : String(err) }
+          // Import existing Claude sessions for the switched workspace.
+          // Awaited so sessions are available when the frontend reloads the session list.
+          try {
+            const importCount = await this.sessionImporter.scanAndImport(
+              params.path,
+              50,
+            );
+            if (importCount > 0) {
+              this.logger.info(
+                `[Electron RPC] workspace:switch imported ${importCount} session(s)`,
+                { path: params.path },
               );
-            });
+            }
+          } catch (err: unknown) {
+            this.logger.warn(
+              '[Electron RPC] workspace:switch session import failed (non-fatal)',
+              { error: err instanceof Error ? err.message : String(err) },
+            );
+          }
 
           const folderName = params.path.split(/[/\\]/).pop() ?? 'Workspace';
 
@@ -229,11 +230,11 @@ export class ElectronWorkspaceRpcHandlers {
         } catch (error) {
           this.logger.error(
             '[Electron RPC] workspace:switch failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return { success: false, error: String(error) };
         }
-      }
+      },
     );
   }
 }

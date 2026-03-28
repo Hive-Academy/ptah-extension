@@ -187,6 +187,15 @@ export interface LicenseSetKeyResponse {
   error?: string;
 }
 
+/** Parameters for license:clearKey RPC method (empty - no params needed) */
+export type LicenseClearKeyParams = Record<string, never>;
+
+/** Response from license:clearKey RPC method */
+export interface LicenseClearKeyResponse {
+  success: boolean;
+  error?: string;
+}
+
 // ============================================================
 // Command RPC Types (TASK_2025_126)
 // ============================================================
