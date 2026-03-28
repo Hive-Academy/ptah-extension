@@ -1,7 +1,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import { FileTreeNode } from '../models/file-tree.model';
+import { rpcCall } from './rpc-call.util';
 
 /** Represents an open editor tab */
 export interface EditorTab {
@@ -195,9 +195,10 @@ export class EditorService {
     this._isLoading.set(true);
     this.clearError();
 
-    const result = await this.rpcCall<{ tree: FileTreeNode[] }>(
+    const result = await rpcCall<{ tree: FileTreeNode[] }>(
+      this.vscodeService,
       'editor:getFileTree',
-      {}
+      {},
     );
 
     if (result.success && result.data) {
@@ -207,7 +208,7 @@ export class EditorService {
       // Update cached state if workspace is active
       if (this._activeWorkspacePath) {
         const cached = this._workspaceEditorState.get(
-          this._activeWorkspacePath
+          this._activeWorkspacePath,
         );
         if (cached) {
           cached.fileTree = tree;
@@ -238,9 +239,10 @@ export class EditorService {
     this._isLoading.set(true);
     this.clearError();
 
-    const result = await this.rpcCall<{ content: string; filePath: string }>(
+    const result = await rpcCall<{ content: string; filePath: string }>(
+      this.vscodeService,
       'editor:openFile',
-      { filePath }
+      { filePath },
     );
 
     if (result.success && result.data) {
@@ -270,10 +272,11 @@ export class EditorService {
     this._isLoading.set(true);
     this.clearError();
 
-    const result = await this.rpcCall<{ success: boolean }>('editor:saveFile', {
-      filePath,
-      content,
-    });
+    const result = await rpcCall<{ success: boolean }>(
+      this.vscodeService,
+      'editor:saveFile',
+      { filePath, content },
+    );
 
     if (!result.success) {
       this.showError(result.error ?? 'Failed to save file');
@@ -286,9 +289,10 @@ export class EditorService {
    * Updates the tree in place by replacing the directory's children and clearing needsLoad.
    */
   async loadDirectoryChildren(dirPath: string): Promise<void> {
-    const result = await this.rpcCall<{ children: FileTreeNode[] }>(
+    const result = await rpcCall<{ children: FileTreeNode[] }>(
+      this.vscodeService,
       'editor:getDirectoryChildren',
-      { dirPath }
+      { dirPath },
     );
 
     if (result.success && result.data) {
@@ -298,14 +302,14 @@ export class EditorService {
       const updatedTree = this.updateNodeChildren(
         currentTree,
         dirPath,
-        children
+        children,
       );
       this._fileTree.set(updatedTree);
 
       // Update cached workspace state
       if (this._activeWorkspacePath) {
         const cached = this._workspaceEditorState.get(
-          this._activeWorkspacePath
+          this._activeWorkspacePath,
         );
         if (cached) {
           cached.fileTree = updatedTree;
@@ -323,7 +327,7 @@ export class EditorService {
   private updateNodeChildren(
     nodes: FileTreeNode[],
     targetPath: string,
-    children: FileTreeNode[]
+    children: FileTreeNode[],
   ): FileTreeNode[] {
     return nodes.map((node) => {
       if (node.path === targetPath) {
@@ -335,7 +339,7 @@ export class EditorService {
           children: this.updateNodeChildren(
             node.children,
             targetPath,
-            children
+            children,
           ),
         };
       }
@@ -413,8 +417,8 @@ export class EditorService {
   updateTabContent(filePath: string, content: string): void {
     this._openTabs.update((tabs) =>
       tabs.map((tab) =>
-        tab.filePath === filePath ? { ...tab, content, isDirty: true } : tab
-      )
+        tab.filePath === filePath ? { ...tab, content, isDirty: true } : tab,
+      ),
     );
     this._syncTabsToCache();
   }
@@ -425,8 +429,8 @@ export class EditorService {
   markTabClean(filePath: string): void {
     this._openTabs.update((tabs) =>
       tabs.map((tab) =>
-        tab.filePath === filePath ? { ...tab, isDirty: false } : tab
-      )
+        tab.filePath === filePath ? { ...tab, isDirty: false } : tab,
+      ),
     );
     this._syncTabsToCache();
   }
@@ -557,58 +561,5 @@ export class EditorService {
         cached.openTabs = this._openTabs();
       }
     }
-  }
-
-  // ============================================================================
-  // RPC COMMUNICATION
-  // ============================================================================
-
-  /**
-   * Send an RPC call via postMessage and wait for the correlated response.
-   * Uses crypto.randomUUID() for correlation and listens for MESSAGE_TYPES.RPC_RESPONSE.
-   */
-  private rpcCall<T>(
-    method: string,
-    params: Record<string, unknown>
-  ): Promise<{ success: boolean; data?: T; error?: string }> {
-    const correlationId = crypto.randomUUID();
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve({ success: false, error: `RPC timeout: ${method}` });
-      }, 30000);
-
-      const handler = (event: MessageEvent) => {
-        const data = event.data;
-        if (!data || typeof data !== 'object') return;
-        if (data.type !== MESSAGE_TYPES.RPC_RESPONSE) return;
-        if (data.correlationId !== correlationId) return;
-
-        cleanup();
-        const errorStr = data.error
-          ? typeof data.error === 'string'
-            ? data.error
-            : data.error.message ?? String(data.error)
-          : undefined;
-        resolve({
-          success: data.success,
-          data: data.data as T,
-          error: errorStr,
-        });
-      };
-
-      const cleanup = () => {
-        clearTimeout(timeout);
-        window.removeEventListener('message', handler);
-      };
-
-      window.addEventListener('message', handler);
-
-      this.vscodeService.postMessage({
-        type: MESSAGE_TYPES.RPC_CALL,
-        payload: { method, params, correlationId },
-      });
-    });
   }
 }

@@ -7,12 +7,12 @@ import {
   NgZone,
 } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   GitInfoResult,
   GitBranchInfo,
   GitFileStatus,
 } from '@ptah-extension/shared';
+import { rpcCall } from './rpc-call.util';
 
 /**
  * Per-workspace git state snapshot.
@@ -108,13 +108,20 @@ export class GitStatusService {
   readonly branchName = computed(() => this._branch().branch);
 
   /**
-   * Map<relativePath, GitFileStatus> for O(1) lookup by FileTreeNodeComponent.
+   * Map<relativePath, GitFileStatus[]> for O(1) lookup by FileTreeNodeComponent.
    * Keys are relative paths from workspace root (as reported by git status --porcelain=v2).
+   * Values are arrays because a file can have both staged and unstaged changes
+   * (e.g., staged 'M' and unstaged 'M' for a partially staged file).
    */
   readonly fileStatusMap = computed(() => {
-    const map = new Map<string, GitFileStatus>();
+    const map = new Map<string, GitFileStatus[]>();
     for (const file of this._files()) {
-      map.set(file.path, file);
+      const existing = map.get(file.path);
+      if (existing) {
+        existing.push(file);
+      } else {
+        map.set(file.path, [file]);
+      }
     }
     return map;
   });
@@ -224,9 +231,23 @@ export class GitStatusService {
   private async fetchGitInfo(): Promise<void> {
     if (!this._activeWorkspacePath) return;
 
+    // Capture the workspace path BEFORE the async RPC call.
+    // If the user switches workspaces while the RPC is in flight,
+    // we must discard the stale response to avoid corrupting the new workspace's state.
+    const workspaceAtFetchTime = this._activeWorkspacePath;
+
     this._isLoading.set(true);
 
-    const result = await this.rpcCall<GitInfoResult>('git:info', {});
+    const result = await rpcCall<GitInfoResult>(
+      this.vscodeService,
+      'git:info',
+      {},
+    );
+
+    // Discard stale response: workspace changed during the RPC call
+    if (this._activeWorkspacePath !== workspaceAtFetchTime) {
+      return;
+    }
 
     if (result.success && result.data) {
       this._branch.set(result.data.branch);
@@ -270,61 +291,6 @@ export class GitStatusService {
     this.destroyRef.onDestroy(() => {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('blur', onBlur);
-    });
-  }
-
-  // ============================================================================
-  // RPC COMMUNICATION
-  // ============================================================================
-
-  /**
-   * Send an RPC call via postMessage and wait for the correlated response.
-   * Uses crypto.randomUUID() for correlation and listens for MESSAGE_TYPES.RPC_RESPONSE.
-   *
-   * Matches the EditorService.rpcCall() pattern exactly.
-   */
-  private rpcCall<T>(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<{ success: boolean; data?: T; error?: string }> {
-    const correlationId = crypto.randomUUID();
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve({ success: false, error: `RPC timeout: ${method}` });
-      }, 30000);
-
-      const handler = (event: MessageEvent) => {
-        const data = event.data;
-        if (!data || typeof data !== 'object') return;
-        if (data.type !== MESSAGE_TYPES.RPC_RESPONSE) return;
-        if (data.correlationId !== correlationId) return;
-
-        cleanup();
-        const errorStr = data.error
-          ? typeof data.error === 'string'
-            ? data.error
-            : (data.error.message ?? String(data.error))
-          : undefined;
-        resolve({
-          success: data.success,
-          data: data.data as T,
-          error: errorStr,
-        });
-      };
-
-      const cleanup = () => {
-        clearTimeout(timeout);
-        window.removeEventListener('message', handler);
-      };
-
-      window.addEventListener('message', handler);
-
-      this.vscodeService.postMessage({
-        type: MESSAGE_TYPES.RPC_CALL,
-        payload: { method, params, correlationId },
-      });
     });
   }
 }

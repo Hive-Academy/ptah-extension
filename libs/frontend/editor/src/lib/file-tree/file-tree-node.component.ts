@@ -120,6 +120,11 @@ export class FileTreeNodeComponent {
    * (e.g., "src/services/foo.ts"). File tree node paths are absolute
    * (e.g., "D:/projects/ptah-extension/src/services/foo.ts").
    * We strip the workspace root prefix to derive the relative path for lookup.
+   *
+   * fileStatusMap returns an array of GitFileStatus entries per path because a file
+   * can have both staged and unstaged changes. We prefer the staged entry for the
+   * badge display (staged changes are more significant in the tree view), falling
+   * back to the first entry if no staged entry exists.
    */
   readonly nodeGitStatus = computed((): GitFileStatus | undefined => {
     const absolutePath = this.node().path;
@@ -138,7 +143,13 @@ export class FileTreeNodeComponent {
     if (!normalizedPath.startsWith(rootWithSlash)) return undefined;
 
     const relativePath = normalizedPath.slice(rootWithSlash.length);
-    return this.gitStatus.fileStatusMap().get(relativePath);
+
+    // Get all entries for this path (may include both staged and unstaged)
+    const entries = this.gitStatus.fileStatusMap().get(relativePath);
+    if (!entries || entries.length === 0) return undefined;
+
+    // Prefer staged entry for the badge (staged changes are more significant)
+    return entries.find((e) => e.staged) ?? entries[0];
   });
 
   /**

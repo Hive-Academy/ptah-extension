@@ -7,8 +7,8 @@ import {
   NgZone,
 } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type { TerminalTab } from '../types/terminal.types';
+import { rpcCall } from './rpc-call.util';
 
 /**
  * Per-workspace terminal state snapshot.
@@ -147,7 +147,8 @@ export class TerminalService {
     this._terminalCounter++;
     const displayName = name || `Terminal ${this._terminalCounter}`;
 
-    const result = await this.rpcCall<{ id: string; pid: number }>(
+    const result = await rpcCall<{ id: string; pid: number }>(
+      this.vscodeService,
       'terminal:create',
       { name: displayName },
     );
@@ -184,7 +185,9 @@ export class TerminalService {
    * @param id - Terminal session ID to kill
    */
   async killTerminal(id: string): Promise<void> {
-    await this.rpcCall<{ success: boolean }>('terminal:kill', { id });
+    await rpcCall<{ success: boolean }>(this.vscodeService, 'terminal:kill', {
+      id,
+    });
   }
 
   /**
@@ -367,61 +370,6 @@ export class TerminalService {
     this._workspaceTerminalState.set(this._activeWorkspacePath, {
       tabs: this._tabs(),
       activeTabId: this._activeTabId(),
-    });
-  }
-
-  // ============================================================================
-  // RPC COMMUNICATION
-  // ============================================================================
-
-  /**
-   * Send an RPC call via postMessage and wait for the correlated response.
-   * Uses crypto.randomUUID() for correlation and listens for MESSAGE_TYPES.RPC_RESPONSE.
-   *
-   * Matches the EditorService.rpcCall() pattern exactly.
-   */
-  private rpcCall<T>(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<{ success: boolean; data?: T; error?: string }> {
-    const correlationId = crypto.randomUUID();
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve({ success: false, error: `RPC timeout: ${method}` });
-      }, 30000);
-
-      const handler = (event: MessageEvent) => {
-        const data = event.data;
-        if (!data || typeof data !== 'object') return;
-        if (data.type !== MESSAGE_TYPES.RPC_RESPONSE) return;
-        if (data.correlationId !== correlationId) return;
-
-        cleanup();
-        const errorStr = data.error
-          ? typeof data.error === 'string'
-            ? data.error
-            : (data.error.message ?? String(data.error))
-          : undefined;
-        resolve({
-          success: data.success,
-          data: data.data as T,
-          error: errorStr,
-        });
-      };
-
-      const cleanup = () => {
-        clearTimeout(timeout);
-        window.removeEventListener('message', handler);
-      };
-
-      window.addEventListener('message', handler);
-
-      this.vscodeService.postMessage({
-        type: MESSAGE_TYPES.RPC_CALL,
-        payload: { method, params, correlationId },
-      });
     });
   }
 }

@@ -1,12 +1,12 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { VSCodeService, ElectronLayoutService } from '@ptah-extension/core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
 import type {
   GitWorktreeInfo,
   GitWorktreesResult,
   GitAddWorktreeResult,
   GitRemoveWorktreeResult,
 } from '@ptah-extension/shared';
+import { rpcCall } from './rpc-call.util';
 
 /**
  * WorktreeService - Manages git worktree operations and workspace folder registration.
@@ -53,7 +53,11 @@ export class WorktreeService {
   async loadWorktrees(): Promise<void> {
     this._isLoading.set(true);
 
-    const result = await this.rpcCall<GitWorktreesResult>('git:worktrees', {});
+    const result = await rpcCall<GitWorktreesResult>(
+      this.vscodeService,
+      'git:worktrees',
+      {},
+    );
 
     if (result.success && result.data) {
       this._worktrees.set(result.data.worktrees);
@@ -77,11 +81,15 @@ export class WorktreeService {
   ): Promise<{ success: boolean; error?: string }> {
     this._isLoading.set(true);
 
-    const result = await this.rpcCall<GitAddWorktreeResult>('git:addWorktree', {
-      branch,
-      path: options?.path,
-      createBranch: options?.createBranch,
-    });
+    const result = await rpcCall<GitAddWorktreeResult>(
+      this.vscodeService,
+      'git:addWorktree',
+      {
+        branch,
+        path: options?.path,
+        createBranch: options?.createBranch,
+      },
+    );
 
     if (result.success && result.data?.success && result.data.worktreePath) {
       // Auto-register the new worktree as a workspace folder
@@ -116,7 +124,8 @@ export class WorktreeService {
   ): Promise<{ success: boolean; error?: string }> {
     this._isLoading.set(true);
 
-    const result = await this.rpcCall<GitRemoveWorktreeResult>(
+    const result = await rpcCall<GitRemoveWorktreeResult>(
+      this.vscodeService,
       'git:removeWorktree',
       { path, force },
     );
@@ -136,60 +145,5 @@ export class WorktreeService {
     this._isLoading.set(false);
 
     return { success: false, error };
-  }
-
-  // ============================================================================
-  // RPC COMMUNICATION
-  // ============================================================================
-
-  /**
-   * Send an RPC call via postMessage and wait for the correlated response.
-   * Uses crypto.randomUUID() for correlation and listens for MESSAGE_TYPES.RPC_RESPONSE.
-   *
-   * Matches the TerminalService/GitStatusService rpcCall() pattern exactly.
-   */
-  private rpcCall<T>(
-    method: string,
-    params: Record<string, unknown>,
-  ): Promise<{ success: boolean; data?: T; error?: string }> {
-    const correlationId = crypto.randomUUID();
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        resolve({ success: false, error: `RPC timeout: ${method}` });
-      }, 30000);
-
-      const handler = (event: MessageEvent) => {
-        const data = event.data;
-        if (!data || typeof data !== 'object') return;
-        if (data.type !== MESSAGE_TYPES.RPC_RESPONSE) return;
-        if (data.correlationId !== correlationId) return;
-
-        cleanup();
-        const errorStr = data.error
-          ? typeof data.error === 'string'
-            ? data.error
-            : (data.error.message ?? String(data.error))
-          : undefined;
-        resolve({
-          success: data.success,
-          data: data.data as T,
-          error: errorStr,
-        });
-      };
-
-      const cleanup = () => {
-        clearTimeout(timeout);
-        window.removeEventListener('message', handler);
-      };
-
-      window.addEventListener('message', handler);
-
-      this.vscodeService.postMessage({
-        type: MESSAGE_TYPES.RPC_CALL,
-        payload: { method, params, correlationId },
-      });
-    });
   }
 }

@@ -50,5 +50,9 @@ export { GitStatusService } from './lib/services/git-status.service';
 export { TerminalService } from './lib/services/terminal.service';
 export { WorktreeService } from './lib/services/worktree.service';
 
+// Utilities
+export { rpcCall } from './lib/services/rpc-call.util';
+export type { RpcCallResult } from './lib/services/rpc-call.util';
+
 // Types
 export type { TerminalTab, PtahTerminalApi } from './lib/types/terminal.types';
