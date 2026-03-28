@@ -142,10 +142,8 @@ let codexSdkModule: CodexSdkModule | null = null;
  * Lazily import the ESM-only @openai/codex-sdk package.
  * Only caches successful imports so a failed import can be retried.
  *
- * The package is NOT bundled with the extension. It is resolved at runtime
- * from the user's system via resolveAndImportSdk(), which tries standard
- * Node.js resolution first, then falls back to locating the package
- * relative to the CLI binary's install location.
+ * The SDK is bundled with the extension via esbuild (TASK_2025_232).
+ * resolveAndImportSdk() returns the bundled module via dynamic import().
  */
 async function getCodexSdk(binaryPath?: string): Promise<CodexSdkModule> {
   if (codexSdkModule) {
