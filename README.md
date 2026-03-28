@@ -3,7 +3,7 @@
 **Provider-agnostic AI orchestration for VS Code.**
 Intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows — all natively integrated into VS Code.
 
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode) | [Desktop App](https://github.com/Hive-Academy/ptah-app/releases/latest) | [License](https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE.md)
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode) | [Desktop App](https://github.com/Hive-Academy/ptah-extension/releases/latest) | [License](https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE.md)
 
 ---
 
@@ -21,7 +21,7 @@ Search for **"Ptah"** in the Extensions panel (`Ctrl+Shift+X`) or install direct
 
 ### Option B: Desktop App (Standalone)
 
-Download the standalone desktop app for your platform from [GitHub Releases](https://github.com/Hive-Academy/ptah-app/releases/latest):
+Download the standalone desktop app for your platform from [GitHub Releases](https://github.com/Hive-Academy/ptah-extension/releases/latest):
 
 | Platform | Download                      |
 | -------- | ----------------------------- |
@@ -378,7 +378,7 @@ For full details, see [LICENSE.md](LICENSE.md).
 ## Links
 
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode)
-- [Desktop App Downloads](https://github.com/Hive-Academy/ptah-app/releases/latest)
+- [Desktop App Downloads](https://github.com/Hive-Academy/ptah-extension/releases/latest)
 - [Issue Tracker](https://github.com/Hive-Academy/ptah-extension/issues)
 - [Discussions](https://github.com/Hive-Academy/ptah-extension/discussions)
 

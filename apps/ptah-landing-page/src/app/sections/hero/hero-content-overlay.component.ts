@@ -89,7 +89,7 @@ import {
             14 DAYS TRIAL
           </span>
           <a
-            href="https://github.com/Hive-Academy/ptah-app/releases/latest"
+            href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
             target="_blank"
             rel="noopener"
             class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
