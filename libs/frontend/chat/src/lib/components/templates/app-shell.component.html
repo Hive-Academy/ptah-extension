@@ -15,10 +15,16 @@
 -->
 
 @switch (currentView()) {
-<!-- Setup Wizard: Full-width, standalone layout -->
+<!-- Setup Wizard: Full-width, standalone layout (injected via DI token to break circular dep) -->
 @case ('setup-wizard') {
 <div class="h-full w-full">
-  <ptah-wizard-view />
+  @if (wizardComponent) {
+    <ng-container *ngComponentOutlet="wizardComponent" />
+  } @else {
+    <div class="flex items-center justify-center h-full">
+      <span class="loading loading-spinner loading-md"></span>
+    </div>
+  }
 </div>
 }
 

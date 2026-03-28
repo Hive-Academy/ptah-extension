@@ -16,6 +16,7 @@ import {
   AppStateManager,
   SESSION_DATA_PROVIDER,
   WORKSPACE_COORDINATOR,
+  WIZARD_VIEW_COMPONENT,
 } from '@ptah-extension/core';
 import {
   ChatMessageHandler,
@@ -23,6 +24,7 @@ import {
   ChatStore,
   WorkspaceCoordinatorService,
 } from '@ptah-extension/chat';
+import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { getMarkedExtensions } from './marked-extensions';
 // Removed Material animations import - using pure VS Code design system
 // REMOVED: Angular Router imports - incompatible with VS Code webviews
@@ -94,7 +96,7 @@ class WebviewErrorHandler implements ErrorHandler {
     ) {
       console.warn(
         'WebView: History API error detected - this should not occur with pure signal navigation',
-        error.message
+        error.message,
       );
       return;
     }
@@ -103,7 +105,7 @@ class WebviewErrorHandler implements ErrorHandler {
     if (isError(error) && error.message?.includes('Content Security Policy')) {
       console.error('CSP Violation detected:', error.message);
       console.error(
-        'Solution: Remove inline styles and use external CSS classes only'
+        'Solution: Remove inline styles and use external CSS classes only',
       );
       return;
     }
@@ -147,6 +149,9 @@ export const appConfig: ApplicationConfig = {
       provide: WORKSPACE_COORDINATOR,
       useExisting: WorkspaceCoordinatorService,
     },
+    // Wizard view component: breaks circular dependency between chat and setup-wizard.
+    // AppShellComponent renders this via NgComponentOutlet instead of importing directly.
+    { provide: WIZARD_VIEW_COMPONENT, useValue: WizardViewComponent },
     // Monaco editor for Electron code editing panel
     provideMonacoEditor({
       baseUrl: './assets/monaco/vs',

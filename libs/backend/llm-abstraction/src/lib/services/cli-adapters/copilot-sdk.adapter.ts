@@ -49,7 +49,6 @@ import {
   resolveCliPath,
   resolveWindowsCmd,
 } from './cli-adapter.utils';
-import { resolveAndImportSdk } from './sdk-resolver';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 const execFileAsync = promisify(execFile);
@@ -895,11 +894,10 @@ export class CopilotSdkAdapter implements CliAdapter {
 
     // Dynamic import to handle the ESM @github/copilot-sdk package.
     // The SDK is bundled with the extension via esbuild (TASK_2025_232).
-    // resolveAndImportSdk() returns the bundled module via dynamic import().
-    const sdkModule = await resolveAndImportSdk<CopilotSdkModule>(
-      '@github/copilot-sdk',
-      binaryPath,
-    );
+    // String literal in import() ensures esbuild can statically resolve
+    // and bundle the package at build time.
+    const sdkModule =
+      (await import('@github/copilot-sdk')) as unknown as CopilotSdkModule;
 
     const clientOptions: SdkClientOptions = {
       autoStart: true,

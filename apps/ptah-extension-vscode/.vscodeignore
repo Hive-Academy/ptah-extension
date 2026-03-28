@@ -79,3 +79,6 @@ Thumbs.db
 # Native module C source files — prebuilt binaries are used at runtime
 **/node_modules/tree-sitter*/src/**
 **/node_modules/tree-sitter/vendor/**
+
+# @img/sharp: not needed at runtime
+**/node_modules/@img/**

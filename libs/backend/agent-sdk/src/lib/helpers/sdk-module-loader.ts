@@ -61,20 +61,35 @@ export class SdkModuleLoader {
     const startTime = performance.now();
     this.logger.info('[SdkModuleLoader] Loading bundled Claude Agent SDK...');
 
-    const sdkModule =
-      (await import('@anthropic-ai/claude-agent-sdk')) as Record<
-        string,
-        unknown
-      >;
-    const query = sdkModule['query'] as QueryFunction;
+    try {
+      const sdkModule =
+        (await import('@anthropic-ai/claude-agent-sdk')) as Record<
+          string,
+          unknown
+        >;
+      const query = sdkModule['query'];
 
-    const elapsed = (performance.now() - startTime).toFixed(2);
-    this.cachedSdkQuery = query;
-    this.logger.info(
-      `[SdkModuleLoader] SDK query function cached (bundled, ${elapsed}ms)`,
-    );
+      if (typeof query !== 'function') {
+        throw new Error(
+          `SDK module loaded but 'query' export is ${typeof query}, expected function`,
+        );
+      }
 
-    return query;
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      this.cachedSdkQuery = query as QueryFunction;
+      this.logger.info(
+        `[SdkModuleLoader] SDK query function cached (bundled, ${elapsed}ms)`,
+      );
+
+      return this.cachedSdkQuery;
+    } catch (error) {
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      this.logger.error(
+        `[SdkModuleLoader] Failed to load Claude Agent SDK query function after ${elapsed}ms`,
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      throw error;
+    }
   }
 
   /**
@@ -153,6 +168,7 @@ export class SdkModuleLoader {
    */
   clearCache(): void {
     this.cachedSdkQuery = null;
+    this.cachedCliJsPath = undefined;
     this.logger.debug('[SdkModuleLoader] SDK cache cleared');
   }
 }
