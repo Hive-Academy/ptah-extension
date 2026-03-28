@@ -561,7 +561,7 @@ Configuration is managed via `.env.prod`. See DIGITALOCEAN.md for setup.
 Replace:
 
 ```bash
-DATABASE_URL="postgresql://neondb_owner:<PASSWORD>@ep-misty-fog-a8sd45ut-pooler.eastus2.azure.neon.tech/neondb?sslmode=require"
+DATABASE_URL="postgresql://neondb_owner:<PASSWORD>@<NEON_ENDPOINT>.neon.tech/neondb?sslmode=require"
 ```
 
 With:
@@ -894,19 +894,16 @@ Pure documentation changes. No code impact. Can be done in parallel.
 **Before implementation, developer must verify**:
 
 1. **NestJS patterns verified from codebase**:
-
    - Controller pattern: `apps/ptah-license-server/src/license/controllers/license.controller.ts`
    - Module pattern: `apps/ptah-license-server/src/prisma/prisma.module.ts`
    - PrismaService injection: `apps/ptah-license-server/src/prisma/prisma.service.ts`
    - Global prefix: `apps/ptah-license-server/src/main.ts:67-68`
 
 2. **Docker patterns verified from codebase**:
-
    - Service definition pattern: `docker-compose.prod.yml` (existing services)
    - Dockerfile HEALTHCHECK: `apps/ptah-license-server/Dockerfile:130-131`
 
 3. **CI/CD patterns verified from codebase**:
-
    - Existing CI structure: `.github/workflows/ci.yml`
    - Build command: `npx nx run ptah-extension-vscode:package` (PRODUCTION_DEPLOYMENT.md:226)
 

@@ -823,6 +823,14 @@ export interface AnalysisStreamPayload {
   isError?: boolean;
   /** Timestamp */
   timestamp: number;
+  /**
+   * Optional flat stream event for ExecutionNode rendering pipeline.
+   * When present, the setup-wizard frontend accumulates these into a StreamingState
+   * and renders via ExecutionTreeBuilderService + ExecutionNodeComponent.
+   * Backward compatible: old payloads without this field still work.
+   * @see TASK_2025_229
+   */
+  flatEvent?: import('./execution-node.types').FlatStreamEventUnion;
 }
 
 /**

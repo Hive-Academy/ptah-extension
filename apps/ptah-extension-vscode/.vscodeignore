@@ -41,33 +41,28 @@ Thumbs.db
 *.vsix
 *.log
 
-# Trim node_modules bloat
+# node_modules — SDKs are bundled into main.mjs via esbuild (TASK_2025_232).
+# Only tree-sitter native modules remain as external dependencies.
+# Exclude everything except the prebuilt .node binaries tree-sitter needs.
 **/node_modules/**/*.md
 **/node_modules/**/*.markdown
 **/node_modules/**/README*
 **/node_modules/**/CHANGELOG*
-**/node_modules/**/HISTORY*
 **/node_modules/**/LICENSE*
 **/node_modules/**/LICENCE*
-**/node_modules/**/.travis.yml
-**/node_modules/**/.eslintrc*
-**/node_modules/**/.prettierrc*
-**/node_modules/**/.editorconfig
-**/node_modules/**/tsconfig.json
 **/node_modules/**/*.ts
 !**/node_modules/**/*.d.ts
 **/node_modules/**/*.map
-**/node_modules/**/*.min.js.map
 **/node_modules/**/test/**
 **/node_modules/**/tests/**
 **/node_modules/**/__tests__/**
 **/node_modules/**/docs/**
-**/node_modules/**/example/**
 **/node_modules/**/examples/**
 **/node_modules/**/.github/**
 **/node_modules/**/scripts/**
-**/node_modules/**/*.d.ts.map
-**/node_modules/**/.package-lock.json
+# tree-sitter: exclude C source, keep prebuilt .node binaries
+**/node_modules/tree-sitter*/src/**
+**/node_modules/tree-sitter/vendor/**
 
 # Monaco Editor — only used by Electron app, VS Code has its own editor
 # Contains eval() and new Function() that trigger marketplace "suspicious content" scanner
@@ -75,26 +70,3 @@ Thumbs.db
 
 # Python scripts — executable scripts flagged by marketplace scanner
 **/*.py
-
-# SDK CLI binaries — only the SDK JS API is needed, not the CLI tools
-# @anthropic-ai/claude-agent-sdk: vendor/ has CLI binary (43 MB), cli.js (13 MB)
-**/node_modules/@anthropic-ai/claude-agent-sdk/vendor/**
-**/node_modules/@anthropic-ai/claude-agent-sdk/cli.js
-**/node_modules/@anthropic-ai/claude-agent-sdk/resvg.wasm
-# @github/copilot: entire CLI package (128+ MB) — only copilot-sdk is needed
-**/node_modules/@github/copilot/**
-**/node_modules/@github/copilot-win32-x64/**
-**/node_modules/@github/copilot-linux-x64/**
-**/node_modules/@github/copilot-darwin-arm64/**
-**/node_modules/@github/copilot-darwin-x64/**
-# @openai/codex: CLI binary (102 MB)
-**/node_modules/@openai/codex-win32-x64/**
-**/node_modules/@openai/codex-linux-x64/**
-**/node_modules/@openai/codex-darwin-arm64/**
-**/node_modules/@openai/codex-darwin-x64/**
-**/node_modules/@openai/codex/**
-# @img/sharp: not needed at runtime
-**/node_modules/@img/**
-# Native module C source files — prebuilt binaries are used at runtime
-**/node_modules/tree-sitter*/src/**
-**/node_modules/tree-sitter/vendor/**

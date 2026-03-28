@@ -1,18 +1,15 @@
 /**
  * Token Counter Service
  *
- * Provides accurate token counting using VS Code's native Language Model API (2025).
- * Falls back to estimation when offline or API unavailable.
- *
- * Research Finding 1: Native VS Code API eliminates custom token estimation
- * Evidence: VS Code 2025 LanguageModelChat.countTokens() provides actual tokenizer accuracy
+ * Provides token counting using platform-agnostic ITokenCounter abstraction.
+ * VS Code: Uses native LM API with gpt-tokenizer fallback.
+ * Electron: Uses gpt-tokenizer BPE tokenization.
+ * Includes LRU caching for repeated counts.
  */
 
-import { injectable } from 'tsyringe';
-// APPROVED EXCEPTION: vscode.lm is a VS Code-specific Language Model API
-// with no platform-agnostic equivalent. The service falls back gracefully
-// to estimation when the API is unavailable.
-import * as vscode from 'vscode';
+import { injectable, inject } from 'tsyringe';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { ITokenCounter } from '@ptah-extension/platform-core';
 
 /**
  * LRU Cache entry for token counts
@@ -33,8 +30,14 @@ export class TokenCounterService {
   private readonly cacheMaxSize = 1000;
   private readonly cacheTTL = 300000; // 5 minutes
 
+  constructor(
+    @inject(PLATFORM_TOKENS.TOKEN_COUNTER)
+    private readonly tokenCounter: ITokenCounter,
+  ) {}
+
   /**
-   * Count tokens in text using native VS Code API with fallback
+   * Count tokens in text using platform-specific ITokenCounter backend.
+   * Results are cached when a cacheKey is provided.
    *
    * @param text Text to count tokens for
    * @param cacheKey Optional cache key for repeated counts
@@ -49,16 +52,7 @@ export class TokenCounterService {
       }
     }
 
-    let count: number;
-
-    try {
-      // Use native VS Code Language Model API (2025)
-      count = await this.countTokensNative(text);
-    } catch (error) {
-      // Fallback to estimation if API unavailable
-      console.warn('Token counting API unavailable, using estimation', error);
-      count = this.estimateTokens(text);
-    }
+    const count = await this.tokenCounter.countTokens(text);
 
     // Cache result
     if (cacheKey) {
@@ -66,43 +60,6 @@ export class TokenCounterService {
     }
 
     return count;
-  }
-
-  /**
-   * Count tokens using native VS Code Language Model API
-   *
-   * @param text Text to count tokens
-   * @returns Accurate token count from model tokenizer
-   * @throws Error if API unavailable
-   */
-  private async countTokensNative(text: string): Promise<number> {
-    // Select available chat models (prefer Copilot)
-    const models = await vscode.lm.selectChatModels({
-      vendor: 'copilot',
-    });
-
-    if (models.length === 0) {
-      throw new Error('No language models available');
-    }
-
-    // Use first available model for token counting
-    const model = models[0];
-    return await model.countTokens(text);
-  }
-
-  /**
-   * Estimate tokens using conservative character-based heuristic
-   *
-   * Fallback for offline scenarios or when native API unavailable.
-   * Uses ~4 characters per token estimate (conservative for most languages).
-   *
-   * @param text Text to estimate tokens for
-   * @returns Estimated token count
-   */
-  private estimateTokens(text: string): number {
-    // Conservative estimate: ~4 characters per token
-    // This matches GPT tokenizer averages for English text
-    return Math.ceil(text.length / 4);
   }
 
   /**
@@ -151,21 +108,13 @@ export class TokenCounterService {
   }
 
   /**
-   * Get maximum input tokens for available model
+   * Get maximum input tokens for available model.
+   * Delegates to the platform-specific ITokenCounter implementation.
    *
-   * @returns Max input tokens or null if API unavailable
+   * @returns Max input tokens or null if unavailable
    */
   async getMaxInputTokens(): Promise<number | null> {
-    try {
-      const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-      if (models.length === 0) {
-        return null;
-      }
-      return models[0].maxInputTokens;
-    } catch (error) {
-      console.warn('Failed to get max input tokens', error);
-      return null;
-    }
+    return this.tokenCounter.getMaxInputTokens();
   }
 
   /**

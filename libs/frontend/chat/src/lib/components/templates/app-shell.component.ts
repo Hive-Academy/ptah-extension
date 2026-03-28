@@ -8,7 +8,7 @@ import {
   ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
+import { NgComponentOutlet, NgOptimizedImage } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
@@ -35,7 +35,6 @@ import { TrialEndedModalComponent } from '../molecules/trial-billing/trial-ended
 import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ResizeHandleComponent } from '../atoms/resize-handle.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
@@ -49,6 +48,7 @@ import {
   AppStateManager,
   VSCodeService,
   ClaudeRpcService,
+  WIZARD_VIEW_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
@@ -88,7 +88,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     ChatViewComponent,
     SettingsComponent,
     WelcomeComponent,
-    WizardViewComponent,
+    NgComponentOutlet,
     TabBarComponent,
     ConfirmationDialogComponent,
     TrialEndedModalComponent,
@@ -119,6 +119,13 @@ export class AppShellComponent {
 
   // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
+
+  /**
+   * WizardViewComponent provided via DI token — breaks circular dependency between chat and setup-wizard.
+   * Provided by the application bootstrapper (app.config.ts) so chat never imports setup-wizard directly.
+   */
+  readonly wizardComponent =
+    inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
 
   // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
@@ -166,7 +173,7 @@ export class AppShellComponent {
     () =>
       this._searchQuery().length > 0 ||
       this._dateFrom().length > 0 ||
-      this._dateTo().length > 0
+      this._dateTo().length > 0,
   );
 
   readonly filteredSessions = computed(() => {
@@ -211,12 +218,12 @@ export class AppShellComponent {
 
   // TASK_2025_142: License reason for trial ended modal
   readonly licenseReason = computed(
-    () => this.chatStore.licenseStatus()?.reason
+    () => this.chatStore.licenseStatus()?.reason,
   );
 
   // ViewChild for session name input (programmatic focus)
   readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(
-    'sessionNameInputRef'
+    'sessionNameInputRef',
   );
 
   /**
@@ -508,7 +515,7 @@ export class AppShellComponent {
    */
   async deleteSession(
     event: Event,
-    session: ChatSessionSummary
+    session: ChatSessionSummary,
   ): Promise<void> {
     // Prevent click from propagating to session button
     event.stopPropagation();
@@ -528,7 +535,7 @@ export class AppShellComponent {
 
     try {
       const result = await this.rpcService.deleteSession(
-        session.id as SessionId
+        session.id as SessionId,
       );
 
       if (result.isSuccess() && result.data?.success) {
@@ -550,7 +557,7 @@ export class AppShellComponent {
       } else {
         console.error(
           '[AppShell] Failed to delete session:',
-          result.error || result.data?.error
+          result.error || result.data?.error,
         );
       }
     } catch (error) {

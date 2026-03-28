@@ -54,249 +54,277 @@ import { AnalysisTranscriptComponent } from './analysis-transcript.component';
         </div>
 
         <!-- Empty/initializing state (full-width, no grid) -->
-        @if (totalCount() === 0) { @if (hasCompletedWithError()) {
-        <div class="card bg-base-200 shadow-xl">
-          <div class="card-body items-center text-center py-12">
-            <lucide-angular
-              [img]="CircleAlertIcon"
-              class="h-12 w-12 text-error mb-4"
-              aria-hidden="true"
-            />
-            <h3 class="text-xl font-semibold mb-2">Generation Failed</h3>
-            @for (err of completionErrors(); track err) {
-            <p class="text-sm text-error mb-1">{{ err }}</p>
-            }
-            <button class="btn btn-primary btn-sm mt-4" (click)="onContinue()">
-              Continue
-            </button>
-          </div>
-        </div>
-        } @else {
-        <div class="card bg-base-200 shadow-xl">
-          <div class="card-body items-center text-center py-12">
-            <span
-              class="loading loading-spinner loading-lg text-primary mb-4"
-            ></span>
-            <h3 class="text-xl font-semibold mb-2">Initializing Generation</h3>
-            <p class="text-base-content/60">
-              Please wait while we prepare your configuration files...
-            </p>
-          </div>
-        </div>
-        } } @else {
-
-        <!-- Two-column grid layout -->
-        <div class="grid grid-cols-5 gap-4">
-          <!-- LEFT COLUMN: Agent Activity Log (60%) -->
-          <div class="col-span-3">
-            <div class="bg-base-200 rounded-box p-4">
-              <div
-                class="text-sm font-medium uppercase mb-3 flex items-center gap-2"
-              >
-                Agent Activity Log @if (hasStreamMessages()) {
-                <span class="badge badge-sm">{{ streamMessageCount() }}</span>
+        @if (totalCount() === 0) {
+          @if (hasCompletedWithError()) {
+            <div class="card bg-base-200 shadow-xl">
+              <div class="card-body items-center text-center py-12">
+                <lucide-angular
+                  [img]="CircleAlertIcon"
+                  class="h-12 w-12 text-error mb-4"
+                  aria-hidden="true"
+                />
+                <h3 class="text-xl font-semibold mb-2">Generation Failed</h3>
+                @for (err of completionErrors(); track err) {
+                  <p class="text-sm text-error mb-1">{{ err }}</p>
                 }
-              </div>
-              <div class="max-h-[70vh] overflow-y-auto">
-                <ptah-analysis-transcript [messages]="generationStream()" />
+                <button
+                  class="btn btn-primary btn-sm mt-4"
+                  (click)="onContinue()"
+                >
+                  Continue
+                </button>
               </div>
             </div>
-          </div>
-
-          <!-- RIGHT COLUMN: Progress + Item Status (40%, sticky) -->
-          <div
-            class="col-span-2 sticky top-0 self-start max-h-screen overflow-y-auto"
-          >
-            <div class="space-y-3">
-              <!-- Overall Progress Card -->
-              <div class="card bg-base-200 shadow-xl">
-                <div class="card-body">
-                  <div class="flex justify-between items-center mb-2">
-                    <span class="text-lg font-semibold">Overall Progress</span>
-                    <span class="text-lg font-bold text-primary">
-                      {{ completionPercentage() }}%
-                    </span>
-                  </div>
-                  <progress
-                    class="progress progress-primary w-full h-4"
-                    [value]="completionPercentage()"
-                    max="100"
-                    role="progressbar"
-                    [attr.aria-valuenow]="completionPercentage()"
-                    [attr.aria-valuemin]="0"
-                    [attr.aria-valuemax]="100"
-                    aria-label="Overall generation progress"
-                  ></progress>
-                  <div
-                    class="flex justify-between text-sm text-base-content/60 mt-2"
-                  >
-                    <span
-                      >{{ completedCount() }} of {{ totalCount() }} items
-                      completed</span
-                    >
-                    @if (failedCount() > 0) {
-                    <span class="text-error">{{ failedCount() }} failed</span>
-                    }
-                  </div>
-                </div>
+          } @else {
+            <div class="card bg-base-200 shadow-xl">
+              <div class="card-body items-center text-center py-12">
+                <span
+                  class="loading loading-spinner loading-lg text-primary mb-4"
+                ></span>
+                <h3 class="text-xl font-semibold mb-2">
+                  Initializing Generation
+                </h3>
+                <p class="text-base-content/60">
+                  Please wait while we prepare your configuration files...
+                </p>
               </div>
-
-              <!-- Agents Section -->
-              @if (agentItems().length > 0) {
-              <div>
-                <h3
+            </div>
+          }
+        } @else {
+          <!-- Two-column grid layout -->
+          <div class="grid grid-cols-5 gap-4">
+            <!-- LEFT COLUMN: Agent Activity Log (60%) -->
+            <div class="col-span-3">
+              <div class="bg-base-200 rounded-box p-4">
+                <div
                   class="text-sm font-medium uppercase mb-3 flex items-center gap-2"
                 >
-                  <span class="badge badge-primary badge-lg">🤖</span>
-                  Agent Files
-                  <span class="text-sm text-base-content/60 font-normal">
-                    ({{ getCompletedCountByType('agent') }}/{{
-                      agentItems().length
-                    }})
-                  </span>
-                </h3>
-                <div class="space-y-2">
-                  @for (item of agentItems(); track item.id) {
-                  <div
-                    class="card card-compact bg-base-100 shadow-md"
-                    [class.border-error]="item.status === 'error'"
-                    [class.border-l-4]="item.status === 'error'"
-                  >
-                    <div class="card-body">
-                      <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-3 flex-1 min-w-0">
-                          @switch (item.status) { @case ('pending') {
-                          <div class="badge badge-outline badge-sm">
-                            Pending
-                          </div>
-                          } @case ('in-progress') {
-                          <span
-                            class="loading loading-spinner loading-sm text-primary"
-                          ></span>
-                          } @case ('complete') {
-                          <lucide-angular
-                            [img]="CircleCheckIcon"
-                            class="h-4 w-4 text-success"
-                            aria-hidden="true"
-                          />
-                          } @case ('error') {
-                          <lucide-angular
-                            [img]="CircleAlertIcon"
-                            class="h-4 w-4 text-error"
-                            aria-hidden="true"
-                          />
-                          } }
-                          <div class="flex-1 min-w-0">
-                            <div
-                              class="font-semibold truncate"
-                              [title]="item.name"
-                            >
-                              {{ item.name }}
-                            </div>
-                            @if (item.status === 'in-progress' && item.progress
-                            !== undefined) {
-                            <div class="flex items-center gap-2 mt-1">
-                              <progress
-                                class="progress progress-primary w-24 h-1"
-                                [value]="item.progress"
-                                max="100"
-                              ></progress>
-                              <span class="text-xs text-base-content/60"
-                                >{{ item.progress }}%</span
-                              >
-                            </div>
-                            } @if (item.status === 'error' && item.errorMessage)
-                            {
-                            <p class="text-sm text-error mt-1">
-                              {{ item.errorMessage }}
-                            </p>
-                            }
-                          </div>
-                        </div>
-                        @if (item.status === 'error') { @if (canRetry(item.id))
-                        {
-                        <button
-                          class="btn btn-error btn-xs"
-                          (click)="onRetryItem(item.id)"
-                          [attr.aria-label]="
-                            'Retry ' +
-                            item.name +
-                            ' (' +
-                            getRemainingRetries(item.id) +
-                            ' attempts remaining)'
-                          "
-                        >
-                          <lucide-angular
-                            [img]="RotateCwIcon"
-                            class="h-3 w-3"
-                            aria-hidden="true"
-                          />
-                          Retry
-                        </button>
-                        } @else {
-                        <span class="text-error text-xs font-medium"
-                          >Max retries</span
-                        >
-                        } }
-                      </div>
-                    </div>
-                  </div>
+                  Agent Activity Log
+                  @if (hasStreamMessages()) {
+                    <span class="badge badge-sm">{{
+                      streamMessageCount()
+                    }}</span>
                   }
                 </div>
+                <div class="max-h-[70vh] overflow-y-auto">
+                  <ptah-analysis-transcript />
+                </div>
               </div>
+            </div>
+
+            <!-- RIGHT COLUMN: Progress + Item Status (40%, sticky) -->
+            <div
+              class="col-span-2 sticky top-0 self-start max-h-screen overflow-y-auto"
+            >
+              <div class="space-y-3">
+                <!-- Overall Progress Card -->
+                <div class="card bg-base-200 shadow-xl">
+                  <div class="card-body">
+                    <div class="flex justify-between items-center mb-2">
+                      <span class="text-lg font-semibold"
+                        >Overall Progress</span
+                      >
+                      <span class="text-lg font-bold text-primary">
+                        {{ completionPercentage() }}%
+                      </span>
+                    </div>
+                    <progress
+                      class="progress progress-primary w-full h-4"
+                      [value]="completionPercentage()"
+                      max="100"
+                      role="progressbar"
+                      [attr.aria-valuenow]="completionPercentage()"
+                      [attr.aria-valuemin]="0"
+                      [attr.aria-valuemax]="100"
+                      aria-label="Overall generation progress"
+                    ></progress>
+                    <div
+                      class="flex justify-between text-sm text-base-content/60 mt-2"
+                    >
+                      <span
+                        >{{ completedCount() }} of {{ totalCount() }} items
+                        completed</span
+                      >
+                      @if (failedCount() > 0) {
+                        <span class="text-error"
+                          >{{ failedCount() }} failed</span
+                        >
+                      }
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Agents Section -->
+                @if (agentItems().length > 0) {
+                  <div>
+                    <h3
+                      class="text-sm font-medium uppercase mb-3 flex items-center gap-2"
+                    >
+                      <span class="badge badge-primary badge-lg">🤖</span>
+                      Agent Files
+                      <span class="text-sm text-base-content/60 font-normal">
+                        ({{ getCompletedCountByType('agent') }}/{{
+                          agentItems().length
+                        }})
+                      </span>
+                    </h3>
+                    <div class="space-y-2">
+                      @for (item of agentItems(); track item.id) {
+                        <div
+                          class="card card-compact bg-base-100 shadow-md"
+                          [class.border-error]="item.status === 'error'"
+                          [class.border-l-4]="item.status === 'error'"
+                        >
+                          <div class="card-body">
+                            <div class="flex items-center justify-between">
+                              <div
+                                class="flex items-center gap-3 flex-1 min-w-0"
+                              >
+                                @switch (item.status) {
+                                  @case ('pending') {
+                                    <div class="badge badge-outline badge-sm">
+                                      Pending
+                                    </div>
+                                  }
+                                  @case ('in-progress') {
+                                    <span
+                                      class="loading loading-spinner loading-sm text-primary"
+                                    ></span>
+                                  }
+                                  @case ('complete') {
+                                    <lucide-angular
+                                      [img]="CircleCheckIcon"
+                                      class="h-4 w-4 text-success"
+                                      aria-hidden="true"
+                                    />
+                                  }
+                                  @case ('error') {
+                                    <lucide-angular
+                                      [img]="CircleAlertIcon"
+                                      class="h-4 w-4 text-error"
+                                      aria-hidden="true"
+                                    />
+                                  }
+                                }
+                                <div class="flex-1 min-w-0">
+                                  <div
+                                    class="font-semibold truncate"
+                                    [title]="item.name"
+                                  >
+                                    {{ item.name }}
+                                  </div>
+                                  @if (
+                                    item.status === 'in-progress' &&
+                                    item.progress !== undefined
+                                  ) {
+                                    <div class="flex items-center gap-2 mt-1">
+                                      <progress
+                                        class="progress progress-primary w-24 h-1"
+                                        [value]="item.progress"
+                                        max="100"
+                                      ></progress>
+                                      <span class="text-xs text-base-content/60"
+                                        >{{ item.progress }}%</span
+                                      >
+                                    </div>
+                                  }
+                                  @if (
+                                    item.status === 'error' && item.errorMessage
+                                  ) {
+                                    <p class="text-sm text-error mt-1">
+                                      {{ item.errorMessage }}
+                                    </p>
+                                  }
+                                </div>
+                              </div>
+                              @if (item.status === 'error') {
+                                @if (canRetry(item.id)) {
+                                  <button
+                                    class="btn btn-error btn-xs"
+                                    (click)="onRetryItem(item.id)"
+                                    [attr.aria-label]="
+                                      'Retry ' +
+                                      item.name +
+                                      ' (' +
+                                      getRemainingRetries(item.id) +
+                                      ' attempts remaining)'
+                                    "
+                                  >
+                                    <lucide-angular
+                                      [img]="RotateCwIcon"
+                                      class="h-3 w-3"
+                                      aria-hidden="true"
+                                    />
+                                    Retry
+                                  </button>
+                                } @else {
+                                  <span class="text-error text-xs font-medium"
+                                    >Max retries</span
+                                  >
+                                }
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+          <!-- End two-column grid -->
+
+          <!-- Completion section (full-width below grid) -->
+          @if (isFullyComplete()) {
+            <div
+              class="alert mt-4 mb-6"
+              [class.alert-success]="failedCount() === 0"
+              [class.alert-warning]="failedCount() > 0"
+            >
+              @if (failedCount() === 0) {
+                <lucide-angular
+                  [img]="CircleCheckIcon"
+                  class="h-6 w-6 shrink-0 stroke-current"
+                  aria-hidden="true"
+                />
+                <div>
+                  <div class="font-semibold">Generation Complete!</div>
+                  <div class="text-sm">
+                    All {{ completedCount() }} items generated successfully.
+                  </div>
+                </div>
+              } @else {
+                <lucide-angular
+                  [img]="TriangleAlertIcon"
+                  class="h-6 w-6 shrink-0 stroke-current"
+                  aria-hidden="true"
+                />
+                <div>
+                  <div class="font-semibold">
+                    Generation Completed with Errors
+                  </div>
+                  <div class="text-sm">
+                    {{ completedCount() }} items generated,
+                    {{ failedCount() }} failed. You can retry failed items or
+                    continue.
+                  </div>
+                </div>
               }
             </div>
-          </div>
-        </div>
-        <!-- End two-column grid -->
 
-        <!-- Completion section (full-width below grid) -->
-        @if (isFullyComplete()) {
-        <div
-          class="alert mt-4 mb-6"
-          [class.alert-success]="failedCount() === 0"
-          [class.alert-warning]="failedCount() > 0"
-        >
-          @if (failedCount() === 0) {
-          <lucide-angular
-            [img]="CircleCheckIcon"
-            class="h-6 w-6 shrink-0 stroke-current"
-            aria-hidden="true"
-          />
-          <div>
-            <div class="font-semibold">Generation Complete!</div>
-            <div class="text-sm">
-              All {{ completedCount() }} items generated successfully.
+            <div class="flex justify-end">
+              <button class="btn btn-primary btn-lg" (click)="onContinue()">
+                <lucide-angular
+                  [img]="CheckIcon"
+                  class="h-5 w-5"
+                  aria-hidden="true"
+                />
+                Continue to Enhance
+              </button>
             </div>
-          </div>
-          } @else {
-          <lucide-angular
-            [img]="TriangleAlertIcon"
-            class="h-6 w-6 shrink-0 stroke-current"
-            aria-hidden="true"
-          />
-          <div>
-            <div class="font-semibold">Generation Completed with Errors</div>
-            <div class="text-sm">
-              {{ completedCount() }} items generated,
-              {{ failedCount() }} failed. You can retry failed items or
-              continue.
-            </div>
-          </div>
           }
-        </div>
-
-        <div class="flex justify-end">
-          <button class="btn btn-primary btn-lg" (click)="onContinue()">
-            <lucide-angular
-              [img]="CheckIcon"
-              class="h-5 w-5"
-              aria-hidden="true"
-            />
-            Continue to Enhance
-          </button>
-        </div>
-        } }
+        }
       </div>
     </div>
   `,
@@ -346,14 +374,14 @@ export class GenerationProgressComponent implements OnDestroy {
    * Whether there are any generation stream messages to display.
    */
   protected readonly hasStreamMessages = computed(
-    () => this.generationStream().length > 0
+    () => this.generationStream().length > 0,
   );
 
   /**
    * Count of generation stream messages for the badge.
    */
   protected readonly streamMessageCount = computed(
-    () => this.generationStream().length
+    () => this.generationStream().length,
   );
 
   /**
@@ -440,7 +468,7 @@ export class GenerationProgressComponent implements OnDestroy {
    */
   protected getCompletedCountByType(type: 'agent'): number {
     return this.progressItems().filter(
-      (item) => item.type === type && item.status === 'complete'
+      (item) => item.type === type && item.status === 'complete',
     ).length;
   }
 

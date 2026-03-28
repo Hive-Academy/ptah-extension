@@ -159,7 +159,7 @@ export class SdkAgentAdapter implements IAIProvider {
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
-    private readonly platformInfo: IPlatformInfo
+    private readonly platformInfo: IPlatformInfo,
   ) {}
 
   /**
@@ -181,7 +181,7 @@ export class SdkAgentAdapter implements IAIProvider {
       // This ensures token changes are detected even when initial auth fails
       this.configWatcher.registerWatchers(async () => {
         this.logger.info(
-          '[SdkAgentAdapter] Config change detected, re-initializing...'
+          '[SdkAgentAdapter] Config change detected, re-initializing...',
         );
         // TASK_2025_175: disposeAllSessions is now async, await it
         await this.sessionLifecycle.disposeAllSessions();
@@ -194,9 +194,8 @@ export class SdkAgentAdapter implements IAIProvider {
       // TASK_2025_194: Auth runs before CLI detection so third-party providers
       // (Z.AI, OpenRouter) work even without Claude CLI installed.
       const authMethod = this.config.get<string>('authMethod') || 'auto';
-      const authResult = await this.authManager.configureAuthentication(
-        authMethod
-      );
+      const authResult =
+        await this.authManager.configureAuthentication(authMethod);
 
       if (!authResult.configured) {
         this.health = {
@@ -211,7 +210,7 @@ export class SdkAgentAdapter implements IAIProvider {
       // TASK_2025_194: CLI detection no longer gates initialization.
       // If CLI is not found, we fall back to the bundled cli.js shipped with the extension.
       this.logger.info(
-        '[SdkAgentAdapter] Detecting Claude CLI installation...'
+        '[SdkAgentAdapter] Detecting Claude CLI installation...',
       );
       const configuredPath = this.config.get<string>('claudeCliPath');
       if (configuredPath) {
@@ -232,19 +231,19 @@ export class SdkAgentAdapter implements IAIProvider {
         // Fall back to bundled cli.js shipped alongside the extension
         const bundledCliPath = path.join(
           this.platformInfo.extensionPath,
-          'cli.js'
+          'cli.js',
         );
         if (existsSync(bundledCliPath)) {
           this.cliJsPath = bundledCliPath;
           this.logger.info(
             '[SdkAgentAdapter] Claude CLI not found - using bundled cli.js fallback',
-            { bundledCliPath }
+            { bundledCliPath },
           );
         } else {
           this.cliJsPath = null;
           this.logger.error(
             '[SdkAgentAdapter] Bundled cli.js not found at expected path',
-            new Error(`cli.js missing at ${bundledCliPath}`)
+            new Error(`cli.js missing at ${bundledCliPath}`),
           );
         }
       }
@@ -274,7 +273,7 @@ export class SdkAgentAdapter implements IAIProvider {
           '[SdkAgentAdapter] Failed to set default model',
           modelError instanceof Error
             ? modelError
-            : new Error(String(modelError))
+            : new Error(String(modelError)),
         );
       }
 
@@ -303,7 +302,7 @@ export class SdkAgentAdapter implements IAIProvider {
     this.sessionLifecycle.disposeAllSessions().catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Error during session disposal',
-        err instanceof Error ? err : new Error(String(err))
+        err instanceof Error ? err : new Error(String(err)),
       );
     });
     this.authManager.clearAuthentication();
@@ -324,6 +323,19 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   getHealth(): ProviderHealth {
     return { ...this.health };
+  }
+
+  /**
+   * Get the resolved path to the Claude Code CLI executable (cli.js).
+   *
+   * TASK_2025_194: The SDK's default import.meta.url-based resolution bakes in
+   * the CI/build-time path which doesn't exist in production. This getter exposes
+   * the runtime-resolved path so InternalQueryService can pass it through.
+   *
+   * @returns Resolved cli.js path, or null if not yet initialized
+   */
+  getCliJsPath(): string | null {
+    return this.cliJsPath;
   }
 
   /**
@@ -394,11 +406,11 @@ export class SdkAgentAdapter implements IAIProvider {
        * Resolved by PluginLoaderService for premium users.
        */
       pluginPaths?: string[];
-    }
+    },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        'SdkAgentAdapter not initialized. Call initialize() first.'
+        'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }
 
@@ -413,7 +425,7 @@ export class SdkAgentAdapter implements IAIProvider {
 
     this.logger.info(
       `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`,
-      { isPremium, mcpServerRunning }
+      { isPremium, mcpServerRunning },
     );
 
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
@@ -439,14 +451,14 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
-      }
+      },
     );
 
     // Create callback that saves metadata AND notifies webview
     const sessionIdCallback = this.createSessionIdCallback(
       config?.projectPath || process.cwd(),
       config?.name || `Session ${new Date().toLocaleDateString()}`,
-      config?.tabId
+      config?.tabId,
     );
 
     // Return transformed stream
@@ -469,7 +481,7 @@ export class SdkAgentAdapter implements IAIProvider {
     this.sessionLifecycle.endSession(sessionId).catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Error ending session',
-        err instanceof Error ? err : new Error(String(err))
+        err instanceof Error ? err : new Error(String(err)),
       );
     });
   }
@@ -521,11 +533,11 @@ export class SdkAgentAdapter implements IAIProvider {
        * SESSION_STATS can be routed to the correct frontend tab.
        */
       tabId?: string;
-    }
+    },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        'SdkAgentAdapter not initialized. Call initialize() first.'
+        'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }
 
@@ -533,7 +545,7 @@ export class SdkAgentAdapter implements IAIProvider {
     const existingSession = this.sessionLifecycle.getActiveSession(sessionId);
     if (existingSession && existingSession.query) {
       this.logger.info(
-        `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`
+        `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
       );
       return this.streamTransformer.transform({
         sdkQuery: existingSession.query,
@@ -573,13 +585,13 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
-      }
+      },
     );
 
     // For resumed sessions, just update lastActiveAt (metadata already exists)
     const resumeCallback = async (
       tabId: string | undefined,
-      realSessionId: string
+      realSessionId: string,
     ) => {
       await this.metadataStore.touch(realSessionId);
 
@@ -628,14 +640,14 @@ export class SdkAgentAdapter implements IAIProvider {
   private createSessionIdCallback(
     workspaceId: string,
     sessionName: string,
-    tabId?: string
+    tabId?: string,
   ): (tabId: string | undefined, realSessionId: string) => void {
     return async (
       _tabIdFromCallback: string | undefined,
-      realSessionId: string
+      realSessionId: string,
     ) => {
       this.logger.info(
-        `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`
+        `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`,
       );
 
       // Save session metadata to persistent storage
@@ -687,13 +699,13 @@ export class SdkAgentAdapter implements IAIProvider {
   async sendMessageToSession(
     sessionId: SessionId,
     content: string,
-    options?: AIMessageOptions
+    options?: AIMessageOptions,
   ): Promise<void> {
     return this.sessionLifecycle.sendMessage(
       sessionId,
       content,
       options?.files,
-      options?.images as { data: string; mediaType: string }[] | undefined
+      options?.images as { data: string; mediaType: string }[] | undefined,
     );
   }
 
@@ -707,17 +719,17 @@ export class SdkAgentAdapter implements IAIProvider {
   async executeSlashCommand(
     sessionId: SessionId,
     command: string,
-    config: SlashCommandConfig & { tabId?: string }
+    config: SlashCommandConfig & { tabId?: string },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        'SdkAgentAdapter not initialized. Call initialize() first.'
+        'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }
 
     this.logger.info(
       `[SdkAgentAdapter] Executing slash command for session: ${sessionId}`,
-      { command: command.substring(0, 50) }
+      { command: command.substring(0, 50) },
     );
 
     const { sdkQuery, initialModel } =
@@ -764,7 +776,7 @@ export class SdkAgentAdapter implements IAIProvider {
       | 'plan'
       | 'default'
       | 'acceptEdits'
-      | 'bypassPermissions'
+      | 'bypassPermissions',
   ): Promise<void> {
     return this.sessionLifecycle.setSessionPermissionLevel(sessionId, level);
   }

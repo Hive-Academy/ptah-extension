@@ -12,7 +12,6 @@
 import { injectable, inject } from 'tsyringe';
 import { execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
-import * as vscode from 'vscode';
 import { EventEmitter } from 'eventemitter3';
 import axios from 'axios';
 import {
@@ -21,6 +20,8 @@ import {
   LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   AgentId,
   AgentStatus,
@@ -152,9 +153,12 @@ export class AgentProcessManager {
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
     const effortKey =
       cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
-    const effort = vscode.workspace
-      .getConfiguration('ptah.agentOrchestration')
-      .get<string>(effortKey, '');
+    const effort =
+      this.workspace.getConfiguration<string>(
+        'ptah.agentOrchestration',
+        effortKey,
+        '',
+      ) ?? '';
     return effort || undefined;
   }
 
@@ -162,9 +166,11 @@ export class AgentProcessManager {
     // Codex always runs in full-auto headless mode (SDK has no permission hooks)
     if (cli === 'codex') return undefined;
     if (cli !== 'copilot') return undefined;
-    return vscode.workspace
-      .getConfiguration('ptah.agentOrchestration')
-      .get<boolean>('copilotAutoApprove', true);
+    return this.workspace.getConfiguration<boolean>(
+      'ptah.agentOrchestration',
+      'copilotAutoApprove',
+      true,
+    );
   }
 
   /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
@@ -182,6 +188,8 @@ export class AgentProcessManager {
     private readonly licenseService: LicenseService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspace: IWorkspaceProvider,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -309,16 +317,18 @@ export class AgentProcessManager {
       !cliModel &&
       (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
     ) {
-      const agentConfig = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration',
-      );
       const configKey =
         cli === 'gemini'
           ? 'geminiModel'
           : cli === 'codex'
             ? 'codexModel'
             : 'copilotModel';
-      const configuredModel = agentConfig.get<string>(configKey, '');
+      const configuredModel =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          configKey,
+          '',
+        ) ?? '';
       if (configuredModel) {
         cliModel = configuredModel;
       }
@@ -460,16 +470,18 @@ export class AgentProcessManager {
       !resolvedModel &&
       (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
     ) {
-      const agentConfig = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration',
-      );
       const configKey =
         cli === 'gemini'
           ? 'geminiModel'
           : cli === 'codex'
             ? 'codexModel'
             : 'copilotModel';
-      const configuredModel = agentConfig.get<string>(configKey, '');
+      const configuredModel =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          configKey,
+          '',
+        ) ?? '';
       if (configuredModel) {
         resolvedModel = configuredModel;
       }
@@ -1320,14 +1332,21 @@ export class AgentProcessManager {
   }
 
   private getMaxConcurrentAgents(): number {
-    const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
-    return config.get<number>('maxConcurrentAgents', 5);
+    return (
+      this.workspace.getConfiguration<number>(
+        'ptah.agentOrchestration',
+        'maxConcurrentAgents',
+        5,
+      ) ?? 5
+    );
   }
 
   private async getDefaultCli(): Promise<CliType | null> {
     // Check user preference first
-    const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
-    const preferred = config.get<string>('defaultCli');
+    const preferred = this.workspace.getConfiguration<string>(
+      'ptah.agentOrchestration',
+      'defaultCli',
+    );
     this.logger.debug('[AgentProcessManager] getDefaultCli: user preference', {
       preferred: preferred ?? 'none (auto-detect)',
     });
@@ -1376,11 +1395,7 @@ export class AgentProcessManager {
   }
 
   private getWorkspaceRoot(): string {
-    const folders = vscode.workspace.workspaceFolders;
-    if (folders && folders.length > 0) {
-      return folders[0].uri.fsPath;
-    }
-    return process.cwd();
+    return this.workspace.getWorkspaceRoot() ?? process.cwd();
   }
 
   /**
@@ -1460,9 +1475,9 @@ export class AgentProcessManager {
       }
 
       // Check 2: Is MCP server running? Use cached health check result if fresh.
-      const configuredPort = vscode.workspace
-        .getConfiguration('ptah')
-        .get<number>('mcpPort', 51820);
+      const configuredPort =
+        this.workspace.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
+        51820;
 
       if (
         this.mcpHealthCache &&

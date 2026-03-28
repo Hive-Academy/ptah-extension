@@ -22,3 +22,5 @@ export { ElectronSettingsRpcHandlers } from './electron-settings-rpc.handlers';
 export { ElectronAgentRpcHandlers } from './electron-agent-rpc.handlers';
 export { ElectronSkillsShRpcHandlers } from './electron-skills-sh-rpc.handlers';
 export { ElectronLayoutRpcHandlers } from './electron-layout-rpc.handlers';
+export { ElectronGitRpcHandlers } from './electron-git-rpc.handlers';
+export { ElectronTerminalRpcHandlers } from './electron-terminal-rpc.handlers';

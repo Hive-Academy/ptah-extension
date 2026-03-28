@@ -131,7 +131,7 @@ export type LicenseGetStatusParams = Record<string, never>;
  * TASK_2025_128: Freemium model conversion
  * - 'community': FREE forever - always valid, no license required
  * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 14-day trial
+ * - 'trial_pro': Pro plan during 30-day trial
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';
@@ -184,6 +184,15 @@ export interface LicenseSetKeyResponse {
   success: boolean;
   tier?: string;
   plan?: { name: string };
+  error?: string;
+}
+
+/** Parameters for license:clearKey RPC method (empty - no params needed) */
+export type LicenseClearKeyParams = Record<string, never>;
+
+/** Response from license:clearKey RPC method */
+export interface LicenseClearKeyResponse {
+  success: boolean;
   error?: string;
 }
 

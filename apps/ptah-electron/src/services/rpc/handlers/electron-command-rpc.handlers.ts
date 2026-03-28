@@ -23,14 +23,14 @@ import { resolveEnvironment } from '@ptah-extension/shared';
 export class ElectronCommandRpcHandlers {
   /** Resolved URLs for the current environment (dev vs production) */
   private readonly urls = resolveEnvironment(
-    process.env['NODE_ENV'] === 'development'
+    process.env['NODE_ENV'] === 'development',
   ).urls;
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
     @inject(TOKENS.PLATFORM_COMMANDS)
-    private readonly platformCommands: IPlatformCommands
+    private readonly platformCommands: IPlatformCommands,
   ) {}
 
   register(): void {
@@ -58,7 +58,7 @@ export class ElectronCommandRpcHandlers {
           success: false,
           error: `Command not available in Electron: ${params.command}`,
         };
-      }
+      },
     );
   }
 
@@ -67,7 +67,7 @@ export class ElectronCommandRpcHandlers {
    * Returns null if the command is unknown (caller should reject).
    */
   private async handlePtahCommand(
-    command: string
+    command: string,
   ): Promise<{ success: boolean; error?: string } | null> {
     if (!command.startsWith('ptah.')) {
       return null;
@@ -94,13 +94,24 @@ export class ElectronCommandRpcHandlers {
         return { success: true };
       }
 
-      // Commands that are no-ops in Electron (VS Code-specific UI)
+      // Commands that are VS Code-specific and have no Electron equivalent
+      case 'ptah.openFullPanel':
+      case 'ptah.toggleChat':
+        return {
+          success: false,
+          error: `Command not available in Electron: ${command}`,
+        };
+
+      // Unknown ptah.* commands — fail explicitly to prevent silent no-ops
       default:
         this.logger.debug(
-          '[Electron RPC] command:execute no-op for ptah command',
-          { command } as unknown as Error
+          '[Electron RPC] command:execute - unknown ptah command',
+          { command } as unknown as Error,
         );
-        return { success: true };
+        return {
+          success: false,
+          error: `Command not supported in Electron: ${command}`,
+        };
     }
   }
 }

@@ -1,6 +1,10 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
 import { VSCodeService } from '@ptah-extension/core';
 import {
+  createEmptyStreamingState,
+  type StreamingState,
+} from '@ptah-extension/chat';
+import {
   AgentRecommendation,
   AnalysisCompletePayload,
   AnalysisPhase,
@@ -18,6 +22,7 @@ import {
 } from '@ptah-extension/shared';
 import type {
   EnhancedPromptsSummary,
+  FlatStreamEventUnion,
   MultiPhaseAnalysisResponse,
 } from '@ptah-extension/shared';
 
@@ -217,7 +222,7 @@ export class SetupWizardStateService {
    * Private writable signal for current generation progress (null when not generating)
    */
   private readonly generationProgressSignal = signal<GenerationProgress | null>(
-    null
+    null,
   );
 
   /**
@@ -232,11 +237,21 @@ export class SetupWizardStateService {
   private readonly analysisStreamSignal = signal<AnalysisStreamPayload[]>([]);
 
   /**
+   * Private writable signal for per-phase StreamingState maps.
+   * Keyed by phase messageId (e.g., 'wizard-phase-project-profile').
+   * Each StreamingState accumulates FlatStreamEventUnion events for ExecutionNode rendering.
+   * TASK_2025_229
+   */
+  private readonly phaseStreamingStatesSignal = signal<
+    Map<string, StreamingState>
+  >(new Map());
+
+  /**
    * Private writable signal for generation stream messages (live transcript).
    * Accumulates GenerationStreamPayload messages during content generation.
    */
   private readonly generationStreamSignal = signal<GenerationStreamPayload[]>(
-    []
+    [],
   );
 
   /**
@@ -267,7 +282,7 @@ export class SetupWizardStateService {
    * Contains comprehensive project insights from MCP-powered analysis.
    */
   private readonly deepAnalysisSignal = signal<ProjectAnalysisResult | null>(
-    null
+    null,
   );
 
   /**
@@ -289,7 +304,7 @@ export class SetupWizardStateService {
    * Maps agentId to selection state (true = selected).
    */
   private readonly selectedAgentsMapSignal = signal<Record<string, boolean>>(
-    {}
+    {},
   );
 
   // === Fallback Warning State ===
@@ -320,7 +335,7 @@ export class SetupWizardStateService {
    * Populated after successful generation.
    */
   private readonly enhancedPromptsDetectedStackSignal = signal<string[] | null>(
-    null
+    null,
   );
 
   /**
@@ -403,6 +418,14 @@ export class SetupWizardStateService {
    * Used by AnalysisTranscriptComponent to display live agent transcript.
    */
   public readonly analysisStream = this.analysisStreamSignal.asReadonly();
+
+  /**
+   * Public readonly signal for per-phase streaming states.
+   * Used by AnalysisTranscriptComponent to build ExecutionNode trees.
+   * TASK_2025_229
+   */
+  public readonly phaseStreamingStates =
+    this.phaseStreamingStatesSignal.asReadonly();
 
   /**
    * Public readonly signal for generation stream messages.
@@ -535,14 +558,15 @@ export class SetupWizardStateService {
    * True when totalPhaseCount is set and greater than zero.
    */
   public readonly isMultiPhaseAnalysis = computed(
-    () => this._totalPhaseCount() !== null && (this._totalPhaseCount() ?? 0) > 0
+    () =>
+      this._totalPhaseCount() !== null && (this._totalPhaseCount() ?? 0) > 0,
   );
 
   /**
    * Computed signal indicating whether we have a completed multi-phase result.
    */
   public readonly hasMultiPhaseResult = computed(
-    () => this.multiPhaseResultSignal() !== null
+    () => this.multiPhaseResultSignal() !== null,
   );
 
   public constructor() {
@@ -648,7 +672,7 @@ export class SetupWizardStateService {
    */
   public readonly recommendedAgents = computed(() => {
     return this.recommendationsSignal().filter(
-      (recommendation) => recommendation.relevanceScore >= 75
+      (recommendation) => recommendation.relevanceScore >= 75,
     );
   });
 
@@ -670,7 +694,7 @@ export class SetupWizardStateService {
     if (items.length === 0) return 0;
 
     const completedCount = items.filter(
-      (item) => item.status === 'complete'
+      (item) => item.status === 'complete',
     ).length;
     return Math.round((completedCount / items.length) * 100);
   });
@@ -683,7 +707,7 @@ export class SetupWizardStateService {
     if (items.length === 0) return false;
 
     return items.every(
-      (item) => item.status === 'complete' || item.status === 'error'
+      (item) => item.status === 'complete' || item.status === 'error',
     );
   });
 
@@ -692,7 +716,7 @@ export class SetupWizardStateService {
    */
   public readonly failedGenerationItems = computed(() => {
     return this.skillGenerationProgressSignal().filter(
-      (item) => item.status === 'error'
+      (item) => item.status === 'error',
     );
   });
 
@@ -752,8 +776,8 @@ export class SetupWizardStateService {
   public toggleAgentSelection(agentId: string): void {
     this.availableAgentsSignal.update((agents) =>
       agents.map((agent) =>
-        agent.id === agentId ? { ...agent, selected: !agent.selected } : agent
-      )
+        agent.id === agentId ? { ...agent, selected: !agent.selected } : agent,
+      ),
     );
   }
 
@@ -774,6 +798,7 @@ export class SetupWizardStateService {
     this.generationProgressSignal.set(null);
     this.scanProgressSignal.set(null);
     this.analysisStreamSignal.set([]);
+    this.phaseStreamingStatesSignal.set(new Map()); // TASK_2025_229: Clear streaming states
     this.generationStreamSignal.set([]);
     this.enhanceStreamSignal.set([]);
     this.analysisResultsSignal.set(null);
@@ -915,7 +940,7 @@ export class SetupWizardStateService {
    * Contains section metadata without actual prompt content (IP protection).
    */
   public setEnhancedPromptsSummary(
-    summary: EnhancedPromptsSummary | null
+    summary: EnhancedPromptsSummary | null,
   ): void {
     this.enhancedPromptsSummarySignal.set(summary);
   }
@@ -970,7 +995,7 @@ export class SetupWizardStateService {
    * @param items - Array of generation progress items
    */
   public setSkillGenerationProgress(
-    items: SkillGenerationProgressItem[]
+    items: SkillGenerationProgressItem[],
   ): void {
     this.skillGenerationProgressSignal.set(items);
   }
@@ -983,10 +1008,10 @@ export class SetupWizardStateService {
    */
   public updateSkillGenerationItem(
     itemId: string,
-    update: Partial<SkillGenerationProgressItem>
+    update: Partial<SkillGenerationProgressItem>,
   ): void {
     this.skillGenerationProgressSignal.update((items) =>
-      items.map((item) => (item.id === itemId ? { ...item, ...update } : item))
+      items.map((item) => (item.id === itemId ? { ...item, ...update } : item)),
     );
   }
 
@@ -1037,7 +1062,7 @@ export class SetupWizardStateService {
     ];
 
     return validTypes.includes(
-      (message as { type: string }).type as WizardMessageType
+      (message as { type: string }).type as WizardMessageType,
     );
   }
 
@@ -1160,12 +1185,144 @@ export class SetupWizardStateService {
 
   /**
    * Handle analysis stream messages for live transcript display.
-   * Appends each message to the accumulated stream.
+   * Appends each message to the accumulated stream for backward compat (stats dashboard),
+   * and accumulates flat events into per-phase StreamingState for ExecutionNode rendering.
    *
    * @param payload - Typed AnalysisStreamPayload from shared types
    */
   private handleAnalysisStream(payload: AnalysisStreamPayload): void {
+    // Existing: keep flat payload accumulation for backward compat (stats dashboard uses it)
     this.analysisStreamSignal.update((messages) => [...messages, payload]);
+
+    // TASK_2025_229: Accumulate flat events into per-phase StreamingState
+    if (payload.flatEvent) {
+      this.accumulateFlatEvent(payload.flatEvent);
+    }
+  }
+
+  /**
+   * Accumulate a FlatStreamEventUnion into the appropriate phase's StreamingState.
+   * Mirrors the accumulation logic in ChatStore's streaming handler.
+   * TASK_2025_229
+   */
+  private accumulateFlatEvent(event: FlatStreamEventUnion): void {
+    const phaseKey = event.messageId;
+
+    this.phaseStreamingStatesSignal.update((statesMap) => {
+      const newMap = new Map(statesMap);
+      const prev = newMap.get(phaseKey);
+
+      // Clone or create StreamingState — never mutate the previous reference.
+      // This ensures Angular signal consumers detect changes correctly.
+      const state: StreamingState = prev
+        ? {
+            events: new Map(prev.events),
+            messageEventIds: [...prev.messageEventIds],
+            toolCallMap: new Map(prev.toolCallMap),
+            textAccumulators: new Map(prev.textAccumulators),
+            toolInputAccumulators: new Map(prev.toolInputAccumulators),
+            agentSummaryAccumulators: new Map(prev.agentSummaryAccumulators),
+            agentContentBlocksMap: new Map(prev.agentContentBlocksMap),
+            currentMessageId: prev.currentMessageId,
+            currentTokenUsage: prev.currentTokenUsage,
+            eventsByMessage: new Map(prev.eventsByMessage),
+            pendingStats: prev.pendingStats,
+          }
+        : createEmptyStreamingState();
+
+      // Store event by ID
+      state.events.set(event.id, event);
+
+      // Index by messageId
+      const messageEvents = [
+        ...(state.eventsByMessage.get(event.messageId) ?? []),
+        event,
+      ];
+      state.eventsByMessage.set(event.messageId, messageEvents);
+
+      // Handle event-type-specific accumulation
+      switch (event.eventType) {
+        case 'message_start':
+          if (!state.messageEventIds.includes(event.messageId)) {
+            state.messageEventIds.push(event.messageId);
+          }
+          state.currentMessageId = event.messageId;
+          break;
+
+        case 'text_delta': {
+          if (!state.messageEventIds.includes(event.messageId)) {
+            state.messageEventIds.push(event.messageId);
+          }
+          const textKey = `${event.messageId}-block-${event.blockIndex}`;
+          const existing = state.textAccumulators.get(textKey) ?? '';
+          state.textAccumulators.set(textKey, existing + event.delta);
+          break;
+        }
+
+        case 'thinking_start':
+          // Store the event — tree builder needs it to create thinking nodes
+          break;
+
+        case 'thinking_delta': {
+          const thinkKey = `${event.messageId}-thinking-${event.blockIndex}`;
+          const existingThink = state.textAccumulators.get(thinkKey) ?? '';
+          state.textAccumulators.set(thinkKey, existingThink + event.delta);
+          break;
+        }
+
+        case 'tool_start': {
+          const toolChildren = [
+            ...(state.toolCallMap.get(event.toolCallId) ?? []),
+            event.id,
+          ];
+          state.toolCallMap.set(event.toolCallId, toolChildren);
+          break;
+        }
+
+        case 'tool_delta': {
+          const inputKey = `${event.toolCallId}-input`;
+          const existingInput = state.toolInputAccumulators.get(inputKey) ?? '';
+          state.toolInputAccumulators.set(
+            inputKey,
+            existingInput + event.delta,
+          );
+          const deltaToolChildren = [
+            ...(state.toolCallMap.get(event.toolCallId) ?? []),
+            event.id,
+          ];
+          state.toolCallMap.set(event.toolCallId, deltaToolChildren);
+          break;
+        }
+
+        case 'tool_result': {
+          const resultToolChildren = [
+            ...(state.toolCallMap.get(event.toolCallId) ?? []),
+            event.id,
+          ];
+          state.toolCallMap.set(event.toolCallId, resultToolChildren);
+          break;
+        }
+
+        case 'message_complete':
+          state.currentMessageId = null;
+          break;
+
+        // Events the wizard doesn't need to accumulate
+        case 'message_delta':
+        case 'signature_delta':
+        case 'agent_start':
+        case 'compaction_start':
+        case 'compaction_complete':
+        case 'background_agent_started':
+        case 'background_agent_progress':
+        case 'background_agent_completed':
+        case 'background_agent_stopped':
+          break;
+      }
+
+      newMap.set(phaseKey, state);
+      return newMap;
+    });
   }
 
   /**
@@ -1241,8 +1398,8 @@ export class SetupWizardStateService {
         currentItems.map((item) =>
           item.status === 'pending' || item.status === 'in-progress'
             ? { ...item, status: 'complete' as const, progress: 100 }
-            : item
-        )
+            : item,
+        ),
       );
       return;
     }
@@ -1274,7 +1431,7 @@ export class SetupWizardStateService {
           }
 
           return item;
-        })
+        }),
       );
     }
   }

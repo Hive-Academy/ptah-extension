@@ -36,13 +36,25 @@
       "Bash(npx prisma generate:*)",
       "Bash(ffmpeg -i D:/projects/ptah-extension/apps/ptah-landing-page/public/assets/videos/ptah-mcp-server.mp4 -c:v libx264 -profile:v high -pix_fmt yuv420p -vf \"scale=1088:672\" -r 24 -crf 28 -preset slow -an -movflags +faststart D:/projects/ptah-extension/apps/ptah-landing-page/public/assets/videos/ptah-mcp-server_compressed.mp4 -y)",
       "Bash(ls:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Edit(.claude/specs/**)",
+      "Write(.claude/specs/**)",
+      "Bash(mkdir*.claude/specs*)",
+      "Bash(npm install:*)",
+      "Bash(curl -sL https://fsl.software/FSL-1.1-MIT.template.md)",
+      "Bash(curl -sL https://raw.githubusercontent.com/getsentry/fsl.software/main/FSL-1.1-MIT.template.md)"
     ],
     "deny": [],
     "ask": [],
-    "additionalDirectories": ["D:\\projects\\ptah-extension"]
+    "additionalDirectories": [
+      "D:\\projects\\ptah-extension"
+    ]
   },
   "enableAllProjectMcpServers": true,
-  "enabledMcpjsonServers": ["sequential-thinking", "angular-cli", "daisyui"],
+  "enabledMcpjsonServers": [
+    "sequential-thinking",
+    "angular-cli",
+    "daisyui"
+  ],
   "outputStyle": "default"
 }

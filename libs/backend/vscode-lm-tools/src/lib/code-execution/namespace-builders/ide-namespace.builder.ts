@@ -2,45 +2,14 @@
  * IDE Namespace Builder
  *
  * Builds the IDE namespace with LSP, Editor, Actions, and Testing sub-namespaces.
- * Provides VS Code-exclusive capabilities impossible to access from outside VS Code.
+ * When IIDECapabilities is provided (VS Code), delegates to the platform implementation.
+ * When IIDECapabilities is absent (Electron/standalone), returns graceful degradation
+ * stubs that return empty arrays, null, or false as appropriate.
  *
- * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
- * because it uses vscode.languages.* (LSP providers, diagnostics),
- * vscode.window.activeTextEditor, vscode.window.visibleTextEditors,
- * vscode.workspace.textDocuments, vscode.commands.executeCommand (for LSP),
- * and vscode.CodeActionKind. These are VS Code-specific IDE APIs with no
- * platform-core equivalent and represent the core value proposition of
- * the IDE namespace.
- *
- * TASK_2025_039 - Phase 4: LSP Namespace Implementation (COMPLETE)
- * - getDefinition(): Go to definition via LSP
- * - getReferences(): Find all references
- * - getHover(): Hover info (types, docs)
- * - getTypeDefinition(): Type definition location
- * - getSignatureHelp(): Function signatures
- *
- * TASK_2025_039 - Phase 5: Editor Namespace Implementation (COMPLETE)
- * - getActive(): Active file, cursor position, selection
- * - getOpenFiles(): All open files in editor tabs
- * - getDirtyFiles(): Files with unsaved changes
- * - getRecentFiles(): Recently accessed files (via visible editors)
- * - getVisibleRange(): Visible code range in active editor
- *
- * TASK_2025_039 - Phase 6: Actions Namespace Implementation (COMPLETE)
- * - getAvailable(): Get available code actions at position
- * - apply(): Apply a code action by title
- * - rename(): Rename symbol across workspace
- * - organizeImports(): Organize imports in file
- * - fixAll(): Apply all auto-fixes with optional kind filter
- *
- * TASK_2025_039 - Phase 7: Testing Namespace Implementation (COMPLETE)
- * - discover(): Discover tests (graceful degradation - returns empty array)
- * - run(): Run tests (graceful degradation - returns zero results)
- * - getLastResults(): Last test results (graceful degradation - returns null)
- * - getCoverage(): Coverage info (graceful degradation - returns null with validation)
+ * TASK_2025_039 - Phases 4-7: LSP, Editor, Actions, Testing
+ * TASK_2025_226 - Batch 3: Decoupled from vscode import via IIDECapabilities interface
  */
 
-import * as vscode from 'vscode';
 import type {
   IDENamespace,
   LSPNamespace,
@@ -51,679 +20,420 @@ import type {
   HoverInfo,
   SignatureHelp,
   ActiveEditorInfo,
+  CodeAction,
   TestItem,
   TestRunOptions,
   TestResult,
   CoverageInfo,
+  VisibleRange,
 } from '../types';
 
+// ========================================
+// IIDECapabilities Interface
+// ========================================
+
 /**
- * Build the complete IDE namespace with all sub-namespaces
- * @returns IDENamespace with LSP, Editor, Actions, and Testing (all implemented)
+ * Platform-specific IDE capabilities interface.
+ *
+ * In VS Code, this is implemented by VscodeIDECapabilities which wraps
+ * vscode.commands.executeCommand(), vscode.window.*, and vscode.workspace.* APIs.
+ *
+ * In Electron/standalone mode, this interface is NOT provided,
+ * and buildIDENamespace() returns graceful degradation stubs instead.
+ *
+ * @see VscodeIDECapabilities in ide-capabilities.vscode.ts
  */
-export function buildIDENamespace(): IDENamespace {
+export interface IIDECapabilities {
+  /** Language Server Protocol operations */
+  lsp: {
+    /**
+     * Get definition location for symbol at position.
+     * @replaces vscode.commands.executeCommand('vscode.executeDefinitionProvider', ...)
+     */
+    getDefinition(file: string, line: number, col: number): Promise<Location[]>;
+
+    /**
+     * Find all references to symbol at position.
+     * @replaces vscode.commands.executeCommand('vscode.executeReferenceProvider', ...)
+     */
+    getReferences(file: string, line: number, col: number): Promise<Location[]>;
+
+    /**
+     * Get hover information (types, documentation) at position.
+     * @replaces vscode.commands.executeCommand('vscode.executeHoverProvider', ...)
+     */
+    getHover(
+      file: string,
+      line: number,
+      col: number,
+    ): Promise<HoverInfo | null>;
+
+    /**
+     * Get type definition location for symbol at position.
+     * @replaces vscode.commands.executeCommand('vscode.executeTypeDefinitionProvider', ...)
+     */
+    getTypeDefinition(
+      file: string,
+      line: number,
+      col: number,
+    ): Promise<Location[]>;
+
+    /**
+     * Get signature help for function call at position.
+     * @replaces vscode.commands.executeCommand('vscode.executeSignatureHelpProvider', ...)
+     */
+    getSignatureHelp(
+      file: string,
+      line: number,
+      col: number,
+    ): Promise<SignatureHelp | null>;
+  };
+
+  /** Editor state operations */
+  editor: {
+    /**
+     * Get active editor information (file, cursor position, selection).
+     * @replaces vscode.window.activeTextEditor
+     */
+    getActive(): Promise<ActiveEditorInfo | null>;
+
+    /**
+     * Get all currently open files in editor tabs.
+     * @replaces vscode.workspace.textDocuments
+     */
+    getOpenFiles(): Promise<string[]>;
+
+    /**
+     * Get all files with unsaved changes.
+     * @replaces vscode.workspace.textDocuments (filtered by isDirty)
+     */
+    getDirtyFiles(): Promise<string[]>;
+
+    /**
+     * Get recently accessed files (most recent first).
+     * @replaces vscode.window.visibleTextEditors
+     */
+    getRecentFiles(limit?: number): Promise<string[]>;
+
+    /**
+     * Get visible code range in active editor.
+     * @replaces vscode.window.activeTextEditor.visibleRanges
+     */
+    getVisibleRange(): Promise<VisibleRange | null>;
+  };
+
+  /** Code actions and refactoring operations */
+  actions: {
+    /**
+     * Get available code actions at position.
+     * @replaces vscode.commands.executeCommand('vscode.executeCodeActionProvider', ...)
+     */
+    getAvailable(file: string, line: number): Promise<CodeAction[]>;
+
+    /**
+     * Apply a code action by title.
+     * @replaces vscode.workspace.applyEdit() / vscode.commands.executeCommand()
+     */
+    apply(file: string, line: number, actionTitle: string): Promise<boolean>;
+
+    /**
+     * Rename symbol at position across workspace.
+     * @replaces vscode.commands.executeCommand('editor.action.rename', ...)
+     */
+    rename(
+      file: string,
+      line: number,
+      col: number,
+      newName: string,
+    ): Promise<boolean>;
+
+    /**
+     * Organize imports in file.
+     * @replaces vscode.commands.executeCommand('editor.action.organizeImports', ...)
+     */
+    organizeImports(file: string): Promise<boolean>;
+
+    /**
+     * Apply all auto-fixes in file with optional kind filter.
+     * @replaces vscode.commands.executeCommand('editor.action.fixAll', ...)
+     */
+    fixAll(file: string, kind?: string): Promise<boolean>;
+  };
+}
+
+// ========================================
+// Graceful Degradation Message
+// ========================================
+
+const IDE_NOT_AVAILABLE_MSG =
+  'IDE integration not available in standalone mode. This feature requires VS Code.';
+
+// ========================================
+// buildIDENamespace
+// ========================================
+
+/**
+ * Build the complete IDE namespace with all sub-namespaces.
+ *
+ * When capabilities are provided (VS Code context), delegates LSP, editor,
+ * and actions operations to the platform implementation.
+ *
+ * When capabilities are undefined (Electron/standalone context), returns
+ * graceful degradation stubs that return empty arrays, null, or false
+ * with descriptive messages.
+ *
+ * Testing namespace always uses graceful degradation (no test controller dependency).
+ *
+ * @param capabilities Optional IDE capabilities from the platform implementation
+ * @returns IDENamespace with LSP, Editor, Actions, and Testing
+ */
+export function buildIDENamespace(
+  capabilities?: IIDECapabilities,
+): IDENamespace {
+  if (capabilities) {
+    return {
+      lsp: buildLSPNamespaceFromCapabilities(capabilities.lsp),
+      editor: buildEditorNamespaceFromCapabilities(capabilities.editor),
+      actions: buildActionsNamespaceFromCapabilities(capabilities.actions),
+      testing: buildTestingNamespace(),
+    };
+  }
+
+  // Graceful degradation: no IDE capabilities available (Electron/standalone)
   return {
-    lsp: buildLSPNamespace(),
-    editor: buildEditorNamespace(),
-    actions: buildActionsNamespace(),
+    lsp: buildGracefulLSPNamespace(),
+    editor: buildGracefulEditorNamespace(),
+    actions: buildGracefulActionsNamespace(),
     testing: buildTestingNamespace(),
   };
 }
 
-/**
- * Resolve a file path relative to workspace root if it's not absolute.
- * Handles relative paths like 'src/contexts/AuthContext.tsx' by prepending workspace root.
- */
-function resolveFilePath(filePath: string): vscode.Uri {
-  // Normalize path separators to forward slashes
-  const normalizedPath = filePath.replace(/\\/g, '/');
-
-  // Check if it's already an absolute path (starts with drive letter or /)
-  const isAbsolute =
-    /^[a-zA-Z]:/.test(normalizedPath) || normalizedPath.startsWith('/');
-
-  if (isAbsolute) {
-    return vscode.Uri.file(normalizedPath);
-  }
-
-  // Relative path - resolve to workspace root
-  const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (!workspaceFolders || workspaceFolders.length === 0) {
-    throw new Error(
-      'No workspace folder open. Cannot resolve relative path: ' + filePath
-    );
-  }
-
-  return vscode.Uri.joinPath(workspaceFolders[0].uri, normalizedPath);
-}
+// ========================================
+// Capability-backed Namespace Builders
+// ========================================
 
 /**
- * Build the LSP namespace for Language Server Protocol operations
- * Provides access to language intelligence features via VS Code commands
- * @returns LSPNamespace with all 5 LSP methods implemented
+ * Build LSP namespace that delegates to IIDECapabilities.lsp
+ * Adds input validation before delegating to the platform implementation.
  */
-function buildLSPNamespace(): LSPNamespace {
+function buildLSPNamespaceFromCapabilities(
+  lsp: IIDECapabilities['lsp'],
+): LSPNamespace {
   return {
-    /**
-     * Get definition location for symbol at position
-     * Uses vscode.executeDefinitionProvider command
-     */
     getDefinition: async (
       file: string,
       line: number,
-      col: number
+      col: number,
     ): Promise<Location[]> => {
-      // Validate inputs
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-      if (line < 0 || col < 0) {
-        throw new Error('Line and column must be non-negative');
-      }
-
-      try {
-        const uri = resolveFilePath(file);
-        const position = new vscode.Position(line, col);
-
-        const definitions = await vscode.commands.executeCommand<
-          vscode.Location[]
-        >('vscode.executeDefinitionProvider', uri, position);
-
-        if (!definitions || definitions.length === 0) {
-          return [];
-        }
-
-        // Convert vscode.Location[] to Location[]
-        return definitions.map((def) => ({
-          file: def.uri.fsPath,
-          line: def.range.start.line,
-          column: def.range.start.character,
-          endLine: def.range.end.line,
-          endColumn: def.range.end.character,
-        }));
-      } catch (error) {
-        throw new Error(
-          `Failed to get definition for ${file}:${line}:${col}: ${
-            (error as Error).message
-          }`
-        );
-      }
+      validateFileInput(file);
+      validatePositionInput(line, col);
+      return lsp.getDefinition(file, line, col);
     },
 
-    /**
-     * Find all references to symbol at position
-     * Uses vscode.executeReferenceProvider command
-     */
     getReferences: async (
       file: string,
       line: number,
-      col: number
+      col: number,
     ): Promise<Location[]> => {
-      // Validate inputs
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-      if (line < 0 || col < 0) {
-        throw new Error('Line and column must be non-negative');
-      }
-
-      try {
-        const uri = resolveFilePath(file);
-        const position = new vscode.Position(line, col);
-
-        const references = await vscode.commands.executeCommand<
-          vscode.Location[]
-        >('vscode.executeReferenceProvider', uri, position);
-
-        if (!references || references.length === 0) {
-          return [];
-        }
-
-        // Convert vscode.Location[] to Location[]
-        return references.map((ref) => ({
-          file: ref.uri.fsPath,
-          line: ref.range.start.line,
-          column: ref.range.start.character,
-          endLine: ref.range.end.line,
-          endColumn: ref.range.end.character,
-        }));
-      } catch (error) {
-        throw new Error(
-          `Failed to get references for ${file}:${line}:${col}: ${
-            (error as Error).message
-          }`
-        );
-      }
+      validateFileInput(file);
+      validatePositionInput(line, col);
+      return lsp.getReferences(file, line, col);
     },
 
-    /**
-     * Get hover information (types, documentation) at position
-     * Uses vscode.executeHoverProvider command
-     */
     getHover: async (
       file: string,
       line: number,
-      col: number
+      col: number,
     ): Promise<HoverInfo | null> => {
-      // Validate inputs
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-      if (line < 0 || col < 0) {
-        throw new Error('Line and column must be non-negative');
-      }
-
-      try {
-        const uri = resolveFilePath(file);
-        const position = new vscode.Position(line, col);
-
-        const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
-          'vscode.executeHoverProvider',
-          uri,
-          position
-        );
-
-        if (!hovers || hovers.length === 0) {
-          return null;
-        }
-
-        // Use the first hover result
-        const hover = hovers[0];
-
-        // Convert MarkdownString[] or MarkedString[] to string[]
-        const contents = hover.contents.map((content) => {
-          if (typeof content === 'string') {
-            return content;
-          } else {
-            // MarkdownString has 'value' property
-            return content.value;
-          }
-        });
-
-        const result: HoverInfo = {
-          contents,
-        };
-
-        // Add range if available
-        if (hover.range) {
-          result.range = {
-            start: {
-              file: uri.fsPath,
-              line: hover.range.start.line,
-              column: hover.range.start.character,
-            },
-            end: {
-              file: uri.fsPath,
-              line: hover.range.end.line,
-              column: hover.range.end.character,
-            },
-          };
-        }
-
-        return result;
-      } catch (error) {
-        throw new Error(
-          `Failed to get hover info for ${file}:${line}:${col}: ${
-            (error as Error).message
-          }`
-        );
-      }
+      validateFileInput(file);
+      validatePositionInput(line, col);
+      return lsp.getHover(file, line, col);
     },
 
-    /**
-     * Get type definition location for symbol at position
-     * Uses vscode.executeTypeDefinitionProvider command
-     */
     getTypeDefinition: async (
       file: string,
       line: number,
-      col: number
+      col: number,
     ): Promise<Location[]> => {
-      // Validate inputs
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-      if (line < 0 || col < 0) {
-        throw new Error('Line and column must be non-negative');
-      }
-
-      try {
-        const uri = resolveFilePath(file);
-        const position = new vscode.Position(line, col);
-
-        const typeDefinitions = await vscode.commands.executeCommand<
-          vscode.Location[]
-        >('vscode.executeTypeDefinitionProvider', uri, position);
-
-        if (!typeDefinitions || typeDefinitions.length === 0) {
-          return [];
-        }
-
-        // Convert vscode.Location[] to Location[]
-        return typeDefinitions.map((def) => ({
-          file: def.uri.fsPath,
-          line: def.range.start.line,
-          column: def.range.start.character,
-          endLine: def.range.end.line,
-          endColumn: def.range.end.character,
-        }));
-      } catch (error) {
-        throw new Error(
-          `Failed to get type definition for ${file}:${line}:${col}: ${
-            (error as Error).message
-          }`
-        );
-      }
+      validateFileInput(file);
+      validatePositionInput(line, col);
+      return lsp.getTypeDefinition(file, line, col);
     },
 
-    /**
-     * Get signature help for function call at position
-     * Uses vscode.executeSignatureHelpProvider command
-     */
     getSignatureHelp: async (
       file: string,
       line: number,
-      col: number
+      col: number,
     ): Promise<SignatureHelp | null> => {
-      // Validate inputs
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-      if (line < 0 || col < 0) {
-        throw new Error('Line and column must be non-negative');
-      }
-
-      try {
-        const uri = resolveFilePath(file);
-        const position = new vscode.Position(line, col);
-
-        const signatureHelp =
-          await vscode.commands.executeCommand<vscode.SignatureHelp>(
-            'vscode.executeSignatureHelpProvider',
-            uri,
-            position
-          );
-
-        if (!signatureHelp || signatureHelp.signatures.length === 0) {
-          return null;
-        }
-
-        // Convert vscode.SignatureHelp to SignatureHelp
-        return {
-          signatures: signatureHelp.signatures.map((sig) => ({
-            label: sig.label,
-            documentation: sig.documentation
-              ? typeof sig.documentation === 'string'
-                ? sig.documentation
-                : sig.documentation.value
-              : undefined,
-            parameters:
-              sig.parameters?.map((param) => ({
-                label:
-                  typeof param.label === 'string'
-                    ? param.label
-                    : sig.label.substring(param.label[0], param.label[1]),
-                documentation: param.documentation
-                  ? typeof param.documentation === 'string'
-                    ? param.documentation
-                    : param.documentation.value
-                  : undefined,
-              })) || [],
-          })),
-          activeSignature: signatureHelp.activeSignature,
-          activeParameter: signatureHelp.activeParameter,
-        };
-      } catch (error) {
-        throw new Error(
-          `Failed to get signature help for ${file}:${line}:${col}: ${
-            (error as Error).message
-          }`
-        );
-      }
+      validateFileInput(file);
+      validatePositionInput(line, col);
+      return lsp.getSignatureHelp(file, line, col);
     },
   };
 }
 
 /**
- * Build the Editor namespace for editor state operations
- * Provides access to active editor state, open files, and visible ranges
- * @returns EditorNamespace with all 5 editor methods implemented
+ * Build Editor namespace that delegates to IIDECapabilities.editor
  */
-function buildEditorNamespace(): EditorNamespace {
+function buildEditorNamespaceFromCapabilities(
+  editor: IIDECapabilities['editor'],
+): EditorNamespace {
   return {
-    /**
-     * Get active editor information (file, cursor position, selection)
-     * @returns Active editor info or null if no editor is active
-     */
-    getActive: async (): Promise<ActiveEditorInfo | null> => {
-      const editor = vscode.window.activeTextEditor;
-
-      if (!editor) {
-        return null;
-      }
-
-      const result: ActiveEditorInfo = {
-        file: editor.document.uri.fsPath,
-        line: editor.selection.active.line,
-        column: editor.selection.active.character,
-      };
-
-      // Add selection if there's a non-empty selection
-      if (!editor.selection.isEmpty) {
-        result.selection = {
-          start: {
-            file: editor.document.uri.fsPath,
-            line: editor.selection.start.line,
-            column: editor.selection.start.character,
-          },
-          end: {
-            file: editor.document.uri.fsPath,
-            line: editor.selection.end.line,
-            column: editor.selection.end.character,
-          },
-        };
-      }
-
-      return result;
-    },
-
-    /**
-     * Get all currently open files in editor tabs
-     * @returns Array of absolute file paths
-     */
-    getOpenFiles: async () => {
-      const documents = vscode.workspace.textDocuments;
-
-      // Filter out non-file schemes (e.g., output, debug, git)
-      const filePaths = documents
-        .filter((doc) => doc.uri.scheme === 'file')
-        .map((doc) => doc.uri.fsPath);
-
-      // Remove duplicates (same file can be open in multiple editors)
-      return Array.from(new Set(filePaths));
-    },
-
-    /**
-     * Get all files with unsaved changes
-     * @returns Array of absolute file paths
-     */
-    getDirtyFiles: async () => {
-      const documents = vscode.workspace.textDocuments;
-
-      // Filter to dirty files only
-      const dirtyPaths = documents
-        .filter((doc) => doc.uri.scheme === 'file' && doc.isDirty)
-        .map((doc) => doc.uri.fsPath);
-
-      return Array.from(new Set(dirtyPaths));
-    },
-
-    /**
-     * Get recently accessed files (most recent first)
-     * Note: VS Code doesn't expose full MRU list via API, using visible editors as proxy
-     * @param limit - Maximum number of files (default: no limit)
-     * @returns Array of absolute file paths
-     */
-    getRecentFiles: async (limit?: number) => {
-      // VS Code doesn't expose full MRU (Most Recently Used) list via API
-      // Use visible editors as proxy for "recent" files
-      const visibleEditors = vscode.window.visibleTextEditors;
-
-      const filePaths = visibleEditors
-        .filter((editor) => editor.document.uri.scheme === 'file')
-        .map((editor) => editor.document.uri.fsPath);
-
-      // Remove duplicates
-      const uniquePaths = Array.from(new Set(filePaths));
-
-      // Apply limit if specified
-      if (limit !== undefined && limit > 0) {
-        return uniquePaths.slice(0, limit);
-      }
-
-      return uniquePaths;
-    },
-
-    /**
-     * Get visible code range in active editor
-     * @returns Visible range or null if no editor is active
-     */
-    getVisibleRange: async () => {
-      const editor = vscode.window.activeTextEditor;
-
-      if (!editor) {
-        return null;
-      }
-
-      // Get visible ranges (can be multiple if editor is split)
-      const visibleRanges = editor.visibleRanges;
-
-      if (visibleRanges.length === 0) {
-        return null;
-      }
-
-      // Use the first visible range
-      const range = visibleRanges[0];
-
-      return {
-        file: editor.document.uri.fsPath,
-        startLine: range.start.line,
-        endLine: range.end.line,
-      };
-    },
+    getActive: () => editor.getActive(),
+    getOpenFiles: () => editor.getOpenFiles(),
+    getDirtyFiles: () => editor.getDirtyFiles(),
+    getRecentFiles: (limit?: number) => editor.getRecentFiles(limit),
+    getVisibleRange: () => editor.getVisibleRange(),
   };
 }
 
 /**
- * Build the Actions namespace for code actions and refactoring
- * Provides access to VS Code's code action provider, rename, organize imports, and fix all
- * @returns ActionsNamespace with all 5 action methods implemented
+ * Build Actions namespace that delegates to IIDECapabilities.actions
+ * Adds input validation before delegating to the platform implementation.
  */
-function buildActionsNamespace(): ActionsNamespace {
+function buildActionsNamespaceFromCapabilities(
+  actions: IIDECapabilities['actions'],
+): ActionsNamespace {
   return {
-    /**
-     * Get available code actions at position
-     * Uses vscode.executeCodeActionProvider command
-     */
-    getAvailable: async (file: string, line: number) => {
-      // Validate inputs
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-      if (line < 0) {
-        throw new Error('Line must be non-negative');
-      }
-
-      try {
-        const uri = resolveFilePath(file);
-        const position = new vscode.Position(line, 0);
-        const range = new vscode.Range(position, position);
-
-        const actions = await vscode.commands.executeCommand<
-          vscode.CodeAction[]
-        >('vscode.executeCodeActionProvider', uri, range);
-
-        if (!actions || actions.length === 0) {
-          return [];
-        }
-
-        // Convert to our CodeAction type
-        return actions.map((action) => ({
-          title: action.title,
-          kind: action.kind?.value || '',
-          isPreferred: action.isPreferred || false,
-        }));
-      } catch (error) {
-        throw new Error(
-          `Failed to get code actions for ${file}:${line}: ${
-            (error as Error).message
-          }`
-        );
-      }
+    getAvailable: async (file: string, line: number): Promise<CodeAction[]> => {
+      validateFileInput(file);
+      validateLineInput(line);
+      return actions.getAvailable(file, line);
     },
 
-    /**
-     * Apply a code action by title
-     * Uses vscode.executeCodeActionProvider to find action, then applies edit or executes command
-     */
-    apply: async (file: string, line: number, actionTitle: string) => {
-      // Validate inputs
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-      if (line < 0) {
-        throw new Error('Line must be non-negative');
-      }
+    apply: async (
+      file: string,
+      line: number,
+      actionTitle: string,
+    ): Promise<boolean> => {
+      validateFileInput(file);
+      validateLineInput(line);
       if (!actionTitle || actionTitle.trim().length === 0) {
         throw new Error('Action title cannot be empty');
       }
-
-      try {
-        const uri = resolveFilePath(file);
-        const position = new vscode.Position(line, 0);
-        const range = new vscode.Range(position, position);
-
-        // Get available actions
-        const actions = await vscode.commands.executeCommand<
-          vscode.CodeAction[]
-        >('vscode.executeCodeActionProvider', uri, range);
-
-        if (!actions || actions.length === 0) {
-          return false;
-        }
-
-        // Find action by title
-        const action = actions.find((a) => a.title === actionTitle);
-        if (!action) {
-          return false;
-        }
-
-        // Apply the action
-        if (action.edit) {
-          const success = await vscode.workspace.applyEdit(action.edit);
-          return success;
-        } else if (action.command) {
-          // Execute command
-          await vscode.commands.executeCommand(
-            action.command.command,
-            ...(action.command.arguments || [])
-          );
-          return true;
-        }
-
-        return false;
-      } catch (error) {
-        throw new Error(
-          `Failed to apply action "${actionTitle}" at ${file}:${line}: ${
-            (error as Error).message
-          }`
-        );
-      }
+      return actions.apply(file, line, actionTitle);
     },
 
-    /**
-     * Rename symbol at position across workspace
-     * Uses editor.action.rename command
-     */
     rename: async (
       file: string,
       line: number,
       col: number,
-      newName: string
-    ) => {
-      // Validate inputs
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-      if (line < 0 || col < 0) {
-        throw new Error('Line and column must be non-negative');
-      }
+      newName: string,
+    ): Promise<boolean> => {
+      validateFileInput(file);
+      validatePositionInput(line, col);
       if (!newName || newName.trim().length === 0) {
         throw new Error('New name cannot be empty');
       }
-
-      try {
-        const uri = resolveFilePath(file);
-        const position = new vscode.Position(line, col);
-
-        // Execute rename command
-        await vscode.commands.executeCommand(
-          'editor.action.rename',
-          uri,
-          position,
-          newName
-        );
-
-        return true;
-      } catch (error) {
-        throw new Error(
-          `Failed to rename symbol at ${file}:${line}:${col}: ${
-            (error as Error).message
-          }`
-        );
-      }
+      return actions.rename(file, line, col, newName);
     },
 
-    /**
-     * Organize imports in file
-     * Uses editor.action.organizeImports command
-     */
-    organizeImports: async (file: string) => {
-      // Validate input
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-
-      try {
-        const uri = resolveFilePath(file);
-
-        // Execute organize imports command
-        await vscode.commands.executeCommand(
-          'editor.action.organizeImports',
-          uri
-        );
-
-        return true;
-      } catch (error) {
-        throw new Error(
-          `Failed to organize imports in ${file}: ${(error as Error).message}`
-        );
-      }
+    organizeImports: async (file: string): Promise<boolean> => {
+      validateFileInput(file);
+      return actions.organizeImports(file);
     },
 
-    /**
-     * Apply all auto-fixes in file with optional kind filter
-     * Uses editor.action.fixAll command
-     */
-    fixAll: async (file: string, kind?: string) => {
-      // Validate input
-      if (!file || file.trim().length === 0) {
-        throw new Error('File path cannot be empty');
-      }
-
-      try {
-        const uri = resolveFilePath(file);
-
-        if (kind) {
-          // Execute fixAll with specific kind
-          await vscode.commands.executeCommand('editor.action.fixAll', {
-            uri: uri,
-            kind: kind,
-          });
-        } else {
-          // Execute fixAll without kind filter
-          await vscode.commands.executeCommand('editor.action.fixAll', uri);
-        }
-
-        return true;
-      } catch (error) {
-        throw new Error(
-          `Failed to fix all issues in ${file}: ${(error as Error).message}`
-        );
-      }
+    fixAll: async (file: string, kind?: string): Promise<boolean> => {
+      validateFileInput(file);
+      return actions.fixAll(file, kind);
     },
   };
 }
+
+// ========================================
+// Graceful Degradation Namespace Builders
+// ========================================
+
+/**
+ * Build LSP namespace with graceful degradation stubs.
+ * All methods return empty arrays or null with a descriptive message
+ * indicating that IDE integration is not available in standalone mode.
+ */
+function buildGracefulLSPNamespace(): LSPNamespace {
+  return {
+    getDefinition: async (): Promise<Location[]> => {
+      return [];
+    },
+
+    getReferences: async (): Promise<Location[]> => {
+      return [];
+    },
+
+    getHover: async (): Promise<HoverInfo | null> => {
+      return null;
+    },
+
+    getTypeDefinition: async (): Promise<Location[]> => {
+      return [];
+    },
+
+    getSignatureHelp: async (): Promise<SignatureHelp | null> => {
+      return null;
+    },
+  };
+}
+
+/**
+ * Build Editor namespace with graceful degradation stubs.
+ * All methods return null or empty arrays since there is no active editor
+ * in standalone/Electron mode.
+ */
+function buildGracefulEditorNamespace(): EditorNamespace {
+  return {
+    getActive: async (): Promise<ActiveEditorInfo | null> => {
+      return null;
+    },
+
+    getOpenFiles: async (): Promise<string[]> => {
+      return [];
+    },
+
+    getDirtyFiles: async (): Promise<string[]> => {
+      return [];
+    },
+
+    getRecentFiles: async (): Promise<string[]> => {
+      return [];
+    },
+
+    getVisibleRange: async (): Promise<VisibleRange | null> => {
+      return null;
+    },
+  };
+}
+
+/**
+ * Build Actions namespace with graceful degradation stubs.
+ * All methods return empty arrays or false since code actions
+ * require language server integration not available in standalone mode.
+ */
+function buildGracefulActionsNamespace(): ActionsNamespace {
+  return {
+    getAvailable: async (): Promise<CodeAction[]> => {
+      return [];
+    },
+
+    apply: async (): Promise<boolean> => {
+      return false;
+    },
+
+    rename: async (): Promise<boolean> => {
+      return false;
+    },
+
+    organizeImports: async (): Promise<boolean> => {
+      return false;
+    },
+
+    fixAll: async (): Promise<boolean> => {
+      return false;
+    },
+  };
+}
+
+// ========================================
+// Testing Namespace (always graceful degradation)
+// ========================================
 
 /**
  * Build the Testing namespace for test operations.
@@ -750,9 +460,6 @@ function buildTestingNamespace(): TestingNamespace {
      * @returns Array of test items (empty if no test controller available)
      */
     discover: async (): Promise<TestItem[]> => {
-      // VS Code doesn't provide a global "get all tests" API
-      // Test discovery requires a TestController, typically owned by test extensions
-      // Return empty array as graceful degradation
       return [];
     },
 
@@ -767,10 +474,7 @@ function buildTestingNamespace(): TestingNamespace {
      * @returns Test results with passed/failed/skipped counts
      */
     run: async (options?: TestRunOptions): Promise<TestResult> => {
-      void options; // Reserved for when test controller integration is available
-      // VS Code doesn't provide a global "run all tests" API
-      // Test execution requires a TestController
-      // Return zero results as graceful degradation
+      void options;
       return {
         passed: 0,
         failed: 0,
@@ -789,8 +493,6 @@ function buildTestingNamespace(): TestingNamespace {
      * @returns Last test results or null if no tests have been run
      */
     getLastResults: async (): Promise<TestResult | null> => {
-      // No test controller means no test runs
-      // Return null as graceful degradation
       return null;
     },
 
@@ -804,14 +506,47 @@ function buildTestingNamespace(): TestingNamespace {
      * @returns Coverage info or null if unavailable
      */
     getCoverage: async (file: string): Promise<CoverageInfo | null> => {
-      // Validate input
       if (!file || file.trim().length === 0) {
         throw new Error('File path cannot be empty');
       }
-
-      // Coverage requires test framework integration
-      // Return null as graceful degradation
       return null;
     },
   };
 }
+
+// ========================================
+// Input Validation Helpers
+// ========================================
+
+/**
+ * Validate that a file path input is non-empty.
+ * @throws Error if file path is empty or whitespace
+ */
+function validateFileInput(file: string): void {
+  if (!file || file.trim().length === 0) {
+    throw new Error('File path cannot be empty');
+  }
+}
+
+/**
+ * Validate that line and column inputs are non-negative.
+ * @throws Error if line or column is negative
+ */
+function validatePositionInput(line: number, col: number): void {
+  if (line < 0 || col < 0) {
+    throw new Error('Line and column must be non-negative');
+  }
+}
+
+/**
+ * Validate that a line input is non-negative.
+ * @throws Error if line is negative
+ */
+function validateLineInput(line: number): void {
+  if (line < 0) {
+    throw new Error('Line must be non-negative');
+  }
+}
+
+// Export the IDE_NOT_AVAILABLE_MSG for potential use in error reporting
+export { IDE_NOT_AVAILABLE_MSG };

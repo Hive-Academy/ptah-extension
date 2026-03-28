@@ -42,7 +42,7 @@ import {
  *
  * TASK_2025_128: Freemium Model Conversion
  * - Community: FREE forever - Core visual editor features (no Paddle)
- * - Pro: $5/month, $50/year (14-day trial) - Community + MCP server + all premium features
+ * - Pro: $5/month, $50/year (30-day trial) - Community + MCP server + all premium features
  *
  * Community tier has no billing toggle (always free).
  * Pro plan has monthly/yearly toggle.
@@ -64,82 +64,89 @@ import {
       class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-16 mt-[-150px]"
     >
       @if (paddleError()) {
-      <div class="alert alert-warning mb-8 max-w-xl mx-auto">
-        <lucide-angular
-          [img]="TriangleAlertIcon"
-          class="stroke-current shrink-0 h-6 w-6"
-          aria-hidden="true"
-        />
-        <span>{{ paddleError() }}</span>
-        <button class="btn btn-sm btn-secondary" (click)="retryPaddleInit()">
-          Retry
-        </button>
-      </div>
-      } @if (configError()) {
-      <div class="alert alert-error mb-8 max-w-xl mx-auto">
-        <lucide-angular
-          [img]="CircleXIcon"
-          class="stroke-current shrink-0 h-6 w-6"
-          aria-hidden="true"
-        />
-        <span>{{ configError() }}</span>
-        <button class="btn btn-sm" (click)="configError.set(null)">
-          Dismiss
-        </button>
-      </div>
-      } @if (portalError()) {
-      <div class="alert alert-error mb-8 max-w-xl mx-auto">
-        <lucide-angular
-          [img]="CircleXIcon"
-          class="stroke-current shrink-0 h-6 w-6"
-          aria-hidden="true"
-        />
-        <span>{{ portalError() }}</span>
-        <button class="btn btn-sm" (click)="portalError.set(null)">
-          Dismiss
-        </button>
-      </div>
-      } @if (autoCheckoutError()) {
-      <div class="alert alert-warning mb-8 max-w-xl mx-auto">
-        <lucide-angular
-          [img]="TriangleAlertIcon"
-          class="stroke-current shrink-0 h-6 w-6"
-          aria-hidden="true"
-        />
-        <span>{{ autoCheckoutError() }}</span>
-        <button class="btn btn-sm" (click)="autoCheckoutError.set(null)">
-          Dismiss
-        </button>
-      </div>
-      } @if (validationError()) {
-      <div class="alert alert-error mb-8 max-w-xl mx-auto shadow-lg">
-        <lucide-angular
-          [img]="CircleXIcon"
-          class="stroke-current shrink-0 h-6 w-6"
-          aria-hidden="true"
-        />
-        <div class="flex flex-col gap-2">
-          <span class="font-medium">{{ validationError() }}</span>
-          @if (customerPortalUrl()) {
-          <a
-            [href]="customerPortalUrl()"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="link link-secondary flex items-center gap-1"
-          >
-            <lucide-angular
-              [img]="ExternalLinkIcon"
-              class="w-4 h-4"
-              aria-hidden="true"
-            />
-            Manage your subscription
-          </a>
-          }
+        <div class="alert alert-warning mb-8 max-w-xl mx-auto">
+          <lucide-angular
+            [img]="TriangleAlertIcon"
+            class="stroke-current shrink-0 h-6 w-6"
+            aria-hidden="true"
+          />
+          <span>{{ paddleError() }}</span>
+          <button class="btn btn-sm btn-secondary" (click)="retryPaddleInit()">
+            Retry
+          </button>
         </div>
-        <button class="btn btn-sm btn-ghost" (click)="dismissValidationError()">
-          Dismiss
-        </button>
-      </div>
+      }
+      @if (configError()) {
+        <div class="alert alert-error mb-8 max-w-xl mx-auto">
+          <lucide-angular
+            [img]="CircleXIcon"
+            class="stroke-current shrink-0 h-6 w-6"
+            aria-hidden="true"
+          />
+          <span>{{ configError() }}</span>
+          <button class="btn btn-sm" (click)="configError.set(null)">
+            Dismiss
+          </button>
+        </div>
+      }
+      @if (portalError()) {
+        <div class="alert alert-error mb-8 max-w-xl mx-auto">
+          <lucide-angular
+            [img]="CircleXIcon"
+            class="stroke-current shrink-0 h-6 w-6"
+            aria-hidden="true"
+          />
+          <span>{{ portalError() }}</span>
+          <button class="btn btn-sm" (click)="portalError.set(null)">
+            Dismiss
+          </button>
+        </div>
+      }
+      @if (autoCheckoutError()) {
+        <div class="alert alert-warning mb-8 max-w-xl mx-auto">
+          <lucide-angular
+            [img]="TriangleAlertIcon"
+            class="stroke-current shrink-0 h-6 w-6"
+            aria-hidden="true"
+          />
+          <span>{{ autoCheckoutError() }}</span>
+          <button class="btn btn-sm" (click)="autoCheckoutError.set(null)">
+            Dismiss
+          </button>
+        </div>
+      }
+      @if (validationError()) {
+        <div class="alert alert-error mb-8 max-w-xl mx-auto shadow-lg">
+          <lucide-angular
+            [img]="CircleXIcon"
+            class="stroke-current shrink-0 h-6 w-6"
+            aria-hidden="true"
+          />
+          <div class="flex flex-col gap-2">
+            <span class="font-medium">{{ validationError() }}</span>
+            @if (customerPortalUrl()) {
+              <a
+                [href]="customerPortalUrl()"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="link link-secondary flex items-center gap-1"
+              >
+                <lucide-angular
+                  [img]="ExternalLinkIcon"
+                  class="w-4 h-4"
+                  aria-hidden="true"
+                />
+                Manage your subscription
+              </a>
+            }
+          </div>
+          <button
+            class="btn btn-sm btn-ghost"
+            (click)="dismissValidationError()"
+          >
+            Dismiss
+          </button>
+        </div>
       }
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8 items-stretch">
         <!-- Community Plan Card (FREE - no billing toggle) -->
@@ -262,7 +269,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         // TASK_2025_143: Include license reason for trial ended display
         licenseReason: this.subscriptionService.licenseReason(),
       };
-    }
+    },
   );
 
   /**
@@ -273,7 +280,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
    * @returns Validated status or null
    */
   private validateSubscriptionStatus(
-    status: string | null
+    status: string | null,
   ): ValidSubscriptionStatus | null {
     if (status === null) return null;
     if (
@@ -283,7 +290,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     }
     // Log unexpected status for debugging but don't crash
     console.warn(
-      `[PricingGrid] Unexpected subscription status: "${status}". Treating as null.`
+      `[PricingGrid] Unexpected subscription status: "${status}". Treating as null.`,
     );
     return null;
   }
@@ -373,7 +380,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     priceSubtext: 'per month',
     priceId: this.paddleConfig.proPriceIdMonthly,
     idealFor: 'For serious developers',
-    trialDays: 14,
+    trialDays: 30,
     features: [],
     standoutFeatures: [
       'All Community features included',
@@ -383,7 +390,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'OpenRouter proxy (200+ models)',
       'Project-adaptive agent generation',
     ],
-    ctaText: 'Start 14-Day Free Trial',
+    ctaText: 'Start 30-Day Free Trial',
     ctaAction: 'checkout',
     highlight: true,
   };
@@ -399,7 +406,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     priceId: this.paddleConfig.proPriceIdYearly,
     idealFor: 'For serious developers',
     savings: 'Save ~17% vs monthly',
-    trialDays: 14,
+    trialDays: 30,
     features: [],
     standoutFeatures: [
       'All Community features included',
@@ -409,7 +416,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       'OpenRouter proxy (200+ models)',
       'Project-adaptive agent generation',
     ],
-    ctaText: 'Start 14-Day Free Trial',
+    ctaText: 'Start 30-Day Free Trial',
     ctaAction: 'checkout',
     highlight: true,
   };
@@ -463,7 +470,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     const validPlanKeys = ['pro-monthly', 'pro-yearly'];
     if (!validPlanKeys.includes(planKey)) {
       this.autoCheckoutError.set(
-        'Invalid checkout plan. Please select a plan manually.'
+        'Invalid checkout plan. Please select a plan manually.',
       );
       return;
     }
@@ -510,7 +517,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
         // Timeout - stop waiting and show user-visible error
         this.clearAutoCheckoutInterval();
         this.autoCheckoutError.set(
-          'Unable to start checkout automatically. Please click the checkout button to try again.'
+          'Unable to start checkout automatically. Please click the checkout button to try again.',
         );
       }
     }, 100);
@@ -542,7 +549,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
       // Validate price ID first
       if (isPriceIdPlaceholder(plan.priceId)) {
         this.configError.set(
-          'Checkout is not configured yet. Please try again later.'
+          'Checkout is not configured yet. Please try again later.',
         );
         return;
       }
@@ -599,7 +606,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     // Validate priceId exists before proceeding
     if (!plan.priceId) {
       this.configError.set(
-        'Price configuration error. Please contact support.'
+        'Price configuration error. Please contact support.',
       );
       return;
     }
@@ -714,7 +721,7 @@ export class PricingGridComponent implements OnInit, OnDestroy {
     this.http
       .post<{ url: string; expiresAt: string }>(
         '/api/v1/subscriptions/portal-session',
-        {}
+        {},
       )
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({

@@ -23,7 +23,7 @@
               ┌────────────▼──┐  ┌────▼──────────────┐
               │  api.ptah.live │  │   ptah.live        │
               │  A → Droplet   │  │   A → Droplet      │
-              │  167.71.9.106  │  │   (temporary, will  │
+              │  <DROPLET_IP>  │  │   (temporary, will  │
               └───────┬────────┘  │   switch to App     │
                       │           │   Platform CNAME)   │
               ┌───────▼────────┐  └────┬───────────────┘
@@ -45,7 +45,7 @@
 ### 1. DigitalOcean Droplet ✅
 
 - **Name**: `ptah-api-prod`
-- **IP**: `167.71.9.106`
+- **IP**: `<DROPLET_IP>`
 - **Region**: AMS3 (Amsterdam)
 - **Spec**: 1GB RAM / 25GB Disk / Ubuntu 24.04 LTS x64
 - **Cost**: ~$6/month
@@ -71,7 +71,7 @@ All 6 secrets configured at: `github.com/Hive-Academy/ptah-extension/settings/se
 | --------------------------- | ------------------------------ | ------------------------------------------- |
 | `DIGITALOCEAN_ACCESS_TOKEN` | DO API access for `doctl`      | DO API token (90-day, custom scopes)        |
 | `DO_APP_ID`                 | App Platform deployment target | `7f4271fb-ff47-4cb7-bb97-8a2aed6eefe3`      |
-| `DROPLET_HOST`              | SSH target for server deploy   | `167.71.9.106`                              |
+| `DROPLET_HOST`              | SSH target for server deploy   | `<DROPLET_IP>`                              |
 | `DROPLET_USER`              | SSH user                       | `root`                                      |
 | `DROPLET_SSH_KEY`           | SSH private key for CI/CD      | `id_ed25519` private key                    |
 | `GHCR_PAT`                  | Push Docker images to GHCR     | GitHub PAT (90-day, `write:packages` scope) |
@@ -91,8 +91,8 @@ All 6 secrets configured at: `github.com/Hive-Academy/ptah-extension/settings/se
 
 | Type | Hostname        | Value                  | TTL  |
 | ---- | --------------- | ---------------------- | ---- |
-| A    | `ptah.live`     | `167.71.9.106`         | 3600 |
-| A    | `api.ptah.live` | `167.71.9.106`         | 3600 |
+| A    | `ptah.live`     | `<DROPLET_IP>`         | 3600 |
+| A    | `api.ptah.live` | `<DROPLET_IP>`         | 3600 |
 | NS   | `ptah.live`     | `ns1.digitalocean.com` | 1800 |
 | NS   | `ptah.live`     | `ns2.digitalocean.com` | 1800 |
 | NS   | `ptah.live`     | `ns3.digitalocean.com` | 1800 |
@@ -121,12 +121,12 @@ All 6 secrets configured at: `github.com/Hive-Academy/ptah-extension/settings/se
 
 ### Phase 2: Configure the Droplet ✅
 
-SSH into `167.71.9.106` (completed 2026-03-12):
+SSH into `<DROPLET_IP>` (completed 2026-03-12):
 
 1. **Install Docker & Docker Compose**
 
    ```bash
-   ssh root@167.71.9.106
+   ssh root@<DROPLET_IP>
    apt update && apt upgrade -y
    curl -fsSL https://get.docker.com | sh
    ```
@@ -162,9 +162,9 @@ SSH into `167.71.9.106` (completed 2026-03-12):
    ```bash
    mkdir -p /opt/ptah-extension/caddy
    # Copy docker-compose.prod.yml, caddy/Caddyfile, and .env.prod via SCP
-   scp -i ~/.ssh/id_ed25519_ptah docker-compose.prod.yml root@167.71.9.106:/opt/ptah-extension/
-   scp -i ~/.ssh/id_ed25519_ptah caddy/Caddyfile root@167.71.9.106:/opt/ptah-extension/caddy/
-   scp -i ~/.ssh/id_ed25519_ptah .env.prod root@167.71.9.106:/opt/ptah-extension/
+   scp -i ~/.ssh/id_ed25519_ptah docker-compose.prod.yml root@<DROPLET_IP>:/opt/ptah-extension/
+   scp -i ~/.ssh/id_ed25519_ptah caddy/Caddyfile root@<DROPLET_IP>:/opt/ptah-extension/caddy/
+   scp -i ~/.ssh/id_ed25519_ptah .env.prod root@<DROPLET_IP>:/opt/ptah-extension/
    ln -sf .env.prod .env  # docker-compose needs .env for variable interpolation
    ```
 

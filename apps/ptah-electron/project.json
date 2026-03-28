@@ -57,7 +57,8 @@
           "fast-glob",
           "p-limit",
           "p-queue",
-          "axios"
+          "axios",
+          "node-pty"
         ],
         "assets": [
           {

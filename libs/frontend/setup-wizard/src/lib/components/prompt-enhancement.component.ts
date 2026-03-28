@@ -56,110 +56,122 @@ import { EnhancedPromptsSummaryCardComponent } from './cards/enhanced-prompts-su
       <!-- Status Card -->
       <div class="border border-base-300 rounded-md bg-base-200/50 mb-4">
         <div class="p-3">
-          @switch (status()) { @case ('idle') {
-          <div class="flex flex-col items-center gap-2 py-3">
-            <span
-              class="loading loading-spinner loading-sm text-warning"
-            ></span>
-            <p class="text-xs text-base-content/70 text-center">
-              Preparing to generate project-specific guidance...
-            </p>
-          </div>
-          } @case ('generating') {
-          <div class="flex flex-col items-center gap-2 py-3">
-            <span
-              class="loading loading-spinner loading-sm text-warning"
-            ></span>
-            <p class="text-sm text-base-content/70 text-center">
-              Generating project-specific prompt guidance from analysis data...
-            </p>
-            <p class="text-sm text-base-content/50">
-              This may take a minute while the AI crafts tailored instructions.
-            </p>
-          </div>
-          } @case ('complete') {
-          <div class="flex flex-col items-center gap-2 py-3">
-            <lucide-angular
-              [img]="CircleCheckIcon"
-              class="h-8 w-8 text-success"
-              aria-hidden="true"
-            />
-            <div class="text-center">
-              <p class="font-semibold text-sm mb-1">
-                Enhanced prompts generated successfully!
-              </p>
-              @if (detectedStack().length > 0) {
-              <p class="text-sm text-base-content/70 mb-2">Detected stack:</p>
-              <div class="flex flex-wrap justify-center gap-1">
-                @for (tech of detectedStack(); track tech) {
-                <span class="badge badge-info badge-sm">{{ tech }}</span>
-                }
+          @switch (status()) {
+            @case ('idle') {
+              <div class="flex flex-col items-center gap-2 py-3">
+                <span
+                  class="loading loading-spinner loading-sm text-warning"
+                ></span>
+                <p class="text-xs text-base-content/70 text-center">
+                  Preparing to generate project-specific guidance...
+                </p>
               </div>
-              }
-            </div>
-            @if (enhancedPromptsSummary(); as summary) {
-            <div class="mt-3 w-full max-w-md mx-auto">
-              <ptah-enhanced-prompts-summary-card [summary]="summary" />
-            </div>
             }
-          </div>
-          } @case ('error') {
-          <div class="flex flex-col items-center gap-2 py-3">
-            <lucide-angular
-              [img]="CircleAlertIcon"
-              class="h-8 w-8 text-error"
-              aria-hidden="true"
-            />
-            <div class="text-center">
-              <p class="font-semibold text-sm mb-1">
-                Failed to generate enhanced prompts
-              </p>
-              @if (errorMsg()) {
-              <p class="text-sm text-error mb-2">
-                {{ errorMsg() }}
-              </p>
-              }
-              <button
-                class="btn btn-error btn-sm"
-                (click)="onRetry()"
-                aria-label="Retry enhanced prompts generation"
-              >
+            @case ('generating') {
+              <div class="flex flex-col items-center gap-2 py-3">
+                <span
+                  class="loading loading-spinner loading-sm text-warning"
+                ></span>
+                <p class="text-sm text-base-content/70 text-center">
+                  Generating project-specific prompt guidance from analysis
+                  data...
+                </p>
+                <p class="text-sm text-base-content/50">
+                  This may take a minute while the AI crafts tailored
+                  instructions.
+                </p>
+              </div>
+            }
+            @case ('complete') {
+              <div class="flex flex-col items-center gap-2 py-3">
                 <lucide-angular
-                  [img]="RotateCwIcon"
-                  class="h-4 w-4"
+                  [img]="CircleCheckIcon"
+                  class="h-8 w-8 text-success"
                   aria-hidden="true"
                 />
-                Retry
-              </button>
-            </div>
-          </div>
-          } @case ('skipped') {
-          <div class="flex flex-col items-center gap-2 py-3">
-            <lucide-angular
-              [img]="SkipForwardIcon"
-              class="h-8 w-8 text-base-content/40"
-              aria-hidden="true"
-            />
-            <p class="text-sm text-base-content/60">
-              Enhanced prompts generation skipped.
-            </p>
-          </div>
-          } }
+                <div class="text-center">
+                  <p class="font-semibold text-sm mb-1">
+                    Enhanced prompts generated successfully!
+                  </p>
+                  @if (detectedStack().length > 0) {
+                    <p class="text-sm text-base-content/70 mb-2">
+                      Detected stack:
+                    </p>
+                    <div class="flex flex-wrap justify-center gap-1">
+                      @for (tech of detectedStack(); track tech) {
+                        <span class="badge badge-info badge-sm">{{
+                          tech
+                        }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+                @if (enhancedPromptsSummary(); as summary) {
+                  <div class="mt-3 w-full max-w-md mx-auto">
+                    <ptah-enhanced-prompts-summary-card [summary]="summary" />
+                  </div>
+                }
+              </div>
+            }
+            @case ('error') {
+              <div class="flex flex-col items-center gap-2 py-3">
+                <lucide-angular
+                  [img]="CircleAlertIcon"
+                  class="h-8 w-8 text-error"
+                  aria-hidden="true"
+                />
+                <div class="text-center">
+                  <p class="font-semibold text-sm mb-1">
+                    Failed to generate enhanced prompts
+                  </p>
+                  @if (errorMsg()) {
+                    <p class="text-sm text-error mb-2">
+                      {{ errorMsg() }}
+                    </p>
+                  }
+                  <button
+                    class="btn btn-error btn-sm"
+                    (click)="onRetry()"
+                    aria-label="Retry enhanced prompts generation"
+                  >
+                    <lucide-angular
+                      [img]="RotateCwIcon"
+                      class="h-4 w-4"
+                      aria-hidden="true"
+                    />
+                    Retry
+                  </button>
+                </div>
+              </div>
+            }
+            @case ('skipped') {
+              <div class="flex flex-col items-center gap-2 py-3">
+                <lucide-angular
+                  [img]="SkipForwardIcon"
+                  class="h-8 w-8 text-base-content/40"
+                  aria-hidden="true"
+                />
+                <p class="text-sm text-base-content/60">
+                  Enhanced prompts generation skipped.
+                </p>
+              </div>
+            }
+          }
         </div>
       </div>
 
       <!-- Agent Activity (collapsible stream transcript) -->
       @if (hasStreamMessages()) {
-      <div class="collapse collapse-arrow bg-base-200 mb-3">
-        <input type="checkbox" aria-label="Toggle agent activity log" />
-        <div class="collapse-title text-sm font-medium">
-          Agent Activity
-          <span class="badge badge-sm ml-2">{{ streamMessageCount() }}</span>
+        <div class="collapse collapse-arrow bg-base-200 mb-3">
+          <input type="checkbox" aria-label="Toggle agent activity log" />
+          <div class="collapse-title text-sm font-medium">
+            Agent Activity
+            <span class="badge badge-sm ml-2">{{ streamMessageCount() }}</span>
+          </div>
+          <div class="collapse-content">
+            <ptah-analysis-transcript />
+          </div>
         </div>
-        <div class="collapse-content">
-          <ptah-analysis-transcript [messages]="enhanceStream()" />
-        </div>
-      </div>
       }
 
       <!-- Footer Buttons -->
@@ -227,14 +239,14 @@ export class PromptEnhancementComponent {
    * Whether there are any enhance stream messages to display.
    */
   protected readonly hasStreamMessages = computed(
-    () => this.enhanceStream().length > 0
+    () => this.enhanceStream().length > 0,
   );
 
   /**
    * Count of enhance stream messages for the badge.
    */
   protected readonly streamMessageCount = computed(
-    () => this.enhanceStream().length
+    () => this.enhanceStream().length,
   );
 
   /**
@@ -264,7 +276,7 @@ export class PromptEnhancementComponent {
       if (!multiPhase) {
         this.wizardState.setEnhancedPromptsStatus('error');
         this.wizardState.setEnhancedPromptsError(
-          'No analysis data available. Please re-run the wizard scan.'
+          'No analysis data available. Please re-run the wizard scan.',
         );
         return;
       }
@@ -272,7 +284,7 @@ export class PromptEnhancementComponent {
       // Pass analysisDir so backend reads all phase markdown files.
       const result = await this.wizardRpc.runEnhancedPromptsWizard(
         workspacePath,
-        multiPhase.analysisDir
+        multiPhase.analysisDir,
       );
 
       if (result.success) {
@@ -300,14 +312,14 @@ export class PromptEnhancementComponent {
         } else {
           this.wizardState.setEnhancedPromptsStatus('error');
           this.wizardState.setEnhancedPromptsError(
-            result.error ?? 'Failed to generate Enhanced Prompts'
+            result.error ?? 'Failed to generate Enhanced Prompts',
           );
         }
       }
     } catch (error) {
       this.wizardState.setEnhancedPromptsStatus('error');
       this.wizardState.setEnhancedPromptsError(
-        error instanceof Error ? error.message : 'Unexpected error'
+        error instanceof Error ? error.message : 'Unexpected error',
       );
     }
   }

@@ -50,7 +50,7 @@ import {
           [viewportConfig]="subheadlineConfig"
           class="text-base sm:text-lg md:text-xl text-base-content/70 mb-8 sm:mb-10 md:mb-12 max-w-2xl mx-auto"
         >
-          14 days free. No credit card required. Works with OpenAI, Claude,
+          30 days free. No credit card required. Works with OpenAI, Claude,
           GitHub Copilot, and more.
         </p>
 
@@ -125,7 +125,7 @@ export class CTASectionComponent {
    * Trust signals displayed with staggered fadeIn animations
    */
   public readonly trustSignals = [
-    '14-Day Free Trial',
+    '30-Day Free Trial',
     'No Credit Card Required',
     'Cancel Anytime',
   ];

@@ -22,6 +22,8 @@ export * from './rpc/rpc-providers.types';
 export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
+export * from './rpc/rpc-git.types';
+export * from './rpc/rpc-terminal.types';
 
 // ============================================================
 // Imports for RpcMethodRegistry (types used only in registry entries)
@@ -175,6 +177,24 @@ import type {
 } from './rpc/rpc-agents.types';
 
 import type {
+  GitInfoParams,
+  GitInfoResult,
+  GitWorktreesParams,
+  GitWorktreesResult,
+  GitAddWorktreeParams,
+  GitAddWorktreeResult,
+  GitRemoveWorktreeParams,
+  GitRemoveWorktreeResult,
+} from './rpc/rpc-git.types';
+
+import type {
+  TerminalCreateParams,
+  TerminalCreateResult,
+  TerminalKillParams,
+  TerminalKillResult,
+} from './rpc/rpc-terminal.types';
+
+import type {
   ContextGetAllFilesParams,
   ContextGetAllFilesResult,
   ContextGetFileSuggestionsParams,
@@ -189,6 +209,8 @@ import type {
   LicenseGetStatusResponse,
   LicenseSetKeyParams,
   LicenseSetKeyResponse,
+  LicenseClearKeyParams,
+  LicenseClearKeyResponse,
   CommandExecuteParams,
   CommandExecuteResponse,
   QualityGetAssessmentParams,
@@ -391,6 +413,10 @@ export interface RpcMethodRegistry {
   'license:setKey': {
     params: LicenseSetKeyParams;
     result: LicenseSetKeyResponse;
+  };
+  'license:clearKey': {
+    params: LicenseClearKeyParams;
+    result: LicenseClearKeyResponse;
   };
 
   // ---- Command Methods (TASK_2025_126) ----
@@ -750,6 +776,25 @@ export interface RpcMethodRegistry {
       result?: { imported: string[]; skipped: string[]; errors: string[] };
     };
   };
+
+  // ---- Git Methods (TASK_2025_227) ----
+  'git:info': { params: GitInfoParams; result: GitInfoResult };
+  'git:worktrees': { params: GitWorktreesParams; result: GitWorktreesResult };
+  'git:addWorktree': {
+    params: GitAddWorktreeParams;
+    result: GitAddWorktreeResult;
+  };
+  'git:removeWorktree': {
+    params: GitRemoveWorktreeParams;
+    result: GitRemoveWorktreeResult;
+  };
+
+  // ---- Terminal Methods (TASK_2025_227) ----
+  'terminal:create': {
+    params: TerminalCreateParams;
+    result: TerminalCreateResult;
+  };
+  'terminal:kill': { params: TerminalKillParams; result: TerminalKillResult };
 }
 
 /**
@@ -931,6 +976,16 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Electron Settings Methods (TASK_2025_210)
   'settings:export',
   'settings:import',
+
+  // Git Methods (TASK_2025_227)
+  'git:info',
+  'git:worktrees',
+  'git:addWorktree',
+  'git:removeWorktree',
+
+  // Terminal Methods (TASK_2025_227)
+  'terminal:create',
+  'terminal:kill',
 ] as const;
 
 /**

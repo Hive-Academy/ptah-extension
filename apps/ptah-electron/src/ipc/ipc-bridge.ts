@@ -27,6 +27,7 @@ import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import type { PtyManagerService } from '../services/pty-manager.service';
 
 /**
  * Callback type for obtaining the BrowserWindow's webContents.send method.
@@ -58,11 +59,12 @@ export class IpcBridge {
 
   constructor(
     private readonly container: DependencyContainer,
-    private readonly getWindow: GetWindowFn
+    private readonly getWindow: GetWindowFn,
+    private readonly ptyManager?: PtyManagerService,
   ) {
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
     this.stateStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
   }
 
@@ -74,6 +76,7 @@ export class IpcBridge {
   initialize(): void {
     this.setupRpcHandler();
     this.setupStateHandlers();
+    this.setupTerminalHandlers();
     console.log('[IpcBridge] IPC listeners initialized');
   }
 
@@ -109,7 +112,7 @@ export class IpcBridge {
         // Validate message structure
         if (!message || typeof message !== 'object') {
           console.warn(
-            '[IpcBridge] Received invalid RPC message (not an object)'
+            '[IpcBridge] Received invalid RPC message (not an object)',
           );
           return;
         }
@@ -131,7 +134,7 @@ export class IpcBridge {
         if (!method) {
           console.warn(
             '[IpcBridge] Received RPC message without method field',
-            { messageType: msg['type'] }
+            { messageType: msg['type'] },
           );
           // Send error response if we have a correlationId
           if (correlationId) {
@@ -168,7 +171,7 @@ export class IpcBridge {
           error instanceof Error ? error.message : String(error);
         console.error(
           '[IpcBridge] Unexpected error handling RPC message:',
-          errorMessage
+          errorMessage,
         );
 
         // Attempt to send error response
@@ -194,7 +197,7 @@ export class IpcBridge {
         } catch {
           // Last-resort: log and swallow to prevent cascading crashes
           console.error(
-            '[IpcBridge] Failed to send error response to renderer'
+            '[IpcBridge] Failed to send error response to renderer',
           );
         }
       }
@@ -221,7 +224,7 @@ export class IpcBridge {
       } catch (error) {
         console.error(
           '[IpcBridge] Failed to get state:',
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
         event.returnValue = {};
       }
@@ -234,10 +237,59 @@ export class IpcBridge {
       } catch (error) {
         console.error(
           '[IpcBridge] Failed to set state:',
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
       }
     });
+  }
+
+  /**
+   * Setup terminal binary IPC handlers (TASK_2025_227).
+   *
+   * Terminal data uses direct IPC channels for low-latency communication:
+   * - terminal:data-in  (renderer -> main): Keyboard input forwarded to PTY
+   * - terminal:resize    (renderer -> main): Terminal dimension changes
+   * - terminal:data-out  (main -> renderer): PTY output forwarded to xterm
+   * - terminal:exit      (main -> renderer): PTY process exit notification
+   *
+   * Only session lifecycle (terminal:create, terminal:kill) uses JSON RPC.
+   */
+  private setupTerminalHandlers(): void {
+    if (!this.ptyManager) return;
+
+    // Renderer -> Main: terminal keyboard input
+    ipcMain.on(
+      'terminal:data-in',
+      (_event: IpcMainEvent, id: string, data: string) => {
+        this.ptyManager!.write(id, data);
+      },
+    );
+
+    // Renderer -> Main: terminal resize
+    ipcMain.on(
+      'terminal:resize',
+      (_event: IpcMainEvent, id: string, cols: number, rows: number) => {
+        this.ptyManager!.resize(id, cols, rows);
+      },
+    );
+
+    // Main -> Renderer: PTY output data
+    this.ptyManager.onData((id: string, data: string) => {
+      const win = this.getWindow();
+      if (win) {
+        win.webContents.send('terminal:data-out', id, data);
+      }
+    });
+
+    // Main -> Renderer: PTY exit notification
+    this.ptyManager.onExit((id: string, exitCode: number) => {
+      const win = this.getWindow();
+      if (win) {
+        win.webContents.send('terminal:exit', id, exitCode);
+      }
+    });
+
+    console.log('[IpcBridge] Terminal IPC handlers initialized');
   }
 
   /**
@@ -247,6 +299,9 @@ export class IpcBridge {
     ipcMain.removeAllListeners('rpc');
     ipcMain.removeAllListeners('get-state');
     ipcMain.removeAllListeners('set-state');
+    ipcMain.removeAllListeners('terminal:data-in');
+    ipcMain.removeAllListeners('terminal:resize');
+    this.ptyManager?.disposeAll();
     console.log('[IpcBridge] IPC listeners disposed');
   }
 }

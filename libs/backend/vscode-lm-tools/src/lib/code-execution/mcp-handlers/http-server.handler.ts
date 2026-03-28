@@ -3,16 +3,15 @@
  *
  * Manages the HTTP server for MCP protocol communication.
  * Handles CORS, request parsing, and response formatting.
- *
- * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
- * because it uses vscode.workspace.getConfiguration() for MCP port config.
- * The public interface uses IStateStorage (platform-core) for state persistence.
+ * Uses platform-core interfaces for all configuration access.
  */
 
 import * as http from 'http';
-import * as vscode from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import type {
+  IStateStorage,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type { MCPRequest, MCPResponse } from '../types';
 
 /**
@@ -34,13 +33,19 @@ export interface HttpServerResult {
 }
 
 /**
- * Get MCP server port from VS Code configuration
+ * Get MCP server port from platform configuration.
  * Default: 51820 (chosen to avoid common port conflicts)
+ *
+ * @param workspaceProvider - Platform-agnostic configuration access
+ * @returns Configured port number, defaulting to 51820
  */
-export function getConfiguredPort(): number {
-  return vscode.workspace
-    .getConfiguration('ptah')
-    .get<number>('mcpPort', 51820);
+export function getConfiguredPort(
+  workspaceProvider: IWorkspaceProvider,
+): number {
+  return (
+    workspaceProvider.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
+    51820
+  );
 }
 
 /**

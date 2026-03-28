@@ -22,6 +22,8 @@ import type {
   LicenseGetStatusResponse,
   LicenseSetKeyParams,
   LicenseSetKeyResponse,
+  LicenseClearKeyParams,
+  LicenseClearKeyResponse,
   LicenseTier,
 } from '@ptah-extension/shared';
 
@@ -57,9 +59,10 @@ export class LicenseRpcHandlers {
   register(): void {
     this.registerGetStatus();
     this.registerSetKey();
+    this.registerClearKey();
 
     this.logger.debug('License RPC handlers registered', {
-      methods: ['license:getStatus', 'license:setKey'],
+      methods: ['license:getStatus', 'license:setKey', 'license:clearKey'],
     });
   }
 
@@ -221,6 +224,45 @@ export class LicenseRpcHandlers {
         }
       },
     );
+  }
+
+  /**
+   * license:clearKey - Clear the license key and reload
+   *
+   * Called from the settings page logout button.
+   * Removes the key from SecretStorage and triggers a window reload.
+   */
+  private registerClearKey(): void {
+    this.rpcHandler.registerMethod<
+      LicenseClearKeyParams,
+      LicenseClearKeyResponse
+    >('license:clearKey', async () => {
+      try {
+        this.logger.debug('RPC: license:clearKey called');
+
+        await this.licenseService.clearLicenseKey();
+
+        this.logger.info('RPC: license:clearKey - license key removed');
+
+        // Schedule window reload to apply changes
+        // Delay allows the RPC response to reach the webview first
+        setTimeout(() => this.platformCommands.reloadWindow(), 1500);
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: license:clearKey failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Failed to clear license key',
+        };
+      }
+    });
   }
 
   /**
