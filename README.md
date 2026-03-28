@@ -31,10 +31,10 @@ Download the standalone desktop app for your platform from [GitHub Releases](htt
 
 ### Create Your Account & Activate
 
-1. Visit [ptah.live/signup](https://ptah.live/signup) — no credit card required. Your **14-day Pro trial** activates automatically.
+1. Visit [ptah.live/signup](https://ptah.live/signup) — no credit card required. Your **30-day Pro trial** activates automatically.
 2. Sign in from within Ptah (VS Code sidebar or desktop app) — your Pro trial license activates automatically.
 
-> **Pro Trial includes**: All 13 AI agents, orchestration workflows, multi-provider support, plugin system, and full setup wizard — free for 14 days.
+> **Pro Trial includes**: All 13 AI agents, orchestration workflows, multi-provider support, plugin system, and full setup wizard — free for 30 days.
 
 ---
 
