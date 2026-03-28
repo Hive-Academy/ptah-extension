@@ -554,13 +554,19 @@ export class MultiPhaseAnalysisService {
     let capturedResultText: string | null = null;
     const textChunks: string[] = [];
 
-    // TASK_2025_229: Conversion state for FlatStreamEventUnion generation.
-    // Synthetic IDs tie all events in this phase together for tree building.
-    const syntheticMessageId = `wizard-phase-${phaseId}`;
-    const syntheticSessionId = `wizard-${phaseId}`;
-    let eventCounter = 0;
-    let textBlockIndex = 0;
-    let thinkingBlockIndex = 0;
+    // TASK_2025_229: Conversion context for FlatStreamEventUnion generation.
+    // Tracks mutable state (counters, active tool ID) across events within this phase.
+    const convCtx = {
+      messageId: `wizard-phase-${phaseId}`,
+      sessionId: `wizard-${phaseId}`,
+      counter: 0,
+      textBlockIndex: 0,
+      thinkingBlockIndex: 0,
+      /** Track the active tool's callId so tool_input/tool_result correlate correctly */
+      activeToolCallId: null as string | null,
+      /** Whether a thinking_start has been emitted for the current thinking block */
+      thinkingStartEmitted: false,
+    };
 
     const emitter: StreamEventEmitter = {
       emit: (event: StreamEvent) => {
@@ -573,17 +579,7 @@ export class MultiPhaseAnalysisService {
         const flatEvent = this.convertStreamEventToFlatEvent(
           event,
           phaseId,
-          syntheticMessageId,
-          syntheticSessionId,
-          eventCounter++,
-          () => textBlockIndex,
-          (val: number) => {
-            textBlockIndex = val;
-          },
-          () => thinkingBlockIndex,
-          (val: number) => {
-            thinkingBlockIndex = val;
-          },
+          convCtx,
         );
 
         // Forward to frontend stream display with optional flatEvent attached
@@ -603,8 +599,8 @@ export class MultiPhaseAnalysisService {
         id: `${phaseId}-msg-start`,
         eventType: 'message_start',
         timestamp: Date.now(),
-        sessionId: syntheticSessionId,
-        messageId: syntheticMessageId,
+        sessionId: convCtx.sessionId,
+        messageId: convCtx.messageId,
         role: 'assistant',
       } as MessageStartEvent,
     });
@@ -636,8 +632,8 @@ export class MultiPhaseAnalysisService {
         id: `${phaseId}-msg-complete`,
         eventType: 'message_complete',
         timestamp: Date.now(),
-        sessionId: syntheticSessionId,
-        messageId: syntheticMessageId,
+        sessionId: convCtx.sessionId,
+        messageId: convCtx.messageId,
       } as MessageCompleteEvent,
     });
 
@@ -733,19 +729,21 @@ export class MultiPhaseAnalysisService {
   private convertStreamEventToFlatEvent(
     event: StreamEvent,
     phaseId: MultiPhaseId,
-    syntheticMessageId: string,
-    syntheticSessionId: string,
-    counter: number,
-    getTextBlockIndex: () => number,
-    setTextBlockIndex: (val: number) => void,
-    getThinkingBlockIndex: () => number,
-    setThinkingBlockIndex: (val: number) => void,
+    ctx: {
+      messageId: string;
+      sessionId: string;
+      counter: number;
+      textBlockIndex: number;
+      thinkingBlockIndex: number;
+      activeToolCallId: string | null;
+      thinkingStartEmitted: boolean;
+    },
   ): FlatStreamEventUnion | null {
     const baseFields = {
-      id: `${phaseId}-${counter}`,
+      id: `${phaseId}-${ctx.counter++}`,
       timestamp: event.timestamp,
-      sessionId: syntheticSessionId,
-      messageId: syntheticMessageId,
+      sessionId: ctx.sessionId,
+      messageId: ctx.messageId,
     };
 
     switch (event.kind) {
@@ -754,26 +752,49 @@ export class MultiPhaseAnalysisService {
           ...baseFields,
           eventType: 'text_delta',
           delta: event.content,
-          blockIndex: getTextBlockIndex(),
+          blockIndex: ctx.textBlockIndex,
         } as TextDeltaEvent;
 
-      case 'thinking':
+      case 'thinking': {
+        // Emit thinking_start on first thinking delta for this block
+        if (!ctx.thinkingStartEmitted) {
+          ctx.thinkingStartEmitted = true;
+          this.broadcastStreamMessage({
+            kind: 'status',
+            content: '',
+            timestamp: event.timestamp,
+            flatEvent: {
+              ...baseFields,
+              id: `${phaseId}-thinking-start-${ctx.thinkingBlockIndex}`,
+              eventType: 'thinking_start',
+              blockIndex: ctx.thinkingBlockIndex,
+            } as FlatStreamEventUnion,
+          });
+          // New id for the actual delta event
+          baseFields.id = `${phaseId}-${ctx.counter++}`;
+        }
         return {
           ...baseFields,
           eventType: 'thinking_delta',
           delta: event.content,
-          blockIndex: getThinkingBlockIndex(),
+          blockIndex: ctx.thinkingBlockIndex,
         } as ThinkingDeltaEvent;
+      }
 
       case 'tool_start': {
-        // Increment text block index when a tool starts — the next text delta
-        // after this tool will be a new block (consistent with chat pipeline).
-        setTextBlockIndex(getTextBlockIndex() + 1);
-        setThinkingBlockIndex(getThinkingBlockIndex() + 1);
+        // Increment block indices — next text/thinking after this tool is a new block
+        ctx.textBlockIndex++;
+        ctx.thinkingBlockIndex++;
+        ctx.thinkingStartEmitted = false;
+
+        // Store toolCallId so subsequent tool_input/tool_result correlate correctly
+        const toolCallId = event.toolCallId ?? `${phaseId}-tool-${ctx.counter}`;
+        ctx.activeToolCallId = toolCallId;
+
         return {
           ...baseFields,
           eventType: 'tool_start',
-          toolCallId: event.toolCallId ?? `${phaseId}-tool-${counter}`,
+          toolCallId,
           toolName: event.toolName ?? 'unknown',
           isTaskTool: false,
         } as ToolStartEvent;
@@ -783,7 +804,8 @@ export class MultiPhaseAnalysisService {
         return {
           ...baseFields,
           eventType: 'tool_delta',
-          toolCallId: event.toolCallId ?? `${phaseId}-tool-${counter}`,
+          toolCallId:
+            event.toolCallId ?? ctx.activeToolCallId ?? `${phaseId}-tool-unk`,
           delta: event.content,
         } as ToolDeltaEvent;
 
@@ -791,15 +813,14 @@ export class MultiPhaseAnalysisService {
         return {
           ...baseFields,
           eventType: 'tool_result',
-          toolCallId: event.toolCallId ?? `${phaseId}-tool-${counter}`,
+          toolCallId:
+            event.toolCallId ?? ctx.activeToolCallId ?? `${phaseId}-tool-unk`,
           output: event.content,
           isError: event.isError ?? false,
         } as ToolResultEvent;
 
       case 'error':
       case 'status':
-        // No FlatStreamEventUnion equivalent — these are handled by
-        // the existing AnalysisStreamPayload kind field.
         return null;
 
       default:

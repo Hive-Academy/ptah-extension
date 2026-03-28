@@ -184,12 +184,12 @@ Note: The block changes from `export type { ... }` to `export { ..., type ... }`
 
 ---
 
-## Batch 2: Frontend State + Rendering [PENDING]
+## Batch 2: Frontend State + Rendering [IMPLEMENTED]
 
 **Developer**: frontend-developer
 **Tasks**: 2 | **Dependencies**: Batch 1
 
-### Task 2.1: Feed flat events into StreamingState in SetupWizardStateService [PENDING]
+### Task 2.1: Feed flat events into StreamingState in SetupWizardStateService [IMPLEMENTED]
 
 **File**: `D:\projects\ptah-extension\libs\frontend\setup-wizard\src\lib\services\setup-wizard-state.service.ts`
 
@@ -362,7 +362,7 @@ Note: The block changes from `export type { ... }` to `export { ..., type ... }`
 
 ---
 
-### Task 2.2: Rewrite AnalysisTranscriptComponent to use ExecutionNodeComponent + Update AnalysisStatsDashboardComponent [PENDING]
+### Task 2.2: Rewrite AnalysisTranscriptComponent to use ExecutionNodeComponent + Update AnalysisStatsDashboardComponent [IMPLEMENTED]
 
 **Files to modify**:
 

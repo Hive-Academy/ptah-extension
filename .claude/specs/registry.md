@@ -34,3 +34,4 @@
 | TASK_2025_227 | Workspace Context Panel — Evolve editor into worktree-aware panel with git info bar, multi-tab terminal (xterm+node-pty), and worktree management   | ✅ Complete | orchestrator | 2026-03-27 | 2026-03-27 |
 | TASK_2025_228 | Fix QA Review Findings — PTY orphans, git path spaces, staged/unstaged collision, terminal data buffer, rpcCall dedup, DI token centralization      | ✅ Complete | orchestrator | 2026-03-27 | 2026-03-27 |
 | TASK_2025_229 | Wire Wizard Transcript to Chat ExecutionTree Pipeline — Replace flat AnalysisStreamPayload with FlatStreamEventUnion, reuse ExecutionTreeBuilder    | 🔄 Active   | orchestrator | 2026-03-28 |            |
+| TASK_2025_230 | Open Source Preparation — FSL-1.1-MIT license migration, security audit, secret redaction, electron release consolidation                              | ✅ Complete | orchestrator | 2026-03-28 | 2026-03-28 |
