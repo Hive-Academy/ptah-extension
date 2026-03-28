@@ -28,6 +28,14 @@ import type {
   AnalysisPhase,
   AnalysisStreamPayload,
   ScanProgressPayload,
+  FlatStreamEventUnion,
+  MessageStartEvent,
+  TextDeltaEvent,
+  ThinkingDeltaEvent,
+  ToolStartEvent,
+  ToolDeltaEvent,
+  ToolResultEvent,
+  MessageCompleteEvent,
 } from '@ptah-extension/shared';
 import { SDK_TOKENS, SdkStreamProcessor } from '@ptah-extension/agent-sdk';
 import type {
@@ -546,6 +554,14 @@ export class MultiPhaseAnalysisService {
     let capturedResultText: string | null = null;
     const textChunks: string[] = [];
 
+    // TASK_2025_229: Conversion state for FlatStreamEventUnion generation.
+    // Synthetic IDs tie all events in this phase together for tree building.
+    const syntheticMessageId = `wizard-phase-${phaseId}`;
+    const syntheticSessionId = `wizard-${phaseId}`;
+    let eventCounter = 0;
+    let textBlockIndex = 0;
+    let thinkingBlockIndex = 0;
+
     const emitter: StreamEventEmitter = {
       emit: (event: StreamEvent) => {
         // Accumulate text chunks for fallback capture
@@ -553,10 +569,45 @@ export class MultiPhaseAnalysisService {
           textChunks.push(event.content);
         }
 
-        // Forward to frontend stream display
-        this.broadcastStreamMessage(event);
+        // TASK_2025_229: Convert StreamEvent to FlatStreamEventUnion
+        const flatEvent = this.convertStreamEventToFlatEvent(
+          event,
+          phaseId,
+          syntheticMessageId,
+          syntheticSessionId,
+          eventCounter++,
+          () => textBlockIndex,
+          (val: number) => {
+            textBlockIndex = val;
+          },
+          () => thinkingBlockIndex,
+          (val: number) => {
+            thinkingBlockIndex = val;
+          },
+        );
+
+        // Forward to frontend stream display with optional flatEvent attached
+        this.broadcastStreamMessage({
+          ...event,
+          flatEvent: flatEvent ?? undefined,
+        });
       },
     };
+
+    // TASK_2025_229: Emit message_start before processing the stream
+    this.broadcastStreamMessage({
+      kind: 'status',
+      content: `Phase ${phaseId} starting...`,
+      timestamp: Date.now(),
+      flatEvent: {
+        id: `${phaseId}-msg-start`,
+        eventType: 'message_start',
+        timestamp: Date.now(),
+        sessionId: syntheticSessionId,
+        messageId: syntheticMessageId,
+        role: 'assistant',
+      } as MessageStartEvent,
+    });
 
     // Wrap the stream to intercept result messages for text extraction
     const wrappedStream = this.createTextCapturingStream(
@@ -575,6 +626,20 @@ export class MultiPhaseAnalysisService {
     });
 
     const result = await processor.process(wrappedStream);
+
+    // TASK_2025_229: Emit message_complete after processing finishes
+    this.broadcastStreamMessage({
+      kind: 'status',
+      content: `Phase ${phaseId} complete`,
+      timestamp: Date.now(),
+      flatEvent: {
+        id: `${phaseId}-msg-complete`,
+        eventType: 'message_complete',
+        timestamp: Date.now(),
+        sessionId: syntheticSessionId,
+        messageId: syntheticMessageId,
+      } as MessageCompleteEvent,
+    });
 
     // Determine the final text:
     // Priority 1: result message's `result` field (the agent's full text response)
@@ -654,6 +719,91 @@ export class MultiPhaseAnalysisService {
       this.logger.debug(`${SERVICE_TAG} Failed to broadcast phase progress`, {
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+  }
+
+  /**
+   * Convert a StreamEvent (kind-based) to a FlatStreamEventUnion (eventType-based)
+   * for the ExecutionNode rendering pipeline.
+   *
+   * TASK_2025_229: Maps each StreamEvent kind to the corresponding FlatStreamEventUnion
+   * variant. Returns null for event kinds that have no FlatStreamEventUnion equivalent
+   * (error, status).
+   */
+  private convertStreamEventToFlatEvent(
+    event: StreamEvent,
+    phaseId: MultiPhaseId,
+    syntheticMessageId: string,
+    syntheticSessionId: string,
+    counter: number,
+    getTextBlockIndex: () => number,
+    setTextBlockIndex: (val: number) => void,
+    getThinkingBlockIndex: () => number,
+    setThinkingBlockIndex: (val: number) => void,
+  ): FlatStreamEventUnion | null {
+    const baseFields = {
+      id: `${phaseId}-${counter}`,
+      timestamp: event.timestamp,
+      sessionId: syntheticSessionId,
+      messageId: syntheticMessageId,
+    };
+
+    switch (event.kind) {
+      case 'text':
+        return {
+          ...baseFields,
+          eventType: 'text_delta',
+          delta: event.content,
+          blockIndex: getTextBlockIndex(),
+        } as TextDeltaEvent;
+
+      case 'thinking':
+        return {
+          ...baseFields,
+          eventType: 'thinking_delta',
+          delta: event.content,
+          blockIndex: getThinkingBlockIndex(),
+        } as ThinkingDeltaEvent;
+
+      case 'tool_start': {
+        // Increment text block index when a tool starts — the next text delta
+        // after this tool will be a new block (consistent with chat pipeline).
+        setTextBlockIndex(getTextBlockIndex() + 1);
+        setThinkingBlockIndex(getThinkingBlockIndex() + 1);
+        return {
+          ...baseFields,
+          eventType: 'tool_start',
+          toolCallId: event.toolCallId ?? `${phaseId}-tool-${counter}`,
+          toolName: event.toolName ?? 'unknown',
+          isTaskTool: false,
+        } as ToolStartEvent;
+      }
+
+      case 'tool_input':
+        return {
+          ...baseFields,
+          eventType: 'tool_delta',
+          toolCallId: event.toolCallId ?? `${phaseId}-tool-${counter}`,
+          delta: event.content,
+        } as ToolDeltaEvent;
+
+      case 'tool_result':
+        return {
+          ...baseFields,
+          eventType: 'tool_result',
+          toolCallId: event.toolCallId ?? `${phaseId}-tool-${counter}`,
+          output: event.content,
+          isError: event.isError ?? false,
+        } as ToolResultEvent;
+
+      case 'error':
+      case 'status':
+        // No FlatStreamEventUnion equivalent — these are handled by
+        // the existing AnalysisStreamPayload kind field.
+        return null;
+
+      default:
+        return null;
     }
   }
 
