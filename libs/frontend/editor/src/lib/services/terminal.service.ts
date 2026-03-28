@@ -97,6 +97,15 @@ export class TerminalService {
    */
   private readonly _xtermWriters = new Map<string, (data: string) => void>();
 
+  /**
+   * Buffer for terminal data that arrives before the Angular TerminalComponent
+   * mounts and registers its xterm writer. Data is stored in insertion order
+   * (array preserves order) and flushed when registerXtermWriter() is called.
+   *
+   * Cleaned up in: unregisterXtermWriter(), removeWorkspaceState(), cleanup()
+   */
+  private readonly _pendingDataBuffers = new Map<string, string[]>();
+
   /** Counter for generating sequential terminal tab names. */
   private _terminalCounter = 0;
 
@@ -113,6 +122,9 @@ export class TerminalService {
    * Register an xterm instance's write callback for data forwarding.
    * Called by TerminalComponent after xterm.js is initialized.
    *
+   * Flushes any pending data that arrived before the writer was registered,
+   * preserving insertion order. The buffer is cleared after flushing.
+   *
    * @param terminalId - The terminal session ID
    * @param writer - Callback that writes data to the xterm.js Terminal instance
    */
@@ -120,16 +132,27 @@ export class TerminalService {
     terminalId: string,
     writer: (data: string) => void,
   ): void {
+    // Flush any buffered data that arrived before the writer was registered
+    const pendingBuffer = this._pendingDataBuffers.get(terminalId);
+    if (pendingBuffer && pendingBuffer.length > 0) {
+      for (const chunk of pendingBuffer) {
+        writer(chunk);
+      }
+      this._pendingDataBuffers.delete(terminalId);
+    }
+
     this._xtermWriters.set(terminalId, writer);
   }
 
   /**
    * Unregister an xterm writer when the terminal component is destroyed.
+   * Also cleans up any pending data buffer to prevent memory leaks.
    *
    * @param terminalId - The terminal session ID to unregister
    */
   unregisterXtermWriter(terminalId: string): void {
     this._xtermWriters.delete(terminalId);
+    this._pendingDataBuffers.delete(terminalId);
   }
 
   // ============================================================================
@@ -217,8 +240,9 @@ export class TerminalService {
     // Kill the PTY session (ignore errors for already-exited terminals)
     await this.killTerminal(id);
 
-    // Remove the xterm writer
+    // Remove the xterm writer and pending data buffer
     this._xtermWriters.delete(id);
+    this._pendingDataBuffers.delete(id);
 
     const currentTabs = this._tabs();
     const tabIndex = currentTabs.findIndex((t) => t.id === id);
@@ -302,8 +326,38 @@ export class TerminalService {
   /**
    * Remove cached terminal state for a workspace.
    * Called when a workspace folder is removed from the layout.
+   *
+   * Kills all PTY sessions for the workspace (fire-and-forget) and cleans up
+   * xterm writers and pending data buffers BEFORE clearing tab state, since
+   * tab IDs are needed for the cleanup.
    */
   removeWorkspaceState(workspacePath: string): void {
+    // Collect terminal tabs BEFORE clearing state (otherwise tab IDs are lost)
+    let tabsToKill: TerminalTab[] = [];
+
+    if (this._activeWorkspacePath === workspacePath) {
+      // Active workspace: get tabs from the current signal
+      tabsToKill = this._tabs();
+    } else {
+      // Background workspace: get tabs from the workspace state cache
+      const cached = this._workspaceTerminalState.get(workspacePath);
+      if (cached) {
+        tabsToKill = cached.tabs;
+      }
+    }
+
+    // Kill PTY sessions and clean up writers/buffers for each terminal
+    for (const tab of tabsToKill) {
+      // Fire-and-forget: don't await since we're removing the workspace anyway.
+      // .catch() prevents unhandled promise rejections for already-exited terminals.
+      this.killTerminal(tab.id).catch(() => {
+        /* PTY may have already exited -- safe to ignore */
+      });
+      this._xtermWriters.delete(tab.id);
+      this._pendingDataBuffers.delete(tab.id);
+    }
+
+    // Clear the workspace state cache
     this._workspaceTerminalState.delete(workspacePath);
 
     // If the removed workspace was active, clear signals
@@ -332,6 +386,16 @@ export class TerminalService {
         // Run outside Angular zone to avoid unnecessary change detection
         // for high-frequency terminal data. The xterm canvas handles its own rendering.
         writer(data);
+      } else {
+        // Buffer data until the TerminalComponent mounts and registers its writer.
+        // This prevents data loss for output that arrives between PTY creation
+        // and Angular component initialization.
+        const buffer = this._pendingDataBuffers.get(id);
+        if (buffer) {
+          buffer.push(data);
+        } else {
+          this._pendingDataBuffers.set(id, [data]);
+        }
       }
     });
 
@@ -349,12 +413,14 @@ export class TerminalService {
   }
 
   /**
-   * Cleanup binary IPC listeners. Called on service destroy.
+   * Cleanup binary IPC listeners and all per-terminal resources.
+   * Called on service destroy.
    */
   private cleanup(): void {
     this._dataUnsubscribe?.();
     this._exitUnsubscribe?.();
     this._xtermWriters.clear();
+    this._pendingDataBuffers.clear();
   }
 
   // ============================================================================
