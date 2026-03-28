@@ -96,7 +96,6 @@ This shows you:
 ### Phase 1: Intake & Clarification
 
 1. **Understand the Request**
-
    - What content type is needed?
    - What feature/product is the focus?
    - Who is the target audience?
@@ -147,8 +146,8 @@ Follow the skill's investigation protocol:
 2. **Task History Mining**
 
    ```bash
-   Read(.claude/specs/registry.md)
-   Glob(.claude/specs/TASK_*/context.md)
+   Read(.ptah/specs/registry.md)
+   Glob(.ptah/specs/TASK_*/context.md)
    ```
 
 3. **Implementation Deep Dive**
@@ -171,8 +170,8 @@ Apply the loaded skill patterns to create:
 1. **Output to Task Tracking**
 
    ```bash
-   Write(.claude/specs/TASK_[ID]/content-specification.md)
-   Write(.claude/specs/TASK_[ID]/[content-type]-draft.md)
+   Write(.ptah/specs/TASK_[ID]/content-specification.md)
+   Write(.ptah/specs/TASK_[ID]/[content-type]-draft.md)
    ```
 
 2. **Provide Handoff Notes** for other agents (UI/UX, frontend)
@@ -274,9 +273,9 @@ Before delivering ANY content, verify against skill standards:
 
 ### Content Deliverables
 
-| Deliverable | Location                           | Status |
-| ----------- | ---------------------------------- | ------ |
-| [Type]      | .claude/specs/TASK\_[ID]/[file].md | Draft  |
+| Deliverable | Location                         | Status |
+| ----------- | -------------------------------- | ------ |
+| [Type]      | .ptah/specs/TASK\_[ID]/[file].md | Draft  |
 
 ### Technical Validation
 
@@ -366,7 +365,7 @@ Task("Create design system for project", subagent_type="ui-ux-designer")
 ```markdown
 **Design Request for Content**:
 
-- Content Spec: .claude/specs/TASK\_[ID]/content-specification.md
+- Content Spec: .ptah/specs/TASK\_[ID]/content-specification.md
 - Visual Needs: [Specific design requirements]
 - Priority: [Which sections first]
 ```
@@ -376,7 +375,7 @@ Task("Create design system for project", subagent_type="ui-ux-designer")
 ```markdown
 **Implementation Request**:
 
-- Content: .claude/specs/TASK\_[ID]/[content].md
+- Content: .ptah/specs/TASK\_[ID]/[content].md
 - Components Needed: [UI components]
 - SEO Requirements: [Meta, structured data]
 ```

@@ -177,7 +177,7 @@ class OrderService {
 
 ```bash
 # Discover ALL documents in task folder (NEVER assume what exists)
-Glob(.claude/specs/TASK_[ID]/**.md)
+Glob(.ptah/specs/TASK_[ID]/**.md)
 ```
 
 ### STEP 2: Read Task Assignment (PRIMARY PRIORITY)
@@ -185,7 +185,7 @@ Glob(.claude/specs/TASK_[ID]/**.md)
 ```bash
 # Check if team-leader created tasks.md
 if tasks.md exists:
-  Read(.claude/specs/TASK_[ID]/tasks.md)
+  Read(.ptah/specs/TASK_[ID]/tasks.md)
 
   # CRITICAL: Check for BATCH assignment
   # Look for batch marked "🔄 IN PROGRESS - Assigned to backend-developer"
@@ -219,10 +219,10 @@ if tasks.md exists:
 
 ```bash
 # Read implementation plan for context
-Read(.claude/specs/TASK_[ID]/implementation-plan.md)
+Read(.ptah/specs/TASK_[ID]/implementation-plan.md)
 
 # Read requirements for business context
-Read(.claude/specs/TASK_[ID]/task-description.md)
+Read(.ptah/specs/TASK_[ID]/task-description.md)
 ```
 
 ### STEP 4: Read Library Documentation
@@ -543,7 +543,7 @@ npx nx build backend-api
 4. **Update tasks.md status** (implementation status only, NOT commit):
 
 ```bash
-Edit(.claude/specs/TASK_[ID]/tasks.md)
+Edit(.ptah/specs/TASK_[ID]/tasks.md)
 # For EACH task in batch: Change "⏸️ PENDING" → "🔄 IMPLEMENTED"
 # NOTE: Team-leader will change to "✅ COMPLETE" after commit
 ```
@@ -894,7 +894,11 @@ if (!result.success) {
 // ✅ CORRECT: Constructor injection
 @Injectable()
 export class OrderService {
-  constructor(private readonly repository: OrderRepository, private readonly notifier: NotificationService, private readonly logger: Logger) {}
+  constructor(
+    private readonly repository: OrderRepository,
+    private readonly notifier: NotificationService,
+    private readonly logger: Logger,
+  ) {}
 
   async processOrder(orderId: string): Promise<Result<void>> {
     // Use injected dependencies
@@ -1060,7 +1064,7 @@ export class OrderService {
 
 - ✅ [file-path-1] (COMPLETE - real implementation)
 - ✅ [file-path-2] (COMPLETE - real implementation)
-- ✅ .claude/specs/TASK\_[ID]/tasks.md (status updated to 🔄 IMPLEMENTED)
+- ✅ .ptah/specs/TASK\_[ID]/tasks.md (status updated to 🔄 IMPLEMENTED)
 
 **Ready For**: Team-leader verification → Business-analyst review → Git commit
 

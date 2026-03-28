@@ -13,7 +13,7 @@
  * 4. Number of components/services
  *
  * Usage:
- *   node scripts/performance-baseline.mjs > .claude/specs/TASK_FE_001/performance-baseline.json
+ *   node scripts/performance-baseline.mjs > .ptah/specs/TASK_FE_001/performance-baseline.json
  */
 
 import { execSync } from 'child_process';
@@ -96,12 +96,12 @@ function countComponentsAndServices() {
   try {
     const componentFiles = execSync(
       `find "${appDir}" -type f -name "*.component.ts" | wc -l`,
-      { encoding: 'utf-8', shell: '/bin/bash' }
+      { encoding: 'utf-8', shell: '/bin/bash' },
     ).trim();
 
     const serviceFiles = execSync(
       `find "${appDir}" -type f -name "*.service.ts" | wc -l`,
-      { encoding: 'utf-8', shell: '/bin/bash' }
+      { encoding: 'utf-8', shell: '/bin/bash' },
     ).trim();
 
     return {
@@ -183,7 +183,7 @@ function getAngularMetrics() {
 
     const outputDecorators = execSync(
       `grep -r "@Output(" "${appDir}" | wc -l`,
-      { encoding: 'utf-8', shell: '/bin/bash' }
+      { encoding: 'utf-8', shell: '/bin/bash' },
     ).trim();
 
     // Count structural directives
@@ -200,7 +200,7 @@ function getAngularMetrics() {
     // Count OnPush usage
     const onPushUsage = execSync(
       `grep -r "ChangeDetectionStrategy.OnPush" "${appDir}" | wc -l`,
-      { encoding: 'utf-8', shell: '/bin/bash' }
+      { encoding: 'utf-8', shell: '/bin/bash' },
     ).trim();
 
     return {

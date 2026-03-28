@@ -47,7 +47,7 @@ export const SETUP_STATUS_SERVICE = Symbol.for('SetupStatusService');
  * Responsibilities: Coordinate 5-phase workflow (Analysis → Selection → Customization → Rendering → Writing)
  */
 export const AGENT_GENERATION_ORCHESTRATOR = Symbol.for(
-  'AgentGenerationOrchestratorService'
+  'AgentGenerationOrchestratorService',
 );
 
 // ========================================
@@ -81,7 +81,7 @@ export const AGENT_SELECTION_SERVICE = Symbol.for('AgentSelectionService');
  * Responsibilities: Score all 13 agents based on project analysis, categorize agents, generate recommendations
  */
 export const AGENT_RECOMMENDATION_SERVICE = Symbol.for(
-  'AgentRecommendationService'
+  'AgentRecommendationService',
 );
 
 // ========================================
@@ -93,7 +93,7 @@ export const AGENT_RECOMMENDATION_SERVICE = Symbol.for(
  * Responsibilities: Substitute variables, inject LLM sections, process conditionals, preserve static sections
  */
 export const CONTENT_GENERATION_SERVICE = Symbol.for(
-  'ContentGenerationService'
+  'ContentGenerationService',
 );
 
 /**
@@ -101,7 +101,7 @@ export const CONTENT_GENERATION_SERVICE = Symbol.for(
  * Responsibilities: Customize agent sections, validate outputs, batch customize via InternalQueryService
  */
 export const AGENT_CUSTOMIZATION_SERVICE = Symbol.for(
-  'AgentCustomizationService'
+  'AgentCustomizationService',
 );
 
 /**
@@ -125,7 +125,7 @@ export const AGENT_FILE_WRITER_SERVICE = Symbol.for('AgentFileWriterService');
  * Responsibilities: Transform Claude agents to Copilot/Gemini format, write to user-level directories
  */
 export const MULTI_CLI_AGENT_WRITER_SERVICE = Symbol.for(
-  'MultiCliAgentWriterService'
+  'MultiCliAgentWriterService',
 );
 
 // ========================================
@@ -147,7 +147,7 @@ export const MIGRATION_SERVICE = Symbol.for('MigrationService');
  * Responsibilities: Create panels, send responses, emit progress, cleanup
  */
 export const WIZARD_WEBVIEW_LIFECYCLE = Symbol.for(
-  'WizardWebviewLifecycleService'
+  'WizardWebviewLifecycleService',
 );
 
 /**
@@ -158,7 +158,7 @@ export const AGENTIC_ANALYSIS_SERVICE = Symbol.for('AgenticAnalysisService');
 
 /**
  * AnalysisStorageService - Persistent analysis file I/O
- * Responsibilities: Save, list, load, delete analysis results from .claude/analysis/
+ * Responsibilities: Save, list, load, delete analysis results from .ptah/analysis/
  */
 export const ANALYSIS_STORAGE_SERVICE = Symbol.for('AnalysisStorageService');
 
@@ -167,7 +167,7 @@ export const ANALYSIS_STORAGE_SERVICE = Symbol.for('AnalysisStorageService');
  * Responsibilities: Execute 4 LLM phases + 1 deterministic synthesis, write markdown outputs, manage manifests
  */
 export const MULTI_PHASE_ANALYSIS_SERVICE = Symbol.for(
-  'MultiPhaseAnalysisService'
+  'MultiPhaseAnalysisService',
 );
 
 // ========================================

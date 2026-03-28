@@ -138,7 +138,7 @@ Before creating ANY test, you must systematically investigate the codebase to un
 
 ```bash
 # Discover all markdown documents in task folder
-Glob(.claude/specs/TASK_*/**.md)
+Glob(.ptah/specs/TASK_*/**.md)
 # Result: List of all .md files in the task folder
 ```
 
@@ -389,7 +389,7 @@ Glob(**/integration/**)
 If task-tracking directory exists and TASK_ID is set:
 
 - **Orchestration Mode Detected**
-- Read user's actual request from .claude/specs/$TASK_ID/context.md
+- Read user's actual request from .ptah/specs/$TASK_ID/context.md
 - Extract "User Request:" line
 - Mode: Orchestrated testing with formal validation
 
@@ -422,7 +422,6 @@ For standalone usage - work with provided context:
 **Testing Infrastructure Analysis:**
 
 1. **Analyze Current Testing Setup Comprehensively:**
-
    - Check project structure and testing framework
    - Search for: package.json, \*.csproj, Cargo.toml, pom.xml
    - Find test files: _test_, _spec_ with extensions .js, .ts, .cs, .java, .py, .rs
@@ -430,14 +429,12 @@ For standalone usage - work with provided context:
    - Identify test directories: directories named _test_ or _spec_
 
 2. **Report Infrastructure Status:**
-
    - Project Type: [Detected from project files]
    - Existing Test Files: [Found test files]
    - Test Configurations: [Config files found]
    - Test Directories: [Test directories found]
 
 3. **Analyze Testing Maturity Level:**
-
    - Count unit tests: Files matching _.test._ or _.spec._
    - Count integration tests: Files in _/integration/_ or _/e2e/_ paths
    - Find coverage configuration: .nycrc* or coverage* files
@@ -460,38 +457,32 @@ If task-tracking directory exists and TASK_ID is set:
 
    ```bash
    # NEVER assume which documents exist - DISCOVER them
-   Glob(.claude/specs/$TASK_ID/**.md)
+   Glob(.ptah/specs/$TASK_ID/**.md)
    ```
 
 2. **Read Documents in Priority Order for Testing:**
 
    **Phase 1: Core** (acceptance criteria, requirements)
-
    - context.md - User intent
    - task-description.md - Requirements and **ACCEPTANCE CRITERIA**
 
    **Phase 2: Override** (bugs fixed - create regression tests)
-
    - correction-\*.md - Bug fixes
    - bug-fix-\*.md - Bug resolutions
 
    **Phase 3: Evidence** (technical context)
-
    - \*-analysis.md
    - \*-research.md
 
    **Phase 4: Planning** (features built)
-
    - phase-\*-plan.md (most specific)
    - implementation-plan.md (generic)
 
    **Phase 5: Validation** (additional test scenarios)
-
    - \*-validation.md
    - code-review.md
 
    **Phase 6: Progress** (current state)
-
    - progress.md
    - List of files recently modified
 
@@ -541,7 +532,7 @@ For standalone usage - extract testing context from conversation:
 
 **Escalation Process:**
 
-Create infrastructure escalation report in .claude/specs/$TASK_ID/testing-infrastructure-escalation.md with:
+Create infrastructure escalation report in .ptah/specs/$TASK_ID/testing-infrastructure-escalation.md with:
 
 # Testing Infrastructure Escalation - TASK\_[ID]
 
@@ -861,7 +852,7 @@ describe('UserService', () => {
 
 **Files Generated**:
 
-- ✅ .claude/specs/TASK\_[ID]/test-report.md (comprehensive professional analysis)
+- ✅ .ptah/specs/TASK\_[ID]/test-report.md (comprehensive professional analysis)
 - ✅ Industry-standard test files in appropriate project structure
 - ✅ Test configuration and setup documentation
 - ✅ Coverage reports and quality metrics
@@ -935,7 +926,7 @@ Otherwise:
 
 **Escalation Actions Taken**:
 
-- 📋 Created: .claude/specs/TASK\_[ID]/testing-infrastructure-escalation.md
+- 📋 Created: .ptah/specs/TASK\_[ID]/testing-infrastructure-escalation.md
 - 🔄 Escalated to: researcher-expert (testing infrastructure research required)
 - 👤 User validation needed: Testing strategy and budget confirmation
 - ⏸️ Task paused: Awaiting infrastructure resolution

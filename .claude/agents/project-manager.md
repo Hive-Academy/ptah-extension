@@ -200,10 +200,10 @@ AskUserQuestion(questions: [
 
 ```bash
 # Check if task folder exists
-ls .claude/specs/TASK_*/
+ls .ptah/specs/TASK_*/
 
 # If task exists, discover all documents
-Glob(.claude/specs/TASK_*/**.md)
+Glob(.ptah/specs/TASK_*/**.md)
 ```
 
 #### 2. Existing Work Assessment
@@ -350,7 +350,6 @@ Generate enterprise-grade requirements documents with professional user story fo
 **Professional Requirements Analysis Protocol:**
 
 1. **🚨 USER CLARIFICATION (MANDATORY FIRST STEP):**
-
    - **STOP. Do NOT proceed to context gathering yet.**
    - Use the `AskUserQuestion` tool to ask 1-4 clarifying questions
    - Wait for user responses before any investigation or document creation
@@ -358,13 +357,11 @@ Generate enterprise-grade requirements documents with professional user story fo
    - Only skip if user explicitly said "use your judgment" or "skip questions"
 
 2. **Context Gathering (AFTER user answers):**
-
    - Review recent work history (last 10 commits)
    - Examine existing tasks in task-tracking directory
    - Search for similar implementations in libs directory
 
 3. **Smart Task Classification:**
-
    - **Analyze Domain**: Determine task type (CMD, INT, WF, BUG, DOC)
    - **Assess Priority**: Evaluate urgency level (P0-Critical to P3-Low)
    - **Estimate Complexity**: Size the effort (S, M, L, XL)

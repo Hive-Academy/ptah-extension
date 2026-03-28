@@ -65,7 +65,7 @@ The `available_clis` field tells sub-agents which CLI agents the user has config
 ptah_agent_spawn {
   task: "Analyze all TypeScript interfaces in libs/shared/src and list their fields with types",
   cli: "gemini",
-  taskFolder: "D:/projects/ptah-extension/.claude/specs/TASK_2025_042",
+  taskFolder: "D:/projects/ptah-extension/.ptah/specs/TASK_2025_042",
   files: ["libs/shared/src/lib/types/**/*.ts"]
 }
 ```
