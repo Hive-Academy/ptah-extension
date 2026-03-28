@@ -49,7 +49,6 @@ import {
   resolveCliPath,
   resolveWindowsCmd,
 } from './cli-adapter.utils';
-import { resolveAndImportSdk } from './sdk-resolver';
 import type { CopilotPermissionBridge } from './copilot-permission-bridge';
 
 const execFileAsync = promisify(execFile);
@@ -139,7 +138,7 @@ interface SdkPermissionRequestResult {
 /** Mirrors PermissionHandler */
 type SdkPermissionHandler = (
   request: SdkPermissionRequest,
-  invocation: { sessionId: string }
+  invocation: { sessionId: string },
 ) => Promise<SdkPermissionRequestResult> | SdkPermissionRequestResult;
 
 /** Mirrors PreToolUseHookInput */
@@ -163,7 +162,7 @@ interface SdkPreToolUseOutput {
 interface SdkSessionHooks {
   onPreToolUse?: (
     input: SdkPreToolUseInput,
-    invocation: { sessionId: string }
+    invocation: { sessionId: string },
   ) => Promise<SdkPreToolUseOutput | void> | SdkPreToolUseOutput | void;
   [key: string]: unknown;
 }
@@ -201,7 +200,7 @@ interface SdkClient {
   createSession(config?: SdkSessionConfig): Promise<SdkSession>;
   resumeSession(
     sessionId: string,
-    config?: SdkResumeConfig
+    config?: SdkResumeConfig,
   ): Promise<SdkSession>;
   listModels(): Promise<SdkModelInfo[]>;
   getState(): string;
@@ -261,14 +260,14 @@ function isPwshAvailable(): Promise<boolean> {
 /** Shell/command execution tool names across providers */
 function isShellTool(toolName: string): boolean {
   return /^(run_shell_command|bash|shell|execute_command|terminal)$/i.test(
-    toolName
+    toolName,
   );
 }
 
 /** File write/edit tool names across providers */
 function isFileWriteTool(toolName: string): boolean {
   return /^(write_file|edit|replace|create_file|patch_file|write|insert)$/i.test(
-    toolName
+    toolName,
   );
 }
 
@@ -324,7 +323,7 @@ export class CopilotSdkAdapter implements CliAdapter {
         const { stdout: versionOutput } = await execFileAsync(
           binaryPath,
           ['version'],
-          { timeout: 5000 }
+          { timeout: 5000 },
         );
         version = versionOutput.trim().split('\n')[0];
       } catch {
@@ -459,7 +458,7 @@ export class CopilotSdkAdapter implements CliAdapter {
     const sessionHooks: SdkSessionHooks = {
       onPreToolUse: async (
         input: SdkPreToolUseInput,
-        _invocation: { sessionId: string }
+        _invocation: { sessionId: string },
       ): Promise<SdkPreToolUseOutput | void> => {
         return this.permissionBridge.requestToolPermission({
           agentId: agentIdForPermissions,
@@ -471,7 +470,7 @@ export class CopilotSdkAdapter implements CliAdapter {
 
     const permissionHandler: SdkPermissionHandler = async (
       request: SdkPermissionRequest,
-      _invocation: { sessionId: string }
+      _invocation: { sessionId: string },
     ): Promise<SdkPermissionRequestResult> => {
       const { kind, toolCallId, ...details } = request;
       return this.permissionBridge.requestFilePermission({
@@ -492,7 +491,7 @@ export class CopilotSdkAdapter implements CliAdapter {
 
     if (!pwshFound) {
       console.log(
-        '[Copilot SDK] PowerShell Core (pwsh.exe) not found — excluding PowerShell tools, agent will use bash'
+        '[Copilot SDK] PowerShell Core (pwsh.exe) not found — excluding PowerShell tools, agent will use bash',
       );
     }
 
@@ -542,7 +541,7 @@ export class CopilotSdkAdapter implements CliAdapter {
         }
         session = await this.client.resumeSession(
           options.resumeSessionId,
-          resumeConfig
+          resumeConfig,
         );
         actualSessionId = session.sessionId;
       } else {
@@ -649,7 +648,7 @@ export class CopilotSdkAdapter implements CliAdapter {
       }
 
       emitOutput(
-        `\n**Tool:** \`${toolName}\`${argsStr ? ` ${argsStr}` : ''}\n`
+        `\n**Tool:** \`${toolName}\`${argsStr ? ` ${argsStr}` : ''}\n`,
       );
       emitSegment({
         type: 'tool-call',
@@ -703,8 +702,8 @@ export class CopilotSdkAdapter implements CliAdapter {
           const changeKind = /\b(created|new file)\b/i.test(content)
             ? 'added'
             : /\b(deleted|removed)\b/i.test(content)
-            ? 'deleted'
-            : 'modified';
+              ? 'deleted'
+              : 'modified';
           emitOutput(`\n[${changeKind}] ${truncated}\n`);
           emitSegment({
             type: 'file-change',
@@ -714,7 +713,7 @@ export class CopilotSdkAdapter implements CliAdapter {
           });
         } else {
           emitOutput(
-            `\n<details><summary>Tool result</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n</details>\n\n`
+            `\n<details><summary>Tool result</summary>\n\n\`\`\`\n${truncated}\n\`\`\`\n</details>\n\n`,
           );
           emitSegment({ type: 'tool-result', content: truncated, toolCallId });
         }
@@ -894,14 +893,11 @@ export class CopilotSdkAdapter implements CliAdapter {
     const token = await this.getGitHubToken();
 
     // Dynamic import to handle the ESM @github/copilot-sdk package.
-    // The SDK is NOT bundled with the extension. It is resolved at runtime
-    // from the user's system via resolveAndImportSdk(), which tries standard
-    // Node.js resolution first, then falls back to locating the package
-    // relative to the CLI binary's install location.
-    const sdkModule = await resolveAndImportSdk<CopilotSdkModule>(
-      '@github/copilot-sdk',
-      binaryPath
-    );
+    // The SDK is bundled with the extension via esbuild (TASK_2025_232).
+    // String literal in import() ensures esbuild can statically resolve
+    // and bundle the package at build time.
+    const sdkModule =
+      (await import('@github/copilot-sdk')) as unknown as CopilotSdkModule;
 
     const clientOptions: SdkClientOptions = {
       autoStart: true,
@@ -936,7 +932,7 @@ export class CopilotSdkAdapter implements CliAdapter {
       const session = await vscode.authentication.getSession(
         'github',
         ['copilot'],
-        { createIfNone: false }
+        { createIfNone: false },
       );
       return session?.accessToken ?? null;
     } catch {
@@ -978,7 +974,7 @@ export class CopilotSdkAdapter implements CliAdapter {
       default: {
         // Generic: show first string value, truncated
         const firstStr = Object.entries(obj).find(
-          ([, v]) => typeof v === 'string'
+          ([, v]) => typeof v === 'string',
         );
         if (firstStr) {
           const val = String(firstStr[1]).substring(0, 60);

@@ -29,7 +29,6 @@ import {
   resolveCliPath,
   spawnCli,
 } from './cli-adapter.utils';
-import { resolveAndImportSdk } from './sdk-resolver';
 
 /** Valid reasoning effort values for the Codex SDK. */
 const CODEX_REASONING_EFFORTS = [
@@ -142,19 +141,15 @@ let codexSdkModule: CodexSdkModule | null = null;
  * Lazily import the ESM-only @openai/codex-sdk package.
  * Only caches successful imports so a failed import can be retried.
  *
- * The package is NOT bundled with the extension. It is resolved at runtime
- * from the user's system via resolveAndImportSdk(), which tries standard
- * Node.js resolution first, then falls back to locating the package
- * relative to the CLI binary's install location.
+ * The SDK is bundled with the extension via esbuild (TASK_2025_232).
+ * Uses a string literal in import() so esbuild can statically resolve
+ * and bundle the package at build time.
  */
-async function getCodexSdk(binaryPath?: string): Promise<CodexSdkModule> {
+async function getCodexSdk(): Promise<CodexSdkModule> {
   if (codexSdkModule) {
     return codexSdkModule;
   }
-  const mod = await resolveAndImportSdk<CodexSdkModule>(
-    '@openai/codex-sdk',
-    binaryPath,
-  );
+  const mod = (await import('@openai/codex-sdk')) as unknown as CodexSdkModule;
   codexSdkModule = mod;
   return mod;
 }
@@ -450,7 +445,7 @@ export class CodexCliAdapter implements CliAdapter {
    * reasoning→thinking mapping.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    const sdk = await getCodexSdk(options.binaryPath);
+    const sdk = await getCodexSdk();
 
     // Pass MCP server config, env vars, and codexPathOverride through Codex SDK
     const codexOptions: {

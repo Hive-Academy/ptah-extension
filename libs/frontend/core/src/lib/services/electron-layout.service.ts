@@ -85,7 +85,7 @@ export class ElectronLayoutService {
   });
 
   readonly hasWorkspaceFolders = computed(
-    () => this._workspaceFolders().length > 0
+    () => this._workspaceFolders().length > 0,
   );
 
   constructor() {
@@ -93,7 +93,7 @@ export class ElectronLayoutService {
     if (this.vscodeService.isElectron) {
       if (!this.coordinator) {
         console.warn(
-          '[ElectronLayout] Running in Electron without WORKSPACE_COORDINATOR — workspace coordination disabled'
+          '[ElectronLayout] Running in Electron without WORKSPACE_COORDINATOR — workspace coordination disabled',
         );
       }
       this.restoreLayout();
@@ -124,7 +124,7 @@ export class ElectronLayoutService {
   setWorkspaceSidebarWidth(width: number): void {
     const clamped = Math.min(
       Math.max(width, MIN_SIDEBAR_WIDTH),
-      MAX_SIDEBAR_WIDTH
+      MAX_SIDEBAR_WIDTH,
     );
     this._workspaceSidebarWidth.set(clamped);
   }
@@ -167,6 +167,39 @@ export class ElectronLayoutService {
   }
 
   // ── Workspace folders ──────────────────────────────────────────────
+
+  /**
+   * Programmatically add a workspace folder by its absolute path.
+   * Used by WorktreeService to auto-register newly created worktrees.
+   * Deduplicates against existing folders and auto-switches to the new folder.
+   *
+   * Unlike addFolder(), this does not open a file dialog -- it directly
+   * registers the given path as a workspace folder.
+   */
+  addFolderByPath(folderPath: string): void {
+    // Deduplicate: don't add if the path already exists
+    const existing = this._workspaceFolders();
+    if (existing.some((f) => f.path === folderPath)) {
+      // Already open -- just switch to it
+      const existingIndex = existing.findIndex((f) => f.path === folderPath);
+      if (existingIndex >= 0) {
+        this.switchWorkspace(existingIndex);
+      }
+      return;
+    }
+
+    this._workspaceFolders.update((folders) => [
+      ...folders,
+      {
+        path: folderPath,
+        name: this.folderName(folderPath),
+      },
+    ]);
+
+    // Auto-switch to the new folder
+    const newIndex = this._workspaceFolders().length - 1;
+    this.switchWorkspace(newIndex);
+  }
 
   async addFolder(): Promise<void> {
     try {
@@ -227,7 +260,7 @@ export class ElectronLayoutService {
     // TASK_2025_208: Check for streaming tabs before removal
     if (this.coordinator) {
       const streamingSessionIds = this.coordinator.getStreamingSessionIds(
-        removedFolder.path
+        removedFolder.path,
       );
 
       if (streamingSessionIds.length > 0) {
@@ -255,10 +288,10 @@ export class ElectronLayoutService {
             this.rpcService.call('chat:abort', { sessionId }).catch((error) => {
               console.error(
                 `[ElectronLayout] Failed to abort session ${sessionId}:`,
-                error
+                error,
               );
-            })
-          )
+            }),
+          ),
         );
       }
     }
@@ -280,7 +313,7 @@ export class ElectronLayoutService {
       .catch((error) => {
         console.error(
           '[ElectronLayout] Failed to remove folder from backend:',
-          error
+          error,
         );
       });
 
@@ -292,7 +325,7 @@ export class ElectronLayoutService {
     if (newActive) {
       this.coordinateWorkspaceSwitch(
         newActive.path,
-        this._activeWorkspaceIndex()
+        this._activeWorkspaceIndex(),
       );
     } else {
       // No workspaces left -- update VSCodeService to empty state
@@ -345,7 +378,7 @@ export class ElectronLayoutService {
    */
   private debouncedWorkspaceSwitch(
     newPath: string,
-    previousIndex: number
+    previousIndex: number,
   ): void {
     // Cancel any pending debounced switch
     if (this._switchDebounceTimer !== null) {
@@ -373,17 +406,23 @@ export class ElectronLayoutService {
         if (!result.isSuccess()) {
           console.error(
             '[ElectronLayout] workspace:switch RPC failed:',
-            result
+            result,
           );
+          // Rollback optimistic UI update so the sidebar doesn't show a
+          // workspace as active when the backend is still on the old one.
+          this._activeWorkspaceIndex.set(previousIndex);
+          this.persistLayout();
           return;
         }
 
         // Coordinate frontend services for the new workspace
         this.coordinateWorkspaceSwitch(newPath, previousIndex);
       } catch (error) {
-        // Only log if this switch is still the latest
+        // Only rollback/log if this switch is still the latest
         if (this._switchId === currentSwitchId) {
           console.error('[ElectronLayout] Failed to switch workspace:', error);
+          this._activeWorkspaceIndex.set(previousIndex);
+          this.persistLayout();
         }
       }
     }, SWITCH_DEBOUNCE_MS);
@@ -404,7 +443,7 @@ export class ElectronLayoutService {
    */
   private coordinateWorkspaceSwitch(
     newPath: string,
-    previousIndex: number
+    previousIndex: number,
   ): void {
     try {
       if (this.coordinator) {
@@ -425,18 +464,18 @@ export class ElectronLayoutService {
     } catch (error) {
       console.error(
         '[ElectronLayout] Failed to coordinate workspace switch:',
-        error
+        error,
       );
 
       // Revert the active workspace index to prevent inconsistent UI state
       const targetIndex = this._workspaceFolders().findIndex(
-        (f) => f.path === newPath
+        (f) => f.path === newPath,
       );
       if (targetIndex >= 0 && this._activeWorkspaceIndex() === targetIndex) {
         this._activeWorkspaceIndex.set(previousIndex);
         this.persistLayout();
         console.warn(
-          `[ElectronLayout] Reverted activeWorkspaceIndex from ${targetIndex} to ${previousIndex} after coordination failure`
+          `[ElectronLayout] Reverted activeWorkspaceIndex from ${targetIndex} to ${previousIndex} after coordination failure`,
         );
       }
     }
@@ -452,7 +491,7 @@ export class ElectronLayoutService {
       } catch (error) {
         console.error(
           '[ElectronLayout] Failed to clean up workspace state:',
-          error
+          error,
         );
       }
     }
@@ -512,14 +551,14 @@ export class ElectronLayoutService {
           f != null &&
           typeof f === 'object' &&
           typeof (f as WorkspaceFolder).path === 'string' &&
-          typeof (f as WorkspaceFolder).name === 'string'
+          typeof (f as WorkspaceFolder).name === 'string',
       );
       this._workspaceFolders.set(validFolders);
     }
     if (typeof state.activeWorkspaceIndex === 'number') {
       const maxIndex = Math.max(0, this._workspaceFolders().length - 1);
       this._activeWorkspaceIndex.set(
-        Math.min(Math.max(0, state.activeWorkspaceIndex), maxIndex)
+        Math.min(Math.max(0, state.activeWorkspaceIndex), maxIndex),
       );
     }
 
@@ -534,14 +573,24 @@ export class ElectronLayoutService {
     if (restoredFolders.length > 0 && restoredFolders[restoredIndex]) {
       const activePath = restoredFolders[restoredIndex].path;
 
+      // Participate in the _switchId stale-response protocol so that if the
+      // user clicks a different workspace before this RPC resolves, we discard
+      // the stale response instead of overriding the user's selection.
+      const restoreSwitchId = ++this._switchId;
+
       // Send workspace:switch RPC and AWAIT before coordinating (no debounce on initial load)
       this.rpcService
         .call('workspace:switch', { path: activePath })
         .then((result) => {
+          // Discard if user switched workspace while this RPC was in flight
+          if (this._switchId !== restoreSwitchId) {
+            return;
+          }
+
           if (!result.isSuccess()) {
             console.error(
               '[ElectronLayout] Initial workspace:switch RPC failed:',
-              result
+              result,
             );
             return;
           }
@@ -552,7 +601,7 @@ export class ElectronLayoutService {
         .catch((error) => {
           console.error(
             '[ElectronLayout] Failed to send initial workspace:switch:',
-            error
+            error,
           );
         });
     }

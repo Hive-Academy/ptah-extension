@@ -17,19 +17,29 @@ export class ElectronPlatformCommands implements IPlatformCommands {
 
   async reloadWindow(): Promise<void> {
     this.logger.info('[ElectronPlatformCommands] reloadWindow requested');
-    // In Electron, we use the app module to relaunch
     try {
-      // Dynamic import to avoid bundling issues
-      const { app } = await import('electron');
-      app.relaunch();
-      app.exit(0);
+      // Reload the renderer (webContents) instead of restarting the entire
+      // process. This gives a smooth ~1s reload vs a 3-5s cold restart.
+      // Backend DI services stay alive — reload triggers (license set/clear,
+      // settings import) already update backend state before scheduling this.
+      const { BrowserWindow } = await import('electron');
+      const win =
+        BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      if (win) {
+        win.webContents.reload();
+      } else {
+        // Fallback: full relaunch if no window is available
+        this.logger.warn(
+          '[ElectronPlatformCommands] No window found, falling back to app.relaunch()',
+        );
+        const { app } = await import('electron');
+        app.relaunch();
+        app.exit(0);
+      }
     } catch (error) {
-      this.logger.warn(
-        '[ElectronPlatformCommands] Failed to relaunch Electron app',
-        {
-          error: error instanceof Error ? error.message : String(error),
-        }
-      );
+      this.logger.warn('[ElectronPlatformCommands] Failed to reload window', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -37,7 +47,7 @@ export class ElectronPlatformCommands implements IPlatformCommands {
     // Electron does not have an integrated terminal
     this.logger.warn(
       '[ElectronPlatformCommands] openTerminal is not supported in Electron',
-      { name, command }
+      { name, command },
     );
   }
 }

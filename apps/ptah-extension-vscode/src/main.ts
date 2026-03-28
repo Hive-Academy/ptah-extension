@@ -14,6 +14,7 @@ import {
   PluginLoaderService,
   PtahCliRegistry,
   SkillJunctionService,
+  setPtahMcpPort,
   type SettingsExportService,
   type SettingsImportService,
 } from '@ptah-extension/agent-sdk';
@@ -908,16 +909,30 @@ export async function activate(
 
     if (licenseStatus.tier === 'pro' || licenseStatus.tier === 'trial_pro') {
       // PRO USER: Register MCP Server (Pro-only feature)
-      logger.info('Registering premium MCP server (Pro tier user)');
-      const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
-      const mcpPort = await (
-        codeExecutionMCP as { start: () => Promise<number> }
-      ).start();
-      context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
-      logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
-      console.log(
-        `[Activate] Step 12: Pro MCP Server started (port ${mcpPort})`,
-      );
+      // Non-blocking: MCP server failure should NOT crash the extension
+      try {
+        logger.info('Registering premium MCP server (Pro tier user)');
+        const codeExecutionMCP = DIContainer.resolve(TOKENS.CODE_EXECUTION_MCP);
+        const mcpPort = await (
+          codeExecutionMCP as { start: () => Promise<number> }
+        ).start();
+        context.subscriptions.push(codeExecutionMCP as vscode.Disposable);
+        // Update the runtime port so SDK query builders use the actual port
+        // (may differ from default 51820 if fallback to OS-assigned port)
+        setPtahMcpPort(mcpPort);
+        logger.info(`Code Execution MCP Server started on port ${mcpPort}`);
+        console.log(
+          `[Activate] Step 12: Pro MCP Server started (port ${mcpPort})`,
+        );
+      } catch (mcpError) {
+        logger.warn('MCP server failed to start (non-blocking)', {
+          error:
+            mcpError instanceof Error ? mcpError.message : String(mcpError),
+        });
+        console.log(
+          `[Activate] Step 12: MCP Server failed to start: ${mcpError instanceof Error ? mcpError.message : String(mcpError)}`,
+        );
+      }
     } else {
       // COMMUNITY USER: Skip MCP Server (Pro-only feature)
       logger.info('Skipping MCP server (Community tier - Pro feature only)', {

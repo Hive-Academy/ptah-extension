@@ -3,7 +3,7 @@
 **Provider-agnostic AI orchestration for VS Code.**
 Intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows — all natively integrated into VS Code.
 
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode) | [Desktop App](https://github.com/Hive-Academy/ptah-app/releases/latest) | [License](https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE)
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode) | [Desktop App](https://github.com/Hive-Academy/ptah-extension/releases/latest) | [License](https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE.md)
 
 ---
 
@@ -21,7 +21,7 @@ Search for **"Ptah"** in the Extensions panel (`Ctrl+Shift+X`) or install direct
 
 ### Option B: Desktop App (Standalone)
 
-Download the standalone desktop app for your platform from [GitHub Releases](https://github.com/Hive-Academy/ptah-app/releases/latest):
+Download the standalone desktop app for your platform from [GitHub Releases](https://github.com/Hive-Academy/ptah-extension/releases/latest):
 
 | Platform | Download                      |
 | -------- | ----------------------------- |
@@ -31,10 +31,10 @@ Download the standalone desktop app for your platform from [GitHub Releases](htt
 
 ### Create Your Account & Activate
 
-1. Visit [ptah.live/signup](https://ptah.live/signup) — no credit card required. Your **14-day Pro trial** activates automatically.
+1. Visit [ptah.live/signup](https://ptah.live/signup) — no credit card required. Your **30-day Pro trial** activates automatically.
 2. Sign in from within Ptah (VS Code sidebar or desktop app) — your Pro trial license activates automatically.
 
-> **Pro Trial includes**: All 13 AI agents, orchestration workflows, multi-provider support, plugin system, and full setup wizard — free for 14 days.
+> **Pro Trial includes**: All 13 AI agents, orchestration workflows, multi-provider support, plugin system, and full setup wizard — free for 30 days.
 
 ---
 
@@ -357,12 +357,28 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+Ptah is licensed under the [Functional Source License, Version 1.1, MIT Future License](LICENSE.md) (FSL-1.1-MIT).
+
+### What This Means
+
+**You CAN:**
+
+- Use Ptah for internal development, education, research, and professional services
+- Read, modify, and redistribute the source code for any non-competing purpose
+- Use any version under the full MIT license two years after its release
+
+**You CANNOT:**
+
+- Offer Ptah (or a substantially similar product) as a competing commercial product or service
+
+The FSL is a [Fair Source](https://fair.io/) license designed to balance user freedom with developer sustainability. Every version of Ptah automatically converts to the permissive MIT license two years after release. This means today's code will be fully open source by 2028.
+
+For full details, see [LICENSE.md](LICENSE.md).
 
 ## Links
 
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode)
-- [Desktop App Downloads](https://github.com/Hive-Academy/ptah-app/releases/latest)
+- [Desktop App Downloads](https://github.com/Hive-Academy/ptah-extension/releases/latest)
 - [Issue Tracker](https://github.com/Hive-Academy/ptah-extension/issues)
 - [Discussions](https://github.com/Hive-Academy/ptah-extension/discussions)
 

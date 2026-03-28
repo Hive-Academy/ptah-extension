@@ -23,7 +23,7 @@
         "platform": "node",
         "target": "node20",
         "bundle": true,
-        "thirdParty": false,
+        "thirdParty": true,
         "esbuildOptions": {
           "outExtension": {
             ".js": ".mjs"
@@ -34,15 +34,9 @@
         },
         "external": [
           "vscode",
-          "@anthropic-ai/claude-agent-sdk",
-          "@github/copilot-sdk",
-          "@openai/codex-sdk",
-          "reflect-metadata",
-          "tsyringe",
           "tree-sitter",
           "tree-sitter-javascript",
-          "tree-sitter-typescript",
-          "axios"
+          "tree-sitter-typescript"
         ],
         "assets": [
           {
@@ -106,7 +100,7 @@
             "forwardAllArgs": false
           },
           {
-            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE')) fs.copyFileSync('LICENSE', 'dist/apps/ptah-extension-vscode/LICENSE')\"",
+            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE.md')) fs.copyFileSync('LICENSE.md', 'dist/apps/ptah-extension-vscode/LICENSE.md')\"",
             "forwardAllArgs": false
           },
           {

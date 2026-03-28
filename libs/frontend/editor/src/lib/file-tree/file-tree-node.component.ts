@@ -3,6 +3,7 @@ import {
   input,
   output,
   signal,
+  computed,
   ChangeDetectionStrategy,
   inject,
 } from '@angular/core';
@@ -19,6 +20,8 @@ import {
 } from 'lucide-angular';
 import { FileTreeNode } from '../models/file-tree.model';
 import { EditorService } from '../services/editor.service';
+import { GitStatusService } from '../services/git-status.service';
+import type { GitFileStatus } from '@ptah-extension/shared';
 
 /**
  * FileTreeNodeComponent - Recursive tree node for file explorer.
@@ -33,6 +36,7 @@ import { EditorService } from '../services/editor.service';
  * - Active file highlighting
  * - Click-to-select for files, click-to-toggle for directories
  * - Lazy loading for directories at the depth boundary (needsLoad)
+ * - Git status badges (M/A/D/??) with color coding via GitStatusService
  */
 @Component({
   selector: 'ptah-file-tree-node',
@@ -51,41 +55,52 @@ import { EditorService } from '../services/editor.service';
       [attr.aria-label]="node().name"
     >
       @if (node().type === 'directory') {
-      <span class="text-xs w-4 text-center opacity-70 flex-shrink-0">{{
-        expanded() ? '&#9660;' : '&#9654;'
-      }}</span>
-      <lucide-angular
-        [img]="FolderIcon"
-        class="w-4 h-4 flex-shrink-0 text-amber-500"
-        aria-hidden="true"
-      />
+        <span class="text-xs w-4 text-center opacity-70 flex-shrink-0">{{
+          expanded() ? '&#9660;' : '&#9654;'
+        }}</span>
+        <lucide-angular
+          [img]="FolderIcon"
+          class="w-4 h-4 flex-shrink-0 text-amber-500"
+          aria-hidden="true"
+        />
       } @else {
-      <span class="w-4 flex-shrink-0"></span>
-      <lucide-angular
-        [img]="getFileIcon()"
-        [class]="'w-4 h-4 flex-shrink-0 ' + getFileIconColor()"
-        aria-hidden="true"
-      />
+        <span class="w-4 flex-shrink-0"></span>
+        <lucide-angular
+          [img]="getFileIcon()"
+          [class]="'w-4 h-4 flex-shrink-0 ' + getFileIconColor()"
+          aria-hidden="true"
+        />
       }
       <span class="truncate">{{ node().name }}</span>
+      @if (nodeGitStatus()) {
+        <span
+          class="ml-auto text-[10px] font-mono flex-shrink-0"
+          [class]="gitStatusColor()"
+          [title]="'Git: ' + nodeGitStatus()!.status"
+          aria-hidden="true"
+          >{{ nodeGitStatus()!.status }}</span
+        >
+      }
       @if (isLoadingChildren()) {
-      <span class="loading loading-spinner loading-xs ml-auto"></span>
+        <span class="loading loading-spinner loading-xs ml-auto"></span>
       }
     </div>
-    @if (node().type === 'directory' && expanded()) { @for (child of
-    sortedChildren(); track child.path) {
-    <ptah-file-tree-node
-      [node]="child"
-      [depth]="depth() + 1"
-      [activeFilePath]="activeFilePath()"
-      (fileClicked)="fileClicked.emit($event)"
-    />
-    } }
+    @if (node().type === 'directory' && expanded()) {
+      @for (child of sortedChildren(); track child.path) {
+        <ptah-file-tree-node
+          [node]="child"
+          [depth]="depth() + 1"
+          [activeFilePath]="activeFilePath()"
+          (fileClicked)="fileClicked.emit($event)"
+        />
+      }
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FileTreeNodeComponent {
   private readonly editorService = inject(EditorService);
+  private readonly gitStatus = inject(GitStatusService);
 
   readonly node = input.required<FileTreeNode>();
   readonly depth = input<number>(0);
@@ -95,6 +110,69 @@ export class FileTreeNodeComponent {
 
   readonly expanded = signal(false);
   readonly isLoadingChildren = signal(false);
+
+  /**
+   * Look up the git status for this node by converting its absolute path
+   * to a relative path (stripping the workspace root prefix) and checking
+   * the fileStatusMap.
+   *
+   * Git status paths from `git status --porcelain=v2` are relative to the repo root
+   * (e.g., "src/services/foo.ts"). File tree node paths are absolute
+   * (e.g., "D:/projects/ptah-extension/src/services/foo.ts").
+   * We strip the workspace root prefix to derive the relative path for lookup.
+   *
+   * fileStatusMap returns an array of GitFileStatus entries per path because a file
+   * can have both staged and unstaged changes. We prefer the staged entry for the
+   * badge display (staged changes are more significant in the tree view), falling
+   * back to the first entry if no staged entry exists.
+   */
+  readonly nodeGitStatus = computed((): GitFileStatus | undefined => {
+    const absolutePath = this.node().path;
+    const workspaceRoot = this.gitStatus.activeWorkspacePath;
+    if (!workspaceRoot) return undefined;
+
+    // Normalize both to forward slashes for consistent comparison
+    const normalizedPath = absolutePath.replace(/\\/g, '/');
+    const normalizedRoot = workspaceRoot.replace(/\\/g, '/');
+
+    // Strip workspace root prefix + trailing slash to get relative path
+    const rootWithSlash = normalizedRoot.endsWith('/')
+      ? normalizedRoot
+      : normalizedRoot + '/';
+
+    if (!normalizedPath.startsWith(rootWithSlash)) return undefined;
+
+    const relativePath = normalizedPath.slice(rootWithSlash.length);
+
+    // Get all entries for this path (may include both staged and unstaged)
+    const entries = this.gitStatus.fileStatusMap().get(relativePath);
+    if (!entries || entries.length === 0) return undefined;
+
+    // Prefer staged entry for the badge (staged changes are more significant)
+    return entries.find((e) => e.staged) ?? entries[0];
+  });
+
+  /**
+   * CSS class for git status badge color coding.
+   * M=warning (modified), A=success (added), D=error (deleted),
+   * ??=info (untracked), default=muted.
+   */
+  readonly gitStatusColor = computed((): string => {
+    const status = this.nodeGitStatus();
+    if (!status) return '';
+    switch (status.status) {
+      case 'M':
+        return 'text-warning';
+      case 'A':
+        return 'text-success';
+      case 'D':
+        return 'text-error';
+      case '??':
+        return 'text-info';
+      default:
+        return 'text-base-content/50';
+    }
+  });
 
   // Lucide icons
   readonly FolderIcon = Folder;

@@ -93,7 +93,7 @@ export class LicenseService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly eventsService: EventsService
+    private readonly eventsService: EventsService,
   ) {}
 
   /**
@@ -110,7 +110,7 @@ export class LicenseService {
       const keyBase64 = process.env['LICENSE_SIGNING_PRIVATE_KEY'];
       if (!keyBase64) {
         this.logger.warn(
-          'LICENSE_SIGNING_PRIVATE_KEY not configured - license response signing disabled'
+          'LICENSE_SIGNING_PRIVATE_KEY not configured - license response signing disabled',
         );
         this.signingKey = undefined;
         return undefined;
@@ -126,7 +126,7 @@ export class LicenseService {
         this.logger.error(
           `Failed to load Ed25519 signing key: ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
         this.signingKey = undefined;
       }
@@ -154,7 +154,7 @@ export class LicenseService {
       this.logger.error(
         `Failed to sign license response: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return undefined;
     }
@@ -170,7 +170,7 @@ export class LicenseService {
    * @returns The response with optional signature field
    */
   private buildSignedResponse(
-    response: LicenseVerificationResponse
+    response: LicenseVerificationResponse,
   ): LicenseVerificationResponse {
     const signature = this.signResponse(response);
     if (signature) {
@@ -197,7 +197,7 @@ export class LicenseService {
    * Plans: 'community' (free) and 'pro' (paid, supports trial)
    */
   async verifyLicense(
-    licenseKey: string
+    licenseKey: string,
   ): Promise<LicenseVerificationResponse> {
     // Step 1: Find license in database with user and subscription data for trial detection
     const license = await this.prisma.license.findUnique({
@@ -239,7 +239,7 @@ export class LicenseService {
       this.logger.debug(
         `License expired: ${
           license.id
-        }, expired at ${license.expiresAt.toISOString()}`
+        }, expired at ${license.expiresAt.toISOString()}`,
       );
       return this.buildSignedResponse({
         valid: false,
@@ -258,7 +258,7 @@ export class LicenseService {
       this.logger.debug(
         `Trial ended for license: ${
           license.id
-        }, trial ended at ${trialEnd.toISOString()}`
+        }, trial ended at ${trialEnd.toISOString()}`,
       );
       return this.buildSignedResponse({
         valid: false,
@@ -273,7 +273,7 @@ export class LicenseService {
     // If tier is 'expired' (unknown plan), return invalid
     if (tier === 'expired') {
       this.logger.debug(
-        `License has expired tier: ${license.id}, plan: ${license.plan}`
+        `License has expired tier: ${license.id}, plan: ${license.plan}`,
       );
       return this.buildSignedResponse({
         valid: false,
@@ -285,7 +285,7 @@ export class LicenseService {
     // Step 7: Calculate days remaining (if expiration exists)
     const daysRemaining = license.expiresAt
       ? Math.ceil(
-          (license.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+          (license.expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
         )
       : undefined;
 
@@ -294,7 +294,9 @@ export class LicenseService {
       isInTrial && trialEnd
         ? Math.max(
             0,
-            Math.ceil((trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+            Math.ceil(
+              (trialEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+            ),
           )
         : undefined;
 
@@ -308,7 +310,7 @@ export class LicenseService {
       : undefined;
 
     this.logger.debug(
-      `License verified: ${license.id}, tier: ${tier}, trial: ${isInTrial}`
+      `License verified: ${license.id}, tier: ${tier}, trial: ${isInTrial}`,
     );
 
     // Step 10: Build valid license response and sign it (TASK_2025_188)
@@ -381,7 +383,7 @@ export class LicenseService {
     const expiresAt =
       planConfig.expiresAfterDays !== null
         ? new Date(
-            Date.now() + planConfig.expiresAfterDays * 24 * 60 * 60 * 1000
+            Date.now() + planConfig.expiresAfterDays * 24 * 60 * 60 * 1000,
           )
         : null;
 
@@ -404,7 +406,7 @@ export class LicenseService {
    * Create a trial license for a new user signup
    *
    * Provides a Pro trial license automatically on signup.
-   * Trial duration is configurable via TRIAL_DURATION_DAYS env var (default: 14 days).
+   * Trial duration is configurable via TRIAL_DURATION_DAYS env var (default: 30 days).
    * Idempotent: if user already has an active license, returns it.
    *
    * Process:
@@ -448,7 +450,7 @@ export class LicenseService {
 
     if (existingLicense) {
       this.logger.debug(
-        `User ${normalizedEmail} already has active trial license: ${existingLicense.id}`
+        `User ${normalizedEmail} already has active trial license: ${existingLicense.id}`,
       );
       return {
         licenseKey: existingLicense.licenseKey,
@@ -466,7 +468,7 @@ export class LicenseService {
       .filter(
         (u) =>
           u.id !== user!.id &&
-          this.normalizeEmailForLookup(u.email) === normalizedForLookup
+          this.normalizeEmailForLookup(u.email) === normalizedForLookup,
       )
       .map((u) => u.id);
 
@@ -480,10 +482,10 @@ export class LicenseService {
 
       if (existingAliasTrial) {
         this.logger.warn(
-          `Trial abuse detected: ${normalizedEmail} is an alias of an existing trial user`
+          `Trial abuse detected: ${normalizedEmail} is an alias of an existing trial user`,
         );
         throw new Error(
-          'A trial license already exists for this email address'
+          'A trial license already exists for this email address',
         );
       }
     }
@@ -499,7 +501,7 @@ export class LicenseService {
 
     if (activePaidLicense) {
       this.logger.debug(
-        `User ${normalizedEmail} already has paid license, skipping trial`
+        `User ${normalizedEmail} already has paid license, skipping trial`,
       );
       return {
         licenseKey: activePaidLicense.licenseKey,
@@ -546,7 +548,7 @@ export class LicenseService {
     });
 
     this.logger.log(
-      `Trial license created for ${normalizedEmail}, expires: ${expiresAt.toISOString()} (${getTrialDurationDays()} days)`
+      `Trial license created for ${normalizedEmail}, expires: ${expiresAt.toISOString()} (${getTrialDurationDays()} days)`,
     );
 
     return { licenseKey, expiresAt };
@@ -626,7 +628,7 @@ export class LicenseService {
     });
 
     this.logger.log(
-      `Successfully downgraded ${user.email} to Community plan (manual)`
+      `Successfully downgraded ${user.email} to Community plan (manual)`,
     );
 
     // Step 3: Emit SSE event for real-time frontend update

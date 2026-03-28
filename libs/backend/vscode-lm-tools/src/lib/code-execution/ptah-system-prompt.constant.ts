@@ -18,13 +18,13 @@ Find files by glob pattern. Respects .gitignore, workspace-indexed.
 ### ptah_get_diagnostics { severity? }
 Get TypeScript/JS errors and warnings. severity: "error" | "warning" | "all" (default: "all").
 
-### ptah_lsp_references { file, line, col }
+### ptah_lsp_references { file, line, col } (VS Code only)
 Find all references to symbol at position. Essential before refactoring.
 
-### ptah_lsp_definitions { file, line, col }
+### ptah_lsp_definitions { file, line, col } (VS Code only)
 Go to definition for symbol at position. Works across files and re-exports.
 
-### ptah_get_dirty_files (no parameters)
+### ptah_get_dirty_files (no parameters) (VS Code only)
 List files with unsaved changes in VS Code editor.
 
 ### ptah_count_tokens { file }
@@ -107,5 +107,49 @@ To discover available Ptah CLI agents:
 5. **Use**: Incorporate findings into your work`;
 
 export const PTAH_SYSTEM_PROMPT_TOKENS = Math.ceil(
-  PTAH_SYSTEM_PROMPT.length / 4
+  PTAH_SYSTEM_PROMPT.length / 4,
 );
+
+/**
+ * VS Code-only tool names that should be excluded from the system prompt
+ * when running on platforms without IDE capabilities (e.g. Electron standalone).
+ *
+ * These tools require VS Code's LSP integration or editor state tracking,
+ * which are not available outside the VS Code extension host.
+ */
+const VS_CODE_ONLY_TOOL_SECTIONS = [
+  '### ptah_lsp_references { file, line, col } (VS Code only)\nFind all references to symbol at position. Essential before refactoring.',
+  '### ptah_lsp_definitions { file, line, col } (VS Code only)\nGo to definition for symbol at position. Works across files and re-exports.',
+  '### ptah_get_dirty_files (no parameters) (VS Code only)\nList files with unsaved changes in VS Code editor.',
+];
+
+/**
+ * Build a platform-tailored system prompt.
+ *
+ * When `hasIDECapabilities` is true (VS Code): returns the full system prompt
+ * with all tools documented, identical to the static PTAH_SYSTEM_PROMPT constant.
+ *
+ * When `hasIDECapabilities` is false (Electron/standalone): returns a prompt
+ * with VS Code-only tool sections removed, so the AI agent does not attempt
+ * to call tools that will fail on the current platform.
+ *
+ * @param hasIDECapabilities - Whether the host platform supports VS Code IDE features
+ * @returns Platform-appropriate system prompt string
+ */
+export function buildPlatformSystemPrompt(hasIDECapabilities: boolean): string {
+  if (hasIDECapabilities) {
+    return PTAH_SYSTEM_PROMPT;
+  }
+
+  // Remove VS Code-only tool sections from the prompt.
+  // Each section is a markdown heading + description line.
+  let prompt = PTAH_SYSTEM_PROMPT;
+  for (const section of VS_CODE_ONLY_TOOL_SECTIONS) {
+    prompt = prompt.replace(section + '\n\n', '');
+    // Handle case where the section is the last one (no trailing double newline)
+    prompt = prompt.replace(section + '\n', '');
+    prompt = prompt.replace(section, '');
+  }
+
+  return prompt;
+}

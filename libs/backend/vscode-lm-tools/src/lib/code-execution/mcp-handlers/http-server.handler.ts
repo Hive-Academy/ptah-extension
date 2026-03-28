@@ -3,18 +3,15 @@
  *
  * Manages the HTTP server for MCP protocol communication.
  * Handles CORS, request parsing, and response formatting.
- *
- * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
- * because it uses vscode.workspace.getConfiguration() for MCP port config
- * and vscode.window.showErrorMessage() for user-facing error notifications.
- * These are VS Code-specific APIs with no platform-core equivalent.
- * The public interface uses IStateStorage (platform-core) for state persistence.
+ * Uses platform-core interfaces for all configuration access.
  */
 
 import * as http from 'http';
-import * as vscode from 'vscode';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type { IStateStorage } from '@ptah-extension/platform-core';
+import type {
+  IStateStorage,
+  IWorkspaceProvider,
+} from '@ptah-extension/platform-core';
 import type { MCPRequest, MCPResponse } from '../types';
 
 /**
@@ -36,52 +33,85 @@ export interface HttpServerResult {
 }
 
 /**
- * Get MCP server port from VS Code configuration
+ * Get MCP server port from platform configuration.
  * Default: 51820 (chosen to avoid common port conflicts)
+ *
+ * @param workspaceProvider - Platform-agnostic configuration access
+ * @returns Configured port number, defaulting to 51820
  */
-export function getConfiguredPort(): number {
-  return vscode.workspace
-    .getConfiguration('ptah')
-    .get<number>('mcpPort', 51820);
+export function getConfiguredPort(
+  workspaceProvider: IWorkspaceProvider,
+): number {
+  return (
+    workspaceProvider.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
+    51820
+  );
 }
 
 /**
- * Start the HTTP MCP server
+ * Try to listen on a specific port. Returns a promise that resolves with
+ * the server+port on success, or rejects on error.
  */
-export async function startHttpServer(
-  config: HttpServerConfig
+function tryListen(
+  server: http.Server,
+  port: number,
+  logger: Logger,
+  workspaceState: IStateStorage,
 ): Promise<HttpServerResult> {
-  const { port: configuredPort, logger, workspaceState, onMCPRequest } = config;
-
   return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      handleHttpRequest(req, res, onMCPRequest);
-    });
+    const onError = (error: NodeJS.ErrnoException) => {
+      server.removeListener('error', onError);
+      reject(error);
+    };
+    server.on('error', onError);
 
-    server.listen(configuredPort, 'localhost', () => {
+    server.listen(port, 'localhost', () => {
+      server.removeListener('error', onError);
       const address = server.address();
       if (!address || typeof address === 'string') {
         reject(new Error('Failed to get server address'));
         return;
       }
 
-      const port = address.port;
-
-      // Store port in workspace state for Claude CLI discovery
-      workspaceState.update('ptah.mcp.port', port);
-
+      const actualPort = address.port;
+      workspaceState.update('ptah.mcp.port', actualPort);
       logger.info(
-        `CodeExecutionMCP server started on http://localhost:${port}`,
-        'CodeExecutionMCP'
+        `CodeExecutionMCP server started on http://localhost:${actualPort}`,
+        'CodeExecutionMCP',
       );
-
-      resolve({ server, port });
-    });
-
-    server.on('error', (error: NodeJS.ErrnoException) => {
-      handleServerError(error, configuredPort, logger, reject);
+      resolve({ server, port: actualPort });
     });
   });
+}
+
+/**
+ * Start the HTTP MCP server.
+ *
+ * Tries the configured port first. If it fails (EACCES on Windows due to
+ * Hyper-V port exclusions, or EADDRINUSE), retries with port 0 which lets
+ * the OS assign a random available port.
+ */
+export async function startHttpServer(
+  config: HttpServerConfig,
+): Promise<HttpServerResult> {
+  const { port: configuredPort, logger, workspaceState, onMCPRequest } = config;
+
+  const server = http.createServer((req, res) => {
+    handleHttpRequest(req, res, onMCPRequest);
+  });
+
+  try {
+    return await tryListen(server, configuredPort, logger, workspaceState);
+  } catch (error) {
+    const errCode = (error as NodeJS.ErrnoException).code;
+    if (errCode === 'EACCES' || errCode === 'EADDRINUSE') {
+      logger.warn(
+        `MCP port ${configuredPort} unavailable (${errCode}), retrying with OS-assigned port`,
+      );
+      return await tryListen(server, 0, logger, workspaceState);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -90,7 +120,7 @@ export async function startHttpServer(
 export async function stopHttpServer(
   server: http.Server | null,
   workspaceState: IStateStorage,
-  logger: Logger
+  logger: Logger,
 ): Promise<void> {
   if (!server) {
     return;
@@ -114,7 +144,7 @@ const MAX_BODY_SIZE = 1024 * 1024;
 async function handleHttpRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>
+  onMCPRequest: (request: MCPRequest) => Promise<MCPResponse>,
 ): Promise<void> {
   // CORS headers for localhost
   res.setHeader('Access-Control-Allow-Origin', 'http://localhost');
@@ -191,27 +221,4 @@ async function handleHttpRequest(
       res.end(JSON.stringify(errorResponse));
     }
   });
-}
-
-/**
- * Handle server startup errors with user-friendly messages
- */
-function handleServerError(
-  error: NodeJS.ErrnoException,
-  configuredPort: number,
-  logger: Logger,
-  reject: (error: Error) => void
-): void {
-  if (error.code === 'EADDRINUSE') {
-    const errorMsg = `Failed to start MCP server on port ${configuredPort}. Port is already in use. Please change 'ptah.mcpPort' setting to use a different port.`;
-    logger.error(errorMsg, error);
-
-    // Show user-friendly notification
-    vscode.window.showErrorMessage(errorMsg);
-
-    reject(new Error(errorMsg));
-  } else {
-    logger.error('CodeExecutionMCP server error', error);
-    reject(error);
-  }
 }

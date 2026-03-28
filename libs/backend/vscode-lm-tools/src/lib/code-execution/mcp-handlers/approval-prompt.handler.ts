@@ -11,11 +11,15 @@ import type { PermissionPromptService } from '../../permission/permission-prompt
 import type { MCPRequest, MCPResponse, ApprovalPromptParams } from '../types';
 
 /**
- * Dependencies for approval prompt handling
+ * Dependencies for approval prompt handling.
+ *
+ * webviewManager is optional: present in VS Code for user approval prompts,
+ * absent in Electron where the caller (protocol-handlers.ts) auto-allows
+ * before reaching this handler.
  */
 export interface ApprovalPromptDependencies {
   permissionPromptService: PermissionPromptService;
-  webviewManager: WebviewManager;
+  webviewManager?: WebviewManager;
   logger: Logger;
 }
 
@@ -31,11 +35,35 @@ export interface ApprovalPromptDependencies {
 export async function handleApprovalPrompt(
   request: MCPRequest,
   params: ApprovalPromptParams,
-  deps: ApprovalPromptDependencies
+  deps: ApprovalPromptDependencies,
 ): Promise<MCPResponse> {
   const { permissionPromptService, webviewManager, logger } = deps;
 
   logger.debug('Handling approval_prompt', { params });
+
+  // Auto-allow when WebviewManager is absent (Electron/standalone).
+  // This is a defensive check — protocol-handlers.ts already short-circuits
+  // before calling this function, but we guard here for safety.
+  if (!webviewManager) {
+    logger.info('approval_prompt auto-allowed (no WebviewManager)', {
+      tool: params.tool_name,
+    });
+    return {
+      jsonrpc: '2.0',
+      id: request.id,
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              behavior: 'allow',
+              updatedInput: params.input,
+            }),
+          },
+        ],
+      },
+    };
+  }
 
   // 1. Create permission request
   const permissionRequest = permissionPromptService.createRequest(params);
@@ -45,7 +73,7 @@ export async function handleApprovalPrompt(
     permissionPromptService.setPendingResolver(
       permissionRequest.id,
       resolve,
-      permissionRequest
+      permissionRequest,
     );
   });
 
@@ -55,7 +83,7 @@ export async function handleApprovalPrompt(
   await webviewManager.sendMessage(
     'ptah.main',
     MESSAGE_TYPES.PERMISSION_REQUEST,
-    permissionRequest
+    permissionRequest,
   );
 
   // 4. Wait for user response (or timeout)
@@ -72,7 +100,7 @@ function formatApprovalResponse(
   request: MCPRequest,
   params: ApprovalPromptParams,
   response: PermissionResponse,
-  logger: Logger
+  logger: Logger,
 ): MCPResponse {
   if (response.decision === 'allow' || response.decision === 'always_allow') {
     logger.info('Permission granted', {

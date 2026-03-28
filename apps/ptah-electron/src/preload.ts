@@ -61,6 +61,44 @@ contextBridge.exposeInMainWorld('ptahConfig', {
   isLicensed: startupConfig?.isLicensed ?? true,
 });
 
+// Expose terminal binary IPC API (TASK_2025_227)
+// Terminal data uses direct IPC channels for low-latency, high-frequency data.
+// Only terminal:create and terminal:kill use JSON RPC -- data/resize/exit use binary IPC.
+contextBridge.exposeInMainWorld('ptahTerminal', {
+  /** Write data to terminal (renderer -> main) */
+  write: (id: string, data: string) => {
+    ipcRenderer.send('terminal:data-in', id, data);
+  },
+  /** Resize terminal (renderer -> main) */
+  resize: (id: string, cols: number, rows: number) => {
+    ipcRenderer.send('terminal:resize', id, cols, rows);
+  },
+  /** Listen for terminal data output (main -> renderer). Returns cleanup function. */
+  onData: (callback: (id: string, data: string) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      id: string,
+      data: string,
+    ) => callback(id, data);
+    ipcRenderer.on('terminal:data-out', handler);
+    return () => {
+      ipcRenderer.removeListener('terminal:data-out', handler);
+    };
+  },
+  /** Listen for terminal exit events (main -> renderer). Returns cleanup function. */
+  onExit: (callback: (id: string, exitCode: number) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      id: string,
+      exitCode: number,
+    ) => callback(id, exitCode);
+    ipcRenderer.on('terminal:exit', handler);
+    return () => {
+      ipcRenderer.removeListener('terminal:exit', handler);
+    };
+  },
+});
+
 // Forward messages from main process to renderer
 // The Angular MessageRouterService listens on window 'message' event.
 ipcRenderer.on('to-renderer', (_event, message) => {

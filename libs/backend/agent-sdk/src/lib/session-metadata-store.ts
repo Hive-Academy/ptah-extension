@@ -107,7 +107,7 @@ export class SessionMetadataStore {
   constructor(
     @inject(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE)
     private storage: IStateStorage,
-    @inject(TOKENS.LOGGER) private logger: Logger
+    @inject(TOKENS.LOGGER) private logger: Logger,
   ) {}
 
   /**
@@ -148,7 +148,7 @@ export class SessionMetadataStore {
 
     await this.storage.update(STORAGE_KEY, all);
     this.logger.debug(
-      `[SessionMetadataStore] Saved metadata for session ${metadata.sessionId}`
+      `[SessionMetadataStore] Saved metadata for session ${metadata.sessionId}`,
     );
   }
 
@@ -167,14 +167,18 @@ export class SessionMetadataStore {
    */
   async getForWorkspace(
     workspaceId: string,
-    includeChildren = false
+    includeChildren = false,
   ): Promise<SessionMetadata[]> {
     const all = await this.getAll();
+    // Normalize path separators for cross-platform comparison.
+    // Frontend may send forward slashes (normalizeCacheKey) while
+    // stored workspaceId uses OS-native backslashes on Windows.
+    const normalizedQuery = workspaceId.replace(/\\/g, '/');
     return all
       .filter(
         (m) =>
-          m.workspaceId === workspaceId &&
-          (includeChildren || !m.isChildSession)
+          m.workspaceId.replace(/\\/g, '/') === normalizedQuery &&
+          (includeChildren || !m.isChildSession),
       )
       .sort((a, b) => b.lastActiveAt - a.lastActiveAt);
   }
@@ -205,7 +209,7 @@ export class SessionMetadataStore {
    */
   async addStats(
     sessionId: string,
-    stats: { cost: number; tokens: { input: number; output: number } }
+    stats: { cost: number; tokens: { input: number; output: number } },
   ): Promise<void> {
     return this.enqueueWrite(async () => {
       const metadata = await this.get(sessionId);
@@ -238,7 +242,7 @@ export class SessionMetadataStore {
    */
   private async propagateStatsToParent(
     childSessionId: string,
-    stats: { cost: number; tokens: { input: number; output: number } }
+    stats: { cost: number; tokens: { input: number; output: number } },
   ): Promise<void> {
     const all = await this.getAll();
     for (const session of all) {
@@ -255,7 +259,7 @@ export class SessionMetadataStore {
           },
         });
         this.logger.debug(
-          `[SessionMetadataStore] Propagated subagent stats to parent ${session.sessionId}`
+          `[SessionMetadataStore] Propagated subagent stats to parent ${session.sessionId}`,
         );
         break;
       }
@@ -273,7 +277,7 @@ export class SessionMetadataStore {
    */
   async addCliSession(
     sessionId: string,
-    cliSession: CliSessionReference
+    cliSession: CliSessionReference,
   ): Promise<void> {
     return this.enqueueWrite(async () => {
       const metadata = await this.get(sessionId);
@@ -286,7 +290,7 @@ export class SessionMetadataStore {
       // exists, replace it with the new one (preserves updated status, stdout, and
       // segments from resumed sessions). Otherwise append.
       const existingIndex = existing.findIndex(
-        (s) => s.cliSessionId === cliSession.cliSessionId
+        (s) => s.cliSessionId === cliSession.cliSessionId,
       );
 
       let updated: readonly CliSessionReference[];
@@ -296,12 +300,12 @@ export class SessionMetadataStore {
         mutable[existingIndex] = cliSession;
         updated = mutable;
         this.logger.info(
-          `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`
+          `[SessionMetadataStore] Updated CLI session ${cliSession.cliSessionId} (${cliSession.cli}) in session ${sessionId}`,
         );
       } else {
         updated = [...existing, cliSession];
         this.logger.info(
-          `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`
+          `[SessionMetadataStore] Linked CLI session ${cliSession.cliSessionId} (${cliSession.cli}) to session ${sessionId}`,
         );
       }
 
@@ -332,7 +336,7 @@ export class SessionMetadataStore {
     if (filtered.length !== all.length) {
       await this.storage.update(STORAGE_KEY, filtered);
       this.logger.info(
-        `[SessionMetadataStore] Deleted metadata for session ${sessionId}`
+        `[SessionMetadataStore] Deleted metadata for session ${sessionId}`,
       );
     }
   }
@@ -344,7 +348,7 @@ export class SessionMetadataStore {
   async create(
     sessionId: string,
     workspaceId: string,
-    name: string
+    name: string,
   ): Promise<SessionMetadata> {
     const now = Date.now();
     const metadata: SessionMetadata = {
@@ -359,7 +363,7 @@ export class SessionMetadataStore {
 
     await this.save(metadata);
     this.logger.info(
-      `[SessionMetadataStore] Created metadata for session ${sessionId}: "${name}"`
+      `[SessionMetadataStore] Created metadata for session ${sessionId}: "${name}"`,
     );
 
     return metadata;
@@ -374,7 +378,7 @@ export class SessionMetadataStore {
   async createChild(
     sessionId: string,
     workspaceId: string,
-    name: string
+    name: string,
   ): Promise<SessionMetadata> {
     const now = Date.now();
     const metadata: SessionMetadata = {
@@ -390,7 +394,7 @@ export class SessionMetadataStore {
 
     await this.save(metadata);
     this.logger.info(
-      `[SessionMetadataStore] Created child session metadata: ${sessionId} "${name}"`
+      `[SessionMetadataStore] Created child session metadata: ${sessionId} "${name}"`,
     );
 
     return metadata;
@@ -407,7 +411,7 @@ export class SessionMetadataStore {
         name: newName,
       });
       this.logger.info(
-        `[SessionMetadataStore] Renamed session ${sessionId} to "${newName}"`
+        `[SessionMetadataStore] Renamed session ${sessionId} to "${newName}"`,
       );
     }
   }

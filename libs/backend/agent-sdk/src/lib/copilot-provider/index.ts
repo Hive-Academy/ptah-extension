@@ -5,8 +5,20 @@
  * @see TASK_2025_193 - Shared OpenAI translation module extraction
  */
 
-// Auth service (injectable, stateful)
+// Auth service (injectable, stateful - platform-agnostic base class)
 export { CopilotAuthService } from './copilot-auth.service';
+
+// VS Code-enhanced auth service (adds native GitHub OAuth via vscode.authentication)
+export { VscodeCopilotAuthService } from './vscode-copilot-auth.service';
+
+// File-based auth utilities (cross-platform token reading and writing)
+export {
+  readCopilotToken,
+  getCopilotHostsPath,
+  getCopilotAppsPath,
+  writeCopilotToken,
+} from './copilot-file-auth';
+export type { CopilotHostsFile } from './copilot-file-auth';
 
 // Translation proxy (injectable, thin subclass of TranslationProxyBase)
 export { CopilotTranslationProxy } from './copilot-translation-proxy';

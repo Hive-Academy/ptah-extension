@@ -106,7 +106,7 @@ export class PtahCliRegistry {
     @inject(SDK_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE)
     private readonly configPersistence: PtahCliConfigPersistence,
     @inject(SDK_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS)
-    private readonly spawnOptionsService: PtahCliSpawnOptions
+    private readonly spawnOptionsService: PtahCliSpawnOptions,
   ) {
     this.logger.info('[PtahCliRegistry] Registry initialized');
   }
@@ -121,7 +121,7 @@ export class PtahCliRegistry {
 
     for (const agentConfig of configs) {
       const hasKey = await this.authSecrets.hasProviderKey(
-        `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`
+        `${PTAH_CLI_KEY_PREFIX}.${agentConfig.id}`,
       );
 
       const provider = getAnthropicProvider(agentConfig.providerId);
@@ -136,8 +136,8 @@ export class PtahCliRegistry {
             health.status === 'available'
               ? 'available'
               : health.status === 'error'
-              ? 'error'
-              : 'initializing';
+                ? 'error'
+                : 'initializing';
         } else {
           status = 'available';
         }
@@ -165,7 +165,7 @@ export class PtahCliRegistry {
   async createAgent(
     name: string,
     providerId: string,
-    apiKey: string
+    apiKey: string,
   ): Promise<PtahCliSummary> {
     await this.configPersistence.ensureMigrated();
     const provider = getAnthropicProvider(providerId);
@@ -187,7 +187,7 @@ export class PtahCliRegistry {
 
     await this.authSecrets.setProviderKey(
       `${PTAH_CLI_KEY_PREFIX}.${id}`,
-      apiKey
+      apiKey,
     );
 
     try {
@@ -204,7 +204,7 @@ export class PtahCliRegistry {
     }
 
     this.logger.info(
-      `[PtahCliRegistry] Created agent "${name}" (${id}) for provider "${provider.name}"`
+      `[PtahCliRegistry] Created agent "${name}" (${id}) for provider "${provider.name}"`,
     );
 
     const modelCount = provider.staticModels?.length ?? 0;
@@ -229,7 +229,7 @@ export class PtahCliRegistry {
     updates: Partial<
       Pick<PtahCliConfig, 'name' | 'enabled' | 'tierMappings' | 'selectedModel'>
     >,
-    apiKey?: string
+    apiKey?: string,
   ): Promise<void> {
     const configs = this.configPersistence.loadConfigs();
     const index = configs.findIndex((c) => c.id === id);
@@ -250,7 +250,7 @@ export class PtahCliRegistry {
     if (apiKey !== undefined) {
       await this.authSecrets.setProviderKey(
         `${PTAH_CLI_KEY_PREFIX}.${id}`,
-        apiKey
+        apiKey,
       );
     }
 
@@ -261,7 +261,7 @@ export class PtahCliRegistry {
     }
 
     this.logger.info(
-      `[PtahCliRegistry] Updated agent "${updated.name}" (${id})`
+      `[PtahCliRegistry] Updated agent "${updated.name}" (${id})`,
     );
   }
 
@@ -311,7 +311,7 @@ export class PtahCliRegistry {
     }
 
     const apiKey = await this.authSecrets.getProviderKey(
-      `${PTAH_CLI_KEY_PREFIX}.${id}`
+      `${PTAH_CLI_KEY_PREFIX}.${id}`,
     );
     if (!apiKey) {
       this.logger.warn(`[PtahCliRegistry] No API key for agent: ${id}`);
@@ -337,13 +337,13 @@ export class PtahCliRegistry {
       this.permissionHandler,
       this.subagentHookHandler,
       this.compactionHookHandler,
-      this.compactionConfigProvider
+      this.compactionConfigProvider,
     );
 
     const success = await adapter.initialize();
     if (!success) {
       this.logger.error(
-        `[PtahCliRegistry] Failed to initialize adapter for agent: ${id}`
+        `[PtahCliRegistry] Failed to initialize adapter for agent: ${id}`,
       );
       return undefined;
     }
@@ -351,7 +351,7 @@ export class PtahCliRegistry {
     this.adapters.set(id, adapter);
 
     this.logger.info(
-      `[PtahCliRegistry] Created and initialized adapter for agent "${agentConfig.name}" (${id})`
+      `[PtahCliRegistry] Created and initialized adapter for agent "${agentConfig.name}" (${id})`,
     );
 
     return adapter;
@@ -361,7 +361,7 @@ export class PtahCliRegistry {
    * Test connection to a Ptah CLI agent's provider
    */
   async testConnection(
-    id: string
+    id: string,
   ): Promise<{ success: boolean; latencyMs?: number; error?: string }> {
     const startTime = Date.now();
 
@@ -375,7 +375,7 @@ export class PtahCliRegistry {
       }
 
       const apiKey = await this.authSecrets.getProviderKey(
-        `${PTAH_CLI_KEY_PREFIX}.${id}`
+        `${PTAH_CLI_KEY_PREFIX}.${id}`,
       );
       if (!apiKey) {
         return { success: false, error: 'API key not configured' };
@@ -396,7 +396,7 @@ export class PtahCliRegistry {
         this.logger,
         this.moduleLoader,
         this.messageTransformer,
-        this.permissionHandler
+        this.permissionHandler,
       );
       const initSuccess = await testAdapter.initialize();
       if (!initSuccess) {
@@ -422,6 +422,9 @@ export class PtahCliRegistry {
             allowDangerouslySkipPermissions: true,
             includePartialMessages: false,
             env: buildSafeEnv(testAdapter['authEnv']),
+            // TASK_2025_194: Override baked-in CLI path for production
+            pathToClaudeCodeExecutable:
+              (await this.moduleLoader.getCliJsPath()) ?? undefined,
           } as Options,
         });
 
@@ -435,7 +438,7 @@ export class PtahCliRegistry {
 
         if (receivedResponse) {
           this.logger.info(
-            `[PtahCliRegistry] Connection test PASSED for agent ${id} (${latencyMs}ms)`
+            `[PtahCliRegistry] Connection test PASSED for agent ${id} (${latencyMs}ms)`,
           );
           return { success: true, latencyMs };
         } else {
@@ -453,7 +456,7 @@ export class PtahCliRegistry {
       const errorMsg = error instanceof Error ? error.message : String(error);
 
       this.logger.error(
-        `[PtahCliRegistry] Connection test FAILED for agent ${id} (${latencyMs}ms): ${errorMsg}`
+        `[PtahCliRegistry] Connection test FAILED for agent ${id} (${latencyMs}ms): ${errorMsg}`,
       );
 
       return {
@@ -485,7 +488,7 @@ export class PtahCliRegistry {
       /** Parent session ID for permission routing. Permissions from this agent
        *  will be scoped to this session for cleanup purposes. */
       parentSessionId?: string;
-    }
+    },
   ): Promise<{ handle: SdkHandle; agentName: string } | SpawnAgentFailure> {
     // Find config
     const configs = this.configPersistence.loadConfigs();
@@ -508,11 +511,11 @@ export class PtahCliRegistry {
 
     // Get API key
     const apiKey = await this.authSecrets.getProviderKey(
-      `${PTAH_CLI_KEY_PREFIX}.${id}`
+      `${PTAH_CLI_KEY_PREFIX}.${id}`,
     );
     if (!apiKey) {
       this.logger.warn(
-        `[PtahCliRegistry] spawnAgent: no API key for agent: ${id}`
+        `[PtahCliRegistry] spawnAgent: no API key for agent: ${id}`,
       );
       return {
         status: 'no_api_key',
@@ -524,7 +527,7 @@ export class PtahCliRegistry {
     const provider = getAnthropicProvider(agentConfig.providerId);
     if (!provider) {
       this.logger.error(
-        `[PtahCliRegistry] spawnAgent: unknown provider: ${agentConfig.providerId}`
+        `[PtahCliRegistry] spawnAgent: unknown provider: ${agentConfig.providerId}`,
       );
       return {
         status: 'unknown_provider',
@@ -544,7 +547,7 @@ export class PtahCliRegistry {
     const assembly = await this.spawnOptionsService.assembleSpawnOptions(
       authEnv,
       cwd,
-      options?.projectGuidance
+      options?.projectGuidance,
     );
 
     // Build callback infrastructure
@@ -566,7 +569,7 @@ export class PtahCliRegistry {
       {
         cwd,
         resumeSessionId: options?.resumeSessionId ?? null,
-      }
+      },
     );
 
     // When resuming, use a continuation prompt
@@ -603,7 +606,7 @@ export class PtahCliRegistry {
         ...this.resolvePermissionOptions(
           options?.resumeSessionId ??
             options?.parentSessionId ??
-            `ptah-cli:${id}`
+            `ptah-cli:${id}`,
         ),
         settingSources: ['user', 'project', 'local'] as const,
         includePartialMessages: true,
@@ -612,12 +615,15 @@ export class PtahCliRegistry {
         env: buildSafeEnv(authEnv),
         stderr: (data: string) => {
           this.logger.error(
-            `[PtahCliRegistry] Agent "${agentConfig.name}" stderr: ${data}`
+            `[PtahCliRegistry] Agent "${agentConfig.name}" stderr: ${data}`,
           );
         },
         hooks: assembly.hooks,
         plugins: assembly.plugins,
         compactionControl: assembly.compactionControl,
+        // TASK_2025_194: Override baked-in CLI path for production
+        pathToClaudeCodeExecutable:
+          (await this.moduleLoader.getCliJsPath()) ?? undefined,
       } as Options,
     });
 
@@ -663,7 +669,7 @@ export class PtahCliRegistry {
     const providerModel =
       effectiveTiers?.sonnet ?? provider.staticModels?.[0]?.id ?? 'default';
     this.logger.info(
-      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${providerModel} (SDK model: ${model})`
+      `[PtahCliRegistry] Spawned headless agent "${agentConfig.name}" (${id}) with model ${providerModel} (SDK model: ${model})`,
     );
 
     return { handle, agentName: agentConfig.name };
@@ -674,7 +680,7 @@ export class PtahCliRegistry {
    */
   disposeAll(): void {
     this.logger.info(
-      `[PtahCliRegistry] Disposing ${this.adapters.size} active adapters`
+      `[PtahCliRegistry] Disposing ${this.adapters.size} active adapters`,
     );
 
     for (const [id, adapter] of this.adapters.entries()) {
@@ -721,7 +727,7 @@ export class PtahCliRegistry {
 
     if (sdkMode === 'bypassPermissions') {
       this.logger.info(
-        '[PtahCliRegistry] YOLO mode: using bypassPermissions for subagent'
+        '[PtahCliRegistry] YOLO mode: using bypassPermissions for subagent',
       );
       return {
         permissionMode: sdkMode,
@@ -730,7 +736,7 @@ export class PtahCliRegistry {
     }
 
     this.logger.info(
-      `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`
+      `[PtahCliRegistry] Permission mode for subagent: ${sdkMode} (level: ${level})`,
     );
     return {
       permissionMode: sdkMode,
@@ -744,7 +750,7 @@ export class PtahCliRegistry {
   private buildAuthEnv(
     agentConfig: PtahCliConfig,
     provider: AnthropicProvider,
-    apiKey: string
+    apiKey: string,
   ): AuthEnv {
     const authEnv = createEmptyAuthEnv();
     authEnv.ANTHROPIC_BASE_URL = provider.baseUrl;
@@ -813,7 +819,7 @@ export class PtahCliRegistry {
       [];
 
     const onStreamEvent = (
-      callback: (event: FlatStreamEventUnion) => void
+      callback: (event: FlatStreamEventUnion) => void,
     ): void => {
       streamEventCallbacks.push(callback);
       if (streamEventBuffer.length > 0) {
@@ -861,7 +867,7 @@ export class PtahCliRegistry {
    */
   private resolveEffectiveTiers(
     agentConfig: PtahCliConfig,
-    provider: AnthropicProvider
+    provider: AnthropicProvider,
   ): PtahCliConfig['tierMappings'] {
     const mainTiers = this.providerModels.getModelTiers(agentConfig.providerId);
     const agentTiers = agentConfig.tierMappings;
@@ -882,7 +888,7 @@ export class PtahCliRegistry {
         agentTiers,
         mainTiers,
         resolved: { sonnet, opus, haiku },
-      }
+      },
     );
 
     return {
@@ -896,7 +902,7 @@ export class PtahCliRegistry {
    * Build default tier mappings from a provider's static models
    */
   private buildDefaultTierMappings(
-    provider: AnthropicProvider
+    provider: AnthropicProvider,
   ): PtahCliConfig['tierMappings'] {
     if (!provider.staticModels || provider.staticModels.length === 0) {
       return undefined;
