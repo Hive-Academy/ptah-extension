@@ -80,7 +80,7 @@ export class StreamingHandlerService {
   processStreamEvent(
     event: FlatStreamEventUnion,
     tabId?: string,
-    sessionId?: string
+    sessionId?: string,
   ): {
     tabId: string;
     queuedContent?: string;
@@ -129,7 +129,7 @@ export class StreamingHandlerService {
         if (!targetTab) {
           console.warn(
             '[StreamingHandlerService] No target tab for event',
-            event.sessionId
+            event.sessionId,
           );
           return null;
         }
@@ -163,7 +163,7 @@ export class StreamingHandlerService {
         case 'message_start': {
           const result = this.deduplication.handleDuplicateMessageStart(
             state,
-            event
+            event,
           );
 
           if (result.skip) {
@@ -177,6 +177,24 @@ export class StreamingHandlerService {
               .getProcessedMessageIds(event.sessionId)
               .add(event.messageId);
             state.messageEventIds.push(event.messageId);
+          } else if (
+            event.source === 'complete' ||
+            event.source === 'history'
+          ) {
+            // REPLACEMENT: Complete/history message_start replacing a stream one.
+            // Clear stale text and thinking accumulators for this messageId.
+            // The stream path uses the Anthropic API's event.index (counting ALL
+            // content blocks: thinking, text, tool_use) while the complete path
+            // may have different indexes (SDK can strip thinking blocks from the
+            // content array). Without clearing, both accumulator keys persist
+            // and the tree builder creates duplicate text nodes.
+            const prefix = `${event.messageId}-block-`;
+            const thinkPrefix = `${event.messageId}-thinking-`;
+            for (const key of state.textAccumulators.keys()) {
+              if (key.startsWith(prefix) || key.startsWith(thinkPrefix)) {
+                state.textAccumulators.delete(key);
+              }
+            }
           }
 
           state.events.set(event.id, event);
@@ -204,7 +222,7 @@ export class StreamingHandlerService {
             this.deduplication.isMessageAlreadyFinalized(
               event.sessionId,
               event.messageId,
-              state
+              state,
             )
           ) {
             return null;
@@ -216,7 +234,7 @@ export class StreamingHandlerService {
           const blockIndex = event.blockIndex ?? 0;
           const blockKey = AccumulatorKeys.textBlock(
             event.messageId,
-            blockIndex
+            blockIndex,
           );
 
           if (event.source === 'complete' || event.source === 'history') {
@@ -238,7 +256,7 @@ export class StreamingHandlerService {
             this.deduplication.isMessageAlreadyFinalized(
               event.sessionId,
               event.messageId,
-              state
+              state,
             )
           ) {
             return null;
@@ -250,7 +268,7 @@ export class StreamingHandlerService {
           const blockIndex = event.blockIndex ?? 0;
           const thinkKey = AccumulatorKeys.thinkingBlock(
             event.messageId,
-            blockIndex
+            blockIndex,
           );
 
           if (event.source === 'complete' || event.source === 'history') {
@@ -267,7 +285,7 @@ export class StreamingHandlerService {
               state,
               event.toolCallId,
               'tool_start',
-              event.source
+              event.source,
             );
 
           if (existingToolStart) {
@@ -293,7 +311,7 @@ export class StreamingHandlerService {
             this.deduplication.isToolAlreadyFinalized(
               event.sessionId,
               event.toolCallId,
-              state
+              state,
             )
           ) {
             return null;
@@ -306,7 +324,7 @@ export class StreamingHandlerService {
           this.accumulateDelta(
             state.toolInputAccumulators,
             inputKey,
-            event.delta
+            event.delta,
           );
           break;
         }
@@ -317,7 +335,7 @@ export class StreamingHandlerService {
               state,
               event.toolCallId,
               'tool_result',
-              event.source
+              event.source,
             );
 
           if (existingToolResult) {
@@ -337,7 +355,7 @@ export class StreamingHandlerService {
             this.deduplication.replaceAgentStartByAgentId(
               state,
               event.agentId,
-              event.source
+              event.source,
             );
 
           if (existingByAgentId) {
@@ -347,7 +365,7 @@ export class StreamingHandlerService {
                 agentId: event.agentId,
                 toolCallId: event.toolCallId,
                 source: event.source,
-              }
+              },
             );
             return null;
           }
@@ -358,7 +376,7 @@ export class StreamingHandlerService {
               state,
               event.toolCallId,
               'agent_start',
-              event.source
+              event.source,
             );
 
           if (existingByToolCallId) {
@@ -367,7 +385,7 @@ export class StreamingHandlerService {
               {
                 toolCallId: event.toolCallId,
                 source: event.source,
-              }
+              },
             );
             return null;
           }
@@ -406,7 +424,7 @@ export class StreamingHandlerService {
 
           const pendingDeltas = this.sessionManager.registerAgent(
             event.toolCallId,
-            preliminaryAgentNode
+            preliminaryAgentNode,
           );
 
           if (pendingDeltas.length > 0) {
@@ -418,7 +436,7 @@ export class StreamingHandlerService {
             this.sessionManager.registerAgent(event.toolCallId, updatedNode);
             console.log(
               `[StreamingHandler] Applied ${pendingDeltas.length} pending chunks to agent:`,
-              event.toolCallId
+              event.toolCallId,
             );
           }
           break;
@@ -464,7 +482,7 @@ export class StreamingHandlerService {
           // Return compaction info so ChatStore can call handleCompactionStart()
           console.log(
             '[StreamingHandlerService] Compaction event received via streaming path',
-            { sessionId: event.sessionId, trigger: event.trigger }
+            { sessionId: event.sessionId, trigger: event.trigger },
           );
 
           // Return compaction info for ChatStore to handle (avoid circular dependency)
@@ -479,7 +497,7 @@ export class StreamingHandlerService {
               sessionId: event.sessionId,
               trigger: event.trigger,
               preTokens: event.preTokens,
-            }
+            },
           );
 
           // Reset streaming state to fresh - pre-compaction events are stale
@@ -513,7 +531,7 @@ export class StreamingHandlerService {
         default:
           assertNever(
             event,
-            `Unhandled event type: ${(event as FlatStreamEventUnion).eventType}`
+            `Unhandled event type: ${(event as FlatStreamEventUnion).eventType}`,
           );
       }
 
@@ -534,7 +552,7 @@ export class StreamingHandlerService {
       console.error(
         '[StreamingHandlerService] Error processing stream event:',
         error,
-        event
+        event,
       );
       return null;
     }
@@ -554,7 +572,7 @@ export class StreamingHandlerService {
    */
   private backfillAgentStartToolId(
     state: StreamingState,
-    tooluParentToolUseId: string
+    tooluParentToolUseId: string,
   ): void {
     // Find a hook-based agent_start with UUID-format toolCallId (not toolu_*)
     // that hasn't been backfilled yet
@@ -570,7 +588,7 @@ export class StreamingHandlerService {
         const alreadyBackfilled = [...state.events.values()].some(
           (e) =>
             e.eventType === 'agent_start' &&
-            e.parentToolUseId === tooluParentToolUseId
+            e.parentToolUseId === tooluParentToolUseId,
         );
         if (alreadyBackfilled) {
           return; // Already have an agent_start with this toolu_* ID
@@ -590,7 +608,7 @@ export class StreamingHandlerService {
             agentId: (evt as { agentId?: string }).agentId,
             oldToolCallId: evt.toolCallId,
             newToolCallId: tooluParentToolUseId,
-          }
+          },
         );
         return; // Only backfill one agent_start per message_start
       }
@@ -602,7 +620,7 @@ export class StreamingHandlerService {
    */
   private indexEventByMessage(
     state: StreamingState,
-    event: FlatStreamEventUnion
+    event: FlatStreamEventUnion,
   ): void {
     if (event.messageId) {
       const messageEvents = state.eventsByMessage.get(event.messageId) || [];
@@ -617,7 +635,7 @@ export class StreamingHandlerService {
   private accumulateDelta(
     map: Map<string, string>,
     key: string,
-    delta: string
+    delta: string,
   ): void {
     const current = map.get(key) || '';
     map.set(key, current + delta);
@@ -640,7 +658,7 @@ export class StreamingHandlerService {
    */
   finalizeSessionHistory(
     tabId: string,
-    resumableSubagents?: import('@ptah-extension/shared').SubagentRecord[]
+    resumableSubagents?: import('@ptah-extension/shared').SubagentRecord[],
   ): ExecutionChatMessage[] {
     return this.finalization.finalizeSessionHistory(tabId, resumableSubagents);
   }
@@ -685,7 +703,7 @@ export class StreamingHandlerService {
 
       if (!targetTab) {
         console.warn(
-          '[StreamingHandlerService] No target tab found for session stats'
+          '[StreamingHandlerService] No target tab found for session stats',
         );
         return null;
       }
@@ -717,7 +735,7 @@ export class StreamingHandlerService {
       console.log(
         '[StreamingHandlerService] Finalizing streaming on stats received for tab:',
         targetTabId,
-        { hardDenyToolUseIds: [...hardDenyToolUseIds] }
+        { hardDenyToolUseIds: [...hardDenyToolUseIds] },
       );
       this.finalization.finalizeCurrentMessage(targetTabId);
 
@@ -734,13 +752,13 @@ export class StreamingHandlerService {
         // Targeted: mark only the specific denied agent(s) by their toolCallIds (excluding sentinel)
         const specificIds = new Set(
           [...hardDenyToolUseIds].filter(
-            (id) => id !== UNKNOWN_AGENT_TOOL_CALL_ID
-          )
+            (id) => id !== UNKNOWN_AGENT_TOOL_CALL_ID,
+          ),
         );
         if (specificIds.size > 0) {
           this.finalization.markAgentsAsInterruptedByToolCallIds(
             targetTabId,
-            specificIds
+            specificIds,
           );
         }
       }
@@ -762,14 +780,14 @@ export class StreamingHandlerService {
       };
       this.batchedUpdate.scheduleUpdate(targetTab.id, state);
       console.log(
-        '[StreamingHandlerService] Stats stored as pendingStats (tab has streamingState but no messages)'
+        '[StreamingHandlerService] Stats stored as pendingStats (tab has streamingState but no messages)',
       );
       return null;
     }
 
     if (messages.length === 0) {
       console.log(
-        '[StreamingHandlerService] No messages in tab, stats discarded'
+        '[StreamingHandlerService] No messages in tab, stats discarded',
       );
       return null;
     }
@@ -785,7 +803,7 @@ export class StreamingHandlerService {
 
     if (lastAssistantIndex === -1) {
       console.log(
-        '[StreamingHandlerService] No assistant message found, stats discarded'
+        '[StreamingHandlerService] No assistant message found, stats discarded',
       );
       return null;
     }
@@ -804,7 +822,7 @@ export class StreamingHandlerService {
     });
 
     console.log(
-      '[StreamingHandlerService] Stats applied to last assistant message'
+      '[StreamingHandlerService] Stats applied to last assistant message',
     );
     return null;
   }
@@ -828,7 +846,7 @@ export class StreamingHandlerService {
       this.collectInterruptedAgentIds(
         msg.streamingState,
         agentType,
-        interruptedNodeIds
+        interruptedNodeIds,
       );
     }
 
@@ -844,7 +862,7 @@ export class StreamingHandlerService {
   private collectInterruptedAgentIds(
     node: ExecutionNode,
     agentType: string,
-    out: string[]
+    out: string[],
   ): void {
     if (
       node.type === 'agent' &&
