@@ -83,15 +83,15 @@ import { TerminalService } from '../services/terminal.service';
 export class TerminalTabBarComponent {
   protected readonly terminalService = inject(TerminalService);
 
-  readonly PlusIcon = Plus;
-  readonly XIcon = X;
-  readonly TerminalIcon = TermIcon;
+  protected readonly PlusIcon = Plus;
+  protected readonly XIcon = X;
+  protected readonly TerminalIcon = TermIcon;
 
-  async newTerminal(): Promise<void> {
+  protected async newTerminal(): Promise<void> {
     await this.terminalService.createTerminal();
   }
 
-  async closeTab(event: MouseEvent, id: string): Promise<void> {
+  protected async closeTab(event: MouseEvent, id: string): Promise<void> {
     event.stopPropagation();
     await this.terminalService.closeTab(id);
   }

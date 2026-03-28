@@ -177,10 +177,10 @@ export class GitStatusBarComponent {
   // ============================================================================
 
   /** Whether the add-worktree dialog is visible. */
-  readonly showAddWorktreeDialog = signal(false);
+  protected readonly showAddWorktreeDialog = signal(false);
 
   /** Number of active worktrees, derived from WorktreeService. */
-  readonly worktreeCount = computed(
+  protected readonly worktreeCount = computed(
     () => this.worktreeService.worktrees().length,
   );
 
@@ -194,18 +194,18 @@ export class GitStatusBarComponent {
   // ============================================================================
 
   /** Toggle the add-worktree dialog visibility. */
-  toggleAddWorktreeDialog(): void {
+  protected toggleAddWorktreeDialog(): void {
     this.showAddWorktreeDialog.update((v) => !v);
   }
 
   /** Handle successful worktree creation: close dialog and refresh list. */
-  onWorktreeCreated(): void {
+  protected onWorktreeCreated(): void {
     this.showAddWorktreeDialog.set(false);
     // WorktreeService already refreshed the list in addWorktree()
   }
 
   /** Handle dialog cancellation: close dialog. */
-  onWorktreeDialogCancelled(): void {
+  protected onWorktreeDialogCancelled(): void {
     this.showAddWorktreeDialog.set(false);
   }
 }

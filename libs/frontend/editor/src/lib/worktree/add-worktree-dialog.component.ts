@@ -2,6 +2,7 @@ import {
   Component,
   inject,
   signal,
+  computed,
   output,
   ChangeDetectionStrategy,
 } from '@angular/core';
@@ -172,19 +173,19 @@ export class AddWorktreeDialogComponent {
   // ============================================================================
 
   /** Branch name input value. */
-  readonly branchName = signal('');
+  protected readonly branchName = signal('');
 
   /** Optional custom path for the worktree directory. */
-  readonly customPath = signal('');
+  protected readonly customPath = signal('');
 
   /** Whether to create a new branch (vs checkout an existing one). */
-  readonly createNewBranch = signal(false);
+  protected readonly createNewBranch = signal(false);
 
   /** Whether a create request is in flight. */
-  readonly isSubmitting = signal(false);
+  protected readonly isSubmitting = signal(false);
 
   /** Error message from the last failed attempt. */
-  readonly errorMessage = signal('');
+  protected readonly errorMessage = signal('');
 
   // ============================================================================
   // ICONS
@@ -198,9 +199,9 @@ export class AddWorktreeDialogComponent {
   // ============================================================================
 
   /** Whether the form can be submitted (branch name is non-empty and not already submitting). */
-  canSubmit(): boolean {
-    return this.branchName().trim().length > 0 && !this.isSubmitting();
-  }
+  protected readonly canSubmit = computed(
+    () => this.branchName().trim().length > 0 && !this.isSubmitting(),
+  );
 
   // ============================================================================
   // ACTIONS
@@ -211,7 +212,7 @@ export class AddWorktreeDialogComponent {
    * On success, emit worktreeCreated and reset form.
    * On failure, display error message.
    */
-  async submit(): Promise<void> {
+  protected async submit(): Promise<void> {
     if (!this.canSubmit()) return;
 
     this.isSubmitting.set(true);
@@ -236,13 +237,13 @@ export class AddWorktreeDialogComponent {
   }
 
   /** Cancel the dialog and emit the cancelled event. */
-  cancel(): void {
+  protected cancel(): void {
     this.resetForm();
     this.cancelled.emit();
   }
 
   /** Close dialog on backdrop click (click outside the modal card). */
-  onBackdropClick(event: MouseEvent): void {
+  protected onBackdropClick(event: MouseEvent): void {
     if (event.target === event.currentTarget) {
       this.cancel();
     }

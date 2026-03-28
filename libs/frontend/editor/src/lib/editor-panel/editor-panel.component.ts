@@ -240,6 +240,7 @@ export class EditorPanelComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.gitStatus.stopPolling();
     this.cleanupResizeListeners();
   }
 
