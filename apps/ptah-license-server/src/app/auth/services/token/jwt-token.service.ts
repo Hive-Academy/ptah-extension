@@ -36,7 +36,7 @@ export class JwtTokenService {
 
   constructor(
     private readonly jwtService: JwtService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -52,12 +52,12 @@ export class JwtTokenService {
   async generateToken(
     databaseUserId: string,
     workosUser: User,
-    organizationId?: string
+    organizationId?: string,
   ): Promise<string> {
     const requestUser = await this.mapWorkOSUserToRequestUser(
       workosUser,
       organizationId,
-      databaseUserId
+      databaseUserId,
     );
 
     const payload: Omit<JWTPayload, 'iat' | 'exp'> = {
@@ -111,7 +111,7 @@ export class JwtTokenService {
   async mapWorkOSUserToRequestUser(
     user: User,
     organizationId?: string,
-    databaseUserId?: string
+    databaseUserId?: string,
   ): Promise<RequestUser> {
     const roles = this.extractValidatedRoles(user);
     const permissions = this.derivePermissionsFromRoles(roles);
@@ -148,7 +148,7 @@ export class JwtTokenService {
 
     // Filter against allowlist — reject any role not in VALID_ROLES
     const validatedRoles = rawRoles.filter((role): role is ValidRole =>
-      (VALID_ROLES as readonly string[]).includes(role)
+      (VALID_ROLES as readonly string[]).includes(role),
     );
 
     // Ensure at least the default 'user' role
@@ -190,11 +190,11 @@ export class JwtTokenService {
    * TASK_2025_128: Freemium model (Community + Pro)
    * - 'community': Free tier (always valid, no active license)
    * - 'pro': Active Pro subscription
-   * - 'trial_pro': Pro plan during 14-day trial
+   * - 'trial_pro': Pro plan during 30-day trial
    * - 'expired': License revoked or subscription past_due/canceled
    */
   private async determineTier(
-    databaseUserId: string
+    databaseUserId: string,
   ): Promise<'community' | 'pro' | 'trial_pro' | 'expired'> {
     // Check for an active subscription first (most authoritative source)
     // NOTE: DB errors are intentionally NOT caught here — a Pro user should

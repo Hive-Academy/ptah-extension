@@ -41,7 +41,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
             <span
               class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-base-100 border border-amber-400/50 text-xs font-bold text-amber-400 tracking-wide z-10 whitespace-nowrap"
             >
-              14 DAYS TRIAL
+              30 DAYS TRIAL
             </span>
             <div
               class="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-400/20 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors"
@@ -77,7 +77,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
             <span
               class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-base-100 border border-amber-400/50 text-xs font-bold text-amber-400 tracking-wide z-10 whitespace-nowrap"
             >
-              14 DAYS TRIAL
+              30 DAYS TRIAL
             </span>
             <div
               class="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-400/20 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors"

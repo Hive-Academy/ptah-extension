@@ -41,7 +41,7 @@ export function computeBadgeVariant(
   context: PlanSubscriptionContext | null,
   planTier: 'community' | 'pro',
   isCurrentPlan: boolean,
-  isTrialPlan: boolean
+  isTrialPlan: boolean,
 ): PlanBadgeVariant {
   // No context = unauthenticated user
   if (!context) {
@@ -121,7 +121,7 @@ export function computeBadgeVariant(
  */
 export function computeCtaVariant(
   context: PlanSubscriptionContext | null,
-  planTier: 'community' | 'pro'
+  planTier: 'community' | 'pro',
 ): PlanCtaVariant {
   // Not authenticated or no context -> start trial
   if (!context?.isAuthenticated) return 'start-trial';
@@ -166,7 +166,7 @@ export function computeCtaVariant(
 export function computeCtaText(variant: PlanCtaVariant): string {
   switch (variant) {
     case 'start-trial':
-      return 'Start 14-Day Free Trial';
+      return 'Start 30-Day Free Trial';
     case 'current-plan':
       return 'Manage Subscription';
     case 'upgrade':
@@ -184,7 +184,7 @@ export function computeCtaText(variant: PlanCtaVariant): string {
     case 'downgrade':
       return 'Downgrade';
     default:
-      return 'Start 14-Day Free Trial';
+      return 'Start 30-Day Free Trial';
   }
 }
 
@@ -199,7 +199,7 @@ export function computeCtaText(variant: PlanCtaVariant): string {
 export function computeCtaButtonClass(
   variant: PlanCtaVariant,
   isDisabled: boolean,
-  planTier: 'community' | 'pro'
+  planTier: 'community' | 'pro',
 ): string {
   // Base disabled state (not for 'included' which has its own style)
   if (isDisabled && variant !== 'included') {
@@ -262,7 +262,7 @@ export function formatTrialDaysText(days: number | null): string | null {
  */
 export function isPortalAction(variant: PlanCtaVariant): boolean {
   return ['current-plan', 'reactivate', 'update-payment', 'resume'].includes(
-    variant
+    variant,
   );
 }
 

@@ -5,7 +5,7 @@
  *
  * TASK_2025_128: Freemium Model Conversion
  * - Community: FREE forever (no Paddle, install from VS Code marketplace)
- * - Pro: $5/month, $50/year (14-day trial, Paddle checkout)
+ * - Pro: $5/month, $50/year (30-day trial, Paddle checkout)
  *
  * Evidence: TASK_2025_121 - Two-Tier Paid Extension Model
  * Evidence: TASK_2025_128 - Freemium Model Conversion
@@ -206,7 +206,7 @@ export type PlanCtaVariant =
  */
 export type PlanBadgeVariant =
   /**
-   * Default trial badge (cyan) - "14-Day Free Trial"
+   * Default trial badge (cyan) - "30-Day Free Trial"
    */
   | 'trial'
   /**

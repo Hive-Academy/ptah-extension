@@ -115,23 +115,9 @@ export class ElectronWorkspaceRpcHandlers {
 
         this.electronProvider.addFolder(folderPath);
 
-        // Import existing Claude sessions for the new workspace (fire-and-forget)
-        this.sessionImporter
-          .scanAndImport(folderPath, 50)
-          .then((count) => {
-            if (count > 0) {
-              this.logger.info(
-                `[Electron RPC] workspace:addFolder imported ${count} session(s)`,
-                { folderPath },
-              );
-            }
-          })
-          .catch((err: unknown) => {
-            this.logger.warn(
-              '[Electron RPC] workspace:addFolder session import failed (non-fatal)',
-              { error: err instanceof Error ? err.message : String(err) },
-            );
-          });
+        // Session import is handled by workspace:switch (called by frontend auto-switch).
+        // No fire-and-forget import here — it would write to the wrong workspace storage
+        // since addFolder creates but does not activate the workspace context.
 
         this.logger.info('[Electron RPC] workspace:addFolder', { folderPath });
         return { path: folderPath, name: folderName };
