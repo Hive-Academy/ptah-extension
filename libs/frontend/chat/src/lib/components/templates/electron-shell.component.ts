@@ -16,8 +16,16 @@
  * Resizable dividers between panels. macOS title bar drag region on navbar.
  */
 
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  signal,
+  effect,
+  untracked,
+  Type,
+} from '@angular/core';
+import { NgComponentOutlet, NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
   PanelLeft,
@@ -31,11 +39,16 @@ import {
   Shield,
   GitBranch,
   Sparkles,
+  X,
+  MessageSquare,
+  Wand2,
+  type LucideIconData,
 } from 'lucide-angular';
 import {
   ElectronLayoutService,
   VSCodeService,
   AppStateManager,
+  type ViewType,
 } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
 import { AppShellComponent } from './app-shell.component';
@@ -43,7 +56,6 @@ import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { WelcomeComponent } from './welcome.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
 import { ElectronResizeHandleComponent } from '../atoms/electron-resize-handle.component';
-import { EditorPanelComponent } from '@ptah-extension/editor';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 
@@ -56,7 +68,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
     WelcomeComponent,
     WorkspaceSidebarComponent,
     ElectronResizeHandleComponent,
-    EditorPanelComponent,
+    NgComponentOutlet,
     ThemeToggleComponent,
     NotificationBellComponent,
     LucideAngularModule,
@@ -80,22 +92,47 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
 
     /* Hero panel animations for license welcome split-screen */
     @keyframes hero-float {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-10px); }
+      0%,
+      100% {
+        transform: translateY(0px);
+      }
+      50% {
+        transform: translateY(-10px);
+      }
     }
     @keyframes hero-float-delayed {
-      0%, 100% { transform: translateY(0px); }
-      50% { transform: translateY(-8px); }
+      0%,
+      100% {
+        transform: translateY(0px);
+      }
+      50% {
+        transform: translateY(-8px);
+      }
     }
     @keyframes hero-glow-pulse {
-      0%, 100% { box-shadow: 0 0 20px rgba(212, 175, 55, 0.15); }
-      50% { box-shadow: 0 0 40px rgba(212, 175, 55, 0.3); }
+      0%,
+      100% {
+        box-shadow: 0 0 20px rgba(212, 175, 55, 0.15);
+      }
+      50% {
+        box-shadow: 0 0 40px rgba(212, 175, 55, 0.3);
+      }
     }
     @keyframes hero-particle-float {
-      0% { transform: translateY(100%) rotate(0deg); opacity: 0; }
-      10% { opacity: 0.6; }
-      90% { opacity: 0.6; }
-      100% { transform: translateY(-100vh) rotate(720deg); opacity: 0; }
+      0% {
+        transform: translateY(100%) rotate(0deg);
+        opacity: 0;
+      }
+      10% {
+        opacity: 0.6;
+      }
+      90% {
+        opacity: 0.6;
+      }
+      100% {
+        transform: translateY(-100vh) rotate(720deg);
+        opacity: 0;
+      }
     }
 
     .hero-card-float {
@@ -153,28 +190,59 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
 
         <!-- Workspace sidebar toggle (left-aligned, near the sidebar it controls) -->
         @if (layout.hasWorkspaceFolders()) {
-        <div class="flex items-center no-drag ml-1">
-          <button
-            class="btn btn-ghost btn-xs gap-1"
-            [title]="
-              layout.workspaceSidebarVisible()
-                ? 'Hide workspaces'
-                : 'Show workspaces'
-            "
-            aria-label="Toggle workspace sidebar"
-            (click)="layout.toggleWorkspaceSidebar()"
-          >
-            <lucide-angular
-              [img]="
+          <div class="flex items-center no-drag ml-1">
+            <button
+              class="btn btn-ghost btn-xs gap-1"
+              [title]="
                 layout.workspaceSidebarVisible()
-                  ? PanelLeftCloseIcon
-                  : PanelLeftIcon
+                  ? 'Hide workspaces'
+                  : 'Show workspaces'
               "
-              class="w-3.5 h-3.5"
-            />
-            <span class="text-xs">Workspaces</span>
-          </button>
-        </div>
+              aria-label="Toggle workspace sidebar"
+              (click)="layout.toggleWorkspaceSidebar()"
+            >
+              <lucide-angular
+                [img]="
+                  layout.workspaceSidebarVisible()
+                    ? PanelLeftCloseIcon
+                    : PanelLeftIcon
+                "
+                class="w-3.5 h-3.5"
+              />
+              <span class="text-xs">Workspaces</span>
+            </button>
+          </div>
+        }
+
+        <!-- View tab pills (open views as switchable tabs) -->
+        @if (appState.isLicensed() && layout.hasWorkspaceFolders()) {
+          <div class="flex items-center gap-0.5 no-drag ml-2">
+            @for (view of appState.openViews(); track view) {
+              <button
+                class="btn btn-xs gap-1 rounded-full px-2.5 h-6 min-h-0 no-drag transition-all duration-150"
+                [class.btn-primary]="appState.currentView() === view"
+                [class.btn-ghost]="appState.currentView() !== view"
+                [class.text-base-content/60]="appState.currentView() !== view"
+                [title]="getViewMeta(view).label"
+                (click)="appState.setCurrentView(view)"
+              >
+                <lucide-angular
+                  [img]="getViewMeta(view).icon"
+                  class="w-3 h-3"
+                />
+                <span class="text-xs">{{ getViewMeta(view).label }}</span>
+                @if (view !== 'chat') {
+                  <span
+                    class="ml-0.5 rounded-full hover:bg-base-content/20 p-0.5 cursor-pointer"
+                    title="Close"
+                    (click)="closeViewTab(view, $event)"
+                  >
+                    <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
+                  </span>
+                }
+              </button>
+            }
+          </div>
         }
 
         <!-- Spacer -->
@@ -183,273 +251,282 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
         <!-- Global actions (no-drag so buttons are clickable on macOS) -->
         <div class="flex items-center gap-0.5 no-drag">
           <!-- Notification bell (only when licensed) -->
-          @if (appState.isLicensed()) { @if (chatStore.licenseStatus(); as
-          license) {
-          <ptah-notification-bell
-            [trialActive]="license.trialActive"
-            [trialDaysRemaining]="license.trialDaysRemaining"
-            [isCommunity]="license.isCommunity"
-            [reason]="license.reason"
-            [showLabel]="true"
-          />
-          } }
+          @if (appState.isLicensed()) {
+            @if (chatStore.licenseStatus(); as license) {
+              <ptah-notification-bell
+                [trialActive]="license.trialActive"
+                [trialDaysRemaining]="license.trialDaysRemaining"
+                [isCommunity]="license.isCommunity"
+                [reason]="license.reason"
+                [showLabel]="true"
+              />
+            }
+          }
 
           <!-- Theme toggle (always available) -->
           <ptah-theme-toggle [showLabel]="true" />
 
           <!-- Dashboard & Settings (only when licensed) -->
           @if (appState.isLicensed()) {
-          <!-- Dashboard -->
-          <button
-            class="btn btn-ghost btn-xs gap-1"
-            aria-label="Dashboard"
-            title="Session Analytics"
-            (click)="openDashboard()"
-          >
-            <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-            <span class="text-xs">Dashboard</span>
-          </button>
+            <!-- Dashboard -->
+            <button
+              class="btn btn-ghost btn-xs gap-1"
+              aria-label="Dashboard"
+              title="Session Analytics"
+              (click)="openDashboard()"
+            >
+              <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
+              <span class="text-xs">Dashboard</span>
+            </button>
 
-          <!-- Settings -->
-          <button
-            class="btn btn-ghost btn-xs gap-1"
-            aria-label="Settings"
-            title="Settings"
-            (click)="openSettings()"
-          >
-            <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
-            <span class="text-xs">Settings</span>
-          </button>
+            <!-- Settings -->
+            <button
+              class="btn btn-ghost btn-xs gap-1"
+              aria-label="Settings"
+              title="Settings"
+              (click)="openSettings()"
+            >
+              <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
+              <span class="text-xs">Settings</span>
+            </button>
 
-          <!-- Editor panel toggle (only when workspace is open) -->
-          @if (layout.hasWorkspaceFolders()) {
-          <div class="w-px h-4 bg-base-content/10 mx-0.5"></div>
-          <button
-            class="btn btn-ghost btn-xs gap-1"
-            [title]="
-              layout.editorPanelVisible()
-                ? 'Hide editor panel'
-                : 'Show editor panel'
-            "
-            aria-label="Toggle editor panel"
-            (click)="layout.toggleEditorPanel()"
-          >
-            <lucide-angular
-              [img]="
-                layout.editorPanelVisible()
-                  ? PanelRightCloseIcon
-                  : PanelRightIcon
-              "
-              class="w-3.5 h-3.5"
-            />
-            <span class="text-xs">Editor</span>
-          </button>
-          } }
+            <!-- Editor panel toggle (only when workspace is open) -->
+            @if (layout.hasWorkspaceFolders()) {
+              <div class="w-px h-4 bg-base-content/10 mx-0.5"></div>
+              <button
+                class="btn btn-ghost btn-xs gap-1"
+                [title]="
+                  layout.editorPanelVisible()
+                    ? 'Hide editor panel'
+                    : 'Show editor panel'
+                "
+                aria-label="Toggle editor panel"
+                (click)="layout.toggleEditorPanel()"
+              >
+                <lucide-angular
+                  [img]="
+                    layout.editorPanelVisible()
+                      ? PanelRightCloseIcon
+                      : PanelRightIcon
+                  "
+                  class="w-3.5 h-3.5"
+                />
+                <span class="text-xs">Editor</span>
+              </button>
+            }
+          }
         </div>
       </div>
 
       <!-- Content: License gate → Workspace gate → 3-panel layout -->
       <!-- Gate 1: License check — split-screen layout (form left, hero right) -->
       @if (!appState.isLicensed()) {
-      <div class="flex flex-1 overflow-hidden">
-        <!-- Left Panel: Auth/License form -->
-        <div class="w-1/2 overflow-y-auto bg-base-100 relative">
-          <!-- Subtle gradient bleed from right panel -->
-          <div
-            class="absolute inset-0 bg-gradient-to-r from-transparent to-[#d4af37]/[0.02] pointer-events-none"
-          ></div>
-          <ptah-auth-welcome class="relative z-10" />
-        </div>
-
-        <!-- Right Panel: Branded hero with temple background + feature list -->
-        <div class="w-1/2 relative overflow-hidden">
-          <!-- Temple background image -->
-          <div
-            class="absolute inset-0 bg-cover bg-center bg-no-repeat scale-110"
-            style="background-image: url('./images/temple-bg.png');"
-          ></div>
-
-          <!-- Gradient overlays for depth and blending -->
-          <div
-            class="absolute inset-0 bg-gradient-to-l from-transparent via-base-100/30 to-base-100"
-          ></div>
-          <div
-            class="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-base-100/80 to-transparent"
-          ></div>
-          <div
-            class="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-base-100/40 to-transparent"
-          ></div>
-
-          <!-- Floating particles -->
-          <div class="hero-particle hero-particle-1"></div>
-          <div class="hero-particle hero-particle-2"></div>
-          <div class="hero-particle hero-particle-3"></div>
-
-          <!-- Centered feature list -->
-          <div
-            class="absolute inset-0 flex flex-col items-center justify-center px-10 z-10"
-          >
-            <div class="flex flex-col gap-3 w-full max-w-sm">
-              <!-- Feature: AI-Powered Assistance -->
-              <div
-                class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
-              >
-                <div class="flex items-start gap-3">
-                  <lucide-angular
-                    [img]="BotIcon"
-                    class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
-                  />
-                  <div class="text-left">
-                    <h3 class="font-semibold text-sm text-base-content">
-                      AI-Powered Assistance
-                    </h3>
-                    <p class="text-xs text-base-content/60">
-                      Get intelligent code suggestions and explanations
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Feature: Multi-Agent Orchestration -->
-              <div
-                class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
-                style="animation-delay: -1s;"
-              >
-                <div class="flex items-start gap-3">
-                  <lucide-angular
-                    [img]="GitBranchIcon"
-                    class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
-                  />
-                  <div class="text-left">
-                    <h3 class="font-semibold text-sm text-base-content">
-                      Multi-Agent Orchestration
-                    </h3>
-                    <p class="text-xs text-base-content/60">
-                      Coordinate specialized agents for complex tasks
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Feature: VS Code Native Integration -->
-              <div
-                class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
-                style="animation-delay: -2s;"
-              >
-                <div class="flex items-start gap-3">
-                  <lucide-angular
-                    [img]="ZapIcon"
-                    class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
-                  />
-                  <div class="text-left">
-                    <h3 class="font-semibold text-sm text-base-content">
-                      VS Code Native Integration
-                    </h3>
-                    <p class="text-xs text-base-content/60">
-                      Seamless integration with your development workflow
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Feature: Session Continuity -->
-              <div
-                class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
-                style="animation-delay: -3s;"
-              >
-                <div class="flex items-start gap-3">
-                  <lucide-angular
-                    [img]="SparklesIcon"
-                    class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
-                  />
-                  <div class="text-left">
-                    <h3 class="font-semibold text-sm text-base-content">
-                      Session Continuity
-                    </h3>
-                    <p class="text-xs text-base-content/60">
-                      Resume conversations and maintain context across sessions
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Bottom card: Agentic Harness -->
-          <div
-            class="absolute bottom-16 left-8 right-8 hero-card-float-delayed z-10"
-          >
+        <div class="flex flex-1 overflow-hidden">
+          <!-- Left Panel: Auth/License form -->
+          <div class="w-1/2 overflow-y-auto bg-base-100 relative">
+            <!-- Subtle gradient bleed from right panel -->
             <div
-              class="bg-base-200/80 backdrop-blur-xl border border-[#d4af37]/20 rounded-2xl p-5 shadow-2xl"
+              class="absolute inset-0 bg-gradient-to-r from-transparent to-[#d4af37]/[0.02] pointer-events-none"
+            ></div>
+            <ptah-auth-welcome class="relative z-10" />
+          </div>
+
+          <!-- Right Panel: Branded hero with temple background + feature list -->
+          <div class="w-1/2 relative overflow-hidden">
+            <!-- Temple background image -->
+            <div
+              class="absolute inset-0 bg-cover bg-center bg-no-repeat scale-110"
+              style="background-image: url('./images/temple-bg.png');"
+            ></div>
+
+            <!-- Gradient overlays for depth and blending -->
+            <div
+              class="absolute inset-0 bg-gradient-to-l from-transparent via-base-100/30 to-base-100"
+            ></div>
+            <div
+              class="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-base-100/80 to-transparent"
+            ></div>
+            <div
+              class="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-base-100/40 to-transparent"
+            ></div>
+
+            <!-- Floating particles -->
+            <div class="hero-particle hero-particle-1"></div>
+            <div class="hero-particle hero-particle-2"></div>
+            <div class="hero-particle hero-particle-3"></div>
+
+            <!-- Centered feature list -->
+            <div
+              class="absolute inset-0 flex flex-col items-center justify-center px-10 z-10"
             >
-              <div class="flex items-start gap-4">
+              <div class="flex flex-col gap-3 w-full max-w-sm">
+                <!-- Feature: AI-Powered Assistance -->
                 <div
-                  class="w-10 h-10 rounded-xl bg-[#d4af37]/15 flex items-center justify-center flex-shrink-0 hero-glow"
+                  class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
                 >
-                  <lucide-angular
-                    [img]="ZapIcon"
-                    class="w-5 h-5 text-[#d4af37]"
-                  />
+                  <div class="flex items-start gap-3">
+                    <lucide-angular
+                      [img]="BotIcon"
+                      class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
+                    />
+                    <div class="text-left">
+                      <h3 class="font-semibold text-sm text-base-content">
+                        AI-Powered Assistance
+                      </h3>
+                      <p class="text-xs text-base-content/60">
+                        Get intelligent code suggestions and explanations
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div class="text-left">
-                  <h3 class="font-semibold text-base-content text-sm">
-                    Agentic Harness for VS Code
-                  </h3>
-                  <p class="text-xs text-base-content/60 mt-0.5">
-                    Unifies OpenAI, Claude, and GitHub Copilot into one seamless
-                    orchestration workflow.
-                  </p>
+
+                <!-- Feature: Multi-Agent Orchestration -->
+                <div
+                  class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
+                  style="animation-delay: -1s;"
+                >
+                  <div class="flex items-start gap-3">
+                    <lucide-angular
+                      [img]="GitBranchIcon"
+                      class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
+                    />
+                    <div class="text-left">
+                      <h3 class="font-semibold text-sm text-base-content">
+                        Multi-Agent Orchestration
+                      </h3>
+                      <p class="text-xs text-base-content/60">
+                        Coordinate specialized agents for complex tasks
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Feature: VS Code Native Integration -->
+                <div
+                  class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
+                  style="animation-delay: -2s;"
+                >
+                  <div class="flex items-start gap-3">
+                    <lucide-angular
+                      [img]="ZapIcon"
+                      class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
+                    />
+                    <div class="text-left">
+                      <h3 class="font-semibold text-sm text-base-content">
+                        VS Code Native Integration
+                      </h3>
+                      <p class="text-xs text-base-content/60">
+                        Seamless integration with your development workflow
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Feature: Session Continuity -->
+                <div
+                  class="bg-base-200/60 backdrop-blur-xl border border-[#d4af37]/10 rounded-xl p-4 shadow-lg hero-card-float"
+                  style="animation-delay: -3s;"
+                >
+                  <div class="flex items-start gap-3">
+                    <lucide-angular
+                      [img]="SparklesIcon"
+                      class="w-5 h-5 text-[#d4af37] flex-shrink-0 mt-0.5"
+                    />
+                    <div class="text-left">
+                      <h3 class="font-semibold text-sm text-base-content">
+                        Session Continuity
+                      </h3>
+                      <p class="text-xs text-base-content/60">
+                        Resume conversations and maintain context across
+                        sessions
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Bottom card: Agentic Harness -->
+            <div
+              class="absolute bottom-16 left-8 right-8 hero-card-float-delayed z-10"
+            >
+              <div
+                class="bg-base-200/80 backdrop-blur-xl border border-[#d4af37]/20 rounded-2xl p-5 shadow-2xl"
+              >
+                <div class="flex items-start gap-4">
+                  <div
+                    class="w-10 h-10 rounded-xl bg-[#d4af37]/15 flex items-center justify-center flex-shrink-0 hero-glow"
+                  >
+                    <lucide-angular
+                      [img]="ZapIcon"
+                      class="w-5 h-5 text-[#d4af37]"
+                    />
+                  </div>
+                  <div class="text-left">
+                    <h3 class="font-semibold text-base-content text-sm">
+                      Agentic Harness for VS Code
+                    </h3>
+                    <p class="text-xs text-base-content/60 mt-0.5">
+                      Unifies OpenAI, Claude, and GitHub Copilot into one
+                      seamless orchestration workflow.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
       }
       <!-- Gate 2: Workspace check (need a folder open to use the app) -->
       @else if (!layout.hasWorkspaceFolders()) {
-      <ptah-electron-welcome class="flex-1" />
+        <ptah-electron-welcome class="flex-1" />
       }
       <!-- Gate 3: Fully licensed with workspace — show main app -->
       @else {
-      <!-- 3-Panel Content Area -->
-      <div class="flex flex-1 overflow-hidden">
-        <!-- Workspace sidebar (toggleable) -->
-        @if (layout.workspaceSidebarVisible()) {
-        <ptah-workspace-sidebar [width]="layout.workspaceSidebarWidth()" />
+        <!-- 3-Panel Content Area -->
+        <div class="flex flex-1 overflow-hidden">
+          <!-- Workspace sidebar (toggleable) -->
+          @if (layout.workspaceSidebarVisible()) {
+            <ptah-workspace-sidebar [width]="layout.workspaceSidebarWidth()" />
 
-        <!-- Resize handle: sidebar ↔ chat -->
-        <ptah-electron-resize-handle
-          [direction]="'left'"
-          (dragStarted)="layout.setSidebarDragging(true)"
-          (dragMoved)="layout.setWorkspaceSidebarWidth($event)"
-          (dragEnded)="layout.setSidebarDragging(false)"
-        />
-        }
+            <!-- Resize handle: sidebar ↔ chat -->
+            <ptah-electron-resize-handle
+              [direction]="'left'"
+              (dragStarted)="layout.setSidebarDragging(true)"
+              (dragMoved)="layout.setWorkspaceSidebarWidth($event)"
+              (dragEnded)="layout.setSidebarDragging(false)"
+            />
+          }
 
-        <!-- Chat panel (reuses entire AppShellComponent) -->
-        <div class="flex-1 min-w-[400px] overflow-hidden">
-          <ptah-app-shell class="h-full w-full" />
+          <!-- Chat panel (reuses entire AppShellComponent) -->
+          <div class="flex-1 min-w-[400px] overflow-hidden">
+            <ptah-app-shell class="h-full w-full" />
+          </div>
+
+          <!-- Editor panel (lazy-loaded to keep xterm/monaco out of the VS Code extension bundle) -->
+          @if (layout.editorPanelVisible()) {
+            <!-- Resize handle: chat ↔ editor -->
+            <ptah-electron-resize-handle
+              [direction]="'right'"
+              (dragStarted)="layout.setEditorDragging(true)"
+              (dragMoved)="layout.setEditorPanelWidth($event)"
+              (dragEnded)="layout.setEditorDragging(false)"
+            />
+
+            <div
+              class="min-w-[300px] border-l border-base-content/10 overflow-hidden"
+              [style.width.px]="layout.editorPanelWidth()"
+            >
+              @if (editorComponent()) {
+                <ng-container *ngComponentOutlet="editorComponent()!" />
+              } @else {
+                <div class="flex items-center justify-center h-full">
+                  <span class="loading loading-spinner loading-md"></span>
+                </div>
+              }
+            </div>
+          }
         </div>
-
-        <!-- Editor panel (toggleable) -->
-        @if (layout.editorPanelVisible()) {
-        <!-- Resize handle: chat ↔ editor -->
-        <ptah-electron-resize-handle
-          [direction]="'right'"
-          (dragStarted)="layout.setEditorDragging(true)"
-          (dragMoved)="layout.setEditorPanelWidth($event)"
-          (dragEnded)="layout.setEditorDragging(false)"
-        />
-
-        <div
-          class="min-w-[300px] border-l border-base-content/10 overflow-hidden"
-          [style.width.px]="layout.editorPanelWidth()"
-        >
-          <ptah-editor-panel />
-        </div>
-        }
-      </div>
       }
     </div>
   `,
@@ -459,6 +536,22 @@ export class ElectronShellComponent {
   protected readonly chatStore = inject(ChatStore);
   private readonly vscodeService = inject(VSCodeService);
   protected readonly appState = inject(AppStateManager);
+
+  /** Lazily loaded EditorPanelComponent — keeps xterm/monaco out of the initial bundle. */
+  readonly editorComponent = signal<Type<unknown> | null>(null);
+
+  constructor() {
+    effect(() => {
+      if (
+        this.layout.editorPanelVisible() &&
+        !untracked(this.editorComponent)
+      ) {
+        import('@ptah-extension/editor').then((m) =>
+          this.editorComponent.set(m.EditorPanelComponent),
+        );
+      }
+    });
+  }
 
   // Icons
   readonly PanelLeftIcon = PanelLeft;
@@ -472,6 +565,9 @@ export class ElectronShellComponent {
   readonly ShieldIcon = Shield;
   readonly GitBranchIcon = GitBranch;
   readonly SparklesIcon = Sparkles;
+  readonly XIcon = X;
+  readonly MessageSquareIcon = MessageSquare;
+  readonly Wand2Icon = Wand2;
 
   // Asset URIs
   readonly ptahIconUri = this.vscodeService.getPtahIconUri();
@@ -479,11 +575,35 @@ export class ElectronShellComponent {
   // Platform detection from Electron main process (reliable, not deprecated)
   readonly isMac = this.vscodeService.config().platform === 'darwin';
 
+  /** Map view types to display metadata for tab pills */
+  protected getViewMeta(view: ViewType): {
+    label: string;
+    icon: LucideIconData;
+  } {
+    switch (view) {
+      case 'chat':
+        return { label: 'Chat', icon: MessageSquare };
+      case 'settings':
+        return { label: 'Settings', icon: Settings };
+      case 'analytics':
+        return { label: 'Dashboard', icon: BarChart3 };
+      case 'setup-wizard':
+        return { label: 'Setup', icon: Wand2 };
+      default:
+        return { label: view, icon: MessageSquare };
+    }
+  }
+
+  closeViewTab(view: ViewType, event: Event): void {
+    event.stopPropagation();
+    this.appState.closeView(view);
+  }
+
   openSettings(): void {
-    this.appState.setCurrentView('settings');
+    this.appState.openView('settings');
   }
 
   openDashboard(): void {
-    this.appState.setCurrentView('analytics');
+    this.appState.openView('analytics');
   }
 }

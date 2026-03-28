@@ -131,7 +131,7 @@ export type LicenseGetStatusParams = Record<string, never>;
  * TASK_2025_128: Freemium model conversion
  * - 'community': FREE forever - always valid, no license required
  * - 'pro': Active Pro subscription ($5/month)
- * - 'trial_pro': Pro plan during 14-day trial
+ * - 'trial_pro': Pro plan during 30-day trial
  * - 'expired': Revoked or payment failed only (NOT for unlicensed users)
  */
 export type LicenseTier = 'community' | 'pro' | 'trial_pro' | 'expired';

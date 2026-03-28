@@ -29,6 +29,33 @@ interface SessionFileInfo {
 }
 
 /**
+ * Entry from Claude CLI's sessions-index.json
+ */
+interface SessionsIndexEntry {
+  sessionId: string;
+  fullPath: string;
+  fileMtime: number;
+  firstPrompt?: string;
+  summary?: string;
+  customTitle?: string;
+  messageCount: number;
+  created: string;
+  modified: string;
+  gitBranch?: string;
+  projectPath?: string;
+  isSidechain?: boolean;
+}
+
+/**
+ * Root structure of Claude CLI's sessions-index.json
+ */
+interface SessionsIndex {
+  version: number;
+  entries: SessionsIndexEntry[];
+  originalPath?: string;
+}
+
+/**
  * Service to import existing Claude sessions
  */
 @injectable()
@@ -36,7 +63,7 @@ export class SessionImporterService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
-    private readonly metadataStore: SessionMetadataStore
+    private readonly metadataStore: SessionMetadataStore,
   ) {}
 
   /**
@@ -62,52 +89,233 @@ export class SessionImporterService {
       return 0;
     }
 
-    // Get recent session files (optimized - only gets file stats, not content)
+    let imported = 0;
+
+    // Primary: Import from sessions-index.json (Claude CLI's canonical session catalog)
+    const indexImported = await this.importFromSessionsIndex(
+      sessionsDir,
+      workspacePath,
+      limit,
+    );
+    imported += indexImported;
+
+    // Secondary: Scan for .jsonl files not already imported via the index
+    const remainingLimit = limit - imported;
+    if (remainingLimit > 0) {
+      const fileImported = await this.importFromJsonlFiles(
+        sessionsDir,
+        workspacePath,
+        remainingLimit,
+      );
+      imported += fileImported;
+    }
+
+    this.logger.info('[SessionImporter] Import complete', {
+      imported,
+      fromIndex: indexImported,
+    });
+
+    return imported;
+  }
+
+  /**
+   * Import sessions from Claude CLI's sessions-index.json
+   *
+   * Claude CLI maintains a sessions-index.json in each project directory
+   * with rich metadata (summary, branch, timestamps, message count).
+   * This is the primary discovery source for existing sessions.
+   */
+  private async importFromSessionsIndex(
+    sessionsDir: string,
+    workspacePath: string,
+    limit: number,
+  ): Promise<number> {
+    const indexPath = path.join(sessionsDir, 'sessions-index.json');
+
+    try {
+      await fs.promises.access(indexPath);
+    } catch {
+      // No index file — fall through to .jsonl scanning
+      return 0;
+    }
+
+    try {
+      const content = await fs.promises.readFile(indexPath, 'utf-8');
+      const index: SessionsIndex = JSON.parse(content);
+
+      if (!index.entries || !Array.isArray(index.entries)) {
+        this.logger.debug(
+          '[SessionImporter] sessions-index.json has no entries array',
+        );
+        return 0;
+      }
+
+      // Guard against unknown index format versions
+      if (index.version && index.version > 1) {
+        this.logger.warn(
+          '[SessionImporter] Unknown sessions-index.json version, skipping',
+          { version: index.version },
+        );
+        return 0;
+      }
+
+      // Sort by modified date (most recent first) and limit.
+      // Use fileMtime as fallback when modified date is invalid.
+      const sortedEntries = [...index.entries]
+        .filter(
+          (e) =>
+            typeof e.sessionId === 'string' &&
+            e.sessionId.length > 0 &&
+            !e.isSidechain,
+        )
+        .sort((a, b) => {
+          const mtimeA = this.parseIndexTimestamp(a.modified, a.fileMtime);
+          const mtimeB = this.parseIndexTimestamp(b.modified, b.fileMtime);
+          return mtimeB - mtimeA;
+        })
+        .slice(0, limit);
+
+      let imported = 0;
+
+      for (const entry of sortedEntries) {
+        try {
+          // Skip sessions whose .jsonl file no longer exists on disk.
+          // Importing ghost sessions causes "No messages or events found" errors
+          // when the user clicks on them in the sidebar.
+          const sessionFilePath = path.join(
+            sessionsDir,
+            `${entry.sessionId}.jsonl`,
+          );
+          try {
+            await fs.promises.access(sessionFilePath);
+          } catch {
+            continue;
+          }
+
+          const existing = await this.metadataStore.get(entry.sessionId);
+          if (existing) {
+            continue;
+          }
+
+          if (
+            await this.metadataStore.isReferencedAsChildSession(entry.sessionId)
+          ) {
+            await this.metadataStore.createChild(
+              entry.sessionId,
+              workspacePath,
+              'CLI Agent Session',
+            );
+            continue;
+          }
+
+          // Derive the best session name from available fields
+          const createdTs = this.parseIndexTimestamp(
+            entry.created,
+            entry.fileMtime,
+          );
+          const rawName =
+            entry.customTitle ||
+            entry.summary ||
+            (entry.firstPrompt
+              ? entry.firstPrompt.substring(0, 50).trim() +
+                (entry.firstPrompt.length > 50 ? '...' : '')
+              : null);
+          const name =
+            rawName && rawName.trim()
+              ? rawName.trim()
+              : `Session ${new Date(createdTs).toLocaleDateString()}`;
+
+          const metadata: SessionMetadata = {
+            sessionId: entry.sessionId,
+            name,
+            workspaceId: workspacePath,
+            createdAt: createdTs,
+            lastActiveAt: this.parseIndexTimestamp(
+              entry.modified,
+              entry.fileMtime,
+            ),
+            totalCost: 0,
+            totalTokens: { input: 0, output: 0 },
+          };
+
+          await this.metadataStore.save(metadata);
+          imported++;
+          this.logger.info('[SessionImporter] Imported session from index', {
+            sessionId: entry.sessionId,
+            name,
+          });
+        } catch (error) {
+          this.logger.debug('[SessionImporter] Failed to import index entry', {
+            sessionId: entry.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      this.logger.info('[SessionImporter] Index import complete', {
+        imported,
+        total: sortedEntries.length,
+      });
+
+      return imported;
+    } catch (error) {
+      this.logger.debug(
+        '[SessionImporter] Failed to read sessions-index.json',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      return 0;
+    }
+  }
+
+  /**
+   * Import sessions from .jsonl files (legacy/fallback discovery)
+   *
+   * Scans the sessions directory for flat .jsonl files.
+   * Skips sessions already imported (e.g., from sessions-index.json).
+   */
+  private async importFromJsonlFiles(
+    sessionsDir: string,
+    workspacePath: string,
+    limit: number,
+  ): Promise<number> {
     const recentFiles = await this.getRecentSessionFiles(sessionsDir, limit);
 
     let imported = 0;
     for (const file of recentFiles) {
       try {
-        // Skip if already imported
         const sessionId = this.extractSessionIdFromFilename(file.filename);
         if (!sessionId) continue;
 
         const existing = await this.metadataStore.get(sessionId);
         if (existing) {
-          this.logger.debug('[SessionImporter] Session already imported', {
-            sessionId,
-          });
           continue;
         }
 
-        // Cross-reference: check if any parent session references this UUID
-        // as a child session via cliSessions[].sdkSessionId. If so, this is
-        // a ptah-cli child session that wasn't properly marked by createChild
-        // (e.g., extension crashed before createChild could persist).
         if (await this.metadataStore.isReferencedAsChildSession(sessionId)) {
           this.logger.info(
             '[SessionImporter] Detected child session via cross-reference, creating child metadata',
-            { sessionId }
+            { sessionId },
           );
           await this.metadataStore.createChild(
             sessionId,
             workspacePath,
-            'CLI Agent Session'
+            'CLI Agent Session',
           );
           continue;
         }
 
-        // Extract metadata from file content
         const metadata = await this.extractMetadata(
           file.path,
           workspacePath,
-          file.mtime
+          file.mtime,
         );
 
         if (metadata) {
           await this.metadataStore.save(metadata);
           imported++;
-          this.logger.info('[SessionImporter] Imported session', {
+          this.logger.info('[SessionImporter] Imported session from file', {
             sessionId: metadata.sessionId,
             name: metadata.name,
           });
@@ -120,12 +328,24 @@ export class SessionImporterService {
       }
     }
 
-    this.logger.info('[SessionImporter] Import complete', {
-      imported,
-      scanned: recentFiles.length,
-    });
-
     return imported;
+  }
+
+  /**
+   * Parse a timestamp from an index entry.
+   * Uses the ISO date string as primary, falls back to fileMtime (numeric ms),
+   * then Date.now() if both are invalid.
+   */
+  private parseIndexTimestamp(
+    isoString: string | undefined,
+    fileMtime: number | undefined,
+  ): number {
+    if (isoString) {
+      const ts = new Date(isoString).getTime();
+      if (!isNaN(ts)) return ts;
+    }
+    if (typeof fileMtime === 'number' && !isNaN(fileMtime)) return fileMtime;
+    return Date.now();
   }
 
   /**
@@ -136,14 +356,14 @@ export class SessionImporterService {
    */
   private async getRecentSessionFiles(
     sessionsDir: string,
-    limit: number
+    limit: number,
   ): Promise<SessionFileInfo[]> {
     try {
       const files = await fs.promises.readdir(sessionsDir);
 
       // Filter to only main session files (not agent subagent files)
       const sessionFiles = files.filter(
-        (f) => f.endsWith('.jsonl') && !f.startsWith('agent-')
+        (f) => f.endsWith('.jsonl') && !f.startsWith('agent-'),
       );
 
       // Get stats for each file (just mtime, not content)
@@ -193,7 +413,7 @@ export class SessionImporterService {
   private async extractMetadata(
     filePath: string,
     workspaceId: string,
-    mtime: number
+    mtime: number,
   ): Promise<SessionMetadata | null> {
     try {
       // Read first 8KB - enough to get init + first user message
@@ -295,7 +515,7 @@ export class SessionImporterService {
    * Claude stores sessions in ~/.claude/projects/{escaped-workspace-path}/
    */
   private async findSessionsDirectory(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<string | null> {
     const homeDir = os.homedir();
     const projectsDir = path.join(homeDir, '.claude', 'projects');
@@ -333,7 +553,7 @@ export class SessionImporterService {
     const normalize = (s: string) => s.toLowerCase().replace(/[-_]/g, '-');
     const normalizedEscaped = normalize(escapedPath);
     const normalizedMatch = dirs.find(
-      (d) => normalize(d) === normalizedEscaped
+      (d) => normalize(d) === normalizedEscaped,
     );
     if (normalizedMatch) {
       return path.join(projectsDir, normalizedMatch);
@@ -348,7 +568,7 @@ export class SessionImporterService {
         d.toLowerCase() === withoutLeadingLower ||
         d.toLowerCase().endsWith(withoutLeadingLower) ||
         normalize(d) === normalizedWithoutLeading ||
-        normalize(d).endsWith(normalizedWithoutLeading)
+        normalize(d).endsWith(normalizedWithoutLeading),
     );
     if (partialMatch) {
       return path.join(projectsDir, partialMatch);

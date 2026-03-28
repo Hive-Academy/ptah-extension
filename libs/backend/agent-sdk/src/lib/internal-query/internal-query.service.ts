@@ -128,11 +128,14 @@ export class InternalQueryService {
    * @throws Error if SDK is not available or query function cannot be loaded
    */
   async execute(config: InternalQueryConfig): Promise<InternalQueryHandle> {
-    // 1. Resolve pathToClaudeCodeExecutable from SdkAgentAdapter (TASK_2025_194 parity)
-    // The chat path passes this to override the SDK's baked-in import.meta.url path.
-    // Without it, the SDK subprocess resolves to the build-time path which doesn't
-    // exist in production — causing immediate "process exited with code 1".
-    const cliJsPath = this.sdkAdapter.getCliJsPath();
+    // 1. Resolve pathToClaudeCodeExecutable (TASK_2025_194 parity)
+    // The SDK's default import.meta.url-based resolution bakes in the build-time path.
+    // Without this override, the subprocess resolves to a non-existent path in production
+    // — causing immediate "process exited with code 1".
+    // Try SdkAgentAdapter first (has bundled cli.js fallback), then moduleLoader.
+    const cliJsPath =
+      this.sdkAdapter.getCliJsPath() ??
+      (await this.moduleLoader.getCliJsPath());
 
     this.logger.info(`${SERVICE_TAG} Starting internal query`, {
       cwd: config.cwd,
