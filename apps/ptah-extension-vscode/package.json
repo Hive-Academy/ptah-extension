@@ -41,7 +41,7 @@
     "onCommand:ptah.setupAgents",
     "onCommand:ptah.openDashboard"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "SEE LICENSE IN LICENSE.md",
   "preview": true,
   "galleryBanner": {
     "color": "#1a1a2e",

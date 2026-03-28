@@ -1,7 +1,7 @@
 {
   "name": "@ptah-extension/source",
   "version": "0.0.0",
-  "license": "MIT",
+  "license": "FSL-1.1-MIT",
   "scripts": {
     "landing": "npx nx serve ptah-landing-page",
     "docker:up": "docker-compose up -d",

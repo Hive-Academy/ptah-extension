@@ -84,3 +84,35 @@ ptah-settings-export.json
 
 .claude/worktrees
 .claude/settings.local.json
+
+# ============================================
+# Secret/Key Files
+# ============================================
+*.pem
+*.key
+*.p12
+*.pfx
+*.cert
+*.secret
+
+# ============================================
+# VS Code Extension Packages
+# ============================================
+*.vsix
+
+# ============================================
+# Settings Exports with Credentials
+# ============================================
+*-settings-export*.json
+
+# ============================================
+# MCP Configuration (local/developer-specific)
+# ============================================
+.vscode/mcp.json
+**/.vscode/mcp.json
+
+# ============================================
+# Security audit reports (may contain redacted findings)
+# ============================================
+.claude/specs/*/security-audit.md
+.claude/specs/*/verification-report.md

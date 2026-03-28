@@ -3,7 +3,7 @@
 **Provider-agnostic AI orchestration for VS Code.**
 Intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows — all natively integrated into VS Code.
 
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode) | [Desktop App](https://github.com/Hive-Academy/ptah-app/releases/latest) | [License](https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE)
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode) | [Desktop App](https://github.com/Hive-Academy/ptah-app/releases/latest) | [License](https://github.com/Hive-Academy/ptah-extension/blob/main/LICENSE.md)
 
 ---
 
@@ -357,7 +357,23 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+Ptah is licensed under the [Functional Source License, Version 1.1, MIT Future License](LICENSE.md) (FSL-1.1-MIT).
+
+### What This Means
+
+**You CAN:**
+
+- Use Ptah for internal development, education, research, and professional services
+- Read, modify, and redistribute the source code for any non-competing purpose
+- Use any version under the full MIT license two years after its release
+
+**You CANNOT:**
+
+- Offer Ptah (or a substantially similar product) as a competing commercial product or service
+
+The FSL is a [Fair Source](https://fair.io/) license designed to balance user freedom with developer sustainability. Every version of Ptah automatically converts to the permissive MIT license two years after release. This means today's code will be fully open source by 2028.
+
+For full details, see [LICENSE.md](LICENSE.md).
 
 ## Links
 

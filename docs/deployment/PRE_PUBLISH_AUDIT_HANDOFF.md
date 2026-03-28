@@ -19,7 +19,7 @@ Internet
    │         - SSL: DO-managed (Let's Encrypt via Cloudflare)
    │
    └── api.ptah.live (License Server API)
-         └── DigitalOcean Droplet ($6/month, 167.71.9.106)
+         └── DigitalOcean Droplet ($6/month, <DROPLET_IP>)
              ├── Caddy (auto-HTTPS, reverse proxy)
              │     └── caddy/Caddyfile
              ├── NestJS License Server (port 3000)
@@ -31,7 +31,7 @@ Internet
 **DNS Configuration (DO Networking, ns1/ns2/ns3.digitalocean.com)**:
 
 - `ptah.live` (A records) → DO App Platform ingress IPs (Cloudflare anycast)
-- `api.ptah.live` (A record) → 167.71.9.106 (Droplet)
+- `api.ptah.live` (A record) → <DROPLET_IP> (Droplet)
 
 ---
 
@@ -330,7 +330,7 @@ doctl apps update 7f4271fb-ff47-4cb7-bb97-8a2aed6eefe3 --spec .do/app.yaml
 doctl apps create-deployment 7f4271fb-ff47-4cb7-bb97-8a2aed6eefe3
 
 # SSH to Droplet
-ssh root@167.71.9.106
+ssh root@<DROPLET_IP>
 
 # On Droplet: rebuild & restart license server
 cd /opt/ptah && docker compose -f docker-compose.prod.yml up -d --build

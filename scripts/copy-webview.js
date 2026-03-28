@@ -29,8 +29,8 @@ fs.cpSync(src, dest, {
 
 // Copy metadata files
 fs.copyFileSync('README.md', path.join(extDist, 'README.md'));
-if (fs.existsSync('LICENSE')) {
-  fs.copyFileSync('LICENSE', path.join(extDist, 'LICENSE'));
+if (fs.existsSync('LICENSE.md')) {
+  fs.copyFileSync('LICENSE.md', path.join(extDist, 'LICENSE.md'));
 }
 if (fs.existsSync('CHANGELOG.md')) {
   fs.copyFileSync('CHANGELOG.md', path.join(extDist, 'CHANGELOG.md'));

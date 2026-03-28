@@ -103,7 +103,7 @@
             "forwardAllArgs": false
           },
           {
-            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE')) fs.copyFileSync('LICENSE', 'dist/apps/ptah-extension-vscode/LICENSE')\"",
+            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE.md')) fs.copyFileSync('LICENSE.md', 'dist/apps/ptah-extension-vscode/LICENSE.md')\"",
             "forwardAllArgs": false
           },
           {
