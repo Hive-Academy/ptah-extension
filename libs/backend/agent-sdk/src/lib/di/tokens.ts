@@ -53,6 +53,9 @@ export const SDK_TOKENS = {
   // Compaction hook handler (TASK_2025_098)
   SDK_COMPACTION_HOOK_HANDLER: Symbol.for('SdkCompactionHookHandler'),
 
+  // Worktree hook handler (TASK_2025_236)
+  SDK_WORKTREE_HOOK_HANDLER: Symbol.for('SdkWorktreeHookHandler'),
+
   // Provider models service (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   SDK_PROVIDER_MODELS: Symbol.for('SdkProviderModels'),
 

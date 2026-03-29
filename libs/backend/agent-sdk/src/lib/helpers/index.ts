@@ -40,6 +40,12 @@ export {
   type CompactionStartCallback,
   isPreCompactHook,
 } from './compaction-hook-handler';
+// Worktree hook handler (TASK_2025_236)
+export {
+  WorktreeHookHandler,
+  type WorktreeCreatedCallback,
+  type WorktreeRemovedCallback,
+} from './worktree-hook-handler';
 export {
   SdkMessageFactory,
   type CreateMessageParams,
