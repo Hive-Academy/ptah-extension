@@ -136,7 +136,7 @@ export class DependencyGraphService {
       try {
         const content = await this.fileSystem.readFile(filePath);
 
-        const analysisResult = this.astAnalysis.analyzeSource(
+        const analysisResult = await this.astAnalysis.analyzeSource(
           content,
           language,
           normalizedPath,

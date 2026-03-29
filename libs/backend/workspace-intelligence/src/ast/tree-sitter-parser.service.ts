@@ -8,46 +8,7 @@ import {
   LANGUAGE_QUERIES_MAP,
 } from './tree-sitter.config';
 import { GenericAstNode } from './ast.types';
-
-/**
- * Opaque type representing a tree-sitter parser instance (loaded via require).
- * tree-sitter does not ship TypeScript declarations, so we model these as
- * structural interfaces covering only the members we actually use.
- */
-interface TreeSitterParser {
-  setLanguage(language: TreeSitterLanguage): void;
-  parse(input: string, oldTree?: TreeSitterTree): TreeSitterTree;
-}
-
-/** Opaque type representing a tree-sitter language grammar. */
-type TreeSitterLanguage = Record<string, unknown>;
-
-/** Opaque type representing a tree-sitter parse tree. */
-interface TreeSitterTree {
-  rootNode: TreeSitterSyntaxNode;
-  edit(delta: TreeSitterEditDelta): void;
-}
-
-/** Internal interface matching tree-sitter's InputEdit for incremental parsing. */
-interface TreeSitterEditDelta {
-  startIndex: number;
-  oldEndIndex: number;
-  newEndIndex: number;
-  startPosition: { row: number; column: number };
-  oldEndPosition: { row: number; column: number };
-  newEndPosition: { row: number; column: number };
-}
-
-/** Structural interface for tree-sitter SyntaxNode fields we access. */
-interface TreeSitterSyntaxNode {
-  type: string;
-  text: string;
-  startPosition: { row: number; column: number };
-  endPosition: { row: number; column: number };
-  isNamed: boolean;
-  fieldName: string | null;
-  children: TreeSitterSyntaxNode[];
-}
+import Parser from 'web-tree-sitter';
 
 /**
  * Public interface representing an edit delta for incremental parsing.
@@ -65,7 +26,7 @@ export interface EditDelta {
 
 /** Cache entry for storing parsed tree-sitter trees keyed by file path. */
 interface TreeCacheEntry {
-  tree: TreeSitterTree;
+  tree: Parser.Tree;
   language: SupportedLanguage;
   lastAccessed: number;
   filePath: string;
@@ -97,25 +58,45 @@ export interface QueryMatch {
   captures: QueryCapture[];
 }
 
-// tree-sitter uses native .node bindings that require CommonJS require().
-// In the app's ESM bundle, esbuild preserves require() for externalized native modules.
+// --- WASM Path Resolution ---
 
-const Parser = require('tree-sitter');
+/**
+ * Resolves the absolute path to a WASM file co-located in the `wasm/` directory
+ * next to the bundled output.
+ *
+ * In the final ESM bundle, the esbuild banner injects:
+ *   `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`
+ * This makes `import.meta.url` available at runtime, but TypeScript rejects it
+ * during library compilation (CJS target). We use `new Function` to bypass the
+ * static check while keeping the resolution correct at runtime.
+ *
+ * Fallback: If `import.meta.url` is not available (e.g. plain CJS), we fall
+ * back to `__dirname` which is always defined in CommonJS modules.
+ */
+function resolveWasmPath(filename: string): string {
+  let dir: string;
+  try {
+    // At runtime in ESM bundle, import.meta.url is available via esbuild banner.
+    // Use Function constructor to avoid TS1470 "import.meta not allowed in CJS" error.
 
-const JavaScript = require('tree-sitter-javascript');
-
-const TypeScript = require('tree-sitter-typescript').typescript;
+    const getMetaUrl = new Function('return import.meta.url') as () => string;
+    const metaUrl: string = getMetaUrl();
+    const { fileURLToPath } = require('url') as typeof import('url');
+    dir = path.dirname(fileURLToPath(metaUrl));
+  } catch {
+    // Fallback for plain CJS execution (e.g. tests)
+    dir = __dirname;
+  }
+  return path.join(dir, 'wasm', filename);
+}
 
 // --- Service Implementation ---
 
 @injectable()
 export class TreeSitterParserService {
-  private readonly parserCache: Map<SupportedLanguage, TreeSitterParser> =
+  private readonly parserCache: Map<SupportedLanguage, Parser> = new Map();
+  private readonly languageGrammars: Map<SupportedLanguage, Parser.Language> =
     new Map();
-  private readonly languageGrammars: Map<
-    SupportedLanguage,
-    TreeSitterLanguage
-  > = new Map();
   private readonly treeCache: Map<string, TreeCacheEntry> = new Map();
   private readonly treeCacheMaxSize = 100;
   private isInitialized = false;
@@ -129,12 +110,13 @@ export class TreeSitterParserService {
   // --- Initialization ---
 
   /**
-   * Initializes the service by loading required Tree-sitter grammars.
-   * This method is idempotent.
+   * Initializes the service by loading the web-tree-sitter WASM runtime and
+   * language grammars. This method is idempotent -- subsequent calls after a
+   * successful initialization return immediately.
+   *
    * @returns A Result indicating success or failure of initialization.
    */
-  initialize(): Result<void, Error> {
-    // Synchronous
+  async initialize(): Promise<Result<void, Error>> {
     this.logger.debug(
       `Initialize called. Current state: isInitialized=${this.isInitialized}`,
     );
@@ -143,20 +125,35 @@ export class TreeSitterParserService {
       return Result.ok(undefined);
     }
 
-    this.logger.info('Initializing Tree-sitter grammars via require...');
+    this.logger.info(
+      'Initializing web-tree-sitter WASM runtime and grammars...',
+    );
     try {
-      // Store the required grammar modules directly
-      this.languageGrammars.set('javascript', JavaScript);
-      this.languageGrammars.set('typescript', TypeScript);
-      // Add other languages if needed
+      // Initialize the WASM runtime
+      await Parser.init({
+        locateFile: () => resolveWasmPath('tree-sitter.wasm'),
+      });
+
+      // Load language grammars from WASM files
+      const jsLanguage = await Parser.Language.load(
+        resolveWasmPath('tree-sitter-javascript.wasm'),
+      );
+      const tsLanguage = await Parser.Language.load(
+        resolveWasmPath('tree-sitter-typescript.wasm'),
+      );
+
+      this.languageGrammars.set('javascript', jsLanguage);
+      this.languageGrammars.set('typescript', tsLanguage);
 
       this.isInitialized = true;
-      this.logger.info('Tree-sitter grammars initialized successfully.');
+      this.logger.info(
+        'web-tree-sitter WASM runtime and grammars initialized successfully.',
+      );
       return Result.ok(undefined);
     } catch (error) {
       this.isInitialized = false;
       const initError = this._handleAndLogError(
-        'TreeSitterParserService grammar require() initialization failed',
+        'TreeSitterParserService WASM initialization failed',
         error,
       );
       return Result.err(initError);
@@ -177,15 +174,14 @@ export class TreeSitterParserService {
    * @param language The language grammar to retrieve.
    * @returns A Result containing the Language object or an error if not initialized or not found.
    */
-  private _getPreloadedGrammar(
-    // Synchronous
+  private async _getPreloadedGrammar(
     language: SupportedLanguage,
-  ): Result<TreeSitterLanguage, Error> {
+  ): Promise<Result<Parser.Language, Error>> {
     if (!this.isInitialized) {
       this.logger.debug(
         `_getPreloadedGrammar: Service not initialized. Triggering initialize().`,
       );
-      const initResult = this.initialize(); // Call synchronous initialize
+      const initResult = await this.initialize();
       if (initResult.isErr()) {
         return Result.err(
           new Error(
@@ -230,17 +226,17 @@ export class TreeSitterParserService {
    * @param language - The language of the parser to retrieve.
    * @returns A Result containing the cached parser if valid, or an error/null if not found or invalid.
    */
-  private _getCachedParser(
+  private async _getCachedParser(
     language: SupportedLanguage,
-  ): Result<TreeSitterParser | null, Error> {
+  ): Promise<Result<Parser | null, Error>> {
     if (!this.parserCache.has(language)) {
       return Result.ok(null);
     }
 
     this.logger.debug(`Using cached parser for language: ${language}`);
-    const cachedParser = this.parserCache.get(language) as TreeSitterParser;
+    const cachedParser = this.parserCache.get(language) as Parser;
 
-    const grammarResult = this._getPreloadedGrammar(language); // Call synchronous method
+    const grammarResult = await this._getPreloadedGrammar(language);
     if (grammarResult.isErr()) {
       this.parserCache.delete(language);
       return Result.err(
@@ -253,7 +249,7 @@ export class TreeSitterParserService {
     }
 
     try {
-      cachedParser.setLanguage(grammarResult.value as TreeSitterLanguage);
+      cachedParser.setLanguage(grammarResult.value as Parser.Language);
       return Result.ok(cachedParser);
     } catch (error: unknown) {
       this.parserCache.delete(language);
@@ -271,12 +267,12 @@ export class TreeSitterParserService {
    * @param language - The language for the new parser.
    * @returns A Result containing the newly created parser or an error.
    */
-  private _createAndCacheParser(
+  private async _createAndCacheParser(
     language: SupportedLanguage,
-  ): Result<TreeSitterParser, Error> {
+  ): Promise<Result<Parser, Error>> {
     this.logger.info(`Creating new parser for language: ${language}`);
 
-    const grammarResult = this._getPreloadedGrammar(language); // Call synchronous method
+    const grammarResult = await this._getPreloadedGrammar(language);
     if (grammarResult.isErr()) {
       return Result.err(
         grammarResult.error ?? new Error('Unknown grammar error'),
@@ -284,7 +280,7 @@ export class TreeSitterParserService {
     }
 
     try {
-      const parser = new Parser(); // Use require'd Parser constructor
+      const parser = new Parser();
       parser.setLanguage(grammarResult.value);
       this.parserCache.set(language, parser);
       this.logger.info(
@@ -307,10 +303,10 @@ export class TreeSitterParserService {
    * @param language - The language for the parser.
    * @returns A Result containing the parser instance or an error.
    */
-  private getOrCreateParser(
+  private async getOrCreateParser(
     language: SupportedLanguage,
-  ): Result<TreeSitterParser | null, Error> {
-    const cachedResult = this._getCachedParser(language); // Call synchronous method
+  ): Promise<Result<Parser | null, Error>> {
+    const cachedResult = await this._getCachedParser(language);
 
     if (cachedResult.isErr()) {
       return Result.err(cachedResult.error ?? new Error('Unknown cache error'));
@@ -336,7 +332,7 @@ export class TreeSitterParserService {
    * @private
    */
   private _convertNodeToGenericAst(
-    node: TreeSitterSyntaxNode,
+    node: Parser.SyntaxNode,
     currentDepth = 0,
     maxDepth: number | null = null, // Optional depth limit
   ): GenericAstNode {
@@ -354,7 +350,7 @@ export class TreeSitterParserService {
           column: node.endPosition.column,
         },
         isNamed: node.isNamed,
-        fieldName: node.fieldName || null, // Corrected property name
+        fieldName: null, // web-tree-sitter SyntaxNode does not expose fieldName
         children: [], // No children beyond max depth
       };
     }
@@ -374,8 +370,8 @@ export class TreeSitterParserService {
         column: node.endPosition.column,
       },
       isNamed: node.isNamed,
-      fieldName: node.fieldName || null, // Corrected property name
-      children: children.map((child: TreeSitterSyntaxNode) =>
+      fieldName: null, // web-tree-sitter SyntaxNode does not expose fieldName
+      children: children.map((child: Parser.SyntaxNode) =>
         this._convertNodeToGenericAst(child, currentDepth + 1, maxDepth),
       ),
     };
@@ -383,21 +379,20 @@ export class TreeSitterParserService {
 
   // --- Public API ---
 
-  parse(
+  async parse(
     content: string,
     language: SupportedLanguage,
-  ): Result<GenericAstNode, Error> {
-    // Updated return type
+  ): Promise<Result<GenericAstNode, Error>> {
     this.logger.info(
       `Parsing content for language: ${language} to generate generic AST`,
-    ); // Updated log
+    );
 
-    const initResult = this.initialize();
+    const initResult = await this.initialize();
     if (initResult.isErr()) {
       return Result.err(initResult.error ?? new Error('Unknown init error'));
     }
 
-    const parserResult = this.getOrCreateParser(language);
+    const parserResult = await this.getOrCreateParser(language);
     if (parserResult.isErr()) {
       return Result.err(
         parserResult.error ?? new Error('Unknown parser error'),
@@ -405,7 +400,7 @@ export class TreeSitterParserService {
     }
     const parser = parserResult.value;
 
-    let tree: TreeSitterTree;
+    let tree: Parser.Tree;
     try {
       if (!parser) {
         throw new Error('Parser instance is null or undefined before parsing.');
@@ -418,8 +413,7 @@ export class TreeSitterParserService {
         `Successfully created syntax tree for language: ${language}. Root node type: ${tree.rootNode.type}`,
       );
 
-      // --- NEW: Convert tree to generic AST ---
-      // Consider passing a maxDepth from config or keep it null/hardcoded for now
+      // Convert tree to generic AST
       const genericAstRoot = this._convertNodeToGenericAst(
         tree.rootNode,
         0,
@@ -427,15 +421,14 @@ export class TreeSitterParserService {
       );
       this.logger.info(
         `Successfully converted AST to generic JSON format for language: ${language}.`,
-      ); // Updated log
+      );
       return Result.ok(genericAstRoot);
-      // --- END NEW ---
     } catch (error: unknown) {
       return Result.err(
         this._handleAndLogError(
           `Error during Tree-sitter parsing or AST conversion for ${language}`,
           error,
-        ), // Updated log context
+        ),
       );
     }
   }
@@ -449,19 +442,19 @@ export class TreeSitterParserService {
    * @param queryString The tree-sitter query in S-expression format
    * @returns A Result containing an array of QueryMatch objects
    */
-  query(
+  async query(
     content: string,
     language: SupportedLanguage,
     queryString: string,
-  ): Result<QueryMatch[], Error> {
+  ): Promise<Result<QueryMatch[], Error>> {
     this.logger.debug(`Running query for language: ${language}`);
 
-    const initResult = this.initialize();
+    const initResult = await this.initialize();
     if (initResult.isErr()) {
       return Result.err(initResult.error ?? new Error('Unknown init error'));
     }
 
-    const parserResult = this.getOrCreateParser(language);
+    const parserResult = await this.getOrCreateParser(language);
     if (parserResult.isErr()) {
       return Result.err(
         parserResult.error ?? new Error('Unknown parser error'),
@@ -469,13 +462,13 @@ export class TreeSitterParserService {
     }
     const parser = parserResult.value;
 
-    const grammarResult = this._getPreloadedGrammar(language);
+    const grammarResult = await this._getPreloadedGrammar(language);
     if (grammarResult.isErr()) {
       return Result.err(
         grammarResult.error ?? new Error('Unknown grammar error'),
       );
     }
-    const grammar = grammarResult.value;
+    const grammar = grammarResult.value!;
 
     try {
       if (parser === undefined || parser === null) {
@@ -487,20 +480,19 @@ export class TreeSitterParserService {
           throw new Error('Parsing resulted in an undefined tree or rootNode.');
         }
 
-        // Create and run the query using Parser.Query constructor
-        // tree-sitter requires new Parser.Query(language, queryString)
-        const query = new Parser.Query(grammar, queryString);
+        // Create query using the language's query method (web-tree-sitter API)
+        const query = grammar.query(queryString);
         const matches = query.matches(tree.rootNode);
 
         // Convert matches to our QueryMatch format
         const results: QueryMatch[] = matches.map(
           (match: {
             pattern: number;
-            captures: { name: string; node: TreeSitterSyntaxNode }[];
+            captures: { name: string; node: Parser.SyntaxNode }[];
           }) => ({
             pattern: match.pattern,
             captures: match.captures.map(
-              (capture: { name: string; node: TreeSitterSyntaxNode }) => ({
+              (capture: { name: string; node: Parser.SyntaxNode }) => ({
                 name: capture.name,
                 node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
                 text: capture.node.text,
@@ -538,10 +530,10 @@ export class TreeSitterParserService {
    * @param language The language of the source code
    * @returns Query matches for functions, methods, and arrow functions
    */
-  queryFunctions(
+  async queryFunctions(
     content: string,
     language: SupportedLanguage,
-  ): Result<QueryMatch[], Error> {
+  ): Promise<Result<QueryMatch[], Error>> {
     const queries = LANGUAGE_QUERIES_MAP[language];
     if (!queries.functionQuery) {
       return Result.ok([]);
@@ -555,10 +547,10 @@ export class TreeSitterParserService {
    * @param language The language of the source code
    * @returns Query matches for class declarations
    */
-  queryClasses(
+  async queryClasses(
     content: string,
     language: SupportedLanguage,
-  ): Result<QueryMatch[], Error> {
+  ): Promise<Result<QueryMatch[], Error>> {
     const queries = LANGUAGE_QUERIES_MAP[language];
     if (!queries.classQuery) {
       return Result.ok([]);
@@ -572,10 +564,10 @@ export class TreeSitterParserService {
    * @param language The language of the source code
    * @returns Query matches for import statements
    */
-  queryImports(
+  async queryImports(
     content: string,
     language: SupportedLanguage,
-  ): Result<QueryMatch[], Error> {
+  ): Promise<Result<QueryMatch[], Error>> {
     const queries = LANGUAGE_QUERIES_MAP[language];
     if (!queries.importQuery) {
       return Result.ok([]);
@@ -589,10 +581,10 @@ export class TreeSitterParserService {
    * @param language The language of the source code
    * @returns Query matches for export statements
    */
-  queryExports(
+  async queryExports(
     content: string,
     language: SupportedLanguage,
-  ): Result<QueryMatch[], Error> {
+  ): Promise<Result<QueryMatch[], Error>> {
     const queries = LANGUAGE_QUERIES_MAP[language];
     if (!queries.exportQuery) {
       return Result.ok([]);
@@ -611,21 +603,21 @@ export class TreeSitterParserService {
    * @param language - The language of the source code.
    * @returns A Result containing the GenericAstNode root or an Error.
    */
-  parseAndCache(
+  async parseAndCache(
     filePath: string,
     content: string,
     language: SupportedLanguage,
-  ): Result<GenericAstNode, Error> {
+  ): Promise<Result<GenericAstNode, Error>> {
     this.logger.debug(
       `parseAndCache: Parsing and caching tree for ${filePath} (${language})`,
     );
 
-    const initResult = this.initialize();
+    const initResult = await this.initialize();
     if (initResult.isErr()) {
       return Result.err(initResult.error ?? new Error('Unknown init error'));
     }
 
-    const parserResult = this.getOrCreateParser(language);
+    const parserResult = await this.getOrCreateParser(language);
     if (parserResult.isErr()) {
       return Result.err(
         parserResult.error ?? new Error('Unknown parser error'),
@@ -687,12 +679,12 @@ export class TreeSitterParserService {
    * @param editDelta - Describes where and how the text changed (byte offsets and positions).
    * @returns A Result containing the GenericAstNode root or an Error.
    */
-  parseIncremental(
+  async parseIncremental(
     filePath: string,
     content: string,
     language: SupportedLanguage,
     editDelta: EditDelta,
-  ): Result<GenericAstNode, Error> {
+  ): Promise<Result<GenericAstNode, Error>> {
     const cachedEntry = this.treeCache.get(filePath);
 
     if (!cachedEntry) {
@@ -715,12 +707,12 @@ export class TreeSitterParserService {
       `parseIncremental: Cache hit for ${filePath}, performing incremental re-parse`,
     );
 
-    const initResult = this.initialize();
+    const initResult = await this.initialize();
     if (initResult.isErr()) {
       return Result.err(initResult.error ?? new Error('Unknown init error'));
     }
 
-    const parserResult = this.getOrCreateParser(language);
+    const parserResult = await this.getOrCreateParser(language);
     if (parserResult.isErr()) {
       return Result.err(
         parserResult.error ?? new Error('Unknown parser error'),

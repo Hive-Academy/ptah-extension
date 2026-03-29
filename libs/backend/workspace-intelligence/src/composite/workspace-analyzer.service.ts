@@ -375,7 +375,7 @@ export class WorkspaceAnalyzerService implements IDisposable {
       );
 
       // Analyze source directly using query-based extraction
-      const insightsResult = this.astAnalyzer.analyzeSource(
+      const insightsResult = await this.astAnalyzer.analyzeSource(
         content,
         language,
         filePath,

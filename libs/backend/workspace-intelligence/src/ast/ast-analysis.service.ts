@@ -83,11 +83,11 @@ export class AstAnalysisService {
    * @param filePath Optional file path for logging
    * @returns A Result containing the extracted CodeInsights on success, or an Error on failure.
    */
-  analyzeSource(
+  async analyzeSource(
     content: string,
     language: SupportedLanguage,
     filePath?: string,
-  ): Result<CodeInsights, Error> {
+  ): Promise<Result<CodeInsights, Error>> {
     const logPath = filePath || '<inline>';
     this.logger.debug(
       `AstAnalysisService.analyzeSource() - Analyzing ${logPath} using queries`,
@@ -95,7 +95,7 @@ export class AstAnalysisService {
 
     try {
       // Extract functions using query
-      const functionsResult = this.parserService.queryFunctions(
+      const functionsResult = await this.parserService.queryFunctions(
         content,
         language,
       );
@@ -104,19 +104,28 @@ export class AstAnalysisService {
         : [];
 
       // Extract classes using query
-      const classesResult = this.parserService.queryClasses(content, language);
+      const classesResult = await this.parserService.queryClasses(
+        content,
+        language,
+      );
       const classes: ClassInfo[] = classesResult.isOk()
         ? this.extractClassesFromMatches(classesResult.value ?? [])
         : [];
 
       // Extract imports using query
-      const importsResult = this.parserService.queryImports(content, language);
+      const importsResult = await this.parserService.queryImports(
+        content,
+        language,
+      );
       const imports: ImportInfo[] = importsResult.isOk()
         ? this.extractImportsFromMatches(importsResult.value ?? [])
         : [];
 
       // Extract exports using query
-      const exportsResult = this.parserService.queryExports(content, language);
+      const exportsResult = await this.parserService.queryExports(
+        content,
+        language,
+      );
       const exports: ExportInfo[] = exportsResult.isOk()
         ? this.extractExportsFromMatches(exportsResult.value ?? [])
         : [];

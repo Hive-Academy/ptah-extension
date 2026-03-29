@@ -127,7 +127,7 @@ export class ContextEnrichmentService {
     }
 
     // Analyze source using AST
-    const insightsResult = this.astAnalysis.analyzeSource(
+    const insightsResult = await this.astAnalysis.analyzeSource(
       content,
       language,
       filePath,
