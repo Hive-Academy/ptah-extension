@@ -30,6 +30,7 @@ import type {
   IWorkspaceProvider,
   IFileSystemProvider,
   IDiagnosticsProvider,
+  ISecretStorage,
 } from '@ptah-extension/platform-core';
 import {
   WorkspaceAnalyzerService,
@@ -70,6 +71,8 @@ import {
   buildOrchestrationNamespace,
   // Agent namespace builder (TASK_2025_157)
   buildAgentNamespace,
+  // Git namespace builder (TASK_2025_236)
+  buildGitNamespace,
 } from './namespace-builders';
 import {
   AgentProcessManager,
@@ -192,6 +195,9 @@ export class PtahAPIBuilder {
 
     @inject(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER)
     private readonly diagnosticsProvider: IDiagnosticsProvider,
+
+    @inject(PLATFORM_TOKENS.SECRET_STORAGE)
+    private readonly secretStorage: ISecretStorage,
   ) {
     this.logger.info('PtahAPIBuilder initialized with 13 namespaces');
   }
@@ -434,12 +440,18 @@ export class PtahAPIBuilder {
         }),
       ),
 
-      // Web search namespace (TASK_2025_189 - Gemini CLI web search)
+      // Git worktree namespace (TASK_2025_236)
+      git: this.buildNamespaceSafe('git', () =>
+        buildGitNamespace({ workspaceRoot }),
+      ),
+
+      // Web search namespace (TASK_2025_189, multi-provider TASK_2025_235)
       webSearch: this.buildNamespaceSafe(
         'webSearch',
         () =>
           new WebSearchService({
-            cliDetectionService: this.cliDetectionService,
+            secretStorage: this.secretStorage,
+            workspaceProvider: this.workspaceProvider,
             logger: this.logger,
           }),
       ),

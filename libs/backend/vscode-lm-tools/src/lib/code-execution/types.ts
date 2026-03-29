@@ -56,19 +56,24 @@ export interface PtahAPI {
   // Agent orchestration namespace (TASK_2025_157)
   agent: AgentNamespace;
 
+  // Git worktree operations namespace (TASK_2025_236)
+  git: GitNamespace;
+
   // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
   dependencies: DependenciesNamespace;
 
-  // Web search namespace (TASK_2025_189)
+  // Web search namespace (TASK_2025_189, multi-provider TASK_2025_235)
   webSearch?: {
     search(
       query: string,
-      timeoutMs?: number,
+      options?: { maxResults?: number; timeout?: number },
     ): Promise<{
       query: string;
       summary: string;
-      provider: 'gemini-cli';
+      provider: string;
       durationMs: number;
+      results: Array<{ title: string; url: string; snippet: string }>;
+      resultCount: number;
     }>;
   };
 
@@ -275,6 +280,39 @@ export interface AgentNamespace {
     agentId: string,
     options?: { pollInterval?: number; timeout?: number },
   ) => Promise<AgentProcessInfo>;
+}
+
+/**
+ * Git worktree operations namespace (TASK_2025_236)
+ * Provides list, add, and remove operations for git worktrees via CLI.
+ */
+export interface GitNamespace {
+  /**
+   * List all git worktrees in the current repository
+   * @returns Array of worktree info (path, branch, HEAD, isMain, isBare)
+   */
+  worktreeList(): Promise<import('@ptah-extension/shared').GitWorktreeInfo[]>;
+
+  /**
+   * Create a new git worktree
+   * @param params - Branch name, optional path, and createBranch flag
+   * @returns Success status with worktree path or error
+   */
+  worktreeAdd(params: {
+    branch: string;
+    path?: string;
+    createBranch?: boolean;
+  }): Promise<{ success: boolean; worktreePath?: string; error?: string }>;
+
+  /**
+   * Remove a git worktree
+   * @param params - Worktree path and optional force flag
+   * @returns Success status or error
+   */
+  worktreeRemove(params: {
+    path: string;
+    force?: boolean;
+  }): Promise<{ success: boolean; error?: string }>;
 }
 
 // ========================================

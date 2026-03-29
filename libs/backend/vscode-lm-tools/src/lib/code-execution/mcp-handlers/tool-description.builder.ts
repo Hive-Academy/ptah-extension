@@ -460,22 +460,26 @@ export function buildAgentStopTool(): MCPToolDefinition {
 
 /**
  * Build the ptah_web_search tool definition
- * Web search via LLM providers with fallback chain
+ * Multi-provider web search (Tavily, Serper, Exa)
  */
 export function buildWebSearchTool(): MCPToolDefinition {
   return {
     name: 'ptah_web_search',
     description:
-      'Search the web for information using Gemini CLI (native google_web_search). ' +
-      'Returns a narrative summary of search results. ' +
-      'Requires Gemini CLI installed on PATH. ' +
-      'Use this when you need current information from the internet.',
+      'Search the web for current information using your configured search provider (Tavily, Serper, or Exa). ' +
+      'Returns structured results with titles, URLs, and snippets, plus a narrative summary. ' +
+      'Configure your provider and API key in Ptah Settings > Web Search.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
           description: 'The search query. Be specific for better results.',
+        },
+        maxResults: {
+          type: 'number',
+          description:
+            'Maximum number of results to return (default: 5, max: 20)',
         },
         timeout: {
           type: 'number',
@@ -486,6 +490,89 @@ export function buildWebSearchTool(): MCPToolDefinition {
       required: ['query'],
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
+  };
+}
+
+// ========================================
+// Git Worktree MCP Tools (TASK_2025_236)
+// ========================================
+
+/**
+ * Build the ptah_git_worktree_list tool definition
+ * List all git worktrees in the current repository
+ */
+export function buildWorktreeListTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_git_worktree_list',
+    description:
+      'List all git worktrees in the current repository. Returns path, branch, HEAD commit, ' +
+      'and whether each worktree is the main worktree.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_git_worktree_add tool definition
+ * Create a new git worktree for parallel development
+ */
+export function buildWorktreeAddTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_git_worktree_add',
+    description:
+      'Create a new git worktree for parallel development. Checks out a branch ' +
+      'into a separate directory. Use createBranch to create and checkout a new branch.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        branch: {
+          type: 'string',
+          description: 'Branch name to checkout in the new worktree',
+        },
+        path: {
+          type: 'string',
+          description:
+            'Custom path for the worktree directory (defaults to ../<branch>)',
+        },
+        createBranch: {
+          type: 'boolean',
+          description:
+            'Create a new branch instead of checking out an existing one',
+        },
+      },
+      required: ['branch'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_git_worktree_remove tool definition
+ * Remove a git worktree
+ */
+export function buildWorktreeRemoveTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_git_worktree_remove',
+    description:
+      'Remove a git worktree. The worktree directory will be deleted. ' +
+      'Use force to remove even if there are uncommitted changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Absolute path of the worktree to remove',
+        },
+        force: {
+          type: 'boolean',
+          description: 'Force removal even with uncommitted changes',
+        },
+      },
+      required: ['path'],
+    },
+    annotations: { destructiveHint: true },
   };
 }
 

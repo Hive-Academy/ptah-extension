@@ -1,10 +1,17 @@
-import { Injectable, inject, signal, computed } from '@angular/core';
+import {
+  Injectable,
+  inject,
+  signal,
+  computed,
+  DestroyRef,
+} from '@angular/core';
 import { VSCodeService, ElectronLayoutService } from '@ptah-extension/core';
 import type {
   GitWorktreeInfo,
   GitWorktreesResult,
   GitAddWorktreeResult,
   GitRemoveWorktreeResult,
+  GitWorktreeChangedNotification,
 } from '@ptah-extension/shared';
 import { rpcCall } from './rpc-call.util';
 
@@ -18,6 +25,7 @@ import { rpcCall } from './rpc-call.util';
  * - List worktrees via git:worktrees RPC
  * - Add new worktrees via git:addWorktree RPC and auto-register as workspace folders
  * - Remove worktrees via git:removeWorktree RPC and unregister workspace folders
+ * - Listen for git:worktreeChanged push notifications from the backend (TASK_2025_236)
  *
  * Communication: Uses MESSAGE_TYPES.RPC_CALL / RPC_RESPONSE with correlationId matching.
  */
@@ -25,6 +33,7 @@ import { rpcCall } from './rpc-call.util';
 export class WorktreeService {
   private readonly vscodeService = inject(VSCodeService);
   private readonly layoutService = inject(ElectronLayoutService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ============================================================================
   // SIGNAL STATE
@@ -41,6 +50,10 @@ export class WorktreeService {
 
   /** Number of active worktrees. */
   readonly worktreeCount = computed(() => this._worktrees().length);
+
+  constructor() {
+    this.setupWorktreeChangeListener();
+  }
 
   // ============================================================================
   // PUBLIC API
@@ -145,5 +158,51 @@ export class WorktreeService {
     this._isLoading.set(false);
 
     return { success: false, error };
+  }
+
+  // ============================================================================
+  // NOTIFICATION LISTENER (TASK_2025_236)
+  // ============================================================================
+
+  /**
+   * Listen for git:worktreeChanged push notifications from the backend.
+   * When the SDK creates or removes a worktree, the backend sends a push
+   * notification to the frontend so the worktree list can be refreshed.
+   *
+   * On 'created' + path: register the new folder via layoutService, then refresh.
+   * On 'removed': refresh the worktree list.
+   */
+  private setupWorktreeChangeListener(): void {
+    const handler = (event: MessageEvent) => {
+      try {
+        const data = event.data;
+        if (!data || typeof data !== 'object') return;
+        if (data.type !== 'git:worktreeChanged') return;
+
+        const payload = data.payload as
+          | GitWorktreeChangedNotification
+          | undefined;
+        if (!payload || !payload.action) return;
+
+        if (payload.action === 'created') {
+          if (payload.path) {
+            this.layoutService.addFolderByPath(payload.path);
+          }
+          this.loadWorktrees();
+        } else if (payload.action === 'removed') {
+          this.loadWorktrees();
+        }
+      } catch {
+        // Gracefully ignore malformed notifications to prevent
+        // breaking the message listener pipeline
+      }
+    };
+
+    window.addEventListener('message', handler);
+
+    // Clean up listener when service is destroyed
+    this.destroyRef.onDestroy(() => {
+      window.removeEventListener('message', handler);
+    });
   }
 }

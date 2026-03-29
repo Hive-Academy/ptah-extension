@@ -34,6 +34,9 @@ import {
   buildAgentListTool,
   buildAgentStopTool,
   buildWebSearchTool,
+  buildWorktreeListTool,
+  buildWorktreeAddTool,
+  buildWorktreeRemoveTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -52,6 +55,9 @@ import {
   formatAgentStop,
   formatAgentList,
   formatWebSearch,
+  formatWorktreeList,
+  formatWorktreeAdd,
+  formatWorktreeRemove,
 } from './mcp-response-formatter';
 
 /**
@@ -194,6 +200,10 @@ function handleToolsList(
     buildAgentListTool(),
     // Web search tool (TASK_2025_189)
     buildWebSearchTool(),
+    // Git worktree tools (TASK_2025_236)
+    buildWorktreeListTool(),
+    buildWorktreeAddTool(),
+    buildWorktreeRemoveTool(),
     // Power-user tools
     buildExecuteCodeTool(),
     buildApprovalPromptTool(),
@@ -530,7 +540,11 @@ async function handleIndividualTool(
       }
 
       case 'ptah_web_search': {
-        const { query, timeout } = args as { query: string; timeout?: number };
+        const { query, maxResults, timeout } = args as {
+          query: string;
+          maxResults?: number;
+          timeout?: number;
+        };
         if (!deps.ptahAPI.webSearch) {
           return {
             jsonrpc: '2.0',
@@ -546,10 +560,57 @@ async function handleIndividualTool(
             },
           };
         }
-        const result = await deps.ptahAPI.webSearch.search(query, timeout);
+        const result = await deps.ptahAPI.webSearch.search(query, {
+          maxResults,
+          timeout,
+        });
         return createToolSuccessResponse(
           request,
           formatWebSearch(result),
+          deps,
+        );
+      }
+
+      // Git worktree tools (TASK_2025_236)
+      case 'ptah_git_worktree_list': {
+        const worktrees = await ptahAPI.git.worktreeList();
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeList(worktrees),
+          deps,
+        );
+      }
+
+      case 'ptah_git_worktree_add': {
+        const { branch, path, createBranch } = args as {
+          branch: string;
+          path?: string;
+          createBranch?: boolean;
+        };
+        const addResult = await ptahAPI.git.worktreeAdd({
+          branch,
+          path,
+          createBranch,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeAdd(addResult),
+          deps,
+        );
+      }
+
+      case 'ptah_git_worktree_remove': {
+        const { path: worktreePath, force } = args as {
+          path: string;
+          force?: boolean;
+        };
+        const removeResult = await ptahAPI.git.worktreeRemove({
+          path: worktreePath,
+          force,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeRemove(removeResult),
           deps,
         );
       }
