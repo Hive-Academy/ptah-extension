@@ -32,12 +32,7 @@
             "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
           }
         },
-        "external": [
-          "vscode",
-          "tree-sitter",
-          "tree-sitter-javascript",
-          "tree-sitter-typescript"
-        ],
+        "external": ["vscode"],
         "assets": [
           {
             "glob": "**/*",
@@ -58,6 +53,21 @@
             "glob": "package.json",
             "input": "apps/ptah-extension-vscode",
             "output": "."
+          },
+          {
+            "glob": "tree-sitter.wasm",
+            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
+            "output": "wasm"
+          },
+          {
+            "glob": "tree-sitter-javascript.wasm",
+            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
+            "output": "wasm"
+          },
+          {
+            "glob": "tree-sitter-typescript.wasm",
+            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
+            "output": "wasm"
           }
         ]
       },
@@ -101,10 +111,6 @@
           },
           {
             "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE.md')) fs.copyFileSync('LICENSE.md', 'dist/apps/ptah-extension-vscode/LICENSE.md')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "cd dist/apps/ptah-extension-vscode && npm install --omit=dev --ignore-scripts 2>&1 || echo 'npm install completed'",
             "forwardAllArgs": false
           }
         ],

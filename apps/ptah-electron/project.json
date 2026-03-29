@@ -37,9 +37,6 @@
           "@openai/codex-sdk",
           "reflect-metadata",
           "tsyringe",
-          "tree-sitter",
-          "tree-sitter-javascript",
-          "tree-sitter-typescript",
           "async-mutex",
           "cross-spawn",
           "eventemitter3",
@@ -85,6 +82,21 @@
             "glob": "electron-builder.yml",
             "input": "apps/ptah-electron",
             "output": "."
+          },
+          {
+            "glob": "tree-sitter.wasm",
+            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
+            "output": "wasm"
+          },
+          {
+            "glob": "tree-sitter-javascript.wasm",
+            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
+            "output": "wasm"
+          },
+          {
+            "glob": "tree-sitter-typescript.wasm",
+            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
+            "output": "wasm"
           }
         ]
       },
