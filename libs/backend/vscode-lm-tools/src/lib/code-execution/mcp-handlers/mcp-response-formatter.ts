@@ -15,6 +15,7 @@ import type {
   AgentProcessInfo,
   AgentOutput,
   CliDetectionResult,
+  GitWorktreeInfo,
 } from '@ptah-extension/shared';
 
 // ============================================================
@@ -688,20 +689,34 @@ export function formatWebSearch(result: {
 // ============================================================
 
 /**
- * Format ptah_git_worktree_list result as a markdown table
+ * Format ptah_git_worktree_list result as a markdown table.
+ * Accepts a result object with both a worktrees array and an optional error,
+ * so the AI agent can distinguish "no worktrees" from "git error".
  */
-export function formatWorktreeList(
-  worktrees: import('@ptah-extension/shared').GitWorktreeInfo[],
-): string {
+export function formatWorktreeList(result: {
+  worktrees: GitWorktreeInfo[];
+  error?: string;
+}): string {
   try {
-    if (worktrees.length === 0) {
+    // If there's an error, surface it clearly so the AI agent knows git failed
+    if (result.error) {
       return json2md([
         { h2: 'Git Worktrees' },
-        { p: 'No worktrees found (or not a git repository).' },
+        { p: `**Error:** ${result.error}` },
+        {
+          p: 'Could not list worktrees. Verify this is a git repository and git is installed.',
+        },
       ]);
     }
 
-    const rows = worktrees.map((wt) => ({
+    if (result.worktrees.length === 0) {
+      return json2md([
+        { h2: 'Git Worktrees' },
+        { p: 'No worktrees found. Only the main working tree exists.' },
+      ]);
+    }
+
+    const rows = result.worktrees.map((wt) => ({
       Path: wt.path,
       Branch: wt.branch,
       HEAD: wt.head,
@@ -710,11 +725,11 @@ export function formatWorktreeList(
 
     return json2md([
       { h2: 'Git Worktrees' },
-      { p: `**Total:** ${worktrees.length}` },
+      { p: `**Total:** ${result.worktrees.length}` },
       { table: { headers: ['Path', 'Branch', 'HEAD', 'Main'], rows } },
     ]);
   } catch {
-    return fallbackJson(worktrees);
+    return fallbackJson(result);
   }
 }
 

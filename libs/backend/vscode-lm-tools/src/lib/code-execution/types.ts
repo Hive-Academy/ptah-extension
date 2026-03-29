@@ -288,10 +288,16 @@ export interface AgentNamespace {
  */
 export interface GitNamespace {
   /**
-   * List all git worktrees in the current repository
-   * @returns Array of worktree info (path, branch, HEAD, isMain, isBare)
+   * List all git worktrees in the current repository.
+   * Returns both the worktree list and any error that occurred,
+   * so the AI agent can distinguish "no worktrees" from "git error".
+   *
+   * @returns Object with worktrees array and optional error string
    */
-  worktreeList(): Promise<import('@ptah-extension/shared').GitWorktreeInfo[]>;
+  worktreeList(): Promise<{
+    worktrees: import('@ptah-extension/shared').GitWorktreeInfo[];
+    error?: string;
+  }>;
 
   /**
    * Create a new git worktree

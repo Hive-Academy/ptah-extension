@@ -3,8 +3,9 @@
  * TASK_2025_236: Git worktree MCP tools for AI agent access
  *
  * Provides worktreeList, worktreeAdd, worktreeRemove methods for managing
- * git worktrees via the CLI. Uses child_process.execFile for platform-agnostic
- * git execution with shell: true for Windows compatibility.
+ * git worktrees via the CLI. Uses child_process.execFile WITHOUT shell: true
+ * to prevent command injection. On Windows, uses 'git.cmd' as the executable
+ * since git is distributed as a .cmd wrapper.
  *
  * Pattern: namespace-builders/agent-namespace.builder.ts
  */
@@ -27,8 +28,8 @@ export interface GitNamespaceDependencies {
 /**
  * Build the git namespace with worktree operations.
  *
- * All git commands are executed via child_process.execFile with a 10-second timeout
- * and shell: true for Windows compatibility (git is typically a .cmd wrapper on Windows).
+ * All git commands are executed via child_process.execFile with a 10-second timeout.
+ * On Windows, 'git.cmd' is used as the executable (shell: false to prevent injection).
  *
  * @param deps - Dependencies containing the workspace root path
  * @returns GitNamespace with worktreeList, worktreeAdd, worktreeRemove methods
@@ -39,20 +40,31 @@ export function buildGitNamespace(
   const { workspaceRoot } = deps;
 
   /**
+   * Platform-specific git executable.
+   * On Windows, git is distributed as a .cmd wrapper, so we must use 'git.cmd'
+   * when NOT using shell: true. This avoids ENOENT errors on Windows while
+   * keeping shell: false to prevent command injection.
+   *
+   * @see apps/ptah-electron/src/services/git-info.service.ts for the cross-spawn pattern
+   */
+  const gitExecutable = process.platform === 'win32' ? 'git.cmd' : 'git';
+
+  /**
    * Execute a git command and return stdout/stderr/exitCode.
-   * Uses shell: true for Windows compatibility where git is a .cmd script.
+   * Uses execFile WITHOUT shell: true to prevent command injection from
+   * AI-provided branch names and paths. On Windows, 'git.cmd' is used
+   * as the executable to handle the .cmd wrapper.
    */
   function execGit(
     args: string[],
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
       execFile(
-        'git',
+        gitExecutable,
         args,
         {
           cwd: workspaceRoot,
           timeout: GIT_TIMEOUT_MS,
-          shell: true,
           maxBuffer: 1024 * 1024, // 1MB buffer for large worktree lists
         },
         (error, stdout, stderr) => {
@@ -63,13 +75,11 @@ export function buildGitNamespace(
             return;
           }
 
-          // execFile with shell: true treats non-zero exit codes as errors,
-          // but we want to handle them gracefully
-          const exitCode = error
-            ? 'code' in error && typeof error.code === 'number'
-              ? error.code
-              : 1
-            : 0;
+          // execFile treats non-zero exit codes as errors,
+          // but we want to handle them gracefully.
+          // Node.js ExecFileException uses string codes (e.g. 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'),
+          // so we simply use exit code 1 as fallback when error is truthy.
+          const exitCode = error ? 1 : 0;
           resolve({
             stdout: typeof stdout === 'string' ? stdout : '',
             stderr: typeof stderr === 'string' ? stderr : '',
@@ -139,21 +149,27 @@ export function buildGitNamespace(
   }
 
   return {
-    async worktreeList(): Promise<GitWorktreeInfo[]> {
+    async worktreeList(): Promise<{
+      worktrees: GitWorktreeInfo[];
+      error?: string;
+    }> {
       try {
-        const { stdout, exitCode } = await execGit([
+        const { stdout, stderr, exitCode } = await execGit([
           'worktree',
           'list',
           '--porcelain',
         ]);
 
         if (exitCode !== 0) {
-          return [];
+          const errorMsg =
+            stderr.trim() || 'git worktree list failed (non-zero exit code)';
+          return { worktrees: [], error: errorMsg };
         }
 
-        return parseWorktreeList(stdout);
-      } catch {
-        return [];
+        return { worktrees: parseWorktreeList(stdout) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { worktrees: [], error: message };
       }
     },
 

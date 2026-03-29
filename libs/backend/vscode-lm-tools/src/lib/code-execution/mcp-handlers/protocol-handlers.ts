@@ -573,10 +573,10 @@ async function handleIndividualTool(
 
       // Git worktree tools (TASK_2025_236)
       case 'ptah_git_worktree_list': {
-        const worktrees = await ptahAPI.git.worktreeList();
+        const result = await ptahAPI.git.worktreeList();
         return createToolSuccessResponse(
           request,
-          formatWorktreeList(worktrees),
+          formatWorktreeList(result),
           deps,
         );
       }
@@ -587,9 +587,27 @@ async function handleIndividualTool(
           path?: string;
           createBranch?: boolean;
         };
+
+        // Validate required branch parameter
+        if (!branch || typeof branch !== 'string' || !branch.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "branch" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
         const addResult = await ptahAPI.git.worktreeAdd({
-          branch,
-          path,
+          branch: branch.trim(),
+          path: path && typeof path === 'string' ? path.trim() : undefined,
           createBranch,
         });
         return createToolSuccessResponse(
@@ -604,8 +622,30 @@ async function handleIndividualTool(
           path: string;
           force?: boolean;
         };
+
+        // Validate required path parameter
+        if (
+          !worktreePath ||
+          typeof worktreePath !== 'string' ||
+          !worktreePath.trim()
+        ) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "path" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
         const removeResult = await ptahAPI.git.worktreeRemove({
-          path: worktreePath,
+          path: worktreePath.trim(),
           force,
         });
         return createToolSuccessResponse(
