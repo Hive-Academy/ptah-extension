@@ -29,6 +29,7 @@ export * from './lib/utils';
 export * from './lib/utils/pricing.utils';
 export * from './lib/utils/session-totals.utils';
 export * from './lib/utils/subagent-cost.utils';
+export * from './lib/utils/git.utils';
 
 // Setup wizard types
 export * from './lib/types/setup-wizard.types';
