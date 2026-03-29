@@ -1,12 +1,9 @@
-import path from 'path';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { injectable, inject } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import { Result } from '@ptah-extension/shared';
-import {
-  EXTENSION_LANGUAGE_MAP,
-  SupportedLanguage,
-  LANGUAGE_QUERIES_MAP,
-} from './tree-sitter.config';
+import { SupportedLanguage, LANGUAGE_QUERIES_MAP } from './tree-sitter.config';
 import { GenericAstNode } from './ast.types';
 import Parser from 'web-tree-sitter';
 
@@ -61,33 +58,37 @@ export interface QueryMatch {
 // --- WASM Path Resolution ---
 
 /**
- * Resolves the absolute path to a WASM file co-located in the `wasm/` directory
- * next to the bundled output.
+ * Resolves the directory containing the bundled output.
  *
  * In the final ESM bundle, the esbuild banner injects:
  *   `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`
- * This makes `import.meta.url` available at runtime, but TypeScript rejects it
- * during library compilation (CJS target). We use `new Function` to bypass the
- * static check while keeping the resolution correct at runtime.
+ * This makes `import.meta.url` available at module scope. TypeScript rejects it
+ * during library compilation (CJS target) with TS1470. We use @ts-ignore to suppress
+ * because this file is compiled by two different tsconfigs (library CJS build triggers
+ * the error; app ESM esbuild step does not), and @ts-expect-error fails when no error.
  *
- * Fallback: If `import.meta.url` is not available (e.g. plain CJS), we fall
- * back to `__dirname` which is always defined in CommonJS modules.
+ * Fallback: In plain CJS execution (e.g. Jest tests), `import.meta` is undefined
+ * and would throw. The try/catch falls back to `__dirname` which is always defined
+ * in CommonJS. Note: `__dirname` is NOT defined in true ESM, so this fallback
+ * only works in CJS test environments.
  */
-function resolveWasmPath(filename: string): string {
-  let dir: string;
-  try {
-    // At runtime in ESM bundle, import.meta.url is available via esbuild banner.
-    // Use Function constructor to avoid TS1470 "import.meta not allowed in CJS" error.
+let BUNDLE_DIR: string;
+try {
+  // import.meta.url is available at runtime in the ESM bundle (esbuild banner provides it).
+  // In CJS (e.g. Jest), import.meta is undefined and throws, caught by the fallback below.
+  // Using @ts-ignore (not @ts-expect-error) because this file is compiled by TWO different
+  // tsconfigs: the library build (CJS target, triggers TS1470) and the app esbuild step
+  // (ESM target, no error). @ts-expect-error would fail in whichever context has no error.
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore TS1470: import.meta not allowed in CJS output. Safe: the final ESM bundle provides it.
+  BUNDLE_DIR = path.dirname(fileURLToPath(import.meta.url));
+} catch {
+  // Fallback for plain CJS execution (e.g. Jest tests)
+  BUNDLE_DIR = __dirname;
+}
 
-    const getMetaUrl = new Function('return import.meta.url') as () => string;
-    const metaUrl: string = getMetaUrl();
-    const { fileURLToPath } = require('url') as typeof import('url');
-    dir = path.dirname(fileURLToPath(metaUrl));
-  } catch {
-    // Fallback for plain CJS execution (e.g. tests)
-    dir = __dirname;
-  }
-  return path.join(dir, 'wasm', filename);
+function resolveWasmPath(filename: string): string {
+  return path.join(BUNDLE_DIR, 'wasm', filename);
 }
 
 // --- Service Implementation ---
@@ -100,6 +101,7 @@ export class TreeSitterParserService {
   private readonly treeCache: Map<string, TreeCacheEntry> = new Map();
   private readonly treeCacheMaxSize = 100;
   private isInitialized = false;
+  private initPromise: Promise<Result<void, Error>> | null = null;
 
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {
     this.logger.info(
@@ -114,6 +116,10 @@ export class TreeSitterParserService {
    * language grammars. This method is idempotent -- subsequent calls after a
    * successful initialization return immediately.
    *
+   * Uses a promise guard to prevent concurrent initialization: if multiple
+   * callers invoke initialize() before it completes, they all await the same
+   * Promise instead of triggering duplicate Parser.init() calls.
+   *
    * @returns A Result indicating success or failure of initialization.
    */
   async initialize(): Promise<Result<void, Error>> {
@@ -125,22 +131,34 @@ export class TreeSitterParserService {
       return Result.ok(undefined);
     }
 
+    if (this.initPromise) {
+      this.logger.debug(
+        'Initialization already in progress. Returning existing promise.',
+      );
+      return this.initPromise;
+    }
+
+    this.initPromise = this._doInitialize();
+    return this.initPromise;
+  }
+
+  private async _doInitialize(): Promise<Result<void, Error>> {
     this.logger.info(
       'Initializing web-tree-sitter WASM runtime and grammars...',
     );
+    const jsWasmPath = resolveWasmPath('tree-sitter-javascript.wasm');
+    const tsWasmPath = resolveWasmPath('tree-sitter-typescript.wasm');
+    const runtimeWasmPath = resolveWasmPath('tree-sitter.wasm');
+
     try {
-      // Initialize the WASM runtime
+      // Initialize the WASM runtime, passing through the requested filename
       await Parser.init({
-        locateFile: () => resolveWasmPath('tree-sitter.wasm'),
+        locateFile: (file: string) => resolveWasmPath(file),
       });
 
       // Load language grammars from WASM files
-      const jsLanguage = await Parser.Language.load(
-        resolveWasmPath('tree-sitter-javascript.wasm'),
-      );
-      const tsLanguage = await Parser.Language.load(
-        resolveWasmPath('tree-sitter-typescript.wasm'),
-      );
+      const jsLanguage = await Parser.Language.load(jsWasmPath);
+      const tsLanguage = await Parser.Language.load(tsWasmPath);
 
       this.languageGrammars.set('javascript', jsLanguage);
       this.languageGrammars.set('typescript', tsLanguage);
@@ -152,8 +170,9 @@ export class TreeSitterParserService {
       return Result.ok(undefined);
     } catch (error) {
       this.isInitialized = false;
+      this.initPromise = null; // Allow retry on failure
       const initError = this._handleAndLogError(
-        'TreeSitterParserService WASM initialization failed',
+        `TreeSitterParserService WASM initialization failed. Attempted paths: runtime=${runtimeWasmPath}, JS=${jsWasmPath}, TS=${tsWasmPath}`,
         error,
       );
       return Result.err(initError);
@@ -161,13 +180,6 @@ export class TreeSitterParserService {
   }
 
   // --- Language & Grammar Handling ---
-
-  private getLanguageFromExtension(
-    filePath: string,
-  ): SupportedLanguage | undefined {
-    const ext = path.extname(filePath).toLowerCase();
-    return EXTENSION_LANGUAGE_MAP[ext];
-  }
 
   /**
    * Retrieves the pre-loaded language grammar. Ensures service is initialized.
@@ -222,44 +234,22 @@ export class TreeSitterParserService {
   // --- Parser Caching & Creation ---
 
   /**
-   * Attempts to retrieve a parser from the cache and verifies its language module.
+   * Attempts to retrieve a parser from the cache.
+   * Parsers are created with their language already set in _createAndCacheParser(),
+   * and since we cache one parser per language, no re-verification is needed.
    * @param language - The language of the parser to retrieve.
-   * @returns A Result containing the cached parser if valid, or an error/null if not found or invalid.
+   * @returns A Result containing the cached parser if found, or null if not cached.
    */
-  private async _getCachedParser(
+  private _getCachedParser(
     language: SupportedLanguage,
-  ): Promise<Result<Parser | null, Error>> {
+  ): Result<Parser | null, Error> {
     if (!this.parserCache.has(language)) {
       return Result.ok(null);
     }
 
     this.logger.debug(`Using cached parser for language: ${language}`);
     const cachedParser = this.parserCache.get(language) as Parser;
-
-    const grammarResult = await this._getPreloadedGrammar(language);
-    if (grammarResult.isErr()) {
-      this.parserCache.delete(language);
-      return Result.err(
-        new Error(
-          `Failed to re-verify pre-loaded grammar for cached ${language}: ${
-            grammarResult.error?.message ?? 'Unknown error'
-          }`,
-        ),
-      );
-    }
-
-    try {
-      cachedParser.setLanguage(grammarResult.value as Parser.Language);
-      return Result.ok(cachedParser);
-    } catch (error: unknown) {
-      this.parserCache.delete(language);
-      return Result.err(
-        this._handleAndLogError(
-          `Failed to set language on cached parser for ${language}`,
-          error,
-        ),
-      );
-    }
+    return Result.ok(cachedParser);
   }
 
   /**
@@ -306,7 +296,7 @@ export class TreeSitterParserService {
   private async getOrCreateParser(
     language: SupportedLanguage,
   ): Promise<Result<Parser | null, Error>> {
-    const cachedResult = await this._getCachedParser(language);
+    const cachedResult = this._getCachedParser(language);
 
     if (cachedResult.isErr()) {
       return Result.err(cachedResult.error ?? new Error('Unknown cache error'));
@@ -400,11 +390,14 @@ export class TreeSitterParserService {
     }
     const parser = parserResult.value;
 
-    let tree: Parser.Tree;
+    if (!parser) {
+      return Result.err(
+        new Error('Parser instance is null or undefined before parsing.'),
+      );
+    }
+
+    let tree: Parser.Tree | undefined;
     try {
-      if (!parser) {
-        throw new Error('Parser instance is null or undefined before parsing.');
-      }
       tree = parser.parse(content);
       if (!tree?.rootNode) {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
@@ -430,6 +423,9 @@ export class TreeSitterParserService {
           error,
         ),
       );
+    } finally {
+      // Free WASM heap memory -- Tree objects are NOT garbage collected
+      tree?.delete();
     }
   }
 
@@ -468,52 +464,56 @@ export class TreeSitterParserService {
         grammarResult.error ?? new Error('Unknown grammar error'),
       );
     }
-    const grammar = grammarResult.value!;
+    const grammar = grammarResult.value as Parser.Language;
 
+    if (!parser) {
+      return Result.err(
+        new Error('Parser instance is null or undefined before parsing.'),
+      );
+    }
+
+    let tree: Parser.Tree | undefined;
+    let tsQuery: Parser.Query | undefined;
     try {
-      if (parser === undefined || parser === null) {
-        throw new Error('Parser instance is null or undefined before parsing.');
-      } else {
-        const tree = parser.parse(content);
+      tree = parser.parse(content);
 
-        if (!tree?.rootNode) {
-          throw new Error('Parsing resulted in an undefined tree or rootNode.');
-        }
-
-        // Create query using the language's query method (web-tree-sitter API)
-        const query = grammar.query(queryString);
-        const matches = query.matches(tree.rootNode);
-
-        // Convert matches to our QueryMatch format
-        const results: QueryMatch[] = matches.map(
-          (match: {
-            pattern: number;
-            captures: { name: string; node: Parser.SyntaxNode }[];
-          }) => ({
-            pattern: match.pattern,
-            captures: match.captures.map(
-              (capture: { name: string; node: Parser.SyntaxNode }) => ({
-                name: capture.name,
-                node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
-                text: capture.node.text,
-                startPosition: {
-                  row: capture.node.startPosition.row,
-                  column: capture.node.startPosition.column,
-                },
-                endPosition: {
-                  row: capture.node.endPosition.row,
-                  column: capture.node.endPosition.column,
-                },
-              }),
-            ),
-          }),
-        );
-
-        this.logger.debug(
-          `Query returned ${results.length} matches for language: ${language}`,
-        );
-        return Result.ok(results);
+      if (!tree?.rootNode) {
+        throw new Error('Parsing resulted in an undefined tree or rootNode.');
       }
+
+      // Create query using the language's query method (web-tree-sitter API)
+      tsQuery = grammar.query(queryString);
+      const matches = tsQuery.matches(tree.rootNode);
+
+      // Convert matches to our QueryMatch format
+      const results: QueryMatch[] = matches.map(
+        (match: {
+          pattern: number;
+          captures: { name: string; node: Parser.SyntaxNode }[];
+        }) => ({
+          pattern: match.pattern,
+          captures: match.captures.map(
+            (capture: { name: string; node: Parser.SyntaxNode }) => ({
+              name: capture.name,
+              node: this._convertNodeToGenericAst(capture.node, 0, 3), // Limit depth for captures
+              text: capture.node.text,
+              startPosition: {
+                row: capture.node.startPosition.row,
+                column: capture.node.startPosition.column,
+              },
+              endPosition: {
+                row: capture.node.endPosition.row,
+                column: capture.node.endPosition.column,
+              },
+            }),
+          ),
+        }),
+      );
+
+      this.logger.debug(
+        `Query returned ${results.length} matches for language: ${language}`,
+      );
+      return Result.ok(results);
     } catch (error: unknown) {
       return Result.err(
         this._handleAndLogError(
@@ -521,6 +521,10 @@ export class TreeSitterParserService {
           error,
         ),
       );
+    } finally {
+      // Free WASM heap memory -- Query and Tree objects are NOT garbage collected
+      tsQuery?.delete();
+      tree?.delete();
     }
   }
 
@@ -625,11 +629,13 @@ export class TreeSitterParserService {
     }
     const parser = parserResult.value;
 
-    try {
-      if (!parser) {
-        throw new Error('Parser instance is null or undefined before parsing.');
-      }
+    if (!parser) {
+      return Result.err(
+        new Error('Parser instance is null or undefined before parsing.'),
+      );
+    }
 
+    try {
       const tree = parser.parse(content);
       if (!tree?.rootNode) {
         throw new Error('Parsing resulted in an undefined tree or rootNode.');
@@ -637,6 +643,12 @@ export class TreeSitterParserService {
 
       // Evict oldest entry if cache is full before adding
       this.evictLRUTreeCache();
+
+      // Delete the previous tree for this file path if it exists (WASM heap cleanup)
+      const previousEntry = this.treeCache.get(filePath);
+      if (previousEntry?.tree) {
+        previousEntry.tree.delete();
+      }
 
       // Store the raw tree in the tree cache for incremental re-parsing
       this.treeCache.set(filePath, {
@@ -720,11 +732,13 @@ export class TreeSitterParserService {
     }
     const parser = parserResult.value;
 
-    try {
-      if (!parser) {
-        throw new Error('Parser instance is null or undefined before parsing.');
-      }
+    if (!parser) {
+      return Result.err(
+        new Error('Parser instance is null or undefined before parsing.'),
+      );
+    }
 
+    try {
       // Apply the edit delta to the cached tree so tree-sitter knows what changed
       cachedEntry.tree.edit({
         startIndex: editDelta.startIndex,
@@ -742,6 +756,9 @@ export class TreeSitterParserService {
           'Incremental parsing resulted in an undefined tree or rootNode.',
         );
       }
+
+      // Delete the old tree from WASM heap now that the new tree is created
+      cachedEntry.tree.delete();
 
       // Update the cache with the new tree
       this.treeCache.set(filePath, {
@@ -762,7 +779,11 @@ export class TreeSitterParserService {
       );
       return Result.ok(genericAstRoot);
     } catch (error: unknown) {
-      // On failure, remove the potentially corrupted cache entry and fall back
+      // On failure, delete the potentially corrupted cached tree and fall back
+      const corruptedEntry = this.treeCache.get(filePath);
+      if (corruptedEntry?.tree) {
+        corruptedEntry.tree.delete();
+      }
       this.treeCache.delete(filePath);
       this.logger.warn(
         `parseIncremental: Incremental parse failed for ${filePath}, falling back to full parse`,
@@ -794,8 +815,58 @@ export class TreeSitterParserService {
       this.logger.debug(
         `evictLRUTreeCache: Evicting cached tree for ${oldestKey}`,
       );
+      // Free WASM heap memory before removing the Map entry
+      const evicted = this.treeCache.get(oldestKey);
+      if (evicted?.tree) {
+        evicted.tree.delete();
+      }
       this.treeCache.delete(oldestKey);
     }
+  }
+
+  /**
+   * Clears all cached trees, freeing their WASM heap memory.
+   * Parsers are retained since they are long-lived singletons per language.
+   */
+  clearCache(): void {
+    for (const [, entry] of this.treeCache) {
+      entry.tree.delete();
+    }
+    this.treeCache.clear();
+    this.logger.debug(
+      'clearCache: All cached trees deleted and cache cleared.',
+    );
+  }
+
+  /**
+   * Disposes of all WASM resources held by this service.
+   * Must be called when the extension deactivates or the service is no longer needed.
+   * After calling dispose(), the service must be re-initialized before use.
+   */
+  dispose(): void {
+    this.logger.info(
+      'Disposing TreeSitterParserService: freeing all WASM resources.',
+    );
+
+    // Delete all cached trees
+    for (const [, entry] of this.treeCache) {
+      entry.tree.delete();
+    }
+    this.treeCache.clear();
+
+    // Delete all cached parsers
+    for (const [, parser] of this.parserCache) {
+      parser.delete();
+    }
+    this.parserCache.clear();
+
+    // Clear grammar references (Language objects are managed by the WASM runtime)
+    this.languageGrammars.clear();
+
+    this.isInitialized = false;
+    this.initPromise = null;
+
+    this.logger.info('TreeSitterParserService disposed.');
   }
 
   /**

@@ -163,10 +163,10 @@ export class AstAnalysisService {
    * @param filePath The path of the file being analyzed.
    * @returns A Result containing the extracted CodeInsights on success, or an Error on failure.
    */
-  async analyzeAst(
+  analyzeAst(
     astData: GenericAstNode,
     filePath: string,
-  ): Promise<Result<CodeInsights, Error>> {
+  ): Result<CodeInsights, Error> {
     this.logger.debug(
       `AstAnalysisService.analyzeAst() - Analyzing ${filePath} using traversal`,
     );

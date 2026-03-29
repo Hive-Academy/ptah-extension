@@ -17,13 +17,17 @@ if (!outputDir) {
   process.exit(1);
 }
 
+// Resolve paths relative to the workspace root (parent of this script's directory)
+// so the script works correctly regardless of process.cwd().
+const workspaceRoot = path.resolve(__dirname, '..');
 const wasmSource = path.join(
+  workspaceRoot,
   'node_modules',
   '@vscode',
   'tree-sitter-wasm',
   'wasm',
 );
-const wasmDest = path.join(outputDir, 'wasm');
+const wasmDest = path.resolve(outputDir, 'wasm');
 
 const wasmFiles = [
   'tree-sitter.wasm',
@@ -43,7 +47,18 @@ for (const file of wasmFiles) {
   }
 
   fs.copyFileSync(src, dest);
-  const size = (fs.statSync(dest).size / 1024).toFixed(1);
+
+  // Verify the copy succeeded by checking the destination exists and has content
+  if (!fs.existsSync(dest)) {
+    console.error(`Copy verification failed: destination not found: ${dest}`);
+    process.exit(1);
+  }
+  const destSize = fs.statSync(dest).size;
+  if (destSize === 0) {
+    console.error(`Copy verification failed: destination is empty: ${dest}`);
+    process.exit(1);
+  }
+  const size = (destSize / 1024).toFixed(1);
   console.log(`  Copied ${file} (${size} KB)`);
 }
 
