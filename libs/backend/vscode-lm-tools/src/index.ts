@@ -28,5 +28,16 @@ export {
 // Permission Prompt Service exports (TASK_2025_026)
 export { PermissionPromptService } from './lib/permission/permission-prompt.service';
 
+// Web Search Provider exports (TASK_2025_235 Batch 3)
+export {
+  TavilySearchProvider,
+  SerperSearchProvider,
+  ExaSearchProvider,
+} from './lib/code-execution/services/providers';
+export type {
+  WebSearchProviderType,
+  IWebSearchProvider,
+} from './lib/code-execution/services/web-search-provider.interface';
+
 // DI registration exports (TASK_2025_071 Batch 2A)
 export { registerVsCodeLmToolsServices } from './lib/di';

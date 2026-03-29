@@ -777,6 +777,32 @@ export interface RpcMethodRegistry {
     };
   };
 
+  // ---- Web Search Settings Methods (TASK_2025_235) ----
+  'webSearch:getApiKeyStatus': {
+    params: { provider: string };
+    result: { configured: boolean };
+  };
+  'webSearch:setApiKey': {
+    params: { provider: string; apiKey: string };
+    result: { success: boolean };
+  };
+  'webSearch:deleteApiKey': {
+    params: { provider: string };
+    result: { success: boolean };
+  };
+  'webSearch:test': {
+    params: Record<string, never>;
+    result: { success: boolean; provider: string; error?: string };
+  };
+  'webSearch:getConfig': {
+    params: Record<string, never>;
+    result: { provider: string; maxResults: number };
+  };
+  'webSearch:setConfig': {
+    params: { provider?: string; maxResults?: number };
+    result: { success: boolean };
+  };
+
   // ---- Git Methods (TASK_2025_227) ----
   'git:info': { params: GitInfoParams; result: GitInfoResult };
   'git:worktrees': { params: GitWorktreesParams; result: GitWorktreesResult };
@@ -976,6 +1002,14 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Electron Settings Methods (TASK_2025_210)
   'settings:export',
   'settings:import',
+
+  // Web Search Settings Methods (TASK_2025_235)
+  'webSearch:getApiKeyStatus',
+  'webSearch:setApiKey',
+  'webSearch:deleteApiKey',
+  'webSearch:test',
+  'webSearch:getConfig',
+  'webSearch:setConfig',
 
   // Git Methods (TASK_2025_227)
   'git:info',

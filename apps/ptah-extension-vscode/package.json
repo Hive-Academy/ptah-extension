@@ -392,7 +392,7 @@
           "description": "Default reasoning effort level for the main AI agent chat. Leave empty for SDK default."
         },
         "ptah.mcpPort": {
-          "type": "number",
+          "type": "integer",
           "default": 51820,
           "minimum": 1024,
           "maximum": 65535,
@@ -557,6 +557,23 @@
               "enabled"
             ]
           }
+        },
+        "ptah.webSearch.provider": {
+          "type": "string",
+          "enum": [
+            "tavily",
+            "serper",
+            "exa"
+          ],
+          "default": "tavily",
+          "description": "Web search provider for the ptah_web_search tool. Each provider requires its own API key."
+        },
+        "ptah.webSearch.maxResults": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Default number of search results to return (1-20)."
         }
       }
     }

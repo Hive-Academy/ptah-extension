@@ -29,13 +29,13 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
           affectsConfiguration: (section: string) =>
             e.affectsConfiguration(section),
         });
-      })
+      }),
     );
 
     this.disposables.push(
       vscode.workspace.onDidChangeWorkspaceFolders(() => {
         fireFolders(undefined as unknown as void);
-      })
+      }),
     );
   }
 
@@ -50,10 +50,27 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
   getConfiguration<T>(
     section: string,
     key: string,
-    defaultValue?: T
+    defaultValue?: T,
   ): T | undefined {
     const config = vscode.workspace.getConfiguration(section);
     return config.get<T>(key, defaultValue as T);
+  }
+
+  /**
+   * Update a configuration value.
+   * Not part of IWorkspaceProvider interface — available at runtime for
+   * RPC handlers that need to write settings (e.g., webSearch:setConfig).
+   * Uses VS Code's workspace.getConfiguration().update() API.
+   *
+   * TASK_2025_235: Added for web search settings write-back.
+   */
+  async setConfiguration(
+    section: string,
+    key: string,
+    value: unknown,
+  ): Promise<void> {
+    const config = vscode.workspace.getConfiguration(section);
+    await config.update(key, value, vscode.ConfigurationTarget.Global);
   }
 
   dispose(): void {

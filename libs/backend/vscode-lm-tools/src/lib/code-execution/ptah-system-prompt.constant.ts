@@ -30,8 +30,8 @@ List files with unsaved changes in VS Code editor.
 ### ptah_count_tokens { file }
 Count tokens in a file. Use before reading large files to check size.
 
-### ptah_web_search { query, timeout? }
-Search the web for current information. Returns a narrative summary of search results using Gemini CLI (native google_web_search). Requires Gemini CLI installed. Use when you need up-to-date information from the internet (latest docs, current APIs, recent changes, etc.).
+### ptah_web_search { query, maxResults?, timeout? }
+Search the web for current information. Returns structured results (title, URL, snippet) plus a narrative summary. Supports Tavily, Serper, and Exa providers (configured in Ptah settings). Use when you need up-to-date information from the internet (latest docs, current APIs, recent changes, etc.).
 
 ## IDE Access via execute_code
 
