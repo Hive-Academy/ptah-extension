@@ -38,6 +38,10 @@ import type { SdkModuleLoader } from './sdk-module-loader';
 import type { SdkQueryOptionsBuilder } from './sdk-query-options-builder';
 import type { SdkMessageFactory } from './sdk-message-factory';
 import type { CompactionStartCallback } from './compaction-hook-handler';
+import type {
+  WorktreeCreatedCallback,
+  WorktreeRemovedCallback,
+} from './worktree-hook-handler';
 import { SlashCommandInterceptor } from './slash-command-interceptor';
 
 // Re-export for backward compatibility with other files
@@ -97,6 +101,10 @@ export interface ExecuteQueryConfig {
    * Called when SDK begins compacting conversation history
    */
   onCompactionStart?: CompactionStartCallback;
+  /** Callback when SDK creates a worktree (TASK_2025_236) */
+  onWorktreeCreated?: WorktreeCreatedCallback;
+  /** Callback when SDK removes a worktree (TASK_2025_236) */
+  onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
    * Premium user flag - enables MCP server and Ptah system prompt (TASK_2025_108)
    * Passed through to SdkQueryOptionsBuilder for conditional feature enabling
@@ -142,6 +150,8 @@ export interface SlashCommandConfig {
   enhancedPromptsContent?: string;
   pluginPaths?: string[];
   onCompactionStart?: CompactionStartCallback;
+  onWorktreeCreated?: WorktreeCreatedCallback;
+  onWorktreeRemoved?: WorktreeRemovedCallback;
   /** TASK_2025_194: Explicit path to cli.js */
   pathToClaudeCodeExecutable?: string;
 }
@@ -562,6 +572,8 @@ export class SessionLifecycleManager {
       resumeSessionId,
       initialPrompt,
       onCompactionStart,
+      onWorktreeCreated,
+      onWorktreeRemoved,
       isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
@@ -646,6 +658,8 @@ export class SessionLifecycleManager {
       resumeSessionId,
       sessionId: sessionId as string,
       onCompactionStart,
+      onWorktreeCreated,
+      onWorktreeRemoved,
       isPremium,
       mcpServerRunning,
       enhancedPromptsContent,
@@ -798,6 +812,8 @@ export class SessionLifecycleManager {
       resumeSessionId: realSessionId,
       initialPrompt: { content: command, files: [], images: [] },
       onCompactionStart: config.onCompactionStart,
+      onWorktreeCreated: config.onWorktreeCreated,
+      onWorktreeRemoved: config.onWorktreeRemoved,
       isPremium: config.isPremium,
       mcpServerRunning: config.mcpServerRunning,
       enhancedPromptsContent: config.enhancedPromptsContent,
