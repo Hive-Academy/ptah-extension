@@ -53,21 +53,6 @@
             "glob": "package.json",
             "input": "apps/ptah-extension-vscode",
             "output": "."
-          },
-          {
-            "glob": "tree-sitter.wasm",
-            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
-            "output": "wasm"
-          },
-          {
-            "glob": "tree-sitter-javascript.wasm",
-            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
-            "output": "wasm"
-          },
-          {
-            "glob": "tree-sitter-typescript.wasm",
-            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
-            "output": "wasm"
           }
         ]
       },
@@ -88,6 +73,10 @@
       "outputs": ["{workspaceRoot}/dist/apps/ptah-extension-vscode/webview"],
       "options": {
         "commands": [
+          {
+            "command": "node scripts/copy-wasm.js dist/apps/ptah-extension-vscode",
+            "forwardAllArgs": false
+          },
           {
             "command": "node scripts/copy-webview.js",
             "forwardAllArgs": false

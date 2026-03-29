@@ -82,21 +82,6 @@
             "glob": "electron-builder.yml",
             "input": "apps/ptah-electron",
             "output": "."
-          },
-          {
-            "glob": "tree-sitter.wasm",
-            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
-            "output": "wasm"
-          },
-          {
-            "glob": "tree-sitter-javascript.wasm",
-            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
-            "output": "wasm"
-          },
-          {
-            "glob": "tree-sitter-typescript.wasm",
-            "input": "node_modules/@vscode/tree-sitter-wasm/wasm",
-            "output": "wasm"
           }
         ]
       },
@@ -134,12 +119,21 @@
       }
     },
     "build": {
-      "executor": "nx:noop",
+      "executor": "nx:run-commands",
       "dependsOn": [
         "build-main",
         "build-preload",
         "ptah-extension-webview:build"
-      ]
+      ],
+      "options": {
+        "commands": [
+          {
+            "command": "node scripts/copy-wasm.js dist/apps/ptah-electron",
+            "forwardAllArgs": false
+          }
+        ],
+        "parallel": false
+      }
     },
     "build-dev": {
       "executor": "nx:run-commands",
