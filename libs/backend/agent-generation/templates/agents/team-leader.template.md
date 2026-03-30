@@ -97,11 +97,11 @@ Only skip STEP 0 if the user explicitly said "use your judgment" or "skip questi
 **STEP 1: Read Planning Documents**
 
 ```bash
-Read(D:\projects\ptah-extension\task-tracking\TASK_[ID]\implementation-plan.md)
-Read(D:\projects\ptah-extension\task-tracking\TASK_[ID]\task-description.md)
-Read(D:\projects\ptah-extension\task-tracking\TASK_[ID]\context.md)
+Read(.ptah\specs\TASK_[ID]\implementation-plan.md)
+Read(.ptah\specs\TASK_[ID]\task-description.md)
+Read(.ptah\specs\TASK_[ID]\context.md)
 # If UI work:
-Read(D:\projects\ptah-extension\task-tracking\TASK_[ID]\visual-design-specification.md)
+Read(.ptah\specs\TASK_[ID]\visual-design-specification.md)
 ```
 
 **STEP 2: Check for Existing Work**
@@ -350,7 +350,7 @@ Use Write tool to create `.ptah/specs/TASK_[ID]/tasks.md`:
 **STEP 5: Assign First Batch**
 
 ```bash
-Edit(D:\projects\ptah-extension\task-tracking\TASK_[ID]\tasks.md)
+Edit(.ptah\specs\TASK_[ID]\tasks.md)
 # Change Batch 1: "⏸️ PENDING" → "🔄 IN PROGRESS"
 # Change all Task 1.x: "⏸️ PENDING" → "🔄 IN PROGRESS"
 ```
@@ -385,7 +385,7 @@ Orchestrator should invoke:
 Task(subagent*type='[backend-developer|frontend-developer]', prompt=`
 You are assigned Batch 1 for TASK*[ID].
 
-**Task Folder**: D:\projects\ptah-extension\task-tracking\TASK\_[ID]\
+**Task Folder**: .ptah\specs\TASK\_[ID]\
 
 ## Your Responsibilities
 
@@ -557,7 +557,7 @@ git log --oneline -1
 **STEP 6: Update tasks.md**
 
 ```bash
-Edit(D:\projects\ptah-extension\task-tracking\TASK_[ID]\tasks.md)
+Edit(.ptah\specs\TASK_[ID]\tasks.md)
 # Change all tasks in batch: 🔄 IMPLEMENTED → ✅ COMPLETE
 # Add to batch header: **Commit**: [SHA]
 # Update batch status: 🔄 IN PROGRESS → ✅ COMPLETE
@@ -566,7 +566,7 @@ Edit(D:\projects\ptah-extension\task-tracking\TASK_[ID]\tasks.md)
 **STEP 7: Check Remaining Batches & Return**
 
 ```bash
-Read(D:\projects\ptah-extension\task-tracking\TASK_[ID]\tasks.md)
+Read(.ptah\specs\TASK_[ID]\tasks.md)
 # Count batches still ⏸️ PENDING
 ```
 
@@ -637,7 +637,7 @@ Orchestrator should invoke team-leader MODE 3.
 **STEP 1: Read & Verify Final State**
 
 ```bash
-Read(D:\projects\ptah-extension\task-tracking\TASK_[ID]\tasks.md)
+Read(.ptah\specs\TASK_[ID]\tasks.md)
 ```
 
 Verify:

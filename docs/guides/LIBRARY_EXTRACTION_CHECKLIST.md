@@ -28,7 +28,7 @@ Follow this checklist for each library extraction (shared-ui, core, chat, sessio
 
 #### 1.1 Identify Components
 
-- [ ] Open `task-tracking/TASK_FE_001/implementation-plan.md`
+- [ ] Open `.ptah/specs/TASK_FE_001/implementation-plan.md`
 - [ ] Find section for current library (e.g., "Chat Library")
 - [ ] List all components to extract (with current file paths)
 - [ ] Note estimated LOC for each component
@@ -654,7 +654,7 @@ npx webpack-bundle-analyzer dist/apps/ptah-extension-webview/stats.json
 
 #### 12.1 Update Progress Document
 
-**In `task-tracking/TASK_FE_001/progress.md`:**
+**In `.ptah/specs/TASK_FE_001/progress.md`:**
 
 ```markdown
 ### Step 2: {Library Name} Library Migration (Days X-Y) ✅
@@ -696,7 +696,7 @@ npx webpack-bundle-analyzer dist/apps/ptah-extension-webview/stats.json
 
 - Created: libs/frontend/{library}/src/lib/... (15 files)
 - Updated: apps/ptah-extension-webview/src/app/... (3 files)
-- Updated: task-tracking/TASK_FE_001/progress.md
+- Updated: .ptah/specs/TASK_FE_001/progress.md
 ```
 
 - [ ] Progress document updated with all statistics
@@ -761,12 +761,10 @@ git push origin feature/TASK_FE_001-extract-{library}
 **Follow this order** (from implementation plan):
 
 1. **Week 1 (Days 1-5)**: Foundation + Shared UI
-
    - Days 1-2: Foundation setup (this checklist, documentation)
    - Days 3-5: **Shared UI Library** (13 components)
 
 2. **Week 2 (Days 6-10)**: Core + Chat (start)
-
    - Days 6-8: **Core Library** (11 services)
    - Days 9-10: **Chat Library** (13 components + 5 services) - start
 
@@ -850,8 +848,8 @@ Before marking library extraction complete:
 
 - **Signal Migration Guide**: `docs/guides/SIGNAL_MIGRATION_GUIDE.md`
 - **Modern Angular Guide**: `docs/guides/MODERN_ANGULAR_GUIDE.md`
-- **Implementation Plan**: `task-tracking/TASK_FE_001/implementation-plan.md`
-- **Task Description**: `task-tracking/TASK_FE_001/task-description.md`
+- **Implementation Plan**: `.ptah/specs/TASK_FE_001/implementation-plan.md`
+- **Task Description**: `.ptah/specs/TASK_FE_001/task-description.md`
 
 ---
 

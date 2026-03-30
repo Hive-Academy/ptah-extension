@@ -1,5 +1,5 @@
 {
-  "name": "agent-generation",
+  "name": "@ptah-extension/agent-generation",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/agent-generation/src",
   "projectType": "library",

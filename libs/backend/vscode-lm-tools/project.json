@@ -1,5 +1,5 @@
 {
-  "name": "vscode-lm-tools",
+  "name": "@ptah-extension/vscode-lm-tools",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/vscode-lm-tools/src",
   "projectType": "library",
