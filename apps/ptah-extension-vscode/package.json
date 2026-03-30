@@ -502,6 +502,19 @@
           "default": true,
           "description": "Auto-approve all Copilot tool calls without user prompt."
         },
+        "ptah.agentOrchestration.disabledClis": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "enum": [
+              "gemini",
+              "codex",
+              "copilot"
+            ]
+          },
+          "description": "CLI agent types to disable. Disabled agents cannot be spawned and are hidden from agent list. Empty array means all agents are enabled."
+        },
         "ptah.ptahCliAgents": {
           "type": "array",
           "default": [],

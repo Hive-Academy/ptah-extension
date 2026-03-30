@@ -437,6 +437,15 @@ export class PtahAPIBuilder {
               return undefined;
             }
           },
+          getDisabledClis: () => {
+            return (
+              this.workspaceProvider.getConfiguration<string[]>(
+                'ptah.agentOrchestration',
+                'disabledClis',
+                [],
+              ) ?? []
+            );
+          },
         }),
       ),
 

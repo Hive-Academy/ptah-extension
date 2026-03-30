@@ -92,6 +92,8 @@ export interface AgentOrchestrationConfig {
   copilotAutoApprove: boolean;
   /** MCP server port (default: 51820) */
   mcpPort: number;
+  /** CLI types that are disabled by the user (e.g., ['gemini', 'copilot']). Empty array means all enabled. */
+  disabledClis: string[];
 }
 
 /** CLI model option for agent:listCliModels */
@@ -133,6 +135,8 @@ export interface AgentSetConfigParams {
   copilotReasoningEffort?: string;
   /** MCP server port (1024-65535, default: 51820) */
   mcpPort?: number;
+  /** CLI types to disable (e.g., ['gemini', 'copilot']). Empty array enables all. */
+  disabledClis?: string[];
 }
 
 // ============================================================

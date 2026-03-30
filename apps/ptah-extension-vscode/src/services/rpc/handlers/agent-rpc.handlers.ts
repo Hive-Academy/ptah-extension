@@ -56,7 +56,7 @@ export class AgentRpcHandlers {
     @inject(TOKENS.AGENT_PROCESS_MANAGER)
     private readonly agentProcessManager: AgentProcessManager,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
-    private readonly sessionMetadataStore: SessionMetadataStore
+    private readonly sessionMetadataStore: SessionMetadataStore,
   ) {}
 
   /**
@@ -110,7 +110,7 @@ export class AgentRpcHandlers {
           this.logger.debug('RPC: agent:getConfig called');
 
           const config = vscode.workspace.getConfiguration(
-            'ptah.agentOrchestration'
+            'ptah.agentOrchestration',
           );
           const cliResults = await this.cliDetection.detectAll();
 
@@ -132,13 +132,14 @@ export class AgentRpcHandlers {
             copilotAutoApprove: config.get<boolean>('copilotAutoApprove', true),
             codexReasoningEffort: config.get<string>(
               'codexReasoningEffort',
-              ''
+              '',
             ),
             copilotReasoningEffort: config.get<string>(
               'copilotReasoningEffort',
-              ''
+              '',
             ),
             mcpPort: ptahConfig.get<number>('mcpPort', 51820),
+            disabledClis: config.get<string[]>('disabledClis', []),
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -150,11 +151,11 @@ export class AgentRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: agent:getConfig failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -182,7 +183,7 @@ export class AgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:setConfig failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -197,7 +198,7 @@ export class AgentRpcHandlers {
    * error, saves only the dirty settings document, and retries once.
    */
   private async applyConfigUpdates(
-    params: AgentSetConfigParams
+    params: AgentSetConfigParams,
   ): Promise<void> {
     try {
       await this.doApplyConfigUpdates(params);
@@ -208,11 +209,11 @@ export class AgentRpcHandlers {
         (doc) =>
           doc.isDirty &&
           doc.uri.scheme === 'vscode-userdata' &&
-          doc.uri.path.endsWith('settings.json')
+          doc.uri.path.endsWith('settings.json'),
       );
       if (message.includes('unsaved changes') || hasDirtySettings) {
         this.logger.info(
-          'RPC: agent:setConfig retrying after saving dirty settings file'
+          'RPC: agent:setConfig retrying after saving dirty settings file',
         );
         // Save only the dirty settings document (not all open files)
         await this.saveDirtySettingsDocument();
@@ -236,7 +237,7 @@ export class AgentRpcHandlers {
       (doc) =>
         doc.isDirty &&
         doc.uri.path.endsWith('settings.json') &&
-        (doc.uri.scheme === 'vscode-userdata' || doc.uri.scheme === 'file')
+        (doc.uri.scheme === 'vscode-userdata' || doc.uri.scheme === 'file'),
     );
     if (settingsDoc) {
       await settingsDoc.save();
@@ -256,7 +257,7 @@ export class AgentRpcHandlers {
    * Perform the actual VS Code configuration updates for all provided params.
    */
   private async doApplyConfigUpdates(
-    params: AgentSetConfigParams
+    params: AgentSetConfigParams,
   ): Promise<void> {
     const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
 
@@ -264,7 +265,7 @@ export class AgentRpcHandlers {
       await config.update(
         'defaultCli',
         params.defaultCli,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
     }
 
@@ -273,7 +274,7 @@ export class AgentRpcHandlers {
       await config.update(
         'maxConcurrentAgents',
         clamped,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
     }
 
@@ -282,7 +283,7 @@ export class AgentRpcHandlers {
       await config.update(
         'defaultTimeout',
         clampedTimeout,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
     }
 
@@ -290,7 +291,7 @@ export class AgentRpcHandlers {
       await config.update(
         'geminiModel',
         params.geminiModel || undefined,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
     }
 
@@ -298,7 +299,7 @@ export class AgentRpcHandlers {
       await config.update(
         'codexModel',
         params.codexModel || undefined,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
     }
 
@@ -306,7 +307,7 @@ export class AgentRpcHandlers {
       await config.update(
         'copilotModel',
         params.copilotModel || undefined,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
     }
 
@@ -317,7 +318,7 @@ export class AgentRpcHandlers {
       await config.update(
         'copilotAutoApprove',
         params.copilotAutoApprove,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
 
       // Sync to the live CopilotPermissionBridge
@@ -334,7 +335,7 @@ export class AgentRpcHandlers {
       await config.update(
         'codexReasoningEffort',
         params.codexReasoningEffort || undefined,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
     }
 
@@ -342,7 +343,15 @@ export class AgentRpcHandlers {
       await config.update(
         'copilotReasoningEffort',
         params.copilotReasoningEffort || undefined,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
+      );
+    }
+
+    if (params.disabledClis !== undefined) {
+      await config.update(
+        'disabledClis',
+        params.disabledClis.length > 0 ? params.disabledClis : undefined,
+        vscode.ConfigurationTarget.Global,
       );
     }
 
@@ -353,7 +362,7 @@ export class AgentRpcHandlers {
       await ptahConfig.update(
         'mcpPort',
         clampedPort,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       );
     }
   }
@@ -386,11 +395,11 @@ export class AgentRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: agent:detectClis failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -438,11 +447,11 @@ export class AgentRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: agent:listCliModels failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -451,7 +460,7 @@ export class AgentRpcHandlers {
    * Each enabled agent with an API key appears as a `ptah-cli` entry.
    */
   private async mergePtahCliAgents(
-    cliResults: CliDetectionResult[]
+    cliResults: CliDetectionResult[],
   ): Promise<CliDetectionResult[]> {
     try {
       const ptahCliAgents = await this.ptahCliRegistry.listAgents();
@@ -552,7 +561,7 @@ export class AgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:permissionResponse failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -589,7 +598,7 @@ export class AgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:stop failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -642,7 +651,7 @@ export class AgentRpcHandlers {
         } else if (params.cli === 'ptah-cli') {
           // No ptah-cli agents available
           throw new Error(
-            'No Ptah CLI agents configured. Add one in Agent Orchestration settings.'
+            'No Ptah CLI agents configured. Add one in Agent Orchestration settings.',
           );
         } else {
           // Real CLIs: route through AgentProcessManager.spawn()
@@ -651,11 +660,11 @@ export class AgentRpcHandlers {
             vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
           const cliSessionExists = await this.sessionFileExists(
             params.cliSessionId,
-            workspaceRoot
+            workspaceRoot,
           );
           if (!cliSessionExists) {
             this.logger.warn(
-              `[AgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`
+              `[AgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`,
             );
           }
           result = await this.agentProcessManager.spawn({
@@ -680,7 +689,7 @@ export class AgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:resumeCliSession failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -709,7 +718,7 @@ export class AgentRpcHandlers {
     // causing the SDK to fail with "No conversation found with session ID".
     const sessionFileExists = await this.sessionFileExists(
       params.cliSessionId,
-      workspaceRoot
+      workspaceRoot,
     );
 
     const spawnResult = await this.ptahCliRegistry.spawnAgent(
@@ -719,12 +728,12 @@ export class AgentRpcHandlers {
         workingDirectory: workspaceRoot,
         // Only pass resumeSessionId if the session file actually exists on disk
         resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
-      }
+      },
     );
 
     if (!sessionFileExists) {
       this.logger.warn(
-        `[AgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`
+        `[AgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`,
       );
     }
 
@@ -741,8 +750,8 @@ export class AgentRpcHandlers {
           .createChild(sessionId, workspaceRoot, sessionName)
           .catch((err) =>
             this.logger.warn(
-              `[AgentRpc] Failed to save child session metadata: ${err}`
-            )
+              `[AgentRpc] Failed to save child session metadata: ${err}`,
+            ),
           );
       });
     }
@@ -770,7 +779,7 @@ export class AgentRpcHandlers {
       if (enabled) {
         this.logger.info(
           'RPC: agent:resumeCliSession resolved default ptahCliId',
-          { ptahCliId: enabled.id, name: enabled.name }
+          { ptahCliId: enabled.id, name: enabled.name },
         );
       }
       return enabled?.id;
@@ -785,7 +794,7 @@ export class AgentRpcHandlers {
    */
   private async sessionFileExists(
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<boolean> {
     try {
       const projectsDir = path.join(os.homedir(), '.claude', 'projects');
@@ -799,7 +808,7 @@ export class AgentRpcHandlers {
         (d) =>
           d === escapedPath ||
           d.toLowerCase() === escapedPath.toLowerCase() ||
-          normalize(d) === normalizedEscaped
+          normalize(d) === normalizedEscaped,
       );
 
       if (!matchedDir) return false;
@@ -807,7 +816,7 @@ export class AgentRpcHandlers {
       const sessionFile = path.join(
         projectsDir,
         matchedDir,
-        `${sessionId}.jsonl`
+        `${sessionId}.jsonl`,
       );
       await fs.access(sessionFile);
       return true;

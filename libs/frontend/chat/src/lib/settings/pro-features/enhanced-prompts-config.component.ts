@@ -29,6 +29,7 @@ import { MarkdownBlockComponent } from '../../components/atoms/markdown-block.co
   standalone: true,
   imports: [LucideAngularModule, MarkdownBlockComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'mt-4 block' },
   template: `
     <div class="border border-secondary/30 rounded-md bg-secondary/5">
       <div class="p-3">

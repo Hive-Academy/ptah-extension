@@ -68,7 +68,7 @@ interface PtahCliRegistryLike {
       projectGuidance?: string;
       workingDirectory?: string;
       resumeSessionId?: string;
-    }
+    },
   ): Promise<{ handle: SdkHandle; agentName: string } | SpawnAgentFailure>;
 }
 
@@ -90,13 +90,15 @@ export interface AgentNamespaceDependencies {
   getPluginPaths?: () => Promise<string[] | undefined>;
   /** Lazy resolver for PtahCliRegistry (avoids hard dependency on agent-sdk) */
   getPtahCliRegistry?: () => PtahCliRegistryLike | undefined;
+  /** Returns CLI types that are disabled by the user. Called at spawn/list time to filter out disabled agents. */
+  getDisabledClis?: () => string[];
 }
 
 /**
  * Build the agent namespace for ptah.agent.*
  */
 export function buildAgentNamespace(
-  deps: AgentNamespaceDependencies
+  deps: AgentNamespaceDependencies,
 ): AgentNamespace {
   const {
     agentProcessManager,
@@ -107,6 +109,7 @@ export function buildAgentNamespace(
     getSystemPrompt,
     getPluginPaths,
     getPtahCliRegistry,
+    getDisabledClis,
   } = deps;
 
   return {
@@ -120,7 +123,7 @@ export function buildAgentNamespace(
         const registry = getPtahCliRegistry?.();
         if (!registry) {
           throw new Error(
-            'Ptah CLI registry not available. Ptah CLI agents require the Agent SDK.'
+            'Ptah CLI registry not available. Ptah CLI agents require the Agent SDK.',
           );
         }
 
@@ -136,12 +139,12 @@ export function buildAgentNamespace(
             projectGuidance,
             workingDirectory,
             resumeSessionId: request.resumeSessionId,
-          }
+          },
         );
         if ('status' in result) {
           throw new Error(
             `Ptah CLI agent spawn failed: ${result.message}. ` +
-              'Use ptah_agent_list to see available agents.'
+              'Use ptah_agent_list to see available agents.',
           );
         }
 
@@ -155,6 +158,18 @@ export function buildAgentNamespace(
           ptahCliId: request.ptahCliId,
           timeout: request.timeout,
         });
+      }
+
+      // Check if the requested CLI type is disabled by the user
+      if (request.cli) {
+        const disabledClis = getDisabledClis?.() ?? [];
+        if (disabledClis.includes(request.cli)) {
+          throw new Error(
+            `CLI agent '${request.cli}' is disabled. ` +
+              'Enable it in Agent Orchestration settings or use a different CLI. ' +
+              'Use ptah_agent_list to see available agents.',
+          );
+        }
       }
 
       const [systemPrompt, pluginPaths] = await Promise.all([
@@ -192,9 +207,16 @@ export function buildAgentNamespace(
       // Merge CLI agents with Ptah CLI agents
       const cliResults = await cliDetectionService.detectAll();
 
+      // Filter out disabled CLIs
+      const disabledClis = getDisabledClis?.() ?? [];
+      const enabledCliResults =
+        disabledClis.length > 0
+          ? cliResults.filter((c) => !disabledClis.includes(c.cli))
+          : cliResults;
+
       const registry = getPtahCliRegistry?.();
       if (!registry) {
-        return cliResults;
+        return enabledCliResults;
       }
 
       try {
@@ -210,10 +232,10 @@ export function buildAgentNamespace(
             providerName: a.providerName,
           }));
 
-        return [...cliResults, ...ptahCliResults];
+        return [...enabledCliResults, ...ptahCliResults];
       } catch {
         // If listing Ptah CLI agents fails, still return CLI agents
-        return cliResults;
+        return enabledCliResults;
       }
     },
 
@@ -221,7 +243,7 @@ export function buildAgentNamespace(
       const pollInterval = options?.pollInterval ?? 2000;
       const timeout = Math.min(
         options?.timeout ?? MAX_WAIT_TIMEOUT,
-        MAX_WAIT_TIMEOUT
+        MAX_WAIT_TIMEOUT,
       );
       const startTime = Date.now();
 
@@ -238,7 +260,7 @@ export function buildAgentNamespace(
         const check = () => {
           try {
             const status = agentProcessManager.getStatus(
-              agentId
+              agentId,
             ) as AgentProcessInfo;
             if (status.status !== 'running') {
               cleanup();
@@ -251,8 +273,8 @@ export function buildAgentNamespace(
               cleanup();
               reject(
                 new Error(
-                  `waitFor timed out after ${timeout}ms for agent ${agentId}`
-                )
+                  `waitFor timed out after ${timeout}ms for agent ${agentId}`,
+                ),
               );
               return;
             }
