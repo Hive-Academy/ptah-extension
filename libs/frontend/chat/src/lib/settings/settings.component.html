@@ -52,7 +52,7 @@
     <ptah-license-status-card />
 
     <!-- Data Portability -->
-    <div class="border border-base-300 rounded-md bg-base-200/50">
+    <div class="border border-secondary/30 rounded-md bg-secondary/5">
       <div class="p-3">
         <div class="flex items-center gap-1.5 mb-2">
           <lucide-angular
@@ -141,7 +141,7 @@
     <!-- Tab 1: Claude Auth                          -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'claude-auth') {
-      <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="border border-secondary/30 rounded-md bg-secondary/5">
         <div class="p-3">
           <div class="flex items-center gap-1.5 mb-2">
             <span class="text-sm">🔐</span>
@@ -208,7 +208,7 @@
         } @else {
           <!-- Upsell for non-premium users -->
           <div
-            class="border border-base-300 rounded-md bg-base-200/30 opacity-75"
+            class="border border-secondary/30 rounded-md bg-secondary/5 opacity-75"
           >
             <div class="p-3">
               <div class="flex items-center gap-1.5 mb-2">
@@ -236,9 +236,6 @@
             </div>
           </div>
         }
-
-        <!-- Web Search Config (free for all users, not premium-gated) -->
-        <ptah-web-search-config />
       }
 
       <!-- Sub-tab: Pro Features (System Prompt, MCP Port, VS Code LM) -->
@@ -250,7 +247,7 @@
         } @else {
           <!-- Upsell for non-premium users -->
           <div
-            class="border border-base-300 rounded-md bg-base-200/30 opacity-75"
+            class="border border-secondary/30 rounded-md bg-secondary/5 opacity-75"
           >
             <div class="p-3">
               <div class="flex items-center gap-1.5 mb-2">
@@ -278,6 +275,9 @@
             </div>
           </div>
         }
+
+        <!-- Web Search Config (free for all users, not premium-gated) -->
+        <ptah-web-search-config />
       }
     }
 
@@ -286,10 +286,13 @@
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'ptah-skills') {
       @if (isPremium()) {
-        <div class="border border-base-300 rounded-md bg-base-200/50">
+        <div class="border border-secondary/30 rounded-md bg-secondary/5">
           <div class="p-3">
             <div class="flex items-center gap-1.5 mb-2">
-              <lucide-angular [img]="PuzzleIcon" class="w-4 h-4 text-primary" />
+              <lucide-angular
+                [img]="PuzzleIcon"
+                class="w-4 h-4 text-secondary"
+              />
               <h2 class="text-xs font-medium uppercase tracking-wide">
                 Ptah Skills
               </h2>
@@ -314,7 +317,7 @@
       } @else {
         <!-- Upsell for non-premium users -->
         <div
-          class="border border-base-300 rounded-md bg-base-200/30 opacity-75"
+          class="border border-secondary/30 rounded-md bg-secondary/5 opacity-75"
         >
           <div class="p-3">
             <div class="flex items-center gap-1.5 mb-2">
@@ -344,7 +347,7 @@
       }
 
       <!-- Section 2: Community Skills (skills.sh) - Available to ALL users -->
-      <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="border border-secondary/30 rounded-md bg-secondary/5">
         <div class="p-3">
           <div class="flex items-center gap-1.5 mb-2">
             <lucide-angular
@@ -376,7 +379,7 @@
     <!-- Tab 4: Project Setup (Setup Wizard)          -->
     <!-- ============================================ -->
     @if (activeSettingsTab() === 'project-setup') {
-      <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="border border-secondary/30 rounded-md bg-secondary/5">
         <div class="p-3">
           <div class="flex items-center gap-1.5 mb-2">
             <lucide-angular

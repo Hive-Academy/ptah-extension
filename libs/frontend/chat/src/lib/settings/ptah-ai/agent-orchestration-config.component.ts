@@ -32,11 +32,14 @@ import type {
   imports: [LucideAngularModule, TitleCasePipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="border border-primary/30 rounded-md bg-primary/5">
+    <div class="border border-secondary/30 rounded-md bg-secondary/5">
       <div class="p-3">
         <div class="flex items-center justify-between mb-2">
           <div class="flex items-center gap-1.5">
-            <lucide-angular [img]="TerminalIcon" class="w-4 h-4 text-primary" />
+            <lucide-angular
+              [img]="TerminalIcon"
+              class="w-4 h-4 text-secondary"
+            />
             <h2 class="text-xs font-medium uppercase tracking-wide">
               Agent Orchestration
             </h2>

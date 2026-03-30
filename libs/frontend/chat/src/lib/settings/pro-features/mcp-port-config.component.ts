@@ -23,10 +23,10 @@ import { ClaudeRpcService } from '@ptah-extension/core';
   imports: [LucideAngularModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="border border-primary/30 rounded-md bg-primary/5">
+    <div class="border border-secondary/30 rounded-md bg-secondary/5">
       <div class="p-3">
         <div class="flex items-center gap-1.5 mb-2">
-          <lucide-angular [img]="PlugIcon" class="w-4 h-4 text-primary" />
+          <lucide-angular [img]="PlugIcon" class="w-4 h-4 text-secondary" />
           <h2 class="text-xs font-medium uppercase tracking-wide">
             MCP Server Port
           </h2>
