@@ -194,7 +194,6 @@ All settings are accessible via `Ctrl+,` → search **"ptah"**.
 | --------------------------------------------- | ------ | -------- | ---------------------------------------- |
 | `ptah.agentOrchestration.defaultCli`          | enum   | `gemini` | Default CLI agent (gemini/codex/copilot) |
 | `ptah.agentOrchestration.maxConcurrentAgents` | number | `5`      | Max concurrent agent processes (1-10)    |
-| `ptah.agentOrchestration.defaultTimeout`      | number | `600000` | Agent timeout in ms (1-30 min)           |
 | `ptah.agentOrchestration.geminiModel`         | string | `""`     | Gemini model override                    |
 | `ptah.agentOrchestration.copilotModel`        | enum   | `""`     | Copilot model override                   |
 | `ptah.ptahCliAgents`                          | array  | `[]`     | Custom Ptah CLI agent configurations     |

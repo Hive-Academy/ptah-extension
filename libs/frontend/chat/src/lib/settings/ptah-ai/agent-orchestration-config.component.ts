@@ -153,27 +153,6 @@ import type {
                 <span>10</span>
               </div>
             </div>
-
-            <!-- Default Timeout -->
-            <div>
-              <label
-                for="agent-default-timeout"
-                class="text-[10px] text-base-content/50 mb-0.5 block"
-              >
-                Default Timeout
-              </label>
-              <select
-                id="agent-default-timeout"
-                class="select select-bordered select-xs w-full"
-                [value]="agentConfig()!.defaultTimeout"
-                (change)="setAgentTimeout(+$any($event.target).value)"
-              >
-                <option [value]="5">5 minutes</option>
-                <option [value]="10">10 minutes</option>
-                <option [value]="15">15 minutes</option>
-                <option [value]="30">30 minutes</option>
-              </select>
-            </div>
           </div>
 
           <!-- ═══ Section 2: System CLIs (collapsible accordion) ═══ -->
@@ -603,17 +582,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     if (result.isSuccess()) {
       this.agentConfig.update((c) =>
         c ? { ...c, maxConcurrentAgents: value } : c,
-      );
-    }
-  }
-
-  async setAgentTimeout(minutes: number): Promise<void> {
-    const result = await this.rpcService.call('agent:setConfig', {
-      defaultTimeout: minutes,
-    });
-    if (result.isSuccess()) {
-      this.agentConfig.update((c) =>
-        c ? { ...c, defaultTimeout: minutes } : c,
       );
     }
   }

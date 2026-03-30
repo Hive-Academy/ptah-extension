@@ -415,13 +415,6 @@
           "maximum": 10,
           "description": "Maximum number of concurrent CLI agent processes."
         },
-        "ptah.agentOrchestration.defaultTimeout": {
-          "type": "number",
-          "default": 600000,
-          "minimum": 60000,
-          "maximum": 1800000,
-          "description": "Default timeout for CLI agent processes in milliseconds (10 min default, 30 min max)."
-        },
         "ptah.agentOrchestration.geminiModel": {
           "type": "string",
           "default": "",

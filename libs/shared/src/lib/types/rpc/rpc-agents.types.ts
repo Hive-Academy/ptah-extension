@@ -74,8 +74,6 @@ export interface AgentOrchestrationConfig {
   defaultCli: import('../agent-process.types').CliType | null;
   /** Maximum concurrent agents (1-10) */
   maxConcurrentAgents: number;
-  /** Default timeout in minutes */
-  defaultTimeout: number;
   /** Per-CLI model: Gemini CLI model (empty string = CLI default) */
   geminiModel: string;
   /** Per-CLI model: Codex model (empty string = CLI default) */
@@ -117,8 +115,6 @@ export interface AgentSetConfigParams {
   defaultCli?: import('../agent-process.types').CliType | null;
   /** Maximum concurrent agents (1-10) */
   maxConcurrentAgents?: number;
-  /** Default timeout in minutes */
-  defaultTimeout?: number;
   /** Gemini CLI model override (empty string = CLI default) */
   geminiModel?: string;
   /** Codex model override (empty string = CLI default) */

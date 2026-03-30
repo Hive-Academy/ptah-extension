@@ -124,7 +124,6 @@ export class AgentRpcHandlers {
             detectedClis,
             defaultCli: config.get<CliType | null>('defaultCli', null),
             maxConcurrentAgents: config.get<number>('maxConcurrentAgents', 5),
-            defaultTimeout: config.get<number>('defaultTimeout', 10),
             geminiModel: config.get<string>('geminiModel', ''),
             codexModel: config.get<string>('codexModel', ''),
             copilotModel: config.get<string>('copilotModel', ''),
@@ -274,15 +273,6 @@ export class AgentRpcHandlers {
       await config.update(
         'maxConcurrentAgents',
         clamped,
-        vscode.ConfigurationTarget.Global,
-      );
-    }
-
-    if (params.defaultTimeout !== undefined) {
-      const clampedTimeout = Math.max(1, Math.min(120, params.defaultTimeout));
-      await config.update(
-        'defaultTimeout',
-        clampedTimeout,
         vscode.ConfigurationTarget.Global,
       );
     }

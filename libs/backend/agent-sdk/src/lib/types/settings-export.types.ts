@@ -81,7 +81,6 @@ export const KNOWN_CONFIG_KEYS = [
   'apiUrl',
   'agentOrchestration.defaultCli',
   'agentOrchestration.maxConcurrentAgents',
-  'agentOrchestration.defaultTimeout',
   'agentOrchestration.geminiModel',
   'agentOrchestration.copilotModel',
   'agentOrchestration.codexModel',
