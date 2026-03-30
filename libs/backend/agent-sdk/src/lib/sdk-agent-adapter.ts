@@ -43,6 +43,7 @@ import {
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
+  type ApiModelEntry,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
@@ -370,6 +371,14 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   async getDefaultModel(): Promise<string> {
     return this.modelService.getDefaultModel();
+  }
+
+  /**
+   * Get all available models from the Anthropic /v1/models API
+   * TASK_2025_237: Enables dynamic model discovery beyond SDK's 3 tier slots
+   */
+  async getApiModels(): Promise<ApiModelEntry[]> {
+    return this.modelService.fetchApiModels();
   }
 
   /**
