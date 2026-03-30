@@ -42,8 +42,8 @@ Read(libs/*/CLAUDE.md)
 ### 2. Task History Mining
 
 ```
-Read(.ptah/specs/registry.md)
-Glob(.ptah/specs/TASK_*/context.md)
+Read(.claude/specs/registry.md)
+Glob(.claude/specs/TASK_*/context.md)
 ```
 
 Task history reveals:
