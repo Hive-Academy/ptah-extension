@@ -1,14 +1,14 @@
 <div class="flex flex-col h-full">
   <!-- Session Stats Summary (only when there are messages) -->
   @if (chatStore.messages().length > 0) {
-  <div class="px-3 py-2 bg-base-200/30">
-    <ptah-session-stats-summary
-      [messages]="chatStore.messages()"
-      [preloadedStats]="chatStore.preloadedStats()"
-      [liveModelStats]="chatStore.liveModelStats()"
-      [modelUsageList]="chatStore.modelUsageList()"
-    />
-  </div>
+    <div class="px-3 py-2 bg-base-200/30">
+      <ptah-session-stats-summary
+        [messages]="chatStore.messages()"
+        [preloadedStats]="chatStore.preloadedStats()"
+        [liveModelStats]="chatStore.liveModelStats()"
+        [modelUsageList]="chatStore.modelUsageList()"
+      />
+    </div>
   }
 
   <!-- TASK_2025_142/143: Trial & community banners moved to header notification bell -->
@@ -24,8 +24,12 @@
     #messageContainer
     (scroll)="onScroll($event)"
   >
-    @for (message of chatStore.messages(); track message.id) {
-    <ptah-message-bubble [message]="message" />
+    @for (message of chatStore.messages(); track message.id; let i = $index) {
+      <ptah-message-bubble
+        [message]="message"
+        [messageIndex]="i"
+        [totalMessages]="chatStore.messages().length"
+      />
     }
 
     <!-- Streaming assistant messages (live execution trees) -->
@@ -36,34 +40,37 @@
          Previously, only the first tree was rendered, causing subsequent messages to be LOST!
          Now we iterate over ALL streaming messages to render them all. -->
     @for (msg of streamingMessages(); track msg.id) {
-    <ptah-message-bubble
-      [message]="msg"
-      [isStreaming]="chatStore.isStreaming()"
-    />
+      <ptah-message-bubble
+        [message]="msg"
+        [isStreaming]="chatStore.isStreaming()"
+      />
     }
 
     <!-- Skeleton placeholder: streaming started but no trees yet -->
     @if (streamingMessages().length === 0 && chatStore.isStreaming()) {
-    <!-- Tree NOT started but streaming: show skeleton placeholder -->
-    <div class="chat chat-start">
-      <div class="chat-image avatar">
-        <div class="w-8 h-8 rounded-full overflow-hidden">
-          <img [ngSrc]="ptahIconUri()" alt="Claude" width="32" height="32" />
+      <!-- Tree NOT started but streaming: show skeleton placeholder -->
+      <div class="chat chat-start">
+        <div class="chat-image avatar">
+          <div class="w-8 h-8 rounded-full overflow-hidden">
+            <img [ngSrc]="ptahIconUri()" alt="Claude" width="32" height="32" />
+          </div>
+        </div>
+        <div class="chat-bubble bg-neutral">
+          <div class="skeleton h-4 w-64 mb-2"></div>
+          <div class="skeleton h-4 w-48 mb-2"></div>
+          <div class="skeleton h-4 w-56"></div>
         </div>
       </div>
-      <div class="chat-bubble bg-neutral">
-        <div class="skeleton h-4 w-64 mb-2"></div>
-        <div class="skeleton h-4 w-48 mb-2"></div>
-        <div class="skeleton h-4 w-56"></div>
-      </div>
-    </div>
     }
 
     <!-- Empty state - Egyptian themed welcome -->
     <!-- TASK_2025_096: Also check for streamingMessages to avoid showing empty state while content exists -->
-    @if (chatStore.messages().length === 0 && !chatStore.isStreaming() &&
-    streamingMessages().length === 0) {
-    <ptah-chat-empty-state (promptSelected)="handlePromptSelected($event)" />
+    @if (
+      chatStore.messages().length === 0 &&
+      !chatStore.isStreaming() &&
+      streamingMessages().length === 0
+    ) {
+      <ptah-chat-empty-state (promptSelected)="handlePromptSelected($event)" />
     }
   </div>
 
@@ -72,6 +79,7 @@
     <ptah-resume-notification-banner
       [resumableSubagents]="chatStore.resumableSubagents()"
       (resumeRequested)="handleResumeAgent($event)"
+      (resumeAllRequested)="handleResumeAllAgents($event)"
     />
   </div>
 
@@ -83,53 +91,55 @@
 
   <!-- AskUserQuestion Cards (TASK_2025_136) -->
   @for (questionReq of chatStore.questionRequests(); track questionReq.id) {
-  <div class="px-2 py-1">
-    <ptah-question-card
-      [request]="questionReq"
-      (answered)="chatStore.handleQuestionResponse($event)"
-    />
-  </div>
+    <div class="px-2 py-1">
+      <ptah-question-card
+        [request]="questionReq"
+        (answered)="chatStore.handleQuestionResponse($event)"
+      />
+    </div>
   }
 
   <!-- Queued Content Indicator -->
   @if (chatStore.activeTab()?.queuedContent) {
-  <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">
-    <div class="flex items-center justify-between gap-2 py-2">
-      <!-- Left: Queue icon and text -->
-      <div class="flex items-center gap-2 text-sm">
-        <lucide-angular
-          [img]="BellIcon"
-          class="w-4 h-4 text-primary animate-pulse"
-          aria-hidden="true"
-        />
-        <span class="text-primary font-medium">Message queued</span>
-        <span class="text-base-content/60"
-          >(will send when Claude finishes)</span
+    <div class="px-4 pb-2 border-t border-primary/20 bg-primary/5">
+      <div class="flex items-center justify-between gap-2 py-2">
+        <!-- Left: Queue icon and text -->
+        <div class="flex items-center gap-2 text-sm">
+          <lucide-angular
+            [img]="BellIcon"
+            class="w-4 h-4 text-primary animate-pulse"
+            aria-hidden="true"
+          />
+          <span class="text-primary font-medium">Message queued</span>
+          <span class="text-base-content/60"
+            >(will send when Claude finishes)</span
+          >
+        </div>
+
+        <!-- Right: Cancel button -->
+        <button
+          class="btn btn-ghost btn-xs"
+          (click)="cancelQueue()"
+          type="button"
+          title="Cancel queued message"
         >
+          ✕
+        </button>
       </div>
 
-      <!-- Right: Cancel button -->
-      <button
-        class="btn btn-ghost btn-xs"
-        (click)="cancelQueue()"
-        type="button"
-        title="Cancel queued message"
+      <!-- Queued content preview (truncated) -->
+      <div
+        class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
       >
-        ✕
-      </button>
+        {{ chatStore.activeTab()?.queuedContent?.substring(0, 100) }}
+        @if (
+          chatStore.activeTab()?.queuedContent &&
+          chatStore.activeTab()!.queuedContent!.length > 100
+        ) {
+          <span>...</span>
+        }
+      </div>
     </div>
-
-    <!-- Queued content preview (truncated) -->
-    <div
-      class="text-xs text-base-content/70 bg-base-200 rounded px-2 py-1 max-h-12 overflow-hidden"
-    >
-      {{ chatStore.activeTab()?.queuedContent?.substring(0, 100) }}
-      @if (chatStore.activeTab()?.queuedContent &&
-      chatStore.activeTab()!.queuedContent!.length > 100) {
-      <span>...</span>
-      }
-    </div>
-  </div>
   }
 
   <!-- Input Area (sticky at bottom, never shrinks) -->

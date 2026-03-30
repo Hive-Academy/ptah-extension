@@ -99,7 +99,7 @@ export class MessageSenderService {
    */
   private async validateSessionExists(
     sessionId: SessionId,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<{ exists: boolean; filePath?: string }> {
     try {
       const result = await this.claudeRpcService.call('session:validate', {
@@ -113,7 +113,7 @@ export class MessageSenderService {
 
       console.warn(
         '[MessageSender] Session validation RPC failed',
-        result.error
+        result.error,
       );
       return { exists: false };
     } catch (error) {
@@ -140,7 +140,7 @@ export class MessageSenderService {
     const validation = this.validator.validate(content);
     if (!validation.valid) {
       console.warn(
-        `[MessageSender] Invalid message content: ${validation.reason}`
+        `[MessageSender] Invalid message content: ${validation.reason}`,
       );
       return;
     }
@@ -151,17 +151,19 @@ export class MessageSenderService {
     const activeTab = this.tabManager.activeTab();
 
     const sessionId = activeTab?.claudeSessionId;
+    // A tab has an existing session if it has a valid claudeSessionId.
+    // Previously this also required status === 'loaded', but that was too
+    // restrictive: after multi-turn streaming the tab may stay in 'streaming'
+    // status (SESSION_STATS hasn't arrived yet), causing resume/follow-up
+    // messages to mistakenly create a new session instead of continuing.
     const hasExistingSession =
-      activeTab &&
-      sessionId &&
-      sessionId !== ('' as SessionId) &&
-      activeTab.status === 'loaded';
+      activeTab && sessionId && sessionId !== ('' as SessionId);
 
     if (hasExistingSession && sessionId) {
       await this.continueConversation(
         sanitized,
         sessionId as SessionId,
-        options
+        options,
       );
     } else {
       // No active tab or no existing session — startNewConversation handles tab creation
@@ -181,7 +183,7 @@ export class MessageSenderService {
    */
   async sendOrQueue(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): Promise<void> {
     // Check if streaming via active tab status
     const activeTab = this.tabManager.activeTab();
@@ -216,7 +218,7 @@ export class MessageSenderService {
    */
   private async startNewConversation(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): Promise<void> {
     const files = options?.files;
     const images = options?.images;
@@ -226,14 +228,14 @@ export class MessageSenderService {
       const ready = await this.waitForServices(5000);
       if (!ready) {
         console.error(
-          '[MessageSender] startNewConversation: Services initialization timeout'
+          '[MessageSender] startNewConversation: Services initialization timeout',
         );
         return;
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
         console.error(
-          '[MessageSender] Services not available after initialization'
+          '[MessageSender] Services not available after initialization',
         );
         return;
       }
@@ -365,7 +367,7 @@ export class MessageSenderService {
   private async continueConversation(
     content: string,
     sessionId: SessionId,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): Promise<void> {
     const files = options?.files;
     const images = options?.images;
@@ -375,14 +377,14 @@ export class MessageSenderService {
       const ready = await this.waitForServices(5000);
       if (!ready) {
         console.error(
-          '[MessageSender] continueConversation: Services initialization timeout'
+          '[MessageSender] continueConversation: Services initialization timeout',
         );
         return;
       }
 
       if (!this.claudeRpcService || !this.vscodeService) {
         console.error(
-          '[MessageSender] Services not available after initialization'
+          '[MessageSender] Services not available after initialization',
         );
         return;
       }
@@ -396,13 +398,13 @@ export class MessageSenderService {
       // ✅ VALIDATE: Check if session file actually exists on disk
       const validationResult = await this.validateSessionExists(
         sessionId,
-        workspacePath
+        workspacePath,
       );
 
       if (!validationResult.exists) {
         console.warn(
           `[MessageSender] Session ${sessionId} file not found on disk - starting new session instead`,
-          { sessionId }
+          { sessionId },
         );
 
         // Clear stale session ID from tab
@@ -423,7 +425,7 @@ export class MessageSenderService {
       const activeTabId = this.tabManager.activeTabId();
       if (!activeTabId) {
         console.warn(
-          '[MessageSender] No active tab for continuing conversation — starting new'
+          '[MessageSender] No active tab for continuing conversation — starting new',
         );
         await this.startNewConversation(content, options);
         return;

@@ -223,21 +223,29 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    * plan mode changes, session cleanup notifications) are silently skipped.
    * The permission logic itself still works — tools get auto-approved or denied
    * based on permission level — but there is no interactive UI prompt.
+   *
+   * Resolved lazily via getter because in Electron the TOKENS.WEBVIEW_MANAGER
+   * is registered AFTER SDK services are constructed (it depends on IPC bridge
+   * initialization which happens in main.ts Phase 4.4).
    */
-  private readonly webviewManager: WebviewManager | undefined;
+  private _webviewManager: WebviewManager | undefined;
+  private _webviewManagerResolved = false;
+
+  private get webviewManager(): WebviewManager | undefined {
+    if (!this._webviewManagerResolved) {
+      this._webviewManagerResolved = true;
+      this._webviewManager = container.isRegistered(TOKENS.WEBVIEW_MANAGER)
+        ? container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER)
+        : undefined;
+    }
+    return this._webviewManager;
+  }
 
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
   ) {
-    // Resolve WebviewManager lazily: in Electron the token is not registered
-    // at the time SDK services are resolved. Uses the same container.isRegistered()
-    // pattern as CodeExecutionMCP in vscode-lm-tools.
-    this.webviewManager = container.isRegistered(TOKENS.WEBVIEW_MANAGER)
-      ? container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER)
-      : undefined;
-
     // Initialize permission emitter on construction
     this.initializePermissionEmitter();
   }
