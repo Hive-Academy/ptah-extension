@@ -234,8 +234,8 @@ Orchestrator:
 
 ```
 Correct:  D:\projects\ptah-extension\.ptah\specs\TASK_2025_110\context.md
-Incorrect: task-tracking/TASK_2025_110/context.md
-Incorrect: ./task-tracking/TASK_2025_110/context.md
+Incorrect: .ptah/specs/TASK_2025_110/context.md
+Incorrect: ./.ptah/specs/TASK_2025_110/context.md
 ```
 
 ---
