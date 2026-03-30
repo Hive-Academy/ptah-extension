@@ -19,9 +19,12 @@
  *      Agent, SkillsSh, Layout
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, verifyRpcRegistration } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
+import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import { SDK_TOKENS } from '@ptah-extension/agent-sdk';
+import type { SdkAgentAdapter } from '@ptah-extension/agent-sdk';
 
 // Shared handler classes (all 17)
 import {
@@ -143,7 +146,12 @@ export class ElectronRpcMethodRegistrationService {
     // Phase 2: Electron-specific handlers
     this.registerElectronHandlers();
 
-    // Phase 3: Verify all expected RPC methods are registered
+    // Phase 3: Wire SDK callbacks (SESSION_STATS, SESSION_ID_RESOLVED, etc.)
+    // TASK_2025_241: Without these, the frontend hangs after chat:complete
+    // because SESSION_STATS never arrives to finalize streaming state.
+    this.setupSdkCallbacks();
+
+    // Phase 4: Verify all expected RPC methods are registered
     verifyRpcRegistration(this.rpcHandler, this.logger);
 
     this.logger.info('[Electron RPC] All RPC methods registered', {
@@ -193,6 +201,154 @@ export class ElectronRpcMethodRegistrationService {
           } as unknown as Error,
         );
       }
+    }
+  }
+
+  /**
+   * Wire SDK adapter callbacks so the backend can push events to the frontend.
+   * TASK_2025_241: These were missing in Electron, causing the frontend to hang
+   * after chat:complete because SESSION_STATS never arrived.
+   *
+   * Resolved lazily because SdkAgentAdapter and WebviewManager may not be
+   * registered at DI construction time (Electron phases register them later).
+   */
+  private setupSdkCallbacks(): void {
+    // Lazy-resolve SdkAgentAdapter (may fail if SDK auth not configured)
+    if (!container.isRegistered(SDK_TOKENS.SDK_AGENT_ADAPTER)) {
+      this.logger.warn(
+        '[Electron RPC] SdkAgentAdapter not registered — SDK callbacks skipped',
+      );
+      return;
+    }
+
+    // Lazy-resolve WebviewManager (registered in Phase 4, before this runs)
+    if (!container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
+      this.logger.warn(
+        '[Electron RPC] WebviewManager not registered — SDK callbacks skipped',
+      );
+      return;
+    }
+
+    try {
+      const sdkAdapter = container.resolve<SdkAgentAdapter>(
+        SDK_TOKENS.SDK_AGENT_ADAPTER,
+      );
+      const webviewManager = container.resolve<{
+        broadcastMessage(type: string, payload: unknown): Promise<void>;
+      }>(TOKENS.WEBVIEW_MANAGER);
+
+      // 1. SESSION_STATS — authoritative streaming completion signal
+      sdkAdapter.setResultStatsCallback(async (stats) => {
+        this.logger.info(
+          `[Electron RPC] Session stats received: ${stats.sessionId}`,
+        );
+        await webviewManager
+          .broadcastMessage(MESSAGE_TYPES.SESSION_STATS, {
+            sessionId: stats.sessionId,
+            cost: stats.cost,
+            tokens: stats.tokens,
+            duration: stats.duration,
+            modelUsage: stats.modelUsage,
+          })
+          .catch((error) => {
+            this.logger.error(
+              '[Electron RPC] Failed to send session:stats',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          });
+      });
+
+      // 2. SESSION_ID_RESOLVED — temporary tab ID → real SDK UUID
+      sdkAdapter.setSessionIdResolvedCallback(
+        (tabId: string | undefined, realSessionId: string) => {
+          this.logger.info(
+            `[Electron RPC] Session ID resolved: tabId=${tabId} -> real=${realSessionId}`,
+          );
+          webviewManager
+            .broadcastMessage(MESSAGE_TYPES.SESSION_ID_RESOLVED, {
+              tabId,
+              realSessionId,
+            })
+            .catch((error) => {
+              this.logger.error(
+                '[Electron RPC] Failed to send session:id-resolved',
+                error instanceof Error ? error : new Error(String(error)),
+              );
+            });
+        },
+      );
+
+      // 3. COMPACTION_START — context window compaction notification
+      sdkAdapter.setCompactionStartCallback((data) => {
+        this.logger.info(
+          `[Electron RPC] Compaction started: sessionId=${data.sessionId}`,
+        );
+        const compactionEvent = {
+          id: `compaction_${data.sessionId}_${data.timestamp}`,
+          eventType: 'compaction_start' as const,
+          timestamp: data.timestamp,
+          sessionId: data.sessionId,
+          messageId: `compaction_msg_${data.timestamp}`,
+          trigger: data.trigger,
+          source: 'stream' as const,
+        };
+        webviewManager
+          .broadcastMessage(MESSAGE_TYPES.CHAT_CHUNK, {
+            sessionId: data.sessionId,
+            event: compactionEvent,
+          })
+          .catch((error) => {
+            this.logger.error(
+              '[Electron RPC] Failed to send compaction event',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          });
+      });
+
+      // 4. WORKTREE callbacks — git worktree create/remove notifications
+      sdkAdapter.setWorktreeCreatedCallback((data) => {
+        this.logger.info(`[Electron RPC] Worktree created: name=${data.name}`);
+        webviewManager
+          .broadcastMessage('git:worktreeChanged', {
+            action: 'created',
+            name: data.name,
+            path: data.cwd,
+          })
+          .catch((error) => {
+            this.logger.error(
+              '[Electron RPC] Failed to send git:worktreeChanged (created)',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          });
+      });
+
+      sdkAdapter.setWorktreeRemovedCallback((data) => {
+        this.logger.info(
+          `[Electron RPC] Worktree removed: path=${data.worktreePath}`,
+        );
+        webviewManager
+          .broadcastMessage('git:worktreeChanged', {
+            action: 'removed',
+            path: data.worktreePath,
+          })
+          .catch((error) => {
+            this.logger.error(
+              '[Electron RPC] Failed to send git:worktreeChanged (removed)',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+          });
+      });
+
+      this.logger.info(
+        '[Electron RPC] SDK callbacks wired (stats, sessionId, compaction, worktree)',
+      );
+    } catch (error) {
+      this.logger.warn(
+        '[Electron RPC] Failed to setup SDK callbacks (non-fatal):',
+        {
+          error: error instanceof Error ? error.message : String(error),
+        } as unknown as Error,
+      );
     }
   }
 
