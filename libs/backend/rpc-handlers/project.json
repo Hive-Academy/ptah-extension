@@ -1,5 +1,5 @@
 {
-  "name": "rpc-handlers",
+  "name": "@ptah-extension/rpc-handlers",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/backend/rpc-handlers/src",
   "projectType": "library",

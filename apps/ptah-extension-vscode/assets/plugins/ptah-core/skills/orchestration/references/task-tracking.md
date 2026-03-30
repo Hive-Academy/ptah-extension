@@ -52,7 +52,7 @@ TASK_YYYY_NNN
 ### Registry Location
 
 ```
-D:\projects\ptah-extension\task-tracking\registry.md
+.ptah\specs\registry.md
 ```
 
 ### Reading the Registry
@@ -64,7 +64,7 @@ At workflow start, read registry to:
 3. Understand project task history
 
 ```bash
-Read(D:\projects\ptah-extension\task-tracking\registry.md)
+Read(.ptah\specs\registry.md)
 ```
 
 ### Registry Format
@@ -242,7 +242,7 @@ Orchestrator:
 **CRITICAL**: Always use absolute Windows paths with drive letters for all file operations.
 
 ```
-Correct:  D:\projects\ptah-extension\task-tracking\TASK_2025_110\context.md
+Correct:  .ptah\specs\TASK_2025_110\context.md
 Incorrect: .ptah/specs/TASK_2025_110/context.md
 Incorrect: ./.ptah/specs/TASK_2025_110/context.md
 ```

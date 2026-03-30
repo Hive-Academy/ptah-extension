@@ -1,5 +1,5 @@
 {
-  "name": "editor",
+  "name": "@ptah-extension/editor",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/frontend/editor/src",
   "prefix": "ptah",

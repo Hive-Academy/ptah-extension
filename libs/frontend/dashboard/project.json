@@ -1,5 +1,5 @@
 {
-  "name": "dashboard",
+  "name": "@ptah-extension/dashboard",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/frontend/dashboard/src",
   "prefix": "ptah",
