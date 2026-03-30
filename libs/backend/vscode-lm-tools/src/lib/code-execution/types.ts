@@ -2,7 +2,7 @@
  * Code Execution API Type Definitions
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
- * Supports 12 namespaces exposing VS Code extension capabilities to Claude CLI.
+ * Supports 14 namespaces exposing VS Code extension capabilities to Claude CLI.
  *
  * TASK_2025_025: Expanded API surface for better Claude discoverability
  * TASK_2025_209: Removed AINamespace (ptah.ai) — obsolete, replaced by CLI tools + MCP agent spawn
@@ -28,7 +28,7 @@ import type {
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 13 namespaces for comprehensive workspace intelligence
+ * Provides 14 namespaces for comprehensive workspace intelligence
  * TASK_2025_039: Enhanced with ide namespace for LSP and editor superpowers
  * TASK_2025_111: Added orchestration namespace for workflow state management
  */
@@ -58,6 +58,9 @@ export interface PtahAPI {
 
   // Git worktree operations namespace (TASK_2025_236)
   git: GitNamespace;
+
+  // JSON validation and repair namespace (TASK_2025_240)
+  json: JsonNamespace;
 
   // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
   dependencies: DependenciesNamespace;
@@ -319,6 +322,65 @@ export interface GitNamespace {
     path: string;
     force?: boolean;
   }): Promise<{ success: boolean; error?: string }>;
+}
+
+// ========================================
+// JSON Namespace (TASK_2025_240)
+// ========================================
+
+/**
+ * JSON validation and repair namespace (TASK_2025_240)
+ * Validates JSON files written by AI agents, repairs common issues,
+ * and overwrites with clean JSON.
+ */
+export interface JsonNamespace {
+  /**
+   * Validate and repair a JSON file.
+   * Reads the file, extracts JSON from raw agent output (strips markdown fences,
+   * prose, fixes trailing commas, unquoted keys, etc.), validates against an
+   * optional schema, and overwrites the file with clean JSON.
+   *
+   * @param params - File path and optional schema
+   * @returns Validation result (success with cleaned JSON, or errors for self-correction)
+   */
+  validate(params: JsonValidateParams): Promise<JsonValidateResult>;
+}
+
+/**
+ * Parameters for ptah.json.validate()
+ */
+export interface JsonValidateParams {
+  /** Workspace-relative file path to the JSON file */
+  file: string;
+
+  /**
+   * Optional JSON Schema to validate against.
+   * An inline JSON Schema object for structural validation.
+   * Use { required: ["key1"], properties: { key1: { type: "string" } } } format.
+   */
+  schema?: Record<string, unknown>;
+}
+
+/**
+ * Result of JSON validation and repair.
+ * On success, the file has been overwritten with clean, formatted JSON.
+ * On failure, errors describe what went wrong so the agent can self-correct.
+ */
+export interface JsonValidateResult {
+  /** Whether validation and repair succeeded */
+  success: boolean;
+
+  /** The file path that was validated */
+  file: string;
+
+  /** Repairs applied (e.g., "stripped markdown fences", "fixed trailing commas") */
+  repairs: string[];
+
+  /** Validation errors (when success is false) */
+  errors: string[];
+
+  /** Whether the file was overwritten with clean JSON */
+  fileOverwritten: boolean;
 }
 
 // ========================================

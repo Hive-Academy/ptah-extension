@@ -21,7 +21,7 @@ export function buildExecuteCodeTool(): MCPToolDefinition {
         code: {
           type: 'string',
           description:
-            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 12 namespaces. ' +
+            'TypeScript/JavaScript code to execute. Has access to "ptah" global object with 14 namespaces. ' +
             'All methods are async. Code is auto-wrapped for execution - all patterns work:\n' +
             '• Simple: `await ptah.workspace.getInfo()` or `ptah.workspace.getInfo()`\n' +
             '• With variables: `const info = await ptah.workspace.getInfo(); return info;`\n' +
@@ -576,6 +576,45 @@ export function buildWorktreeRemoveTool(): MCPToolDefinition {
   };
 }
 
+// ========================================
+// JSON Validation MCP Tool (TASK_2025_240)
+// ========================================
+
+/**
+ * Build the ptah_json_validate tool definition
+ * Validate and repair JSON files written by AI agents (TASK_2025_240)
+ */
+export function buildJsonValidateTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_json_validate',
+    description:
+      'Validate and repair a JSON file. Reads the file, extracts JSON from raw ' +
+      'agent output (strips markdown fences, prose, fixes trailing commas, ' +
+      'unquoted keys, single quotes), validates against an optional schema, ' +
+      'and overwrites the file with clean formatted JSON. Returns errors for ' +
+      'self-correction if repair fails. Call this after writing any JSON file.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          description:
+            'Workspace-relative path to the JSON file to validate ' +
+            '(e.g., ".ptah/analysis/01-project-profile.json")',
+        },
+        schema: {
+          type: 'object',
+          description:
+            'Optional JSON Schema to validate against. Use { required: ["key1", "key2"], ' +
+            'properties: { key1: { type: "string" } } } for basic validation.',
+        },
+      },
+      required: ['file'],
+    },
+    annotations: { idempotentHint: true },
+  };
+}
+
 /**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
@@ -585,7 +624,7 @@ function buildExecuteCodeDescription(): string {
 
 ${PTAH_SYSTEM_PROMPT}
 
-## Top Namespaces (13 total — use ptah.help(topic) for full details)
+## Top Namespaces (14 total — use ptah.help(topic) for full details)
 
 ### ptah.workspace - Workspace Analysis
 - analyze(): Promise<{info, structure}> - Full workspace analysis
@@ -620,6 +659,12 @@ ${PTAH_SYSTEM_PROMPT}
 Relative paths are resolved from workspace root. Absolute paths work as-is.
 ⚠️ IMPORTANT: Use ptah.search.findFiles() to discover files before reading.
 ⚠️ NO write, delete, exists, or rename methods. This namespace is read-only.
+
+### ptah.json - JSON Validation & Repair
+- validate({file, schema?}): Promise<JsonValidateResult> - Validate/repair JSON file, overwrite with clean JSON
+
+Call after writing any JSON file. Extracts JSON from agent output (strips markdown fences, prose),
+repairs common issues (trailing commas, single quotes, unquoted keys, comments), and overwrites.
 
 ### ptah.project - Project Analysis
 - detectMonorepo(): Promise<{isMonorepo, type, workspaceFiles}> - Detect monorepo

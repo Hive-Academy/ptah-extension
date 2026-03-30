@@ -60,3 +60,9 @@ export {
   buildGitNamespace,
   type GitNamespaceDependencies,
 } from './git-namespace.builder';
+
+// JSON namespace (TASK_2025_240 - JSON validation and repair)
+export {
+  buildJsonNamespace,
+  type JsonNamespaceDependencies,
+} from './json-namespace.builder';

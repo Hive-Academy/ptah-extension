@@ -789,6 +789,68 @@ export function formatWorktreeRemove(result: {
 }
 
 // ============================================================
+// JSON Validation Tool (TASK_2025_240)
+// ============================================================
+
+/**
+ * Format ptah_json_validate result as readable Markdown.
+ * On success: shows file path, repairs applied, file overwritten confirmation.
+ * On failure: shows errors for agent self-correction.
+ */
+export function formatJsonValidate(result: {
+  success: boolean;
+  file: string;
+  repairs: string[];
+  errors: string[];
+  fileOverwritten: boolean;
+}): string {
+  try {
+    if (result.success) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const blocks: any[] = [
+        { h2: 'JSON Validation Passed' },
+        { p: `**File:** ${result.file}  \n**Status:** Valid JSON` },
+      ];
+
+      if (result.repairs.length > 0) {
+        blocks.push({ h3: 'Repairs Applied' });
+        blocks.push({ ul: result.repairs });
+      }
+
+      if (result.fileOverwritten) {
+        blocks.push({
+          p: 'File overwritten with clean, formatted JSON.',
+        });
+      }
+
+      return json2md(blocks);
+    }
+
+    // Failure case — provide errors for agent self-correction
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'JSON Validation Failed' },
+      { p: `**File:** ${result.file}` },
+    ];
+
+    if (result.repairs.length > 0) {
+      blocks.push({ h3: 'Repairs Attempted' });
+      blocks.push({ ul: result.repairs });
+    }
+
+    blocks.push({ h3: 'Errors' });
+    blocks.push({ ul: result.errors });
+    blocks.push({
+      p: 'Please fix these issues and write the file again, then call ptah_json_validate to re-validate.',
+    });
+
+    return json2md(blocks);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
 // Fallback
 // ============================================================
 

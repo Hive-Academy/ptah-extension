@@ -30,10 +30,12 @@ export interface SystemNamespaceDependencies {
  * Help documentation for Ptah namespaces
  */
 export const HELP_DOCS: Record<string, string> = {
-  overview: `Ptah IDE Access - 12 Namespaces:
+  overview: `Ptah IDE Access - 14 Namespaces:
 
 WORKSPACE: workspace, search, files, diagnostics
 ANALYSIS: context, project, relevance, ast, dependencies
+JSON: ptah.json.* (validate/repair JSON files)
+GIT: ptah.git.* (worktree operations)
 IDE: ptah.ide.* (lsp, editor, actions, testing) — VS Code exclusive
 ORCHESTRATION: ptah.orchestration.* (workflow state management)
 AGENT: ptah.agent.* (CLI agent orchestration - spawn, monitor, steer)
@@ -208,6 +210,23 @@ Build the graph once, then query it repeatedly. Essential for understanding impa
 - getWarnings() - Get all warning-level diagnostics {file, message, line}
 - getAll() - Get all diagnostics with severity level`,
 
+  json: `ptah.json - JSON Validation & Repair
+
+- validate({file, schema?}): Promise<JsonValidateResult> - Validate and repair a JSON file
+
+Parameters:
+  file: string — Workspace-relative path to the JSON file
+  schema?: object — Optional JSON Schema for structural validation
+
+Returns: { success, file, repairs[], errors[], fileOverwritten }
+
+The validate method reads the file, extracts JSON from raw agent output (strips markdown
+fences, removes prose, fixes trailing commas, single quotes, unquoted keys, comments,
+unbalanced brackets), validates against an optional schema, and overwrites with clean JSON.
+
+If validation fails, the errors array contains actionable messages for self-correction.
+Call this after writing any JSON file to ensure clean, parseable output.`,
+
   agent: `ptah.agent - CLI Agent Orchestration (TASK_2025_157)
 
 Spawn Gemini CLI or Codex CLI as background workers for parallel task execution.
@@ -330,7 +349,7 @@ function stripJsonComments(jsonString: string): string {
  */
 function resolveWorkspacePath(
   filePath: string,
-  workspaceProvider: IWorkspaceProvider
+  workspaceProvider: IWorkspaceProvider,
 ): string {
   // Normalize path separators to forward slashes
   const normalizedPath = filePath.replace(/\\/g, '/');
@@ -339,7 +358,7 @@ function resolveWorkspacePath(
   // Uses Node.js path.isAbsolute() which handles all platform cases
   if (path.isAbsolute(normalizedPath)) {
     throw new Error(
-      'Absolute paths are not allowed. Use workspace-relative paths only.'
+      'Absolute paths are not allowed. Use workspace-relative paths only.',
     );
   }
 
@@ -347,7 +366,7 @@ function resolveWorkspacePath(
   const resolved = path.normalize(normalizedPath);
   if (resolved.startsWith('..')) {
     throw new Error(
-      'Path traversal is not allowed. Stay within workspace boundaries.'
+      'Path traversal is not allowed. Stay within workspace boundaries.',
     );
   }
 
@@ -365,7 +384,7 @@ function resolveWorkspacePath(
  * Delegates to FileSystemManager
  */
 export function buildFilesNamespace(
-  deps: SystemNamespaceDependencies
+  deps: SystemNamespaceDependencies,
 ): FilesNamespace {
   const { fileSystemProvider, workspaceProvider } = deps;
 

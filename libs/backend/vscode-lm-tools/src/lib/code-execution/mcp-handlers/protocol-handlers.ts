@@ -37,6 +37,7 @@ import {
   buildWorktreeListTool,
   buildWorktreeAddTool,
   buildWorktreeRemoveTool,
+  buildJsonValidateTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -58,6 +59,7 @@ import {
   formatWorktreeList,
   formatWorktreeAdd,
   formatWorktreeRemove,
+  formatJsonValidate,
 } from './mcp-response-formatter';
 
 /**
@@ -204,6 +206,8 @@ function handleToolsList(
     buildWorktreeListTool(),
     buildWorktreeAddTool(),
     buildWorktreeRemoveTool(),
+    // JSON validation tool (TASK_2025_240)
+    buildJsonValidateTool(),
     // Power-user tools
     buildExecuteCodeTool(),
     buildApprovalPromptTool(),
@@ -651,6 +655,41 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatWorktreeRemove(removeResult),
+          deps,
+        );
+      }
+
+      // JSON validation tool (TASK_2025_240)
+      case 'ptah_json_validate': {
+        const { file, schema } = args as {
+          file: string;
+          schema?: Record<string, unknown>;
+        };
+
+        // Validate required file parameter
+        if (!file || typeof file !== 'string' || !file.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "file" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const jsonResult = await ptahAPI.json.validate({
+          file: file.trim(),
+          schema,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatJsonValidate(jsonResult),
           deps,
         );
       }

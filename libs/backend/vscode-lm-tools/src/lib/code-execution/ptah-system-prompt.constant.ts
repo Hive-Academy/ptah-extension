@@ -33,6 +33,9 @@ Count tokens in a file. Use before reading large files to check size.
 ### ptah_web_search { query, maxResults?, timeout? }
 Search the web for current information. Returns structured results (title, URL, snippet) plus a narrative summary. Supports Tavily, Serper, and Exa providers (configured in Ptah settings). Use when you need up-to-date information from the internet (latest docs, current APIs, recent changes, etc.).
 
+### ptah_json_validate { file, schema? }
+Validate and repair a JSON file. Extracts JSON from agent output (strips markdown fences, prose), repairs common issues (trailing commas, single quotes, unquoted keys, comments, unbalanced brackets), validates against optional schema, and overwrites with clean formatted JSON. Call after writing any JSON file.
+
 ## IDE Access via execute_code
 
 For IDE-integrated operations and multi-step API workflows, use the \`execute_code\` tool with the \`ptah\` global object:

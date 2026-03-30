@@ -41,7 +41,7 @@ The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Pro
 │  │  ├─ Tool filtering (hasIDECapabilities flag)        │  │
 │  │  └─ Optional WebviewManager (lazy DI resolution)    │  │
 │  ├─────────────────────────────────────────────────────┤  │
-│  │  PtahAPIBuilder (13 Namespace Constructor)          │  │
+│  │  PtahAPIBuilder (14 Namespace Constructor)          │  │
 │  │  ├─ ptah.workspace    - Workspace analysis          │  │
 │  │  ├─ ptah.search       - File search & relevance     │  │
 │  │  ├─ ptah.diagnostics  - via IDiagnosticsProvider    │  │
@@ -54,7 +54,9 @@ The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Pro
 │  │  ├─ ptah.ide          - via IIDECapabilities        │  │
 │  │  ├─ ptah.orchestration- Workflow state              │  │
 │  │  ├─ ptah.agent        - Agent orchestration         │  │
-│  │  └─ ptah.webSearch    - Web search (Gemini CLI)     │  │
+│  │  ├─ ptah.git          - Git worktree operations     │  │
+│  │  ├─ ptah.json         - JSON validation & repair    │  │
+│  │  └─ ptah.webSearch    - Web search (multi-provider) │  │
 │  ├─────────────────────────────────────────────────────┤  │
 │  │  System Prompt Generation                           │  │
 │  │  ├─ PTAH_SYSTEM_PROMPT (static, full prompt)        │  │
@@ -164,24 +166,28 @@ Used by `getConfiguredPort()` in `http-server.handler.ts` to read the MCP server
 
 ## MCP Tool Platform Availability
 
-| Tool                     | VS Code  | Electron         | Notes                                            |
-| ------------------------ | -------- | ---------------- | ------------------------------------------------ |
-| `execute_code`           | Yes      | Yes              | Full Ptah API access on both platforms           |
-| `approval_prompt`        | Yes (UI) | Yes (auto-allow) | Electron auto-allows since no webview UI         |
-| `ptah_workspace_analyze` | Yes      | Yes              | Platform-agnostic via workspace-intelligence     |
-| `ptah_search_files`      | Yes      | Yes              | Platform-agnostic via workspace-intelligence     |
-| `ptah_get_diagnostics`   | Yes      | Yes              | Via `IDiagnosticsProvider` abstraction           |
-| `ptah_lsp_references`    | Yes      | **No**           | Requires VS Code LSP (executeReferenceProvider)  |
-| `ptah_lsp_definitions`   | Yes      | **No**           | Requires VS Code LSP (executeDefinitionProvider) |
-| `ptah_get_dirty_files`   | Yes      | **No**           | Requires VS Code editor state tracking           |
-| `ptah_count_tokens`      | Yes      | Yes              | Platform-agnostic                                |
-| `ptah_agent_spawn`       | Yes      | Yes              | Platform-agnostic CLI agent management           |
-| `ptah_agent_status`      | Yes      | Yes              | Platform-agnostic                                |
-| `ptah_agent_read`        | Yes      | Yes              | Platform-agnostic                                |
-| `ptah_agent_steer`       | Yes      | Yes              | Platform-agnostic                                |
-| `ptah_agent_stop`        | Yes      | Yes              | Platform-agnostic                                |
-| `ptah_agent_list`        | Yes      | Yes              | Platform-agnostic                                |
-| `ptah_web_search`        | Yes      | Yes              | Requires Gemini CLI installed                    |
+| Tool                       | VS Code  | Electron         | Notes                                            |
+| -------------------------- | -------- | ---------------- | ------------------------------------------------ |
+| `execute_code`             | Yes      | Yes              | Full Ptah API access on both platforms           |
+| `approval_prompt`          | Yes (UI) | Yes (auto-allow) | Electron auto-allows since no webview UI         |
+| `ptah_workspace_analyze`   | Yes      | Yes              | Platform-agnostic via workspace-intelligence     |
+| `ptah_search_files`        | Yes      | Yes              | Platform-agnostic via workspace-intelligence     |
+| `ptah_get_diagnostics`     | Yes      | Yes              | Via `IDiagnosticsProvider` abstraction           |
+| `ptah_lsp_references`      | Yes      | **No**           | Requires VS Code LSP (executeReferenceProvider)  |
+| `ptah_lsp_definitions`     | Yes      | **No**           | Requires VS Code LSP (executeDefinitionProvider) |
+| `ptah_get_dirty_files`     | Yes      | **No**           | Requires VS Code editor state tracking           |
+| `ptah_count_tokens`        | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_spawn`         | Yes      | Yes              | Platform-agnostic CLI agent management           |
+| `ptah_agent_status`        | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_read`          | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_steer`         | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_stop`          | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_list`          | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_web_search`          | Yes      | Yes              | Requires Gemini CLI installed                    |
+| `ptah_git_worktree_list`   | Yes      | Yes              | Requires git on PATH                             |
+| `ptah_git_worktree_add`    | Yes      | Yes              | Requires git on PATH                             |
+| `ptah_git_worktree_remove` | Yes      | Yes              | Requires git on PATH                             |
+| `ptah_json_validate`       | Yes      | Yes              | Platform-agnostic via IFileSystemProvider        |
 
 **Filtering mechanism**: `CodeExecutionMCP` checks `container.isRegistered(IDE_CAPABILITIES_TOKEN)` at construction time. When `false`, it passes `hasIDECapabilities: false` to the protocol handler, which excludes `ptah_lsp_references`, `ptah_lsp_definitions`, and `ptah_get_dirty_files` from the `tools/list` response. The `buildPlatformSystemPrompt(false)` function similarly strips VS Code-only tool documentation from the system prompt sent to AI agents.
 
@@ -193,7 +199,7 @@ Used by `getConfiguredPort()` in `http-server.handler.ts` to read the MCP server
 
 ### API Builder
 
-- `code-execution/ptah-api-builder.service.ts` - Constructs 13 Ptah API namespaces; resolves IDE capabilities lazily via DI
+- `code-execution/ptah-api-builder.service.ts` - Constructs 14 Ptah API namespaces; resolves IDE capabilities lazily via DI
 - `code-execution/types.ts` - PtahAPI type definitions
 
 ### System Prompt
@@ -813,4 +819,6 @@ nx test vscode-lm-tools --testFile=code-execution-mcp.service.spec.ts
 - **System Namespaces**: `src/lib/code-execution/namespace-builders/system-namespace.builders.ts`
 - **Orchestration Namespace**: `src/lib/code-execution/namespace-builders/orchestration-namespace.builder.ts`
 - **Agent Namespace**: `src/lib/code-execution/namespace-builders/agent-namespace.builder.ts`
+- **Git Namespace**: `src/lib/code-execution/namespace-builders/git-namespace.builder.ts`
+- **JSON Namespace**: `src/lib/code-execution/namespace-builders/json-namespace.builder.ts`
 - **Web Search Service**: `src/lib/code-execution/services/web-search.service.ts`

@@ -1,7 +1,7 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 13 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 14 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
@@ -21,6 +21,7 @@
  * - ast: tree-sitter based code analysis
  *
  * TASK_2025_025: Expanded from 8 to 13 namespaces for better Claude discoverability
+ * TASK_2025_240: Added json namespace (14 total)
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -73,6 +74,8 @@ import {
   buildAgentNamespace,
   // Git namespace builder (TASK_2025_236)
   buildGitNamespace,
+  // JSON namespace builder (TASK_2025_240)
+  buildJsonNamespace,
 } from './namespace-builders';
 import {
   AgentProcessManager,
@@ -199,11 +202,11 @@ export class PtahAPIBuilder {
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
     private readonly secretStorage: ISecretStorage,
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 13 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 14 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 13 namespaces.
+   * Build the complete Ptah API object with all 14 namespaces.
    *
    * Each namespace builder is wrapped in try/catch so that one failing
    * namespace does not prevent the remaining namespaces (and their tools)
@@ -461,6 +464,14 @@ export class PtahAPIBuilder {
       // Git worktree namespace (TASK_2025_236)
       git: this.buildNamespaceSafe('git', () =>
         buildGitNamespace({ workspaceRoot }),
+      ),
+
+      // JSON validation namespace (TASK_2025_240)
+      json: this.buildNamespaceSafe('json', () =>
+        buildJsonNamespace({
+          fileSystemProvider: this.fileSystemProvider,
+          workspaceProvider: this.workspaceProvider,
+        }),
       ),
 
       // Web search namespace (TASK_2025_189, multi-provider TASK_2025_235)
