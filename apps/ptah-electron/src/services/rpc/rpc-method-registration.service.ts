@@ -11,9 +11,9 @@
  * with proper Electron-specific implementations using platform-agnostic services.
  *
  * Handler registration order:
- * 1. Shared handlers (16 handlers from @ptah-extension/rpc-handlers)
+ * 1. Shared handlers (17 handlers from @ptah-extension/rpc-handlers)
  *    - Session, Chat, Config, Auth, Context, Setup, License, WizardGeneration,
- *      Autocomplete, Subagent, Plugin, PtahCli, EnhancedPrompts, Quality, Provider, LLM
+ *      Autocomplete, Subagent, Plugin, PtahCli, EnhancedPrompts, Quality, Provider, LLM, WebSearch
  * 2. Electron-specific handlers (10 handlers from ./handlers/)
  *    - Workspace, Editor, File, ConfigExtended, Command, AuthExtended, Settings,
  *      Agent, SkillsSh, Layout
@@ -23,7 +23,7 @@ import { injectable, inject } from 'tsyringe';
 import { TOKENS, verifyRpcRegistration } from '@ptah-extension/vscode-core';
 import type { Logger, RpcHandler } from '@ptah-extension/vscode-core';
 
-// Shared handler classes (all 16)
+// Shared handler classes (all 17)
 import {
   SessionRpcHandlers,
   ChatRpcHandlers,
@@ -41,6 +41,7 @@ import {
   QualityRpcHandlers,
   ProviderRpcHandlers,
   LlmRpcHandlers,
+  WebSearchRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific handler classes
@@ -71,7 +72,7 @@ export class ElectronRpcMethodRegistrationService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
-    // Shared handlers (all 16)
+    // Shared handlers (all 17)
     @inject(SessionRpcHandlers)
     private readonly sessionHandlers: SessionRpcHandlers,
     @inject(ChatRpcHandlers) private readonly chatHandlers: ChatRpcHandlers,
@@ -100,6 +101,8 @@ export class ElectronRpcMethodRegistrationService {
     @inject(ProviderRpcHandlers)
     private readonly providerHandlers: ProviderRpcHandlers,
     @inject(LlmRpcHandlers) private readonly llmHandlers: LlmRpcHandlers,
+    @inject(WebSearchRpcHandlers)
+    private readonly webSearchHandlers: WebSearchRpcHandlers,
     // Electron-specific handlers
     @inject(ElectronWorkspaceRpcHandlers)
     private readonly workspaceHandlers: ElectronWorkspaceRpcHandlers,
@@ -175,6 +178,7 @@ export class ElectronRpcMethodRegistrationService {
       { name: 'QualityRpcHandlers', handler: this.qualityHandlers },
       { name: 'ProviderRpcHandlers', handler: this.providerHandlers },
       { name: 'LlmRpcHandlers', handler: this.llmHandlers },
+      { name: 'WebSearchRpcHandlers', handler: this.webSearchHandlers },
     ];
 
     for (const { name, handler } of sharedHandlers) {

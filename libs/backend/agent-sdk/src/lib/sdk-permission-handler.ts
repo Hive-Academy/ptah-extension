@@ -20,7 +20,7 @@
  * session abort or extension deactivation.
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import {
   Logger,
   TOKENS,
@@ -158,7 +158,7 @@ interface WebviewManager {
   sendMessage<T = unknown>(
     viewType: string,
     type: string,
-    payload: T
+    payload: T,
   ): Promise<void>;
 }
 
@@ -214,13 +214,30 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    */
   private emitterInitialized = false;
 
+  /**
+   * WebviewManager is optional: present in VS Code for permission prompt UI,
+   * absent in Electron where WebviewManager is registered AFTER SDK services resolve.
+   * Resolved lazily via container.isRegistered() to avoid DI crash in Electron.
+   *
+   * When absent, permission-related webview messages (permission requests,
+   * plan mode changes, session cleanup notifications) are silently skipped.
+   * The permission logic itself still works — tools get auto-approved or denied
+   * based on permission level — but there is no interactive UI prompt.
+   */
+  private readonly webviewManager: WebviewManager | undefined;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
-    private readonly subagentRegistry: SubagentRegistryService
+    private readonly subagentRegistry: SubagentRegistryService,
   ) {
+    // Resolve WebviewManager lazily: in Electron the token is not registered
+    // at the time SDK services are resolved. Uses the same container.isRegistered()
+    // pattern as CodeExecutionMCP in vscode-lm-tools.
+    this.webviewManager = container.isRegistered(TOKENS.WEBVIEW_MANAGER)
+      ? container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER)
+      : undefined;
+
     // Initialize permission emitter on construction
     this.initializePermissionEmitter();
   }
@@ -235,7 +252,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const previous = this._permissionLevel;
     this._permissionLevel = level;
     this.logger.info(
-      `[SdkPermissionHandler] Permission level changed: ${previous} → ${level}`
+      `[SdkPermissionHandler] Permission level changed: ${previous} → ${level}`,
     );
   }
 
@@ -258,13 +275,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     }
 
     this.logger.info(
-      '[SdkPermissionHandler] Initializing permission event emitter...'
+      '[SdkPermissionHandler] Initializing permission event emitter...',
     );
 
     this.emitterInitialized = true;
 
     this.logger.info(
-      '[SdkPermissionHandler] Permission event emitter initialized successfully'
+      '[SdkPermissionHandler] Permission event emitter initialized successfully',
     );
   }
 
@@ -281,18 +298,37 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     });
 
     // Send to webview - fire and forget (async but we don't await)
+    // In Electron, webviewManager may be undefined — auto-approve to avoid permanent hang
+    if (!this.webviewManager) {
+      this.logger.warn(
+        `[SdkPermissionHandler] No WebviewManager available (Electron) — auto-resolving permission request`,
+        { requestId: payload.id, toolName: payload.toolName },
+      );
+      const pending = this.pendingRequests.get(payload.id);
+      if (pending) {
+        this.pendingRequests.delete(payload.id);
+        this.pendingRequestContext.delete(payload.id);
+        pending.resolve({
+          id: payload.id,
+          decision: 'allow',
+          reason: 'Auto-approved: no webview UI available (Electron)',
+        });
+      }
+      return;
+    }
+
     this.webviewManager
       .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_REQUEST, payload)
       .then(() => {
         this.logger.info(
           `[SdkPermissionHandler] Permission event sent to webview`,
-          { requestId: payload.id }
+          { requestId: payload.id },
         );
       })
       .catch((error) => {
         this.logger.error(
           `[SdkPermissionHandler] Failed to send permission event`,
-          { error }
+          { error },
         );
         // If send fails, resolve pending request to avoid permanent hang
         // (TASK_2025_215: no timeout fallback anymore)
@@ -329,7 +365,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         decisionReason?: string;
         toolUseID: string;
         agentID?: string;
-      }
+      },
     ): Promise<PermissionResult> => {
       // CRITICAL: Log every canUseTool invocation for debugging
       this.logger.info(
@@ -343,7 +379,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           isNetwork: NETWORK_TOOLS.includes(toolName),
           isSubagent: SUBAGENT_TOOLS.includes(toolName),
           isMcp: isMcpTool(toolName),
-        }
+        },
       );
 
       // Auto-approve safe tools (no user prompt needed)
@@ -352,19 +388,19 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         if (toolName === 'EnterPlanMode') {
           this.logger.info(`[SdkPermissionHandler] Agent entered plan mode`);
           this.webviewManager
-            .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+            ?.sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
               active: true,
             })
             .catch((error) => {
               this.logger.error(
                 `[SdkPermissionHandler] Failed to send plan mode changed event`,
-                { error }
+                { error },
               );
             });
         }
 
         this.logger.debug(
-          `[SdkPermissionHandler] Auto-approved safe tool: ${toolName}`
+          `[SdkPermissionHandler] Auto-approved safe tool: ${toolName}`,
         );
         return {
           behavior: 'allow' as const,
@@ -378,13 +414,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // cause the agent to proceed without actual user input.
       if (toolName === 'AskUserQuestion') {
         this.logger.info(
-          `[SdkPermissionHandler] Handling AskUserQuestion tool request (bypasses all auto-approval)`
+          `[SdkPermissionHandler] Handling AskUserQuestion tool request (bypasses all auto-approval)`,
         );
         return await this.handleAskUserQuestion(
           input,
           options.toolUseID,
           sessionId,
-          options.signal
+          options.signal,
         );
       }
 
@@ -395,13 +431,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // executions (e.g. Write tool interrupted before completion).
       if (toolName === 'ExitPlanMode') {
         this.logger.info(
-          `[SdkPermissionHandler] Handling ExitPlanMode tool request (bypasses all auto-approval)`
+          `[SdkPermissionHandler] Handling ExitPlanMode tool request (bypasses all auto-approval)`,
         );
         return await this.handleExitPlanMode(
           input,
           options.toolUseID,
           sessionId,
-          options.signal
+          options.signal,
         );
       }
 
@@ -409,7 +445,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // 'yolo' mode: auto-approve ALL tools unconditionally
       if (this._permissionLevel === 'yolo') {
         this.logger.info(
-          `[SdkPermissionHandler] YOLO mode: auto-approved tool: ${toolName}`
+          `[SdkPermissionHandler] YOLO mode: auto-approved tool: ${toolName}`,
         );
         return {
           behavior: 'allow' as const,
@@ -422,7 +458,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       if (this._permissionLevel === 'auto-edit') {
         if (AUTO_EDIT_TOOLS.includes(toolName)) {
           this.logger.info(
-            `[SdkPermissionHandler] Auto-edit mode: auto-approved file tool: ${toolName}`
+            `[SdkPermissionHandler] Auto-edit mode: auto-approved file tool: ${toolName}`,
           );
           return {
             behavior: 'allow' as const,
@@ -438,7 +474,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // and will surface a permission request to the chat UI.
       if (options.agentID) {
         const bgToolCallId = this.subagentRegistry.getToolCallIdByAgentId(
-          options.agentID
+          options.agentID,
         );
         if (bgToolCallId) {
           const bgRecord = this.subagentRegistry.get(bgToolCallId);
@@ -450,7 +486,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
                   agentID: options.agentID,
                   toolCallId: bgToolCallId,
                   agentType: bgRecord.agentType,
-                }
+                },
               );
               return {
                 behavior: 'allow' as const,
@@ -466,7 +502,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       if (storedRule && storedRule.action === 'allow') {
         this.logger.info(
           `[SdkPermissionHandler] Auto-approved via "Always Allow" rule: ${toolName}`,
-          { ruleId: storedRule.id }
+          { ruleId: storedRule.id },
         );
         return {
           behavior: 'allow' as const,
@@ -477,7 +513,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // Dangerous tools require user approval
       if (DANGEROUS_TOOLS.includes(toolName)) {
         this.logger.info(
-          `[SdkPermissionHandler] Requesting user permission for dangerous tool: ${toolName}`
+          `[SdkPermissionHandler] Requesting user permission for dangerous tool: ${toolName}`,
         );
         return await this.requestUserPermission(
           toolName,
@@ -485,14 +521,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.toolUseID,
           sessionId,
           options.agentID,
-          options.signal
+          options.signal,
         );
       }
 
       // Network tools require user approval (external requests)
       if (NETWORK_TOOLS.includes(toolName)) {
         this.logger.info(
-          `[SdkPermissionHandler] Requesting user permission for network tool: ${toolName}`
+          `[SdkPermissionHandler] Requesting user permission for network tool: ${toolName}`,
         );
         return await this.requestUserPermission(
           toolName,
@@ -500,14 +536,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.toolUseID,
           sessionId,
           options.agentID,
-          options.signal
+          options.signal,
         );
       }
 
       // Subagent tools are auto-approved (user initiated the session)
       if (SUBAGENT_TOOLS.includes(toolName)) {
         this.logger.debug(
-          `[SdkPermissionHandler] Auto-approved subagent tool: ${toolName}`
+          `[SdkPermissionHandler] Auto-approved subagent tool: ${toolName}`,
         );
         return {
           behavior: 'allow' as const,
@@ -518,7 +554,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // MCP tools require user approval (can execute arbitrary code)
       if (isMcpTool(toolName)) {
         this.logger.info(
-          `[SdkPermissionHandler] Requesting user permission for MCP tool: ${toolName}`
+          `[SdkPermissionHandler] Requesting user permission for MCP tool: ${toolName}`,
         );
         return await this.requestUserPermission(
           toolName,
@@ -526,14 +562,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           options.toolUseID,
           sessionId,
           options.agentID,
-          options.signal
+          options.signal,
         );
       }
 
       // Unknown tools: prompt user for approval rather than silently denying
       // This handles any new tools added in future SDK versions
       this.logger.warn(
-        `[SdkPermissionHandler] Unknown tool encountered, requesting user permission: ${toolName}`
+        `[SdkPermissionHandler] Unknown tool encountered, requesting user permission: ${toolName}`,
       );
       return await this.requestUserPermission(
         toolName,
@@ -541,7 +577,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         options.toolUseID,
         sessionId,
         options.agentID,
-        options.signal
+        options.signal,
       );
     };
   }
@@ -565,7 +601,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     toolUseId?: string,
     sessionId?: string,
     agentID?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<PermissionResult> {
     // TASK_2025_097: Timing diagnostics - capture start time for latency measurement
     const startTime = Date.now();
@@ -597,7 +633,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           agentID,
           agentToolCallId,
           resolved: resolvedToolCallId !== null,
-        }
+        },
       );
     }
 
@@ -630,7 +666,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         toolUseId,
         agentToolCallId,
         messageType: MESSAGE_TYPES.PERMISSION_REQUEST,
-      }
+      },
     );
 
     this.sendPermissionRequest(request);
@@ -657,7 +693,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       // Aborted (signal fired or session cleanup) - deny with interrupt
       this.logger.warn(
         `[SdkPermissionHandler] Permission request ${requestId} aborted`,
-        { decision: 'aborted', interrupt: true }
+        { decision: 'aborted', interrupt: true },
       );
       return {
         behavior: 'deny' as const,
@@ -672,7 +708,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     if (isApproved) {
       this.logger.info(
         `[SdkPermissionHandler] Permission request ${requestId} approved for tool ${toolName}`,
-        { decision: response.decision, interrupt: false }
+        { decision: response.decision, interrupt: false },
       );
       return {
         behavior: 'allow' as const,
@@ -691,7 +727,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           decision: 'deny_with_message',
           reason: userReason,
           interrupt: false,
-        }
+        },
       );
       // Prefix with clear context so the model understands this is a deliberate
       // user decision, not a transient tool error. Without this prefix the model
@@ -710,7 +746,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         decision: 'deny',
         reason: response.reason || 'No reason provided',
         interrupt: true,
-      }
+      },
     );
     return {
       behavior: 'deny' as const,
@@ -731,7 +767,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const pending = this.pendingRequests.get(requestId);
     if (!pending) {
       this.logger.warn(
-        `[SdkPermissionHandler] Received response for unknown request: ${requestId}`
+        `[SdkPermissionHandler] Received response for unknown request: ${requestId}`,
       );
       return;
     }
@@ -761,7 +797,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
       this.logger.info(
         `[SdkPermissionHandler] Created "Always Allow" rule for tool: ${requestContext.toolName}`,
-        { ruleId: rule.id }
+        { ruleId: rule.id },
       );
 
       // Auto-resolve other pending requests for the same tool
@@ -786,14 +822,14 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
         // Notify frontend to dismiss the UI card
         this.webviewManager
-          .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
+          ?.sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_AUTO_RESOLVED, {
             id: pendingId,
             toolName,
           })
           .catch((error) => {
             this.logger.error(
               `[SdkPermissionHandler] Failed to send auto-resolved event`,
-              { error, pendingId }
+              { error, pendingId },
             );
           });
       }
@@ -801,7 +837,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       if (autoResolvedIds.length > 0) {
         this.logger.info(
           `[SdkPermissionHandler] Auto-resolved ${autoResolvedIds.length} sibling requests for tool: ${toolName}`,
-          { autoResolvedIds }
+          { autoResolvedIds },
         );
       }
     }
@@ -818,7 +854,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     this.logger.debug(
       `[SdkPermissionHandler] Handled response for request ${requestId}: ${
         isApproved ? 'approved' : 'denied'
-      } (decision: ${response.decision})`
+      } (decision: ${response.decision})`,
     );
   }
 
@@ -836,7 +872,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     input: Record<string, unknown>,
     toolUseId: string,
     sessionId?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<PermissionResult> {
     // Validate input using type guard
     if (!isAskUserQuestionToolInput(input)) {
@@ -870,23 +906,35 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       toolUseId,
     });
 
-    // Send to webview
+    // Send to webview — in Electron, webviewManager may be undefined
+    if (!this.webviewManager) {
+      this.logger.warn(
+        `[SdkPermissionHandler] No WebviewManager available (Electron) — cannot prompt AskUserQuestion`,
+        { requestId },
+      );
+      // Cannot prompt user without webview — deny the question
+      return {
+        behavior: 'deny' as const,
+        message: 'AskUserQuestion unavailable: no webview UI (Electron)',
+      };
+    }
+
     this.webviewManager
       .sendMessage(
         'ptah.main',
         MESSAGE_TYPES.ASK_USER_QUESTION_REQUEST,
-        request
+        request,
       )
       .then(() => {
         this.logger.info(
           `[SdkPermissionHandler] AskUserQuestion request sent to webview`,
-          { requestId }
+          { requestId },
         );
       })
       .catch((error) => {
         this.logger.error(
           `[SdkPermissionHandler] Failed to send AskUserQuestion request`,
-          { error }
+          { error },
         );
         // If send fails, resolve pending question to avoid permanent hang
         const pending = this.pendingQuestionRequests.get(request.id);
@@ -900,7 +948,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const response = await this.awaitQuestionResponse(
       requestId,
       signal,
-      sessionId
+      sessionId,
     );
 
     if (!response) {
@@ -948,13 +996,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     input: Record<string, unknown>,
     toolUseId: string,
     sessionId?: string,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<PermissionResult> {
     // Validate input — ExitPlanMode must contain a plan string
     if (!isExitPlanModeToolInput(input)) {
       this.logger.warn(
         '[SdkPermissionHandler] Invalid ExitPlanMode input — missing plan field',
-        { input }
+        { input },
       );
       return {
         behavior: 'deny' as const,
@@ -969,7 +1017,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       {
         toolUseId,
         planLength: input.plan.length,
-      }
+      },
     );
 
     const result = await this.requestUserPermission(
@@ -978,27 +1026,27 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       toolUseId,
       sessionId,
       undefined, // agentID - ExitPlanMode is never called from subagents
-      signal
+      signal,
     );
 
     // On approval: notify frontend that plan mode is ending
     if (result.behavior === 'allow') {
       this.logger.info(
-        '[SdkPermissionHandler] ExitPlanMode approved — SDK will clear context and begin execution'
+        '[SdkPermissionHandler] ExitPlanMode approved — SDK will clear context and begin execution',
       );
       this.webviewManager
-        .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+        ?.sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
           active: false,
         })
         .catch((error) => {
           this.logger.error(
             `[SdkPermissionHandler] Failed to send plan mode exited event`,
-            { error }
+            { error },
           );
         });
     } else {
       this.logger.info(
-        '[SdkPermissionHandler] ExitPlanMode denied — agent stays in plan mode'
+        '[SdkPermissionHandler] ExitPlanMode denied — agent stays in plan mode',
       );
     }
 
@@ -1016,7 +1064,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async awaitQuestionResponse(
     requestId: string,
     signal?: AbortSignal,
-    sessionId?: string
+    sessionId?: string,
   ): Promise<AskUserQuestionResponse | null> {
     return new Promise<AskUserQuestionResponse | null>((resolve) => {
       // If already aborted, resolve immediately
@@ -1053,7 +1101,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const pending = this.pendingQuestionRequests.get(response.id);
     if (!pending) {
       this.logger.warn(
-        `[SdkPermissionHandler] Received question response for unknown request: ${response.id}`
+        `[SdkPermissionHandler] Received question response for unknown request: ${response.id}`,
       );
       return;
     }
@@ -1063,7 +1111,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     pending.resolve(response);
 
     this.logger.debug(
-      `[SdkPermissionHandler] Handled question response for request ${response.id}`
+      `[SdkPermissionHandler] Handled question response for request ${response.id}`,
     );
   }
 
@@ -1078,7 +1126,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   private async awaitResponse(
     requestId: string,
     signal?: AbortSignal,
-    sessionId?: string
+    sessionId?: string,
   ): Promise<PermissionResponse | null> {
     return new Promise<PermissionResponse | null>((resolve) => {
       // If already aborted, resolve immediately
@@ -1115,7 +1163,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    * Prevents accidental exposure of secrets in permission prompts.
    */
   private sanitizeToolInput(
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
   ): Record<string, unknown> {
     if (!input || typeof input !== 'object') {
       return input;
@@ -1127,18 +1175,21 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const env = sanitized['env'];
     if (env && typeof env === 'object' && !Array.isArray(env)) {
       const envRecord = env as Record<string, unknown>;
-      sanitized['env'] = Object.keys(envRecord).reduce((acc, key) => {
-        // Redact keys that likely contain secrets
-        const isSecret =
-          key.toUpperCase().includes('KEY') ||
-          key.toUpperCase().includes('TOKEN') ||
-          key.toUpperCase().includes('SECRET') ||
-          key.toUpperCase().includes('PASSWORD') ||
-          key.toUpperCase().includes('API');
+      sanitized['env'] = Object.keys(envRecord).reduce(
+        (acc, key) => {
+          // Redact keys that likely contain secrets
+          const isSecret =
+            key.toUpperCase().includes('KEY') ||
+            key.toUpperCase().includes('TOKEN') ||
+            key.toUpperCase().includes('SECRET') ||
+            key.toUpperCase().includes('PASSWORD') ||
+            key.toUpperCase().includes('API');
 
-        acc[key] = isSecret ? '***REDACTED***' : envRecord[key];
-        return acc;
-      }, {} as Record<string, unknown>);
+          acc[key] = isSecret ? '***REDACTED***' : envRecord[key];
+          return acc;
+        },
+        {} as Record<string, unknown>,
+      );
     }
 
     // Sanitize command strings that might contain secrets
@@ -1173,7 +1224,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    */
   private generateDescription(
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
   ): string {
     // Handle MCP tools (format: mcp__server-name__tool-name)
     if (isMcpTool(toolName)) {
@@ -1282,7 +1333,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    */
   dispose(): void {
     this.logger.info(
-      `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests, ${this.pendingQuestionRequests.size} pending question requests, and ${this.permissionRules.size} permission rules`
+      `[SdkPermissionHandler] Disposing ${this.pendingRequests.size} pending permission requests, ${this.pendingQuestionRequests.size} pending question requests, and ${this.permissionRules.size} permission rules`,
     );
 
     // Resolve all pending permission requests as denied
@@ -1354,13 +1405,13 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
       // Notify frontend to remove stale permission/question cards for this session
       this.webviewManager
-        .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP, {
+        ?.sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_SESSION_CLEANUP, {
           sessionId,
         })
         .catch((error) => {
           this.logger.error(
             '[SdkPermissionHandler] Failed to send session cleanup notification',
-            { error }
+            { error },
           );
         });
     } else {
@@ -1383,19 +1434,19 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     // Reset agent plan mode indicator on session end
     this.webviewManager
-      .sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
+      ?.sendMessage('ptah.main', MESSAGE_TYPES.PLAN_MODE_CHANGED, {
         active: false,
       })
       .catch((error) => {
         this.logger.error(
           `[SdkPermissionHandler] Failed to send plan mode reset`,
-          { error }
+          { error },
         );
       });
 
     this.logger.info(
       `[SdkPermissionHandler] Pending permissions cleanup complete`,
-      { sessionId: sessionId ?? 'all' }
+      { sessionId: sessionId ?? 'all' },
     );
   }
 
@@ -1414,7 +1465,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const deleted = this.permissionRules.delete(toolName);
     if (deleted) {
       this.logger.info(
-        `[SdkPermissionHandler] Cleared permission rule for tool: ${toolName}`
+        `[SdkPermissionHandler] Cleared permission rule for tool: ${toolName}`,
       );
     }
     return deleted;
@@ -1427,7 +1478,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     const count = this.permissionRules.size;
     this.permissionRules.clear();
     this.logger.info(
-      `[SdkPermissionHandler] Cleared all ${count} permission rules`
+      `[SdkPermissionHandler] Cleared all ${count} permission rules`,
     );
   }
 }

@@ -108,9 +108,10 @@ import {
   ElectronModelDiscovery,
 } from '../services/platform';
 
-// Shared RPC handler classes (TASK_2025_203 Batch 5: all 16 shared handlers)
+// Shared RPC handler classes (TASK_2025_203 Batch 5: all 17 shared handlers)
 // These are platform-agnostic handlers that can be used in both VS Code and Electron.
 // TASK_2025_209: LlmRpcHandlers now included (rewritten to be platform-agnostic).
+// TASK_2025_241: WebSearchRpcHandlers added (web search settings management).
 import {
   SessionRpcHandlers,
   ChatRpcHandlers,
@@ -128,6 +129,7 @@ import {
   QualityRpcHandlers,
   ProviderRpcHandlers,
   LlmRpcHandlers,
+  WebSearchRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5)
@@ -656,10 +658,11 @@ export class ElectronDIContainer {
     registerVsCodeLmToolsServices(container, logger);
 
     // ========================================
-    // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209)
+    // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209, TASK_2025_241)
     // ========================================
-    // Register all 16 shared handler classes from @ptah-extension/rpc-handlers.
+    // Register all 17 shared handler classes from @ptah-extension/rpc-handlers.
     // TASK_2025_209: LlmRpcHandlers now included (rewritten to be platform-agnostic).
+    // TASK_2025_241: WebSearchRpcHandlers added (web search settings management).
     container.registerSingleton(SessionRpcHandlers);
     container.registerSingleton(ChatRpcHandlers);
     container.registerSingleton(ConfigRpcHandlers);
@@ -721,6 +724,8 @@ export class ElectronDIContainer {
           c,
         ),
     });
+    // TASK_2025_241: WebSearchRpcHandlers - web search settings management (API keys, config, testing)
+    container.registerSingleton(WebSearchRpcHandlers);
 
     logger.info(
       '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
@@ -742,6 +747,7 @@ export class ElectronDIContainer {
           'QualityRpcHandlers',
           'ProviderRpcHandlers',
           'LlmRpcHandlers',
+          'WebSearchRpcHandlers',
         ],
       },
     );
