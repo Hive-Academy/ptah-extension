@@ -26,7 +26,7 @@ export const AgentId = {
   validate(id: string): id is AgentId {
     // AgentIds are UUIDs
     return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      id
+      id,
     );
   },
   from(id: string): AgentId {
@@ -181,6 +181,8 @@ export interface CliDetectionResult {
   readonly providerName?: string;
   /** Provider ID (e.g., 'moonshot', 'z-ai') — only set when cli === 'ptah-cli' */
   readonly providerId?: string;
+  /** User's preferred rank (1 = highest). 0 or absent means unranked. Set by ptah_agent_list. */
+  readonly preferredRank?: number;
 }
 
 // ========================================

@@ -1345,6 +1345,15 @@ export class AgentProcessManager {
     // Known system CLI types (not Ptah CLI IDs)
     const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
 
+    // Read disabled CLIs to exclude them from selection
+    const disabledClis = new Set(
+      this.workspace.getConfiguration<string[]>(
+        'ptah.agentOrchestration',
+        'disabledClis',
+        [],
+      ) ?? [],
+    );
+
     // Read user's preferred agent order
     const preferredOrder =
       this.workspace.getConfiguration<string[]>(
@@ -1359,13 +1368,18 @@ export class AgentProcessManager {
           preferredOrder.length > 0
             ? preferredOrder.join(', ')
             : 'none (auto-detect)',
+        disabled: disabledClis.size > 0 ? [...disabledClis].join(', ') : 'none',
       },
     );
 
-    // Iterate preferred list and return first installed system CLI
+    // Iterate preferred list and return first installed, enabled system CLI
     for (const entry of preferredOrder) {
       // Skip Ptah CLI IDs — they are handled by the namespace builder, not here
       if (!systemCliTypes.has(entry)) {
+        continue;
+      }
+      // Skip disabled CLIs
+      if (disabledClis.has(entry)) {
         continue;
       }
 
@@ -1388,19 +1402,20 @@ export class AgentProcessManager {
       }
     }
 
-    // Fallback: auto-detect first installed CLI
+    // Fallback: auto-detect first installed CLI that is not disabled
     const installed = await this.cliDetection.getInstalledClis();
+    const enabled = installed.filter((c) => !disabledClis.has(c.cli));
     this.logger.debug(
       '[AgentProcessManager] getPreferredCli: auto-detect installed CLIs',
       {
-        count: installed.length,
-        clis: installed.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
+        count: enabled.length,
+        clis: enabled.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
       },
     );
 
-    if (installed.length === 0) return null;
+    if (enabled.length === 0) return null;
 
-    return installed[0].cli;
+    return enabled[0].cli;
   }
 
   private getWorkspaceRoot(): string {

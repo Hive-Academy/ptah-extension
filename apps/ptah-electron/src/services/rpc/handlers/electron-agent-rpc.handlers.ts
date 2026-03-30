@@ -256,6 +256,12 @@ export class ElectronAgentRpcHandlers {
             Math.max(1024, Math.min(65535, params.mcpPort)),
           );
         }
+        if (params.disabledClis !== undefined) {
+          await this.stateStorage.update(
+            'agentOrchestration.disabledClis',
+            params.disabledClis,
+          );
+        }
 
         this.logger.debug('RPC: agent:setConfig success');
         return { success: true };

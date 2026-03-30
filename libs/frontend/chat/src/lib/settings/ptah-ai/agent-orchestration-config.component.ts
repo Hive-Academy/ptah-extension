@@ -112,11 +112,13 @@ import type {
                     let last = $last
                   ) {
                     <div
-                      class="flex items-center gap-1.5 px-2 py-1 rounded border border-base-300/40 bg-base-200/30"
+                      class="flex items-center gap-1.5 px-2 py-1 rounded border border-base-300/40 bg-base-200/30 transition-opacity"
+                      [class.opacity-40]="agent.disabled"
                     >
                       <lucide-angular
                         [img]="GripVerticalIcon"
                         class="w-3 h-3 text-base-content/20 shrink-0"
+                        aria-hidden="true"
                       />
                       <lucide-angular
                         [img]="TerminalIcon"
@@ -125,7 +127,11 @@ import type {
                       <span class="text-[11px] flex-1 truncate">{{
                         agent.name
                       }}</span>
-                      @if (agent.type === 'ptah-cli') {
+                      @if (agent.disabled) {
+                        <span class="badge badge-xs badge-ghost text-[8px]"
+                          >Off</span
+                        >
+                      } @else if (agent.type === 'ptah-cli') {
                         <span class="badge badge-xs badge-ghost text-[8px]"
                           >Custom</span
                         >
@@ -543,24 +549,34 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   });
 
   /** Ordered list of all installed/enabled agents for the reorderable UI */
+  /**
+   * Ordered list of all installed agents for the reorderable UI.
+   * Disabled agents are included (shown dimmed) to preserve their position
+   * in the preferred order when re-enabled.
+   */
   readonly orderedAgents = computed(() => {
     const config = this.agentConfig();
     if (!config) return [];
 
-    const disabledClis = config.disabledClis ?? [];
+    const disabledClis = new Set(config.disabledClis ?? []);
 
-    // Build list of all available agents
-    const agents: { id: string; name: string; type: 'system' | 'ptah-cli' }[] =
-      [];
+    // Build list of all installed agents (including disabled ones)
+    const agents: {
+      id: string;
+      name: string;
+      type: 'system' | 'ptah-cli';
+      disabled: boolean;
+    }[] = [];
     for (const cli of config.detectedClis) {
       if (!cli.installed) continue;
       const id = cli.ptahCliId ?? cli.cli;
-      if (disabledClis.includes(cli.cli) && !cli.ptahCliId) continue;
+      const isDisabled = !cli.ptahCliId && disabledClis.has(cli.cli);
       agents.push({
         id,
         name:
           cli.ptahCliName ?? cli.cli.charAt(0).toUpperCase() + cli.cli.slice(1),
         type: cli.ptahCliId ? 'ptah-cli' : 'system',
+        disabled: isDisabled,
       });
     }
 
@@ -678,14 +694,6 @@ export class AgentOrchestrationConfigComponent implements OnInit {
         c ? { ...c, maxConcurrentAgents: value } : c,
       );
     }
-  }
-
-  isCliInstalled(cli: string): boolean {
-    return (
-      this.agentConfig()?.detectedClis.some(
-        (c) => c.cli === cli && c.installed,
-      ) ?? false
-    );
   }
 
   async toggleAutoApprove(cli: 'codex' | 'copilot'): Promise<void> {

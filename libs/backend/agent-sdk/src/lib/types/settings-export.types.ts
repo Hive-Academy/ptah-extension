@@ -80,6 +80,7 @@ export const KNOWN_CONFIG_KEYS = [
   'mcpPort',
   'apiUrl',
   'agentOrchestration.preferredAgentOrder',
+  'agentOrchestration.disabledClis',
   'agentOrchestration.maxConcurrentAgents',
   'agentOrchestration.geminiModel',
   'agentOrchestration.copilotModel',

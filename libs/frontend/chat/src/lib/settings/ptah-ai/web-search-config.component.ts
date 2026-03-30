@@ -67,8 +67,9 @@ const PROVIDER_OPTIONS: readonly ProviderOption[] = [
   standalone: true,
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'mt-4 block' },
   template: `
-    <div class="border border-secondary/30 rounded-md bg-secondary/5 mt-3">
+    <div class="border border-secondary/30 rounded-md bg-secondary/5">
       <div class="p-3">
         <div class="flex items-center gap-1.5 mb-2">
           <lucide-angular [img]="GlobeIcon" class="w-4 h-4 text-secondary" />

@@ -26,9 +26,10 @@ import { LlmProviderStateService } from '@ptah-extension/core';
   standalone: true,
   imports: [LucideAngularModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'mt-4 block' },
   template: `
     @if (vscodeLmProvider(); as provider) {
-      <div class="border border-secondary/30 rounded-md bg-secondary/5 mt-3">
+      <div class="border border-secondary/30 rounded-md bg-secondary/5">
         <div class="p-3">
           <!-- Provider header row -->
           <div class="flex items-center justify-between">
