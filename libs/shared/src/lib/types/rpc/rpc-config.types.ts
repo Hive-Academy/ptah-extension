@@ -71,13 +71,14 @@ export interface ConfigAutopilotGetResult {
 
 /** Model information from SDK for config:models-list response */
 export interface SdkModelInfo {
-  id: string; // Full API name (e.g., 'claude-sonnet-4-20250514')
+  id: string; // Model value from SDK (e.g., 'sonnet', 'opus', 'claude-sonnet-4-5-20250514')
   name: string; // Display name (e.g., 'Claude Sonnet 4')
   description: string; // Model description
   apiName: string; // Same as id (for compatibility)
   isSelected: boolean; // Whether this model is currently selected
   isRecommended?: boolean; // Whether this model is recommended
   providerModelId: string | null; // Actual provider model (e.g., 'openai/gpt-5.1-codex-max' when using OpenRouter tier overrides)
+  tier?: 'opus' | 'sonnet' | 'haiku'; // Detected model tier for provider override mapping
 }
 
 /** Response from config:models-list RPC method */

@@ -39,10 +39,10 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (!isLoadingLicenseStatus()) {
-      <div class="border border-base-300 rounded-md bg-base-200/50">
+      <div class="border border-secondary/30 rounded-md bg-secondary/5">
         <div class="p-3">
           <div class="flex items-center gap-1.5 mb-2">
-            <lucide-angular [img]="ShieldIcon" class="w-4 h-4" />
+            <lucide-angular [img]="ShieldIcon" class="w-4 h-4 text-secondary" />
             <h2 class="text-xs font-medium uppercase tracking-wide">
               License Status
             </h2>

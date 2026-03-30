@@ -32,6 +32,11 @@ import {
   type CompactionStartCallback,
 } from './compaction-hook-handler';
 import {
+  WorktreeHookHandler,
+  type WorktreeCreatedCallback,
+  type WorktreeRemovedCallback,
+} from './worktree-hook-handler';
+import {
   CanUseTool,
   HookEvent,
   HookCallbackMatcher,
@@ -258,6 +263,10 @@ export interface QueryOptionsInput {
    * Called when SDK begins compacting (summarizing) conversation history
    */
   onCompactionStart?: CompactionStartCallback;
+  /** Callback when SDK creates a worktree (TASK_2025_236) */
+  onWorktreeCreated?: WorktreeCreatedCallback;
+  /** Callback when SDK removes a worktree (TASK_2025_236) */
+  onWorktreeRemoved?: WorktreeRemovedCallback;
   /**
    * Premium user flag - enables MCP server and Ptah system prompt
    * When true, enables Ptah MCP server and appends PTAH_CORE_SYSTEM_PROMPT
@@ -384,6 +393,8 @@ export class SdkQueryOptionsBuilder {
     private readonly compactionConfigProvider: CompactionConfigProvider,
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
     private readonly compactionHookHandler: CompactionHookHandler,
+    @inject(SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER)
+    private readonly worktreeHookHandler: WorktreeHookHandler,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
   ) {}
 
@@ -413,6 +424,8 @@ export class SdkQueryOptionsBuilder {
       resumeSessionId,
       sessionId,
       onCompactionStart,
+      onWorktreeCreated,
+      onWorktreeRemoved,
       isPremium = false,
       mcpServerRunning = true,
       enhancedPromptsContent,
@@ -450,9 +463,16 @@ export class SdkQueryOptionsBuilder {
     const canUseToolCallback: CanUseTool =
       this.permissionHandler.createCallback(sessionId);
 
-    // Create merged hooks (subagent + compaction)
+    // Create merged hooks (subagent + compaction + worktree)
     // TASK_2025_098: Pass sessionId and callback for compaction hooks
-    const hooks = this.createHooks(cwd, sessionId, onCompactionStart);
+    // TASK_2025_236: Pass worktree callbacks for worktree hooks
+    const hooks = this.createHooks(
+      cwd,
+      sessionId,
+      onCompactionStart,
+      onWorktreeCreated,
+      onWorktreeRemoved,
+    );
 
     // Get compaction configuration (TASK_2025_098)
     const compactionConfig = this.compactionConfigProvider.getConfig();
@@ -687,20 +707,25 @@ export class SdkQueryOptionsBuilder {
   }
 
   /**
-   * Create merged lifecycle hooks (subagent + compaction)
+   * Create merged lifecycle hooks (subagent + compaction + worktree)
    *
    * TASK_2025_098: Now creates both subagent hooks and compaction hooks,
    * merging them into a single hooks object for SDK query options.
+   * TASK_2025_236: Added worktree hooks for WorktreeCreate/WorktreeRemove events.
    *
    * @param cwd - Working directory for subagent hooks
    * @param sessionId - Session ID for compaction hooks (optional)
    * @param onCompactionStart - Callback for compaction start (optional)
+   * @param onWorktreeCreated - Callback for worktree creation (optional, TASK_2025_236)
+   * @param onWorktreeRemoved - Callback for worktree removal (optional, TASK_2025_236)
    * @returns Merged hooks configuration for SDK query options
    */
   private createHooks(
     cwd: string,
     sessionId?: string,
     onCompactionStart?: CompactionStartCallback,
+    onWorktreeCreated?: WorktreeCreatedCallback,
+    onWorktreeRemoved?: WorktreeRemovedCallback,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     // Create subagent hooks (existing functionality)
     // TASK_2025_186: Pass sessionId as parentSessionId so SubagentStart hook
@@ -715,9 +740,15 @@ export class SdkQueryOptionsBuilder {
       onCompactionStart,
     );
 
+    // Create worktree hooks (TASK_2025_236)
+    const worktreeHooks = this.worktreeHookHandler.createHooks(
+      onWorktreeCreated,
+      onWorktreeRemoved,
+    );
+
     // Merge hooks safely — concatenate arrays for same event key to prevent overwrites
     const mergedHooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {};
-    for (const hooks of [subagentHooks, compactionHooks]) {
+    for (const hooks of [subagentHooks, compactionHooks, worktreeHooks]) {
       for (const [event, matchers] of Object.entries(hooks)) {
         const key = event as HookEvent;
         mergedHooks[key] = [...(mergedHooks[key] || []), ...matchers];
@@ -732,9 +763,13 @@ export class SdkQueryOptionsBuilder {
       hasSubagentStart: !!mergedHooks.SubagentStart,
       hasSubagentStop: !!mergedHooks.SubagentStop,
       hasPreCompact: !!mergedHooks.PreCompact,
+      hasWorktreeCreate: !!mergedHooks.WorktreeCreate,
+      hasWorktreeRemove: !!mergedHooks.WorktreeRemove,
       subagentStartHooksCount: mergedHooks.SubagentStart?.length ?? 0,
       subagentStopHooksCount: mergedHooks.SubagentStop?.length ?? 0,
       preCompactHooksCount: mergedHooks.PreCompact?.length ?? 0,
+      worktreeCreateHooksCount: mergedHooks.WorktreeCreate?.length ?? 0,
+      worktreeRemoveHooksCount: mergedHooks.WorktreeRemove?.length ?? 0,
       hasCompactionCallback: !!onCompactionStart,
     });
 

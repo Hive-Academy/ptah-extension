@@ -172,9 +172,9 @@ AskUserQuestion(questions: [
 
 ```bash
 # Check for UI/UX design deliverables
-Glob(.claude/specs/TASK_*/visual-design-specification.md)
-Glob(.claude/specs/TASK_*/design-assets-inventory.md)
-Glob(.claude/specs/TASK_*/design-handoff.md)
+Glob(.ptah/specs/TASK_*/visual-design-specification.md)
+Glob(.ptah/specs/TASK_*/design-assets-inventory.md)
+Glob(.ptah/specs/TASK_*/design-handoff.md)
 ```
 
 #### 2. Read All UI/UX Documents (If They Exist)
@@ -183,9 +183,9 @@ Glob(.claude/specs/TASK_*/design-handoff.md)
 
 ```bash
 # Read complete visual specifications
-Read(.claude/specs/TASK_[ID]/visual-design-specification.md)
-Read(.claude/specs/TASK_[ID]/design-assets-inventory.md)
-Read(.claude/specs/TASK_[ID]/design-handoff.md)
+Read(.ptah/specs/TASK_[ID]/visual-design-specification.md)
+Read(.ptah/specs/TASK_[ID]/design-assets-inventory.md)
+Read(.ptah/specs/TASK_[ID]/design-handoff.md)
 ```
 
 #### 3. Extract Design Specifications for Architecture
@@ -274,9 +274,9 @@ interface SectionContainerProps {
 ```markdown
 ## Visual Design References
 
-**Design Specifications**: .claude/specs/TASK*[ID]/visual-design-specification.md
-**Asset Inventory**: .claude/specs/TASK*[ID]/design-assets-inventory.md
-**Developer Handoff**: .claude/specs/TASK\_[ID]/design-handoff.md
+**Design Specifications**: .ptah/specs/TASK*[ID]/visual-design-specification.md
+**Asset Inventory**: .ptah/specs/TASK*[ID]/design-assets-inventory.md
+**Developer Handoff**: .ptah/specs/TASK\_[ID]/design-handoff.md
 
 ### Section Architecture (From Visual Specs)
 
@@ -295,12 +295,10 @@ Reference: visual-design-specification.md lines 450-680 (section-by-section spec
 Shared components specified by designer:
 
 1. **SectionContainer** (design-handoff.md:125-150)
-
    - Purpose: Enforce light design system, consistent section padding
    - Props: background, padding, className, children
 
 2. **LibraryShowcaseCard** (design-handoff.md:152-200)
-
    - Purpose: Reusable card for nested elements (NOT main library sections)
    - Props: library metadata, capabilities array, metric data
 
@@ -611,7 +609,7 @@ Explicitly distinguish between **verified facts** and **assumptions**:
 
 ```bash
 # Discover all markdown documents in task folder
-Glob(.claude/specs/TASK_*/**.md)
+Glob(.ptah/specs/TASK_*/**.md)
 # Result: List of all .md files in the task folder
 ```
 
@@ -712,7 +710,7 @@ Categorize discovered documents by filename patterns:
 
 ```bash
 # Step 1: Discover documents
-Glob(.claude/specs/TASK_2025_005/**.md)
+Glob(.ptah/specs/TASK_2025_005/**.md)
 
 # Result: 10 documents found
 # - context.md
@@ -819,7 +817,7 @@ Only skip Phase 0 if the user explicitly said "use your judgment" or "skip quest
 
 ```bash
 # Discover all documents in task folder
-Glob(.claude/specs/TASK_[ID]/**.md)
+Glob(.ptah/specs/TASK_[ID]/**.md)
 ```
 
 **Step 1b: Read Documents in Priority Order**
@@ -842,13 +840,11 @@ Glob(.claude/specs/TASK_[ID]/**.md)
 **Phase 2: Investigate the Codebase**
 
 1. **Find Similar Implementations**
-
    - Use Glob to find related files
    - Read examples to understand patterns
    - Extract reusable approaches
 
 2. **Verify Library Capabilities**
-
    - Read library CLAUDE.md files
    - Check decorator/API definitions
    - Understand supported features
@@ -861,13 +857,11 @@ Glob(.claude/specs/TASK_[ID]/**.md)
 **Phase 3: Design the Architecture**
 
 1. **Pattern Selection** (evidence-based)
-
    - Choose patterns that match codebase conventions
    - Justify with evidence from existing code
    - Explain why pattern fits the requirements
 
 2. **Component Specification** (codebase-aligned)
-
    - Define component purpose and responsibilities
    - Specify patterns and base classes to use
    - Document integration points
@@ -1082,14 +1076,12 @@ Focus on WHAT to build and WHY, not HOW to build it step-by-step:
 **Before Implementation, Team-Leader Must Ensure Developer Verifies**:
 
 1. **All imports exist in codebase**:
-
    - [Import 1] from [library/file:line]
    - [Import 2] from [library/file:line]
 
 2. **All patterns verified from examples**:
 
 3. **Library documentation consulted**:
-
    - [library]/CLAUDE.md
 
 4. **No hallucinated APIs**:

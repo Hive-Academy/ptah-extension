@@ -999,7 +999,7 @@ export type WizardMessage =
  * v2-only: represents multi-phase analysis slug directories.
  */
 export interface SavedAnalysisMetadata {
-  /** Slug directory name in .claude/analysis/ */
+  /** Slug directory name in .ptah/analysis/ */
   filename: string;
   /** ISO 8601 timestamp of when the analysis was saved */
   savedAt: string;

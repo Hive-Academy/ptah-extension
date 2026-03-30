@@ -56,19 +56,24 @@ export interface PtahAPI {
   // Agent orchestration namespace (TASK_2025_157)
   agent: AgentNamespace;
 
+  // Git worktree operations namespace (TASK_2025_236)
+  git: GitNamespace;
+
   // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
   dependencies: DependenciesNamespace;
 
-  // Web search namespace (TASK_2025_189)
+  // Web search namespace (TASK_2025_189, multi-provider TASK_2025_235)
   webSearch?: {
     search(
       query: string,
-      timeoutMs?: number
+      options?: { maxResults?: number; timeout?: number },
     ): Promise<{
       query: string;
       summary: string;
-      provider: 'gemini-cli';
+      provider: string;
       durationMs: number;
+      results: Array<{ title: string; url: string; snippet: string }>;
+      resultCount: number;
     }>;
   };
 
@@ -209,7 +214,7 @@ export interface FilesNamespace {
    * @returns Array of directory entries
    */
   list: (
-    directory: string
+    directory: string,
   ) => Promise<Array<{ name: string; type: 'file' | 'directory' }>>;
 }
 
@@ -273,8 +278,47 @@ export interface AgentNamespace {
    */
   waitFor: (
     agentId: string,
-    options?: { pollInterval?: number; timeout?: number }
+    options?: { pollInterval?: number; timeout?: number },
   ) => Promise<AgentProcessInfo>;
+}
+
+/**
+ * Git worktree operations namespace (TASK_2025_236)
+ * Provides list, add, and remove operations for git worktrees via CLI.
+ */
+export interface GitNamespace {
+  /**
+   * List all git worktrees in the current repository.
+   * Returns both the worktree list and any error that occurred,
+   * so the AI agent can distinguish "no worktrees" from "git error".
+   *
+   * @returns Object with worktrees array and optional error string
+   */
+  worktreeList(): Promise<{
+    worktrees: import('@ptah-extension/shared').GitWorktreeInfo[];
+    error?: string;
+  }>;
+
+  /**
+   * Create a new git worktree
+   * @param params - Branch name, optional path, and createBranch flag
+   * @returns Success status with worktree path or error
+   */
+  worktreeAdd(params: {
+    branch: string;
+    path?: string;
+    createBranch?: boolean;
+  }): Promise<{ success: boolean; worktreePath?: string; error?: string }>;
+
+  /**
+   * Remove a git worktree
+   * @param params - Worktree path and optional force flag
+   * @returns Success status or error
+   */
+  worktreeRemove(params: {
+    path: string;
+    force?: boolean;
+  }): Promise<{ success: boolean; error?: string }>;
 }
 
 // ========================================
@@ -425,7 +469,7 @@ export interface ContextNamespace {
    */
   optimize: (
     query: string,
-    maxTokens?: number
+    maxTokens?: number,
   ) => Promise<OptimizedContextResult>;
 
   /**
@@ -441,7 +485,7 @@ export interface ContextNamespace {
    * @returns Recommended max tokens
    */
   getRecommendedBudget: (
-    projectType: 'monorepo' | 'library' | 'application' | 'unknown'
+    projectType: 'monorepo' | 'library' | 'application' | 'unknown',
   ) => number;
 
   /**
@@ -453,7 +497,7 @@ export interface ContextNamespace {
    */
   enrichFile: (
     filePath: string,
-    language?: string
+    language?: string,
   ) => Promise<StructuralSummaryResult>;
 }
 
@@ -470,7 +514,7 @@ export interface DependenciesNamespace {
    */
   buildGraph: (
     filePaths: string[],
-    workspaceRoot: string
+    workspaceRoot: string,
   ) => Promise<{
     nodeCount: number;
     edgeCount: number;
@@ -859,7 +903,7 @@ export interface LSPNamespace {
   getDefinition: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<Location[]>;
 
   /**
@@ -872,7 +916,7 @@ export interface LSPNamespace {
   getReferences: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<Location[]>;
 
   /**
@@ -885,7 +929,7 @@ export interface LSPNamespace {
   getHover: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<HoverInfo | null>;
 
   /**
@@ -898,7 +942,7 @@ export interface LSPNamespace {
   getTypeDefinition: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<Location[]>;
 
   /**
@@ -911,7 +955,7 @@ export interface LSPNamespace {
   getSignatureHelp: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<SignatureHelp | null>;
 }
 
@@ -994,7 +1038,7 @@ export interface ActionsNamespace {
     file: string,
     line: number,
     col: number,
-    newName: string
+    newName: string,
   ) => Promise<boolean>;
 
   /**
@@ -1308,7 +1352,7 @@ export interface OrchestrationCheckpoint {
 /**
  * Orchestration workflow state
  * Persists the complete state of an orchestration workflow for a task.
- * Stored in .claude/specs/TASK_XXX/.orchestration-state.json
+ * Stored in .ptah/specs/TASK_XXX/.orchestration-state.json
  */
 export interface OrchestrationState {
   /** Task identifier (e.g., "TASK_2025_111") */
@@ -1383,7 +1427,7 @@ export interface OrchestrationNamespace {
    */
   setState: (
     taskId: string,
-    state: Partial<OrchestrationState>
+    state: Partial<OrchestrationState>,
   ) => Promise<void>;
 
   /**

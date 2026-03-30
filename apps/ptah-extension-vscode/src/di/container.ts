@@ -57,6 +57,7 @@ import {
   AgentRpcHandlers, // TASK_2025_157: Agent Orchestration
   PtahCliRpcHandlers, // TASK_2025_167: Ptah CLI Management
   SkillsShRpcHandlers, // TASK_2025_204: Skills.sh Marketplace
+  WebSearchRpcHandlers, // TASK_2025_235: Web Search Settings
 } from '../services/rpc';
 
 // Import agent-sdk services (TASK_2025_044 Batch 3)
@@ -375,6 +376,7 @@ export class DIContainer {
           c.resolve(AgentRpcHandlers), // TASK_2025_157
           c.resolve(PtahCliRpcHandlers), // TASK_2025_167
           c.resolve(SkillsShRpcHandlers), // TASK_2025_204
+          c.resolve(WebSearchRpcHandlers), // TASK_2025_235
           c, // Pass container instance
         );
       },

@@ -92,13 +92,13 @@ Quick help guide for the `/orchestrate` command workflow system.
 ### Check Status
 
 ```bash
-!cat .claude/specs/registry.md | grep "🔄\|⚠️\|❌"
+!cat .ptah/specs/registry.md | grep "🔄\|⚠️\|❌"
 ```
 
 ### View Task Progress
 
 ```bash
-!cat .claude/specs/TASK_CMD_009/progress.md
+!cat .ptah/specs/TASK_CMD_009/progress.md
 ```
 
 ### Validate Specific Phase

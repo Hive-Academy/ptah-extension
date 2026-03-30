@@ -30,3 +30,6 @@ export { AuthRpcHandlers } from './auth-rpc.handlers';
 export { EnhancedPromptsRpcHandlers } from './enhanced-prompts-rpc.handlers';
 export { QualityRpcHandlers } from './quality-rpc.handlers';
 export { ProviderRpcHandlers } from './provider-rpc.handlers';
+
+// Tier 2 handlers (TASK_2025_235 - web search settings)
+export { WebSearchRpcHandlers } from './web-search-rpc.handlers';

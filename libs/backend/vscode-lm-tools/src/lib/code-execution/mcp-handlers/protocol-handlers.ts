@@ -34,6 +34,9 @@ import {
   buildAgentListTool,
   buildAgentStopTool,
   buildWebSearchTool,
+  buildWorktreeListTool,
+  buildWorktreeAddTool,
+  buildWorktreeRemoveTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -52,6 +55,9 @@ import {
   formatAgentStop,
   formatAgentList,
   formatWebSearch,
+  formatWorktreeList,
+  formatWorktreeAdd,
+  formatWorktreeRemove,
 } from './mcp-response-formatter';
 
 /**
@@ -194,6 +200,10 @@ function handleToolsList(
     buildAgentListTool(),
     // Web search tool (TASK_2025_189)
     buildWebSearchTool(),
+    // Git worktree tools (TASK_2025_236)
+    buildWorktreeListTool(),
+    buildWorktreeAddTool(),
+    buildWorktreeRemoveTool(),
     // Power-user tools
     buildExecuteCodeTool(),
     buildApprovalPromptTool(),
@@ -530,7 +540,11 @@ async function handleIndividualTool(
       }
 
       case 'ptah_web_search': {
-        const { query, timeout } = args as { query: string; timeout?: number };
+        const { query, maxResults, timeout } = args as {
+          query: string;
+          maxResults?: number;
+          timeout?: number;
+        };
         if (!deps.ptahAPI.webSearch) {
           return {
             jsonrpc: '2.0',
@@ -546,10 +560,97 @@ async function handleIndividualTool(
             },
           };
         }
-        const result = await deps.ptahAPI.webSearch.search(query, timeout);
+        const result = await deps.ptahAPI.webSearch.search(query, {
+          maxResults,
+          timeout,
+        });
         return createToolSuccessResponse(
           request,
           formatWebSearch(result),
+          deps,
+        );
+      }
+
+      // Git worktree tools (TASK_2025_236)
+      case 'ptah_git_worktree_list': {
+        const result = await ptahAPI.git.worktreeList();
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeList(result),
+          deps,
+        );
+      }
+
+      case 'ptah_git_worktree_add': {
+        const { branch, path, createBranch } = args as {
+          branch: string;
+          path?: string;
+          createBranch?: boolean;
+        };
+
+        // Validate required branch parameter
+        if (!branch || typeof branch !== 'string' || !branch.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "branch" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const addResult = await ptahAPI.git.worktreeAdd({
+          branch: branch.trim(),
+          path: path && typeof path === 'string' ? path.trim() : undefined,
+          createBranch,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeAdd(addResult),
+          deps,
+        );
+      }
+
+      case 'ptah_git_worktree_remove': {
+        const { path: worktreePath, force } = args as {
+          path: string;
+          force?: boolean;
+        };
+
+        // Validate required path parameter
+        if (
+          !worktreePath ||
+          typeof worktreePath !== 'string' ||
+          !worktreePath.trim()
+        ) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "path" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const removeResult = await ptahAPI.git.worktreeRemove({
+          path: worktreePath.trim(),
+          force,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeRemove(removeResult),
           deps,
         );
       }

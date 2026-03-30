@@ -7,7 +7,7 @@
  * Architecture:
  * - Delegates SDK query execution to InternalQueryService (agent-sdk)
  * - Uses SdkStreamProcessor for stream event processing and progress UX
- * - Writes markdown outputs to .claude/analysis/{slug}/ via AnalysisStorageService
+ * - Writes markdown outputs to .ptah/analysis/{slug}/ via AnalysisStorageService
  * - Broadcasts progress via WebviewManager for real-time frontend updates
  * - Each phase is independent: failures are logged and the pipeline continues
  *

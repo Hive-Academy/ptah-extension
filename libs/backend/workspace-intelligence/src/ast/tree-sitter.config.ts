@@ -14,13 +14,6 @@ export const EXTENSION_LANGUAGE_MAP: Readonly<
   '.tsx': 'typescript',
 };
 
-export const LANGUAGE_GRAMMAR_MAP: Readonly<Record<SupportedLanguage, string>> =
-  {
-    // Use package names directly for potentially more robust resolution, especially post-build
-    javascript: 'tree-sitter-javascript',
-    typescript: 'tree-sitter-typescript',
-  };
-
 // --- Tree-sitter Queries ---
 // S-expression queries for extracting code structures
 // These queries use tree-sitter's pattern matching syntax

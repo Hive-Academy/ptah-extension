@@ -199,7 +199,19 @@ async function handleHttpRequest(
     if (bodySize > MAX_BODY_SIZE) return; // Already handled above
 
     try {
-      const mcpRequest: MCPRequest = JSON.parse(body);
+      const parsed = JSON.parse(body) as Record<string, unknown>;
+
+      // JSON-RPC 2.0 notifications have no "id" field.
+      // MCP clients (e.g. Gemini CLI) send "notifications/initialized" after
+      // the initialize handshake. Per spec, notifications require no response,
+      // but HTTP always needs one — return 204 No Content.
+      if (!('id' in parsed) || parsed['id'] === undefined) {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+
+      const mcpRequest = parsed as unknown as MCPRequest;
       const mcpResponse = await onMCPRequest(mcpRequest);
 
       res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -2,7 +2,7 @@
   "name": "ptah-extension-vscode",
   "displayName": "Ptah - Coding Orchestra",
   "description": "The AI coding orchestra for VS Code. Provider-agnostic AI orchestration with intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "ptah-extensions",
   "repository": {
     "type": "git",
@@ -392,21 +392,19 @@
           "description": "Default reasoning effort level for the main AI agent chat. Leave empty for SDK default."
         },
         "ptah.mcpPort": {
-          "type": "number",
+          "type": "integer",
           "default": 51820,
           "minimum": 1024,
           "maximum": 65535,
           "description": "Port for Ptah's MCP server (code execution tools). Must be between 1024-65535. Default: 51820."
         },
-        "ptah.agentOrchestration.defaultCli": {
-          "type": "string",
-          "enum": [
-            "gemini",
-            "codex",
-            "copilot"
-          ],
-          "default": "gemini",
-          "description": "Default CLI agent to use when spawning agents. Auto-detected if not set."
+        "ptah.agentOrchestration.preferredAgentOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "User's preferred agent order for spawning. First available agent is used. Supports system CLIs (gemini, codex, copilot) and Ptah CLI agent IDs."
         },
         "ptah.agentOrchestration.maxConcurrentAgents": {
           "type": "number",
@@ -414,13 +412,6 @@
           "minimum": 1,
           "maximum": 10,
           "description": "Maximum number of concurrent CLI agent processes."
-        },
-        "ptah.agentOrchestration.defaultTimeout": {
-          "type": "number",
-          "default": 600000,
-          "minimum": 60000,
-          "maximum": 1800000,
-          "description": "Default timeout for CLI agent processes in milliseconds (10 min default, 30 min max)."
         },
         "ptah.agentOrchestration.geminiModel": {
           "type": "string",
@@ -502,6 +493,19 @@
           "default": true,
           "description": "Auto-approve all Copilot tool calls without user prompt."
         },
+        "ptah.agentOrchestration.disabledClis": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string",
+            "enum": [
+              "gemini",
+              "codex",
+              "copilot"
+            ]
+          },
+          "description": "CLI agent types to disable. Disabled agents cannot be spawned and are hidden from agent list. Empty array means all agents are enabled."
+        },
         "ptah.ptahCliAgents": {
           "type": "array",
           "default": [],
@@ -557,13 +561,25 @@
               "enabled"
             ]
           }
+        },
+        "ptah.webSearch.provider": {
+          "type": "string",
+          "enum": [
+            "tavily",
+            "serper",
+            "exa"
+          ],
+          "default": "tavily",
+          "description": "Web search provider for the ptah_web_search tool. Each provider requires its own API key."
+        },
+        "ptah.webSearch.maxResults": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Default number of search results to return (1-20)."
         }
       }
     }
-  },
-  "dependencies": {
-    "tree-sitter": "^0.21.1",
-    "tree-sitter-javascript": "^0.23.1",
-    "tree-sitter-typescript": "^0.23.2"
   }
 }

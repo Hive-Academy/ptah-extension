@@ -43,9 +43,12 @@ import {
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
+  type ApiModelEntry,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
+  type WorktreeCreatedCallback,
+  type WorktreeRemovedCallback,
   type SlashCommandConfig,
 } from './helpers';
 import {
@@ -58,6 +61,8 @@ export type {
   SessionIdResolvedCallback,
   ResultStatsCallback,
   CompactionStartCallback,
+  WorktreeCreatedCallback,
+  WorktreeRemovedCallback,
 } from './helpers';
 
 /**
@@ -134,6 +139,18 @@ export class SdkAgentAdapter implements IAIProvider {
    * Set by RpcMethodRegistrationService to send session:compacting events
    */
   private compactionStartCallback: CompactionStartCallback | null = null;
+
+  /**
+   * Callback to notify when SDK creates a worktree (TASK_2025_236)
+   * Set by RpcMethodRegistrationService to send git:worktreeChanged events
+   */
+  private worktreeCreatedCallback: WorktreeCreatedCallback | null = null;
+
+  /**
+   * Callback to notify when SDK removes a worktree (TASK_2025_236)
+   * Set by RpcMethodRegistrationService to send git:worktreeChanged events
+   */
+  private worktreeRemovedCallback: WorktreeRemovedCallback | null = null;
 
   /**
    * Create SDK Agent Adapter with all dependencies injected
@@ -357,6 +374,14 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
+   * Get all available models from the Anthropic /v1/models API
+   * TASK_2025_237: Enables dynamic model discovery beyond SDK's 3 tier slots
+   */
+  async getApiModels(): Promise<ApiModelEntry[]> {
+    return this.modelService.fetchApiModels();
+  }
+
+  /**
    * Reset adapter state
    */
   async reset(): Promise<void> {
@@ -432,6 +457,7 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
+    // TASK_2025_236: Pass worktree callbacks for worktree change notifications
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId: trackingId,
@@ -446,6 +472,8 @@ export class SdkAgentAdapter implements IAIProvider {
             }
           : undefined,
         onCompactionStart: this.compactionStartCallback || undefined,
+        onWorktreeCreated: this.worktreeCreatedCallback || undefined,
+        onWorktreeRemoved: this.worktreeRemovedCallback || undefined,
         isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
@@ -574,12 +602,15 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
     // TASK_2025_153: Pass pluginPaths for session plugin loading
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
+    // TASK_2025_236: Pass worktree callbacks for worktree change notifications
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId,
         sessionConfig: config,
         resumeSessionId: sessionId as string,
         onCompactionStart: this.compactionStartCallback || undefined,
+        onWorktreeCreated: this.worktreeCreatedCallback || undefined,
+        onWorktreeRemoved: this.worktreeRemovedCallback || undefined,
         isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
@@ -693,6 +724,22 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
+   * Set callback for when SDK creates a worktree (TASK_2025_236)
+   * Called by RpcMethodRegistrationService to send git:worktreeChanged events to webview
+   */
+  setWorktreeCreatedCallback(callback: WorktreeCreatedCallback): void {
+    this.worktreeCreatedCallback = callback;
+  }
+
+  /**
+   * Set callback for when SDK removes a worktree (TASK_2025_236)
+   * Called by RpcMethodRegistrationService to send git:worktreeChanged events to webview
+   */
+  setWorktreeRemovedCallback(callback: WorktreeRemovedCallback): void {
+    this.worktreeRemovedCallback = callback;
+  }
+
+  /**
    * Send a message to an active session.
    * Delegates to SessionLifecycleManager.sendMessage()
    */
@@ -740,6 +787,8 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent: config.enhancedPromptsContent,
         pluginPaths: config.pluginPaths,
         onCompactionStart: this.compactionStartCallback || undefined,
+        onWorktreeCreated: this.worktreeCreatedCallback || undefined,
+        onWorktreeRemoved: this.worktreeRemovedCallback || undefined,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
       });
 

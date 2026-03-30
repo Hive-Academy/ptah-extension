@@ -265,7 +265,6 @@ After validation, categorize findings:
 ### Identified Risks
 
 1. ⚠️ **RISK**: toolUseId/toolCallId matching unverified
-
    - **Mitigation**: Add Task 0.1 - Verify ID correlation with logging
    - **Fallback**: Keep fixed permission display as safety net
 
@@ -312,7 +311,7 @@ Extract components from architect's plan, group into 3-5 task batches respecting
 
 **STEP 4: Create tasks.md**
 
-Use Write tool to create `.claude/specs/TASK_[ID]/tasks.md`:
+Use Write tool to create `.ptah/specs/TASK_[ID]/tasks.md`:
 
 ```markdown
 # Development Tasks - TASK\_[ID]

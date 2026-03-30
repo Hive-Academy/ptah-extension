@@ -163,7 +163,9 @@ Complete workflow for creating production-ready design specifications, developer
 .section-entry.in-view {
   opacity: 1;
   transform: translateY(0);
-  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+  transition:
+    opacity 0.6s ease-out,
+    transform 0.6s ease-out;
 }
 ```
 
@@ -367,9 +369,9 @@ Before implementation:
 2. **Read Requirements**:
 
    ```bash
-   Read(.claude/specs/TASK_[ID]/task-description.md)
-   Read(.claude/specs/TASK_[ID]/library-analysis.md)
-   Read(.claude/specs/TASK_[ID]/implementation-plan.md)
+   Read(.ptah/specs/TASK_[ID]/task-description.md)
+   Read(.ptah/specs/TASK_[ID]/library-analysis.md)
+   Read(.ptah/specs/TASK_[ID]/implementation-plan.md)
    ```
 
 3. **Extract Key Information**:
@@ -389,7 +391,6 @@ Before implementation:
 ### Phase 3: Design Specification Creation (2 hours)
 
 7. **Create Visual Design Spec Document**:
-
    - Design system application
    - Component visual specifications
    - Responsive layout transformations
@@ -401,7 +402,6 @@ Before implementation:
 ### Phase 4: Developer Handoff (30 minutes)
 
 9. **Create Design Handoff Document**:
-
    - Component structure specifications with design token references
    - Asset download URLs or written specifications
    - Implementation checklist
@@ -410,8 +410,8 @@ Before implementation:
 10. **Document in Task Folder**:
 
     ```bash
-    Write(.claude/specs/TASK_[ID]/visual-design-specification.md)
-    Write(.claude/specs/TASK_[ID]/design-assets-inventory.md)
+    Write(.ptah/specs/TASK_[ID]/visual-design-specification.md)
+    Write(.ptah/specs/TASK_[ID]/design-assets-inventory.md)
     ```
 
 ---
@@ -460,9 +460,9 @@ Before implementation:
 
 **Design Specification Documents**:
 
-- .claude/specs/TASK\_[ID]/visual-design-specification.md (Complete visual blueprint)
-- .claude/specs/TASK\_[ID]/design-assets-inventory.md (All design assets with URLs)
-- .claude/specs/TASK\_[ID]/design-handoff.md (Developer implementation guide)
+- .ptah/specs/TASK\_[ID]/visual-design-specification.md (Complete visual blueprint)
+- .ptah/specs/TASK\_[ID]/design-assets-inventory.md (All design assets with URLs)
+- .ptah/specs/TASK\_[ID]/design-handoff.md (Developer implementation guide)
 
 **Design Assets Created**:
 

@@ -70,6 +70,7 @@ const ALLOWED_METHOD_PREFIXES = [
   'settings:', // TASK_2025_210: Settings export/import (Electron desktop)
   'git:', // TASK_2025_227: Git info and worktree management
   'terminal:', // TASK_2025_227: Terminal PTY session management
+  'webSearch:', // TASK_2025_235: Web search provider configuration (API key status)
 ] as const;
 
 /**

@@ -13,6 +13,8 @@
     "@ptah-extension/workspace-intelligence": "0.0.1",
     "json2md": "^2.0.1",
     "minimatch": "10.2.4",
-    "@ptah-extension/llm-abstraction": "0.0.1"
+    "@ptah-extension/llm-abstraction": "0.0.1",
+    "exa-js": "^2.10.2",
+    "@tavily/core": "^0.7.2"
   }
 }

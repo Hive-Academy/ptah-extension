@@ -24,7 +24,7 @@ TASK_YYYY_NNN
 ## Folder Structure
 
 ```
-.claude/specs/
+.ptah/specs/
   registry.md                    # Master task registry (all tasks)
   TASK_[ID]/
     context.md                   # User intent, conversation summary
@@ -45,7 +45,7 @@ TASK_YYYY_NNN
 ### Registry Location
 
 ```
-D:\projects\ptah-extension\task-tracking\registry.md
+D:\projects\ptah-extension\.ptah\specs\registry.md
 ```
 
 ### Reading the Registry
@@ -57,7 +57,7 @@ At workflow start, read registry to:
 3. Understand project task history
 
 ```bash
-Read(D:\projects\ptah-extension\task-tracking\registry.md)
+Read(D:\projects\ptah-extension\.ptah\specs\registry.md)
 ```
 
 ### Registry Format
@@ -158,7 +158,7 @@ Created during Phase 0 initialization:
 When continuing a task, read existing documents to determine current phase:
 
 ```bash
-Glob(.claude/specs/TASK_[ID]/*.md)
+Glob(.ptah/specs/TASK_[ID]/*.md)
 ```
 
 ### Phase Detection Table
@@ -196,7 +196,7 @@ User: /orchestrate TASK_2025_108
 
 Orchestrator:
 1. Read registry → TASK_2025_108 exists, status IN_PROGRESS
-2. Glob .claude/specs/TASK_2025_108/*.md
+2. Glob .ptah/specs/TASK_2025_108/*.md
 3. Found: context.md, task-description.md, implementation-plan.md, tasks.md
 4. Check tasks.md → has IN PROGRESS tasks
 5. Detected phase: "Dev in progress"
@@ -233,9 +233,9 @@ Orchestrator:
 **CRITICAL**: Always use absolute Windows paths with drive letters for all file operations.
 
 ```
-Correct:  D:\projects\ptah-extension\task-tracking\TASK_2025_110\context.md
-Incorrect: .claude/specs/TASK_2025_110/context.md
-Incorrect: ./.claude/specs/TASK_2025_110/context.md
+Correct:  D:\projects\ptah-extension\.ptah\specs\TASK_2025_110\context.md
+Incorrect: task-tracking/TASK_2025_110/context.md
+Incorrect: ./task-tracking/TASK_2025_110/context.md
 ```
 
 ---

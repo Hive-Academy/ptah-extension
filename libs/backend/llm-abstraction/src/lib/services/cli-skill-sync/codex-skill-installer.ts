@@ -38,18 +38,9 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
       const basePath = this.getSkillsBasePath();
       await mkdir(basePath, { recursive: true });
 
-      // Clean up old ptah- prefixed skills before re-installing
-      try {
-        const existingEntries = await readdir(basePath);
-        for (const entry of existingEntries) {
-          if (entry.startsWith('ptah-')) {
-            const entryPath = join(basePath, entry);
-            await rm(entryPath, { recursive: true, force: true });
-          }
-        }
-      } catch {
-        // Non-fatal: best-effort cleanup
-      }
+      // Track which ptah- skill folders are installed in this run
+      // so we can remove stale ones afterwards without a delete-all gap
+      const installedFolders = new Set<string>();
 
       for (const pluginPath of pluginPaths) {
         try {
@@ -69,8 +60,10 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
           }
 
           // Target: ~/.agents/skills/ptah-{pluginId}/
-          const targetDir = join(basePath, `ptah-${pluginId}`);
+          const folderName = `ptah-${pluginId}`;
+          const targetDir = join(basePath, folderName);
           await mkdir(targetDir, { recursive: true });
+          installedFolders.add(folderName);
 
           // Copy each skill directory
           const skillDirs = await readdir(skillsSourceDir);
@@ -91,7 +84,7 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
 
               const copied = await copyDirectoryRecursive(
                 skillSourcePath,
-                skillTargetPath
+                skillTargetPath,
               );
               skillCount += copied;
             } catch (skillError) {
@@ -100,7 +93,7 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
                   skillError instanceof Error
                     ? skillError.message
                     : String(skillError)
-                }`
+                }`,
               );
             }
           }
@@ -111,9 +104,22 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
               pluginError instanceof Error
                 ? pluginError.message
                 : String(pluginError)
-            }`
+            }`,
           );
         }
+      }
+
+      // Remove stale ptah- skill folders that were NOT part of this install
+      try {
+        const existingEntries = await readdir(basePath);
+        for (const entry of existingEntries) {
+          if (entry.startsWith('ptah-') && !installedFolders.has(entry)) {
+            const entryPath = join(basePath, entry);
+            await rm(entryPath, { recursive: true, force: true });
+          }
+        }
+      } catch {
+        // Non-fatal: best-effort cleanup of stale skills
       }
 
       // Sync command files from plugins (TASK_2025_201)
@@ -140,7 +146,7 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
 
   private async syncCommands(
     pluginPaths: string[],
-    errors: string[]
+    errors: string[],
   ): Promise<void> {
     const commandsDir = this.getCommandsBasePath();
     try {
@@ -175,7 +181,7 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
         try {
           const content = await readFile(
             join(commandsSourceDir, entry),
-            'utf8'
+            'utf8',
           );
           // Prefix with ptah- for cleanup identification
           const targetName = `ptah-${entry}`;
@@ -184,7 +190,7 @@ export class CodexSkillInstaller implements ICliSkillInstaller {
           errors.push(
             `Failed to copy command ${entry}: ${
               err instanceof Error ? err.message : String(err)
-            }`
+            }`,
           );
         }
       }

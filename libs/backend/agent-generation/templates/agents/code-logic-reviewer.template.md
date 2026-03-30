@@ -223,7 +223,7 @@ What happens when each integration point fails?
 
 ```bash
 # Read original request
-Read(.claude/specs/TASK_[ID]/context.md)
+Read(.ptah/specs/TASK_[ID]/context.md)
 
 # CRITICAL: List what's NOT mentioned
 # - Offline behavior?

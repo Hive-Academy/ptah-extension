@@ -62,7 +62,7 @@ export class ElectronAgentRpcHandlers {
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
     private readonly workspace: IWorkspaceProvider,
     @inject(PLATFORM_TOKENS.STATE_STORAGE)
-    private readonly stateStorage: IStateStorage
+    private readonly stateStorage: IStateStorage,
   ) {}
 
   register(): void {
@@ -78,7 +78,7 @@ export class ElectronAgentRpcHandlers {
     const copilotAutoApprove =
       this.stateStorage.get<boolean>(
         'agentOrchestration.copilotAutoApprove',
-        true
+        true,
       ) ?? true;
     const copilotAdapter = this.cliDetection.getAdapter('copilot');
     if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
@@ -113,61 +113,61 @@ export class ElectronAgentRpcHandlers {
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            defaultCli:
-              this.stateStorage.get<CliType | null>(
-                'agentOrchestration.defaultCli',
-                null
-              ) ?? null,
+            preferredAgentOrder:
+              this.stateStorage.get<string[]>(
+                'agentOrchestration.preferredAgentOrder',
+                [],
+              ) ?? [],
             maxConcurrentAgents:
               this.stateStorage.get<number>(
                 'agentOrchestration.maxConcurrentAgents',
-                5
+                5,
               ) ?? 5,
-            defaultTimeout:
-              this.stateStorage.get<number>(
-                'agentOrchestration.defaultTimeout',
-                10
-              ) ?? 10,
             geminiModel:
               this.stateStorage.get<string>(
                 'agentOrchestration.geminiModel',
-                ''
+                '',
               ) ?? '',
             codexModel:
               this.stateStorage.get<string>(
                 'agentOrchestration.codexModel',
-                ''
+                '',
               ) ?? '',
             copilotModel:
               this.stateStorage.get<string>(
                 'agentOrchestration.copilotModel',
-                ''
+                '',
               ) ?? '',
             codexAutoApprove:
               this.stateStorage.get<boolean>(
                 'agentOrchestration.codexAutoApprove',
-                true
+                true,
               ) ?? true,
             copilotAutoApprove:
               this.stateStorage.get<boolean>(
                 'agentOrchestration.copilotAutoApprove',
-                true
+                true,
               ) ?? true,
             codexReasoningEffort:
               this.stateStorage.get<string>(
                 'agentOrchestration.codexReasoningEffort',
-                ''
+                '',
               ) ?? '',
             copilotReasoningEffort:
               this.stateStorage.get<string>(
                 'agentOrchestration.copilotReasoningEffort',
-                ''
+                '',
               ) ?? '',
             mcpPort:
               this.stateStorage.get<number>(
                 'agentOrchestration.mcpPort',
-                51820
+                51820,
               ) ?? 51820,
+            disabledClis:
+              this.stateStorage.get<string[]>(
+                'agentOrchestration.disabledClis',
+                [],
+              ) ?? [],
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -179,11 +179,11 @@ export class ElectronAgentRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: agent:getConfig failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -195,46 +195,40 @@ export class ElectronAgentRpcHandlers {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
 
-        if (params.defaultCli !== undefined) {
+        if (params.preferredAgentOrder !== undefined) {
           await this.stateStorage.update(
-            'agentOrchestration.defaultCli',
-            params.defaultCli
+            'agentOrchestration.preferredAgentOrder',
+            params.preferredAgentOrder,
           );
         }
         if (params.maxConcurrentAgents !== undefined) {
           await this.stateStorage.update(
             'agentOrchestration.maxConcurrentAgents',
-            Math.max(1, Math.min(10, params.maxConcurrentAgents))
-          );
-        }
-        if (params.defaultTimeout !== undefined) {
-          await this.stateStorage.update(
-            'agentOrchestration.defaultTimeout',
-            Math.max(1, Math.min(120, params.defaultTimeout))
+            Math.max(1, Math.min(10, params.maxConcurrentAgents)),
           );
         }
         if (params.geminiModel !== undefined) {
           await this.stateStorage.update(
             'agentOrchestration.geminiModel',
-            params.geminiModel
+            params.geminiModel,
           );
         }
         if (params.codexModel !== undefined) {
           await this.stateStorage.update(
             'agentOrchestration.codexModel',
-            params.codexModel
+            params.codexModel,
           );
         }
         if (params.copilotModel !== undefined) {
           await this.stateStorage.update(
             'agentOrchestration.copilotModel',
-            params.copilotModel
+            params.copilotModel,
           );
         }
         if (params.copilotAutoApprove !== undefined) {
           await this.stateStorage.update(
             'agentOrchestration.copilotAutoApprove',
-            params.copilotAutoApprove
+            params.copilotAutoApprove,
           );
           const copilotAdapter = this.cliDetection.getAdapter('copilot');
           if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
@@ -247,19 +241,25 @@ export class ElectronAgentRpcHandlers {
         if (params.codexReasoningEffort !== undefined) {
           await this.stateStorage.update(
             'agentOrchestration.codexReasoningEffort',
-            params.codexReasoningEffort
+            params.codexReasoningEffort,
           );
         }
         if (params.copilotReasoningEffort !== undefined) {
           await this.stateStorage.update(
             'agentOrchestration.copilotReasoningEffort',
-            params.copilotReasoningEffort
+            params.copilotReasoningEffort,
           );
         }
         if (params.mcpPort !== undefined) {
           await this.stateStorage.update(
             'agentOrchestration.mcpPort',
-            Math.max(1024, Math.min(65535, params.mcpPort))
+            Math.max(1024, Math.min(65535, params.mcpPort)),
+          );
+        }
+        if (params.disabledClis !== undefined) {
+          await this.stateStorage.update(
+            'agentOrchestration.disabledClis',
+            params.disabledClis,
           );
         }
 
@@ -270,7 +270,7 @@ export class ElectronAgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:setConfig failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -296,11 +296,11 @@ export class ElectronAgentRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: agent:detectClis failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -330,11 +330,11 @@ export class ElectronAgentRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: agent:listCliModels failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -364,7 +364,7 @@ export class ElectronAgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:permissionResponse failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -394,7 +394,7 @@ export class ElectronAgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:stop failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -432,20 +432,20 @@ export class ElectronAgentRpcHandlers {
         if (params.cli === 'ptah-cli' && ptahCliId) {
           result = await this.resumePtahCliSession(
             { ...params, ptahCliId },
-            workspaceRoot
+            workspaceRoot,
           );
         } else if (params.cli === 'ptah-cli') {
           throw new Error(
-            'No Ptah CLI agents configured. Add one in Agent Orchestration settings.'
+            'No Ptah CLI agents configured. Add one in Agent Orchestration settings.',
           );
         } else {
           const cliSessionExists = await this.sessionFileExists(
             params.cliSessionId,
-            workspaceRoot
+            workspaceRoot,
           );
           if (!cliSessionExists) {
             this.logger.warn(
-              `[ElectronAgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`
+              `[ElectronAgentRpc] CLI session file not found for ${params.cliSessionId} — starting fresh`,
             );
           }
           result = await this.agentProcessManager.spawn({
@@ -470,7 +470,7 @@ export class ElectronAgentRpcHandlers {
           error instanceof Error ? error.message : String(error);
         this.logger.error(
           'RPC: agent:resumeCliSession failed',
-          error instanceof Error ? error : new Error(errorMessage)
+          error instanceof Error ? error : new Error(errorMessage),
         );
         return { success: false, error: errorMessage };
       }
@@ -478,7 +478,7 @@ export class ElectronAgentRpcHandlers {
   }
 
   private async mergePtahCliAgents(
-    cliResults: CliDetectionResult[]
+    cliResults: CliDetectionResult[],
   ): Promise<CliDetectionResult[]> {
     try {
       const ptahCliAgents = await this.ptahCliRegistry.listAgents();
@@ -508,11 +508,11 @@ export class ElectronAgentRpcHandlers {
       ptahCliId: string;
       previousAgentId?: string;
     },
-    workspaceRoot: string
+    workspaceRoot: string,
   ): Promise<SpawnAgentResult> {
     const sessionFileExists = await this.sessionFileExists(
       params.cliSessionId,
-      workspaceRoot
+      workspaceRoot,
     );
 
     const spawnResult = await this.ptahCliRegistry.spawnAgent(
@@ -521,12 +521,12 @@ export class ElectronAgentRpcHandlers {
       {
         workingDirectory: workspaceRoot,
         resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
-      }
+      },
     );
 
     if (!sessionFileExists) {
       this.logger.warn(
-        `[ElectronAgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`
+        `[ElectronAgentRpc] Session file not found for ${params.cliSessionId} — starting fresh instead of resuming`,
       );
     }
 
@@ -541,8 +541,8 @@ export class ElectronAgentRpcHandlers {
           .createChild(sessionId, workspaceRoot, sessionName)
           .catch((err) =>
             this.logger.warn(
-              `[ElectronAgentRpc] Failed to save child session metadata: ${err}`
-            )
+              `[ElectronAgentRpc] Failed to save child session metadata: ${err}`,
+            ),
           );
       });
     }
@@ -565,7 +565,7 @@ export class ElectronAgentRpcHandlers {
       if (enabled) {
         this.logger.info(
           'RPC: agent:resumeCliSession resolved default ptahCliId',
-          { ptahCliId: enabled.id, name: enabled.name }
+          { ptahCliId: enabled.id, name: enabled.name },
         );
       }
       return enabled?.id;
@@ -576,7 +576,7 @@ export class ElectronAgentRpcHandlers {
 
   private async sessionFileExists(
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<boolean> {
     try {
       const projectsDir = path.join(os.homedir(), '.claude', 'projects');
@@ -589,7 +589,7 @@ export class ElectronAgentRpcHandlers {
         (d) =>
           d === escapedPath ||
           d.toLowerCase() === escapedPath.toLowerCase() ||
-          normalize(d) === normalizedEscaped
+          normalize(d) === normalizedEscaped,
       );
 
       if (!matchedDir) return false;
@@ -597,7 +597,7 @@ export class ElectronAgentRpcHandlers {
       const sessionFile = path.join(
         projectsDir,
         matchedDir,
-        `${sessionId}.jsonl`
+        `${sessionId}.jsonl`,
       );
       await fs.access(sessionFile);
       return true;

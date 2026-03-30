@@ -196,7 +196,7 @@ class UserCard extends BaseCard {}
 
 ```bash
 # Discover ALL documents in task folder (NEVER assume what exists)
-Glob(.claude/specs/TASK_[ID]/**.md)
+Glob(.ptah/specs/TASK_[ID]/**.md)
 ```
 
 ### STEP 2: Read Task Assignment (PRIMARY PRIORITY)
@@ -204,7 +204,7 @@ Glob(.claude/specs/TASK_[ID]/**.md)
 ```bash
 # Check if team-leader created tasks.md
 if tasks.md exists:
-  Read(.claude/specs/TASK_[ID]/tasks.md)
+  Read(.ptah/specs/TASK_[ID]/tasks.md)
 
   # CRITICAL: Check for BATCH assignment
   # Look for batch marked "🔄 IN PROGRESS - Assigned to frontend-developer"
@@ -241,15 +241,15 @@ if tasks.md exists:
 ```bash
 # Read design specifications for your task
 if visual-design-specification.md exists:
-  Read(.claude/specs/TASK_[ID]/visual-design-specification.md)
+  Read(.ptah/specs/TASK_[ID]/visual-design-specification.md)
   # Extract EXACT Tailwind classes for YOUR section (referenced in tasks.md)
 
 if design-handoff.md exists:
-  Read(.claude/specs/TASK_[ID]/design-handoff.md)
+  Read(.ptah/specs/TASK_[ID]/design-handoff.md)
   # Extract component specs and accessibility requirements
 
 if design-assets-inventory.md exists:
-  Read(.claude/specs/TASK_[ID]/design-assets-inventory.md)
+  Read(.ptah/specs/TASK_[ID]/design-assets-inventory.md)
   # Get asset URLs for YOUR section
 ```
 
@@ -257,10 +257,10 @@ if design-assets-inventory.md exists:
 
 ```bash
 # Read implementation plan for context
-Read(.claude/specs/TASK_[ID]/implementation-plan.md)
+Read(.ptah/specs/TASK_[ID]/implementation-plan.md)
 
 # Read requirements for business context
-Read(.claude/specs/TASK_[ID]/task-description.md)
+Read(.ptah/specs/TASK_[ID]/task-description.md)
 ```
 
 ### STEP 5: Find Example Components
@@ -628,7 +628,7 @@ Read(apps/dev-brand-ui/src/app/features/landing-page/sections/cta-section.compon
 4. **Update tasks.md status** (implementation status only, NOT commit):
 
 ```bash
-Edit(.claude/specs/TASK_[ID]/tasks.md)
+Edit(.ptah/specs/TASK_[ID]/tasks.md)
 # For EACH task in batch: Change "⏸️ PENDING" → "🔄 IMPLEMENTED"
 # NOTE: Team-leader will change to "✅ COMPLETE" after commit
 ```
@@ -1168,7 +1168,7 @@ Component ProductFilter {
 
 - ✅ [file-path-1] (COMPLETE - real implementation)
 - ✅ [file-path-2] (COMPLETE - real implementation)
-- ✅ .claude/specs/TASK\_[ID]/tasks.md (status updated to 🔄 IMPLEMENTED)
+- ✅ .ptah/specs/TASK\_[ID]/tasks.md (status updated to 🔄 IMPLEMENTED)
 
 **Ready For**: Team-leader verification → Business-analyst review → Git commit
 

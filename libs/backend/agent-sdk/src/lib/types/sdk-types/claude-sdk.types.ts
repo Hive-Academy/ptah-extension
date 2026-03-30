@@ -914,7 +914,7 @@ export type SDKMessage =
  * Check if message is a stream event
  */
 export function isStreamEvent(
-  msg: SDKMessage
+  msg: SDKMessage,
 ): msg is SDKPartialAssistantMessage {
   return msg.type === 'stream_event';
 }
@@ -930,7 +930,7 @@ export function isResultMessage(msg: SDKMessage): msg is SDKResultMessage {
  * Check if message is a successful result
  */
 export function isSuccessResult(
-  msg: SDKMessage
+  msg: SDKMessage,
 ): msg is SDKResultMessageSuccess {
   return msg.type === 'result' && msg.subtype === 'success';
 }
@@ -953,7 +953,7 @@ export function isSystemInit(msg: SDKMessage): msg is SDKSystemMessage {
  * Check if message is a compact_boundary system message
  */
 export function isCompactBoundary(
-  msg: SDKMessage
+  msg: SDKMessage,
 ): msg is SDKCompactBoundaryMessage {
   return (
     msg.type === 'system' &&
@@ -980,7 +980,7 @@ export function isReplayMessage(msg: SDKMessage): msg is SDKUserMessageReplay {
  * Check if message is assistant message (complete)
  */
 export function isAssistantMessage(
-  msg: SDKMessage
+  msg: SDKMessage,
 ): msg is SDKAssistantMessage {
   return msg.type === 'assistant';
 }
@@ -996,7 +996,7 @@ export function isToolProgress(msg: SDKMessage): msg is SDKToolProgressMessage {
  * Check if message is tool use summary
  */
 export function isToolUseSummary(
-  msg: SDKMessage
+  msg: SDKMessage,
 ): msg is SDKToolUseSummaryMessage {
   return msg.type === 'tool_use_summary';
 }
@@ -1012,7 +1012,7 @@ export function isRateLimitEvent(msg: SDKMessage): msg is SDKRateLimitEvent {
  * Check if message is a prompt suggestion
  */
 export function isPromptSuggestion(
-  msg: SDKMessage
+  msg: SDKMessage,
 ): msg is SDKPromptSuggestionMessage {
   return msg.type === 'prompt_suggestion';
 }
@@ -1052,7 +1052,7 @@ export function isTaskProgress(msg: SDKMessage): msg is SDKTaskProgressMessage {
  * Check if stream event is message_start
  */
 export function isMessageStart(
-  event: RawMessageStreamEvent
+  event: RawMessageStreamEvent,
 ): event is MessageStartEvent {
   return event.type === 'message_start';
 }
@@ -1061,7 +1061,7 @@ export function isMessageStart(
  * Check if stream event is content_block_start
  */
 export function isContentBlockStart(
-  event: RawMessageStreamEvent
+  event: RawMessageStreamEvent,
 ): event is ContentBlockStartEvent {
   return event.type === 'content_block_start';
 }
@@ -1070,7 +1070,7 @@ export function isContentBlockStart(
  * Check if stream event is content_block_delta
  */
 export function isContentBlockDelta(
-  event: RawMessageStreamEvent
+  event: RawMessageStreamEvent,
 ): event is ContentBlockDeltaEvent {
   return event.type === 'content_block_delta';
 }
@@ -1079,7 +1079,7 @@ export function isContentBlockDelta(
  * Check if stream event is content_block_stop
  */
 export function isContentBlockStop(
-  event: RawMessageStreamEvent
+  event: RawMessageStreamEvent,
 ): event is ContentBlockStopEvent {
   return event.type === 'content_block_stop';
 }
@@ -1088,7 +1088,7 @@ export function isContentBlockStop(
  * Check if stream event is message_delta
  */
 export function isMessageDelta(
-  event: RawMessageStreamEvent
+  event: RawMessageStreamEvent,
 ): event is MessageDeltaEvent {
   return event.type === 'message_delta';
 }
@@ -1097,7 +1097,7 @@ export function isMessageDelta(
  * Check if stream event is message_stop
  */
 export function isMessageStop(
-  event: RawMessageStreamEvent
+  event: RawMessageStreamEvent,
 ): event is MessageStopEvent {
   return event.type === 'message_stop';
 }
@@ -1124,7 +1124,7 @@ export function isToolUseBlock(block: ContentBlock): block is ToolUseBlock {
  * Check if content block is tool_result
  */
 export function isToolResultBlock(
-  block: ContentBlock
+  block: ContentBlock,
 ): block is ToolResultBlock {
   return block.type === 'tool_result';
 }
@@ -1311,7 +1311,7 @@ export type CanUseTool = (
     toolUseID: string;
     /** If running within the context of a sub-agent, the sub-agent's ID. */
     agentID?: string;
-  }
+  },
 ) => Promise<PermissionResult>;
 
 // =============================================================================
@@ -1464,7 +1464,7 @@ export type HookJSONOutput = AsyncHookJSONOutput | SyncHookJSONOutput;
 export type HookCallback = (
   input: HookInput,
   toolUseID: string | undefined,
-  options: { signal: AbortSignal }
+  options: { signal: AbortSignal },
 ) => Promise<HookJSONOutput>;
 
 /**
@@ -1783,7 +1783,7 @@ export type HookInput =
  * Check if hook input is SubagentStart
  */
 export function isSubagentStartHook(
-  input: HookInput
+  input: HookInput,
 ): input is SubagentStartHookInput {
   return input.hook_event_name === 'SubagentStart';
 }
@@ -1792,7 +1792,7 @@ export function isSubagentStartHook(
  * Check if hook input is SubagentStop
  */
 export function isSubagentStopHook(
-  input: HookInput
+  input: HookInput,
 ): input is SubagentStopHookInput {
   return input.hook_event_name === 'SubagentStop';
 }
@@ -1801,7 +1801,7 @@ export function isSubagentStopHook(
  * Check if hook input is PreToolUse
  */
 export function isPreToolUseHook(
-  input: HookInput
+  input: HookInput,
 ): input is PreToolUseHookInput {
   return input.hook_event_name === 'PreToolUse';
 }
@@ -1810,7 +1810,7 @@ export function isPreToolUseHook(
  * Check if hook input is PostToolUse
  */
 export function isPostToolUseHook(
-  input: HookInput
+  input: HookInput,
 ): input is PostToolUseHookInput {
   return input.hook_event_name === 'PostToolUse';
 }
@@ -1819,7 +1819,7 @@ export function isPostToolUseHook(
  * Check if hook input is SessionStart
  */
 export function isSessionStartHook(
-  input: HookInput
+  input: HookInput,
 ): input is SessionStartHookInput {
   return input.hook_event_name === 'SessionStart';
 }
@@ -1828,7 +1828,7 @@ export function isSessionStartHook(
  * Check if hook input is SessionEnd
  */
 export function isSessionEndHook(
-  input: HookInput
+  input: HookInput,
 ): input is SessionEndHookInput {
   return input.hook_event_name === 'SessionEnd';
 }
@@ -1838,6 +1838,24 @@ export function isSessionEndHook(
  */
 export function isSetupHook(input: HookInput): input is SetupHookInput {
   return input.hook_event_name === 'Setup';
+}
+
+/**
+ * Check if hook input is WorktreeCreate (TASK_2025_236)
+ */
+export function isWorktreeCreateHook(
+  input: HookInput,
+): input is WorktreeCreateHookInput {
+  return input.hook_event_name === 'WorktreeCreate';
+}
+
+/**
+ * Check if hook input is WorktreeRemove (TASK_2025_236)
+ */
+export function isWorktreeRemoveHook(
+  input: HookInput,
+): input is WorktreeRemoveHookInput {
+  return input.hook_event_name === 'WorktreeRemove';
 }
 
 // =============================================================================
@@ -2068,7 +2086,7 @@ export interface ElicitationRequest {
  */
 export type OnElicitation = (
   request: ElicitationRequest,
-  options: { signal: AbortSignal }
+  options: { signal: AbortSignal },
 ) => Promise<unknown>;
 
 /**
@@ -2245,7 +2263,7 @@ export interface Query extends AsyncGenerator<SDKMessage, void> {
   /** Rewind tracked files to their state at a specific user message */
   rewindFiles(
     userMessageId: string,
-    options?: { dryRun?: boolean }
+    options?: { dryRun?: boolean },
   ): Promise<RewindFilesResult>;
   /** Reconnect an MCP server by name */
   reconnectMcpServer(serverName: string): Promise<void>;
@@ -2253,7 +2271,7 @@ export interface Query extends AsyncGenerator<SDKMessage, void> {
   toggleMcpServer(serverName: string, enabled: boolean): Promise<void>;
   /** Dynamically set the MCP servers for this session */
   setMcpServers(
-    servers: Record<string, McpServerConfig>
+    servers: Record<string, McpServerConfig>,
   ): Promise<McpSetServersResult>;
   /** Stream input messages to the query */
   streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;
