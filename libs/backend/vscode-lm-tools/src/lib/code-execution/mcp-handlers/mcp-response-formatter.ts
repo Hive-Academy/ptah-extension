@@ -17,6 +17,16 @@ import type {
   CliDetectionResult,
   GitWorktreeInfo,
 } from '@ptah-extension/shared';
+import type {
+  BrowserNavigateResult,
+  BrowserScreenshotResult,
+  BrowserEvaluateResult,
+  BrowserClickResult,
+  BrowserTypeResult,
+  BrowserContentResult,
+  BrowserNetworkResult,
+  BrowserStatusResult,
+} from '../types';
 
 // ============================================================
 // Workspace & Search Tools
@@ -853,17 +863,6 @@ export function formatJsonValidate(result: {
 // ============================================================
 // Browser Automation Tools (TASK_2025_244)
 // ============================================================
-
-import type {
-  BrowserNavigateResult,
-  BrowserScreenshotResult,
-  BrowserEvaluateResult,
-  BrowserClickResult,
-  BrowserTypeResult,
-  BrowserContentResult,
-  BrowserNetworkResult,
-  BrowserStatusResult,
-} from '../types';
 
 /**
  * Format ptah_browser_navigate result

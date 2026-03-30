@@ -35,6 +35,8 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     string,
     { method: string; url: string; type: string }
   >();
+  /** Concurrency guard — prevents duplicate session creation from parallel calls */
+  private sessionPromise: Promise<void> | null = null;
 
   async navigate(
     url: string,
@@ -93,6 +95,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       const result = await this.sendCDP('Page.captureScreenshot', {
         format: fmt === 'png' ? 'png' : fmt === 'webp' ? 'webp' : 'jpeg',
         quality: fmt === 'png' ? undefined : (options?.quality ?? 80),
+        captureBeyondViewport: options?.fullPage ?? false,
       });
 
       return { data: result.data as string, format: fmt };
@@ -268,6 +271,12 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     }>;
     error?: string;
   }> {
+    if (!this.isConnected()) {
+      return {
+        requests: [],
+        error: 'No active browser session. Navigate to a page first.',
+      };
+    }
     this.resetInactivityTimer();
     const entries = this.networkEntries.slice(
       -Math.min(limit, MAX_NETWORK_ENTRIES),
@@ -323,6 +332,24 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     if (this.window && !this.window.isDestroyed() && this.connected) {
       return;
     }
+
+    // Concurrency guard: if a session is already being created, await it
+    if (this.sessionPromise) {
+      await this.sessionPromise;
+      return;
+    }
+
+    this.sessionPromise = this.createSession();
+    try {
+      await this.sessionPromise;
+    } finally {
+      this.sessionPromise = null;
+    }
+  }
+
+  private async createSession(): Promise<void> {
+    // Clean up any stale state from a crashed session (auto-reconnect)
+    this.cleanup();
 
     // Create a hidden BrowserWindow with strict sandbox security
     this.window = new BrowserWindow({

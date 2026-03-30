@@ -767,6 +767,39 @@ async function handleIndividualTool(
           quality,
           fullPage,
         });
+
+        // Return as MCP image content type so the AI model can visually inspect
+        if (screenshotResult.data && !screenshotResult.error) {
+          const mimeType =
+            screenshotResult.format === 'jpeg'
+              ? 'image/jpeg'
+              : screenshotResult.format === 'webp'
+                ? 'image/webp'
+                : 'image/png';
+
+          const text = formatBrowserScreenshot(screenshotResult);
+          deps.onToolResult?.(request.id.toString(), text, false);
+
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'image',
+                  data: screenshotResult.data,
+                  mimeType,
+                },
+                {
+                  type: 'text',
+                  text: `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)`,
+                },
+              ],
+            },
+          };
+        }
+
+        // Error case — return as text
         return createToolSuccessResponse(
           request,
           formatBrowserScreenshot(screenshotResult),

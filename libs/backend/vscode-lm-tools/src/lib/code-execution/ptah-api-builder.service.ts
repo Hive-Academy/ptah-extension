@@ -217,7 +217,7 @@ export class PtahAPIBuilder {
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
     private readonly secretStorage: ISecretStorage,
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 14 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
   }
 
   /**
