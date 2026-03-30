@@ -70,8 +70,8 @@ export interface SkillDetectionResult {
 export interface AgentOrchestrationConfig {
   /** Detected CLI agents (Gemini, Codex, Copilot) */
   detectedClis: import('../agent-process.types').CliDetectionResult[];
-  /** Default CLI to use (null = auto-detect) */
-  defaultCli: import('../agent-process.types').CliType | null;
+  /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */
+  preferredAgentOrder: string[];
   /** Maximum concurrent agents (1-10) */
   maxConcurrentAgents: number;
   /** Per-CLI model: Gemini CLI model (empty string = CLI default) */
@@ -111,8 +111,8 @@ export interface AgentListCliModelsResult {
 
 /** Parameters for agent:setConfig RPC method */
 export interface AgentSetConfigParams {
-  /** Default CLI to use (null = auto-detect) */
-  defaultCli?: import('../agent-process.types').CliType | null;
+  /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */
+  preferredAgentOrder?: string[];
   /** Maximum concurrent agents (1-10) */
   maxConcurrentAgents?: number;
   /** Gemini CLI model override (empty string = CLI default) */

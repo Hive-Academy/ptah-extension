@@ -122,7 +122,8 @@ export class AgentRpcHandlers {
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            defaultCli: config.get<CliType | null>('defaultCli', null),
+            preferredAgentOrder:
+              config.get<string[]>('preferredAgentOrder', []) ?? [],
             maxConcurrentAgents: config.get<number>('maxConcurrentAgents', 5),
             geminiModel: config.get<string>('geminiModel', ''),
             codexModel: config.get<string>('codexModel', ''),
@@ -260,10 +261,12 @@ export class AgentRpcHandlers {
   ): Promise<void> {
     const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
 
-    if (params.defaultCli !== undefined) {
+    if (params.preferredAgentOrder !== undefined) {
       await config.update(
-        'defaultCli',
-        params.defaultCli,
+        'preferredAgentOrder',
+        params.preferredAgentOrder.length > 0
+          ? params.preferredAgentOrder
+          : undefined,
         vscode.ConfigurationTarget.Global,
       );
     }

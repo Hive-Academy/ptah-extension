@@ -238,7 +238,7 @@ export class AgentProcessManager {
     });
 
     // Determine which CLI to use
-    const cli = request.cli ?? (await this.getDefaultCli());
+    const cli = request.cli ?? (await this.getPreferredCli());
     if (!cli) {
       throw new Error(
         'No CLI agent available. Install Gemini CLI (`npm install -g @google/gemini-cli`) ' +
@@ -1341,55 +1341,64 @@ export class AgentProcessManager {
     );
   }
 
-  private async getDefaultCli(): Promise<CliType | null> {
-    // Check user preference first
-    const preferred = this.workspace.getConfiguration<string>(
-      'ptah.agentOrchestration',
-      'defaultCli',
-    );
-    this.logger.debug('[AgentProcessManager] getDefaultCli: user preference', {
-      preferred: preferred ?? 'none (auto-detect)',
-    });
+  private async getPreferredCli(): Promise<CliType | null> {
+    // Known system CLI types (not Ptah CLI IDs)
+    const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
 
-    if (preferred) {
-      // Validate preferred CLI is a known adapter
-      const adapter = this.cliDetection.getAdapter(preferred as CliType);
+    // Read user's preferred agent order
+    const preferredOrder =
+      this.workspace.getConfiguration<string[]>(
+        'ptah.agentOrchestration',
+        'preferredAgentOrder',
+        [],
+      ) ?? [];
+    this.logger.debug(
+      '[AgentProcessManager] getPreferredCli: preferred order',
+      {
+        order:
+          preferredOrder.length > 0
+            ? preferredOrder.join(', ')
+            : 'none (auto-detect)',
+      },
+    );
+
+    // Iterate preferred list and return first installed system CLI
+    for (const entry of preferredOrder) {
+      // Skip Ptah CLI IDs — they are handled by the namespace builder, not here
+      if (!systemCliTypes.has(entry)) {
+        continue;
+      }
+
+      const adapter = this.cliDetection.getAdapter(entry as CliType);
       if (adapter) {
         const detection = await this.cliDetection.getDetection(
-          preferred as CliType,
+          entry as CliType,
         );
         if (detection?.installed) {
           this.logger.info(
-            '[AgentProcessManager] getDefaultCli: using user-preferred CLI',
-            { cli: preferred },
+            '[AgentProcessManager] getPreferredCli: using preferred CLI',
+            { cli: entry },
           );
-          return preferred as CliType;
+          return entry as CliType;
         }
         this.logger.warn(
-          '[AgentProcessManager] getDefaultCli: preferred CLI not installed, falling back',
-          { preferred, installed: detection?.installed },
+          '[AgentProcessManager] getPreferredCli: preferred CLI not installed, trying next',
+          { preferred: entry, installed: detection?.installed },
         );
       }
     }
 
-    // Auto-detect: prefer gemini > codex > copilot among headless CLI agents
+    // Fallback: auto-detect first installed CLI
     const installed = await this.cliDetection.getInstalledClis();
-    this.logger.debug('[AgentProcessManager] getDefaultCli: installed CLIs', {
-      count: installed.length,
-      clis: installed.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
-    });
+    this.logger.debug(
+      '[AgentProcessManager] getPreferredCli: auto-detect installed CLIs',
+      {
+        count: installed.length,
+        clis: installed.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
+      },
+    );
 
     if (installed.length === 0) return null;
-
-    // Prefer gemini, then codex, then copilot, then fall back to first available
-    const gemini = installed.find((c) => c.cli === 'gemini');
-    if (gemini) return 'gemini';
-
-    const codex = installed.find((c) => c.cli === 'codex');
-    if (codex) return 'codex';
-
-    const copilot = installed.find((c) => c.cli === 'copilot');
-    if (copilot) return 'copilot';
 
     return installed[0].cli;
   }

@@ -186,7 +186,7 @@ Connect any compatible provider as a background agent. Each gets its own API key
 
 ```json
 {
-  "ptah.agentOrchestration.defaultCli": "gemini",
+  "ptah.agentOrchestration.preferredAgentOrder": ["gemini", "copilot"],
   "ptah.agentOrchestration.maxConcurrentAgents": 3
 }
 ```

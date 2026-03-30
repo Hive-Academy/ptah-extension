@@ -79,7 +79,7 @@ export const KNOWN_CONFIG_KEYS = [
   'reasoningEffort',
   'mcpPort',
   'apiUrl',
-  'agentOrchestration.defaultCli',
+  'agentOrchestration.preferredAgentOrder',
   'agentOrchestration.maxConcurrentAgents',
   'agentOrchestration.geminiModel',
   'agentOrchestration.copilotModel',

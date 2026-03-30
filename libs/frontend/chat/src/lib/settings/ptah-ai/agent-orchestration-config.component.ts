@@ -12,12 +12,14 @@ import {
   Terminal,
   RefreshCw,
   ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
 } from 'lucide-angular';
 import { ClaudeRpcService } from '@ptah-extension/core';
 import type {
   AgentOrchestrationConfig,
   CliModelOption,
-  CliType,
 } from '@ptah-extension/shared';
 
 /**
@@ -95,32 +97,71 @@ import type {
               Settings
             </div>
 
-            <!-- Default CLI -->
+            <!-- Preferred Agent Order -->
             <div class="mb-2.5">
-              <label
-                for="agent-default-cli"
-                class="text-[10px] text-base-content/50 mb-0.5 block"
-              >
-                Default CLI
-              </label>
-              <select
-                id="agent-default-cli"
-                class="select select-bordered select-xs w-full"
-                [value]="agentConfig()?.defaultCli ?? 'auto'"
-                (change)="onDefaultCliSelect($event)"
-              >
-                <option value="auto">Auto-detect</option>
-                @for (
-                  cli of agentConfig()?.detectedClis;
-                  track cli.ptahCliId ?? cli.cli
-                ) {
-                  @if (cli.installed) {
-                    <option [value]="cli.ptahCliId ?? cli.cli">
-                      {{ cli.ptahCliName ?? (cli.cli | titlecase) }}
-                    </option>
+              <span class="text-[10px] text-base-content/50 mb-1 block">
+                Preferred Agent Order
+              </span>
+              @if (orderedAgents().length > 0) {
+                <div class="space-y-1">
+                  @for (
+                    agent of orderedAgents();
+                    track agent.id;
+                    let i = $index;
+                    let first = $first;
+                    let last = $last
+                  ) {
+                    <div
+                      class="flex items-center gap-1.5 px-2 py-1 rounded border border-base-300/40 bg-base-200/30"
+                    >
+                      <lucide-angular
+                        [img]="GripVerticalIcon"
+                        class="w-3 h-3 text-base-content/20 shrink-0"
+                      />
+                      <lucide-angular
+                        [img]="TerminalIcon"
+                        class="w-3 h-3 text-base-content/50 shrink-0"
+                      />
+                      <span class="text-[11px] flex-1 truncate">{{
+                        agent.name
+                      }}</span>
+                      @if (agent.type === 'ptah-cli') {
+                        <span class="badge badge-xs badge-ghost text-[8px]"
+                          >Custom</span
+                        >
+                      }
+                      <div class="flex gap-0.5 shrink-0">
+                        <button
+                          class="btn btn-ghost btn-xs p-0.5"
+                          [disabled]="first"
+                          (click)="moveAgentUp(i)"
+                          aria-label="Move up"
+                        >
+                          <lucide-angular [img]="ArrowUpIcon" class="w-3 h-3" />
+                        </button>
+                        <button
+                          class="btn btn-ghost btn-xs p-0.5"
+                          [disabled]="last"
+                          (click)="moveAgentDown(i)"
+                          aria-label="Move down"
+                        >
+                          <lucide-angular
+                            [img]="ArrowDownIcon"
+                            class="w-3 h-3"
+                          />
+                        </button>
+                      </div>
+                    </div>
                   }
-                }
-              </select>
+                </div>
+                <p class="text-[9px] text-base-content/30 mt-1">
+                  First available agent is used when no CLI is specified.
+                </p>
+              } @else {
+                <p class="text-[10px] text-base-content/40 italic">
+                  No agents detected. Install a CLI or add a Ptah CLI agent.
+                </p>
+              }
             </div>
 
             <!-- Max Concurrent Agents -->
@@ -463,6 +504,9 @@ export class AgentOrchestrationConfigComponent implements OnInit {
   readonly TerminalIcon = Terminal;
   readonly RefreshCwIcon = RefreshCw;
   readonly ChevronRightIcon = ChevronRight;
+  readonly ArrowUpIcon = ArrowUp;
+  readonly ArrowDownIcon = ArrowDown;
+  readonly GripVerticalIcon = GripVertical;
 
   // Reasoning effort options for Codex/Copilot
   readonly reasoningEffortOptions = [
@@ -496,6 +540,41 @@ export class AgentOrchestrationConfigComponent implements OnInit {
 
   readonly hasInstalledCli = computed(() => {
     return this.systemClis().some((c) => c.installed);
+  });
+
+  /** Ordered list of all installed/enabled agents for the reorderable UI */
+  readonly orderedAgents = computed(() => {
+    const config = this.agentConfig();
+    if (!config) return [];
+
+    const disabledClis = config.disabledClis ?? [];
+
+    // Build list of all available agents
+    const agents: { id: string; name: string; type: 'system' | 'ptah-cli' }[] =
+      [];
+    for (const cli of config.detectedClis) {
+      if (!cli.installed) continue;
+      const id = cli.ptahCliId ?? cli.cli;
+      if (disabledClis.includes(cli.cli) && !cli.ptahCliId) continue;
+      agents.push({
+        id,
+        name:
+          cli.ptahCliName ?? cli.cli.charAt(0).toUpperCase() + cli.cli.slice(1),
+        type: cli.ptahCliId ? 'ptah-cli' : 'system',
+      });
+    }
+
+    // Sort by preferred order
+    const preferred = config.preferredAgentOrder ?? [];
+    if (preferred.length === 0) return agents;
+
+    return [...agents].sort((a, b) => {
+      const ai = preferred.indexOf(a.id);
+      const bi = preferred.indexOf(b.id);
+      const aRank = ai === -1 ? preferred.length : ai;
+      const bRank = bi === -1 ? preferred.length : bi;
+      return aRank - bRank;
+    });
   });
 
   async ngOnInit(): Promise<void> {
@@ -555,23 +634,38 @@ export class AgentOrchestrationConfigComponent implements OnInit {
     });
   }
 
-  public onDefaultCliSelect(event: Event): void {
-    const value = (event.target as HTMLSelectElement).value;
-    this.setAgentDefaultCli(value);
-  }
-
   public onMaxConcurrentChange(event: Event): void {
     const value = (event.target as HTMLInputElement).valueAsNumber;
     this.setAgentMaxConcurrent(value);
   }
 
-  async setAgentDefaultCli(cli: string): Promise<void> {
-    const value = cli === 'auto' ? null : (cli as CliType);
+  /** Move agent up in preferred order */
+  moveAgentUp(index: number): void {
+    if (index <= 0) return;
+    const agents = this.orderedAgents();
+    const ids = agents.map((a) => a.id);
+    [ids[index - 1], ids[index]] = [ids[index], ids[index - 1]];
+    this.savePreferredOrder(ids);
+  }
+
+  /** Move agent down in preferred order */
+  moveAgentDown(index: number): void {
+    const agents = this.orderedAgents();
+    if (index >= agents.length - 1) return;
+    const ids = agents.map((a) => a.id);
+    [ids[index], ids[index + 1]] = [ids[index + 1], ids[index]];
+    this.savePreferredOrder(ids);
+  }
+
+  /** Persist the preferred agent order */
+  private async savePreferredOrder(order: string[]): Promise<void> {
     const result = await this.rpcService.call('agent:setConfig', {
-      defaultCli: value,
+      preferredAgentOrder: order,
     });
     if (result.isSuccess()) {
-      this.agentConfig.update((c) => (c ? { ...c, defaultCli: value } : c));
+      this.agentConfig.update((c) =>
+        c ? { ...c, preferredAgentOrder: order } : c,
+      );
     }
   }
 

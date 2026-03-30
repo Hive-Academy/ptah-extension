@@ -92,6 +92,8 @@ export interface AgentNamespaceDependencies {
   getPtahCliRegistry?: () => PtahCliRegistryLike | undefined;
   /** Returns CLI types that are disabled by the user. Called at spawn/list time to filter out disabled agents. */
   getDisabledClis?: () => string[];
+  /** Returns the user's preferred agent order for sorting list() results. */
+  getPreferredAgentOrder?: () => string[];
 }
 
 /**
@@ -110,6 +112,7 @@ export function buildAgentNamespace(
     getPluginPaths,
     getPtahCliRegistry,
     getDisabledClis,
+    getPreferredAgentOrder,
   } = deps;
 
   return {
@@ -215,28 +218,59 @@ export function buildAgentNamespace(
           : cliResults;
 
       const registry = getPtahCliRegistry?.();
+      let merged: CliDetectionResult[];
       if (!registry) {
-        return enabledCliResults;
+        merged = enabledCliResults;
+      } else {
+        try {
+          const ptahCliAgents = await registry.listAgents();
+          const ptahCliResults: CliDetectionResult[] = ptahCliAgents
+            .filter((a) => a.enabled && a.hasApiKey)
+            .map((a) => ({
+              cli: 'ptah-cli' as const,
+              installed: true,
+              supportsSteer: false,
+              ptahCliId: a.id,
+              ptahCliName: a.name,
+              providerName: a.providerName,
+            }));
+
+          merged = [...enabledCliResults, ...ptahCliResults];
+        } catch {
+          // If listing Ptah CLI agents fails, still return CLI agents
+          merged = enabledCliResults;
+        }
       }
 
-      try {
-        const ptahCliAgents = await registry.listAgents();
-        const ptahCliResults: CliDetectionResult[] = ptahCliAgents
-          .filter((a) => a.enabled && a.hasApiKey)
-          .map((a) => ({
-            cli: 'ptah-cli' as const,
-            installed: true,
-            supportsSteer: false,
-            ptahCliId: a.id,
-            ptahCliName: a.name,
-            providerName: a.providerName,
-          }));
+      // Sort by preferred agent order and add preferredRank
+      const preferredOrder = getPreferredAgentOrder?.() ?? [];
+      if (preferredOrder.length > 0) {
+        // Build a lookup: entry identifier -> 1-based rank
+        const rankMap = new Map<string, number>();
+        preferredOrder.forEach((entry, idx) => rankMap.set(entry, idx + 1));
 
-        return [...enabledCliResults, ...ptahCliResults];
-      } catch {
-        // If listing Ptah CLI agents fails, still return CLI agents
-        return enabledCliResults;
+        // Determine the identifier for a CLI result (ptahCliId for Ptah CLI agents, cli type for system CLIs)
+        const getIdentifier = (r: CliDetectionResult): string =>
+          r.cli === 'ptah-cli' && r.ptahCliId ? r.ptahCliId : r.cli;
+
+        // Sort: preferred agents first (by rank), then unranked agents
+        merged.sort((a, b) => {
+          const rankA =
+            rankMap.get(getIdentifier(a)) ?? Number.MAX_SAFE_INTEGER;
+          const rankB =
+            rankMap.get(getIdentifier(b)) ?? Number.MAX_SAFE_INTEGER;
+          return rankA - rankB;
+        });
+
+        // Add preferredRank to each result
+        return merged.map((r) => ({
+          ...r,
+          preferredRank: rankMap.get(getIdentifier(r)) ?? 0,
+        }));
       }
+
+      // No preferred order — return as-is with preferredRank: 0
+      return merged.map((r) => ({ ...r, preferredRank: 0 }));
     },
 
     waitFor: async (agentId, options?) => {

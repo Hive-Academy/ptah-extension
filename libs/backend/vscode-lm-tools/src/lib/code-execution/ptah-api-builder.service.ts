@@ -446,6 +446,15 @@ export class PtahAPIBuilder {
               ) ?? []
             );
           },
+          getPreferredAgentOrder: () => {
+            return (
+              this.workspaceProvider.getConfiguration<string[]>(
+                'ptah.agentOrchestration',
+                'preferredAgentOrder',
+                [],
+              ) ?? []
+            );
+          },
         }),
       ),
 

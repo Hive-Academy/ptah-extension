@@ -398,15 +398,13 @@
           "maximum": 65535,
           "description": "Port for Ptah's MCP server (code execution tools). Must be between 1024-65535. Default: 51820."
         },
-        "ptah.agentOrchestration.defaultCli": {
-          "type": "string",
-          "enum": [
-            "gemini",
-            "codex",
-            "copilot"
-          ],
-          "default": "gemini",
-          "description": "Default CLI agent to use when spawning agents. Auto-detected if not set."
+        "ptah.agentOrchestration.preferredAgentOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "User's preferred agent order for spawning. First available agent is used. Supports system CLIs (gemini, codex, copilot) and Ptah CLI agent IDs."
         },
         "ptah.agentOrchestration.maxConcurrentAgents": {
           "type": "number",

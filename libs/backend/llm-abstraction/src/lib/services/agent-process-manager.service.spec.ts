@@ -22,7 +22,7 @@ jest.mock(
       },
     },
   }),
-  { virtual: true }
+  { virtual: true },
 );
 
 // Mock child_process (for CLI path, we don't test that deeply here but need it importable)
@@ -125,7 +125,7 @@ function createMockSdkHandle(): MockSdkHandleControls {
  * Create a fake SDK adapter (has runSdk) for testing.
  */
 function createSdkAdapter(
-  sdkHandleControls: MockSdkHandleControls
+  sdkHandleControls: MockSdkHandleControls,
 ): jest.Mocked<CliAdapter> {
   return {
     name: 'codex',
@@ -154,7 +154,7 @@ function createSdkAdapter(
  */
 function createMockCliDetection(
   adapter: CliAdapter,
-  detection?: CliDetectionResult
+  detection?: CliDetectionResult,
 ): jest.Mocked<CliDetectionService> {
   const det: CliDetectionResult = detection ?? {
     cli: 'codex',
@@ -176,7 +176,7 @@ function createMockCliDetection(
 function setupVscodeConfig(overrides: Record<string, unknown> = {}): void {
   const defaults: Record<string, unknown> = {
     maxConcurrentAgents: 3,
-    defaultCli: undefined,
+    preferredAgentOrder: [],
   };
   const config = { ...defaults, ...overrides };
 
@@ -431,7 +431,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       });
 
       expect(() => manager.steer(result.agentId, 'do something else')).toThrow(
-        /not supported/i
+        /not supported/i,
       );
     });
   });
@@ -459,7 +459,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
       expect(abortSpy).toHaveBeenCalled();
       // Verify logger recorded shutdown
       expect(logger.info).toHaveBeenCalledWith(
-        expect.stringContaining('shut down')
+        expect.stringContaining('shut down'),
       );
     });
   });
@@ -481,7 +481,7 @@ describe('AgentProcessManager - SDK Execution Path', () => {
           task: 'Task 2',
           cli: 'codex',
           workingDirectory: '/workspace/root',
-        })
+        }),
       ).rejects.toThrow(/Maximum concurrent agent limit/);
     });
 
@@ -516,9 +516,9 @@ describe('AgentProcessManager - SDK Execution Path', () => {
     });
   });
 
-  describe('getDefaultCli() auto-detect', () => {
+  describe('getPreferredCli() auto-detect', () => {
     it('should auto-detect codex when no preference is set', async () => {
-      setupVscodeConfig({ defaultCli: undefined });
+      setupVscodeConfig({ preferredAgentOrder: [] });
 
       const result = await manager.spawn({
         task: 'Task without explicit CLI',

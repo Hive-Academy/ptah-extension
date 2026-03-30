@@ -113,11 +113,11 @@ export class ElectronAgentRpcHandlers {
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            defaultCli:
-              this.stateStorage.get<CliType | null>(
-                'agentOrchestration.defaultCli',
-                null,
-              ) ?? null,
+            preferredAgentOrder:
+              this.stateStorage.get<string[]>(
+                'agentOrchestration.preferredAgentOrder',
+                [],
+              ) ?? [],
             maxConcurrentAgents:
               this.stateStorage.get<number>(
                 'agentOrchestration.maxConcurrentAgents',
@@ -195,10 +195,10 @@ export class ElectronAgentRpcHandlers {
       try {
         this.logger.debug('RPC: agent:setConfig called', { params });
 
-        if (params.defaultCli !== undefined) {
+        if (params.preferredAgentOrder !== undefined) {
           await this.stateStorage.update(
-            'agentOrchestration.defaultCli',
-            params.defaultCli,
+            'agentOrchestration.preferredAgentOrder',
+            params.preferredAgentOrder,
           );
         }
         if (params.maxConcurrentAgents !== undefined) {

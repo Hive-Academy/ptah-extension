@@ -385,8 +385,8 @@ export class AgentOrchestrationSectionComponent {
 
   public readonly settings: ConfigSetting[] = [
     {
-      key: 'ptah.agentOrchestration.defaultCli',
-      description: 'Preferred agent (gemini, codex, copilot, or ptah-cli)',
+      key: 'ptah.agentOrchestration.preferredAgentOrder',
+      description: 'Preferred agent spawn order (reorderable list)',
     },
     {
       key: 'ptah.agentOrchestration.maxConcurrentAgents',
