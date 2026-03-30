@@ -244,7 +244,7 @@ rpcHandler.registerMethod<BatchRequest, BatchResult>('rpc:batch', async (params)
 
 - [x] **Log level filtering** - Implemented ✅
 - [x] **WebviewManager console audit** - Fixed ✅
-- [ ] **Message batching** - Created as [TASK_2025_083](task-tracking/TASK_2025_083/task-description.md)
+- [ ] **Message batching** - Created as [TASK_2025_083](.ptah/specs/TASK_2025_083/task-description.md)
 
 ---
 

@@ -10,11 +10,12 @@
 import crossSpawn from 'cross-spawn';
 import * as path from 'path';
 import type { Logger } from '@ptah-extension/vscode-core';
-import type {
-  GitBranchInfo,
-  GitFileStatus,
-  GitInfoResult,
-  GitWorktreeInfo,
+import {
+  parseWorktreeList,
+  type GitBranchInfo,
+  type GitFileStatus,
+  type GitInfoResult,
+  type GitWorktreeInfo,
 } from '@ptah-extension/shared';
 
 const GIT_TIMEOUT_MS = 10_000;
@@ -78,7 +79,7 @@ export class GitInfoService {
         return [];
       }
 
-      return this.parseWorktreeList(stdout);
+      return parseWorktreeList(stdout);
     } catch (error) {
       this.logger.error('[GitInfoService] getWorktrees failed', {
         workspacePath,
@@ -365,59 +366,5 @@ export class GitInfoService {
       default:
         return 'M';
     }
-  }
-
-  /**
-   * Parse git worktree list --porcelain output.
-   *
-   * Format (blocks separated by blank lines):
-   *   worktree <path>
-   *   HEAD <sha>
-   *   branch refs/heads/<name>
-   *   [bare]
-   */
-  private parseWorktreeList(output: string): GitWorktreeInfo[] {
-    const worktrees: GitWorktreeInfo[] = [];
-    const blocks = output.trim().split('\n\n');
-
-    for (const block of blocks) {
-      if (!block.trim()) continue;
-
-      const lines = block.trim().split('\n');
-      let wtPath = '';
-      let head = '';
-      let branch = '';
-      let isBare = false;
-
-      for (const line of lines) {
-        if (line.startsWith('worktree ')) {
-          wtPath = line.substring('worktree '.length);
-        } else if (line.startsWith('HEAD ')) {
-          head = line.substring('HEAD '.length).substring(0, 8);
-        } else if (line.startsWith('branch ')) {
-          const ref = line.substring('branch '.length);
-          // Strip refs/heads/ prefix
-          branch = ref.startsWith('refs/heads/')
-            ? ref.substring('refs/heads/'.length)
-            : ref;
-        } else if (line.trim() === 'bare') {
-          isBare = true;
-        } else if (line.trim() === 'detached') {
-          branch = 'HEAD (detached)';
-        }
-      }
-
-      if (wtPath) {
-        worktrees.push({
-          path: wtPath,
-          head,
-          branch: branch || 'HEAD',
-          isMain: worktrees.length === 0,
-          isBare,
-        });
-      }
-    }
-
-    return worktrees;
   }
 }

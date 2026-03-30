@@ -44,7 +44,7 @@ export interface AstNamespaceDependencies {
  * Build AST analysis namespace
  */
 export function buildAstNamespace(
-  deps: AstNamespaceDependencies
+  deps: AstNamespaceDependencies,
 ): AstNamespace {
   const {
     treeSitterParser,
@@ -58,10 +58,14 @@ export function buildAstNamespace(
       const { content, language, absolutePath } = await readFileForAst(
         filePath,
         fileSystemProvider,
-        workspaceProvider
+        workspaceProvider,
       );
 
-      const result = astAnalysis.analyzeSource(content, language, absolutePath);
+      const result = await astAnalysis.analyzeSource(
+        content,
+        language,
+        absolutePath,
+      );
 
       if (result.isErr()) {
         throw new Error(result.error?.message ?? 'AST analysis failed');
@@ -87,10 +91,10 @@ export function buildAstNamespace(
       const { content, language } = await readFileForAst(
         filePath,
         fileSystemProvider,
-        workspaceProvider
+        workspaceProvider,
       );
 
-      const result = treeSitterParser.parse(content, language);
+      const result = await treeSitterParser.parse(content, language);
 
       if (result.isErr()) {
         throw new Error(result.error?.message ?? 'AST parsing failed');
@@ -114,10 +118,10 @@ export function buildAstNamespace(
       const { content, language } = await readFileForAst(
         filePath,
         fileSystemProvider,
-        workspaceProvider
+        workspaceProvider,
       );
 
-      const result = treeSitterParser.queryFunctions(content, language);
+      const result = await treeSitterParser.queryFunctions(content, language);
 
       if (result.isErr()) {
         throw new Error(result.error?.message ?? 'Function query failed');
@@ -130,10 +134,10 @@ export function buildAstNamespace(
       const { content, language } = await readFileForAst(
         filePath,
         fileSystemProvider,
-        workspaceProvider
+        workspaceProvider,
       );
 
-      const result = treeSitterParser.queryClasses(content, language);
+      const result = await treeSitterParser.queryClasses(content, language);
 
       if (result.isErr()) {
         throw new Error(result.error?.message ?? 'Class query failed');
@@ -146,10 +150,10 @@ export function buildAstNamespace(
       const { content, language } = await readFileForAst(
         filePath,
         fileSystemProvider,
-        workspaceProvider
+        workspaceProvider,
       );
 
-      const result = treeSitterParser.queryImports(content, language);
+      const result = await treeSitterParser.queryImports(content, language);
 
       if (result.isErr()) {
         throw new Error(result.error?.message ?? 'Import query failed');
@@ -162,10 +166,10 @@ export function buildAstNamespace(
       const { content, language } = await readFileForAst(
         filePath,
         fileSystemProvider,
-        workspaceProvider
+        workspaceProvider,
       );
 
-      const result = treeSitterParser.queryExports(content, language);
+      const result = await treeSitterParser.queryExports(content, language);
 
       if (result.isErr()) {
         throw new Error(result.error?.message ?? 'Export query failed');
@@ -176,7 +180,7 @@ export function buildAstNamespace(
 
     getSupportedLanguages: (): string[] => {
       return Object.values(EXTENSION_LANGUAGE_MAP).filter(
-        (v, i, a) => a.indexOf(v) === i
+        (v, i, a) => a.indexOf(v) === i,
       );
     },
   };
@@ -192,7 +196,7 @@ export function buildAstNamespace(
 async function readFileForAst(
   filePath: string,
   fileSystemProvider: IFileSystemProvider,
-  workspaceProvider: IWorkspaceProvider
+  workspaceProvider: IWorkspaceProvider,
 ): Promise<{
   content: string;
   language: SupportedLanguage;
@@ -208,8 +212,8 @@ async function readFileForAst(
   if (!language) {
     throw new Error(
       `Unsupported file type: ${ext}. Supported: ${Object.keys(
-        EXTENSION_LANGUAGE_MAP
-      ).join(', ')}`
+        EXTENSION_LANGUAGE_MAP,
+      ).join(', ')}`,
     );
   }
 
@@ -221,7 +225,7 @@ async function readFileForAst(
  */
 function resolveFilePath(
   filePath: string,
-  workspaceProvider: IWorkspaceProvider
+  workspaceProvider: IWorkspaceProvider,
 ): string {
   if (
     filePath.startsWith('/') ||
@@ -245,7 +249,7 @@ function resolveFilePath(
 function simplifyAstNode(
   node: GenericAstNode,
   depth: number,
-  maxDepth: number
+  maxDepth: number,
 ): { node: AstNode; count: number } {
   let count = 1;
 
@@ -268,7 +272,7 @@ function simplifyAstNode(
       const { node: childNode, count: childCount } = simplifyAstNode(
         child,
         depth + 1,
-        maxDepth
+        maxDepth,
       );
       simplified.children.push(childNode);
       count += childCount;

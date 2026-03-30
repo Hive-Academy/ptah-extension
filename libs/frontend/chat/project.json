@@ -1,5 +1,5 @@
 {
-  "name": "chat",
+  "name": "@ptah-extension/chat",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/frontend/chat/src",
   "prefix": "ptah",

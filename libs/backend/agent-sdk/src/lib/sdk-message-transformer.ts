@@ -45,6 +45,7 @@ import {
   TextBlock,
   ToolResultBlock,
   isTextBlock,
+  isThinkingBlock,
   isToolUseBlock,
   isToolResultBlock,
   isResultMessage,
@@ -754,7 +755,26 @@ export class SdkMessageTransformer {
 
     for (let contentIndex = 0; contentIndex < content.length; contentIndex++) {
       const block = content[contentIndex];
-      if (isTextBlock(block)) {
+      if (isThinkingBlock(block)) {
+        // Emit thinking_delta event for thinking blocks in complete messages.
+        // Without this, thinking accumulators populated by stream events get
+        // cleared (via deferred clearing) but never repopulated from the
+        // complete path, causing thinking blocks to vanish from the UI.
+        if (block.thinking) {
+          const thinkingDeltaEvent: ThinkingDeltaEvent = {
+            id: generateEventId(),
+            eventType: 'thinking_delta',
+            timestamp: Date.now(),
+            sessionId: sessionId || '',
+            source: 'complete' as EventSource,
+            messageId,
+            delta: block.thinking,
+            blockIndex: contentIndex,
+            parentToolUseId: parent_tool_use_id ?? undefined,
+          };
+          events.push(thinkingDeltaEvent);
+        }
+      } else if (isTextBlock(block)) {
         // Emit text_delta event
         const textDeltaEvent: TextDeltaEvent = {
           id: generateEventId(),

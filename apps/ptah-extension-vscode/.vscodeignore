@@ -41,28 +41,8 @@ Thumbs.db
 *.vsix
 *.log
 
-# node_modules — SDKs are bundled into main.mjs via esbuild (TASK_2025_232).
-# Only tree-sitter native modules remain as external dependencies.
-# Exclude everything except the prebuilt .node binaries tree-sitter needs.
-**/node_modules/**/*.md
-**/node_modules/**/*.markdown
-**/node_modules/**/README*
-**/node_modules/**/CHANGELOG*
-**/node_modules/**/LICENSE*
-**/node_modules/**/LICENCE*
-**/node_modules/**/*.ts
-!**/node_modules/**/*.d.ts
-**/node_modules/**/*.map
-**/node_modules/**/test/**
-**/node_modules/**/tests/**
-**/node_modules/**/__tests__/**
-**/node_modules/**/docs/**
-**/node_modules/**/examples/**
-**/node_modules/**/.github/**
-**/node_modules/**/scripts/**
-# tree-sitter: exclude C source, keep prebuilt .node binaries
-**/node_modules/tree-sitter*/src/**
-**/node_modules/tree-sitter/vendor/**
+# No node_modules needed - all dependencies bundled into main.mjs, WASM files copied as assets
+**/node_modules/**
 
 # Monaco Editor — only used by Electron app, VS Code has its own editor
 # Contains eval() and new Function() that trigger marketplace "suspicious content" scanner

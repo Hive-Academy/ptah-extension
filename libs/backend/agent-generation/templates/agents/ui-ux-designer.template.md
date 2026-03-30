@@ -136,8 +136,8 @@ Glob(docs/design-system/**/*.md)
 Glob(**/tailwind.config.* OR **/theme.config.*)
 
 # Check for project requirements
-Glob(.claude/specs/TASK_*/visual-design-specification.md)
-Read(.claude/specs/TASK_*/context.md)
+Glob(.ptah/specs/TASK_*/visual-design-specification.md)
+Read(.ptah/specs/TASK_*/context.md)
 ```
 
 ---
@@ -150,15 +150,15 @@ Save to: `.claude/skills/technical-content-writer/DESIGN-SYSTEM.md`
 
 ### Visual Specification Output
 
-Save to: `.claude/specs/TASK_[ID]/visual-design-specification.md`
+Save to: `.ptah/specs/TASK_[ID]/visual-design-specification.md`
 
 ### Asset Documentation Output
 
-Save to: `.claude/specs/TASK_[ID]/design-assets-inventory.md`
+Save to: `.ptah/specs/TASK_[ID]/design-assets-inventory.md`
 
 ### Developer Handoff Output
 
-Save to: `.claude/specs/TASK_[ID]/design-handoff.md`
+Save to: `.ptah/specs/TASK_[ID]/design-handoff.md`
 
 ---
 

@@ -91,3 +91,24 @@ export interface GitRemoveWorktreeResult {
   success: boolean;
   error?: string;
 }
+
+/**
+ * Notification payload for git:worktreeChanged push messages.
+ * Sent from the backend to the frontend when the SDK creates or removes a worktree.
+ * The frontend WorktreeService listens for this to refresh its worktree list.
+ *
+ * This is a push notification (backend -> frontend), NOT a request/response RPC method.
+ * It does not go in RpcMethodRegistry or RPC_METHOD_NAMES. The backend posts it as
+ * a webview message with type 'git:worktreeChanged', and the frontend listens for
+ * it on the message event handler.
+ *
+ * TASK_2025_236
+ */
+export interface GitWorktreeChangedNotification {
+  /** Whether a worktree was created or removed */
+  action: 'created' | 'removed';
+  /** Worktree name (for created) */
+  name?: string;
+  /** Worktree path (for removed, or the created path if available) */
+  path?: string;
+}

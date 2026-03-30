@@ -47,8 +47,8 @@ Grep("<ServiceName>", apps/**/*.ts)           # How it's used
 Read(libs/<library>/src/**/*.spec.ts)         # Test examples
 
 # Known Issues
-Grep("fix|bug", .claude/specs/registry.md)    # Bug fixes
-Read(.claude/specs/TASK_XXXX/context.md)      # Problem descriptions
+Grep("fix|bug", .ptah/specs/registry.md)    # Bug fixes
+Read(.ptah/specs/TASK_XXXX/context.md)      # Problem descriptions
 ```
 
 ## Getting Started Template

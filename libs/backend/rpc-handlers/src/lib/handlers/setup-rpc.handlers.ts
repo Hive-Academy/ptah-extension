@@ -543,7 +543,7 @@ export class SetupRpcHandlers {
   }
 
   /**
-   * wizard:list-analyses - List saved analyses from .claude/analysis/
+   * wizard:list-analyses - List saved analyses from .ptah/analysis/
    */
   private registerListAnalyses(): void {
     this.rpcHandler.registerMethod<

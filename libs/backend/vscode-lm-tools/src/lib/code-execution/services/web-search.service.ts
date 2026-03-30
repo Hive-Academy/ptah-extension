@@ -1,24 +1,69 @@
-import type { CliDetectionService } from '@ptah-extension/llm-abstraction';
+/**
+ * WebSearchService - Multi-Provider Web Search
+ *
+ * Routes search requests to the user-configured provider (Tavily, Serper, or Exa).
+ * Reads provider configuration from IWorkspaceProvider and API keys from ISecretStorage.
+ * Both dependencies are platform-abstracted, supporting VS Code and Electron equally.
+ *
+ * Configuration:
+ *   - Provider: ptah.webSearch.provider (settings) -> 'tavily' | 'serper' | 'exa'
+ *   - Max results: ptah.webSearch.maxResults (settings) -> number (default 5)
+ *   - API keys: ptah.webSearch.apiKey.{provider} (SecretStorage, encrypted)
+ */
+
+import type { ISecretStorage } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { Logger } from '@ptah-extension/vscode-core';
 
+import type {
+  IWebSearchProvider,
+  WebSearchProviderType,
+  WebSearchResultItem,
+} from './web-search-provider.interface';
+import { TavilySearchProvider } from './providers/tavily.provider';
+import { SerperSearchProvider } from './providers/serper.provider';
+import { ExaSearchProvider } from './providers/exa.provider';
+
 export interface WebSearchDependencies {
-  cliDetectionService: CliDetectionService;
+  secretStorage: ISecretStorage;
+  workspaceProvider: IWorkspaceProvider;
   logger: Logger;
+}
+
+export interface WebSearchOptions {
+  maxResults?: number;
+  timeout?: number;
 }
 
 export interface WebSearchResult {
   query: string;
   summary: string;
-  provider: 'gemini-cli';
+  provider: WebSearchProviderType;
   durationMs: number;
+  results: WebSearchResultItem[];
+  resultCount: number;
 }
 
 const MAX_QUERY_LENGTH = 2000;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_MS = 60_000;
+const DEFAULT_MAX_RESULTS = 5;
+
+/**
+ * Secret key pattern for storing provider API keys.
+ * Example: ptah.webSearch.apiKey.tavily
+ */
+function secretKeyForProvider(provider: WebSearchProviderType): string {
+  return `ptah.webSearch.apiKey.${provider}`;
+}
 
 export class WebSearchService {
   constructor(private readonly deps: WebSearchDependencies) {}
 
-  async search(query: string, timeoutMs?: number): Promise<WebSearchResult> {
+  async search(
+    query: string,
+    options?: WebSearchOptions,
+  ): Promise<WebSearchResult> {
     // Validate query
     const trimmed = query?.trim();
     if (!trimmed) {
@@ -30,109 +75,157 @@ export class WebSearchService {
         : trimmed;
 
     // Clamp timeout: default 30s, max 60s
-    const timeout = Math.min(timeoutMs ?? 30000, 60000);
+    const timeout = Math.min(
+      options?.timeout ?? DEFAULT_TIMEOUT_MS,
+      MAX_TIMEOUT_MS,
+    );
+
+    // Read provider from configuration
+    const providerName = this.getProviderConfig();
+
+    // Read maxResults: options override > config > default
+    const configMaxResults =
+      this.deps.workspaceProvider.getConfiguration<number>(
+        'ptah',
+        'webSearch.maxResults',
+        DEFAULT_MAX_RESULTS,
+      ) ?? DEFAULT_MAX_RESULTS;
+    const maxResults = options?.maxResults ?? configMaxResults;
+
+    // Retrieve API key from encrypted SecretStorage
+    const apiKey = await this.deps.secretStorage.get(
+      secretKeyForProvider(providerName),
+    );
+    if (!apiKey) {
+      throw new Error(
+        `No API key configured for ${providerName}. ` +
+          `Configure it in Ptah Settings > Web Search.`,
+      );
+    }
+
+    // Create the provider adapter (instantiated per-search to always use latest key)
+    const provider = this.createProvider(providerName, apiKey);
+
     const start = Date.now();
 
-    // Gemini CLI (has native google_web_search)
     try {
-      const result = await this.searchViaGeminiCli(sanitizedQuery, timeout);
-      this.deps.logger.info(
-        '[WebSearch] Completed via Gemini CLI',
+      // Execute search with timeout via Promise.race + AbortController pattern
+      const providerResult = await Promise.race([
+        provider.search(sanitizedQuery, maxResults),
+        this.createTimeoutPromise(timeout),
+      ]);
+
+      const durationMs = Date.now() - start;
+
+      // Build summary from provider or synthesize from top results
+      const summary =
+        providerResult.summary ||
+        this.buildSummaryFromResults(providerResult.results);
+
+      this.deps.logger.info('[WebSearch] Completed', 'WebSearchService', {
+        provider: providerName,
+        query: sanitizedQuery.substring(0, 80),
+        resultCount: providerResult.results.length,
+        durationMs,
+      });
+
+      return {
+        query: sanitizedQuery,
+        summary,
+        provider: providerName,
+        durationMs,
+        results: providerResult.results,
+        resultCount: providerResult.results.length,
+      };
+    } catch (error: unknown) {
+      const durationMs = Date.now() - start;
+      const message = error instanceof Error ? error.message : String(error);
+
+      this.deps.logger.warn(
+        `[WebSearch] Failed via ${providerName}`,
         'WebSearchService',
         {
           query: sanitizedQuery.substring(0, 80),
-          durationMs: Date.now() - start,
-        }
+          durationMs,
+          error: message,
+        },
       );
-      return {
-        query: sanitizedQuery,
-        summary: result,
-        provider: 'gemini-cli',
-        durationMs: Date.now() - start,
-      };
-    } catch (error) {
-      throw new Error(
-        `Web search failed: no provider available. ` +
-          `Gemini CLI failed. ` +
-          `Error: ${error instanceof Error ? error.message : String(error)}`
-      );
+
+      throw new Error(`Web search failed (${providerName}): ${message}`);
     }
   }
 
   /**
-   * Search via Gemini CLI (has native google_web_search tool).
-   * Spawns a Gemini CLI process with search-focused prompt.
-   * Cleans up timer and process on completion or timeout.
+   * Read the configured provider from workspace settings.
+   * Falls back to 'tavily' if not configured or invalid.
    */
-  private async searchViaGeminiCli(
-    query: string,
-    timeoutMs: number
-  ): Promise<string> {
-    const detection = await this.deps.cliDetectionService.getDetection(
-      'gemini'
+  private getProviderConfig(): WebSearchProviderType {
+    const raw = this.deps.workspaceProvider.getConfiguration<string>(
+      'ptah',
+      'webSearch.provider',
+      'tavily',
     );
-    if (!detection?.installed) {
-      throw new Error('Gemini CLI not installed');
+
+    const validProviders: WebSearchProviderType[] = ['tavily', 'serper', 'exa'];
+    if (raw && validProviders.includes(raw as WebSearchProviderType)) {
+      return raw as WebSearchProviderType;
     }
 
-    const adapter = this.deps.cliDetectionService.getAdapter('gemini');
-    if (!adapter?.runSdk) {
-      throw new Error('Gemini CLI adapter does not support SDK mode');
+    this.deps.logger.warn(
+      `[WebSearch] Unknown provider "${raw}", falling back to tavily`,
+      'WebSearchService',
+    );
+    return 'tavily';
+  }
+
+  /**
+   * Factory method to create the appropriate provider adapter.
+   * Providers are cheap to instantiate (just stores API key).
+   */
+  private createProvider(
+    providerName: WebSearchProviderType,
+    apiKey: string,
+  ): IWebSearchProvider {
+    switch (providerName) {
+      case 'tavily':
+        return new TavilySearchProvider(apiKey);
+      case 'serper':
+        return new SerperSearchProvider(apiKey);
+      case 'exa':
+        return new ExaSearchProvider(apiKey);
+      default: {
+        // Exhaustive check - this should never happen since getProviderConfig validates
+        const _exhaustive: never = providerName;
+        throw new Error(`Unknown web search provider: ${_exhaustive}`);
+      }
+    }
+  }
+
+  /**
+   * Build a fallback summary by concatenating top result snippets
+   * when the provider does not supply a native summary.
+   */
+  private buildSummaryFromResults(results: WebSearchResultItem[]): string {
+    if (!results || results.length === 0) {
+      return 'No results found.';
     }
 
-    const handle = await adapter.runSdk({
-      task:
-        `Search the web for: "${query}". Use the google_web_search tool to find relevant results. ` +
-        `Provide a comprehensive summary of the findings including key facts, sources, and URLs. ` +
-        `Do NOT use any other tools. Only search and summarize.`,
-      workingDirectory: process.cwd(),
-      binaryPath: detection.path,
-    });
+    const topResults = results.slice(0, 3);
+    return topResults
+      .map((r, i) => `${i + 1}. ${r.title}: ${r.snippet}`)
+      .join('\n\n');
+  }
 
-    let output = '';
-    handle.onOutput((data) => {
-      output += data;
-    });
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let timedOut = false;
-    try {
-      const exitCode = await Promise.race([
-        handle.done,
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            timedOut = true;
-            handle.abort.abort();
-            reject(new Error('Gemini CLI search timed out'));
-          }, timeoutMs);
-        }),
-      ]);
-
-      if (exitCode !== 0) {
-        this.deps.logger.warn(
-          `[WebSearch] Gemini CLI exited with code ${exitCode}`,
-          'WebSearchService',
-          { exitCode, hasOutput: !!output.trim() }
+  /**
+   * Create a timeout promise that rejects after the specified duration.
+   */
+  private createTimeoutPromise(timeoutMs: number): Promise<never> {
+    return new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(
+          new Error(`Search timed out after ${(timeoutMs / 1000).toFixed(0)}s`),
         );
-        if (!output.trim()) {
-          throw new Error(`Gemini CLI exited with code ${exitCode}`);
-        }
-        // Partial output from non-zero exit: log warning but still return
-        // if there's meaningful content (Gemini CLI may exit non-zero
-        // after completing its output on some platforms)
-      }
-
-      return output.trim() || 'No results found.';
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
-      // Ensure process cleanup if it's still running (e.g., after timeout)
-      if (timedOut) {
-        try {
-          handle.abort.abort();
-        } catch {
-          // Already aborted, ignore
-        }
-      }
-    }
+      }, timeoutMs);
+    });
   }
 }

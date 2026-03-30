@@ -28,6 +28,7 @@ import { VscodeLmConfigComponent } from './pro-features/vscode-lm-config.compone
 import { McpPortConfigComponent } from './pro-features/mcp-port-config.component';
 import { AgentOrchestrationConfigComponent } from './ptah-ai/agent-orchestration-config.component';
 import { PtahCliConfigComponent } from './ptah-ai/ptah-cli-config.component';
+import { WebSearchConfigComponent } from './ptah-ai/web-search-config.component';
 import { PluginStatusWidgetComponent } from '../components/molecules/setup-plugins/plugin-status-widget.component';
 import { PluginBrowserModalComponent } from '../components/molecules/setup-plugins/plugin-browser-modal.component';
 import { SetupStatusWidgetComponent } from '../components/molecules/setup-plugins/setup-status-widget.component';
@@ -71,6 +72,7 @@ import { ChatStore } from '../services/chat.store';
     McpPortConfigComponent,
     AgentOrchestrationConfigComponent,
     PtahCliConfigComponent,
+    WebSearchConfigComponent,
     PluginStatusWidgetComponent,
     PluginBrowserModalComponent,
     SetupStatusWidgetComponent,
@@ -94,7 +96,7 @@ export class SettingsComponent implements OnInit {
 
   // viewChild for cross-component communication (LLM providers → agent re-detect)
   readonly agentOrchestrationConfig = viewChild(
-    AgentOrchestrationConfigComponent
+    AgentOrchestrationConfigComponent,
   );
 
   // Lucide icons
@@ -120,7 +122,7 @@ export class SettingsComponent implements OnInit {
 
   // Sub-tab state for Ptah AI tab
   readonly activePtahAiSubTab = signal<'orchestration' | 'pro-features'>(
-    'orchestration'
+    'orchestration',
   );
 
   /** Whether the plugin browser modal is open */
@@ -128,11 +130,11 @@ export class SettingsComponent implements OnInit {
 
   // License status computed signals (kept in parent for header badge + tab gating)
   readonly isPremium = computed(
-    () => this.chatStore.licenseStatus()?.isPremium ?? false
+    () => this.chatStore.licenseStatus()?.isPremium ?? false,
   );
 
   readonly isLoadingLicenseStatus = computed(
-    () => this.chatStore.licenseStatus() === null
+    () => this.chatStore.licenseStatus() === null,
   );
 
   /**
@@ -145,7 +147,7 @@ export class SettingsComponent implements OnInit {
    * Computed: Whether the user is fully authenticated (has credential + not loading)
    */
   readonly isAuthenticated = computed(
-    () => !this.authState.isLoading() && this.authState.hasAnyCredential()
+    () => !this.authState.isLoading() && this.authState.hasAnyCredential(),
   );
 
   /**
@@ -153,7 +155,7 @@ export class SettingsComponent implements OnInit {
    * Requires: authenticated + premium license
    */
   readonly showPremiumSections = computed(
-    () => this.isAuthenticated() && this.isPremium()
+    () => this.isAuthenticated() && this.isPremium(),
   );
 
   /**
@@ -169,7 +171,7 @@ export class SettingsComponent implements OnInit {
    * Switch active settings tab
    */
   setActiveTab(
-    tab: 'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup'
+    tab: 'claude-auth' | 'ptah-ai' | 'ptah-skills' | 'project-setup',
   ): void {
     this.activeSettingsTab.set(tab);
   }

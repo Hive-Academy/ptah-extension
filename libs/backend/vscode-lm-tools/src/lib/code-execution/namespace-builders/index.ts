@@ -54,3 +54,9 @@ export {
   buildAgentNamespace,
   type AgentNamespaceDependencies,
 } from './agent-namespace.builder';
+
+// Git namespace (TASK_2025_236 - worktree operations)
+export {
+  buildGitNamespace,
+  type GitNamespaceDependencies,
+} from './git-namespace.builder';

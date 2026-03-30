@@ -95,32 +95,32 @@ interface ConfigSetting {
           </p>
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             @for (agent of builtinAgents; track agent.name) {
-            <div
-              class="rounded-lg bg-base-300/50 border border-secondary/10 p-4"
-            >
-              <div class="flex items-center gap-2 mb-1">
-                <h4 class="text-sm font-semibold text-base-content/80">
-                  {{ agent.name }}
-                </h4>
-                <span
-                  class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide"
-                  [ngClass]="
-                    agent.badge === 'SDK'
-                      ? 'bg-secondary/15 text-secondary/80'
-                      : 'bg-base-300 text-neutral-content/50'
-                  "
-                >
-                  {{ agent.badge }}
-                </span>
-              </div>
-              <p class="text-xs text-neutral-content/60 mb-2">
-                {{ agent.description }}
-              </p>
-              <code
-                class="px-1.5 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/70"
-                >{{ agent.invocation }}</code
+              <div
+                class="rounded-lg bg-base-300/50 border border-secondary/10 p-4"
               >
-            </div>
+                <div class="flex items-center gap-2 mb-1">
+                  <h4 class="text-sm font-semibold text-base-content/80">
+                    {{ agent.name }}
+                  </h4>
+                  <span
+                    class="px-1.5 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide"
+                    [ngClass]="
+                      agent.badge === 'SDK'
+                        ? 'bg-secondary/15 text-secondary/80'
+                        : 'bg-base-300 text-neutral-content/50'
+                    "
+                  >
+                    {{ agent.badge }}
+                  </span>
+                </div>
+                <p class="text-xs text-neutral-content/60 mb-2">
+                  {{ agent.description }}
+                </p>
+                <code
+                  class="px-1.5 py-0.5 rounded bg-base-300 border border-secondary/10 text-xs font-mono text-secondary/70"
+                  >{{ agent.invocation }}</code
+                >
+              </div>
             }
           </div>
         </ptah-docs-collapsible-card>
@@ -143,16 +143,16 @@ interface ConfigSetting {
           <div class="space-y-3">
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
               @for (provider of ptahCliProviders; track provider.name) {
-              <div
-                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/30 border border-secondary/10"
-              >
-                <span class="text-sm font-medium text-base-content/70">{{
-                  provider.name
-                }}</span>
-                <span class="text-xs text-neutral-content/40">{{
-                  provider.models
-                }}</span>
-              </div>
+                <div
+                  class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/30 border border-secondary/10"
+                >
+                  <span class="text-sm font-medium text-base-content/70">{{
+                    provider.name
+                  }}</span>
+                  <span class="text-xs text-neutral-content/40">{{
+                    provider.models
+                  }}</span>
+                </div>
               }
             </div>
             <p class="text-xs text-neutral-content/50">
@@ -175,22 +175,22 @@ interface ConfigSetting {
           </p>
           <div class="space-y-2">
             @for (tool of agentTools; track tool.name) {
-            <div
-              class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
-            >
-              <code
-                class="text-xs font-mono text-secondary/80 shrink-0 min-w-[160px]"
-                >{{ tool.name }}</code
+              <div
+                class="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
               >
-              <lucide-angular
-                [img]="ArrowRightIcon"
-                class="w-3 h-3 text-neutral-content/20 shrink-0"
-                aria-hidden="true"
-              />
-              <span class="text-sm text-neutral-content">{{
-                tool.purpose
-              }}</span>
-            </div>
+                <code
+                  class="text-xs font-mono text-secondary/80 shrink-0 min-w-[160px]"
+                  >{{ tool.name }}</code
+                >
+                <lucide-angular
+                  [img]="ArrowRightIcon"
+                  class="w-3 h-3 text-neutral-content/20 shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="text-sm text-neutral-content">{{
+                  tool.purpose
+                }}</span>
+              </div>
             }
           </div>
         </ptah-docs-collapsible-card>
@@ -202,25 +202,25 @@ interface ConfigSetting {
         >
           <div class="space-y-3">
             @for (step of workflowSteps; track step.label; let i = $index) {
-            <div
-              class="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
-            >
               <div
-                class="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center shrink-0 mt-0.5"
+                class="flex items-start gap-3 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
               >
-                <span class="text-xs font-bold text-secondary">{{
-                  i + 1
-                }}</span>
+                <div
+                  class="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center shrink-0 mt-0.5"
+                >
+                  <span class="text-xs font-bold text-secondary">{{
+                    i + 1
+                  }}</span>
+                </div>
+                <div>
+                  <span class="text-sm font-medium text-base-content/80">{{
+                    step.label
+                  }}</span>
+                  <p class="text-xs text-neutral-content/60 mt-0.5">
+                    {{ step.detail }}
+                  </p>
+                </div>
               </div>
-              <div>
-                <span class="text-sm font-medium text-base-content/80">{{
-                  step.label
-                }}</span>
-                <p class="text-xs text-neutral-content/60 mt-0.5">
-                  {{ step.detail }}
-                </p>
-              </div>
-            </div>
             }
           </div>
         </ptah-docs-collapsible-card>
@@ -229,16 +229,16 @@ interface ConfigSetting {
         <ptah-docs-collapsible-card [icon]="ClockIcon" title="When to Delegate">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             @for (useCase of useCases; track useCase) {
-            <div
-              class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
-            >
-              <lucide-angular
-                [img]="ArrowRightIcon"
-                class="w-3 h-3 text-secondary/60 shrink-0"
-                aria-hidden="true"
-              />
-              <span class="text-sm text-base-content/70">{{ useCase }}</span>
-            </div>
+              <div
+                class="flex items-center gap-2 px-3 py-2 rounded-lg bg-base-300/50 border border-secondary/10"
+              >
+                <lucide-angular
+                  [img]="ArrowRightIcon"
+                  class="w-3 h-3 text-secondary/60 shrink-0"
+                  aria-hidden="true"
+                />
+                <span class="text-sm text-base-content/70">{{ useCase }}</span>
+              </div>
             }
           </div>
         </ptah-docs-collapsible-card>
@@ -250,17 +250,17 @@ interface ConfigSetting {
         >
           <div class="space-y-2">
             @for (setting of settings; track setting.key) {
-            <div
-              class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
-            >
-              <code
-                class="text-xs font-mono text-secondary/80 shrink-0 min-w-[280px]"
-                >{{ setting.key }}</code
+              <div
+                class="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 px-3 py-2.5 rounded-lg bg-base-300/30 border border-secondary/10"
               >
-              <span class="text-sm text-neutral-content">{{
-                setting.description
-              }}</span>
-            </div>
+                <code
+                  class="text-xs font-mono text-secondary/80 shrink-0 min-w-[280px]"
+                  >{{ setting.key }}</code
+                >
+                <span class="text-sm text-neutral-content">{{
+                  setting.description
+                }}</span>
+              </div>
             }
           </div>
         </ptah-docs-collapsible-card>
@@ -385,16 +385,12 @@ export class AgentOrchestrationSectionComponent {
 
   public readonly settings: ConfigSetting[] = [
     {
-      key: 'ptah.agentOrchestration.defaultCli',
-      description: 'Preferred agent (gemini, codex, copilot, or ptah-cli)',
+      key: 'ptah.agentOrchestration.preferredAgentOrder',
+      description: 'Preferred agent spawn order (reorderable list)',
     },
     {
       key: 'ptah.agentOrchestration.maxConcurrentAgents',
       description: 'Max parallel agents (default: 3)',
-    },
-    {
-      key: 'ptah.agentOrchestration.defaultTimeout',
-      description: 'Agent timeout in ms (default: 10 min, max: 30 min)',
     },
   ];
 

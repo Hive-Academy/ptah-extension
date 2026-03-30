@@ -2,7 +2,7 @@
  * AnalysisStorageService - Persistent analysis file I/O (v2 multi-phase only)
  *
  * Lists, loads, and manages multi-phase analysis results from
- * .claude/analysis/{slug}/ directories. Each slug directory contains
+ * .ptah/analysis/{slug}/ directories. Each slug directory contains
  * a manifest.json and phase markdown files.
  */
 
@@ -28,7 +28,7 @@ export class AnalysisStorageService {
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
-   * Get the .claude/analysis/ directory path for a workspace.
+   * Get the .ptah/analysis/ directory path for a workspace.
    */
   getAnalysisDir(workspacePath: string): string {
     return join(workspacePath, '.claude', 'analysis');
@@ -47,7 +47,7 @@ export class AnalysisStorageService {
   }
 
   /**
-   * Get the absolute path for a slug subdirectory within .claude/analysis/.
+   * Get the absolute path for a slug subdirectory within .ptah/analysis/.
    */
   getSlugDir(workspacePath: string, slug: string): string {
     return join(this.getAnalysisDir(workspacePath), slug);
@@ -58,7 +58,7 @@ export class AnalysisStorageService {
    */
   async createSlugDir(
     workspacePath: string,
-    projectDescription: string
+    projectDescription: string,
   ): Promise<{ slugDir: string; slug: string }> {
     const slug = this.slugify(projectDescription);
     const slugDir = this.getSlugDir(workspacePath, slug);
@@ -80,7 +80,7 @@ export class AnalysisStorageService {
   async writePhaseFile(
     slugDir: string,
     filename: string,
-    content: string
+    content: string,
   ): Promise<void> {
     await writeFile(join(slugDir, filename), content, 'utf-8');
   }
@@ -90,12 +90,12 @@ export class AnalysisStorageService {
    */
   async writeManifest(
     slugDir: string,
-    manifest: MultiPhaseManifest
+    manifest: MultiPhaseManifest,
   ): Promise<void> {
     await writeFile(
       join(slugDir, 'manifest.json'),
       JSON.stringify(manifest, null, 2),
-      'utf-8'
+      'utf-8',
     );
   }
 
@@ -120,7 +120,7 @@ export class AnalysisStorageService {
    */
   async readPhaseFile(
     slugDir: string,
-    filename: string
+    filename: string,
   ): Promise<string | null> {
     try {
       return await readFile(join(slugDir, filename), 'utf-8');
@@ -170,7 +170,7 @@ export class AnalysisStorageService {
   }
 
   /**
-   * List all v2 multi-phase analyses in .claude/analysis/ directory.
+   * List all v2 multi-phase analyses in .ptah/analysis/ directory.
    * Scans subdirectories for valid manifests.
    * Returns metadata sorted by date descending (newest first).
    */
@@ -194,7 +194,7 @@ export class AnalysisStorageService {
         if (!manifest) continue;
 
         const completedPhases = Object.values(manifest.phases).filter(
-          (p) => p.status === 'completed'
+          (p) => p.status === 'completed',
         );
 
         items.push({
@@ -214,7 +214,7 @@ export class AnalysisStorageService {
 
     // Sort by savedAt descending (newest first)
     items.sort(
-      (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
     );
 
     return items;
@@ -227,7 +227,7 @@ export class AnalysisStorageService {
    */
   async loadMultiPhase(
     workspacePath: string,
-    slugDirName: string
+    slugDirName: string,
   ): Promise<MultiPhaseAnalysisResponse> {
     const slugDir = this.getSlugDir(workspacePath, slugDirName);
     const manifest = await this.loadManifest(slugDir);

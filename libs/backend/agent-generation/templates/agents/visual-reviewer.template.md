@@ -109,8 +109,8 @@ Every score MUST include:
 ### Step 1: Context Gathering
 
 ```bash
-Read(.claude/specs/TASK_[ID]/context.md)
-Read(.claude/specs/TASK_[ID]/implementation-plan.md)
+Read(.ptah/specs/TASK_[ID]/context.md)
+Read(.ptah/specs/TASK_[ID]/implementation-plan.md)
 
 # Identify:
 # - What components/pages were modified
@@ -390,7 +390,7 @@ Detect visual performance issues:
 - **Browser**: Chrome (via DevTools Protocol)
 - **Base URL**: http://localhost:4200
 - **Test Date**: {DATE}
-- **Screenshots Folder**: .claude/specs/TASK\_[ID]/screenshots/
+- **Screenshots Folder**: .ptah/specs/TASK\_[ID]/screenshots/
 
 ## The 5 Visual Questions
 

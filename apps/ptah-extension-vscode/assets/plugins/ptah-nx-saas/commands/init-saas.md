@@ -38,7 +38,7 @@ Standalone command for SaaS workspace initialization with multi-turn discovery.
 
 ## Quick Reference
 
-**Decision Files** (written to `.claude/specs/TASK_[ID]/`):
+**Decision Files** (written to `.ptah/specs/TASK_[ID]/`):
 
 - `scope-decisions.md` — Phase 0 output (includes frontend framework choice)
 - `task-description.md` — Phase 1 output (PM)

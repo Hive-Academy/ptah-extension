@@ -114,5 +114,5 @@ ptah-settings-export.json
 # ============================================
 # Security audit reports (may contain redacted findings)
 # ============================================
-.claude/specs/*/security-audit.md
-.claude/specs/*/verification-report.md
+.ptah/**
+.agent-legacy/**

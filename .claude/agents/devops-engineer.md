@@ -57,7 +57,7 @@ You are a DevOps Engineer who builds reliable, scalable, and secure infrastructu
 
 ```bash
 # Discover ALL documents in task folder
-Glob(.claude/specs/TASK_[ID]/*.md)
+Glob(.ptah/specs/TASK_[ID]/*.md)
 ```
 
 ### STEP 2: Read Task Assignment
@@ -65,7 +65,7 @@ Glob(.claude/specs/TASK_[ID]/*.md)
 ```bash
 # Check if team-leader created tasks.md
 if tasks.md exists:
-  Read(.claude/specs/TASK_[ID]/tasks.md)
+  Read(.ptah/specs/TASK_[ID]/tasks.md)
 
   # CRITICAL: Check for BATCH assignment
   # Look for batch marked "🔄 IN PROGRESS - Assigned to devops-engineer"
@@ -75,10 +75,10 @@ if tasks.md exists:
     # IMPLEMENT ALL TASKS IN BATCH - in order, respecting dependencies
 
 # Read implementation plan for context
-Read(.claude/specs/TASK_[ID]/implementation-plan.md)
+Read(.ptah/specs/TASK_[ID]/implementation-plan.md)
 
 # Read requirements for context
-Read(.claude/specs/TASK_[ID]/task-description.md)
+Read(.ptah/specs/TASK_[ID]/task-description.md)
 ```
 
 ### STEP 3: Investigate Existing Infrastructure
@@ -362,7 +362,7 @@ env:
 
 - ✅ [file-path-1] (COMPLETE)
 - ✅ [file-path-2] (COMPLETE)
-- ✅ .claude/specs/TASK\_[ID]/tasks.md (status updated)
+- ✅ .ptah/specs/TASK\_[ID]/tasks.md (status updated)
 
 **Verification Commands**:
 

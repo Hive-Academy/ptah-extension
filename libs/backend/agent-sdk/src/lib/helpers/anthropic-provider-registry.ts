@@ -180,6 +180,16 @@ export const ANTHROPIC_PROVIDERS = [
     // @see https://docs.z.ai/guides/overview/pricing
     staticModels: [
       {
+        id: 'glm-5.1',
+        name: 'GLM-5.1',
+        description:
+          'Latest flagship model, 94% of Opus 4.6 coding (200K context)',
+        contextLength: 200000,
+        supportsToolUse: true,
+        inputCostPerToken: 1.0e-6, // $1.00 per 1M tokens (estimated, standalone API pricing TBD)
+        outputCostPerToken: 3.2e-6, // $3.20 per 1M tokens (estimated, standalone API pricing TBD)
+      },
+      {
         id: 'glm-5',
         name: 'GLM-5',
         description: 'Opus-class high-intelligence model (200K context)',
@@ -187,6 +197,15 @@ export const ANTHROPIC_PROVIDERS = [
         supportsToolUse: true,
         inputCostPerToken: 1.0e-6, // $1.00 per 1M tokens
         outputCostPerToken: 3.2e-6, // $3.20 per 1M tokens
+      },
+      {
+        id: 'glm-5-turbo',
+        name: 'GLM-5 Turbo',
+        description: 'Optimized performance variant (200K context)',
+        contextLength: 200000,
+        supportsToolUse: true,
+        inputCostPerToken: 1.2e-6, // $1.20 per 1M tokens
+        outputCostPerToken: 4.0e-6, // $4.00 per 1M tokens
       },
       {
         id: 'glm-5-code',
@@ -305,7 +324,7 @@ export const DEFAULT_PROVIDER_ID: AnthropicProviderId = 'openrouter';
  * @returns Provider definition, or undefined if not found
  */
 export function getAnthropicProvider(
-  id: string
+  id: string,
 ): AnthropicProvider | undefined {
   return ANTHROPIC_PROVIDERS.find((p) => p.id === id);
 }
@@ -325,7 +344,7 @@ export function getProviderBaseUrl(id: string): string {
   const defaultProvider = getAnthropicProvider(DEFAULT_PROVIDER_ID);
   if (!defaultProvider) {
     throw new Error(
-      `Default provider '${DEFAULT_PROVIDER_ID}' not found in registry`
+      `Default provider '${DEFAULT_PROVIDER_ID}' not found in registry`,
     );
   }
   return defaultProvider.baseUrl;
@@ -398,7 +417,7 @@ export function seedStaticModelPricing(providerId: string): void {
  */
 export function resolveActualModelForPricing(
   modelId: string,
-  authEnv?: AuthEnv
+  authEnv?: AuthEnv,
 ): string {
   if (!modelId) return modelId;
 
