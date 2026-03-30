@@ -712,6 +712,19 @@ export interface RpcMethodRegistry {
     };
   };
 
+  'editor:getDirectoryChildren': {
+    params: { dirPath: string };
+    result: {
+      success: boolean;
+      children: Array<{
+        name: string;
+        path: string;
+        type: 'file' | 'directory';
+      }>;
+      error?: string;
+    };
+  };
+
   // ---- Electron File Methods (TASK_2025_203) ----
   'file:read': {
     params: { path: string };
@@ -901,6 +914,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // License Methods
   'license:getStatus',
   'license:setKey',
+  'license:clearKey',
 
   // Command Methods (TASK_2025_126)
   'command:execute',
@@ -985,6 +999,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'editor:openFile',
   'editor:saveFile',
   'editor:getFileTree',
+  'editor:getDirectoryChildren',
 
   // Electron File Methods (TASK_2025_203)
   'file:read',
