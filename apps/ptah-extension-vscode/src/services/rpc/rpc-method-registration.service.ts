@@ -189,6 +189,7 @@ export class RpcMethodRegistrationService {
       'editor:openFile',
       'editor:saveFile',
       'editor:getFileTree',
+      'editor:getDirectoryChildren',
       // Electron file methods (IFileSystemProvider-based)
       'file:read',
       'file:exists',
@@ -202,6 +203,16 @@ export class RpcMethodRegistrationService {
       // Electron settings export/import
       'settings:export',
       'settings:import',
+      // Electron git methods (TASK_2025_227)
+      'git:info',
+      'git:worktrees',
+      'git:addWorktree',
+      'git:removeWorktree',
+      // Electron terminal methods (TASK_2025_227)
+      'terminal:create',
+      'terminal:kill',
+      // Electron license extended
+      'license:clearKey',
     ];
     const verificationResult = verifyRpcRegistration(
       this.rpcHandler,

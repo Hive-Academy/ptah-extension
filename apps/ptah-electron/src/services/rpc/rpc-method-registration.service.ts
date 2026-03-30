@@ -270,11 +270,72 @@ export class ElectronRpcMethodRegistrationService {
       });
 
       // 2. SESSION_ID_RESOLVED — temporary tab ID → real SDK UUID
+      // Mirrors VS Code: resolves parent session IDs in AgentProcessManager
+      // and SubagentRegistryService, re-persists exited agents, then notifies frontend.
       sdkAdapter.setSessionIdResolvedCallback(
         (tabId: string | undefined, realSessionId: string) => {
           this.logger.info(
             `[Electron RPC] Session ID resolved: tabId=${tabId} -> real=${realSessionId}`,
           );
+
+          // Update CLI agents spawned with tab ID as parentSessionId
+          // so CLI session persistence uses the correct real session UUID.
+          if (tabId) {
+            try {
+              if (container.isRegistered(TOKENS.AGENT_PROCESS_MANAGER)) {
+                const agentProcessManager =
+                  container.resolve<AgentProcessManager>(
+                    TOKENS.AGENT_PROCESS_MANAGER,
+                  );
+                agentProcessManager.resolveParentSessionId(
+                  tabId,
+                  realSessionId,
+                );
+
+                // Also resolve parent session ID in SubagentRegistryService
+                // so that markParentSubagentsAsCliAgent() can find subagent records.
+                try {
+                  if (
+                    container.isRegistered(TOKENS.SUBAGENT_REGISTRY_SERVICE)
+                  ) {
+                    const subagentRegistry = container.resolve<{
+                      resolveParentSessionId(
+                        tabId: string,
+                        realSessionId: string,
+                      ): void;
+                    }>(TOKENS.SUBAGENT_REGISTRY_SERVICE);
+                    subagentRegistry.resolveParentSessionId(
+                      tabId,
+                      realSessionId,
+                    );
+                  }
+                } catch {
+                  // SubagentRegistryService may not be registered yet
+                }
+
+                // Re-persist any already-exited agents whose CLI sessions couldn't be
+                // persisted earlier (because parentSessionId was still a tab ID).
+                const allAgents =
+                  agentProcessManager.getStatus() as AgentProcessInfo[];
+                const exitedWithParent = allAgents.filter(
+                  (a) =>
+                    a.parentSessionId === realSessionId &&
+                    a.status !== 'running',
+                );
+                if (exitedWithParent.length > 0) {
+                  this.logger.info(
+                    `[Electron RPC] Re-persisting ${exitedWithParent.length} exited CLI agent(s) with resolved session ID ${realSessionId}`,
+                  );
+                }
+                for (const exitedInfo of exitedWithParent) {
+                  this.persistCliSessionReference(exitedInfo);
+                }
+              }
+            } catch {
+              // AgentProcessManager may not be registered yet
+            }
+          }
+
           webviewManager
             .broadcastMessage(MESSAGE_TYPES.SESSION_ID_RESOLVED, {
               tabId,

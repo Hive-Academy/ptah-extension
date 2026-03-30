@@ -988,6 +988,24 @@ if (!gotLock) {
             buttons: ['OK'],
           });
         }
+
+        // Clean up CLI skills and agents on premium expiry
+        // Mirrors VS Code extension Step 13 license:expired handler
+        try {
+          if (container.isRegistered(TOKENS.CLI_PLUGIN_SYNC_SERVICE)) {
+            const cliPluginSync = container.resolve(
+              TOKENS.CLI_PLUGIN_SYNC_SERVICE,
+            ) as { cleanupAll: () => Promise<void> };
+            cliPluginSync.cleanupAll().catch((err: unknown) => {
+              console.warn(
+                '[Ptah Electron] CLI plugin cleanup on expiry failed (non-fatal):',
+                err instanceof Error ? err.message : String(err),
+              );
+            });
+          }
+        } catch {
+          // Service not initialized — nothing to clean up
+        }
       });
 
       // Background revalidation every 24 hours.
@@ -1058,11 +1076,12 @@ if (!gotLock) {
 
     // Dispose PtahCliRegistry CLI adapters (TASK_2025_243)
     try {
-      if (container.isRegistered(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)) {
-        const cliRegistry = container.resolve<{ dispose(): void }>(
+      const diContainer = ElectronDIContainer.getContainer();
+      if (diContainer.isRegistered(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)) {
+        const cliRegistry = diContainer.resolve<{ disposeAll(): void }>(
           SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
         );
-        cliRegistry.dispose();
+        cliRegistry.disposeAll();
       }
     } catch {
       // Non-fatal: registry may not have been initialized
