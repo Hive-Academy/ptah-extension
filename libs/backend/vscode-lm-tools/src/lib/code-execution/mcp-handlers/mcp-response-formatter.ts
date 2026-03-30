@@ -851,6 +851,283 @@ export function formatJsonValidate(result: {
 }
 
 // ============================================================
+// Browser Automation Tools (TASK_2025_244)
+// ============================================================
+
+import type {
+  BrowserNavigateResult,
+  BrowserScreenshotResult,
+  BrowserEvaluateResult,
+  BrowserClickResult,
+  BrowserTypeResult,
+  BrowserContentResult,
+  BrowserNetworkResult,
+  BrowserStatusResult,
+} from '../types';
+
+/**
+ * Format ptah_browser_navigate result
+ */
+export function formatBrowserNavigate(result: BrowserNavigateResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Navigation Failed' },
+        { p: `**URL:** ${result.url}` },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    return json2md([
+      { h2: 'Navigation Complete' },
+      { p: `**URL:** ${result.url}  \n**Title:** ${result.title}` },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_screenshot result.
+ * Returns the base64 data as a labeled text block since the MCP text
+ * response format is used for all tool results.
+ */
+export function formatBrowserScreenshot(
+  result: BrowserScreenshotResult,
+): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Screenshot Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const sizeKB = Math.round((result.data.length * 3) / 4 / 1024);
+    return json2md([
+      { h2: 'Screenshot Captured' },
+      {
+        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB  \n**Data (base64):**`,
+      },
+      { code: { content: result.data } },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_evaluate result
+ */
+export function formatBrowserEvaluate(result: BrowserEvaluateResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'JavaScript Evaluation Failed' },
+        { p: `**Type:** ${result.type}` },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const valueStr =
+      typeof result.value === 'object'
+        ? JSON.stringify(result.value, null, 2)
+        : String(result.value);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'JavaScript Evaluation Result' },
+      { p: `**Type:** ${result.type}` },
+    ];
+
+    if (result.type === 'object' || valueStr.length > 100) {
+      blocks.push({ code: { language: 'json', content: valueStr } });
+    } else {
+      blocks.push({ p: `**Value:** ${valueStr}` });
+    }
+
+    return json2md(blocks);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_click result
+ */
+export function formatBrowserClick(result: BrowserClickResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Click Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Click Successful' },
+      { p: 'Element clicked successfully.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_type result
+ */
+export function formatBrowserType(result: BrowserTypeResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Type Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Type Successful' },
+      { p: 'Text entered successfully.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_content result.
+ * Truncates content if longer than 32KB to keep response manageable.
+ */
+export function formatBrowserContent(result: BrowserContentResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Content Read Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const MAX_TEXT_LENGTH = 32 * 1024;
+    const text =
+      result.text.length > MAX_TEXT_LENGTH
+        ? result.text.substring(0, MAX_TEXT_LENGTH) + '\n\n[...truncated]'
+        : result.text;
+
+    const html =
+      result.html.length > MAX_TEXT_LENGTH
+        ? result.html.substring(0, MAX_TEXT_LENGTH) + '\n\n[...truncated]'
+        : result.html;
+
+    return json2md([
+      { h2: 'Page Content' },
+      { h3: 'Text' },
+      { code: { content: text } },
+      { h3: 'HTML' },
+      { code: { language: 'html', content: html } },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_network result as a markdown table
+ */
+export function formatBrowserNetwork(result: BrowserNetworkResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Network Requests' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    if (result.requests.length === 0) {
+      return json2md([
+        { h2: 'Network Requests' },
+        { p: 'No network requests captured.' },
+      ]);
+    }
+
+    const rows = result.requests.map((req) => ({
+      Method: req.method,
+      Status: String(req.status),
+      Type: req.type,
+      Size: req.size ? `${Math.round(req.size / 1024)}KB` : '-',
+      URL: req.url.length > 80 ? req.url.substring(0, 77) + '...' : req.url,
+    }));
+
+    return json2md([
+      { h2: 'Network Requests' },
+      { p: `**Total:** ${result.requests.length}` },
+      {
+        table: {
+          headers: ['Method', 'Status', 'Type', 'Size', 'URL'],
+          rows,
+        },
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_close result
+ */
+export function formatBrowserClose(result: {
+  success: boolean;
+  error?: string;
+}): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Browser Close Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Browser Session Closed' },
+      { p: 'Browser session closed and resources released.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_status result
+ */
+export function formatBrowserStatus(result: BrowserStatusResult): string {
+  try {
+    if (!result.connected) {
+      return json2md([
+        { h2: 'Browser Status' },
+        {
+          p: '**Connected:** No  \nNo active browser session. Use ptah_browser_navigate to start one.',
+        },
+      ]);
+    }
+
+    const uptimeSec = result.uptimeMs ? Math.round(result.uptimeMs / 1000) : 0;
+    const autoCloseMin = result.autoCloseInMs
+      ? Math.round(result.autoCloseInMs / 60000)
+      : 0;
+
+    return json2md([
+      { h2: 'Browser Status' },
+      {
+        p:
+          `**Connected:** Yes  \n**URL:** ${result.url ?? 'N/A'}  \n` +
+          `**Title:** ${result.title ?? 'N/A'}  \n` +
+          `**Uptime:** ${uptimeSec}s  \n` +
+          `**Auto-close in:** ${autoCloseMin}m`,
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
 // Fallback
 // ============================================================
 

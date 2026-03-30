@@ -615,6 +615,234 @@ export function buildJsonValidateTool(): MCPToolDefinition {
   };
 }
 
+// ========================================
+// Browser Automation MCP Tools (TASK_2025_244)
+// ========================================
+
+/**
+ * Build the ptah_browser_navigate tool definition
+ * Navigate to a URL, lazily starting a browser session
+ */
+export function buildBrowserNavigateTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_navigate',
+    description:
+      'Navigate the browser to a URL. Lazily starts a browser session if none exists. ' +
+      'Returns the final URL and page title after load. Only http/https URLs are allowed. ' +
+      'Localhost is blocked by default (enable via ptah.browser.allowLocalhost setting).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: {
+          type: 'string',
+          description: 'The URL to navigate to (http/https only)',
+        },
+        waitForLoad: {
+          type: 'boolean',
+          description:
+            'Wait for the page load event before returning (default: true)',
+        },
+      },
+      required: ['url'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_browser_screenshot tool definition
+ * Capture a screenshot of the current page
+ */
+export function buildBrowserScreenshotTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_screenshot',
+    description:
+      'Take a screenshot of the current browser page. Returns the image as base64-encoded data. ' +
+      'Use this for visual verification of UI changes, layout inspection, or capturing test evidence.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        format: {
+          type: 'string',
+          enum: ['png', 'jpeg', 'webp'],
+          description: 'Image format (default: "png")',
+        },
+        quality: {
+          type: 'number',
+          description:
+            'Image quality 0-100 for jpeg/webp (default: 80). Ignored for png.',
+        },
+        fullPage: {
+          type: 'boolean',
+          description:
+            'Capture the full scrollable page instead of just the viewport (default: false)',
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_browser_evaluate tool definition
+ * Execute JavaScript in the browser page context
+ */
+export function buildBrowserEvaluateTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_evaluate',
+    description:
+      'Execute JavaScript in the browser page context. Returns the result value and type. ' +
+      'Use for data extraction, DOM manipulation, form filling, or testing page behavior. ' +
+      'Async expressions (await) are supported. Max expression size: 64KB.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        expression: {
+          type: 'string',
+          description:
+            'JavaScript expression to evaluate in the page context. Async expressions supported.',
+        },
+      },
+      required: ['expression'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_browser_click tool definition
+ * Click an element by CSS selector
+ */
+export function buildBrowserClickTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_click',
+    description:
+      'Click an element on the page by CSS selector. Returns success or an error if the element was not found. ' +
+      'Use ptah_browser_content first to discover available selectors.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description:
+            'CSS selector of the element to click (e.g., "#submit-btn", ".nav-link", "button[type=submit]")',
+        },
+      },
+      required: ['selector'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_browser_type tool definition
+ * Type text into an input element
+ */
+export function buildBrowserTypeTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_type',
+    description:
+      'Type text into an input element on the page. Focuses the element first, then types the text. ' +
+      'Use for form filling, search inputs, and text editing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description:
+            'CSS selector of the input element (e.g., "#email", "input[name=search]")',
+        },
+        text: {
+          type: 'string',
+          description: 'Text to type into the element',
+        },
+      },
+      required: ['selector', 'text'],
+    },
+  };
+}
+
+/**
+ * Build the ptah_browser_content tool definition
+ * Read page content as HTML and text
+ */
+export function buildBrowserContentTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_content',
+    description:
+      'Read the current page content. Returns both HTML and extracted text. ' +
+      'Optionally scope to a specific element via CSS selector. ' +
+      'Use to understand page structure, find selectors, and extract data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        selector: {
+          type: 'string',
+          description:
+            'Optional CSS selector to scope content extraction (e.g., "#main", ".article-body"). Omit for full page.',
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_browser_network tool definition
+ * Read captured network requests
+ */
+export function buildBrowserNetworkTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_network',
+    description:
+      'Read captured network requests from the browser session. Returns URL, method, status, type, and size ' +
+      'for each request. Useful for debugging API calls, checking resource loading, and monitoring AJAX requests.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'number',
+          description:
+            'Maximum number of requests to return (default: 50, max: 500)',
+        },
+      },
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
+/**
+ * Build the ptah_browser_close tool definition
+ * Close the browser session
+ */
+export function buildBrowserCloseTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_close',
+    description:
+      'Close the browser session and release resources. The session will also auto-close after ' +
+      '5 minutes of inactivity or 30 minutes total lifetime.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  };
+}
+
+/**
+ * Build the ptah_browser_status tool definition
+ * Get browser session status
+ */
+export function buildBrowserStatusTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_status',
+    description:
+      'Get the current browser session status. Returns whether a session is active, the current URL, ' +
+      'page title, uptime, and time until auto-close. Use to check if a browser session exists before starting one.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+    annotations: { readOnlyHint: true },
+  };
+}
+
 /**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().

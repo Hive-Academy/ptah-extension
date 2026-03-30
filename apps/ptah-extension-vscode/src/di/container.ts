@@ -81,6 +81,8 @@ import { registerWorkspaceIntelligenceServices } from '@ptah-extension/workspace
 import {
   registerVsCodeLmToolsServices,
   IDE_CAPABILITIES_TOKEN,
+  BROWSER_CAPABILITIES_TOKEN,
+  ChromeLauncherBrowserCapabilities,
 } from '@ptah-extension/vscode-lm-tools';
 import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools/vscode';
 
@@ -399,6 +401,13 @@ export class DIContainer {
     // degradation stubs instead.
     container.register(IDE_CAPABILITIES_TOKEN, {
       useValue: new VscodeIDECapabilities(),
+    });
+
+    // TASK_2025_244: Register browser capabilities for PtahAPIBuilder.
+    // ChromeLauncherBrowserCapabilities uses chrome-launcher + chrome-remote-interface
+    // to launch and control a headless Chrome for browser automation tools.
+    container.register(BROWSER_CAPABILITIES_TOKEN, {
+      useValue: new ChromeLauncherBrowserCapabilities(),
     });
 
     // ========================================

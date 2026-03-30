@@ -85,7 +85,11 @@ import {
 } from '@ptah-extension/agent-generation';
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
-import { registerVsCodeLmToolsServices } from '@ptah-extension/vscode-lm-tools';
+import {
+  registerVsCodeLmToolsServices,
+  BROWSER_CAPABILITIES_TOKEN,
+} from '@ptah-extension/vscode-lm-tools';
+import { ElectronBrowserCapabilities } from '../services/electron-browser-capabilities';
 
 // Electron-specific adapters (defined below)
 import {
@@ -656,6 +660,13 @@ export class ElectronDIContainer {
     //   - Diagnostics use ElectronDiagnosticsProvider (registered in Phase 0)
     //   - approval_prompt auto-allows when WebviewManager is absent
     registerVsCodeLmToolsServices(container, logger);
+
+    // Phase 4.0.1: Browser capabilities (TASK_2025_244)
+    // ElectronBrowserCapabilities uses Electron's native BrowserWindow + webContents.debugger
+    // for CDP browser automation. Zero external dependencies.
+    container.register(BROWSER_CAPABILITIES_TOKEN, {
+      useValue: new ElectronBrowserCapabilities(),
+    });
 
     // ========================================
     // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209, TASK_2025_241)

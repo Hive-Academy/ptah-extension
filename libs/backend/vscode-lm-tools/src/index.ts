@@ -8,6 +8,7 @@
 export {
   PtahAPIBuilder,
   IDE_CAPABILITIES_TOKEN,
+  BROWSER_CAPABILITIES_TOKEN,
 } from './lib/code-execution/ptah-api-builder.service';
 export { CodeExecutionMCP } from './lib/code-execution/code-execution-mcp.service';
 export type { PtahAPI } from './lib/code-execution/types';
@@ -38,6 +39,10 @@ export type {
   WebSearchProviderType,
   IWebSearchProvider,
 } from './lib/code-execution/services/web-search-provider.interface';
+
+// Browser capabilities exports (TASK_2025_244)
+export type { IBrowserCapabilities } from './lib/code-execution/namespace-builders/browser-namespace.builder';
+export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
 
 // DI registration exports (TASK_2025_071 Batch 2A)
 export { registerVsCodeLmToolsServices } from './lib/di';

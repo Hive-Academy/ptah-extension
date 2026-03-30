@@ -38,6 +38,15 @@ import {
   buildWorktreeAddTool,
   buildWorktreeRemoveTool,
   buildJsonValidateTool,
+  buildBrowserNavigateTool,
+  buildBrowserScreenshotTool,
+  buildBrowserEvaluateTool,
+  buildBrowserClickTool,
+  buildBrowserTypeTool,
+  buildBrowserContentTool,
+  buildBrowserNetworkTool,
+  buildBrowserCloseTool,
+  buildBrowserStatusTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -60,6 +69,15 @@ import {
   formatWorktreeAdd,
   formatWorktreeRemove,
   formatJsonValidate,
+  formatBrowserNavigate,
+  formatBrowserScreenshot,
+  formatBrowserEvaluate,
+  formatBrowserClick,
+  formatBrowserType,
+  formatBrowserContent,
+  formatBrowserNetwork,
+  formatBrowserClose,
+  formatBrowserStatus,
 } from './mcp-response-formatter';
 
 /**
@@ -208,6 +226,16 @@ function handleToolsList(
     buildWorktreeRemoveTool(),
     // JSON validation tool (TASK_2025_240)
     buildJsonValidateTool(),
+    // Browser automation tools (TASK_2025_244)
+    buildBrowserNavigateTool(),
+    buildBrowserScreenshotTool(),
+    buildBrowserEvaluateTool(),
+    buildBrowserClickTool(),
+    buildBrowserTypeTool(),
+    buildBrowserContentTool(),
+    buildBrowserNetworkTool(),
+    buildBrowserCloseTool(),
+    buildBrowserStatusTool(),
     // Power-user tools
     buildExecuteCodeTool(),
     buildApprovalPromptTool(),
@@ -690,6 +718,206 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatJsonValidate(jsonResult),
+          deps,
+        );
+      }
+
+      // Browser automation tools (TASK_2025_244)
+      case 'ptah_browser_navigate': {
+        const { url, waitForLoad } = args as {
+          url: string;
+          waitForLoad?: boolean;
+        };
+
+        if (!url || typeof url !== 'string' || !url.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "url" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const navResult = await ptahAPI.browser.navigate({
+          url: url.trim(),
+          waitForLoad,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserNavigate(navResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_screenshot': {
+        const { format, quality, fullPage } = args as {
+          format?: 'png' | 'jpeg' | 'webp';
+          quality?: number;
+          fullPage?: boolean;
+        };
+        const screenshotResult = await ptahAPI.browser.screenshot({
+          format,
+          quality,
+          fullPage,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserScreenshot(screenshotResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_evaluate': {
+        const { expression } = args as { expression: string };
+
+        if (!expression || typeof expression !== 'string') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "expression" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const evalResult = await ptahAPI.browser.evaluate({
+          expression,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserEvaluate(evalResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_click': {
+        const { selector } = args as { selector: string };
+
+        if (!selector || typeof selector !== 'string' || !selector.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "selector" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const clickResult = await ptahAPI.browser.click({
+          selector: selector.trim(),
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserClick(clickResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_type': {
+        const { selector, text } = args as {
+          selector: string;
+          text: string;
+        };
+
+        if (!selector || typeof selector !== 'string' || !selector.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "selector" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+        if (text === undefined || text === null) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "text" is required.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const typeResult = await ptahAPI.browser.type({
+          selector: selector.trim(),
+          text: String(text),
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserType(typeResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_content': {
+        const { selector } = args as { selector?: string };
+        const contentResult = await ptahAPI.browser.getContent(
+          selector ? { selector } : undefined,
+        );
+        return createToolSuccessResponse(
+          request,
+          formatBrowserContent(contentResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_network': {
+        const { limit } = args as { limit?: number };
+        const networkResult = await ptahAPI.browser.networkRequests({
+          limit,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserNetwork(networkResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_close': {
+        const closeResult = await ptahAPI.browser.close();
+        return createToolSuccessResponse(
+          request,
+          formatBrowserClose(closeResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_status': {
+        const statusResult = await ptahAPI.browser.status();
+        return createToolSuccessResponse(
+          request,
+          formatBrowserStatus(statusResult),
           deps,
         );
       }

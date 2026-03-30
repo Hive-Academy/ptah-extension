@@ -66,3 +66,11 @@ export {
   buildJsonNamespace,
   type JsonNamespaceDependencies,
 } from './json-namespace.builder';
+
+// Browser namespace (TASK_2025_244 - CDP browser integration)
+export {
+  buildBrowserNamespace,
+  type IBrowserCapabilities,
+  type BrowserNamespaceDependencies,
+  validateBrowserUrl,
+} from './browser-namespace.builder';
