@@ -38,6 +38,7 @@ import {
   `,
   template: `
     <button
+      type="button"
       class="group relative flex items-center justify-center w-8 h-full
              bg-base-200/60 hover:bg-base-300/80
              transition-colors duration-200 cursor-pointer"

@@ -213,9 +213,12 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
     // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && FILE_BASED_SETTINGS_KEYS.has(key)) {
       await this.fileSettings.set(key, value);
+      const fullKey = `${section}.${key}`;
       this.fireConfigChange({
         affectsConfiguration: (s: string) =>
-          s === section || s === `${section}.${key}`,
+          fullKey === s ||
+          fullKey.startsWith(s + '.') ||
+          s.startsWith(fullKey + '.'),
       });
       return;
     }
@@ -224,9 +227,12 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
     }
     this.config[section][key] = value;
     await this.persistConfig();
+    const configFullKey = `${section}.${key}`;
     this.fireConfigChange({
       affectsConfiguration: (s: string) =>
-        s === section || s === `${section}.${key}`,
+        configFullKey === s ||
+        configFullKey.startsWith(s + '.') ||
+        s.startsWith(configFullKey + '.'),
     });
   }
 

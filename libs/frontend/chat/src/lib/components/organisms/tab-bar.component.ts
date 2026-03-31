@@ -6,6 +6,7 @@ import {
   effect,
   viewChild,
   ElementRef,
+  DestroyRef,
 } from '@angular/core';
 import { LucideAngularModule, ChevronLeft, ChevronRight } from 'lucide-angular';
 import { TabItemComponent } from '../molecules/session/tab-item.component';
@@ -84,11 +85,14 @@ export class TabBarComponent {
   readonly canScrollLeft = signal(false);
   readonly canScrollRight = signal(false);
 
+  private readonly destroyRef = inject(DestroyRef);
+
   constructor() {
     // Re-check scroll state when tabs change (schedule after DOM update)
     effect(() => {
       this.tabs(); // track dependency
-      setTimeout(() => this.checkScroll(), 0);
+      const timerId = setTimeout(() => this.checkScroll(), 0);
+      this.destroyRef.onDestroy(() => clearTimeout(timerId));
     });
   }
 

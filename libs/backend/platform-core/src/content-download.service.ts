@@ -76,8 +76,8 @@ export class ContentDownloadService {
   private readonly templatesDir: string;
   private readonly cacheMetadataPath: string;
 
-  /** Prevents concurrent downloads within the same process */
-  private downloadInProgress = false;
+  /** In-flight download promise for deduplicating concurrent calls */
+  private inFlightPromise: Promise<ContentDownloadResult> | null = null;
 
   /** Write serialization -- prevents concurrent file writes from corrupting the cache */
   private writePromise: Promise<void> = Promise.resolve();
@@ -115,34 +115,30 @@ export class ContentDownloadService {
     onProgress?: ContentProgressCallback,
     forceRefresh?: boolean,
   ): Promise<ContentDownloadResult> {
-    // Guard against concurrent downloads within the same process
-    if (this.downloadInProgress) {
-      return {
-        success: true,
-        pluginsDownloaded: 0,
-        templatesDownloaded: 0,
-        fromCache: true,
-        error: 'Download already in progress',
-      };
+    // Deduplicate concurrent calls — return the in-flight promise
+    if (this.inFlightPromise) {
+      return this.inFlightPromise;
     }
 
-    this.downloadInProgress = true;
+    this.inFlightPromise = this.doEnsureContent(onProgress, forceRefresh)
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[ContentDownloadService] ensureContent failed: ${message}`,
+        );
+        return {
+          success: false,
+          pluginsDownloaded: 0,
+          templatesDownloaded: 0,
+          fromCache: this.isContentAvailable(),
+          error: message,
+        } as ContentDownloadResult;
+      })
+      .finally(() => {
+        this.inFlightPromise = null;
+      });
 
-    try {
-      return await this.doEnsureContent(onProgress, forceRefresh);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.warn(`[ContentDownloadService] ensureContent failed: ${message}`);
-      return {
-        success: false,
-        pluginsDownloaded: 0,
-        templatesDownloaded: 0,
-        fromCache: this.isContentAvailable(),
-        error: message,
-      };
-    } finally {
-      this.downloadInProgress = false;
-    }
+    return this.inFlightPromise;
   }
 
   /**
@@ -222,7 +218,11 @@ export class ContentDownloadService {
       }
     }
 
-    // Step 3: Download all files
+    // Step 3: Prune stale cached files no longer present in the manifest
+    this.pruneStaleFiles(this.pluginsDir, manifest.plugins.files);
+    this.pruneStaleFiles(this.templatesDir, manifest.templates.files);
+
+    // Step 4: Download all files
     const totalFiles =
       manifest.plugins.files.length + manifest.templates.files.length;
     let downloadedCount = 0;
@@ -255,7 +255,7 @@ export class ContentDownloadService {
       },
     );
 
-    // Step 4: Update cache metadata (serialized through writePromise chain)
+    // Step 5: Update cache metadata (serialized through writePromise chain)
     const cacheMetadata: ContentCacheMetadata = {
       contentHash: manifest.contentHash,
       downloadedAt: new Date().toISOString(),
@@ -284,6 +284,62 @@ export class ContentDownloadService {
         ? undefined
         : `${pluginResults.failed + templateResults.failed} file(s) failed to download`,
     };
+  }
+
+  /**
+   * Remove cached files that are no longer listed in the manifest.
+   * Walks the local directory and deletes files whose relative path
+   * is not in the manifest file list.
+   */
+  private pruneStaleFiles(localDir: string, manifestFiles: string[]): void {
+    try {
+      const manifestSet = new Set(manifestFiles);
+      const localFiles = this.walkLocalDir(localDir, localDir);
+
+      for (const relPath of localFiles) {
+        if (!manifestSet.has(relPath)) {
+          try {
+            const fullPath = path.join(localDir, ...relPath.split('/'));
+            fs.unlinkSync(fullPath);
+          } catch {
+            // Non-fatal: file may already be removed
+          }
+        }
+      }
+    } catch {
+      // Directory may not exist on first run — nothing to prune
+    }
+  }
+
+  /**
+   * Recursively collect all file paths relative to baseDir.
+   * Returns forward-slash-separated relative paths.
+   */
+  private walkLocalDir(dir: string, baseDir: string): string[] {
+    const results: string[] = [];
+    let entries: string[];
+
+    try {
+      entries = fs.readdirSync(dir);
+    } catch {
+      return results;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          results.push(...this.walkLocalDir(fullPath, baseDir));
+        } else if (stat.isFile()) {
+          results.push(path.relative(baseDir, fullPath).replace(/\\/g, '/'));
+        }
+      } catch {
+        // Skip inaccessible entries
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -317,7 +373,14 @@ export class ContentDownloadService {
       const results = await Promise.allSettled(
         chunk.map(async (file) => {
           const url = `${baseUrl}/${basePath}/${file}`;
-          const localPath = path.join(localDir, ...file.split('/'));
+          const localPath = path.resolve(localDir, ...file.split('/'));
+
+          // Guard against path traversal from malicious manifest entries
+          if (!localPath.startsWith(path.resolve(localDir) + path.sep)) {
+            throw new Error(
+              `Path traversal detected: "${file}" resolves outside target directory`,
+            );
+          }
 
           await this.downloadToFile(url, localPath);
         }),
@@ -376,7 +439,8 @@ export class ContentDownloadService {
           (res.statusCode === 301 || res.statusCode === 302) &&
           res.headers.location
         ) {
-          this.downloadText(res.headers.location, maxRedirects - 1).then(
+          const redirectUrl = new URL(res.headers.location, url).toString();
+          this.downloadText(redirectUrl, maxRedirects - 1).then(
             resolve,
             reject,
           );

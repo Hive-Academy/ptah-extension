@@ -99,10 +99,15 @@ export class VscodeWorkspaceProvider implements IWorkspaceProvider {
     // Route file-based settings to PtahFileSettingsManager
     if (section === 'ptah' && FILE_BASED_SETTINGS_KEYS.has(key)) {
       await this.fileSettings.set(key, value);
-      // Fire a synthetic config change event so watchers are notified
+      // Fire a synthetic config change event so watchers are notified.
+      // Implements VS Code's prefix-matching semantics: ptah.agentOrchestration
+      // matches ptah.agentOrchestration.copilotModel.
+      const fullKey = `${section}.${key}`;
       this.fireConfigChange({
         affectsConfiguration: (s: string) =>
-          s === section || s === `${section}.${key}`,
+          fullKey === s ||
+          fullKey.startsWith(s + '.') ||
+          s.startsWith(fullKey + '.'),
       });
       return;
     }

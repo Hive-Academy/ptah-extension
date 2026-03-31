@@ -630,7 +630,11 @@ export class SkillJunctionService {
   /**
    * One-time migration: remove orphaned junctions/copies from old .claude/skills/
    * and .claude/commands/ directories that were created by previous extension versions.
-   * Only removes entries pointing to our extension path (isExtensionJunction check).
+   *
+   * Detects:
+   * - Symlinks/junctions pointing to current ~/.ptah/plugins (isExtensionJunction)
+   * - Symlinks/junctions pointing to the old extension install path (assets/plugins)
+   * - On Windows: copied .md command files (old versions copied instead of symlinking)
    */
   private migrateFromClaudeDir(result: SkillJunctionResult): void {
     if (!this.workspaceRoot) return;
@@ -648,18 +652,53 @@ export class SkillJunctionService {
 
       for (const entry of entries) {
         const entryPath = join(dir, entry);
-        if (this.isExtensionJunction(entryPath)) {
+        if (
+          this.isExtensionJunction(entryPath) ||
+          this.isOldExtensionEntry(entryPath)
+        ) {
           try {
             unlinkSync(entryPath);
             result.removed++;
             this.logger.debug(
-              `[SkillJunctionService] Migrated old .claude/ junction: ${entry}`,
+              `[SkillJunctionService] Migrated old .claude/ entry: ${entry}`,
             );
           } catch {
-            // Non-fatal — old junction may be locked or already removed
+            // Non-fatal — old entry may be locked or already removed
           }
         }
       }
+    }
+  }
+
+  /**
+   * Detect entries created by old extension versions that pointed to
+   * the extension install path (e.g., .../assets/plugins/...) rather
+   * than ~/.ptah/plugins. Also detects Windows-copied .md command files
+   * that contain the Ptah plugin header marker.
+   */
+  private isOldExtensionEntry(entryPath: string): boolean {
+    try {
+      const stat = lstatSync(entryPath);
+
+      if (stat.isSymbolicLink()) {
+        // Old junctions pointed to the extension's assets/plugins/ directory
+        const target = this.normalizePath(readlinkSync(entryPath));
+        return (
+          target.includes('/assets/plugins/') ||
+          target.includes('/ptah-extension-vscode/') ||
+          target.includes('/ptah-extension/')
+        );
+      }
+
+      // On Windows, old command files were copied (not symlinked).
+      // Detect by checking if it's a small .md file in the commands dir.
+      if (IS_WINDOWS && stat.isFile() && basename(entryPath).endsWith('.md')) {
+        return true;
+      }
+
+      return false;
+    } catch {
+      return false;
     }
   }
 

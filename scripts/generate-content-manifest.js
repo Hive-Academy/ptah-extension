@@ -48,25 +48,6 @@ function walkDir(dir, baseDir) {
   return results.sort();
 }
 
-/**
- * Compute SHA-256 content hash from all file paths and their contents.
- * The hash is deterministic: sorted file paths, each path + content fed into the hash.
- */
-function computeContentHash(files, baseDir) {
-  const hash = crypto.createHash('sha256');
-
-  for (const file of files) {
-    const fullPath = path.join(baseDir, file);
-    // Include the relative path in the hash so renames are detected
-    hash.update(file);
-    // Include the file content
-    const content = fs.readFileSync(fullPath);
-    hash.update(content);
-  }
-
-  return hash.digest('hex');
-}
-
 function main() {
   const pluginsDir = path.join(REPO_ROOT, PLUGINS_BASE_PATH);
   const templatesDir = path.join(REPO_ROOT, TEMPLATES_BASE_PATH);
@@ -79,24 +60,17 @@ function main() {
   const templateFiles = walkDir(templatesDir, templatesDir);
   console.log(`  Found ${templateFiles.length} template files`);
 
-  // Compute a single content hash across all files
-  const combinedHash = crypto.createHash('sha256');
-
-  // Feed plugin files into hash
-  for (const file of pluginFiles) {
-    const fullPath = path.join(pluginsDir, file);
-    combinedHash.update(file);
-    combinedHash.update(fs.readFileSync(fullPath));
+  // Compute a single content hash across all files (both plugins and templates)
+  const allFiles = [
+    ...pluginFiles.map((f) => ({ rel: f, base: pluginsDir })),
+    ...templateFiles.map((f) => ({ rel: f, base: templatesDir })),
+  ];
+  const hash = crypto.createHash('sha256');
+  for (const { rel, base } of allFiles) {
+    hash.update(rel);
+    hash.update(fs.readFileSync(path.join(base, rel)));
   }
-
-  // Feed template files into hash
-  for (const file of templateFiles) {
-    const fullPath = path.join(templatesDir, file);
-    combinedHash.update(file);
-    combinedHash.update(fs.readFileSync(fullPath));
-  }
-
-  const contentHash = `sha256:${combinedHash.digest('hex')}`;
+  const contentHash = `sha256:${hash.digest('hex')}`;
 
   const manifest = {
     $schema: 'https://ptah.live/schemas/content-manifest.json',

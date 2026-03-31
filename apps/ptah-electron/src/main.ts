@@ -499,11 +499,13 @@ if (!gotLock) {
     const contentDownload = container.resolve<ContentDownloadService>(
       PLATFORM_TOKENS.CONTENT_DOWNLOAD,
     );
-    contentDownload.ensureContent().catch((err) => {
-      console.warn(
-        '[Ptah Electron] Content download failed (non-blocking):',
-        err instanceof Error ? err.message : String(err),
-      );
+    contentDownload.ensureContent().then((result) => {
+      if (!result.success) {
+        console.warn(
+          '[Ptah Electron] Content download failed (non-blocking):',
+          result.error ?? 'Unknown error',
+        );
+      }
     });
 
     // ========================================

@@ -605,11 +605,13 @@ export async function activate(
     const contentDownload = DIContainer.resolve<ContentDownloadService>(
       PLATFORM_TOKENS.CONTENT_DOWNLOAD,
     );
-    contentDownload.ensureContent().catch((err) => {
-      console.warn(
-        '[Activate] Content download failed (non-blocking):',
-        err instanceof Error ? err.message : String(err),
-      );
+    contentDownload.ensureContent().then((result) => {
+      if (!result?.success) {
+        console.warn(
+          '[Activate] Content download failed (non-blocking):',
+          result?.error ?? 'Unknown error',
+        );
+      }
     });
 
     // Step 7.1.5: Initialize plugin loader with extension path (TASK_2025_153)
