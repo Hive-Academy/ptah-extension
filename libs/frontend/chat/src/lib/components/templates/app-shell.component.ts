@@ -19,8 +19,6 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   Plus,
   Search,
   Settings,
@@ -37,6 +35,7 @@ import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ResizeHandleComponent } from '../atoms/resize-handle.component';
+import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
@@ -100,6 +99,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     NativePopoverComponent,
     AgentMonitorPanelComponent,
     ResizeHandleComponent,
+    SidebarTabComponent,
     SessionAnalyticsDashboardViewComponent,
   ],
   templateUrl: './app-shell.component.html',
@@ -138,8 +138,6 @@ export class AppShellComponent {
   readonly MessageSquareIcon = MessageSquare;
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
-  readonly PanelRightCloseIcon = PanelRightClose;
-  readonly PanelRightOpenIcon = PanelRightOpen;
   readonly PlusIcon = Plus;
   readonly SearchIcon = Search;
   readonly SettingsIcon = Settings;
@@ -147,6 +145,17 @@ export class AppShellComponent {
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
+
+  // Agent monitor badge type for the sidebar tab
+  readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
+    () => {
+      if (this.agentMonitorStore.pendingPermissions().length > 0)
+        return 'warning';
+      if (this.agentMonitorStore.hasRunningAgents()) return 'info';
+      if (this.agentMonitorStore.agentCount() > 0) return 'neutral';
+      return null;
+    },
+  );
 
   // Platform detection: in Electron, some icons move to the global navbar
   readonly isElectron = this.vscodeService.isElectron;

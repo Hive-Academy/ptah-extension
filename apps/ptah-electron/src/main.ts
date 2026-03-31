@@ -13,7 +13,10 @@ import { createApplicationMenu } from './menu/application-menu';
 import * as fs from 'fs';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 import type {
   ISecretStorage,
   IStateStorage,
@@ -487,6 +490,23 @@ if (!gotLock) {
     );
 
     // ========================================
+    // PHASE 4.54: Ensure plugin/template content from GitHub (TASK_2025_248)
+    // ========================================
+    // Plugins and templates are no longer bundled in the app package.
+    // ContentDownloadService downloads them to ~/.ptah/ on first launch and
+    // keeps them up-to-date by comparing the manifest contentHash.
+    // Non-blocking fire-and-forget: activation continues immediately.
+    const contentDownload = container.resolve<ContentDownloadService>(
+      PLATFORM_TOKENS.CONTENT_DOWNLOAD,
+    );
+    contentDownload.ensureContent().catch((err) => {
+      console.warn(
+        '[Ptah Electron] Content download failed (non-blocking):',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+
+    // ========================================
     // PHASE 4.55: Plugin Loader Initialization (TASK_2025_214)
     // ========================================
     // Initialize PluginLoaderService with app path and workspace state storage.
@@ -500,7 +520,10 @@ if (!gotLock) {
       const workspaceStateStorage = container.resolve<IStateStorage>(
         PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
       );
-      pluginLoader.initialize(app.getAppPath(), workspaceStateStorage);
+      pluginLoader.initialize(
+        contentDownload.getPluginsPath(),
+        workspaceStateStorage,
+      );
 
       const pluginConfig = pluginLoader.getWorkspacePluginConfig();
       const pluginPaths = pluginLoader.resolvePluginPaths(
@@ -544,7 +567,7 @@ if (!gotLock) {
       const skillJunction = container.resolve<SkillJunctionService>(
         SDK_TOKENS.SDK_SKILL_JUNCTION,
       );
-      skillJunction.initialize(app.getAppPath());
+      skillJunction.initialize(contentDownload.getPluginsPath());
 
       // Re-resolve plugin loader (singleton) and get current paths
       const pluginLoader = container.resolve<PluginLoaderService>(
@@ -603,7 +626,7 @@ if (!gotLock) {
         );
         cliPluginSync.initialize(
           globalStateForSync,
-          app.getAppPath(),
+          contentDownload.getPluginsPath(),
           (ids: string[]) => pluginLoaderForSync.resolvePluginPaths(ids),
         );
 

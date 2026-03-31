@@ -2,7 +2,7 @@
  * Skill Junction Service (TASK_2025_201)
  *
  * Creates filesystem junctions from {workspace}/.ptah/skills/{skillName}/
- * to {extensionPath}/assets/plugins/{pluginId}/skills/{skillName}/.
+ * to {pluginsBasePath}/{pluginId}/skills/{skillName}/.
  *
  * Uses .ptah/ instead of .claude/ to avoid:
  * - Skill/command duplication (SDK's plugins option already loads skills for Claude)
@@ -76,12 +76,12 @@ const PTAH_WORKSPACE_DIR = '.ptah';
  * Manages workspace .ptah/skills/ junctions pointing to extension plugin skill directories.
  *
  * Uses a late-initialized singleton pattern: `initialize()` must be called from
- * main.ts after DI setup to provide the extension path. Workspace root is resolved
+ * main.ts after DI setup to provide the plugins base path. Workspace root is resolved
  * via the injected IWorkspaceProvider.
  */
 @injectable()
 export class SkillJunctionService {
-  private extensionPath: string | null = null;
+  private pluginsBasePath: string | null = null;
   private workspaceRoot: string | null = null;
 
   /** Track which junction paths we created, for cleanup */
@@ -97,14 +97,16 @@ export class SkillJunctionService {
   ) {}
 
   /**
-   * Late initialization with extension path.
+   * Late initialization with plugins base path.
    * Must be called from main.ts after DI setup.
+   *
+   * @param pluginsBasePath - Absolute path to the plugins directory (~/.ptah/plugins/ from ContentDownloadService)
    */
-  initialize(extensionPath: string): void {
-    this.extensionPath = extensionPath;
+  initialize(pluginsBasePath: string): void {
+    this.pluginsBasePath = pluginsBasePath;
     this.workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? null;
     this.logger.debug('[SkillJunctionService] Initialized', {
-      extensionPath,
+      pluginsBasePath,
       workspaceRoot: this.workspaceRoot,
     });
   }
@@ -572,21 +574,21 @@ export class SkillJunctionService {
   }
 
   /**
-   * Check if a path is a junction/symlink pointing to our extension's plugin assets.
-   * Uses extensionPath prefix match (not a generic substring) to avoid false positives
-   * with unrelated junctions that happen to contain 'assets/plugins' in their path.
+   * Check if a path is a junction/symlink pointing to our plugins base directory.
+   * Uses pluginsBasePath prefix match (not a generic substring) to avoid false positives
+   * with unrelated junctions that happen to contain 'plugins' in their path.
    */
   private isExtensionJunction(entryPath: string): boolean {
     try {
       const stat = lstatSync(entryPath);
       if (!stat.isSymbolicLink()) return false;
       const target = readlinkSync(entryPath);
-      if (this.extensionPath === null) return false;
+      if (this.pluginsBasePath === null) return false;
 
-      // Normalize and check that the target starts with our extension path
+      // Normalize and check that the target starts with our plugins base path
       const normalizedTarget = this.normalizePath(target);
-      const normalizedExtPath = this.normalizePath(this.extensionPath);
-      return normalizedTarget.startsWith(normalizedExtPath);
+      const normalizedPluginsPath = this.normalizePath(this.pluginsBasePath);
+      return normalizedTarget.startsWith(normalizedPluginsPath);
     } catch {
       return false;
     }

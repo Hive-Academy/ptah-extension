@@ -40,16 +40,6 @@
             "output": "assets"
           },
           {
-            "glob": "**/*",
-            "input": "apps/ptah-extension-vscode/assets/plugins",
-            "output": "assets/plugins"
-          },
-          {
-            "glob": "**/*",
-            "input": "libs/backend/agent-generation/templates",
-            "output": "templates"
-          },
-          {
             "glob": "package.json",
             "input": "apps/ptah-extension-vscode",
             "output": "."
@@ -96,10 +86,6 @@
           },
           {
             "command": "node -e \"const fs=require('fs'); fs.copyFileSync('README.md', 'dist/apps/ptah-extension-vscode/README.md')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE.md')) fs.copyFileSync('LICENSE.md', 'dist/apps/ptah-extension-vscode/LICENSE.md')\"",
             "forwardAllArgs": false
           }
         ],

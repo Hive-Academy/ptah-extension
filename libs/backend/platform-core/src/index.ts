@@ -43,3 +43,10 @@ export {
   FILE_BASED_SETTINGS_KEYS,
   FILE_BASED_SETTINGS_DEFAULTS,
 } from './file-settings-keys';
+
+// Content Download (TASK_2025_248)
+export { ContentDownloadService } from './content-download.service';
+export type {
+  ContentDownloadResult,
+  ContentProgressCallback,
+} from './content-download.service';

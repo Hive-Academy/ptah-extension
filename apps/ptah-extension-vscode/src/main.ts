@@ -18,7 +18,10 @@ import {
   type SettingsExportService,
   type SettingsImportService,
 } from '@ptah-extension/agent-sdk';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
 import { VscodeWorkspaceProvider } from '@ptah-extension/platform-vscode';
 import { PtahExtension } from './core/ptah-extension';
@@ -595,6 +598,20 @@ export async function activate(
       '[Activate] Step 7: SDK authentication initialization complete',
     );
 
+    // Step 7.1.4: Ensure plugin/template content from GitHub (non-blocking)
+    // TASK_2025_248: Plugins and templates are no longer bundled in the VSIX.
+    // ContentDownloadService downloads them to ~/.ptah/ on first launch and
+    // keeps them up-to-date by comparing the manifest contentHash.
+    const contentDownload = DIContainer.resolve<ContentDownloadService>(
+      PLATFORM_TOKENS.CONTENT_DOWNLOAD,
+    );
+    contentDownload.ensureContent().catch((err) => {
+      console.warn(
+        '[Activate] Content download failed (non-blocking):',
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+
     // Step 7.1.5: Initialize plugin loader with extension path (TASK_2025_153)
     console.log('[Activate] Step 7.1.5: Initializing plugin loader...');
     try {
@@ -607,7 +624,10 @@ export async function activate(
       const workspaceStateStorage = DIContainer.resolve<IStateStorage>(
         PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
       );
-      pluginLoader.initialize(context.extensionPath, workspaceStateStorage);
+      pluginLoader.initialize(
+        contentDownload.getPluginsPath(),
+        workspaceStateStorage,
+      );
       logger.info('Plugin loader initialized');
 
       // Wire plugin paths into command discovery for slash command autocomplete
@@ -642,7 +662,7 @@ export async function activate(
       const skillJunction = DIContainer.resolve<SkillJunctionService>(
         SDK_TOKENS.SDK_SKILL_JUNCTION,
       );
-      skillJunction.initialize(context.extensionPath);
+      skillJunction.initialize(contentDownload.getPluginsPath());
 
       // Reuse the same pluginLoader singleton resolved in Step 7.1.5
       const junctionPluginLoader = DIContainer.resolve<PluginLoaderService>(
@@ -710,7 +730,7 @@ export async function activate(
         );
         cliPluginSync.initialize(
           globalStateStorage,
-          context.extensionPath,
+          contentDownload.getPluginsPath(),
           (ids: string[]) => pluginLoader.resolvePluginPaths(ids),
         );
         const pluginConfig = pluginLoader.getWorkspacePluginConfig();

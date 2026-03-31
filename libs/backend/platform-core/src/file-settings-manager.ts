@@ -31,6 +31,8 @@ export class PtahFileSettingsManager {
   private readonly filePath: string;
   private readonly dirPath: string;
   private readonly defaults: FileSettingsDefaults;
+  /** Write serialization — prevents concurrent persist() calls from corrupting the file */
+  private writePromise: Promise<void> = Promise.resolve();
 
   constructor(defaults: FileSettingsDefaults) {
     this.dirPath = path.join(homedir(), '.ptah');
@@ -62,7 +64,11 @@ export class PtahFileSettingsManager {
    */
   async set(key: string, value: unknown): Promise<void> {
     this.settings[key] = value;
-    await this.persist();
+    this.writePromise = this.writePromise.then(
+      () => this.persist(),
+      () => this.persist(),
+    );
+    await this.writePromise;
   }
 
   /**
@@ -77,7 +83,7 @@ export class PtahFileSettingsManager {
    * Handles first-run gracefully (file/directory don't exist).
    * Handles corrupted JSON gracefully (logs warning, starts with empty settings).
    */
-  loadSync(): void {
+  private loadSync(): void {
     try {
       const raw = fs.readFileSync(this.filePath, 'utf-8');
       const parsed = JSON.parse(raw);
@@ -104,23 +110,32 @@ export class PtahFileSettingsManager {
    * Unflattens dot-notation keys to nested JSON for human readability.
    */
   private async persist(): Promise<void> {
-    // Ensure directory exists
-    await fsPromises.mkdir(this.dirPath, { recursive: true });
+    try {
+      // Ensure directory exists
+      await fsPromises.mkdir(this.dirPath, { recursive: true });
 
-    // Build the nested object from flat keys, including schema and version metadata
-    const nested = unflattenObject(this.settings);
-    const output = {
-      $schema: 'https://ptah.live/schemas/settings.json',
-      version: 1,
-      ...nested,
-    };
+      // Build the nested object from flat keys, including schema and version metadata
+      const nested = unflattenObject(this.settings);
+      const output = {
+        $schema: 'https://ptah.live/schemas/settings.json',
+        version: 1,
+        ...nested,
+      };
 
-    const json = JSON.stringify(output, null, 2);
-    const tmpPath = this.filePath + '.tmp';
+      const json = JSON.stringify(output, null, 2);
+      const tmpPath = this.filePath + '.tmp';
 
-    // Atomic write: write to temp file, then rename
-    await fsPromises.writeFile(tmpPath, json, 'utf-8');
-    await fsPromises.rename(tmpPath, this.filePath);
+      // Atomic write: write to temp file, then rename
+      await fsPromises.writeFile(tmpPath, json, 'utf-8');
+      await fsPromises.rename(tmpPath, this.filePath);
+    } catch (error: unknown) {
+      // Swallow persist errors — in-memory cache is authoritative.
+      // Matches VscodeDiskStateStorage convention.
+      console.warn(
+        `[PtahFileSettingsManager] Failed to persist settings to ${this.filePath}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 }
 
