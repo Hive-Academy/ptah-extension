@@ -14,13 +14,11 @@
 **Step-by-step setup:**
 
 1. **Create an Azure DevOps Organization**
-
    - Navigate to https://dev.azure.com
    - Sign in with a Microsoft account (the same one you will use for the marketplace publisher)
    - Create a new organization if you do not already have one
 
 2. **Create a Personal Access Token (PAT)**
-
    - In Azure DevOps, click your profile icon > Personal Access Tokens
    - Click "New Token"
    - **Critical settings:**
@@ -375,13 +373,13 @@ Only badges from approved/trusted services are allowed. Common badges:
 {
   "badges": [
     {
-      "url": "https://img.shields.io/visual-studio-marketplace/v/ptah-extensions.ptah-extension-vscode",
-      "href": "https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode",
+      "url": "https://img.shields.io/visual-studio-marketplace/v/ptah-extensions.ptah-coding-orchestra",
+      "href": "https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra",
       "description": "VS Marketplace Version"
     },
     {
-      "url": "https://img.shields.io/visual-studio-marketplace/i/ptah-extensions.ptah-extension-vscode",
-      "href": "https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode",
+      "url": "https://img.shields.io/visual-studio-marketplace/i/ptah-extensions.ptah-coding-orchestra",
+      "href": "https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra",
       "description": "VS Marketplace Installs"
     }
   ]

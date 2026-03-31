@@ -13,13 +13,20 @@ import { createApplicationMenu } from './menu/application-menu';
 import * as fs from 'fs';
 import type { ElectronPlatformOptions } from '@ptah-extension/platform-electron';
 import { ElectronWorkspaceProvider } from '@ptah-extension/platform-electron';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 import type {
   ISecretStorage,
   IStateStorage,
 } from '@ptah-extension/platform-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
-import { SDK_TOKENS, EnhancedPromptsService } from '@ptah-extension/agent-sdk';
+import {
+  SDK_TOKENS,
+  EnhancedPromptsService,
+  setPtahMcpPort,
+} from '@ptah-extension/agent-sdk';
 import type {
   IMultiPhaseAnalysisReader,
   PluginLoaderService,
@@ -41,6 +48,11 @@ if (!gotLock) {
   let mainWindow: BrowserWindow | null = null;
   let resolvedStateStorage: IStateStorage | undefined;
   let skillJunctionRef: { deactivateSync: () => void } | null = null;
+  let revalidationInterval: ReturnType<typeof setInterval> | null = null;
+  let gitWatcherRef: {
+    stop: () => void;
+    switchWorkspace: (p: string) => void;
+  } | null = null;
 
   app.whenReady().then(async () => {
     // ========================================
@@ -333,6 +345,7 @@ if (!gotLock) {
     // if the license server is unreachable.
     let startupIsLicensed = true;
     let startupInitialView: string | null = null;
+    let startupLicenseTier: string | undefined;
 
     try {
       const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
@@ -343,6 +356,8 @@ if (!gotLock) {
         }>;
       };
       const licenseStatus = await licenseService.verifyLicense();
+
+      startupLicenseTier = licenseStatus.tier;
 
       if (!licenseStatus.valid) {
         startupIsLicensed = false;
@@ -361,6 +376,45 @@ if (!gotLock) {
       // Non-fatal: default to licensed so users aren't blocked by verification errors
       console.warn(
         '[Ptah Electron] License verification failed (non-fatal, defaulting to licensed):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
+    // ========================================
+    // PHASE 3.6: SDK Authentication Initialization (TASK_2025_240)
+    // ========================================
+    // Initialize the SDK agent adapter so chat:start works.
+    // Mirrors VS Code extension Step 7 (main.ts:568-589).
+    // Must happen AFTER Phase 3 (API key loaded into env) and BEFORE Phase 4.5 (RPC registration).
+    // The adapter reads ANTHROPIC_API_KEY from process.env (set in Phase 3).
+    try {
+      const sdkAdapter = container.resolve(TOKENS.SDK_AGENT_ADAPTER) as {
+        initialize: () => Promise<boolean>;
+        preloadSdk: () => Promise<void>;
+      };
+      const authInitialized = await sdkAdapter.initialize();
+
+      if (authInitialized) {
+        console.log(
+          '[Ptah Electron] SDK authentication initialized successfully',
+        );
+
+        // Pre-load SDK in background (non-blocking) to speed up first chat.
+        // Shifts ~100-200ms import cost from first user interaction to activation.
+        sdkAdapter.preloadSdk().catch((err) => {
+          console.warn(
+            '[Ptah Electron] SDK preload failed (will retry on first use):',
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      } else {
+        console.log(
+          '[Ptah Electron] SDK auth not configured — users can configure in Settings',
+        );
+      }
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] SDK initialization failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
     }
@@ -436,6 +490,25 @@ if (!gotLock) {
     );
 
     // ========================================
+    // PHASE 4.54: Ensure plugin/template content from GitHub (TASK_2025_248)
+    // ========================================
+    // Plugins and templates are no longer bundled in the app package.
+    // ContentDownloadService downloads them to ~/.ptah/ on first launch and
+    // keeps them up-to-date by comparing the manifest contentHash.
+    // Non-blocking fire-and-forget: activation continues immediately.
+    const contentDownload = container.resolve<ContentDownloadService>(
+      PLATFORM_TOKENS.CONTENT_DOWNLOAD,
+    );
+    contentDownload.ensureContent().then((result) => {
+      if (!result.success) {
+        console.warn(
+          '[Ptah Electron] Content download failed (non-blocking):',
+          result.error ?? 'Unknown error',
+        );
+      }
+    });
+
+    // ========================================
     // PHASE 4.55: Plugin Loader Initialization (TASK_2025_214)
     // ========================================
     // Initialize PluginLoaderService with app path and workspace state storage.
@@ -449,7 +522,10 @@ if (!gotLock) {
       const workspaceStateStorage = container.resolve<IStateStorage>(
         PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
       );
-      pluginLoader.initialize(app.getAppPath(), workspaceStateStorage);
+      pluginLoader.initialize(
+        contentDownload.getPluginsPath(),
+        workspaceStateStorage,
+      );
 
       const pluginConfig = pluginLoader.getWorkspacePluginConfig();
       const pluginPaths = pluginLoader.resolvePluginPaths(
@@ -483,7 +559,7 @@ if (!gotLock) {
     // ========================================
     // PHASE 4.56: Skill Junction Activation (TASK_2025_214)
     // ========================================
-    // Initialize SkillJunctionService and create junctions in workspace .claude/skills/
+    // Initialize SkillJunctionService and create junctions in workspace .ptah/skills/
     // for enabled plugins. This makes plugin skills discoverable by third-party AI
     // providers (Copilot, Codex) via MCP workspace search.
     // Always call activate() even with zero plugins so the workspace change subscription
@@ -493,7 +569,7 @@ if (!gotLock) {
       const skillJunction = container.resolve<SkillJunctionService>(
         SDK_TOKENS.SDK_SKILL_JUNCTION,
       );
-      skillJunction.initialize(app.getAppPath());
+      skillJunction.initialize(contentDownload.getPluginsPath());
 
       // Re-resolve plugin loader (singleton) and get current paths
       const pluginLoader = container.resolve<PluginLoaderService>(
@@ -521,6 +597,187 @@ if (!gotLock) {
       console.warn(
         '[Ptah Electron] Skill junction activation failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
+      );
+    }
+
+    // ========================================
+    // PHASE 4.565: CLI Skill Sync (TASK_2025_243)
+    // ========================================
+    // Sync Ptah plugin skills to installed CLI agent directories (Copilot, Gemini).
+    // Premium-only, non-blocking, fire-and-forget.
+    // Mirrors VS Code extension Step 7.1.6 (main.ts:680-740).
+    if (startupLicenseTier === 'pro' || startupLicenseTier === 'trial_pro') {
+      try {
+        const cliPluginSync = container.resolve(
+          TOKENS.CLI_PLUGIN_SYNC_SERVICE,
+        ) as {
+          initialize: (
+            globalState: IStateStorage,
+            extensionPath: string,
+            pluginPathResolver?: (ids: string[]) => string[],
+          ) => void;
+          syncOnActivation: (enabledPluginIds: string[]) => Promise<unknown[]>;
+        };
+
+        const pluginLoaderForSync = container.resolve<PluginLoaderService>(
+          SDK_TOKENS.SDK_PLUGIN_LOADER,
+        );
+
+        const globalStateForSync = container.resolve<IStateStorage>(
+          PLATFORM_TOKENS.STATE_STORAGE,
+        );
+        cliPluginSync.initialize(
+          globalStateForSync,
+          contentDownload.getPluginsPath(),
+          (ids: string[]) => pluginLoaderForSync.resolvePluginPaths(ids),
+        );
+
+        const syncPluginConfig = pluginLoaderForSync.getWorkspacePluginConfig();
+        const enabledPluginIds = syncPluginConfig.enabledPluginIds || [];
+
+        if (enabledPluginIds.length > 0) {
+          // Fire-and-forget: sync skills in background
+          cliPluginSync
+            .syncOnActivation(enabledPluginIds)
+            .then((results) => {
+              console.log(
+                `[Ptah Electron] CLI skill sync complete (${results.length} results)`,
+              );
+            })
+            .catch((syncError) => {
+              console.warn(
+                '[Ptah Electron] CLI skill sync failed (non-blocking):',
+                syncError instanceof Error
+                  ? syncError.message
+                  : String(syncError),
+              );
+            });
+        } else {
+          console.log(
+            '[Ptah Electron] CLI skill sync skipped (no enabled plugins)',
+          );
+        }
+      } catch (cliSyncError) {
+        console.warn(
+          '[Ptah Electron] CLI skill sync setup failed (non-fatal):',
+          cliSyncError instanceof Error
+            ? cliSyncError.message
+            : String(cliSyncError),
+        );
+      }
+    } else {
+      console.log(
+        `[Ptah Electron] CLI skill sync skipped (tier: ${startupLicenseTier ?? 'unknown'})`,
+      );
+    }
+
+    // ========================================
+    // PHASE 4.57: Model Pricing Pre-fetch (TASK_2025_240)
+    // ========================================
+    // Pre-fetch model pricing from OpenRouter so cost calculations use live data.
+    // Mirrors VS Code extension Step 7.2 (main.ts:754-768).
+    // Non-blocking, fire-and-forget. Falls back to bundled defaults if offline.
+    try {
+      const providerModels = container.resolve(
+        SDK_TOKENS.SDK_PROVIDER_MODELS,
+      ) as { prefetchPricing: () => Promise<number> };
+      providerModels.prefetchPricing().catch((err) => {
+        console.warn(
+          '[Ptah Electron] Pricing pre-fetch failed (using bundled defaults):',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+      console.log('[Ptah Electron] Pricing pre-fetch initiated (background)');
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] Pricing pre-fetch setup failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+
+    // ========================================
+    // PHASE 4.58: Proactive CLI Detection (TASK_2025_240)
+    // ========================================
+    // Detect installed CLI agents (Gemini, Codex) early so settings UI is instant.
+    // Mirrors VS Code extension Step 7.3 (main.ts:773-824).
+    // Non-blocking, fire-and-forget.
+    try {
+      const cliDetection = container.resolve(TOKENS.CLI_DETECTION_SERVICE) as {
+        detectAll: () => Promise<
+          Array<{ cli: string; installed: boolean; version?: string }>
+        >;
+        refreshCliTokens: () => Promise<void>;
+      };
+
+      cliDetection
+        .detectAll()
+        .then(async (results) => {
+          const installed = results.filter((r) => r.installed);
+          console.log(
+            `[Ptah Electron] CLI detection complete: ${installed.length}/${results.length} CLIs found`,
+          );
+
+          // Background token refresh for CLIs that use OAuth (Codex)
+          if (installed.some((r) => r.cli === 'codex')) {
+            try {
+              await cliDetection.refreshCliTokens();
+            } catch (refreshErr) {
+              console.warn(
+                '[Ptah Electron] CLI token refresh failed (non-blocking):',
+                refreshErr instanceof Error
+                  ? refreshErr.message
+                  : String(refreshErr),
+              );
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn(
+            '[Ptah Electron] CLI detection failed (non-blocking):',
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+    } catch (cliDetectError) {
+      console.warn(
+        '[Ptah Electron] CLI detection setup failed (non-blocking):',
+        cliDetectError instanceof Error
+          ? cliDetectError.message
+          : String(cliDetectError),
+      );
+    }
+
+    // ========================================
+    // PHASE 4.59: MCP Server Startup (TASK_2025_243)
+    // ========================================
+    // Start the Code Execution MCP server for Pro tier users.
+    // Mirrors VS Code extension Step 12 (main.ts:905-944).
+    // Non-fatal: MCP server failure should NOT crash the app.
+    if (startupLicenseTier === 'pro' || startupLicenseTier === 'trial_pro') {
+      if (container.isRegistered(TOKENS.CODE_EXECUTION_MCP)) {
+        try {
+          console.log('[Ptah Electron] Starting MCP server (Pro tier user)...');
+          const codeExecutionMCP = container.resolve(TOKENS.CODE_EXECUTION_MCP);
+          const mcpPort = await (
+            codeExecutionMCP as { start: () => Promise<number> }
+          ).start();
+          // Update the runtime port so SDK query builders use the actual port
+          // (may differ from default 51820 if fallback to OS-assigned port)
+          setPtahMcpPort(mcpPort);
+          console.log(`[Ptah Electron] MCP Server started on port ${mcpPort}`);
+        } catch (mcpError) {
+          console.warn(
+            '[Ptah Electron] MCP server failed to start (non-fatal):',
+            mcpError instanceof Error ? mcpError.message : String(mcpError),
+          );
+        }
+      } else {
+        console.log(
+          '[Ptah Electron] CODE_EXECUTION_MCP not registered, skipping MCP server startup',
+        );
+      }
+    } else {
+      console.log(
+        `[Ptah Electron] MCP server skipped (tier: ${startupLicenseTier ?? 'unknown'})`,
       );
     }
 
@@ -564,6 +821,42 @@ if (!gotLock) {
     // PHASE 4.7: Application Menu
     // ========================================
     createApplicationMenu(container, () => mainWindow);
+
+    // ========================================
+    // PHASE 4.8: Git File System Watcher (TASK_2025_240)
+    // ========================================
+    // Watch .git directory and workspace files for changes, push git status
+    // updates to the renderer. Replaces frontend polling with event-driven push.
+    // Only runs `git status` when something actually changes — zero wasted calls.
+    if (startupWorkspaceRoot) {
+      try {
+        const { GitWatcherService } =
+          await import('./services/git-watcher.service');
+        const gitInfoSvc = container.resolve(
+          ELECTRON_TOKENS.GIT_INFO_SERVICE,
+        ) as InstanceType<
+          typeof import('./services/git-info.service').GitInfoService
+        >;
+        const webviewManager = container.resolve(TOKENS.WEBVIEW_MANAGER) as {
+          broadcastMessage: (type: string, payload: unknown) => Promise<void>;
+        };
+
+        const logger = container.resolve<
+          import('@ptah-extension/vscode-core').Logger
+        >(TOKENS.LOGGER);
+        const gitWatcher = new GitWatcherService(gitInfoSvc, logger);
+        gitWatcher.start(startupWorkspaceRoot, (type, payload) => {
+          webviewManager.broadcastMessage(type, payload);
+        });
+        gitWatcherRef = gitWatcher;
+        console.log('[Ptah Electron] Git file system watcher started');
+      } catch (error) {
+        console.warn(
+          '[Ptah Electron] Git watcher setup failed (non-fatal):',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
 
     // ========================================
     // PHASE 4.9: Resolve State Storage for Window Persistence
@@ -671,6 +964,97 @@ if (!gotLock) {
         );
       }
     }
+
+    // ========================================
+    // PHASE 7: License Status Watcher (TASK_2025_240)
+    // ========================================
+    // Handle dynamic license changes (upgrade/expire) at runtime.
+    // Mirrors VS Code extension Step 13 (main.ts:954-1004).
+    // In Electron, we notify via dialog.showMessageBox instead of VS Code's
+    // showInformationMessage, and offer app relaunch instead of window reload.
+    try {
+      const licenseService = container.resolve(TOKENS.LICENSE_SERVICE) as {
+        on: (event: string, handler: (...args: unknown[]) => void) => void;
+        revalidate: () => Promise<void>;
+      };
+
+      licenseService.on('license:verified', () => {
+        console.log('[Ptah Electron] License status changed: verified');
+        const win = mainWindow;
+        if (win) {
+          dialog
+            .showMessageBox(win, {
+              type: 'info',
+              title: 'License Updated',
+              message:
+                'License status updated! Restart the app to apply changes.',
+              buttons: ['Restart Now', 'Later'],
+            })
+            .then((result) => {
+              if (result.response === 0) {
+                app.relaunch();
+                app.exit(0);
+              }
+            });
+        }
+      });
+
+      licenseService.on('license:expired', () => {
+        console.warn(
+          '[Ptah Electron] License expired — app will be restricted on restart',
+        );
+        const win = mainWindow;
+        if (win) {
+          dialog.showMessageBox(win, {
+            type: 'warning',
+            title: 'License Expired',
+            message:
+              'Your Ptah license has expired. Please renew your subscription to continue using premium features.',
+            buttons: ['OK'],
+          });
+        }
+
+        // Clean up CLI skills and agents on premium expiry
+        // Mirrors VS Code extension Step 13 license:expired handler
+        try {
+          if (container.isRegistered(TOKENS.CLI_PLUGIN_SYNC_SERVICE)) {
+            const cliPluginSync = container.resolve(
+              TOKENS.CLI_PLUGIN_SYNC_SERVICE,
+            ) as { cleanupAll: () => Promise<void> };
+            cliPluginSync.cleanupAll().catch((err: unknown) => {
+              console.warn(
+                '[Ptah Electron] CLI plugin cleanup on expiry failed (non-fatal):',
+                err instanceof Error ? err.message : String(err),
+              );
+            });
+          }
+        } catch {
+          // Service not initialized — nothing to clean up
+        }
+      });
+
+      // Background revalidation every 24 hours.
+      // The interval reference is stored in the outer scope so the
+      // will-quit handler can clear it during app shutdown.
+      revalidationInterval = setInterval(
+        () => {
+          licenseService.revalidate().catch((err) => {
+            console.warn(
+              '[Ptah Electron] Background license revalidation failed:',
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+        },
+        24 * 60 * 60 * 1000,
+      );
+
+      console.log('[Ptah Electron] License status watcher initialized');
+    } catch (error) {
+      console.warn(
+        '[Ptah Electron] License status watcher setup failed (non-fatal):',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   });
 
   // macOS: re-create window when dock icon is clicked.
@@ -693,10 +1077,19 @@ if (!gotLock) {
     }
   });
 
-  // Clean up skill junctions on app quit (TASK_2025_214)
+  // Clean up skill junctions and license revalidation on app quit (TASK_2025_214, TASK_2025_240)
   // deactivateSync() removes all managed junctions/symlinks and unsubscribes
   // from workspace folder changes. Must be synchronous (will-quit is sync).
   app.on('will-quit', () => {
+    // Clear license revalidation interval (TASK_2025_240)
+    if (revalidationInterval !== null) {
+      clearInterval(revalidationInterval);
+      revalidationInterval = null;
+    }
+
+    // Stop git file system watcher (TASK_2025_240)
+    gitWatcherRef?.stop();
+
     try {
       skillJunctionRef?.deactivateSync();
     } catch (error) {
@@ -704,6 +1097,19 @@ if (!gotLock) {
         '[Ptah Electron] Skill junction cleanup failed (non-fatal):',
         error instanceof Error ? error.message : String(error),
       );
+    }
+
+    // Dispose PtahCliRegistry CLI adapters (TASK_2025_243)
+    try {
+      const diContainer = ElectronDIContainer.getContainer();
+      if (diContainer.isRegistered(SDK_TOKENS.SDK_PTAH_CLI_REGISTRY)) {
+        const cliRegistry = diContainer.resolve<{ disposeAll(): void }>(
+          SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
+        );
+        cliRegistry.disposeAll();
+      }
+    } catch {
+      // Non-fatal: registry may not have been initialized
     }
   });
 } // end of gotLock guard

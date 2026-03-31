@@ -7,8 +7,8 @@
  * - Resolve plugin IDs to absolute directory paths for SDK consumption
  *
  * Design:
- * - Initialized from main.ts with extensionPath and workspaceState (late initialization)
- * - All methods gracefully handle uninitialized state (null extensionPath/workspaceState)
+ * - Initialized from main.ts with pluginsBasePath and workspaceState (late initialization)
+ * - All methods gracefully handle uninitialized state (null pluginsBasePath/workspaceState)
  * - Plugin IDs are validated against the known set to prevent arbitrary path construction
  *
  * @see TASK_2025_153 - Plugin Configuration Feature
@@ -99,7 +99,7 @@ const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
  * Single Responsibility: Plugin metadata + workspace configuration management
  *
  * Late initialization via `initialize()` is required because:
- * - extensionPath comes from vscode.ExtensionContext (available at activation)
+ * - pluginsBasePath comes from ContentDownloadService (available at activation)
  * - workspaceState comes from vscode.ExtensionContext (available at activation)
  * - DI registration happens before these values are available
  *
@@ -107,7 +107,7 @@ const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
  * ```typescript
  * // In main.ts after DI setup
  * const pluginLoader = container.resolve<PluginLoaderService>(SDK_TOKENS.SDK_PLUGIN_LOADER);
- * pluginLoader.initialize(context.extensionPath, context.workspaceState);
+ * pluginLoader.initialize(contentDownload.getPluginsPath(), workspaceStateStorage);
  *
  * // In RPC handlers
  * const plugins = pluginLoader.getAvailablePlugins();
@@ -117,8 +117,8 @@ const KNOWN_PLUGIN_IDS = new Set(AVAILABLE_PLUGINS.map((p) => p.id));
  */
 @injectable()
 export class PluginLoaderService {
-  /** Absolute path to the extension installation directory */
-  private extensionPath: string | null = null;
+  /** Absolute path to the plugins base directory (~/.ptah/plugins/) */
+  private pluginsBasePath: string | null = null;
 
   /** VS Code Memento for per-workspace persistent state */
   private workspaceState: IStateStorage | null = null;
@@ -126,21 +126,21 @@ export class PluginLoaderService {
   constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
 
   /**
-   * Initialize the plugin loader with extension context values.
+   * Initialize the plugin loader with the plugins base path and workspace state.
    *
    * Must be called once during extension activation, after DI setup.
    * Without initialization, path resolution returns empty arrays and
    * configuration returns defaults.
    *
-   * @param extensionPath - Absolute path to the extension directory (from context.extensionPath)
+   * @param pluginsBasePath - Absolute path to the plugins directory (~/.ptah/plugins/ from ContentDownloadService)
    * @param workspaceState - VS Code Memento for per-workspace state (from context.workspaceState)
    */
-  initialize(extensionPath: string, workspaceState: IStateStorage): void {
-    this.extensionPath = extensionPath;
+  initialize(pluginsBasePath: string, workspaceState: IStateStorage): void {
+    this.pluginsBasePath = pluginsBasePath;
     this.workspaceState = workspaceState;
 
     this.logger.debug('[PluginLoaderService] Initialized', {
-      extensionPath,
+      pluginsBasePath,
       hasWorkspaceState: true,
     });
   }
@@ -168,7 +168,7 @@ export class PluginLoaderService {
   getWorkspacePluginConfig(): PluginConfigState {
     if (!this.workspaceState) {
       this.logger.debug(
-        '[PluginLoaderService] workspaceState not initialized, returning default config'
+        '[PluginLoaderService] workspaceState not initialized, returning default config',
       );
       return { enabledPluginIds: [], lastUpdated: undefined };
     }
@@ -193,11 +193,11 @@ export class PluginLoaderService {
    * @throws Error if workspaceState is not initialized
    */
   async saveWorkspacePluginConfig(
-    config: Pick<PluginConfigState, 'enabledPluginIds'>
+    config: Pick<PluginConfigState, 'enabledPluginIds'>,
   ): Promise<void> {
     if (!this.workspaceState) {
       throw new Error(
-        'PluginLoaderService not initialized: workspaceState is null'
+        'PluginLoaderService not initialized: workspaceState is null',
       );
     }
 
@@ -226,33 +226,33 @@ export class PluginLoaderService {
    * @returns Array of absolute paths to plugin directories (only for valid IDs)
    */
   resolvePluginPaths(enabledPluginIds: string[]): string[] {
-    if (!this.extensionPath) {
+    if (!this.pluginsBasePath) {
       this.logger.debug(
-        '[PluginLoaderService] extensionPath not initialized, returning empty paths'
+        '[PluginLoaderService] pluginsBasePath not initialized, returning empty paths',
       );
       return [];
     }
 
-    const extensionPath = this.extensionPath;
+    const pluginsBasePath = this.pluginsBasePath;
 
     const validIds = enabledPluginIds.filter((id) => {
       const isValid = KNOWN_PLUGIN_IDS.has(id);
       if (!isValid) {
         this.logger.warn(
           '[PluginLoaderService] Unknown plugin ID filtered out',
-          { pluginId: id }
+          { pluginId: id },
         );
       }
       return isValid;
     });
 
     const paths = validIds
-      .map((id) => path.join(extensionPath, 'assets', 'plugins', id))
+      .map((id) => path.join(pluginsBasePath, id))
       .filter((pluginPath) => {
         if (!fs.existsSync(pluginPath)) {
           this.logger.warn(
             '[PluginLoaderService] Plugin directory not found, skipping',
-            { path: pluginPath }
+            { path: pluginPath },
           );
           return false;
         }

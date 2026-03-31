@@ -1,33 +1,70 @@
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  signal,
+  effect,
+  viewChild,
+  ElementRef,
+  DestroyRef,
+} from '@angular/core';
+import { LucideAngularModule, ChevronLeft, ChevronRight } from 'lucide-angular';
 import { TabItemComponent } from '../molecules/session/tab-item.component';
 import { TabManagerService } from '../../services/tab-manager.service';
 
 /**
- * TabBarComponent - Container for displaying open tabs
+ * TabBarComponent - Chrome-style scrollable tab bar
  *
- * Complexity Level: 1 (Simple container)
- * Patterns: Service injection, DaisyUI styling
+ * TASK_2025_248: Replaced simple overflow-x-auto container with
+ * scroll-arrow buttons that appear when tabs overflow their container.
+ * Hidden native scrollbar, smooth scroll-by on arrow click.
  *
- * Displays all open tabs in a horizontal scrollable bar.
- * Delegates all state management to TabManagerService.
- *
- * Note: New sessions are created from the sidebar, not the tab bar.
- * Use Ctrl+T keyboard shortcut for quick session creation.
+ * Complexity Level: 2 (Scroll detection + arrow rendering)
+ * Patterns: Signal-based state, viewChild, afterNextRender
  */
 @Component({
   selector: 'ptah-tab-bar',
   standalone: true,
-  imports: [TabItemComponent],
+  imports: [TabItemComponent, LucideAngularModule],
   template: `
-    <div class="flex items-center h-full px-1 overflow-x-auto gap-1">
-      @for (tab of tabs(); track tab.id) {
-      <ptah-tab-item
-        [tab]="tab"
-        [isActive]="tab.id === activeTabId()"
-        [isStreaming]="tabManager.isTabStreaming(tab.id)"
-        (tabSelect)="onSelectTab($event)"
-        (tabClose)="onCloseTab($event)"
-      />
+    <div class="relative flex items-center h-full">
+      <!-- Left scroll arrow -->
+      @if (canScrollLeft()) {
+        <button
+          class="tab-scroll-arrow tab-scroll-arrow-left"
+          aria-label="Scroll tabs left"
+          (click)="scrollLeft()"
+        >
+          <lucide-angular [img]="ChevronLeftIcon" class="w-3.5 h-3.5" />
+        </button>
+      }
+
+      <!-- Scrollable tab container -->
+      <div
+        #tabContainer
+        class="flex items-center h-full px-1 gap-1.5 overflow-x-auto tab-scroll-container"
+        (scroll)="onScroll()"
+      >
+        @for (tab of tabs(); track tab.id) {
+          <ptah-tab-item
+            [tab]="tab"
+            [isActive]="tab.id === activeTabId()"
+            [isStreaming]="tabManager.isTabStreaming(tab.id)"
+            (tabSelect)="onSelectTab($event)"
+            (tabClose)="onCloseTab($event)"
+          />
+        }
+      </div>
+
+      <!-- Right scroll arrow -->
+      @if (canScrollRight()) {
+        <button
+          class="tab-scroll-arrow tab-scroll-arrow-right"
+          aria-label="Scroll tabs right"
+          (click)="scrollRight()"
+        >
+          <lucide-angular [img]="ChevronRightIcon" class="w-3.5 h-3.5" />
+        </button>
       }
     </div>
   `,
@@ -39,11 +76,58 @@ export class TabBarComponent {
   readonly tabs = this.tabManager.tabs;
   readonly activeTabId = this.tabManager.activeTabId;
 
+  protected readonly ChevronLeftIcon = ChevronLeft;
+  protected readonly ChevronRightIcon = ChevronRight;
+
+  private readonly tabContainerRef =
+    viewChild<ElementRef<HTMLDivElement>>('tabContainer');
+
+  readonly canScrollLeft = signal(false);
+  readonly canScrollRight = signal(false);
+
+  private readonly destroyRef = inject(DestroyRef);
+
+  constructor() {
+    // Re-check scroll state when tabs change (schedule after DOM update)
+    effect(() => {
+      this.tabs(); // track dependency
+      const timerId = setTimeout(() => this.checkScroll(), 0);
+      this.destroyRef.onDestroy(() => clearTimeout(timerId));
+    });
+  }
+
+  protected onScroll(): void {
+    this.checkScroll();
+  }
+
+  protected scrollLeft(): void {
+    const el = this.tabContainerRef()?.nativeElement;
+    if (el) {
+      el.scrollBy({ left: -200, behavior: 'smooth' });
+    }
+  }
+
+  protected scrollRight(): void {
+    const el = this.tabContainerRef()?.nativeElement;
+    if (el) {
+      el.scrollBy({ left: 200, behavior: 'smooth' });
+    }
+  }
+
   protected onSelectTab(tabId: string): void {
     this.tabManager.switchTab(tabId);
   }
 
   protected onCloseTab(tabId: string): void {
     this.tabManager.closeTab(tabId);
+  }
+
+  private checkScroll(): void {
+    const el = this.tabContainerRef()?.nativeElement;
+    if (!el) return;
+    this.canScrollLeft.set(el.scrollLeft > 0);
+    this.canScrollRight.set(
+      el.scrollLeft + el.clientWidth < el.scrollWidth - 1,
+    );
   }
 }

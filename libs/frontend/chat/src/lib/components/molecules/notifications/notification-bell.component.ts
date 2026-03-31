@@ -5,7 +5,6 @@ import {
   computed,
   inject,
   ChangeDetectionStrategy,
-  booleanAttribute,
 } from '@angular/core';
 import { NgClass } from '@angular/common';
 import { LucideAngularModule, Bell, Clock, X, Sparkles } from 'lucide-angular';
@@ -40,24 +39,21 @@ import { ClaudeRpcService } from '@ptah-extension/core';
       <button
         trigger
         type="button"
-        class="btn btn-ghost btn-sm relative"
-        [class.btn-square]="!showLabel()"
-        [class.gap-1]="showLabel()"
+        class="btn btn-ghost btn-xs gap-1 relative"
         aria-label="Notifications"
         title="Notifications"
         (click)="toggle()"
       >
         <lucide-angular [img]="BellIcon" class="w-4 h-4" aria-hidden="true" />
-        @if (showLabel()) {
-        <span class="text-xs">Alerts</span>
-        } @if (hasNotifications()) {
-        <span
-          class="absolute top-1 right-1 w-2 h-2 rounded-full"
-          [class.bg-info]="dotColor() === 'info'"
-          [class.bg-warning]="dotColor() === 'warning'"
-          [class.bg-error]="dotColor() === 'error'"
-          aria-hidden="true"
-        ></span>
+        <span class="icon-btn-label text-xs">Alerts</span>
+        @if (hasNotifications()) {
+          <span
+            class="absolute top-1 right-1 w-2 h-2 rounded-full"
+            [class.bg-info]="dotColor() === 'info'"
+            [class.bg-warning]="dotColor() === 'warning'"
+            [class.bg-error]="dotColor() === 'error'"
+            aria-hidden="true"
+          ></span>
         }
       </button>
 
@@ -73,94 +69,96 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 
         <div class="py-1">
           @if (showTrialNotification()) {
-          <div
-            class="w-full text-left px-3 py-2.5 hover:bg-base-300 transition-colors duration-150 flex items-start gap-2.5 cursor-pointer"
-            role="button"
-            tabindex="0"
-            (click)="openPricing()"
-            (keydown.enter)="openPricing()"
-          >
             <div
-              class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-              [ngClass]="trialIconBgClass()"
+              class="w-full text-left px-3 py-2.5 hover:bg-base-300 transition-colors duration-150 flex items-start gap-2.5 cursor-pointer"
+              role="button"
+              tabindex="0"
+              (click)="openPricing()"
+              (keydown.enter)="openPricing()"
             >
-              <lucide-angular
-                [img]="ClockIcon"
-                class="w-3.5 h-3.5"
-                [class.text-info]="urgencyLevel() === 'info'"
-                [class.text-warning]="urgencyLevel() === 'warning'"
-                [class.text-error]="urgencyLevel() === 'error'"
-                aria-hidden="true"
-              />
+              <div
+                class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                [ngClass]="trialIconBgClass()"
+              >
+                <lucide-angular
+                  [img]="ClockIcon"
+                  class="w-3.5 h-3.5"
+                  [class.text-info]="urgencyLevel() === 'info'"
+                  [class.text-warning]="urgencyLevel() === 'warning'"
+                  [class.text-error]="urgencyLevel() === 'error'"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-base-content leading-snug">
+                  {{ trialBannerText() }}
+                </p>
+                <p class="text-xs text-base-content/50 mt-0.5">
+                  Click to view plans
+                </p>
+              </div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle flex-shrink-0 mt-0.5"
+                (click)="dismissTrial($event)"
+                aria-label="Dismiss"
+              >
+                <lucide-angular
+                  [img]="XIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
+              </button>
             </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-base-content leading-snug">
-                {{ trialBannerText() }}
-              </p>
-              <p class="text-xs text-base-content/50 mt-0.5">
-                Click to view plans
-              </p>
-            </div>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs btn-circle flex-shrink-0 mt-0.5"
-              (click)="dismissTrial($event)"
-              aria-label="Dismiss"
-            >
-              <lucide-angular
-                [img]="XIcon"
-                class="w-3 h-3"
-                aria-hidden="true"
-              />
-            </button>
-          </div>
-          } @if (showCommunityNotification()) {
-          <div
-            class="w-full text-left px-3 py-2.5 hover:bg-base-300 transition-colors duration-150 flex items-start gap-2.5 cursor-pointer"
-            role="button"
-            tabindex="0"
-            (click)="openPricing()"
-            (keydown.enter)="openPricing()"
-          >
+          }
+          @if (showCommunityNotification()) {
             <div
-              class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5"
+              class="w-full text-left px-3 py-2.5 hover:bg-base-300 transition-colors duration-150 flex items-start gap-2.5 cursor-pointer"
+              role="button"
+              tabindex="0"
+              (click)="openPricing()"
+              (keydown.enter)="openPricing()"
             >
+              <div
+                class="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5"
+              >
+                <lucide-angular
+                  [img]="SparklesIcon"
+                  class="w-3.5 h-3.5 text-primary"
+                  aria-hidden="true"
+                />
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-base-content leading-snug">
+                  Your Pro Trial Has Ended
+                </p>
+                <p class="text-xs text-base-content/50 mt-0.5">
+                  Upgrade to Pro for full access
+                </p>
+              </div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-xs btn-circle flex-shrink-0 mt-0.5"
+                (click)="dismissCommunity($event)"
+                aria-label="Dismiss"
+              >
+                <lucide-angular
+                  [img]="XIcon"
+                  class="w-3 h-3"
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+          }
+          @if (!hasNotifications()) {
+            <div class="px-3 py-6 text-center">
               <lucide-angular
-                [img]="SparklesIcon"
-                class="w-3.5 h-3.5 text-primary"
+                [img]="BellIcon"
+                class="w-6 h-6 text-base-content/20 mx-auto mb-2"
                 aria-hidden="true"
               />
+              <p class="text-xs text-base-content/40">No notifications</p>
             </div>
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-base-content leading-snug">
-                Your Pro Trial Has Ended
-              </p>
-              <p class="text-xs text-base-content/50 mt-0.5">
-                Upgrade to Pro for full access
-              </p>
-            </div>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs btn-circle flex-shrink-0 mt-0.5"
-              (click)="dismissCommunity($event)"
-              aria-label="Dismiss"
-            >
-              <lucide-angular
-                [img]="XIcon"
-                class="w-3 h-3"
-                aria-hidden="true"
-              />
-            </button>
-          </div>
-          } @if (!hasNotifications()) {
-          <div class="px-3 py-6 text-center">
-            <lucide-angular
-              [img]="BellIcon"
-              class="w-6 h-6 text-base-content/20 mx-auto mb-2"
-              aria-hidden="true"
-            />
-            <p class="text-xs text-base-content/40">No notifications</p>
-          </div>
           }
         </div>
       </div>
@@ -173,9 +171,6 @@ export class NotificationBellComponent {
   readonly trialDaysRemaining = input<number | null>(null);
   readonly isCommunity = input<boolean>(false);
   readonly reason = input<string | undefined>(undefined);
-
-  /** When true, show text label next to icon (Electron desktop mode) */
-  readonly showLabel = input(false, { transform: booleanAttribute });
 
   // Popover state
   private readonly _isOpen = signal(false);
@@ -201,10 +196,10 @@ export class NotificationBellComponent {
   constructor() {
     if (typeof sessionStorage !== 'undefined') {
       this.trialDismissed.set(
-        sessionStorage.getItem(this.TRIAL_DISMISS_KEY) === 'true'
+        sessionStorage.getItem(this.TRIAL_DISMISS_KEY) === 'true',
       );
       this.communityDismissed.set(
-        sessionStorage.getItem(this.COMMUNITY_DISMISS_KEY) === 'true'
+        sessionStorage.getItem(this.COMMUNITY_DISMISS_KEY) === 'true',
       );
     }
   }
@@ -228,7 +223,7 @@ export class NotificationBellComponent {
 
   /** Whether there are any active notifications */
   readonly hasNotifications = computed(
-    () => this.showTrialNotification() || this.showCommunityNotification()
+    () => this.showTrialNotification() || this.showCommunityNotification(),
   );
 
   /** Urgency level for trial notification styling */

@@ -1,7 +1,7 @@
 /**
  * Ptah API Builder Service
  *
- * Constructs the complete "ptah" API object with 13 namespaces for code execution context.
+ * Constructs the complete "ptah" API object with 15 namespaces for code execution context.
  * Delegates to specialized namespace builders for each domain:
  *
  * Core (workspace discovery):
@@ -21,6 +21,8 @@
  * - ast: tree-sitter based code analysis
  *
  * TASK_2025_025: Expanded from 8 to 13 namespaces for better Claude discoverability
+ * TASK_2025_240: Added json namespace (14 total)
+ * TASK_2025_244: Added browser namespace (15 total)
  */
 
 import { injectable, inject, container } from 'tsyringe';
@@ -73,6 +75,11 @@ import {
   buildAgentNamespace,
   // Git namespace builder (TASK_2025_236)
   buildGitNamespace,
+  // JSON namespace builder (TASK_2025_240)
+  buildJsonNamespace,
+  // Browser namespace builder (TASK_2025_244)
+  buildBrowserNamespace,
+  type IBrowserCapabilities,
 } from './namespace-builders';
 import {
   AgentProcessManager,
@@ -128,6 +135,17 @@ const SDK_PLUGIN_LOADER = Symbol.for('SdkPluginLoader');
  * @see VscodeIDECapabilities in namespace-builders/ide-capabilities.vscode.ts
  */
 export const IDE_CAPABILITIES_TOKEN = Symbol.for('IDECapabilities');
+
+/**
+ * DI token for browser capabilities (TASK_2025_244).
+ * In Electron, ElectronBrowserCapabilities is registered under this token.
+ * In VS Code, ChromeLauncherBrowserCapabilities is registered under this token.
+ * When not registered, buildBrowserNamespace() returns graceful degradation stubs.
+ *
+ * @see ElectronBrowserCapabilities in apps/ptah-electron/src/services/electron-browser-capabilities.ts
+ * @see ChromeLauncherBrowserCapabilities in services/chrome-launcher-browser-capabilities.ts
+ */
+export const BROWSER_CAPABILITIES_TOKEN = Symbol.for('BrowserCapabilities');
 
 @injectable()
 export class PtahAPIBuilder {
@@ -199,11 +217,11 @@ export class PtahAPIBuilder {
     @inject(PLATFORM_TOKENS.SECRET_STORAGE)
     private readonly secretStorage: ISecretStorage,
   ) {
-    this.logger.info('PtahAPIBuilder initialized with 13 namespaces');
+    this.logger.info('PtahAPIBuilder initialized with 15 namespaces');
   }
 
   /**
-   * Build the complete Ptah API object with all 13 namespaces.
+   * Build the complete Ptah API object with all 14 namespaces.
    *
    * Each namespace builder is wrapped in try/catch so that one failing
    * namespace does not prevent the remaining namespaces (and their tools)
@@ -463,6 +481,29 @@ export class PtahAPIBuilder {
         buildGitNamespace({ workspaceRoot }),
       ),
 
+      // JSON validation namespace (TASK_2025_240)
+      json: this.buildNamespaceSafe('json', () =>
+        buildJsonNamespace({
+          fileSystemProvider: this.fileSystemProvider,
+          workspaceProvider: this.workspaceProvider,
+        }),
+      ),
+
+      // Browser automation namespace (TASK_2025_244)
+      // Resolved lazily: if BROWSER_CAPABILITIES_TOKEN is not registered,
+      // buildBrowserNamespace receives undefined capabilities and returns graceful degradation stubs.
+      browser: this.buildNamespaceSafe('browser', () =>
+        buildBrowserNamespace({
+          capabilities: this.resolveBrowserCapabilities(),
+          getAllowLocalhost: () =>
+            this.workspaceProvider.getConfiguration<boolean>(
+              'ptah.browser',
+              'allowLocalhost',
+              false,
+            ) ?? false,
+        }),
+      ),
+
       // Web search namespace (TASK_2025_189, multi-provider TASK_2025_235)
       webSearch: this.buildNamespaceSafe(
         'webSearch',
@@ -551,6 +592,28 @@ export class PtahAPIBuilder {
     }
     try {
       return container.resolve<IIDECapabilities>(IDE_CAPABILITIES_TOKEN);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Lazily resolve browser capabilities from DI container.
+   *
+   * In Electron, ElectronBrowserCapabilities is registered under BROWSER_CAPABILITIES_TOKEN.
+   * In VS Code, ChromeLauncherBrowserCapabilities is registered under BROWSER_CAPABILITIES_TOKEN.
+   * When not registered, returns undefined and buildBrowserNamespace() uses graceful degradation.
+   *
+   * Follows the same pattern as IDE_CAPABILITIES_TOKEN lazy resolution.
+   */
+  private resolveBrowserCapabilities(): IBrowserCapabilities | undefined {
+    if (!container.isRegistered(BROWSER_CAPABILITIES_TOKEN)) {
+      return undefined;
+    }
+    try {
+      return container.resolve<IBrowserCapabilities>(
+        BROWSER_CAPABILITIES_TOKEN,
+      );
     } catch {
       return undefined;
     }

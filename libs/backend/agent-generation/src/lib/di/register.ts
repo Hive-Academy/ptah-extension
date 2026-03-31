@@ -10,11 +10,12 @@
  * but may require additional dependencies to be fully functional.
  */
 
-import { join } from 'path';
 import { DependencyContainer, Lifecycle } from 'tsyringe';
 import { TOKENS, type Logger } from '@ptah-extension/vscode-core';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
-import type { IPlatformInfo } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 import { AGENT_GENERATION_TOKENS } from '../di/tokens';
 
 // Import services
@@ -46,7 +47,7 @@ import { AnalysisStorageService } from '../services/analysis-storage.service';
  */
 export function registerAgentGenerationServices(
   container: DependencyContainer,
-  logger: Logger
+  logger: Logger,
 ): void {
   logger.info('[AgentGeneration] Registering agent-generation services...');
 
@@ -58,21 +59,19 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.OUTPUT_VALIDATION_SERVICE,
     { useClass: OutputValidationService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Template storage service - loads and caches templates
-  // Uses factory registration to resolve extensionPath from IPlatformInfo
+  // Uses factory registration to resolve templatesPath from ContentDownloadService
   // (tsyringe cannot inject primitive types without explicit tokens)
   container.register(AGENT_GENERATION_TOKENS.TEMPLATE_STORAGE_SERVICE, {
     useFactory: (c) => {
       const loggerInstance = c.resolve<Logger>(TOKENS.LOGGER);
-      const platformInfo = c.resolve<IPlatformInfo>(
-        PLATFORM_TOKENS.PLATFORM_INFO
+      const contentDownload = c.resolve<ContentDownloadService>(
+        PLATFORM_TOKENS.CONTENT_DOWNLOAD,
       );
-      const templatesPath = platformInfo.extensionPath
-        ? join(platformInfo.extensionPath, 'templates', 'agents')
-        : undefined;
+      const templatesPath = contentDownload.getTemplatesPath();
       return new TemplateStorageService(loggerInstance, templatesPath);
     },
   });
@@ -81,7 +80,7 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.ANALYSIS_STORAGE_SERVICE,
     { useClass: AnalysisStorageService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -93,14 +92,14 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.AGENTIC_ANALYSIS_SERVICE,
     { useClass: AgenticAnalysisService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Multi-phase analysis service - 4 LLM phases + deterministic synthesis
   container.register(
     AGENT_GENERATION_TOKENS.MULTI_PHASE_ANALYSIS_SERVICE,
     { useClass: MultiPhaseAnalysisService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Wizard webview lifecycle service - panel creation, message handling, progress emission
@@ -108,42 +107,42 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.WIZARD_WEBVIEW_LIFECYCLE,
     { useClass: WizardWebviewLifecycleService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Agent selection service - scores and selects agents
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_SELECTION_SERVICE,
     { useClass: AgentSelectionService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Agent recommendation service - deep analysis-based agent recommendations
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_RECOMMENDATION_SERVICE,
     { useClass: AgentRecommendationService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Content generation service - renders templates with variables
   container.register(
     AGENT_GENERATION_TOKENS.CONTENT_GENERATION_SERVICE,
     { useClass: ContentGenerationService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Agent file writer service - atomic file writing with rollback
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_FILE_WRITER_SERVICE,
     { useClass: AgentFileWriterService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Multi-CLI agent writer service - transforms and writes for Copilot/Gemini (TASK_2025_160)
   container.register(
     AGENT_GENERATION_TOKENS.MULTI_CLI_AGENT_WRITER_SERVICE,
     { useClass: MultiCliAgentWriterService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -154,21 +153,21 @@ export function registerAgentGenerationServices(
   container.register(
     AGENT_GENERATION_TOKENS.AGENT_GENERATION_ORCHESTRATOR,
     { useClass: AgentGenerationOrchestratorService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Setup status service - detects agent configuration status
   container.register(
     AGENT_GENERATION_TOKENS.SETUP_STATUS_SERVICE,
     { useClass: SetupStatusService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Setup wizard service - orchestrates wizard UI flow
   container.register(
     AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
     { useClass: SetupWizardService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   logger.info('[AgentGeneration] Agent-generation services registered', {

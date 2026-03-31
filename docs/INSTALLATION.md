@@ -274,7 +274,7 @@ Then follow [Method 1](#method-1-install-from-vsix-staging--pre-release) to inst
 **Via terminal:**
 
 ```bash
-code --uninstall-extension ptah-extensions.ptah-extension-vscode
+code --uninstall-extension ptah-extensions.ptah-coding-orchestra
 ```
 
 ---

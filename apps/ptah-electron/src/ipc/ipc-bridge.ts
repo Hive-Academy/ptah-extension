@@ -26,7 +26,10 @@ import type { RpcHandler } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  type ISdkPermissionHandler,
+} from '@ptah-extension/shared';
 import type { PtyManagerService } from '../services/pty-manager.service';
 
 /**
@@ -132,18 +135,12 @@ export class IpcBridge {
           '';
 
         if (!method) {
-          console.warn(
-            '[IpcBridge] Received RPC message without method field',
-            { messageType: msg['type'] },
-          );
-          // Send error response if we have a correlationId
-          if (correlationId) {
-            event.sender.send('to-renderer', {
-              type: MESSAGE_TYPES.RPC_RESPONSE,
-              correlationId,
-              success: false,
-              error: { message: 'Missing method field in RPC message' },
-            });
+          // Not an RPC call — check for fire-and-forget messages from the frontend.
+          // In VS Code these are handled by WebviewMessageHandlerService; in Electron
+          // they arrive on the same 'rpc' channel but without a method field.
+          const messageType = msg['type'] as string | undefined;
+          if (messageType) {
+            this.handleFireAndForgetMessage(messageType, msg);
           }
           return;
         }
@@ -202,6 +199,106 @@ export class IpcBridge {
         }
       }
     });
+  }
+
+  /**
+   * Handle fire-and-forget messages from the frontend.
+   *
+   * These are one-way messages that don't expect an RPC response.
+   * In VS Code, they're handled by WebviewMessageHandlerService's switch/case.
+   * In Electron, they arrive on the 'rpc' channel without a method field.
+   *
+   * Handled message types:
+   * - SDK_PERMISSION_RESPONSE: User approved/denied a permission prompt
+   * - ASK_USER_QUESTION_RESPONSE: User answered a clarifying question
+   */
+  private handleFireAndForgetMessage(
+    type: string,
+    msg: Record<string, unknown>,
+  ): void {
+    const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
+
+    switch (type) {
+      case MESSAGE_TYPES.SDK_PERMISSION_RESPONSE: {
+        // Frontend sends: { type, response: { id, decision, reason?, modifiedInput? } }
+        const response = (msg['response'] || msg['payload']) as
+          | {
+              id: string;
+              decision: string;
+              reason?: string;
+              modifiedInput?: Record<string, unknown>;
+            }
+          | undefined;
+        if (!response?.id) {
+          console.warn('[IpcBridge] SDK permission response missing payload');
+          return;
+        }
+        try {
+          if (this.container.isRegistered(SDK_PERMISSION_HANDLER)) {
+            const handler = this.container.resolve<ISdkPermissionHandler>(
+              SDK_PERMISSION_HANDLER,
+            );
+            handler.handleResponse(response.id, {
+              id: response.id,
+              decision: response.decision as
+                | 'allow'
+                | 'deny'
+                | 'deny_with_message'
+                | 'always_allow',
+              reason: response.reason,
+              modifiedInput: response.modifiedInput,
+            });
+            console.log('[IpcBridge] SDK permission response processed', {
+              id: response.id,
+              decision: response.decision,
+            });
+          }
+        } catch (error) {
+          console.error(
+            '[IpcBridge] Failed to process SDK permission response',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        break;
+      }
+
+      case MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE: {
+        const payload = msg['payload'] as
+          | { id: string; answers: Record<string, string> }
+          | undefined;
+        if (!payload) {
+          console.warn('[IpcBridge] AskUserQuestion response missing payload');
+          return;
+        }
+        try {
+          if (this.container.isRegistered(SDK_PERMISSION_HANDLER)) {
+            const handler = this.container.resolve<ISdkPermissionHandler>(
+              SDK_PERMISSION_HANDLER,
+            );
+            handler.handleQuestionResponse({
+              id: payload.id,
+              answers: payload.answers,
+            });
+            console.log('[IpcBridge] AskUserQuestion response processed', {
+              id: payload.id,
+            });
+          }
+        } catch (error) {
+          console.error(
+            '[IpcBridge] Failed to process AskUserQuestion response',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        break;
+      }
+
+      default:
+        // Unknown message type — log for debugging but don't error
+        console.debug('[IpcBridge] Unhandled message type from renderer', {
+          type,
+        });
+        break;
+    }
   }
 
   /**

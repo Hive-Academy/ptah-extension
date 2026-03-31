@@ -1372,6 +1372,23 @@ Adapts components for sidebar width constraints (200px - 600px)
 }
 
 /* ============================================================================
+RESPONSIVE ICON BUTTON LABELS - TASK_2025_248
+Hide button text labels in narrow containers, show in wide containers.
+Usage: <span class="icon-btn-label">Label</span> inside a .btn
+============================================================================ */
+
+.icon-btn-label {
+  display: inline;
+  white-space: nowrap;
+}
+
+@container (max-width: 449px) {
+  .icon-btn-label {
+    display: none;
+  }
+}
+
+/* ============================================================================
 SIDEBAR-OPTIMIZED DAISYUI COMPONENT OVERRIDES
 ============================================================================ */
 
@@ -1379,6 +1396,7 @@ SIDEBAR-OPTIMIZED DAISYUI COMPONENT OVERRIDES
 .navbar {
   min-height: 40px;
   padding-inline: var(--sidebar-spacing-sm);
+  container-type: inline-size;
 }
 
 /* Smaller buttons by default for sidebar context */
@@ -1754,6 +1772,115 @@ aside:not(:hover) .sidebar-scroll {
 /* Hide scrollbar until sidebar is hovered */
 aside:not(:hover) .sidebar-scroll::-webkit-scrollbar-thumb {
   background-color: transparent;
+}
+
+/* ============================================================================
+CHROME-STYLE TAB BAR - TASK_2025_248
+Scrollable tab bar with arrow buttons, active/inactive visual treatment
+============================================================================ */
+
+/* Tab scroll container: hide native scrollbar */
+.tab-scroll-container {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.tab-scroll-container::-webkit-scrollbar {
+  display: none;
+}
+
+/* Scroll arrow buttons */
+.tab-scroll-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: oklch(var(--bc) / 0.5);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+  z-index: 1;
+}
+
+.tab-scroll-arrow:hover {
+  background-color: oklch(var(--bc) / 0.1);
+  color: oklch(var(--bc) / 0.8);
+}
+
+.tab-scroll-arrow-left {
+  margin-right: 2px;
+}
+
+.tab-scroll-arrow-right {
+  margin-left: 2px;
+}
+
+/* Active tab: filled background with primary bottom border */
+.tab-item-active {
+  background-color: oklch(var(--p) / 0.1);
+  border-bottom: 2px solid oklch(var(--p));
+  font-weight: 500;
+  color: oklch(var(--bc));
+}
+
+/* Inactive tab: subtle background with hover effect */
+.tab-item-inactive {
+  background-color: oklch(var(--b2) / 0.5);
+  border-bottom: 2px solid transparent;
+  color: oklch(var(--bc) / 0.6);
+}
+
+.tab-item-inactive:hover {
+  background-color: oklch(var(--b3));
+  color: oklch(var(--bc) / 0.8);
+}
+
+/* ============================================================================
+GOLD ACCENT BUTTONS & VIEW PILLS - TASK_2025_248
+Session-related buttons use the brand gold, view pills get elegant styling
+============================================================================ */
+
+/* Gold accent button — used for Sessions toggle and +New session */
+.btn-gold {
+  color: #d4af37;
+  background: transparent;
+  border: none;
+}
+
+.btn-gold:hover {
+  background-color: rgba(212, 175, 55, 0.12);
+  color: #f5d97d;
+}
+
+/* Electron view pill — active state (replaces btn-primary on pills) */
+.view-pill-active {
+  background: linear-gradient(
+    135deg,
+    oklch(var(--p) / 0.15),
+    oklch(var(--s) / 0.15)
+  );
+  border: 1px solid oklch(var(--s) / 0.25);
+  color: oklch(var(--bc));
+  font-weight: 500;
+  box-shadow: 0 1px 4px oklch(var(--s) / 0.1);
+}
+
+/* Electron view pill — inactive state */
+.view-pill-inactive {
+  background: transparent;
+  border: 1px solid transparent;
+  color: oklch(var(--bc) / 0.5);
+}
+
+.view-pill-inactive:hover {
+  background-color: oklch(var(--bc) / 0.06);
+  color: oklch(var(--bc) / 0.7);
+  border-color: oklch(var(--bc) / 0.08);
 }
 
 /* ============================================================================

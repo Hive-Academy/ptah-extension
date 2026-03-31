@@ -33,6 +33,49 @@ Count tokens in a file. Use before reading large files to check size.
 ### ptah_web_search { query, maxResults?, timeout? }
 Search the web for current information. Returns structured results (title, URL, snippet) plus a narrative summary. Supports Tavily, Serper, and Exa providers (configured in Ptah settings). Use when you need up-to-date information from the internet (latest docs, current APIs, recent changes, etc.).
 
+### ptah_json_validate { file, schema? }
+Validate and repair a JSON file. Extracts JSON from agent output (strips markdown fences, prose), repairs common issues (trailing commas, single quotes, unquoted keys, comments, unbalanced brackets), validates against optional schema, and overwrites with clean formatted JSON. Call after writing any JSON file.
+
+## Browser Automation
+
+You have browser automation tools that let you navigate web pages, take screenshots, execute JavaScript, interact with elements, and monitor network requests. A browser session starts lazily on first use and auto-closes after 5 minutes of inactivity or 30 minutes total.
+
+### ptah_browser_navigate { url, waitForLoad? }
+Navigate to a URL (http/https only). Starts browser session if none exists. Returns final URL and page title.
+
+### ptah_browser_screenshot { format?, quality?, fullPage? }
+Capture a screenshot. Returns base64-encoded image data. Use for visual verification.
+
+### ptah_browser_evaluate { expression }
+Execute JavaScript in the page context. Supports async expressions. Max 64KB.
+
+### ptah_browser_click { selector }
+Click an element by CSS selector.
+
+### ptah_browser_type { selector, text }
+Type text into an input element by CSS selector.
+
+### ptah_browser_content { selector? }
+Read page content as HTML and text. Optionally scope to a CSS selector.
+
+### ptah_browser_network { limit? }
+Read captured network requests (URL, method, status, type, size).
+
+### ptah_browser_close (no parameters)
+Close the browser session and release resources.
+
+### ptah_browser_status (no parameters)
+Check if a browser session is active, current URL, uptime, auto-close countdown.
+
+### Browser Workflow Example
+
+1. **Navigate**: \`ptah_browser_navigate { url: "https://example.com" }\`
+2. **Read page**: \`ptah_browser_content {}\` — understand the page structure
+3. **Interact**: \`ptah_browser_click { selector: "#login-btn" }\` or \`ptah_browser_type { selector: "#email", text: "user@example.com" }\`
+4. **Verify**: \`ptah_browser_screenshot {}\` — visual confirmation
+5. **Check API calls**: \`ptah_browser_network {}\` — inspect requests made
+6. **Done**: \`ptah_browser_close {}\` — release resources (or let it auto-close)
+
 ## IDE Access via execute_code
 
 For IDE-integrated operations and multi-step API workflows, use the \`execute_code\` tool with the \`ptah\` global object:

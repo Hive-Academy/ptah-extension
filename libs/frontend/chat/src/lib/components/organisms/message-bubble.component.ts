@@ -2,6 +2,8 @@ import {
   Component,
   input,
   computed,
+  signal,
+  effect,
   ChangeDetectionStrategy,
   inject,
 } from '@angular/core';
@@ -14,6 +16,8 @@ import {
   Image,
   Folder,
   Paperclip,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-angular';
 import { ExecutionNodeComponent } from './execution/execution-node.component';
 import { TypingCursorComponent } from '../atoms/typing-cursor.component';
@@ -29,6 +33,10 @@ import type {
 } from '@ptah-extension/shared';
 import { VSCodeService } from '@ptah-extension/core';
 import { ChatStore } from '../../services/chat.store';
+import {
+  extractMessageSummary,
+  type MessageSummary,
+} from '../../utils/message-summary.utils';
 
 /**
  * MessageBubbleComponent - Chat message with DaisyUI styling
@@ -72,14 +80,86 @@ export class MessageBubbleComponent {
   /** Indicates if this message is currently streaming */
   readonly isStreaming = input<boolean>(false);
 
+  /** Position of this message in the messages array */
+  readonly messageIndex = input<number>(0);
+
+  /** Total number of messages in the current conversation */
+  readonly totalMessages = input<number>(0);
+
   // Lucide icons
   readonly UserIcon = User;
   readonly FileTextIcon = FileText;
   readonly ImageIcon = Image;
   readonly FolderIcon = Folder;
   readonly PaperclipIcon = Paperclip;
+  readonly ChevronDownIcon = ChevronDown;
+  readonly ChevronRightIcon = ChevronRight;
   readonly ptahIconUri = this.vscode.getPtahIconUri();
   readonly ptahUserIconUri = this.vscode.getPtahUserIconUri();
+
+  /** Summary metadata extracted from the ExecutionNode tree */
+  readonly messageSummary = computed((): MessageSummary | null => {
+    const msg = this.message();
+    if (msg.role !== 'assistant') return null;
+    return extractMessageSummary(msg.streamingState, msg.cost, msg.duration);
+  });
+
+  /** Whether this message should auto-collapse on load */
+  readonly shouldAutoCollapse = computed((): boolean => {
+    const msg = this.message();
+    if (msg.role !== 'assistant') return false;
+    if (this.isStreaming()) return false;
+    if (!msg.streamingState) return false;
+    // Keep last 4 positions expanded to ensure the last ~2 assistant messages
+    // stay visible (accounts for interspersed user messages in alternating pattern)
+    const index = this.messageIndex();
+    const total = this.totalMessages();
+    return index < total - 4;
+  });
+
+  /** Local collapse state, initialized from shouldAutoCollapse */
+  readonly isCollapsed = signal(false);
+
+  /**
+   * Whether the user has manually toggled collapse state.
+   * Deliberately NOT a signal — the auto-collapse effect reads shouldAutoCollapse()
+   * but must NOT re-trigger when userToggled changes. Using a plain boolean
+   * ensures Angular's effect tracking ignores this field.
+   */
+  private userToggled = false;
+
+  /** Tracks message identity to reset userToggled on component reuse */
+  private previousMessageId: string | null = null;
+
+  /** Whether collapsed footer has any data to show */
+  readonly hasCollapsedFooterData = computed(() => {
+    const summary = this.messageSummary();
+    if (!summary) return false;
+    return (
+      (summary.cost !== undefined && summary.cost > 0) ||
+      summary.duration !== undefined
+    );
+  });
+
+  constructor() {
+    // Reset userToggled when the component is reused for a different message
+    // (Angular @for may reuse component instances when session changes)
+    effect(() => {
+      const id = this.message().id;
+      if (this.previousMessageId !== null && id !== this.previousMessageId) {
+        this.userToggled = false;
+      }
+      this.previousMessageId = id;
+    });
+
+    // Auto-collapse based on position, but respect user's manual toggle.
+    effect(() => {
+      const shouldCollapse = this.shouldAutoCollapse();
+      if (!this.userToggled) {
+        this.isCollapsed.set(shouldCollapse);
+      }
+    });
+  }
 
   /**
    * User message display content with <system-reminder> tags stripped.
@@ -95,12 +175,19 @@ export class MessageBubbleComponent {
       .trim();
   });
 
+  /** Pre-computed image count label to avoid triple signal reads in template */
+  readonly imageCountLabel = computed(() => {
+    const count = this.message().imageCount;
+    if (!count) return '';
+    return `${count} ${count === 1 ? 'image' : 'images'}`;
+  });
+
   /**
    * Permission lookup function to pass to execution tree
    * Enables tool cards to check if they have pending permissions
    */
   protected getPermissionForTool = (
-    toolCallId: string
+    toolCallId: string,
   ): PermissionRequest | null => {
     return this.chatStore.getPermissionForTool(toolCallId);
   };
@@ -111,6 +198,12 @@ export class MessageBubbleComponent {
    */
   protected onPermissionResponse(response: PermissionResponse): void {
     this.chatStore.handlePermissionResponse(response);
+  }
+
+  /** Toggle the collapsed state of this message bubble */
+  protected toggleCollapse(): void {
+    this.userToggled = true;
+    this.isCollapsed.update((v) => !v);
   }
 
   // TASK_2025_109: onResumeRequested removed - now uses context injection
@@ -142,7 +235,7 @@ export class MessageBubbleComponent {
    * Returns the icon reference for lucide-angular
    */
   protected getFileIcon(
-    filePath: string
+    filePath: string,
   ): typeof FileText | typeof Image | typeof Folder {
     const ext = filePath.split('.').pop()?.toLowerCase() || '';
     const imageExts = [

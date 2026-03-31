@@ -67,7 +67,7 @@ import {
             Documentation
           </a>
           <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
+            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
             target="_blank"
             rel="noopener noreferrer"
             class="text-base-content/70 hover:text-secondary transition-colors"

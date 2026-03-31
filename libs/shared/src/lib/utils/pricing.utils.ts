@@ -233,6 +233,13 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
 };
 
 /**
+ * Set of model IDs that have already been warned about.
+ * Prevents log spam when the same unknown model is looked up repeatedly
+ * (e.g., during session resume processing hundreds of messages).
+ */
+const warnedModelIds = new Set<string>();
+
+/**
  * Model pricing map - can be updated dynamically at runtime
  * Initialized with default bundled pricing
  */
@@ -319,9 +326,12 @@ export function findModelPricing(modelId: string): ModelPricing {
   }
 
   // 3. Fallback to default
-  console.warn(
-    `[Pricing] Model '${modelId}' not found in pricing map, using default`,
-  );
+  if (!warnedModelIds.has(modelId)) {
+    warnedModelIds.add(modelId);
+    console.warn(
+      `[Pricing] Model '${modelId}' not found in pricing map, using default`,
+    );
+  }
   return modelPricingMap['default'];
 }
 
