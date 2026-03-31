@@ -8,7 +8,7 @@
  * - Batch file matching with boolean logic
  *
  * @see https://github.com/micromatch/picomatch - 7.2x faster than minimatch
- * @see .claude/specs/TASK_PRV_005/research-report.md - Research Finding 5
+ * @see .ptah/specs/TASK_PRV_005/research-report.md - Research Finding 5
  */
 
 import { injectable } from 'tsyringe';
@@ -151,7 +151,7 @@ export class PatternMatcherService {
   isMatch(
     path: string,
     pattern: string,
-    options?: PatternMatchOptions
+    options?: PatternMatchOptions,
   ): boolean {
     // Check result cache first
     const cacheKey = `${path}::${pattern}::${JSON.stringify(options || {})}`;
@@ -190,7 +190,7 @@ export class PatternMatcherService {
   match(
     paths: string[],
     pattern: string,
-    options?: PatternMatchOptions
+    options?: PatternMatchOptions,
   ): string[] {
     return paths.filter((path) => this.isMatch(path, pattern, options));
   }
@@ -222,7 +222,7 @@ export class PatternMatcherService {
   matchFiles(
     paths: string[],
     patterns: string[],
-    options?: PatternMatchOptions
+    options?: PatternMatchOptions,
   ): PatternMatchResult[] {
     // Separate inclusion and exclusion patterns
     const inclusionPatterns = patterns.filter((p) => !p.startsWith('!'));
@@ -282,7 +282,7 @@ export class PatternMatcherService {
   matchFilesSimple(
     paths: string[],
     patterns: string[],
-    options?: PatternMatchOptions
+    options?: PatternMatchOptions,
   ): string[] {
     return this.matchFiles(paths, patterns, options)
       .filter((result) => result.matched)
@@ -298,7 +298,7 @@ export class PatternMatcherService {
    */
   private getCompiledMatcher(
     pattern: string,
-    options?: PatternMatchOptions
+    options?: PatternMatchOptions,
   ): MatcherFunction {
     // Create cache key from pattern + options
     const cacheKey = `${pattern}::${JSON.stringify(options || {})}`;
@@ -316,7 +316,7 @@ export class PatternMatcherService {
       // If caseSensitive is explicitly set to false, enable nocase
       // If nocase is explicitly set, use that
       nocase:
-        options?.caseSensitive === false ? true : options?.nocase ?? false,
+        options?.caseSensitive === false ? true : (options?.nocase ?? false),
       // Follow Bash 4.3 glob spec
       bash: true,
       // Enable brace expansion: {a,b,c}

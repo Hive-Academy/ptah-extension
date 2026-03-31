@@ -6,15 +6,57 @@
   "tags": ["scope:electron", "type:app"],
   "targets": {
     "build-main": {
-      "executor": "@nx/webpack:webpack",
+      "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "apps/ptah-electron/src/main.ts",
-        "tsConfig": "apps/ptah-electron/tsconfig.app.json",
-        "webpackConfig": "apps/ptah-electron/webpack.config.js",
-        "target": "node",
-        "compiler": "tsc",
+        "outputFileName": "main.mjs",
+        "tsConfig": "apps/ptah-electron/tsconfig.build.json",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "skipTypeCheck": true,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+          }
+        },
+        "external": [
+          "electron",
+          "electron-updater",
+          "@anthropic-ai/claude-agent-sdk",
+          "@github/copilot-sdk",
+          "@openai/codex-sdk",
+          "reflect-metadata",
+          "tsyringe",
+          "async-mutex",
+          "cross-spawn",
+          "eventemitter3",
+          "gray-matter",
+          "json2md",
+          "jsonrepair",
+          "minimatch",
+          "picomatch",
+          "rxjs",
+          "uuid",
+          "which",
+          "zod",
+          "tslib",
+          "chokidar",
+          "fast-glob",
+          "p-limit",
+          "p-queue",
+          "axios",
+          "node-pty"
+        ],
         "assets": [
           {
             "glob": "**/*",
@@ -45,34 +87,53 @@
       },
       "configurations": {
         "production": {
-          "optimization": true,
-          "sourceMap": false
+          "sourcemap": false,
+          "minify": true
         },
         "development": {
-          "optimization": false,
-          "sourceMap": true
+          "sourcemap": true,
+          "minify": false
         }
       }
     },
     "build-preload": {
-      "executor": "@nx/webpack:webpack",
+      "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
       "options": {
         "outputPath": "dist/apps/ptah-electron",
         "main": "apps/ptah-electron/src/preload.ts",
+        "outputFileName": "preload.js",
         "tsConfig": "apps/ptah-electron/tsconfig.preload.json",
-        "webpackConfig": "apps/ptah-electron/webpack.preload.config.js",
-        "target": "node",
-        "compiler": "tsc"
+        "format": ["cjs"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": false,
+        "deleteOutputPath": false,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".js"
+          }
+        },
+        "external": ["electron"]
       }
     },
     "build": {
-      "executor": "nx:noop",
+      "executor": "nx:run-commands",
       "dependsOn": [
         "build-main",
         "build-preload",
         "ptah-extension-webview:build"
-      ]
+      ],
+      "options": {
+        "commands": [
+          {
+            "command": "node scripts/copy-wasm.js dist/apps/ptah-electron",
+            "forwardAllArgs": false
+          }
+        ],
+        "parallel": false
+      }
     },
     "build-dev": {
       "executor": "nx:run-commands",
@@ -98,6 +159,7 @@
       "options": {
         "commands": [
           "nx build-dev ptah-electron",
+          "node scripts/copy-wasm.js dist/apps/ptah-electron",
           "nx copy-renderer ptah-electron",
           "node apps/ptah-electron/scripts/launch.js"
         ],

@@ -1,5 +1,5 @@
 {
-  "name": "setup-wizard",
+  "name": "@ptah-extension/setup-wizard",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/frontend/setup-wizard/src",
   "prefix": "ptah",

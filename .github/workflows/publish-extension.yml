@@ -5,7 +5,11 @@
 #   2. Bumps the version in apps/ptah-extension-vscode/package.json
 #   3. Checks if the version tag already exists (prevents duplicate publishes)
 #   4. Builds, packages, and publishes to VS Code Marketplace
-#   5. Creates git tag and commits the version bump back to the branch
+#   5. Creates git tag and opens a PR to merge the version bump into main
+#
+# Version bump goes to a chore/ branch with a PR to main — never pushes back
+# to release/extension (which would re-trigger this workflow in an infinite loop).
+# A commit message filter provides extra safety.
 #
 # Manual dispatch lets you choose bump type (patch/minor/major) and pre-release.
 
@@ -32,26 +36,46 @@ on:
         type: boolean
         default: false
 
+concurrency:
+  group: publish-extension
+  cancel-in-progress: false
+
 permissions:
   contents: write
+  pull-requests: write
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: 'false'
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      NX_SKIP_NX_CACHE: 'true'
+    # Skip version-bump commits to prevent infinite loop
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.head_commit.message, 'chore(release):')
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
 
-      - run: npm ci
+      # Cache node_modules — skips npm ci on cache hit
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: npm ci
 
       - name: Configure git
         run: |
@@ -127,19 +151,49 @@ jobs:
       - name: Publish to VS Code Marketplace
         run: |
           cd dist/apps/ptah-extension-vscode
-          DIST_VERSION=$(node -p "require('./package.json').version")
-          echo "Publishing version: $DIST_VERSION"
+          VSIX_FILE=$(ls *.vsix 2>/dev/null | head -1)
+          if [ -z "$VSIX_FILE" ]; then
+            echo "::error::No .vsix file found in dist"
+            exit 1
+          fi
+          VSIX_SIZE=$(du -h "$VSIX_FILE" | cut -f1)
+          echo "Publishing $VSIX_FILE ($VSIX_SIZE)"
           if [ "${{ github.event.inputs.pre-release }}" = "true" ]; then
-            npx @vscode/vsce publish --pre-release --pat ${{ secrets.VSCE_PAT }}
+            npx @vscode/vsce publish --packagePath "$VSIX_FILE" --pre-release --pat ${{ secrets.VSCE_PAT }}
           else
-            npx @vscode/vsce publish --pat ${{ secrets.VSCE_PAT }}
+            npx @vscode/vsce publish --packagePath "$VSIX_FILE" --pat ${{ secrets.VSCE_PAT }}
           fi
 
-      - name: Commit version bump and tag
+      - name: Create version bump PR to main
         env:
           HUSKY: '0'
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
+          VERSION="${{ steps.bump.outputs.new_version }}"
+          TAG="${{ steps.bump.outputs.tag }}"
+          BRANCH="chore/bump-extension-v${VERSION}"
+
+          # Save the bumped package.json
+          cp apps/ptah-extension-vscode/package.json /tmp/bumped-package.json
+
+          # Create a fresh branch from main
+          git fetch origin main
+          git checkout -b "$BRANCH" origin/main
+
+          # Apply version bump
+          cp /tmp/bumped-package.json apps/ptah-extension-vscode/package.json
           git add apps/ptah-extension-vscode/package.json
-          git commit --no-verify -m "chore(release): extension v${{ steps.bump.outputs.new_version }}"
-          git tag -a "${{ steps.bump.outputs.tag }}" -m "VS Code Extension v${{ steps.bump.outputs.new_version }}"
-          git push origin HEAD --tags
+          git commit --no-verify -m "chore(release): extension v${VERSION}"
+
+          # Tag the release
+          git tag -a "$TAG" -m "VS Code Extension v${VERSION}"
+
+          # Push branch and tag
+          git push origin "$BRANCH" --tags
+
+          # Create PR to main
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): extension v${VERSION}" \
+            --body "Auto-generated version bump after publishing extension v${VERSION} to VS Code Marketplace."

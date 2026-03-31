@@ -55,7 +55,7 @@ _Browser opens to ptah.live. The hero section loads — dark Egyptian-themed bac
 - Badge pulses: "Powered by Claude Agent SDK"
 - Headline: "Ptah" in golden gradient
 - Subheadline: "The AI coding orchestra for VS Code..."
-- CTA: "Try 14 Days Free — Install Now"
+- CTA: "Try 30 Days Free — Install Now"
 
 ---
 
@@ -137,18 +137,18 @@ _Source: comparison-split-scroll.component.ts — metrics array_
 
 #### Visual
 
-_Navigate to /pricing. The pyramid background loads with radial gold glow. The "Try 14 days free today" headline appears with 3D text shadow._
+_Navigate to /pricing. The pyramid background loads with radial gold glow. The "Try 30 days free today" headline appears with 3D text shadow._
 
 #### Narration
 
 "Ptah has a free tier — forever. Community plan gives you the visual interface, real-time streaming, session history, and basic workspace context. No credit card, no strings.
 
-Pro is five dollars a month. You get the setup wizard, MCP server, workspace intelligence, 200+ models via OpenRouter, project-adaptive agents, and real-time cost tracking. And you start with a 14-day free trial."
+Pro is five dollars a month. You get the setup wizard, MCP server, workspace intelligence, 200+ models via OpenRouter, project-adaptive agents, and real-time cost tracking. And you start with a 30-day free trial."
 
 #### On-Screen
 
 - Community: Free Forever — "Install Free"
-- Pro: $5/month — "Start 14-Day Free Trial"
+- Pro: $5/month — "Start 30-Day Free Trial"
 
 _Source: pricing-cards.component.ts — plans data_
 
@@ -188,7 +188,7 @@ _Scroll to the Installation section. The 3-step cards appear with viewport anima
 
 #### Callout
 
-"Your Pro trial includes all 13 AI agents, orchestration workflows, multi-provider support, the plugin system, and the full setup wizard. Free for 14 days."
+"Your Pro trial includes all 13 AI agents, orchestration workflows, multi-provider support, the plugin system, and the full setup wizard. Free for 30 days."
 
 _Source: installation-section.component.ts_
 
@@ -607,14 +607,14 @@ _Landing page CTA section: "Start Your Free Trial" with amber gradient button_
 
 #### Narration
 
-"Install Ptah from the VS Code Marketplace. 14-day Pro trial. No credit card. Cancel anytime.
+"Install Ptah from the VS Code Marketplace. 30-day Pro trial. No credit card. Cancel anytime.
 
 Your AI coding orchestra is ready."
 
 #### On-Screen
 
 - URL: **marketplace.visualstudio.com** → search "Ptah"
-- Trust signals: 14-Day Free Trial · No Credit Card · Cancel Anytime
+- Trust signals: 30-Day Free Trial · No Credit Card · Cancel Anytime
 - Discord: discord.gg/pZcbrqNRzq
 
 ---

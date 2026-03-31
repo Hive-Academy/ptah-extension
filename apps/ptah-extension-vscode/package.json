@@ -1,8 +1,8 @@
 {
   "name": "ptah-extension-vscode",
   "displayName": "Ptah - Coding Orchestra",
-  "description": "The AI coding orchestra for VS Code. Intelligent workspace analysis, Code Execution MCP server, and project-adaptive AI agents — powered by Claude Agent SDK.",
-  "version": "0.1.2",
+  "description": "The AI coding orchestra for VS Code. Provider-agnostic AI orchestration with intelligent workspace analysis, Code Execution MCP server, and project-adaptive multi-agent workflows.",
+  "version": "0.2.0",
   "publisher": "ptah-extensions",
   "repository": {
     "type": "git",
@@ -13,7 +13,7 @@
   },
   "homepage": "https://github.com/Hive-Academy/ptah-extension#readme",
   "engines": {
-    "vscode": "^1.74.0"
+    "vscode": "^1.100.0"
   },
   "categories": [
     "Machine Learning",
@@ -21,18 +21,18 @@
     "Other"
   ],
   "keywords": [
-    "claude",
     "ai",
     "chat",
     "code-review",
     "assistant",
-    "anthropic",
-    "cli-gui",
-    "claude-code",
     "llm",
     "agent",
     "ai-coding",
-    "developer-tools"
+    "developer-tools",
+    "coding-assistant",
+    "workspace-analysis",
+    "mcp-server",
+    "multi-agent"
   ],
   "activationEvents": [
     "onView:ptah.main",
@@ -41,13 +41,13 @@
     "onCommand:ptah.setupAgents",
     "onCommand:ptah.openDashboard"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "SEE LICENSE IN LICENSE.md",
   "preview": true,
   "galleryBanner": {
     "color": "#1a1a2e",
     "theme": "dark"
   },
-  "main": "./main.js",
+  "main": "./main.mjs",
   "icon": "assets/images/ptah-icon.png",
   "contributes": {
     "authentication": [
@@ -195,11 +195,11 @@
             "openrouter"
           ],
           "default": "auto",
-          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key. Note: Claude OAuth tokens are restricted by Anthropic to Claude Code/Claude.ai only and will not work in third-party tools (Feb 2026 policy)."
+          "description": "Authentication method for Ptah. 'auto' will try Provider first, then API key."
         },
         "ptah.model.selected": {
           "type": "string",
-          "description": "Claude model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
+          "description": "AI model for new chat sessions. Left empty to use the SDK default (set on first initialization)."
         },
         "ptah.autopilot.enabled": {
           "type": "boolean",
@@ -216,138 +216,6 @@
           "default": "ask",
           "description": "Permission level for autopilot mode."
         },
-        "ptah.provider.openrouter.modelTier.sonnet": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "OpenRouter model override for Sonnet tier."
-        },
-        "ptah.provider.openrouter.modelTier.opus": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "OpenRouter model override for Opus tier."
-        },
-        "ptah.provider.openrouter.modelTier.haiku": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "OpenRouter model override for Haiku tier."
-        },
-        "ptah.provider.moonshot.modelTier.sonnet": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "Moonshot model override for Sonnet tier."
-        },
-        "ptah.provider.moonshot.modelTier.opus": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "Moonshot model override for Opus tier."
-        },
-        "ptah.provider.moonshot.modelTier.haiku": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "Moonshot model override for Haiku tier."
-        },
-        "ptah.provider.z-ai.modelTier.sonnet": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "Z.AI model override for Sonnet tier."
-        },
-        "ptah.provider.z-ai.modelTier.opus": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "Z.AI model override for Opus tier."
-        },
-        "ptah.provider.z-ai.modelTier.haiku": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "Z.AI model override for Haiku tier."
-        },
-        "ptah.provider.github-copilot.modelTier.sonnet": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "GitHub Copilot model override for Sonnet tier."
-        },
-        "ptah.provider.github-copilot.modelTier.opus": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "GitHub Copilot model override for Opus tier."
-        },
-        "ptah.provider.github-copilot.modelTier.haiku": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "GitHub Copilot model override for Haiku tier."
-        },
-        "ptah.provider.openai-codex.modelTier.sonnet": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "OpenAI Codex model override for Sonnet tier."
-        },
-        "ptah.provider.openai-codex.modelTier.opus": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "OpenAI Codex model override for Opus tier."
-        },
-        "ptah.provider.openai-codex.modelTier.haiku": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "default": null,
-          "description": "OpenAI Codex model override for Haiku tier."
-        },
-        "ptah.anthropicProviderId": {
-          "type": "string",
-          "enum": [
-            "openrouter",
-            "moonshot",
-            "z-ai",
-            "github-copilot",
-            "openai-codex"
-          ],
-          "default": "openrouter",
-          "description": "Selected Anthropic-compatible provider for API key authentication."
-        },
         "ptah.enhancedPrompts.enabled": {
           "type": "boolean",
           "default": true,
@@ -357,7 +225,7 @@
         "ptah.compaction.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable automatic context compaction for long sessions. When enabled, Claude will summarize conversation history to stay within context limits."
+          "description": "Enable automatic context compaction for long sessions. When enabled, the AI will summarize conversation history to stay within context limits."
         },
         "ptah.compaction.threshold": {
           "type": "number",
@@ -365,19 +233,6 @@
           "minimum": 50000,
           "maximum": 500000,
           "description": "Token threshold to trigger automatic compaction (default: 100,000 tokens)."
-        },
-        "ptah.llm.defaultProvider": {
-          "type": "string",
-          "enum": [
-            "vscode-lm"
-          ],
-          "default": "vscode-lm",
-          "description": "Default LLM provider for ptah.llm.* MCP tools."
-        },
-        "ptah.llm.vscode.model": {
-          "type": "string",
-          "default": "copilot/gpt-4o",
-          "description": "Default model for the VS Code Language Model provider (vendor/family format)."
         },
         "ptah.reasoningEffort": {
           "type": "string",
@@ -389,24 +244,22 @@
             "max"
           ],
           "default": "",
-          "description": "Default reasoning effort level for the main Claude Agent SDK chat. Leave empty for SDK default."
+          "description": "Default reasoning effort level for the main AI agent chat. Leave empty for SDK default."
         },
         "ptah.mcpPort": {
-          "type": "number",
+          "type": "integer",
           "default": 51820,
           "minimum": 1024,
           "maximum": 65535,
           "description": "Port for Ptah's MCP server (code execution tools). Must be between 1024-65535. Default: 51820."
         },
-        "ptah.agentOrchestration.defaultCli": {
-          "type": "string",
-          "enum": [
-            "gemini",
-            "codex",
-            "copilot"
-          ],
-          "default": "gemini",
-          "description": "Default CLI agent to use when spawning agents. Auto-detected if not set."
+        "ptah.agentOrchestration.preferredAgentOrder": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "User's preferred agent order for spawning. First available agent is used. Supports system CLIs and Ptah CLI agent IDs."
         },
         "ptah.agentOrchestration.maxConcurrentAgents": {
           "type": "number",
@@ -415,174 +268,34 @@
           "maximum": 10,
           "description": "Maximum number of concurrent CLI agent processes."
         },
-        "ptah.agentOrchestration.defaultTimeout": {
-          "type": "number",
-          "default": 600000,
-          "minimum": 60000,
-          "maximum": 1800000,
-          "description": "Default timeout for CLI agent processes in milliseconds (10 min default, 30 min max)."
-        },
         "ptah.agentOrchestration.geminiModel": {
           "type": "string",
           "default": "",
           "description": "Default model for Gemini CLI agents (e.g. gemini-2.5-pro, gemini-2.5-flash). Leave empty for Gemini's default."
         },
-        "ptah.agentOrchestration.copilotModel": {
-          "type": "string",
-          "enum": [
-            "",
-            "claude-sonnet-4.6",
-            "claude-opus-4.6",
-            "claude-opus-4.6-fast",
-            "claude-sonnet-4.5",
-            "claude-haiku-4.5",
-            "claude-opus-4.5",
-            "claude-sonnet-4",
-            "gemini-3-pro-preview",
-            "gpt-5.4",
-            "gpt-5.3-codex",
-            "gpt-5.2-codex",
-            "gpt-5.2",
-            "gpt-5.1-codex-max",
-            "gpt-5.1-codex-mini",
-            "gpt-5-mini",
-            "gpt-4.1"
-          ],
-          "default": "",
-          "description": "Default model for Copilot agents. Leave empty for Copilot's default."
-        },
-        "ptah.agentOrchestration.codexModel": {
-          "type": "string",
-          "enum": [
-            "",
-            "gpt-5.3-codex",
-            "gpt-5.4",
-            "gpt-5.2-codex",
-            "gpt-5.2",
-            "gpt-5.1-codex-max",
-            "gpt-5.1-codex-mini"
-          ],
-          "default": "",
-          "description": "Default model for Codex agents. Leave empty for Codex's default."
-        },
-        "ptah.agentOrchestration.codexReasoningEffort": {
-          "type": "string",
-          "enum": [
-            "",
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "default": "",
-          "description": "Reasoning effort level for Codex agents. Leave empty for SDK default."
-        },
-        "ptah.agentOrchestration.copilotReasoningEffort": {
-          "type": "string",
-          "enum": [
-            "",
-            "minimal",
-            "low",
-            "medium",
-            "high",
-            "xhigh"
-          ],
-          "default": "",
-          "description": "Reasoning effort level for Copilot agents. Leave empty for SDK default."
-        },
-        "ptah.agentOrchestration.codexAutoApprove": {
+        "ptah.browser.allowLocalhost": {
           "type": "boolean",
-          "default": true,
-          "markdownDeprecationMessage": "Codex always runs in full-auto headless mode. This setting has no effect.",
-          "description": "(Deprecated) Codex always runs in full-auto headless mode."
+          "default": false,
+          "description": "Allow AI agent browser automation to access localhost URLs (127.0.0.1, 0.0.0.0, [::1]). Enable for local dev server testing."
         },
-        "ptah.agentOrchestration.copilotAutoApprove": {
-          "type": "boolean",
-          "default": true,
-          "description": "Auto-approve all Copilot tool calls without user prompt."
+        "ptah.webSearch.provider": {
+          "type": "string",
+          "enum": [
+            "tavily",
+            "serper",
+            "exa"
+          ],
+          "default": "tavily",
+          "description": "Web search provider for the ptah_web_search tool. Each provider requires its own API key."
         },
-        "ptah.ptahCliAgents": {
-          "type": "array",
-          "default": [],
-          "description": "Ptah CLI agent configurations for Anthropic-compatible providers (OpenRouter, Moonshot, Z.AI, etc.).",
-          "scope": "resource",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string",
-                "description": "Unique Ptah CLI agent instance ID."
-              },
-              "name": {
-                "type": "string",
-                "description": "User-facing display name."
-              },
-              "providerId": {
-                "type": "string",
-                "description": "Anthropic-compatible provider ID."
-              },
-              "enabled": {
-                "type": "boolean",
-                "description": "Whether this agent is enabled."
-              },
-              "tierMappings": {
-                "type": "object",
-                "description": "Model tier mappings.",
-                "properties": {
-                  "sonnet": {
-                    "type": "string"
-                  },
-                  "opus": {
-                    "type": "string"
-                  },
-                  "haiku": {
-                    "type": "string"
-                  }
-                }
-              },
-              "selectedModel": {
-                "type": "string",
-                "description": "Selected model ID (overrides tier)."
-              },
-              "updatedAt": {
-                "type": "number",
-                "description": "Timestamp of last configuration change."
-              }
-            },
-            "required": [
-              "id",
-              "name",
-              "providerId",
-              "enabled"
-            ]
-          }
+        "ptah.webSearch.maxResults": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Default number of search results to return (1-20)."
         }
       }
     }
-  },
-  "devDependencies": {
-    "@types/node": "16.x",
-    "@types/uuid": "^9.0.0",
-    "@types/vscode": "^1.74.0",
-    "typescript": "^4.9.4"
-  },
-  "dependencies": {
-    "async-mutex": "^0.5.0",
-    "cross-spawn": "^7.0.6",
-    "eventemitter3": "^5.0.1",
-    "gray-matter": "^4.0.3",
-    "json2md": "^2.0.3",
-    "jsonrepair": "^3.13.1",
-    "minimatch": "^9.0.3",
-    "picomatch": "^4.0.2",
-    "rxjs": "^7.8.0",
-    "tree-sitter": "^0.21.1",
-    "tree-sitter-javascript": "^0.23.1",
-    "tree-sitter-typescript": "^0.23.2",
-    "tslib": "^2.3.0",
-    "uuid": "^9.0.0",
-    "which": "^6.0.1",
-    "zod": "^3.25.76"
   }
 }

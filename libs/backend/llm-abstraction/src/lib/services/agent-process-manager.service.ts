@@ -12,14 +12,16 @@
 import { injectable, inject } from 'tsyringe';
 import { execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
-import * as vscode from 'vscode';
 import { EventEmitter } from 'eventemitter3';
+import axios from 'axios';
 import {
   TOKENS,
   Logger,
   LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   AgentId,
   AgentStatus,
@@ -151,9 +153,12 @@ export class AgentProcessManager {
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
     const effortKey =
       cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
-    const effort = vscode.workspace
-      .getConfiguration('ptah.agentOrchestration')
-      .get<string>(effortKey, '');
+    const effort =
+      this.workspace.getConfiguration<string>(
+        'ptah.agentOrchestration',
+        effortKey,
+        '',
+      ) ?? '';
     return effort || undefined;
   }
 
@@ -161,9 +166,11 @@ export class AgentProcessManager {
     // Codex always runs in full-auto headless mode (SDK has no permission hooks)
     if (cli === 'codex') return undefined;
     if (cli !== 'copilot') return undefined;
-    return vscode.workspace
-      .getConfiguration('ptah.agentOrchestration')
-      .get<boolean>('copilotAutoApprove', true);
+    return this.workspace.getConfiguration<boolean>(
+      'ptah.agentOrchestration',
+      'copilotAutoApprove',
+      true,
+    );
   }
 
   /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
@@ -180,7 +187,9 @@ export class AgentProcessManager {
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
-    private readonly subagentRegistry: SubagentRegistryService
+    private readonly subagentRegistry: SubagentRegistryService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspace: IWorkspaceProvider,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -212,7 +221,7 @@ export class AgentProcessManager {
       throw new Error(
         `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
           `Stop a running agent before spawning a new one. ` +
-          `Running agents: ${this.getRunningAgentIds().join(', ')}`
+          `Running agents: ${this.getRunningAgentIds().join(', ')}`,
       );
     }
 
@@ -229,11 +238,11 @@ export class AgentProcessManager {
     });
 
     // Determine which CLI to use
-    const cli = request.cli ?? (await this.getDefaultCli());
+    const cli = request.cli ?? (await this.getPreferredCli());
     if (!cli) {
       throw new Error(
         'No CLI agent available. Install Gemini CLI (`npm install -g @google/gemini-cli`) ' +
-          'or Codex CLI and authenticate before using agent orchestration.'
+          'or Codex CLI and authenticate before using agent orchestration.',
       );
     }
 
@@ -256,7 +265,7 @@ export class AgentProcessManager {
           : 'no detection result',
       });
       throw new Error(
-        `${cli} CLI is not installed. Install it and run authentication before using.`
+        `${cli} CLI is not installed. Install it and run authentication before using.`,
       );
     }
 
@@ -298,7 +307,7 @@ export class AgentProcessManager {
         cli,
         adapter.displayName,
         detection.path,
-        mcpPort
+        mcpPort,
       );
     }
 
@@ -308,16 +317,18 @@ export class AgentProcessManager {
       !cliModel &&
       (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
     ) {
-      const agentConfig = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration'
-      );
       const configKey =
         cli === 'gemini'
           ? 'geminiModel'
           : cli === 'codex'
-          ? 'codexModel'
-          : 'copilotModel';
-      const configuredModel = agentConfig.get<string>(configKey, '');
+            ? 'codexModel'
+            : 'copilotModel';
+      const configuredModel =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          configKey,
+          '',
+        ) ?? '';
       if (configuredModel) {
         cliModel = configuredModel;
       }
@@ -448,7 +459,7 @@ export class AgentProcessManager {
     cli: CliType,
     displayName: string,
     binaryPath?: string,
-    mcpPort?: number
+    mcpPort?: number,
   ): Promise<SpawnAgentResult> {
     const agentId = AgentId.create();
     const startedAt = new Date().toISOString();
@@ -459,16 +470,18 @@ export class AgentProcessManager {
       !resolvedModel &&
       (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
     ) {
-      const agentConfig = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration'
-      );
       const configKey =
         cli === 'gemini'
           ? 'geminiModel'
           : cli === 'codex'
-          ? 'codexModel'
-          : 'copilotModel';
-      const configuredModel = agentConfig.get<string>(configKey, '');
+            ? 'codexModel'
+            : 'copilotModel';
+      const configuredModel =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          configKey,
+          '',
+        ) ?? '';
       if (configuredModel) {
         resolvedModel = configuredModel;
       }
@@ -508,7 +521,7 @@ export class AgentProcessManager {
       request.cli !== 'copilot'
     ) {
       this.logger.warn(
-        `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`
+        `[AgentProcessManager] resume_session_id provided for ${request.cli} which does not support session resume`,
       );
     }
 
@@ -541,7 +554,7 @@ export class AgentProcessManager {
       timeout,
       // Late capture: session_id arrives in init event (first JSONL line).
       // Passed as callback so trackSdkHandle can invoke it on each segment.
-      () => sdkHandle.getSessionId?.()
+      () => sdkHandle.getSessionId?.(),
     );
   }
 
@@ -561,7 +574,7 @@ export class AgentProcessManager {
       ptahCliId?: string;
       timeout?: number;
       resumedFromAgentId?: string;
-    }
+    },
   ): Promise<SpawnAgentResult> {
     return this.acquireSpawnLock(async () => {
       // Increment spawning counter synchronously before any async work
@@ -575,7 +588,7 @@ export class AgentProcessManager {
           throw new Error(
             `Maximum concurrent agent limit reached (${maxConcurrent}). ` +
               `Stop a running agent before spawning a new one. ` +
-              `Running agents: ${this.getRunningAgentIds().join(', ')}`
+              `Running agents: ${this.getRunningAgentIds().join(', ')}`,
           );
         }
 
@@ -633,7 +646,7 @@ export class AgentProcessManager {
     sdkHandle: SdkHandle,
     info: AgentProcessInfo,
     timeout: number,
-    captureSessionId?: () => string | undefined
+    captureSessionId?: () => string | undefined,
   ): SpawnAgentResult {
     const agentId = info.agentId;
 
@@ -715,7 +728,7 @@ export class AgentProcessManager {
           error: message,
         });
         this.handleExit(agentId, 1, null);
-      }
+      },
     );
 
     const spawnResult: SpawnAgentResult = {
@@ -844,7 +857,7 @@ export class AgentProcessManager {
 
     if (tracked.info.status !== 'running') {
       throw new Error(
-        `Agent ${agentId} is not running (status: ${tracked.info.status})`
+        `Agent ${agentId} is not running (status: ${tracked.info.status})`,
       );
     }
 
@@ -852,14 +865,14 @@ export class AgentProcessManager {
     if (!adapter?.supportsSteer()) {
       throw new Error(
         `Steering is not supported for ${tracked.info.cli} CLI. ` +
-          `The agent will complete its task based on the original prompt.`
+          `The agent will complete its task based on the original prompt.`,
       );
     }
 
     // SDK agents have no child process - steering requires stdin pipe
     if (!tracked.process) {
       throw new Error(
-        `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`
+        `Agent ${agentId} is an SDK-based agent and does not support stdin steering.`,
       );
     }
 
@@ -910,7 +923,7 @@ export class AgentProcessManager {
   async shutdownAll(): Promise<void> {
     this.logger.info('[AgentProcessManager] Shutting down all agents...');
     const running = Array.from(this.agents.entries()).filter(
-      ([, t]) => t.info.status === 'running'
+      ([, t]) => t.info.status === 'running',
     );
 
     await Promise.all(running.map(([id]) => this.stop(id)));
@@ -939,12 +952,12 @@ export class AgentProcessManager {
     } catch (error) {
       this.logger.warn(
         '[AgentProcessManager] Failed to dispose Copilot SDK adapter',
-        error instanceof Error ? error : new Error(String(error))
+        error instanceof Error ? error : new Error(String(error)),
       );
     }
 
     this.logger.info(
-      `[AgentProcessManager] ${running.length} agents shut down`
+      `[AgentProcessManager] ${running.length} agents shut down`,
     );
   }
 
@@ -981,7 +994,7 @@ export class AgentProcessManager {
   private appendBuffer(
     agentId: string,
     stream: 'stdout' | 'stderr',
-    data: string
+    data: string,
   ): void {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
@@ -1015,7 +1028,7 @@ export class AgentProcessManager {
   private accumulateDelta(
     agentId: string,
     stream: 'stdout' | 'stderr',
-    data: string
+    data: string,
   ): void {
     let pending = this.pendingDeltas.get(agentId);
     if (!pending) {
@@ -1070,7 +1083,7 @@ export class AgentProcessManager {
    */
   private accumulateStreamEvent(
     agentId: string,
-    event: FlatStreamEventUnion
+    event: FlatStreamEventUnion,
   ): void {
     let pending = this.pendingDeltas.get(agentId);
     if (!pending) {
@@ -1089,14 +1102,14 @@ export class AgentProcessManager {
       ) {
         tracked.accumulatedStreamEvents = capStreamEvents(
           tracked.accumulatedStreamEvents,
-          MAX_ACCUMULATED_STREAM_EVENTS
+          MAX_ACCUMULATED_STREAM_EVENTS,
         );
         this.logger.debug(
           '[AgentProcessManager] Stream events cap reached, dropped oldest deltas',
           {
             agentId,
             cap: MAX_ACCUMULATED_STREAM_EVENTS,
-          }
+          },
         );
       }
     }
@@ -1168,7 +1181,7 @@ export class AgentProcessManager {
   private handleExit(
     agentId: string,
     code: number | null,
-    signal: string | null
+    signal: string | null,
   ): void {
     const tracked = this.agents.get(agentId);
     if (!tracked) return;
@@ -1308,7 +1321,7 @@ export class AgentProcessManager {
 
   private getRunningCount(): number {
     return Array.from(this.agents.values()).filter(
-      (t) => t.info.status === 'running'
+      (t) => t.info.status === 'running',
     ).length;
   }
 
@@ -1319,67 +1332,94 @@ export class AgentProcessManager {
   }
 
   private getMaxConcurrentAgents(): number {
-    const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
-    return config.get<number>('maxConcurrentAgents', 5);
+    return (
+      this.workspace.getConfiguration<number>(
+        'ptah.agentOrchestration',
+        'maxConcurrentAgents',
+        5,
+      ) ?? 5
+    );
   }
 
-  private async getDefaultCli(): Promise<CliType | null> {
-    // Check user preference first
-    const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
-    const preferred = config.get<string>('defaultCli');
-    this.logger.debug('[AgentProcessManager] getDefaultCli: user preference', {
-      preferred: preferred ?? 'none (auto-detect)',
-    });
+  private async getPreferredCli(): Promise<CliType | null> {
+    // Known system CLI types (not Ptah CLI IDs)
+    const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
 
-    if (preferred) {
-      // Validate preferred CLI is a known adapter
-      const adapter = this.cliDetection.getAdapter(preferred as CliType);
+    // Read disabled CLIs to exclude them from selection
+    const disabledClis = new Set(
+      this.workspace.getConfiguration<string[]>(
+        'ptah.agentOrchestration',
+        'disabledClis',
+        [],
+      ) ?? [],
+    );
+
+    // Read user's preferred agent order
+    const preferredOrder =
+      this.workspace.getConfiguration<string[]>(
+        'ptah.agentOrchestration',
+        'preferredAgentOrder',
+        [],
+      ) ?? [];
+    this.logger.debug(
+      '[AgentProcessManager] getPreferredCli: preferred order',
+      {
+        order:
+          preferredOrder.length > 0
+            ? preferredOrder.join(', ')
+            : 'none (auto-detect)',
+        disabled: disabledClis.size > 0 ? [...disabledClis].join(', ') : 'none',
+      },
+    );
+
+    // Iterate preferred list and return first installed, enabled system CLI
+    for (const entry of preferredOrder) {
+      // Skip Ptah CLI IDs — they are handled by the namespace builder, not here
+      if (!systemCliTypes.has(entry)) {
+        continue;
+      }
+      // Skip disabled CLIs
+      if (disabledClis.has(entry)) {
+        continue;
+      }
+
+      const adapter = this.cliDetection.getAdapter(entry as CliType);
       if (adapter) {
         const detection = await this.cliDetection.getDetection(
-          preferred as CliType
+          entry as CliType,
         );
         if (detection?.installed) {
           this.logger.info(
-            '[AgentProcessManager] getDefaultCli: using user-preferred CLI',
-            { cli: preferred }
+            '[AgentProcessManager] getPreferredCli: using preferred CLI',
+            { cli: entry },
           );
-          return preferred as CliType;
+          return entry as CliType;
         }
         this.logger.warn(
-          '[AgentProcessManager] getDefaultCli: preferred CLI not installed, falling back',
-          { preferred, installed: detection?.installed }
+          '[AgentProcessManager] getPreferredCli: preferred CLI not installed, trying next',
+          { preferred: entry, installed: detection?.installed },
         );
       }
     }
 
-    // Auto-detect: prefer gemini > codex > copilot among headless CLI agents
+    // Fallback: auto-detect first installed CLI that is not disabled
     const installed = await this.cliDetection.getInstalledClis();
-    this.logger.debug('[AgentProcessManager] getDefaultCli: installed CLIs', {
-      count: installed.length,
-      clis: installed.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
-    });
+    const enabled = installed.filter((c) => !disabledClis.has(c.cli));
+    this.logger.debug(
+      '[AgentProcessManager] getPreferredCli: auto-detect installed CLIs',
+      {
+        count: enabled.length,
+        clis: enabled.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
+      },
+    );
 
-    if (installed.length === 0) return null;
+    if (enabled.length === 0) return null;
 
-    // Prefer gemini, then codex, then copilot, then fall back to first available
-    const gemini = installed.find((c) => c.cli === 'gemini');
-    if (gemini) return 'gemini';
-
-    const codex = installed.find((c) => c.cli === 'codex');
-    if (codex) return 'codex';
-
-    const copilot = installed.find((c) => c.cli === 'copilot');
-    if (copilot) return 'copilot';
-
-    return installed[0].cli;
+    return enabled[0].cli;
   }
 
   private getWorkspaceRoot(): string {
-    const folders = vscode.workspace.workspaceFolders;
-    if (folders && folders.length > 0) {
-      return folders[0].uri.fsPath;
-    }
-    return process.cwd();
+    return this.workspace.getWorkspaceRoot() ?? process.cwd();
   }
 
   /**
@@ -1389,7 +1429,7 @@ export class AgentProcessManager {
    * or explicit user action.
    */
   private markParentSubagentsAsCliAgent(
-    parentSessionId: string | undefined
+    parentSessionId: string | undefined,
   ): void {
     if (!parentSessionId) return;
 
@@ -1398,7 +1438,7 @@ export class AgentProcessManager {
     if (running.length === 0) {
       this.logger.debug(
         '[AgentProcessManager] No running subagents found to mark as CLI-orchestrating',
-        { parentSessionId }
+        { parentSessionId },
       );
       return;
     }
@@ -1411,7 +1451,7 @@ export class AgentProcessManager {
           toolCallId: record.toolCallId,
           agentType: record.agentType,
           parentSessionId,
-        }
+        },
       );
     }
   }
@@ -1424,7 +1464,7 @@ export class AgentProcessManager {
     if (!normalizedDir.startsWith(normalizedRoot)) {
       throw new Error(
         `Working directory must be within workspace root. ` +
-          `Got: ${dir}, Expected prefix: ${workspaceRoot}`
+          `Got: ${dir}, Expected prefix: ${workspaceRoot}`,
       );
     }
   }
@@ -1453,15 +1493,15 @@ export class AgentProcessManager {
           '[AgentProcessManager] MCP disabled for CLI agent (not premium)',
           {
             tier: status.tier,
-          }
+          },
         );
         return undefined;
       }
 
       // Check 2: Is MCP server running? Use cached health check result if fresh.
-      const configuredPort = vscode.workspace
-        .getConfiguration('ptah')
-        .get<number>('mcpPort', 51820);
+      const configuredPort =
+        this.workspace.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
+        51820;
 
       if (
         this.mcpHealthCache &&
@@ -1473,40 +1513,32 @@ export class AgentProcessManager {
 
       // Health check: verify server is actually running
       try {
-        const response = await fetch(
-          `http://localhost:${configuredPort}/health`,
-          {
-            signal: AbortSignal.timeout(2000),
-          }
-        );
+        await axios.get(`http://localhost:${configuredPort}/health`, {
+          timeout: 2000,
+        });
 
-        if (response.ok) {
-          this.mcpHealthCache = { port: configuredPort, timestamp: Date.now() };
-          this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
-            port: configuredPort,
-          });
-          return configuredPort;
+        // If we reach here, status was 2xx
+        this.mcpHealthCache = { port: configuredPort, timestamp: Date.now() };
+        this.logger.info('[AgentProcessManager] MCP enabled for CLI agent', {
+          port: configuredPort,
+        });
+        return configuredPort;
+      } catch (error) {
+        this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
+        if (axios.isAxiosError(error) && error.response) {
+          this.logger.info(
+            `[AgentProcessManager] MCP health check failed: HTTP ${error.response.status}, disabling for CLI agent`,
+          );
+        } else {
+          this.logger.info(
+            '[AgentProcessManager] MCP server not reachable, disabling for CLI agent',
+          );
         }
-
-        this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
-        this.logger.info(
-          '[AgentProcessManager] MCP server health check failed',
-          {
-            port: configuredPort,
-            status: response.status,
-          }
-        );
-        return undefined;
-      } catch {
-        this.mcpHealthCache = { port: undefined, timestamp: Date.now() };
-        this.logger.info(
-          '[AgentProcessManager] MCP server not reachable, disabling for CLI agent'
-        );
         return undefined;
       }
     } catch {
       this.logger.info(
-        '[AgentProcessManager] MCP port resolution failed (license check error)'
+        '[AgentProcessManager] MCP port resolution failed (license check error)',
       );
       return undefined;
     }
@@ -1540,7 +1572,7 @@ export class AgentProcessManager {
  */
 function capStreamEvents(
   events: FlatStreamEventUnion[],
-  max: number
+  max: number,
 ): FlatStreamEventUnion[] {
   if (events.length <= max) return events;
 
@@ -1561,13 +1593,13 @@ function capStreamEvents(
 
   const keptDeltas = deltas.slice(-deltasBudget);
   const merged = [...landmarks, ...keptDeltas].sort(
-    (a, b) => a.index - b.index
+    (a, b) => a.index - b.index,
   );
   return merged.map((m) => m.event);
 }
 
 function mergeConsecutiveTextSegments(
-  segments: CliOutputSegment[]
+  segments: CliOutputSegment[],
 ): CliOutputSegment[] {
   if (segments.length <= 1) return segments;
 

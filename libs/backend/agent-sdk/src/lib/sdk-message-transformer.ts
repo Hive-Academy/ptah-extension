@@ -45,6 +45,7 @@ import {
   TextBlock,
   ToolResultBlock,
   isTextBlock,
+  isThinkingBlock,
   isToolUseBlock,
   isToolResultBlock,
   isResultMessage,
@@ -141,7 +142,7 @@ export class SdkMessageTransformer {
     @inject(TOKENS.LOGGER) private logger: Logger,
     @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
-    private readonly subagentRegistry: SubagentRegistryService
+    private readonly subagentRegistry: SubagentRegistryService,
   ) {}
 
   /**
@@ -153,7 +154,7 @@ export class SdkMessageTransformer {
     return new SdkMessageTransformer(
       this.logger,
       this.authEnv,
-      this.subagentRegistry
+      this.subagentRegistry,
     );
   }
 
@@ -171,7 +172,7 @@ export class SdkMessageTransformer {
    */
   transform(
     sdkMessage: SDKMessage,
-    sessionId?: SessionId
+    sessionId?: SessionId,
   ): FlatStreamEventUnion[] {
     try {
       // Use type guards for discriminated union narrowing
@@ -196,14 +197,14 @@ export class SdkMessageTransformer {
         // provides a deterministic alternative.
         if (sdkMessage.isSynthetic === true) {
           this.logger.debug(
-            '[SdkMessageTransformer] Skipping isSynthetic user message (skill/meta content)'
+            '[SdkMessageTransformer] Skipping isSynthetic user message (skill/meta content)',
           );
           return [];
         }
 
         if (sdkMessage.isMeta === true) {
           this.logger.debug(
-            '[SdkMessageTransformer] Skipping isMeta user message (skill/meta content)'
+            '[SdkMessageTransformer] Skipping isMeta user message (skill/meta content)',
           );
           return [];
         }
@@ -218,7 +219,7 @@ export class SdkMessageTransformer {
           if (!hasToolResult) {
             this.logger.info(
               '[SdkMessageTransformer] Skipping user message during active Skill tool execution (skill content injection)',
-              { activeSkillTools: [...this.activeSkillToolUseIds] }
+              { activeSkillTools: [...this.activeSkillToolUseIds] },
             );
             return [];
           }
@@ -227,7 +228,7 @@ export class SdkMessageTransformer {
         // LAYER 4: Content-based detection as last resort.
         if (this.isSkillOrMetaContent(sdkMessage)) {
           this.logger.info(
-            '[SdkMessageTransformer] Skipping user message detected as skill/meta content by pattern'
+            '[SdkMessageTransformer] Skipping user message detected as skill/meta content by pattern',
           );
           return [];
         }
@@ -247,7 +248,7 @@ export class SdkMessageTransformer {
         // pre-compaction messages are no longer relevant.
         this.logger.info(
           '[SdkMessageTransformer] Compact boundary received, resetting streaming state',
-          { trigger: sdkMessage.compact_metadata.trigger }
+          { trigger: sdkMessage.compact_metadata.trigger },
         );
         this.clearStreamingState();
 
@@ -279,7 +280,7 @@ export class SdkMessageTransformer {
       // Unknown message type
       this.logger.warn(
         '[SdkMessageTransformer] Unknown message type',
-        sdkMessage
+        sdkMessage,
       );
       return [];
     } catch (error) {
@@ -287,7 +288,7 @@ export class SdkMessageTransformer {
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(
         '[SdkMessageTransformer] Transformation failed',
-        errorObj
+        errorObj,
       );
       return [];
     }
@@ -309,7 +310,7 @@ export class SdkMessageTransformer {
    */
   private transformStreamEventToFlatEvents(
     sdkMessage: SDKPartialAssistantMessage,
-    sessionId?: SessionId
+    sessionId?: SessionId,
   ): FlatStreamEventUnion[] {
     const { event, parent_tool_use_id } = sdkMessage;
 
@@ -369,7 +370,7 @@ export class SdkMessageTransformer {
         if (this.activeSkillToolUseIds.size > 0) {
           this.logger.info(
             '[SdkMessageTransformer] Clearing activeSkillToolUseIds on assistant message_start',
-            { clearedIds: [...this.activeSkillToolUseIds] }
+            { clearedIds: [...this.activeSkillToolUseIds] },
           );
           this.activeSkillToolUseIds.clear();
         }
@@ -484,7 +485,7 @@ export class SdkMessageTransformer {
           this.logger.warn(
             `[SdkMessageTransformer] content_block_start but no active message for context: ${
               context || 'root'
-            }`
+            }`,
           );
           return [];
         }
@@ -518,7 +519,7 @@ export class SdkMessageTransformer {
             this.activeSkillToolUseIds.add(contentBlock.id);
             this.logger.info(
               '[SdkMessageTransformer] Tracking Skill tool_use (streaming) for content filtering',
-              { toolCallId: contentBlock.id }
+              { toolCallId: contentBlock.id },
             );
           }
 
@@ -656,7 +657,7 @@ export class SdkMessageTransformer {
 
           default:
             this.logger.debug(
-              `[SdkMessageTransformer] Unknown delta type: ${delta.type}`
+              `[SdkMessageTransformer] Unknown delta type: ${delta.type}`,
             );
             return [];
         }
@@ -677,7 +678,7 @@ export class SdkMessageTransformer {
         const error = (event as { error?: { type?: string; message?: string } })
           .error;
         this.logger.error(
-          `[SdkMessageTransformer] Stream error: ${error?.type} - ${error?.message}`
+          `[SdkMessageTransformer] Stream error: ${error?.type} - ${error?.message}`,
         );
         // Could emit error event if needed
         return [];
@@ -685,7 +686,7 @@ export class SdkMessageTransformer {
 
       default:
         this.logger.debug(
-          `[SdkMessageTransformer] Unknown event type: ${eventType}`
+          `[SdkMessageTransformer] Unknown event type: ${eventType}`,
         );
         return [];
     }
@@ -703,7 +704,7 @@ export class SdkMessageTransformer {
    */
   private transformAssistantToFlatEvents(
     sdkMessage: SDKAssistantMessage,
-    sessionId?: SessionId
+    sessionId?: SessionId,
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
 
@@ -726,7 +727,7 @@ export class SdkMessageTransformer {
     if (this.activeSkillToolUseIds.size > 0) {
       this.logger.info(
         '[SdkMessageTransformer] Clearing activeSkillToolUseIds on complete assistant message',
-        { clearedIds: [...this.activeSkillToolUseIds] }
+        { clearedIds: [...this.activeSkillToolUseIds] },
       );
       this.activeSkillToolUseIds.clear();
     }
@@ -745,10 +746,35 @@ export class SdkMessageTransformer {
     events.push(messageStartEvent);
 
     // 2. Emit content events (text, tools)
-    let textBlockIndex = 0;
+    // Use the actual content array index (matching the Anthropic API's event.index)
+    // NOT a text-only counter. The streaming path uses event.index which counts ALL
+    // content blocks (thinking, text, tool_use). Using a text-only counter here causes
+    // blockIndex mismatch: stream text_delta has blockIndex=1 (after thinking at 0),
+    // but complete text_delta has blockIndex=0 (text-only counter). This creates
+    // duplicate text accumulators in the frontend (msgId-block-1 AND msgId-block-0).
 
-    for (const block of content) {
-      if (isTextBlock(block)) {
+    for (let contentIndex = 0; contentIndex < content.length; contentIndex++) {
+      const block = content[contentIndex];
+      if (isThinkingBlock(block)) {
+        // Emit thinking_delta event for thinking blocks in complete messages.
+        // Without this, thinking accumulators populated by stream events get
+        // cleared (via deferred clearing) but never repopulated from the
+        // complete path, causing thinking blocks to vanish from the UI.
+        if (block.thinking) {
+          const thinkingDeltaEvent: ThinkingDeltaEvent = {
+            id: generateEventId(),
+            eventType: 'thinking_delta',
+            timestamp: Date.now(),
+            sessionId: sessionId || '',
+            source: 'complete' as EventSource,
+            messageId,
+            delta: block.thinking,
+            blockIndex: contentIndex,
+            parentToolUseId: parent_tool_use_id ?? undefined,
+          };
+          events.push(thinkingDeltaEvent);
+        }
+      } else if (isTextBlock(block)) {
         // Emit text_delta event
         const textDeltaEvent: TextDeltaEvent = {
           id: generateEventId(),
@@ -758,11 +784,10 @@ export class SdkMessageTransformer {
           source: 'complete' as EventSource,
           messageId,
           delta: block.text,
-          blockIndex: textBlockIndex,
+          blockIndex: contentIndex,
           parentToolUseId: parent_tool_use_id ?? undefined,
         };
         events.push(textDeltaEvent);
-        textBlockIndex++;
       } else if (isToolUseBlock(block)) {
         // Emit tool_start event
         const isTaskTool = isAgentDispatchTool(block.name);
@@ -806,7 +831,7 @@ export class SdkMessageTransformer {
                 toolCallId: block.id,
                 agentType,
                 agentDescription,
-              }
+              },
             );
           }
         }
@@ -816,7 +841,7 @@ export class SdkMessageTransformer {
           this.activeSkillToolUseIds.add(block.id);
           this.logger.info(
             '[SdkMessageTransformer] Tracking Skill tool_use for content filtering',
-            { toolCallId: block.id }
+            { toolCallId: block.id },
           );
         }
 
@@ -885,7 +910,7 @@ export class SdkMessageTransformer {
               ? block.content
               : JSON.stringify(block.content);
           const outputFileMatch = outputText?.match(
-            /output_file:\s*(.+?)(?:\n|$)/i
+            /output_file:\s*(.+?)(?:\n|$)/i,
           );
 
           const bgEvent: BackgroundAgentStartedEvent = {
@@ -907,7 +932,7 @@ export class SdkMessageTransformer {
             {
               toolCallId: block.tool_use_id,
               outputFilePath: bgEvent.outputFilePath,
-            }
+            },
           );
         }
       }
@@ -928,7 +953,7 @@ export class SdkMessageTransformer {
     const cost = tokenUsage
       ? calculateMessageCost(
           resolveActualModelForPricing(message.model || '', this.authEnv),
-          tokenUsage
+          tokenUsage,
         )
       : undefined;
 
@@ -964,7 +989,7 @@ export class SdkMessageTransformer {
    */
   private transformUserToFlatEvents(
     sdkMessage: SDKUserMessage,
-    sessionId?: SessionId
+    sessionId?: SessionId,
   ): FlatStreamEventUnion[] {
     const { uuid, message, parent_tool_use_id } = sdkMessage;
 
@@ -1011,7 +1036,7 @@ export class SdkMessageTransformer {
                 ? toolResultBlock.content
                 : JSON.stringify(toolResultBlock.content);
             const outputFileMatch = outputText?.match(
-              /output_file:\s*(.+?)(?:\n|$)/i
+              /output_file:\s*(.+?)(?:\n|$)/i,
             );
 
             const bgEvent: BackgroundAgentStartedEvent = {
@@ -1051,7 +1076,7 @@ export class SdkMessageTransformer {
             block !== null &&
             'type' in block &&
             block.type === 'text' &&
-            'text' in block
+            'text' in block,
         )
         .map((block) => block.text)
         .join('\n');
@@ -1155,7 +1180,7 @@ export class SdkMessageTransformer {
             block !== null &&
             'type' in block &&
             block.type === 'text' &&
-            'text' in block
+            'text' in block,
         )
         .map((block) => block.text)
         .join('\n');
@@ -1173,7 +1198,7 @@ export class SdkMessageTransformer {
     // Check for invoked_skills pattern (SDK injects these with isMeta during resume)
     if (
       textContent.startsWith(
-        'The following skills were invoked in this session'
+        'The following skills were invoked in this session',
       )
     )
       return true;
@@ -1208,7 +1233,7 @@ export class SdkMessageTransformer {
         typeof block === 'object' &&
         block !== null &&
         'type' in block &&
-        block.type === 'tool_result'
+        block.type === 'tool_result',
     );
   }
 

@@ -7,13 +7,10 @@
   "types": "./index.d.ts",
   "dependencies": {
     "@ptah-extension/shared": "*",
-    "@types/vscode": "*",
     "picomatch": "*",
     "tsyringe": "*",
     "@ptah-extension/vscode-core": "*",
-    "tree-sitter": "*",
-    "tree-sitter-javascript": "*",
-    "tree-sitter-typescript": "*",
-    "gray-matter": "*"
+    "gray-matter": "*",
+    "web-tree-sitter": "^0.24.7"
   }
 }

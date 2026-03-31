@@ -4,12 +4,12 @@ import {
   input,
   signal,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { LucideAngularModule, Copy, Check, Terminal } from 'lucide-angular';
 
 @Component({
   selector: 'ptah-docs-code-block',
-  imports: [CommonModule, LucideAngularModule],
+  imports: [LucideAngularModule],
   template: `
     <div
       class="rounded-xl overflow-hidden border border-secondary/20 bg-base-200 backdrop-blur-sm"
@@ -25,9 +25,9 @@ import { LucideAngularModule, Copy, Check, Terminal } from 'lucide-angular';
             aria-hidden="true"
           />
           @if (label()) {
-          <span class="text-xs text-neutral-content/40 font-medium">{{
-            label()
-          }}</span>
+            <span class="text-xs text-neutral-content/40 font-medium">{{
+              label()
+            }}</span>
           }
         </div>
         <button
@@ -37,19 +37,19 @@ import { LucideAngularModule, Copy, Check, Terminal } from 'lucide-angular';
           (click)="copyToClipboard()"
         >
           @if (copied()) {
-          <lucide-angular
-            [img]="CheckIcon"
-            class="w-3.5 h-3.5 text-success"
-            aria-hidden="true"
-          />
-          <span class="text-success">Copied</span>
+            <lucide-angular
+              [img]="CheckIcon"
+              class="w-3.5 h-3.5 text-success"
+              aria-hidden="true"
+            />
+            <span class="text-success">Copied</span>
           } @else {
-          <lucide-angular
-            [img]="CopyIcon"
-            class="w-3.5 h-3.5"
-            aria-hidden="true"
-          />
-          <span>Copy</span>
+            <lucide-angular
+              [img]="CopyIcon"
+              class="w-3.5 h-3.5"
+              aria-hidden="true"
+            />
+            <span>Copy</span>
           }
         </button>
       </div>

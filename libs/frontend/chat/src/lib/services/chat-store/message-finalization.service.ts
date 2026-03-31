@@ -65,6 +65,21 @@ export class MessageFinalizationService {
     // Deep-copy state to prevent race condition (TASK_2025_084 Batch 1 Task 1.3)
     const stateCopy = this.deepCopyStreamingState(streamingState);
 
+    // DIAGNOSTIC: Log accumulator state at finalization time
+    const textKeys = [...stateCopy.textAccumulators.keys()].filter((k) =>
+      k.includes('-block-'),
+    );
+    const thinkKeys = [...stateCopy.textAccumulators.keys()].filter((k) =>
+      k.includes('-thinking-'),
+    );
+    console.log('[Finalization] Building final tree from state:', {
+      eventCount: stateCopy.events.size,
+      messageIds: stateCopy.messageEventIds.length,
+      textAccumulatorKeys: textKeys,
+      thinkingAccumulatorKeys: thinkKeys,
+      totalAccumulators: stateCopy.textAccumulators.size,
+    });
+
     // Build final tree using ExecutionTreeBuilderService (TASK_2025_082 Batch 6)
     // PERFORMANCE: Use unique cache key for finalization to avoid stale cache
     const cacheKey = `finalize-${targetTabId}-${Date.now()}`;
@@ -73,13 +88,13 @@ export class MessageFinalizationService {
     // TASK_2025_098 FIX: Mark all 'streaming' nodes as 'interrupted' when aborted
     if (isAborted) {
       finalTree = finalTree.map((tree) =>
-        this.markStreamingNodesAsInterrupted(tree)
+        this.markStreamingNodesAsInterrupted(tree),
       );
     }
 
     // Find message_complete event for metadata
     const completeEvent = [...streamingState.events.values()].find(
-      (e) => e.eventType === 'message_complete' && e.messageId === messageId
+      (e) => e.eventType === 'message_complete' && e.messageId === messageId,
     ) as MessageCompleteEvent | undefined;
 
     // pendingStats comes from the SDK result message (session-end stats).
@@ -134,7 +149,7 @@ export class MessageFinalizationService {
     const existingMessages = targetTab?.messages ?? [];
     const treeNodeIdForCheck = finalTree[0]?.id ?? messageId;
     const messageExists = existingMessages.some(
-      (msg) => msg.id === messageId || msg.id === treeNodeIdForCheck
+      (msg) => msg.id === messageId || msg.id === treeNodeIdForCheck,
     );
 
     if (messageExists) {
@@ -175,7 +190,7 @@ export class MessageFinalizationService {
    */
   finalizeSessionHistory(
     tabId: string,
-    resumableSubagents?: SubagentRecord[]
+    resumableSubagents?: SubagentRecord[],
   ): ExecutionChatMessage[] {
     // PERFORMANCE: Flush any pending batched updates before finalization
     this.batchedUpdate.flushSync();
@@ -198,10 +213,10 @@ export class MessageFinalizationService {
     // so the Resume button appears when loading session from history
     if (resumableSubagents && resumableSubagents.length > 0) {
       const resumableToolCallIds = new Set(
-        resumableSubagents.map((s) => s.toolCallId)
+        resumableSubagents.map((s) => s.toolCallId),
       );
       allTrees = allTrees.map((tree) =>
-        this.markResumableAgentsAsInterrupted(tree, resumableToolCallIds)
+        this.markResumableAgentsAsInterrupted(tree, resumableToolCallIds),
       );
     }
 
@@ -217,7 +232,7 @@ export class MessageFinalizationService {
     for (const messageId of stateCopy.messageEventIds) {
       // Find message_start event to determine role
       const messageStartEvent = [...stateCopy.events.values()].find(
-        (e) => e.eventType === 'message_start' && e.messageId === messageId
+        (e) => e.eventType === 'message_start' && e.messageId === messageId,
       ) as MessageStartEvent | undefined;
 
       if (!messageStartEvent) {
@@ -233,12 +248,12 @@ export class MessageFinalizationService {
 
       // Find corresponding tree node for this message
       const treeNode = allTrees.find(
-        (node) => node.id === messageStartEvent.id
+        (node) => node.id === messageStartEvent.id,
       );
 
       // Find message_complete event for metadata
       const completeEvent = [...stateCopy.events.values()].find(
-        (e) => e.eventType === 'message_complete' && e.messageId === messageId
+        (e) => e.eventType === 'message_complete' && e.messageId === messageId,
       ) as MessageCompleteEvent | undefined;
 
       // Extract tokens/cost/duration from complete event
@@ -268,7 +283,10 @@ export class MessageFinalizationService {
             rawContent: textContent,
             sessionId: targetTab?.claudeSessionId ?? undefined,
             timestamp: messageStartEvent.timestamp,
-          })
+            ...(messageStartEvent.imageCount
+              ? { imageCount: messageStartEvent.imageCount }
+              : {}),
+          }),
         );
       } else {
         // Assistant message: use execution tree
@@ -298,7 +316,7 @@ export class MessageFinalizationService {
             cost,
             duration,
             timestamp: messageStartEvent.timestamp,
-          })
+          }),
         );
       }
     }
@@ -309,7 +327,7 @@ export class MessageFinalizationService {
     const finalMessages = messages.map((msg) => {
       if (msg.role === 'assistant' && msg.streamingState) {
         const cleaned = this.markStreamingAgentsAsInterrupted(
-          msg.streamingState
+          msg.streamingState,
         );
         if (cleaned !== msg.streamingState) {
           return { ...msg, streamingState: cleaned };
@@ -337,20 +355,20 @@ export class MessageFinalizationService {
       events: new Map(state.events),
       messageEventIds: [...state.messageEventIds],
       toolCallMap: new Map(
-        [...state.toolCallMap.entries()].map(([k, v]) => [k, [...v]])
+        [...state.toolCallMap.entries()].map(([k, v]) => [k, [...v]]),
       ),
       textAccumulators: new Map(state.textAccumulators),
       toolInputAccumulators: new Map(state.toolInputAccumulators),
       agentSummaryAccumulators: new Map(state.agentSummaryAccumulators),
       agentContentBlocksMap: new Map(
-        [...state.agentContentBlocksMap.entries()].map(([k, v]) => [k, [...v]])
+        [...state.agentContentBlocksMap.entries()].map(([k, v]) => [k, [...v]]),
       ),
       currentMessageId: state.currentMessageId,
       currentTokenUsage: state.currentTokenUsage
         ? { ...state.currentTokenUsage }
         : null,
       eventsByMessage: new Map(
-        [...state.eventsByMessage.entries()].map(([k, v]) => [k, [...v]])
+        [...state.eventsByMessage.entries()].map(([k, v]) => [k, [...v]]),
       ),
       pendingStats: state.pendingStats ? { ...state.pendingStats } : null,
     };
@@ -363,7 +381,7 @@ export class MessageFinalizationService {
   private markStreamingNodesAsInterrupted(node: ExecutionNode): ExecutionNode {
     // Recursively process children first
     const updatedChildren = node.children.map((child) =>
-      this.markStreamingNodesAsInterrupted(child)
+      this.markStreamingNodesAsInterrupted(child),
     );
 
     // If this node is streaming, mark it as interrupted
@@ -395,7 +413,7 @@ export class MessageFinalizationService {
    */
   private markStreamingAgentsAsInterrupted(node: ExecutionNode): ExecutionNode {
     const updatedChildren = node.children.map((child) =>
-      this.markStreamingAgentsAsInterrupted(child)
+      this.markStreamingAgentsAsInterrupted(child),
     );
 
     if (node.type === 'agent' && node.status === 'streaming') {
@@ -454,7 +472,7 @@ export class MessageFinalizationService {
 
     this.tabManager.updateTab(tabId, { messages: updatedMessages });
     console.log(
-      '[MessageFinalizationService] Marked last agent as interrupted (hard deny)'
+      '[MessageFinalizationService] Marked last agent as interrupted (hard deny)',
     );
   }
 
@@ -500,7 +518,7 @@ export class MessageFinalizationService {
    */
   markAgentsAsInterruptedByToolCallIds(
     tabId: string,
-    toolCallIds: Set<string>
+    toolCallIds: Set<string>,
   ): void {
     const tab = this.tabManager.tabs().find((t) => t.id === tabId);
     if (!tab || tab.messages.length === 0) return;
@@ -532,7 +550,7 @@ export class MessageFinalizationService {
     this.tabManager.updateTab(tabId, { messages: updatedMessages });
     console.log(
       '[MessageFinalizationService] Marked agents as interrupted by toolCallIds',
-      { toolCallIds: [...toolCallIds] }
+      { toolCallIds: [...toolCallIds] },
     );
   }
 
@@ -545,7 +563,7 @@ export class MessageFinalizationService {
    */
   private markMatchingAgentsAsInterrupted(
     node: ExecutionNode,
-    toolCallIds: Set<string>
+    toolCallIds: Set<string>,
   ): ExecutionNode {
     // Recursively process children first
     let childrenChanged = false;
@@ -591,11 +609,11 @@ export class MessageFinalizationService {
    */
   private markResumableAgentsAsInterrupted(
     node: ExecutionNode,
-    resumableToolCallIds: Set<string>
+    resumableToolCallIds: Set<string>,
   ): ExecutionNode {
     // Recursively process children first
     const updatedChildren = node.children.map((child) =>
-      this.markResumableAgentsAsInterrupted(child, resumableToolCallIds)
+      this.markResumableAgentsAsInterrupted(child, resumableToolCallIds),
     );
 
     // Check if this is an agent node with a matching toolCallId

@@ -6,11 +6,19 @@ on:
       - release/landing
   workflow_dispatch:
 
+concurrency:
+  group: deploy-landing
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
+env:
+  NODE_VERSION: 22
+  NX_TUI: false
+
 jobs:
-  quality-gates:
+  build-and-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -18,26 +26,29 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
 
-      - run: npm ci
+      # Cache node_modules — skips npm ci on cache hit
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
-      - name: Quality gates
+      - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Build landing page
         run: npx nx run-many -t build --projects=ptah-landing-page
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: quality-gates
-    steps:
-      - uses: actions/checkout@v4
 
       - name: Install doctl
         uses: digitalocean/action-doctl@v2
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
-      - name: Update app spec and deploy
+      - name: Deploy
         run: |
           doctl apps update ${{ secrets.DO_APP_ID }} --spec .do/app.yaml
           doctl apps create-deployment ${{ secrets.DO_APP_ID }} --wait

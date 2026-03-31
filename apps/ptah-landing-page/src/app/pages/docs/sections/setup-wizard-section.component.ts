@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -21,7 +21,6 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
 @Component({
   selector: 'ptah-docs-setup-wizard',
   imports: [
-    CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsStepCardComponent,
@@ -57,18 +56,20 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
           <!-- Step flow visualization -->
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
             @for (step of wizardSteps; track step.label; let i = $index) {
-            <div
-              class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-base-300/50 border border-secondary/10"
-            >
               <div
-                class="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center shrink-0"
+                class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-base-300/50 border border-secondary/10"
               >
-                <span class="text-xs font-bold text-secondary">{{
-                  i + 1
+                <div
+                  class="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center shrink-0"
+                >
+                  <span class="text-xs font-bold text-secondary">{{
+                    i + 1
+                  }}</span>
+                </div>
+                <span class="text-sm text-base-content/70">{{
+                  step.label
                 }}</span>
               </div>
-              <span class="text-sm text-base-content/70">{{ step.label }}</span>
-            </div>
             }
           </div>
 

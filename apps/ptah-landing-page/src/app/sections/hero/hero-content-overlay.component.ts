@@ -69,10 +69,10 @@ import {
           <span
             class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
           >
-            14 DAYS TRIAL
+            30 DAYS TRIAL
           </span>
           <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
+            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
             target="_blank"
             rel="noopener"
             class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
@@ -86,10 +86,10 @@ import {
           <span
             class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-slate-900 border border-amber-400/50 text-[10px] font-bold text-amber-300 tracking-wide z-20 whitespace-nowrap"
           >
-            14 DAYS TRIAL
+            30 DAYS TRIAL
           </span>
           <a
-            href="https://github.com/Hive-Academy/ptah-app/releases/latest"
+            href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
             target="_blank"
             rel="noopener"
             class="cta-glow-button block relative overflow-hidden px-5 sm:px-8 py-3.5 sm:py-4 text-sm sm:text-base font-semibold text-white rounded-xl text-center"
@@ -106,12 +106,14 @@ import {
         class="grid grid-cols-2 gap-x-6 gap-y-4 sm:gap-6 md:flex md:flex-wrap md:justify-center md:gap-10 w-full max-w-sm sm:max-w-none mx-auto"
       >
         @for (stat of stats; track stat.value) {
-        <div class="flex items-baseline justify-center gap-1.5 sm:gap-2">
-          <span class="text-xl sm:text-2xl font-semibold text-white/90">{{
-            stat.value
-          }}</span>
-          <span class="text-xs sm:text-sm text-white/50">{{ stat.label }}</span>
-        </div>
+          <div class="flex items-baseline justify-center gap-1.5 sm:gap-2">
+            <span class="text-xl sm:text-2xl font-semibold text-white/90">{{
+              stat.value
+            }}</span>
+            <span class="text-xs sm:text-sm text-white/50">{{
+              stat.label
+            }}</span>
+          </div>
         }
       </div>
     </div>
@@ -130,7 +132,8 @@ import {
           rgba(212, 175, 55, 0.15) 100%
         );
         border: 1px solid rgba(212, 175, 55, 0.3);
-        box-shadow: 0 0 15px rgba(212, 175, 55, 0.15),
+        box-shadow:
+          0 0 15px rgba(212, 175, 55, 0.15),
           0 0 30px rgba(212, 175, 55, 0.05),
           inset 0 1px 0 rgba(244, 212, 124, 0.1);
         transition: all 0.3s ease;
@@ -139,7 +142,8 @@ import {
       .cta-glow-button:hover {
         transform: translateY(-2px);
         border-color: rgba(212, 175, 55, 0.5);
-        box-shadow: 0 0 20px rgba(212, 175, 55, 0.3),
+        box-shadow:
+          0 0 20px rgba(212, 175, 55, 0.3),
           0 0 50px rgba(212, 175, 55, 0.1),
           inset 0 1px 0 rgba(244, 212, 124, 0.2);
       }

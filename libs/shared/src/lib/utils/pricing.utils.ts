@@ -233,6 +233,13 @@ export const DEFAULT_MODEL_PRICING: Record<string, ModelPricing> = {
 };
 
 /**
+ * Set of model IDs that have already been warned about.
+ * Prevents log spam when the same unknown model is looked up repeatedly
+ * (e.g., during session resume processing hundreds of messages).
+ */
+const warnedModelIds = new Set<string>();
+
+/**
  * Model pricing map - can be updated dynamically at runtime
  * Initialized with default bundled pricing
  */
@@ -250,7 +257,7 @@ let modelPricingMap: Record<string, ModelPricing> = {
  * @param newPricing - New pricing data to merge into the existing map
  */
 export function updatePricingMap(
-  newPricing: Record<string, ModelPricing>
+  newPricing: Record<string, ModelPricing>,
 ): void {
   modelPricingMap = { ...modelPricingMap, ...newPricing };
 }
@@ -319,9 +326,12 @@ export function findModelPricing(modelId: string): ModelPricing {
   }
 
   // 3. Fallback to default
-  console.warn(
-    `[Pricing] Model '${modelId}' not found in pricing map, using default`
-  );
+  if (!warnedModelIds.has(modelId)) {
+    warnedModelIds.add(modelId);
+    console.warn(
+      `[Pricing] Model '${modelId}' not found in pricing map, using default`,
+    );
+  }
   return modelPricingMap['default'];
 }
 
@@ -354,7 +364,7 @@ export function findModelPricing(modelId: string): ModelPricing {
  */
 export function calculateMessageCost(
   modelId: string,
-  tokens: TokenBreakdown
+  tokens: TokenBreakdown,
 ): number {
   const pricing = findModelPricing(modelId);
 
@@ -486,6 +496,8 @@ export function formatModelDisplayName(modelId: string): string {
   if (lower.includes('kimi-k2')) return 'Kimi K2';
 
   // Z.AI GLM models
+  if (lower.includes('glm-5.1')) return 'GLM-5.1';
+  if (lower.includes('glm-5-turbo')) return 'GLM-5 Turbo';
   if (lower.includes('glm-5-code')) return 'GLM-5 Code';
   if (lower.includes('glm-5')) return 'GLM-5';
   if (lower.includes('glm-4.7-flash') && !lower.includes('flashx'))

@@ -71,7 +71,7 @@ export interface MultiPhaseAnalysisResponse {
  * Use this to discriminate between multi-phase and legacy responses.
  */
 export function isMultiPhaseResponse(
-  value: unknown
+  value: unknown,
 ): value is MultiPhaseAnalysisResponse {
   return (
     typeof value === 'object' &&
@@ -235,7 +235,7 @@ export interface EnhancedPromptsRunWizardParams {
   config?: EnhancedPromptsConfigOptions;
   /** Pre-computed analysis from wizard Step 1 (optional; omitted for multi-phase analysis path) */
   analysisData?: ProjectAnalysisResult;
-  /** Multi-phase analysis directory path (e.g., '.claude/analysis/my-project'). When provided, the backend reads all phase markdown files for richer context. */
+  /** Multi-phase analysis directory path (e.g., '.ptah/analysis/my-project'). When provided, the backend reads all phase markdown files for richer context. */
   analysisDir?: string;
   /** Optional model override from frontend (e.g., 'claude-sonnet-4-20250514') */
   model?: string;

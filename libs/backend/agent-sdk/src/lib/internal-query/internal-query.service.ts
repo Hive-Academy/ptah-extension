@@ -114,7 +114,7 @@ export class InternalQueryService {
     @inject(SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER)
     private readonly compactionHookHandler: CompactionHookHandler,
     @inject(SDK_TOKENS.SDK_AUTH_ENV)
-    private readonly authEnv: AuthEnv
+    private readonly authEnv: AuthEnv,
   ) {}
 
   /**
@@ -128,46 +128,71 @@ export class InternalQueryService {
    * @throws Error if SDK is not available or query function cannot be loaded
    */
   async execute(config: InternalQueryConfig): Promise<InternalQueryHandle> {
+    // 1. Resolve pathToClaudeCodeExecutable (TASK_2025_194 parity)
+    // The SDK's default import.meta.url-based resolution bakes in the build-time path.
+    // Without this override, the subprocess resolves to a non-existent path in production
+    // — causing immediate "process exited with code 1".
+    // Try SdkAgentAdapter first (has bundled cli.js fallback), then moduleLoader.
+    const cliJsPath =
+      this.sdkAdapter.getCliJsPath() ??
+      (await this.moduleLoader.getCliJsPath());
+
     this.logger.info(`${SERVICE_TAG} Starting internal query`, {
       cwd: config.cwd,
       model: config.model,
       isPremium: config.isPremium,
       mcpServerRunning: config.mcpServerRunning,
+      mcpPort: config.mcpPort,
       maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
       hasSystemPromptAppend: !!config.systemPromptAppend,
+      hasPlugins: (config.pluginPaths?.length ?? 0) > 0,
+      pluginCount: config.pluginPaths?.length ?? 0,
+      cliJsPath: cliJsPath ?? 'NOT_RESOLVED',
     });
 
-    // 1. Verify SDK health
+    // 2. Verify SDK health
     this.verifyHealth();
 
-    // 2. Get SDK query function
+    // 3. Get SDK query function
     const queryFn = await this.moduleLoader.getQueryFunction();
 
-    // 3. Build query options (with all feature integrations)
+    // 4. Build query options (with all feature integrations)
     const abortController = config.abortController ?? new AbortController();
-    const options = await this.buildOptions(config, abortController);
+    const options = await this.buildOptions(config, abortController, cliJsPath);
 
     const systemPromptObj =
       typeof options.systemPrompt === 'object'
         ? options.systemPrompt
         : undefined;
 
-    this.logger.info(`${SERVICE_TAG} SDK options built`, {
+    this.logger.info(`${SERVICE_TAG} SDK options built — launching query`, {
       model: config.model,
       permissionMode: 'bypassPermissions',
       maxTurns: options.maxTurns,
       hasMcpServers: Object.keys(options.mcpServers ?? {}).length > 0,
+      mcpServerUrls: Object.entries(options.mcpServers ?? {}).map(
+        ([name, cfg]) => `${name}=${(cfg as { url?: string }).url ?? 'N/A'}`,
+      ),
       hasSystemPromptAppend: !!systemPromptObj?.append,
       systemPromptAppendLength: systemPromptObj?.append?.length ?? 0,
+      hasPathToExecutable: !!options.pathToClaudeCodeExecutable,
+      pathToExecutable: options.pathToClaudeCodeExecutable ?? 'SDK_DEFAULT',
+      pluginCount: options.plugins?.length ?? 0,
+      promptLength: config.prompt.length,
     });
 
-    // 4. Start query with string prompt (single-shot mode)
+    // 5. Start query with string prompt (single-shot mode)
+    const queryStartMs = Date.now();
     const conversation = queryFn({
       prompt: config.prompt,
       options,
     });
 
-    // 5. Return handle
+    this.logger.info(
+      `${SERVICE_TAG} SDK query() returned conversation handle in ${Date.now() - queryStartMs}ms`,
+    );
+
+    // 6. Return handle
     return {
       stream: conversation,
       abort: () => abortController.abort(),
@@ -196,7 +221,7 @@ export class InternalQueryService {
       throw new Error(
         `SDK not available (status: ${health.status}). ${
           health.errorMessage || ''
-        }`
+        }`,
       );
     }
   }
@@ -217,7 +242,8 @@ export class InternalQueryService {
    */
   private async buildOptions(
     config: InternalQueryConfig,
-    abortController: AbortController
+    abortController: AbortController,
+    cliJsPath: string | null,
   ): Promise<SdkQueryOptions> {
     // Assemble system prompt with all enhancements
     const systemPrompt = this.buildSystemPrompt(config);
@@ -226,18 +252,16 @@ export class InternalQueryService {
     const mcpServers = this.buildMcpServers(
       config.isPremium,
       config.mcpServerRunning,
-      config.mcpPort
+      config.mcpPort,
     );
 
     // Create lifecycle hooks (subagent + compaction)
     const hooks = this.buildHooks(config.cwd);
 
     // Log compaction configuration for debugging
-    // Note: compactionControl is not part of the SDK Options interface.
-    // Compaction behavior is managed through PreCompact hooks in buildHooks().
     const compactionConfig = this.compactionConfigProvider.getConfig();
     this.logger.debug(
-      `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`
+      `${SERVICE_TAG} Compaction config: enabled=${compactionConfig.enabled}, threshold=${compactionConfig.contextTokenThreshold} (managed via hooks)`,
     );
 
     const options: SdkQueryOptions = {
@@ -270,6 +294,12 @@ export class InternalQueryService {
       // Don't persist internal sessions to disk
       persistSession: false,
 
+      // TASK_2025_194 parity: Override the SDK's baked-in import.meta.url path
+      // with the runtime-resolved cli.js path. Without this, the SDK subprocess
+      // resolves to the build-time path — causing "process exited with code 1"
+      // in production where that path doesn't exist.
+      pathToClaudeCodeExecutable: cliJsPath || undefined,
+
       // Merge AuthEnv with process.env — AuthEnv values override process.env (TASK_2025_164)
       // Set NO_PROXY to prevent corporate proxy interception of localhost requests
       env: {
@@ -287,14 +317,17 @@ export class InternalQueryService {
         ? ['project', 'local']
         : ['user', 'project', 'local'],
 
-      // Capture stderr — parse log level and route appropriately
+      // Capture stderr — parse log level and route appropriately.
+      // Log ALL stderr at info level initially so we can diagnose production failures,
+      // then demote to debug once the setup wizard is stable.
       stderr: (data: string) => {
         if (data.includes('[ERROR]')) {
           this.logger.error(`${SERVICE_TAG} SDK stderr: ${data}`);
         } else if (data.includes('[WARN]')) {
           this.logger.warn(`${SERVICE_TAG} SDK stderr: ${data}`);
         } else {
-          this.logger.debug(`${SERVICE_TAG} SDK stderr: ${data}`);
+          // Log at info level (not debug) to ensure visibility in production output channels
+          this.logger.info(`${SERVICE_TAG} SDK stderr: ${data}`);
         }
       },
 
@@ -347,7 +380,7 @@ export class InternalQueryService {
     if (identityPrompt) {
       appendParts.push(identityPrompt);
       this.logger.debug(
-        `${SERVICE_TAG} Added identity prompt for third-party provider`
+        `${SERVICE_TAG} Added identity prompt for third-party provider`,
       );
     }
 
@@ -357,7 +390,7 @@ export class InternalQueryService {
     if (config.isPremium) {
       appendParts.push(PTAH_CORE_SYSTEM_PROMPT);
       this.logger.debug(
-        `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT for internal query`
+        `${SERVICE_TAG} Using PTAH_CORE_SYSTEM_PROMPT for internal query`,
       );
     }
 
@@ -438,7 +471,7 @@ This clarification takes precedence over any other identity instructions in the 
   private buildMcpServers(
     isPremium: boolean,
     mcpServerRunning: boolean,
-    mcpPort?: number
+    mcpPort?: number,
   ): Record<string, McpHttpServerConfig> {
     if (!isPremium) {
       this.logger.debug(`${SERVICE_TAG} MCP disabled (not premium)`);
@@ -467,11 +500,11 @@ This clarification takes precedence over any other identity instructions in the 
    * - Compaction notification (for long-running analyses)
    */
   private buildHooks(
-    cwd: string
+    cwd: string,
   ): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
     const subagentHooks = this.subagentHookHandler.createHooks(cwd);
     const compactionHooks = this.compactionHookHandler.createHooks(
-      `internal-query-${Date.now()}`
+      `internal-query-${Date.now()}`,
     );
 
     // Merge hooks safely — concatenate arrays for same event key to prevent overwrites

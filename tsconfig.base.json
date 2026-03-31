@@ -5,12 +5,12 @@
     "sourceMap": true,
     "declaration": false,
     "moduleResolution": "node16",
-    "emitDecoratorMetadata": true,
+    "emitDecoratorMetadata": false,
     "experimentalDecorators": true,
     "importHelpers": true,
     "target": "es2015",
     "module": "esnext",
-    "lib": ["es2020", "dom"],
+    "lib": ["es2022", "dom"],
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
     "esModuleInterop": true,
@@ -25,6 +25,9 @@
       "@ptah-extension/core": ["libs/frontend/core/src/index.ts"],
       "@ptah-extension/dashboard": ["libs/frontend/dashboard/src/index.ts"],
       "@ptah-extension/editor": ["libs/frontend/editor/src/index.ts"],
+      "@ptah-extension/editor/services": [
+        "libs/frontend/editor/src/services.ts"
+      ],
       "@ptah-extension/llm-abstraction": [
         "libs/backend/llm-abstraction/src/index.ts"
       ],
@@ -55,6 +58,9 @@
       "@ptah-extension/vscode-core": ["libs/backend/vscode-core/src/index.ts"],
       "@ptah-extension/vscode-lm-tools": [
         "libs/backend/vscode-lm-tools/src/index.ts"
+      ],
+      "@ptah-extension/vscode-lm-tools/vscode": [
+        "libs/backend/vscode-lm-tools/src/vscode.ts"
       ],
       "@ptah-extension/workspace-intelligence": [
         "libs/backend/workspace-intelligence/src/index.ts"

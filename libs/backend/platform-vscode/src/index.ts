@@ -11,3 +11,4 @@ export { VscodeUserInteraction } from './implementations/vscode-user-interaction
 export { VscodeOutputChannel } from './implementations/vscode-output-channel';
 export { VscodeCommandRegistry } from './implementations/vscode-command-registry';
 export { VscodeEditorProvider } from './implementations/vscode-editor-provider';
+export { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';

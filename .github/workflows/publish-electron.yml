@@ -7,8 +7,9 @@
 #   2. Auto-bumps the version in apps/ptah-electron/package.json
 #   3. Checks if the version tag already exists (prevents duplicate releases)
 #   4. Builds for all 3 platforms in parallel
-#   5. Creates git tag + public GitHub Release with all installers
-#   6. Commits the version bump back to the branch
+#   5. Creates git tag + GitHub Release with all installers
+#   6. Opens a PR to merge the version bump into main
+#      Commit message filter on the prepare job prevents infinite retrigger
 #
 # Phase 1: Unsigned builds — no code signing secrets configured.
 # Users will see platform warnings ("unidentified developer") until
@@ -32,12 +33,25 @@ on:
           - major
         default: patch
 
+concurrency:
+  group: publish-electron
+  cancel-in-progress: false
+
 permissions:
   contents: write
+  pull-requests: write
+
+env:
+  NODE_VERSION: 22
+  NX_TUI: false
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
+    # Skip version-bump commits to prevent infinite loop
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.head_commit.message, 'chore(release):')
     outputs:
       version: ${{ steps.bump.outputs.new_version }}
       tag: ${{ steps.bump.outputs.tag }}
@@ -46,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Configure git
         run: |
@@ -97,6 +111,8 @@ jobs:
         env:
           HUSKY: '0'
         run: |
+          # Push to release/electron so build jobs see the bumped version.
+          # The commit message filter on the prepare job prevents infinite retrigger.
           git add apps/ptah-electron/package.json
           git commit --no-verify -m "chore(release): electron v${{ steps.bump.outputs.new_version }}"
           git push origin HEAD
@@ -123,11 +139,26 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
+
+      # Cache node_modules per OS — skips npm ci on cache hit
+      - name: Cache node_modules
+        id: cache-modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install dependencies
+        if: steps.cache-modules.outputs.cache-hit != 'true'
         run: npm ci
+
+      # Python 3.12+ removed distutils; setuptools restores it for node-gyp native builds
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fix Python distutils (native module builds)
+        run: python -m pip install setuptools
 
       - name: Build Electron app
         run: npx nx build ptah-electron
@@ -139,6 +170,10 @@ jobs:
         run: npx electron-builder --config electron-builder.yml --project dist/apps/ptah-electron --publish never ${{ matrix.build-args }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # tree-sitter 0.21.x binding.gyp forces C++17, but Electron 35 V8 headers require C++20
+          # _CL_ is for MSVC (Windows), CXXFLAGS is for GCC/Clang (Linux/macOS)
+          _CL_: ${{ runner.os == 'Windows' && '/std:c++20' || '' }}
+          CXXFLAGS: ${{ runner.os != 'Windows' && '-std=c++20' || '' }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -154,13 +189,42 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
 
-      - name: Create git tag
+      - name: Create git tag and version bump PR to main
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          TAG="${{ needs.prepare.outputs.tag }}"
+          BRANCH="chore/bump-electron-v${VERSION}"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ needs.prepare.outputs.tag }}" -m "Electron Desktop App v${{ needs.prepare.outputs.version }}"
-          git push origin "${{ needs.prepare.outputs.tag }}"
+
+          # Tag the release
+          git tag -a "$TAG" -m "Electron Desktop App v${VERSION}"
+          git push origin "$TAG"
+
+          # Create a fresh branch from main with the version bump
+          git fetch origin main
+          git checkout -b "$BRANCH" origin/main
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('apps/ptah-electron/package.json', 'utf8'));
+            pkg.version = '${VERSION}';
+            fs.writeFileSync('apps/ptah-electron/package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          git add apps/ptah-electron/package.json
+          git commit --no-verify -m "chore(release): electron v${VERSION}"
+          git push origin "$BRANCH"
+
+          # Create PR to main
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): electron v${VERSION}" \
+            --body "Auto-generated version bump after publishing Electron Desktop v${VERSION}."
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -171,7 +235,18 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f | head -50
 
-      - name: Create GitHub Release (private repo)
+      - name: Rename installer files
+        run: |
+          # electron-builder NSIS uses spaces in filenames (e.g. "Ptah Setup 0.1.3.exe")
+          # Rename to dots for cleaner download URLs
+          find artifacts -type f -name "*Setup*.exe" -print0 | while IFS= read -r -d '' file; do
+            newname=$(echo "$file" | sed 's/ /./g')
+            if [ "$file" != "$newname" ]; then
+              mv "$file" "$newname"
+            fi
+          done
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
@@ -185,64 +260,3 @@ jobs:
             artifacts/**/*.AppImage
             artifacts/**/*.deb
             artifacts/**/latest*.yml
-
-      - name: Publish release to public repo (ptah-app)
-        env:
-          GH_TOKEN: ${{ secrets.PUBLIC_REPO_PAT }}
-        run: |
-          TAG="${{ needs.prepare.outputs.tag }}"
-          VERSION="${{ needs.prepare.outputs.version }}"
-
-          # Create the tag in the public repo via API
-          # Get the default branch SHA
-          DEFAULT_SHA=$(gh api repos/Hive-Academy/ptah-app/git/ref/heads/main --jq '.object.sha')
-
-          # Create tag object
-          TAG_SHA=$(gh api repos/Hive-Academy/ptah-app/git/tags \
-            -f tag="$TAG" \
-            -f message="Ptah Desktop v$VERSION" \
-            -f object="$DEFAULT_SHA" \
-            -f type="commit" \
-            --jq '.sha')
-
-          # Create tag reference
-          gh api repos/Hive-Academy/ptah-app/git/refs \
-            -f ref="refs/tags/$TAG" \
-            -f sha="$TAG_SHA" || true
-
-          # Collect installer files (exclude elevate.exe and unpacked Ptah.exe)
-          ASSET_FILES=$(find artifacts -type f \( \
-            -name "*.Setup.*.exe" -o \
-            -name "*.dmg" -o \
-            -name "*.zip" -o \
-            -name "*.AppImage" -o \
-            -name "*.deb" -o \
-            -name "latest*.yml" \
-          \) | tr '\n' ' ')
-
-          # Create release notes file
-          cat > /tmp/release-notes.md << NOTES_EOF
-          ## Ptah Desktop v$VERSION
-
-          Download the standalone desktop app for your platform:
-
-          | Platform | File |
-          | -------- | ---- |
-          | **Windows** | Ptah.Setup.$VERSION.exe |
-          | **macOS** | Ptah-$VERSION-arm64.dmg |
-          | **Linux** | Ptah-$VERSION.AppImage |
-          | **Linux (deb)** | ptah-desktop_${VERSION}_amd64.deb |
-
-          > Builds are currently unsigned. You may see platform warnings on first launch.
-
-          Learn more at [ptah.live](https://ptah.live)
-          NOTES_EOF
-
-          # Strip leading whitespace from each line
-          sed -i 's/^          //' /tmp/release-notes.md
-
-          gh release create "$TAG" \
-            --repo Hive-Academy/ptah-app \
-            --title "Ptah Desktop v$VERSION" \
-            --notes-file /tmp/release-notes.md \
-            $ASSET_FILES

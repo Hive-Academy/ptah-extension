@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterLink } from '@angular/router';
 import { LucideAngularModule, Check } from 'lucide-angular';
 import {
@@ -31,12 +31,7 @@ import {
  */
 @Component({
   selector: 'ptah-cta-section',
-  imports: [
-    CommonModule,
-    RouterLink,
-    ViewportAnimationDirective,
-    LucideAngularModule,
-  ],
+  imports: [RouterLink, ViewportAnimationDirective, LucideAngularModule],
   template: `
     <section id="cta" class="py-16 sm:py-24 md:py-32 bg-base-100">
       <div class="container mx-auto px-4 sm:px-6 text-center">
@@ -55,14 +50,14 @@ import {
           [viewportConfig]="subheadlineConfig"
           class="text-base sm:text-lg md:text-xl text-base-content/70 mb-8 sm:mb-10 md:mb-12 max-w-2xl mx-auto"
         >
-          14 days free. No credit card required. Works with OpenAI, Claude,
+          30 days free. No credit card required. Works with OpenAI, Claude,
           GitHub Copilot, and more.
         </p>
 
         <!-- Primary CTA Button with pulse animation via CSS keyframes -->
         <div viewportAnimation [viewportConfig]="primaryCtaConfig">
           <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
+            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
             target="_blank"
             rel="noopener noreferrer"
             class="cta-button inline-block px-8 py-4 text-base sm:px-10 sm:py-5 sm:text-lg md:px-12 md:py-6 md:text-xl font-bold rounded-xl
@@ -103,18 +98,18 @@ import {
           class="mt-8 sm:mt-10 md:mt-12 flex flex-wrap justify-center gap-4 sm:gap-6 md:gap-8"
         >
           @for (signal of trustSignals; track signal; let i = $index) {
-          <div
-            viewportAnimation
-            [viewportConfig]="getTrustSignalConfig(i)"
-            class="flex items-center gap-2 text-base-content/60"
-          >
-            <lucide-angular
-              [img]="CheckIcon"
-              class="w-5 h-5 text-success"
-              aria-hidden="true"
-            />
-            <span class="text-sm font-medium">{{ signal }}</span>
-          </div>
+            <div
+              viewportAnimation
+              [viewportConfig]="getTrustSignalConfig(i)"
+              class="flex items-center gap-2 text-base-content/60"
+            >
+              <lucide-angular
+                [img]="CheckIcon"
+                class="w-5 h-5 text-success"
+                aria-hidden="true"
+              />
+              <span class="text-sm font-medium">{{ signal }}</span>
+            </div>
           }
         </div>
       </div>
@@ -130,7 +125,7 @@ export class CTASectionComponent {
    * Trust signals displayed with staggered fadeIn animations
    */
   public readonly trustSignals = [
-    '14-Day Free Trial',
+    '30-Day Free Trial',
     'No Credit Card Required',
     'Cancel Anytime',
   ];

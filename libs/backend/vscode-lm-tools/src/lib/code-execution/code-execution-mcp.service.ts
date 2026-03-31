@@ -17,7 +17,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger } from '@ptah-extension/vscode-core';
 import type { WebviewManager } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
@@ -26,7 +26,10 @@ import type {
   IStateStorage,
   IDisposable,
 } from '@ptah-extension/platform-core';
-import { PtahAPIBuilder } from './ptah-api-builder.service';
+import {
+  PtahAPIBuilder,
+  IDE_CAPABILITIES_TOKEN,
+} from './ptah-api-builder.service';
 import { PermissionPromptService } from '../permission/permission-prompt.service';
 import { PtahAPI } from './types';
 import {
@@ -45,6 +48,22 @@ export class CodeExecutionMCP implements IDisposable {
   private toolResultCallback: ToolResultCallback | undefined;
   private registeredInMcpJson = false;
 
+  /**
+   * WebviewManager is optional: present in VS Code for user approval prompts,
+   * absent in Electron where approval_prompt auto-allows (no webview UI).
+   * Resolved lazily via container.isRegistered() to avoid DI crash in Electron.
+   */
+  private readonly webviewManager: WebviewManager | undefined;
+
+  /**
+   * Whether the host platform supports VS Code IDE capabilities (LSP, editor state, code actions).
+   * Determined at construction time via DI container registration check.
+   *
+   * When true (VS Code): all tools are listed and available.
+   * When false (Electron/standalone): VS Code-only tools are excluded from tools/list.
+   */
+  private readonly hasIDECapabilities: boolean;
+
   constructor(
     @inject(TOKENS.PTAH_API_BUILDER)
     private readonly apiBuilder: PtahAPIBuilder,
@@ -60,10 +79,21 @@ export class CodeExecutionMCP implements IDisposable {
 
     @inject(TOKENS.PERMISSION_PROMPT_SERVICE)
     private readonly permissionPromptService: PermissionPromptService,
-
-    @inject(TOKENS.WEBVIEW_MANAGER)
-    private readonly webviewManager: WebviewManager
   ) {
+    // Resolve WebviewManager lazily: in Electron the token is not registered.
+    // Uses the same container.isRegistered() pattern as SDK_SESSION_LIFECYCLE_MANAGER
+    // in ptah-api-builder.service.ts.
+    this.webviewManager = container.isRegistered(TOKENS.WEBVIEW_MANAGER)
+      ? container.resolve<WebviewManager>(TOKENS.WEBVIEW_MANAGER)
+      : undefined;
+
+    // Detect IDE capabilities: true in VS Code (VscodeIDECapabilities is registered),
+    // false in Electron/standalone (token is not registered).
+    // This flag controls tool filtering in handleToolsList — VS Code-only tools
+    // (ptah_lsp_references, ptah_lsp_definitions, ptah_get_dirty_files) are excluded
+    // when IDE capabilities are not available.
+    this.hasIDECapabilities = container.isRegistered(IDE_CAPABILITIES_TOKEN);
+
     // Build ptah API once at construction (reused for all executions)
     this.ptahAPI = this.apiBuilder.build();
   }
@@ -78,7 +108,7 @@ export class CodeExecutionMCP implements IDisposable {
       return this.port as number;
     }
 
-    const configuredPort = getConfiguredPort();
+    const configuredPort = getConfiguredPort(this.workspaceProvider);
 
     const result = await startHttpServer({
       port: configuredPort,
@@ -91,6 +121,7 @@ export class CodeExecutionMCP implements IDisposable {
           webviewManager: this.webviewManager,
           logger: this.logger,
           onToolResult: this.toolResultCallback,
+          hasIDECapabilities: this.hasIDECapabilities,
         }),
     });
 
@@ -181,14 +212,14 @@ export class CodeExecutionMCP implements IDisposable {
       fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
       this.logger.info(
         `[CodeExecutionMCP] Registered ptah in ${mcpJsonPath} (port ${port})`,
-        'CodeExecutionMCP'
+        'CodeExecutionMCP',
       );
     } catch (error) {
       this.logger.warn(
         `[CodeExecutionMCP] Failed to register in .mcp.json: ${
           error instanceof Error ? error.message : error
         }`,
-        'CodeExecutionMCP'
+        'CodeExecutionMCP',
       );
     }
   }
@@ -216,14 +247,14 @@ export class CodeExecutionMCP implements IDisposable {
       fs.writeFileSync(mcpJsonPath, JSON.stringify(config, null, 2) + '\n');
       this.logger.info(
         '[CodeExecutionMCP] Unregistered ptah from .mcp.json',
-        'CodeExecutionMCP'
+        'CodeExecutionMCP',
       );
     } catch (error) {
       this.logger.warn(
         `[CodeExecutionMCP] Failed to unregister from .mcp.json: ${
           error instanceof Error ? error.message : error
         }`,
-        'CodeExecutionMCP'
+        'CodeExecutionMCP',
       );
     }
   }

@@ -29,7 +29,8 @@ export class ElectronOutputChannel implements IOutputChannel {
     if (this.isDisposed) return;
     const line = `[${new Date().toISOString()}] ${message}\n`;
     this.logStream.write(line);
-    console.log(`[${this.name}] ${message}`);
+    // Console output is handled by ElectronLoggerAdapter when logToConsole is true.
+    // Writing here too causes every log line to appear twice.
   }
 
   append(message: string): void {
@@ -49,7 +50,7 @@ export class ElectronOutputChannel implements IOutputChannel {
     // In Electron, "show" could open the log file in the default editor.
     // For now, log the file path to console so it can be found.
     console.log(
-      `[${this.name}] Output channel shown (log file: ${this.logStream.path})`
+      `[${this.name}] Output channel shown (log file: ${this.logStream.path})`,
     );
   }
 

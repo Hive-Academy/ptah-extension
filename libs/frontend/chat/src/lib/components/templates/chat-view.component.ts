@@ -137,12 +137,12 @@ export class ChatViewComponent {
     // CRITICAL: Finalized messages now use tree.id (message_start event id),
     // not messageId, so IDs match between streaming trees and finalized messages.
     const finalizedMessageIds = new Set(
-      this.chatStore.messages().map((msg) => msg.id)
+      this.chatStore.messages().map((msg) => msg.id),
     );
 
     // Filter out trees that are already finalized
     const nonFinalizedTrees = trees.filter(
-      (tree) => !finalizedMessageIds.has(tree.id)
+      (tree) => !finalizedMessageIds.has(tree.id),
     );
 
     if (nonFinalizedTrees.length === 0) return [];
@@ -159,7 +159,7 @@ export class ChatViewComponent {
           cost: pendingStats.cost,
           duration: pendingStats.duration,
         }),
-      })
+      }),
     );
   });
 
@@ -170,7 +170,7 @@ export class ChatViewComponent {
       () => {
         this.setupMutationObserver();
       },
-      { injector: this.injector }
+      { injector: this.injector },
     );
 
     // Cleanup on component destruction
@@ -220,11 +220,38 @@ export class ChatViewComponent {
    * Handle per-agent resume action from the resume notification banner.
    * Builds a structured resume prompt and sends it via ChatStore,
    * then clears the resumable subagents to dismiss the banner.
+   *
+   * Uses sendOrQueueMessage instead of sendMessage so that:
+   * - If streaming: message is queued and auto-sent when the turn completes
+   * - If not streaming: message is sent immediately to the existing session
+   * This prevents creating a new session when the tab is in streaming status.
    */
   handleResumeAgent(agent: SubagentRecord): void {
     const prompt = `Resume the interrupted ${agent.agentType} agent (agentId: ${agent.agentId}) using the Task tool with resume parameter set to "${agent.agentId}".`;
-    this.chatStore.sendMessage(prompt);
+    this.chatStore.sendOrQueueMessage(prompt);
     this.chatStore.removeResumableSubagent(agent.toolCallId);
+  }
+
+  /**
+   * Handle "Resume All" — builds a single combined prompt for all interrupted agents
+   * and sends it as one message to the existing session.
+   */
+  handleResumeAllAgents(agents: SubagentRecord[]): void {
+    if (agents.length === 0) return;
+
+    if (agents.length === 1) {
+      this.handleResumeAgent(agents[0]);
+      return;
+    }
+
+    const agentList = agents
+      .map((a) => `- ${a.agentType} (agentId: ${a.agentId})`)
+      .join('\n');
+    const prompt = `Resume all ${agents.length} interrupted agents using the Task tool with resume parameter for each:\n${agentList}`;
+    this.chatStore.sendOrQueueMessage(prompt);
+    for (const agent of agents) {
+      this.chatStore.removeResumableSubagent(agent.toolCallId);
+    }
   }
 
   private scrollToBottom(): void {

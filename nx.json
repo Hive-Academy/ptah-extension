@@ -12,9 +12,8 @@
       "!{projectRoot}/src/test-setup.[jt]s",
       "!{projectRoot}/test-setup.[jt]s"
     ],
-    "sharedGlobals": ["{workspaceRoot}/.github/workflows/ci.yml"]
+    "sharedGlobals": []
   },
-  "nxCloudId": "68b4ae57bd83bb6097f347e8",
   "targetDefaults": {
     "@angular/build:application": {
       "cache": true,
@@ -80,17 +79,7 @@
       "options": {
         "targetName": "eslint:lint"
       }
-    },
-    {
-      "plugin": "@nx/webpack/plugin",
-      "options": {
-        "buildTargetName": "webpack:build",
-        "serveTargetName": "webpack:serve",
-        "previewTargetName": "preview",
-        "buildDepsTargetName": "build-deps",
-        "watchDepsTargetName": "watch-deps",
-        "serveStaticTargetName": "serve-static"
-      }
     }
-  ]
+  ],
+  "analytics": true
 }

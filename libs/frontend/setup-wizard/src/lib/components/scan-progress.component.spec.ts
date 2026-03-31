@@ -28,7 +28,7 @@ describe.skip('ScanProgressComponent', () => {
       phases: {},
     },
     phaseContents: {},
-    analysisDir: '/mock/.claude/analysis/angular-nx-monorepo',
+    analysisDir: '/mock/.ptah/analysis/angular-nx-monorepo',
   };
   const mockRecommendations = [
     {
@@ -106,7 +106,7 @@ describe.skip('ScanProgressComponent', () => {
       await fixture.whenStable();
 
       expect(mockStateService.setMultiPhaseResult).toHaveBeenCalledWith(
-        mockMultiPhaseResult
+        mockMultiPhaseResult,
       );
     });
 
@@ -115,7 +115,7 @@ describe.skip('ScanProgressComponent', () => {
       await fixture.whenStable();
 
       expect(mockRpcService.recommendAgents).toHaveBeenCalledWith(
-        mockMultiPhaseResult
+        mockMultiPhaseResult,
       );
     });
 
@@ -124,7 +124,7 @@ describe.skip('ScanProgressComponent', () => {
       await fixture.whenStable();
 
       expect(mockStateService.setRecommendations).toHaveBeenCalledWith(
-        mockRecommendations
+        mockRecommendations,
       );
     });
 
@@ -141,7 +141,7 @@ describe.skip('ScanProgressComponent', () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
-        })
+        }),
       );
 
       fixture.detectChanges();
@@ -157,7 +157,7 @@ describe.skip('ScanProgressComponent', () => {
     it('should show error message on deep analysis failure', async () => {
       const errorMsg = 'Deep analysis failed: timeout';
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
-        new Error(errorMsg)
+        new Error(errorMsg),
       );
 
       fixture.detectChanges();
@@ -170,7 +170,7 @@ describe.skip('ScanProgressComponent', () => {
     it('should show error message on recommendation failure', async () => {
       const errorMsg = 'Recommendation failed';
       (mockRpcService.recommendAgents as jest.Mock).mockRejectedValue(
-        new Error(errorMsg)
+        new Error(errorMsg),
       );
 
       fixture.detectChanges();
@@ -181,20 +181,20 @@ describe.skip('ScanProgressComponent', () => {
 
     it('should show default error for non-Error failures', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
-        'String error'
+        'String error',
       );
 
       fixture.detectChanges();
       await fixture.whenStable();
 
       expect(component['errorMessage']()).toBe(
-        'Analysis failed. Please try again.'
+        'Analysis failed. Please try again.',
       );
     });
 
     it('should NOT transition step on failure', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
-        new Error('fail')
+        new Error('fail'),
       );
 
       fixture.detectChanges();
@@ -205,7 +205,7 @@ describe.skip('ScanProgressComponent', () => {
 
     it('should reset isAnalyzing on failure', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
-        new Error('fail')
+        new Error('fail'),
       );
 
       fixture.detectChanges();
@@ -219,7 +219,7 @@ describe.skip('ScanProgressComponent', () => {
     it('should skip deep analysis on retry if multi-phase result already cached', async () => {
       // First call fails at recommendation stage
       (mockRpcService.recommendAgents as jest.Mock).mockRejectedValueOnce(
-        new Error('timeout')
+        new Error('timeout'),
       );
 
       fixture.detectChanges();
@@ -227,7 +227,7 @@ describe.skip('ScanProgressComponent', () => {
 
       // Multi-phase result was stored
       expect(mockStateService.setMultiPhaseResult).toHaveBeenCalledWith(
-        mockMultiPhaseResult
+        mockMultiPhaseResult,
       );
 
       // Simulate cached multi-phase result in state
@@ -238,7 +238,7 @@ describe.skip('ScanProgressComponent', () => {
       // Reset mock and retry — second call should succeed
       (mockRpcService.deepAnalyze as jest.Mock).mockClear();
       (mockRpcService.recommendAgents as jest.Mock).mockResolvedValueOnce(
-        mockRecommendations
+        mockRecommendations,
       );
 
       component['onRetry']();
@@ -256,7 +256,7 @@ describe.skip('ScanProgressComponent', () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
-        })
+        }),
       );
 
       fixture.detectChanges(); // Triggers first call via ngOnInit
@@ -361,7 +361,7 @@ describe.skip('ScanProgressComponent', () => {
   describe('UI States', () => {
     it('should show error alert when analysis fails', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
-        new Error('Test error')
+        new Error('Test error'),
       );
 
       fixture.detectChanges();
@@ -381,7 +381,7 @@ describe.skip('ScanProgressComponent', () => {
 
     it('should show Back and Retry buttons on error', async () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockRejectedValue(
-        new Error('fail')
+        new Error('fail'),
       );
 
       fixture.detectChanges();
@@ -390,7 +390,7 @@ describe.skip('ScanProgressComponent', () => {
 
       const buttons = fixture.nativeElement.querySelectorAll('button');
       const buttonTexts = Array.from(buttons).map((b) =>
-        ((b as HTMLButtonElement).textContent ?? '').trim()
+        ((b as HTMLButtonElement).textContent ?? '').trim(),
       );
       expect(buttonTexts).toContain('Back');
       expect(buttonTexts.some((t: string) => t.includes('Retry'))).toBe(true);
@@ -402,7 +402,7 @@ describe.skip('ScanProgressComponent', () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
-        })
+        }),
       );
 
       fixture.detectChanges();
@@ -419,7 +419,7 @@ describe.skip('ScanProgressComponent', () => {
       (mockRpcService.deepAnalyze as jest.Mock).mockReturnValue(
         new Promise((resolve) => {
           resolveDeepAnalyze = resolve;
-        })
+        }),
       );
 
       fixture.detectChanges();

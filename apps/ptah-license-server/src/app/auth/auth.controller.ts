@@ -113,14 +113,14 @@ export class AuthController {
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
     @Inject(forwardRef(() => LicenseService))
-    private readonly licenseService: LicenseService
+    private readonly licenseService: LicenseService,
   ) {
     this.isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
     this.frontendUrl =
       this.configService.get<string>('FRONTEND_URL') || 'https://ptah.live';
     this.logoutRedirectUri = this.configService.get<string>(
-      'WORKOS_LOGOUT_REDIRECT_URI'
+      'WORKOS_LOGOUT_REDIRECT_URI',
     );
   }
 
@@ -153,7 +153,7 @@ export class AuthController {
       const frontendOrigin = new URL(this.frontendUrl).origin;
       if (constructed.origin !== frontendOrigin) {
         this.logger.warn(
-          `Rejected returnUrl that escaped origin: ${returnUrl}`
+          `Rejected returnUrl that escaped origin: ${returnUrl}`,
         );
         return null;
       }
@@ -219,7 +219,7 @@ export class AuthController {
     });
 
     this.logger.debug(
-      `Login initiated, state cookie set: ${state.substring(0, 8)}...`
+      `Login initiated, state cookie set: ${state.substring(0, 8)}...`,
     );
 
     // Redirect to WorkOS AuthKit with PKCE parameters
@@ -254,7 +254,7 @@ export class AuthController {
     @Query('code') code: string,
     @Query('state') state: string,
     @Req() req: Request,
-    @Res() res: Response
+    @Res() res: Response,
   ): Promise<void> {
     // Step 1: Validate authorization code exists
     if (!code) {
@@ -278,7 +278,7 @@ export class AuthController {
 
     if (!storedState) {
       this.logger.warn(
-        `State cookie missing, received state: ${state.substring(0, 8)}...`
+        `State cookie missing, received state: ${state.substring(0, 8)}...`,
       );
       res.status(401).json({
         error: 'Invalid session',
@@ -292,8 +292,8 @@ export class AuthController {
       this.logger.warn(
         `State mismatch - Cookie: ${storedState.substring(
           0,
-          8
-        )}..., Query: ${state.substring(0, 8)}...`
+          8,
+        )}..., Query: ${state.substring(0, 8)}...`,
       );
       res.status(401).json({
         error: 'Invalid state',
@@ -312,7 +312,7 @@ export class AuthController {
     });
 
     this.logger.debug(
-      `State validated and cookie cleared: ${state.substring(0, 8)}...`
+      `State validated and cookie cleared: ${state.substring(0, 8)}...`,
     );
 
     try {
@@ -348,7 +348,7 @@ export class AuthController {
       this.logger.debug(
         `Authentication successful, JWT cookie set${
           validatedReturnUrl ? ` returnUrl=${validatedReturnUrl}` : ''
-        }${validatedPlan ? ` plan=${validatedPlan}` : ''}`
+        }${validatedPlan ? ` plan=${validatedPlan}` : ''}`,
       );
 
       // Step 8: Redirect to frontend application (with validated returnUrl and plan)
@@ -453,7 +453,7 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   @Post('magic-link')
   async requestMagicLink(
-    @Body() body: MagicLinkDto
+    @Body() body: MagicLinkDto,
   ): Promise<{ success: boolean; message: string }> {
     const { email, returnUrl, plan } = body;
 
@@ -520,22 +520,22 @@ export class AuthController {
   @Get('verify')
   async verifyMagicLink(
     @Query('token') token: string,
-    @Res() res: Response
+    @Res() res: Response,
   ): Promise<void> {
     // Debug: Log the received token
     this.logger.debug(
       `Magic link verification requested. Token received: ${
         token
           ? `${token.substring(0, 8)}...${token.substring(
-              token.length - 8
+              token.length - 8,
             )} (length: ${token.length})`
           : 'MISSING'
-      }`
+      }`,
     );
 
     if (!token) {
       this.logger.warn(
-        'Magic link verification failed: no token in query string'
+        'Magic link verification failed: no token in query string',
       );
       res.redirect(`${this.frontendUrl}/login?error=token_missing`);
       return;
@@ -583,7 +583,7 @@ export class AuthController {
 
     // Step 5: Validate returnUrl and plan again (defense in depth)
     const validatedReturnUrl = this.validateReturnUrl(
-      result.returnUrl ?? undefined
+      result.returnUrl ?? undefined,
     );
     const validatedPlan = this.validatePlanKey(result.plan ?? undefined);
 
@@ -597,7 +597,7 @@ export class AuthController {
         redirectUrl.searchParams.set('autoCheckout', validatedPlan);
       }
       this.logger.debug(
-        `Magic link auth successful, redirecting to: ${redirectUrl.toString()}`
+        `Magic link auth successful, redirecting to: ${redirectUrl.toString()}`,
       );
       res.redirect(redirectUrl.toString());
     } else {
@@ -640,7 +640,7 @@ export class AuthController {
     const ticket = await this.ticketService.create(
       user.userId || user.id,
       user.tenantId,
-      user.email
+      user.email,
     );
     return { ticket };
   }
@@ -671,7 +671,7 @@ export class AuthController {
   @Post('login/email')
   async loginWithEmail(
     @Body() body: LoginDto,
-    @Res() res: Response
+    @Res() res: Response,
   ): Promise<void> {
     const { email, password } = body;
 
@@ -681,7 +681,7 @@ export class AuthController {
 
     const { token, user } = await this.authService.authenticateWithPassword(
       email,
-      password
+      password,
     );
 
     // Set JWT in HTTP-only cookie
@@ -735,14 +735,14 @@ export class AuthController {
       email,
       password,
       firstName,
-      lastName
+      lastName,
     );
 
     // Auto-generate trial license (non-blocking)
     this.autoGenerateTrialIfNeeded(email);
 
     this.logger.log(
-      `User signup initiated for: ${email} (pending verification)`
+      `User signup initiated for: ${email} (pending verification)`,
     );
 
     // Return pending verification status - no cookie yet
@@ -775,19 +775,19 @@ export class AuthController {
   @Post('verify-email')
   async verifyEmail(
     @Body() body: VerifyEmailDto,
-    @Res() res: Response
+    @Res() res: Response,
   ): Promise<void> {
     const { userId, code } = body;
 
     if (!userId || !code) {
       throw new BadRequestException(
-        'User ID and verification code are required'
+        'User ID and verification code are required',
       );
     }
 
     const { token, user } = await this.authService.verifyEmailCode(
       userId,
-      code
+      code,
     );
 
     // Auto-generate trial license if user doesn't have one (non-blocking)
@@ -833,7 +833,7 @@ export class AuthController {
   @Post('resend-verification')
   async resendVerification(
     @Body() body: ResendVerificationDto,
-    @Res() res: Response
+    @Res() res: Response,
   ): Promise<void> {
     const { userId } = body;
 
@@ -877,7 +877,7 @@ export class AuthController {
    * → Redirect to: https://accounts.google.com/o/oauth2/auth?...
    */
   /**
-   * Auto-generate a 14-day Pro trial license if the user has no active license.
+   * Auto-generate a 30-day Pro trial license if the user has no active license.
    *
    * Non-blocking: errors are logged but do not affect the auth flow.
    * Idempotent: if user already has a license, this is a no-op.
@@ -899,7 +899,7 @@ export class AuthController {
       // If user has an active license, skip trial generation
       if (user?.licenses && user.licenses.length > 0) {
         this.logger.debug(
-          `User ${email} already has active license, skipping trial`
+          `User ${email} already has active license, skipping trial`,
         );
         return;
       }
@@ -920,7 +920,7 @@ export class AuthController {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(
-        `Failed to auto-generate trial for ${email}: ${message}`
+        `Failed to auto-generate trial for ${email}: ${message}`,
       );
       // Non-blocking: auth flow continues regardless
     }
@@ -931,15 +931,15 @@ export class AuthController {
     @Param('provider') provider: string,
     @Query('returnUrl') returnUrl: string | undefined,
     @Query('plan') plan: string | undefined,
-    @Res() res: Response
+    @Res() res: Response,
   ): Promise<void> {
     // Validate provider
     const validProviders: OAuthProvider[] = ['github', 'google'];
     if (!validProviders.includes(provider as OAuthProvider)) {
       throw new BadRequestException(
         `Invalid OAuth provider: ${provider}. Supported: ${validProviders.join(
-          ', '
-        )}`
+          ', ',
+        )}`,
       );
     }
 
@@ -951,7 +951,7 @@ export class AuthController {
     const { url, state } = await this.authService.getOAuthAuthorizationUrl(
       provider as OAuthProvider,
       validatedReturnUrl ?? undefined,
-      validatedPlan ?? undefined
+      validatedPlan ?? undefined,
     );
 
     // Set state in HTTP-only cookie for CSRF validation in callback
@@ -966,10 +966,10 @@ export class AuthController {
     this.logger.debug(
       `OAuth login initiated for ${provider}, state: ${state.substring(
         0,
-        8
+        8,
       )}...${validatedReturnUrl ? ` returnUrl=${validatedReturnUrl}` : ''}${
         validatedPlan ? ` plan=${validatedPlan}` : ''
-      }`
+      }`,
     );
 
     // Redirect directly to OAuth provider

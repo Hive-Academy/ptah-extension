@@ -27,9 +27,26 @@ export type { IUserInteraction } from './interfaces/user-interaction.interface';
 export type { IOutputChannel } from './interfaces/output-channel.interface';
 export type { ICommandRegistry } from './interfaces/command-registry.interface';
 export type { IEditorProvider } from './interfaces/editor-provider.interface';
+export type { ITokenCounter } from './interfaces/token-counter.interface';
+export type { IDiagnosticsProvider } from './interfaces/diagnostics-provider.interface';
 
 // DI Tokens
 export { PLATFORM_TOKENS } from './tokens';
 
 // Utilities
 export { createEvent } from './utils/event-emitter';
+
+// File-Based Settings (TASK_2025_247)
+export { PtahFileSettingsManager } from './file-settings-manager';
+export type { FileSettingsDefaults } from './file-settings-manager';
+export {
+  FILE_BASED_SETTINGS_KEYS,
+  FILE_BASED_SETTINGS_DEFAULTS,
+} from './file-settings-keys';
+
+// Content Download (TASK_2025_248)
+export { ContentDownloadService } from './content-download.service';
+export type {
+  ContentDownloadResult,
+  ContentProgressCallback,
+} from './content-download.service';

@@ -25,7 +25,7 @@ export type OAuthProvider = 'github' | 'google';
  * TASK_2025_128: Freemium model conversion
  * - 'community': Free tier
  * - 'pro': Paid Pro tier ($5/mo or $50/year)
- * - 'trial_pro': Pro trial period (14 days)
+ * - 'trial_pro': Pro trial period (30 days)
  * - 'expired': Subscription expired
  */
 export type UserTier = 'community' | 'pro' | 'trial_pro' | 'expired';

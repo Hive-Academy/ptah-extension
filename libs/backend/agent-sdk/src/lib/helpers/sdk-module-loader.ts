@@ -1,43 +1,55 @@
 /**
- * SDK Module Loader - Handles dynamic import and caching of Claude Agent SDK
+ * SDK Module Loader - Loads and caches the bundled Claude Agent SDK query function
  *
- * Extracted from SdkAgentAdapter to separate SDK loading concerns.
- * The SDK is dynamically imported to handle ESM/CommonJS interop and
- * cached to avoid repeated import overhead (~100-200ms per import).
+ * The Claude Agent SDK is bundled into the extension via esbuild. The SDK's
+ * query function is imported dynamically (required for ESM/CJS interop) and
+ * cached for reuse across sessions.
  *
  * Single Responsibility: Load and cache the SDK query function
  *
  * @see TASK_2025_102 - Extracted to reduce SdkAgentAdapter complexity
+ * @see TASK_2025_232 - Simplified from runtime resolution to direct import (SDK bundled)
  */
 
 import { injectable, inject } from 'tsyringe';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
 import { QueryFunction } from '../types/sdk-types/claude-sdk.types';
+import { ClaudeCliDetector } from '../detector/claude-cli-detector';
+import { SDK_TOKENS } from '../di/tokens';
 
 /**
  * Manages SDK module loading and caching
  *
  * Responsibilities:
- * - Dynamic import of @anthropic-ai/claude-agent-sdk
+ * - Providing the bundled @anthropic-ai/claude-agent-sdk query function
  * - Caching the query function for reuse
  * - Pre-loading during extension activation
  * - Performance timing and logging
+ * - Resolving the Claude CLI js path for pathToClaudeCodeExecutable
  */
 @injectable()
 export class SdkModuleLoader {
   /**
-   * Cached SDK query function - imported once and reused for all sessions
-   * This avoids the overhead of dynamic import() on every chat session start
+   * Cached SDK query function - set once and reused for all sessions.
+   * This avoids repeated dynamic imports on every chat session start.
    */
   private cachedSdkQuery: QueryFunction | null = null;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  /** Cached CLI js path resolved from detector (undefined = not yet resolved) */
+  private cachedCliJsPath: string | null | undefined = undefined;
+
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(SDK_TOKENS.SDK_CLI_DETECTOR)
+    private readonly cliDetector: ClaudeCliDetector,
+  ) {}
 
   /**
-   * Get or import the SDK query function (cached after first use)
-   * This avoids repeated dynamic imports which add latency on each session start.
+   * Get the SDK query function (cached after first use).
    *
-   * Performance: SDK import takes ~100-200ms on first call, subsequent calls are instant.
+   * The SDK is bundled with the extension via esbuild. The dynamic import()
+   * is resolved at bundle time -- no runtime package resolution is needed.
+   * Uses dynamic import() for ESM/CJS interop compatibility.
    *
    * @returns The SDK query function
    */
@@ -47,27 +59,42 @@ export class SdkModuleLoader {
     }
 
     const startTime = performance.now();
-    this.logger.info(
-      '[SdkModuleLoader] Importing Claude Agent SDK (first use)...'
-    );
+    this.logger.info('[SdkModuleLoader] Loading bundled Claude Agent SDK...');
 
-    // Dynamic import the ESM SDK module
-    // Note: SDK is bundled (not externalized) for proper ESM/CommonJS interop
-    const sdkModule = await import('@anthropic-ai/claude-agent-sdk');
-    const query = sdkModule.query as QueryFunction;
+    try {
+      const sdkModule =
+        (await import('@anthropic-ai/claude-agent-sdk')) as Record<
+          string,
+          unknown
+        >;
+      const query = sdkModule['query'];
 
-    const elapsed = (performance.now() - startTime).toFixed(2);
-    this.cachedSdkQuery = query;
-    this.logger.info(
-      `[SdkModuleLoader] SDK imported and cached successfully (${elapsed}ms)`
-    );
+      if (typeof query !== 'function') {
+        throw new Error(
+          `SDK module loaded but 'query' export is ${typeof query}, expected function`,
+        );
+      }
 
-    return query;
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      this.cachedSdkQuery = query as QueryFunction;
+      this.logger.info(
+        `[SdkModuleLoader] SDK query function cached (bundled, ${elapsed}ms)`,
+      );
+
+      return this.cachedSdkQuery;
+    } catch (error) {
+      const elapsed = (performance.now() - startTime).toFixed(2);
+      this.logger.error(
+        `[SdkModuleLoader] Failed to load Claude Agent SDK query function after ${elapsed}ms`,
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      throw error;
+    }
   }
 
   /**
    * Pre-load the SDK during extension activation (non-blocking).
-   * This shifts the ~100-200ms import cost from first chat to activation time,
+   * This shifts the import cost from first chat to activation time,
    * making the first user interaction feel instant.
    *
    * Call this during extension activation after initialize():
@@ -83,16 +110,50 @@ export class SdkModuleLoader {
       await this.getQueryFunction();
       const elapsed = (performance.now() - startTime).toFixed(2);
       this.logger.info(
-        `[SdkModuleLoader] SDK pre-loaded successfully (${elapsed}ms)`
+        `[SdkModuleLoader] SDK pre-loaded successfully (${elapsed}ms)`,
       );
     } catch (error) {
       const elapsed = (performance.now() - startTime).toFixed(2);
       this.logger.warn(
         `[SdkModuleLoader] SDK pre-load failed after ${elapsed}ms (will retry on first use)`,
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
       throw error;
     }
+  }
+
+  /**
+   * Get the resolved path to the Claude Code CLI executable (cli.js).
+   *
+   * Uses the CLI detector to find the installation, then returns the cliJsPath.
+   * This path is needed by SDK query options as `pathToClaudeCodeExecutable`
+   * to override the baked-in import.meta.url resolution that fails in production
+   * (TASK_2025_194).
+   *
+   * Caches the result after first resolution. Returns null if CLI not found.
+   */
+  async getCliJsPath(): Promise<string | null> {
+    if (this.cachedCliJsPath !== undefined) {
+      return this.cachedCliJsPath;
+    }
+
+    try {
+      const installation = await this.cliDetector.findExecutable();
+      this.cachedCliJsPath = installation?.cliJsPath ?? null;
+      if (this.cachedCliJsPath) {
+        this.logger.info(
+          `[SdkModuleLoader] CLI js path resolved: ${this.cachedCliJsPath}`,
+        );
+      } else {
+        this.logger.debug(
+          '[SdkModuleLoader] CLI js path not found via detector',
+        );
+      }
+    } catch {
+      this.cachedCliJsPath = null;
+    }
+
+    return this.cachedCliJsPath;
   }
 
   /**
@@ -107,6 +168,7 @@ export class SdkModuleLoader {
    */
   clearCache(): void {
     this.cachedSdkQuery = null;
+    this.cachedCliJsPath = undefined;
     this.logger.debug('[SdkModuleLoader] SDK cache cleared');
   }
 }

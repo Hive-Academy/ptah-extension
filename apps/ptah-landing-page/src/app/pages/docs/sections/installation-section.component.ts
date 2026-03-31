@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -17,7 +17,6 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
 @Component({
   selector: 'ptah-docs-installation',
   imports: [
-    CommonModule,
     ViewportAnimationDirective,
     LucideAngularModule,
     DocsStepCardComponent,
@@ -47,7 +46,7 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
               >Ctrl+Shift+X</kbd
             >), or install directly from the
             <a
-              href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
+              href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
               target="_blank"
               rel="noopener noreferrer"
               class="text-secondary hover:text-secondary/80 underline underline-offset-2"
@@ -64,7 +63,7 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
               class="text-secondary hover:text-secondary/80 underline underline-offset-2"
               >ptah.live/signup</a
             >
-            to create a free account. No credit card required — your 14-day Pro
+            to create a free account. No credit card required — your 30-day Pro
             trial activates automatically on sign-up.
           </p>
         </ptah-docs-step-card>
@@ -92,7 +91,7 @@ import { DocsVideoPlayerComponent } from '../components/docs-video-player.compon
         <p class="text-sm text-neutral-content">
           <strong class="text-base-content/80">Pro trial includes:</strong> All
           13 AI agents, orchestration workflows, multi-provider support, plugin
-          system, and the full setup wizard — free for 14 days.
+          system, and the full setup wizard — free for 30 days.
         </p>
       </div>
 

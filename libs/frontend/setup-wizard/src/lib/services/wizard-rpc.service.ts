@@ -74,7 +74,7 @@ export class WizardRpcService {
    */
   public async submitAgentSelection(
     selections: AgentSelection[],
-    analysisDir?: string
+    analysisDir?: string,
   ): Promise<AgentSelectionResponse> {
     const selectedIds = selections.filter((s) => s.selected).map((s) => s.id);
     const result = await this.rpcService.call(
@@ -84,7 +84,7 @@ export class WizardRpcService {
         analysisDir,
         model: this.modelState.currentModel() || undefined,
       },
-      { timeout: 300_000 }
+      { timeout: 300_000 },
     );
 
     if (result.isSuccess()) {
@@ -141,7 +141,7 @@ export class WizardRpcService {
       // The analysis may have already completed or the service may be unavailable.
       console.warn(
         '[WizardRpcService] cancelAnalysis failed:',
-        error instanceof Error ? error.message : String(error)
+        error instanceof Error ? error.message : String(error),
       );
     }
   }
@@ -158,7 +158,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:deep-analyze',
       { model: this.modelState.currentModel() || undefined },
-      { timeout: 3_660_000 } // 1 hour + 1 minute buffer
+      { timeout: 3_660_000 }, // 1 hour + 1 minute buffer
     );
     if (result.isSuccess() && result.data) {
       return result.data as MultiPhaseAnalysisResponse;
@@ -173,14 +173,14 @@ export class WizardRpcService {
    * Passes { isMultiPhase: true } to trigger all-agents-recommended path.
    */
   public async recommendAgents(
-    analysis: MultiPhaseAnalysisResponse
+    analysis: MultiPhaseAnalysisResponse,
   ): Promise<AgentRecommendation[]> {
     const payload = { isMultiPhase: true, analysisDir: analysis.analysisDir };
 
     const result = await this.rpcService.call(
       'wizard:recommend-agents',
       payload,
-      { timeout: 60000 }
+      { timeout: 60000 },
     );
     if (result.isSuccess() && result.data) {
       return result.data as AgentRecommendation[];
@@ -200,7 +200,7 @@ export class WizardRpcService {
    */
   public async runEnhancedPromptsWizard(
     workspacePath: string,
-    analysisDir?: string
+    analysisDir?: string,
   ): Promise<EnhancedPromptsRunWizardResponse> {
     const result = await this.rpcService.call(
       'enhancedPrompts:runWizard',
@@ -209,7 +209,7 @@ export class WizardRpcService {
         ...(analysisDir ? { analysisDir } : {}),
         model: this.modelState.currentModel() || undefined,
       },
-      { timeout: 300_000 } // 5 minutes: LLM generation via SDK
+      { timeout: 300_000 }, // 5 minutes: LLM generation via SDK
     );
 
     if (result.isSuccess() && result.data) {
@@ -230,7 +230,7 @@ export class WizardRpcService {
    * @returns Enhanced Prompts status response
    */
   public async getEnhancedPromptsStatus(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<EnhancedPromptsGetStatusResponse> {
     const result = await this.rpcService.call('enhancedPrompts:getStatus', {
       workspacePath,
@@ -261,7 +261,7 @@ export class WizardRpcService {
    */
   public async toggleEnhancedPrompts(
     workspacePath: string,
-    enabled: boolean
+    enabled: boolean,
   ): Promise<void> {
     const result = await this.rpcService.call('enhancedPrompts:setEnabled', {
       workspacePath,
@@ -282,12 +282,12 @@ export class WizardRpcService {
    * @returns Regeneration response with success status
    */
   public async regenerateEnhancedPrompts(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<EnhancedPromptsRunWizardResponse> {
     const result = await this.rpcService.call(
       'enhancedPrompts:regenerate',
       { workspacePath, force: true },
-      { timeout: 300_000 }
+      { timeout: 300_000 },
     );
 
     if (result.isSuccess() && result.data) {
@@ -308,11 +308,11 @@ export class WizardRpcService {
    * @returns The prompt content string, or null if no prompt exists
    */
   public async getEnhancedPromptContent(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<string | null> {
     const result = await this.rpcService.call(
       'enhancedPrompts:getPromptContent',
-      { workspacePath }
+      { workspacePath },
     );
 
     if (result.isSuccess() && result.data) {
@@ -330,7 +330,7 @@ export class WizardRpcService {
    * @returns Download result with success status and optional file path
    */
   public async downloadEnhancedPrompt(
-    workspacePath: string
+    workspacePath: string,
   ): Promise<{ success: boolean; filePath?: string; error?: string }> {
     const result = await this.rpcService.call('enhancedPrompts:download', {
       workspacePath,
@@ -353,7 +353,7 @@ export class WizardRpcService {
   // === Analysis History Methods (Persistent Analysis) ===
 
   /**
-   * List all saved analyses from .claude/analysis/ directory.
+   * List all saved analyses from .ptah/analysis/ directory.
    * Returns metadata only (lightweight, for listing cards).
    *
    * @returns Array of saved analysis metadata sorted by date (newest first)
@@ -362,7 +362,7 @@ export class WizardRpcService {
     const result = await this.rpcService.call(
       'wizard:list-analyses',
       {},
-      { timeout: 10_000 }
+      { timeout: 10_000 },
     );
 
     if (result.isSuccess() && result.data) {
@@ -376,16 +376,16 @@ export class WizardRpcService {
    * Load a specific saved analysis by slug directory name.
    * Returns the full multi-phase analysis response.
    *
-   * @param filename - Slug directory name from .claude/analysis/
+   * @param filename - Slug directory name from .ptah/analysis/
    * @returns Multi-phase analysis response with manifest and phase contents
    */
   public async loadAnalysis(
-    filename: string
+    filename: string,
   ): Promise<MultiPhaseAnalysisResponse> {
     const result = await this.rpcService.call(
       'wizard:load-analysis',
       { filename },
-      { timeout: 10_000 }
+      { timeout: 10_000 },
     );
 
     if (result.isSuccess() && result.data) {

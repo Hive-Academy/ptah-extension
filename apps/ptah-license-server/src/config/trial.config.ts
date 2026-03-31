@@ -7,10 +7,10 @@
  * duration (e.g., 1 day or even minutes) without code changes.
  *
  * Environment Variables:
- * - TRIAL_DURATION_DAYS: Number of days for trial period (default: 14)
+ * - TRIAL_DURATION_DAYS: Number of days for trial period (default: 30)
  *
  * Usage:
- * - Production: Leave unset (defaults to 14 days)
+ * - Production: Leave unset (defaults to 30 days)
  * - Testing: Set TRIAL_DURATION_DAYS=1 for 1-day trial
  *
  * Example .env for testing:
@@ -23,13 +23,13 @@
  * Default trial duration in days
  * This matches the shared constant TRIAL_DURATION_DAYS
  */
-const DEFAULT_TRIAL_DURATION_DAYS = 14;
+const DEFAULT_TRIAL_DURATION_DAYS = 30;
 
 /**
  * Get the configured trial duration in days
  *
  * Reads from TRIAL_DURATION_DAYS environment variable.
- * Falls back to 14 days if not set or invalid.
+ * Falls back to 30 days if not set or invalid.
  *
  * @returns Trial duration in days
  */
@@ -44,7 +44,7 @@ export function getTrialDurationDays(): number {
 
   if (isNaN(parsed) || parsed < 1) {
     console.warn(
-      `[TrialConfig] Invalid TRIAL_DURATION_DAYS value: "${envValue}". Using default: ${DEFAULT_TRIAL_DURATION_DAYS}`
+      `[TrialConfig] Invalid TRIAL_DURATION_DAYS value: "${envValue}". Using default: ${DEFAULT_TRIAL_DURATION_DAYS}`,
     );
     return DEFAULT_TRIAL_DURATION_DAYS;
   }

@@ -15,7 +15,18 @@ import type {
   AgentProcessInfo,
   AgentOutput,
   CliDetectionResult,
+  GitWorktreeInfo,
 } from '@ptah-extension/shared';
+import type {
+  BrowserNavigateResult,
+  BrowserScreenshotResult,
+  BrowserEvaluateResult,
+  BrowserClickResult,
+  BrowserTypeResult,
+  BrowserContentResult,
+  BrowserNetworkResult,
+  BrowserStatusResult,
+} from '../types';
 
 // ============================================================
 // Workspace & Search Tools
@@ -26,7 +37,7 @@ import type {
  */
 function renderDirectoryTree(
   structure: Record<string, unknown>,
-  depth = 0
+  depth = 0,
 ): string {
   const indent = '  '.repeat(depth);
   const lines: string[] = [];
@@ -89,7 +100,7 @@ export function formatWorkspaceAnalysis(result: unknown): string {
         projectLines.push(`**Description:** ${projectInfo['description']}`);
       if (projectInfo['gitRepository'] !== undefined)
         projectLines.push(
-          `**Git Repository:** ${projectInfo['gitRepository'] ? 'Yes' : 'No'}`
+          `**Git Repository:** ${projectInfo['gitRepository'] ? 'Yes' : 'No'}`,
         );
       if (typeof projectInfo['totalFiles'] === 'number')
         projectLines.push(`**Total Files:** ${projectInfo['totalFiles']}`);
@@ -156,7 +167,7 @@ export function formatWorkspaceAnalysis(result: unknown): string {
     const structureData = structure['structure'] ?? structure;
     const hasDirs =
       Array.isArray(
-        (structureData as Record<string, unknown>)?.['directories']
+        (structureData as Record<string, unknown>)?.['directories'],
       ) &&
       ((structureData as Record<string, unknown>)['directories'] as unknown[])
         .length > 0;
@@ -168,7 +179,7 @@ export function formatWorkspaceAnalysis(result: unknown): string {
     if (hasDirs || hasFiles) {
       blocks.push({ h3: 'Directory Structure' });
       const tree = renderDirectoryTree(
-        structureData as Record<string, unknown>
+        structureData as Record<string, unknown>,
       );
       if (tree) {
         blocks.push({ p: tree });
@@ -202,7 +213,7 @@ export function formatSearchFiles(files: unknown): string {
       const path =
         typeof file === 'string'
           ? file
-          : file?.path ?? file?.file ?? String(file);
+          : (file?.path ?? file?.file ?? String(file));
       return `${i + 1}. ${path}`;
     });
 
@@ -236,17 +247,17 @@ export function formatDiagnostics(diagnostics: unknown): string {
       (d: Record<string, unknown>) =>
         d['severity'] === 'error' ||
         d['severity'] === 0 ||
-        d['severity'] === 'Error'
+        d['severity'] === 'Error',
     );
     const warnings = diagnostics.filter(
       (d: Record<string, unknown>) =>
         d['severity'] === 'warning' ||
         d['severity'] === 1 ||
-        d['severity'] === 'Warning'
+        d['severity'] === 'Warning',
     );
     const others = diagnostics.filter(
       (d: Record<string, unknown>) =>
-        !errors.includes(d) && !warnings.includes(d)
+        !errors.includes(d) && !warnings.includes(d),
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -270,7 +281,7 @@ export function formatDiagnostics(diagnostics: unknown): string {
       blocks.push({ h3: 'Warnings' });
       blocks.push({
         ul: warnings.map((w: Record<string, unknown>) =>
-          formatDiagnosticItem(w)
+          formatDiagnosticItem(w),
         ),
       });
     }
@@ -391,7 +402,7 @@ export function formatDirtyFiles(files: unknown): string {
     const items = files.map((file) => {
       return typeof file === 'string'
         ? file
-        : (file as Record<string, unknown>)?.['path'] ?? String(file);
+        : ((file as Record<string, unknown>)?.['path'] ?? String(file));
     });
 
     return json2md([
@@ -511,7 +522,7 @@ export function formatAgentSpawn(result: SpawnAgentResult): string {
  * Format ptah_agent_status result (single or array)
  */
 export function formatAgentStatus(
-  result: AgentProcessInfo | AgentProcessInfo[]
+  result: AgentProcessInfo | AgentProcessInfo[],
 ): string {
   try {
     const agents = Array.isArray(result) ? result : [result];
@@ -638,26 +649,477 @@ export function formatAgentSteer(result: {
 // ============================================================
 
 /**
- * Format ptah_web_search result
+ * Format ptah_web_search result (multi-provider, TASK_2025_235)
  */
 export function formatWebSearch(result: {
   query: string;
   summary: string;
   provider: string;
   durationMs: number;
+  results: Array<{ title: string; url: string; snippet: string }>;
+  resultCount: number;
 }): string {
   try {
-    return json2md([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
       { h2: 'Web Search Results' },
       {
         p: [
           `**Query:** ${result.query}`,
           `**Provider:** ${result.provider}`,
+          `**Results:** ${result.resultCount}`,
           `**Duration:** ${(result.durationMs / 1000).toFixed(1)}s`,
         ].join('  \n'),
       },
-      { h3: 'Summary' },
-      { p: result.summary },
+    ];
+
+    // Summary section
+    if (result.summary) {
+      blocks.push({ h3: 'Summary' });
+      blocks.push({ p: result.summary });
+    }
+
+    // Individual results
+    if (result.results && result.results.length > 0) {
+      blocks.push({ h3: 'Results' });
+      const items = result.results.map(
+        (r, i) => `**${i + 1}. [${r.title}](${r.url})**\n${r.snippet}`,
+      );
+      blocks.push({ ul: items });
+    }
+
+    return json2md(blocks);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
+// Git Worktree Tools (TASK_2025_236)
+// ============================================================
+
+/**
+ * Format ptah_git_worktree_list result as a markdown table.
+ * Accepts a result object with both a worktrees array and an optional error,
+ * so the AI agent can distinguish "no worktrees" from "git error".
+ */
+export function formatWorktreeList(result: {
+  worktrees: GitWorktreeInfo[];
+  error?: string;
+}): string {
+  try {
+    // If there's an error, surface it clearly so the AI agent knows git failed
+    if (result.error) {
+      return json2md([
+        { h2: 'Git Worktrees' },
+        { p: `**Error:** ${result.error}` },
+        {
+          p: 'Could not list worktrees. Verify this is a git repository and git is installed.',
+        },
+      ]);
+    }
+
+    if (result.worktrees.length === 0) {
+      return json2md([
+        { h2: 'Git Worktrees' },
+        { p: 'No worktrees found. Only the main working tree exists.' },
+      ]);
+    }
+
+    const rows = result.worktrees.map((wt) => ({
+      Path: wt.path,
+      Branch: wt.branch,
+      HEAD: wt.head,
+      Main: wt.isMain ? 'Yes' : 'No',
+    }));
+
+    return json2md([
+      { h2: 'Git Worktrees' },
+      { p: `**Total:** ${result.worktrees.length}` },
+      { table: { headers: ['Path', 'Branch', 'HEAD', 'Main'], rows } },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_git_worktree_add result
+ */
+export function formatWorktreeAdd(result: {
+  success: boolean;
+  worktreePath?: string;
+  error?: string;
+}): string {
+  try {
+    if (result.success) {
+      return json2md([
+        { h2: 'Worktree Created' },
+        {
+          p: `**Path:** ${result.worktreePath ?? 'unknown'}  \n**Status:** Success`,
+        },
+      ]);
+    }
+
+    return json2md([
+      { h2: 'Worktree Creation Failed' },
+      {
+        p: `**Error:** ${result.error ?? 'Unknown error'}`,
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_git_worktree_remove result
+ */
+export function formatWorktreeRemove(result: {
+  success: boolean;
+  error?: string;
+}): string {
+  try {
+    if (result.success) {
+      return json2md([
+        { h2: 'Worktree Removed' },
+        { p: '**Status:** Successfully removed.' },
+      ]);
+    }
+
+    return json2md([
+      { h2: 'Worktree Removal Failed' },
+      {
+        p: `**Error:** ${result.error ?? 'Unknown error'}`,
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
+// JSON Validation Tool (TASK_2025_240)
+// ============================================================
+
+/**
+ * Format ptah_json_validate result as readable Markdown.
+ * On success: shows file path, repairs applied, file overwritten confirmation.
+ * On failure: shows errors for agent self-correction.
+ */
+export function formatJsonValidate(result: {
+  success: boolean;
+  file: string;
+  repairs: string[];
+  errors: string[];
+  fileOverwritten: boolean;
+}): string {
+  try {
+    if (result.success) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const blocks: any[] = [
+        { h2: 'JSON Validation Passed' },
+        { p: `**File:** ${result.file}  \n**Status:** Valid JSON` },
+      ];
+
+      if (result.repairs.length > 0) {
+        blocks.push({ h3: 'Repairs Applied' });
+        blocks.push({ ul: result.repairs });
+      }
+
+      if (result.fileOverwritten) {
+        blocks.push({
+          p: 'File overwritten with clean, formatted JSON.',
+        });
+      }
+
+      return json2md(blocks);
+    }
+
+    // Failure case — provide errors for agent self-correction
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'JSON Validation Failed' },
+      { p: `**File:** ${result.file}` },
+    ];
+
+    if (result.repairs.length > 0) {
+      blocks.push({ h3: 'Repairs Attempted' });
+      blocks.push({ ul: result.repairs });
+    }
+
+    blocks.push({ h3: 'Errors' });
+    blocks.push({ ul: result.errors });
+    blocks.push({
+      p: 'Please fix these issues and write the file again, then call ptah_json_validate to re-validate.',
+    });
+
+    return json2md(blocks);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+// ============================================================
+// Browser Automation Tools (TASK_2025_244)
+// ============================================================
+
+/**
+ * Format ptah_browser_navigate result
+ */
+export function formatBrowserNavigate(result: BrowserNavigateResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Navigation Failed' },
+        { p: `**URL:** ${result.url}` },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    return json2md([
+      { h2: 'Navigation Complete' },
+      { p: `**URL:** ${result.url}  \n**Title:** ${result.title}` },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_screenshot result.
+ * Returns the base64 data as a labeled text block since the MCP text
+ * response format is used for all tool results.
+ */
+export function formatBrowserScreenshot(
+  result: BrowserScreenshotResult,
+): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Screenshot Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const sizeKB = Math.round((result.data.length * 3) / 4 / 1024);
+    return json2md([
+      { h2: 'Screenshot Captured' },
+      {
+        p: `**Format:** ${result.format}  \n**Size:** ~${sizeKB}KB  \n**Data (base64):**`,
+      },
+      { code: { content: result.data } },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_evaluate result
+ */
+export function formatBrowserEvaluate(result: BrowserEvaluateResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'JavaScript Evaluation Failed' },
+        { p: `**Type:** ${result.type}` },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const valueStr =
+      typeof result.value === 'object'
+        ? JSON.stringify(result.value, null, 2)
+        : String(result.value);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const blocks: any[] = [
+      { h2: 'JavaScript Evaluation Result' },
+      { p: `**Type:** ${result.type}` },
+    ];
+
+    if (result.type === 'object' || valueStr.length > 100) {
+      blocks.push({ code: { language: 'json', content: valueStr } });
+    } else {
+      blocks.push({ p: `**Value:** ${valueStr}` });
+    }
+
+    return json2md(blocks);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_click result
+ */
+export function formatBrowserClick(result: BrowserClickResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Click Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Click Successful' },
+      { p: 'Element clicked successfully.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_type result
+ */
+export function formatBrowserType(result: BrowserTypeResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Type Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Type Successful' },
+      { p: 'Text entered successfully.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_content result.
+ * Truncates content if longer than 32KB to keep response manageable.
+ */
+export function formatBrowserContent(result: BrowserContentResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Content Read Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    const MAX_TEXT_LENGTH = 32 * 1024;
+    const text =
+      result.text.length > MAX_TEXT_LENGTH
+        ? result.text.substring(0, MAX_TEXT_LENGTH) + '\n\n[...truncated]'
+        : result.text;
+
+    const html =
+      result.html.length > MAX_TEXT_LENGTH
+        ? result.html.substring(0, MAX_TEXT_LENGTH) + '\n\n[...truncated]'
+        : result.html;
+
+    return json2md([
+      { h2: 'Page Content' },
+      { h3: 'Text' },
+      { code: { content: text } },
+      { h3: 'HTML' },
+      { code: { language: 'html', content: html } },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_network result as a markdown table
+ */
+export function formatBrowserNetwork(result: BrowserNetworkResult): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Network Requests' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+
+    if (result.requests.length === 0) {
+      return json2md([
+        { h2: 'Network Requests' },
+        { p: 'No network requests captured.' },
+      ]);
+    }
+
+    const rows = result.requests.map((req) => ({
+      Method: req.method,
+      Status: String(req.status),
+      Type: req.type,
+      Size: req.size ? `${Math.round(req.size / 1024)}KB` : '-',
+      URL: req.url.length > 80 ? req.url.substring(0, 77) + '...' : req.url,
+    }));
+
+    return json2md([
+      { h2: 'Network Requests' },
+      { p: `**Total:** ${result.requests.length}` },
+      {
+        table: {
+          headers: ['Method', 'Status', 'Type', 'Size', 'URL'],
+          rows,
+        },
+      },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_close result
+ */
+export function formatBrowserClose(result: {
+  success: boolean;
+  error?: string;
+}): string {
+  try {
+    if (result.error) {
+      return json2md([
+        { h2: 'Browser Close Failed' },
+        { p: `**Error:** ${result.error}` },
+      ]);
+    }
+    return json2md([
+      { h2: 'Browser Session Closed' },
+      { p: 'Browser session closed and resources released.' },
+    ]);
+  } catch {
+    return fallbackJson(result);
+  }
+}
+
+/**
+ * Format ptah_browser_status result
+ */
+export function formatBrowserStatus(result: BrowserStatusResult): string {
+  try {
+    if (!result.connected) {
+      return json2md([
+        { h2: 'Browser Status' },
+        {
+          p: '**Connected:** No  \nNo active browser session. Use ptah_browser_navigate to start one.',
+        },
+      ]);
+    }
+
+    const uptimeSec = result.uptimeMs ? Math.round(result.uptimeMs / 1000) : 0;
+    const autoCloseMin = result.autoCloseInMs
+      ? Math.round(result.autoCloseInMs / 60000)
+      : 0;
+
+    return json2md([
+      { h2: 'Browser Status' },
+      {
+        p:
+          `**Connected:** Yes  \n**URL:** ${result.url ?? 'N/A'}  \n` +
+          `**Title:** ${result.title ?? 'N/A'}  \n` +
+          `**Uptime:** ${uptimeSec}s  \n` +
+          `**Auto-close in:** ${autoCloseMin}m`,
+      },
     ]);
   } catch {
     return fallbackJson(result);

@@ -8,7 +8,7 @@
  * CLI fallback: codex --quiet "task description"
  * SDK path: Codex SDK thread.runStreamed() for in-process execution
  */
-import { readFile, rename, writeFile } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { homedir } from 'os';
 import { join } from 'path';
 import type {
@@ -28,7 +28,6 @@ import {
   resolveCliPath,
   spawnCli,
 } from './cli-adapter.utils';
-import { resolveAndImportSdk } from './sdk-resolver';
 
 /** Valid reasoning effort values for the Codex SDK. */
 const CODEX_REASONING_EFFORTS = [
@@ -70,7 +69,7 @@ interface CodexClient {
 interface CodexThread {
   runStreamed(
     input: string,
-    turnOptions?: { signal?: AbortSignal }
+    turnOptions?: { signal?: AbortSignal },
   ): Promise<{ events: AsyncGenerator<CodexThreadEvent> }>;
 }
 
@@ -141,26 +140,23 @@ let codexSdkModule: CodexSdkModule | null = null;
  * Lazily import the ESM-only @openai/codex-sdk package.
  * Only caches successful imports so a failed import can be retried.
  *
- * The package is NOT bundled with the extension. It is resolved at runtime
- * from the user's system via resolveAndImportSdk(), which tries standard
- * Node.js resolution first, then falls back to locating the package
- * relative to the CLI binary's install location.
+ * The SDK is bundled with the extension via esbuild (TASK_2025_232).
+ * Uses a string literal in import() so esbuild can statically resolve
+ * and bundle the package at build time.
  */
-async function getCodexSdk(binaryPath?: string): Promise<CodexSdkModule> {
+async function getCodexSdk(): Promise<CodexSdkModule> {
   if (codexSdkModule) {
     return codexSdkModule;
   }
-  const mod = await resolveAndImportSdk<CodexSdkModule>(
-    '@openai/codex-sdk',
-    binaryPath
-  );
+  const mod = (await import('@openai/codex-sdk')) as unknown as CodexSdkModule;
   codexSdkModule = mod;
   return mod;
 }
 
-/** Shape of ~/.codex/auth.json */
+/** Shape of ~/.codex/auth.json (both snake_case and SCREAMING_CASE variants exist across CLI versions) */
 interface CodexAuthFile {
-  auth_mode?: string;
+  auth_mode?: 'ApiKey' | 'Chatgpt' | 'ChatgptAuthTokens' | string;
+  openai_api_key?: string | null;
   OPENAI_API_KEY?: string | null;
   tokens?: {
     access_token?: string;
@@ -270,14 +266,8 @@ export class CodexCliAdapter implements CliAdapter {
     { id: 'gpt-5.1-codex-mini', name: 'GPT 5.1 Codex Mini' },
   ];
 
-  /** OAuth token refresh endpoint (same as Codex CLI uses) */
+  /** Path to the Codex auth file */
   private static readonly AUTH_PATH = join(homedir(), '.codex', 'auth.json');
-  private static readonly REFRESH_URL = 'https://auth.openai.com/oauth/token';
-  /** Max age (ms) before proactive refresh. OAuth tokens last ~1h; refresh at 50 min. */
-  private static readonly TOKEN_MAX_AGE_MS = 50 * 60 * 1000;
-
-  /** Guard against concurrent refresh attempts (single-use refresh tokens) */
-  private refreshInFlight: Promise<string | null> | null = null;
 
   /**
    * List available models for Codex.
@@ -290,22 +280,17 @@ export class CodexCliAdapter implements CliAdapter {
 
   /**
    * Resolve the OAuth access_token for Codex API calls.
-   * Proactively refreshes if the token looks stale (last_refresh > 50 min ago).
+   * Reads the token from ~/.codex/auth.json. No refresh is attempted.
    */
   private async resolveAccessToken(): Promise<string | null> {
     try {
       const raw = await readFile(CodexCliAdapter.AUTH_PATH, 'utf-8');
       const auth = JSON.parse(raw) as CodexAuthFile;
 
-      // API key takes priority — never expires
-      if (auth.OPENAI_API_KEY) return auth.OPENAI_API_KEY;
+      // API key takes priority — never expires (check both snake_case and SCREAMING_CASE)
+      const apiKey = auth.openai_api_key || auth.OPENAI_API_KEY;
+      if (apiKey) return apiKey;
       if (!auth.tokens?.access_token) return null;
-
-      // Proactively refresh if token looks stale
-      if (auth.tokens.refresh_token && this.isTokenStale(auth.last_refresh)) {
-        const refreshed = await this.refreshAccessToken(auth);
-        if (refreshed) return refreshed;
-      }
 
       return auth.tokens.access_token;
     } catch {
@@ -314,115 +299,17 @@ export class CodexCliAdapter implements CliAdapter {
     return null;
   }
 
-  /** Check whether the stored token is likely expired based on last_refresh. */
-  private isTokenStale(lastRefresh?: string): boolean {
-    if (!lastRefresh) return true;
-    try {
-      const refreshTime = new Date(lastRefresh).getTime();
-      if (isNaN(refreshTime)) return true;
-      return Date.now() - refreshTime > CodexCliAdapter.TOKEN_MAX_AGE_MS;
-    } catch {
-      return true;
-    }
-  }
-
   /**
-   * Refresh the OAuth access_token using the stored refresh_token.
-   * POST https://auth.openai.com/oauth/token (same endpoint Codex CLI uses).
-   * Guards against concurrent refresh (OpenAI uses single-use refresh tokens).
-   * On success, writes updated tokens back to auth.json.
-   */
-  private async refreshAccessToken(
-    auth: CodexAuthFile
-  ): Promise<string | null> {
-    if (!auth.tokens?.refresh_token) return null;
-
-    // Deduplicate concurrent refresh calls
-    if (this.refreshInFlight) return this.refreshInFlight;
-
-    this.refreshInFlight = this.doRefreshAccessToken(auth);
-    try {
-      return await this.refreshInFlight;
-    } finally {
-      this.refreshInFlight = null;
-    }
-  }
-
-  private async doRefreshAccessToken(
-    auth: CodexAuthFile
-  ): Promise<string | null> {
-    try {
-      const response = await fetch(CodexCliAdapter.REFRESH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: auth.tokens!.refresh_token!,
-          client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
-        }).toString(),
-        signal: AbortSignal.timeout(10_000),
-      });
-
-      if (!response.ok) return null;
-
-      const body = (await response.json()) as {
-        access_token?: string;
-        refresh_token?: string;
-        id_token?: string;
-        expires_in?: number;
-      };
-      if (!body.access_token) return null;
-
-      // Persist updated tokens to auth.json. Use write-to-temp-then-rename
-      // for atomicity — prevents corruption if the process crashes mid-write
-      // or the Codex CLI writes concurrently.
-      const updated: CodexAuthFile = {
-        ...auth,
-        tokens: {
-          ...auth.tokens!,
-          access_token: body.access_token,
-          ...(body.refresh_token && { refresh_token: body.refresh_token }),
-          ...(body.id_token && { id_token: body.id_token }),
-        },
-        last_refresh: new Date().toISOString(),
-      };
-
-      const tmpPath = CodexCliAdapter.AUTH_PATH + '.tmp';
-      try {
-        await writeFile(tmpPath, JSON.stringify(updated, null, 2), 'utf-8');
-        await rename(tmpPath, CodexCliAdapter.AUTH_PATH);
-      } catch {
-        // Write failed but we still have the fresh access_token in memory.
-        // Return it so this session works; the stale refresh_token on disk
-        // will be retried next time (OpenAI has a grace window for reuse).
-      }
-
-      return body.access_token;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Public: Ensure the Codex OAuth token is fresh.
-   * Called during extension startup (fire-and-forget) so that
-   * listModels() hits the API with a valid token on first use.
+   * Check if Codex credentials are available.
+   * Returns true if an API key or access token is present in ~/.codex/auth.json.
    */
   async ensureTokensFresh(): Promise<boolean> {
     try {
       const raw = await readFile(CodexCliAdapter.AUTH_PATH, 'utf-8');
       const auth = JSON.parse(raw) as CodexAuthFile;
 
-      if (auth.OPENAI_API_KEY) return true;
-      if (!auth.tokens?.access_token || !auth.tokens.refresh_token)
-        return false;
-
-      if (this.isTokenStale(auth.last_refresh)) {
-        const refreshed = await this.refreshAccessToken(auth);
-        return refreshed !== null;
-      }
-
-      return true;
+      if (auth.openai_api_key || auth.OPENAI_API_KEY) return true;
+      return !!auth.tokens?.access_token;
     } catch {
       return false;
     }
@@ -440,7 +327,7 @@ export class CodexCliAdapter implements CliAdapter {
    * reasoning→thinking mapping.
    */
   async runSdk(options: CliCommandOptions): Promise<SdkHandle> {
-    const sdk = await getCodexSdk(options.binaryPath);
+    const sdk = await getCodexSdk();
 
     // Pass MCP server config, env vars, and codexPathOverride through Codex SDK
     const codexOptions: {
@@ -499,7 +386,7 @@ export class CodexCliAdapter implements CliAdapter {
     if (
       options.reasoningEffort &&
       (CODEX_REASONING_EFFORTS as readonly string[]).includes(
-        options.reasoningEffort
+        options.reasoningEffort,
       )
     ) {
       threadOptions.modelReasoningEffort =
@@ -589,8 +476,8 @@ export class CodexCliAdapter implements CliAdapter {
           new Promise<never>((_, reject) =>
             setTimeout(
               () => reject(new Error('Codex SDK startup timed out after 30s')),
-              STARTUP_TIMEOUT_MS
-            )
+              STARTUP_TIMEOUT_MS,
+            ),
           ),
         ]);
 
@@ -609,7 +496,7 @@ export class CodexCliAdapter implements CliAdapter {
             emitOutput,
             emitSegment,
             itemTextTracker,
-            itemsWithDeltas
+            itemsWithDeltas,
           );
         }
 
@@ -648,6 +535,7 @@ export class CodexCliAdapter implements CliAdapter {
 
   /**
    * Process a single SDK stream event and emit relevant output + structured segments.
+   * Dispatches to per-event-type handler methods for testability and readability.
    *
    * TASK_2025_177: Handles item.started (early tool-call segments), item.updated
    * (progressive text/thinking deltas), and enhanced item.completed with toolCallId,
@@ -658,222 +546,295 @@ export class CodexCliAdapter implements CliAdapter {
     emitOutput: (data: string) => void,
     emitSegment: (segment: CliOutputSegment) => void,
     itemTextTracker: Map<string, string>,
-    itemsWithDeltas: Set<string>
+    itemsWithDeltas: Set<string>,
   ): void {
     switch (event.type) {
-      case 'item.started': {
-        const item = event.item;
-        switch (item.type) {
-          case 'command_execution':
-            // Emit early tool-call for progressive rendering.
-            // Use generic 'Shell' as toolName; full command goes in toolArgs.
-            emitSegment({
-              type: 'tool-call',
-              toolName: 'Shell',
-              toolArgs: item.command,
-              content: '',
-              toolCallId: item.id,
-            });
-            break;
-          case 'mcp_tool_call':
-            emitSegment({
-              type: 'tool-call',
-              toolName: `${item.server}:${item.tool}`,
-              content: item.arguments ?? '',
-              toolCallId: item.id,
-            });
-            break;
-          default:
-            break;
-        }
+      case 'item.started':
+        this.handleItemStarted(event.item, emitSegment);
         break;
-      }
-
-      case 'item.updated': {
-        const item = event.item;
-        switch (item.type) {
-          case 'agent_message': {
-            const previousText = itemTextTracker.get(item.id) ?? '';
-            if (item.text.startsWith(previousText)) {
-              // Normal append — emit only the new delta
-              const delta = item.text.slice(previousText.length);
-              if (delta) {
-                emitOutput(delta);
-                emitSegment({ type: 'text', content: delta });
-                itemTextTracker.set(item.id, item.text);
-                itemsWithDeltas.add(item.id);
-              }
-            } else {
-              // Text was replaced (not appended) — emit full text as replacement
-              emitOutput(item.text);
-              emitSegment({ type: 'text', content: item.text });
-              itemTextTracker.set(item.id, item.text);
-              itemsWithDeltas.add(item.id);
-            }
-            break;
-          }
-          case 'reasoning': {
-            const previousText = itemTextTracker.get(item.id) ?? '';
-            if (item.text.startsWith(previousText)) {
-              const delta = item.text.slice(previousText.length);
-              if (delta) {
-                emitOutput(delta);
-                emitSegment({ type: 'thinking', content: delta });
-                itemTextTracker.set(item.id, item.text);
-                itemsWithDeltas.add(item.id);
-              }
-            } else {
-              // Text was replaced — emit full text as replacement
-              emitOutput(item.text);
-              emitSegment({ type: 'thinking', content: item.text });
-              itemTextTracker.set(item.id, item.text);
-              itemsWithDeltas.add(item.id);
-            }
-            break;
-          }
-          default:
-            break;
-        }
+      case 'item.updated':
+        this.handleItemUpdated(
+          event.item,
+          emitOutput,
+          emitSegment,
+          itemTextTracker,
+          itemsWithDeltas,
+        );
         break;
-      }
-
-      case 'item.completed': {
-        const item = event.item;
-        switch (item.type) {
-          case 'agent_message':
-            // Skip full text emission if deltas were sent via item.updated
-            if (!itemsWithDeltas.has(item.id)) {
-              if (item.text) {
-                emitOutput(item.text + '\n');
-                emitSegment({ type: 'text', content: item.text });
-              }
-            }
-            // Clean up trackers
-            itemTextTracker.delete(item.id);
-            itemsWithDeltas.delete(item.id);
-            break;
-          case 'reasoning':
-            // Skip full text emission if deltas were sent via item.updated
-            if (!itemsWithDeltas.has(item.id)) {
-              if (item.text) {
-                emitOutput(`[Thinking] ${item.text}\n`);
-                emitSegment({ type: 'thinking', content: item.text });
-              }
-            }
-            // Clean up trackers
-            itemTextTracker.delete(item.id);
-            itemsWithDeltas.delete(item.id);
-            break;
-          case 'command_execution': {
-            emitOutput(`$ ${item.command}\n`);
-            if (item.aggregated_output) {
-              emitOutput(item.aggregated_output);
-              if (!item.aggregated_output.endsWith('\n')) {
-                emitOutput('\n');
-              }
-            }
-            if (item.exit_code !== undefined && item.exit_code !== 0) {
-              emitOutput(`[exit code: ${item.exit_code}]\n`);
-            }
-            emitSegment({
-              type: 'command',
-              content: item.aggregated_output ?? '',
-              toolName: item.command,
-              exitCode: item.exit_code,
-              toolCallId: item.id,
-            });
-            break;
-          }
-          case 'file_change':
-            for (const change of item.changes) {
-              emitOutput(`[${change.kind}] ${change.path}\n`);
-              emitSegment({
-                type: 'file-change',
-                content: change.path,
-                changeKind: change.kind,
-                toolCallId: item.id,
-              });
-            }
-            break;
-          case 'mcp_tool_call':
-            if (item.error) {
-              emitOutput(
-                `[MCP Error] ${item.server}:${item.tool}: ${item.error}\n`
-              );
-              emitSegment({
-                type: 'tool-result-error',
-                content: item.error,
-                toolCallId: item.id,
-              });
-            } else if (item.result) {
-              emitOutput(`[MCP Result] ${item.server}:${item.tool}\n`);
-              emitSegment({
-                type: 'tool-result',
-                content: item.result,
-                toolCallId: item.id,
-              });
-            } else {
-              // Completed with neither result nor error (e.g., cancelled/timed out)
-              emitOutput(
-                `[MCP] ${item.server}:${item.tool} (${
-                  item.status || 'completed'
-                })\n`
-              );
-              emitSegment({
-                type: 'tool-result',
-                content: `(${item.status || 'completed'})`,
-                toolCallId: item.id,
-              });
-            }
-            break;
-          case 'web_search':
-            emitOutput(`[Web Search] ${item.query}\n`);
-            emitSegment({
-              type: 'info',
-              content: `Web search: ${item.query}`,
-            });
-            break;
-          case 'todo_list': {
-            const formatted = item.items
-              .map((i) => `${i.completed ? '[x]' : '[ ]'} ${i.text}`)
-              .join('\n');
-            emitOutput(`[Todo List]\n${formatted}\n`);
-            emitSegment({
-              type: 'info',
-              content: `Todo list:\n${formatted}`,
-            });
-            break;
-          }
-          case 'error':
-            emitOutput(`[Error] ${item.message}\n`);
-            emitSegment({ type: 'error', content: item.message });
-            break;
-          default:
-            break;
-        }
+      case 'item.completed':
+        this.handleItemCompleted(
+          event.item,
+          emitOutput,
+          emitSegment,
+          itemTextTracker,
+          itemsWithDeltas,
+        );
         break;
-      }
       case 'turn.completed':
-        if (event.usage) {
-          const usageStr = `Usage: ${event.usage.input_tokens} input, ${event.usage.output_tokens} output tokens`;
-          emitOutput(`\n[${usageStr}]\n`);
-          emitSegment({ type: 'info', content: usageStr });
-        }
+        this.handleTurnCompleted(event, emitOutput, emitSegment);
         break;
       case 'turn.failed':
-        emitOutput(`[Turn Failed] ${event.error.message}\n`);
-        emitSegment({
-          type: 'error',
-          content: `Turn Failed: ${event.error.message}`,
-        });
+        this.handleTurnFailed(event, emitOutput, emitSegment);
         break;
       case 'error':
-        emitOutput(`[Stream Error] ${event.message}\n`);
-        emitSegment({ type: 'error', content: event.message });
+        this.handleStreamError(event, emitOutput, emitSegment);
         break;
       default:
         // thread.started handled in runSdk() for thread ID capture
         break;
     }
+  }
+
+  /** Emit early tool-call segments for progressive rendering on item start. */
+  private handleItemStarted(
+    item: CodexThreadItem,
+    emitSegment: (segment: CliOutputSegment) => void,
+  ): void {
+    switch (item.type) {
+      case 'command_execution':
+        // Use generic 'Shell' as toolName; full command goes in toolArgs.
+        emitSegment({
+          type: 'tool-call',
+          toolName: 'Shell',
+          toolArgs: item.command,
+          content: '',
+          toolCallId: item.id,
+        });
+        break;
+      case 'mcp_tool_call':
+        emitSegment({
+          type: 'tool-call',
+          toolName: `${item.server}:${item.tool}`,
+          content: item.arguments ?? '',
+          toolCallId: item.id,
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Emit progressive text/thinking deltas for streaming updates. */
+  private handleItemUpdated(
+    item: CodexThreadItem,
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void,
+    itemTextTracker: Map<string, string>,
+    itemsWithDeltas: Set<string>,
+  ): void {
+    switch (item.type) {
+      case 'agent_message':
+        this.emitTextDelta(
+          item,
+          'text',
+          emitOutput,
+          emitSegment,
+          itemTextTracker,
+          itemsWithDeltas,
+        );
+        break;
+      case 'reasoning':
+        this.emitTextDelta(
+          item,
+          'thinking',
+          emitOutput,
+          emitSegment,
+          itemTextTracker,
+          itemsWithDeltas,
+        );
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Shared delta tracking logic for text-bearing items (agent_message, reasoning).
+   * Computes the delta between previous and current text, emitting only the new portion.
+   * Falls back to emitting the full text when the SDK replaces (rather than appends) content.
+   */
+  private emitTextDelta(
+    item: { id: string; text: string },
+    segmentType: 'text' | 'thinking',
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void,
+    itemTextTracker: Map<string, string>,
+    itemsWithDeltas: Set<string>,
+  ): void {
+    const previousText = itemTextTracker.get(item.id) ?? '';
+    if (item.text.startsWith(previousText)) {
+      // Normal append — emit only the new delta
+      const delta = item.text.slice(previousText.length);
+      if (delta) {
+        emitOutput(delta);
+        emitSegment({ type: segmentType, content: delta });
+        itemTextTracker.set(item.id, item.text);
+        itemsWithDeltas.add(item.id);
+      }
+    } else {
+      // Text was replaced (not appended) — emit full text as replacement
+      emitOutput(item.text);
+      emitSegment({ type: segmentType, content: item.text });
+      itemTextTracker.set(item.id, item.text);
+      itemsWithDeltas.add(item.id);
+    }
+  }
+
+  /** Emit final output and structured segments when an item completes. */
+  private handleItemCompleted(
+    item: CodexThreadItem,
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void,
+    itemTextTracker: Map<string, string>,
+    itemsWithDeltas: Set<string>,
+  ): void {
+    switch (item.type) {
+      case 'agent_message':
+        // Skip full text emission if deltas were sent via item.updated
+        if (!itemsWithDeltas.has(item.id)) {
+          if (item.text) {
+            emitOutput(item.text + '\n');
+            emitSegment({ type: 'text', content: item.text });
+          }
+        }
+        // Clean up trackers
+        itemTextTracker.delete(item.id);
+        itemsWithDeltas.delete(item.id);
+        break;
+      case 'reasoning':
+        // Skip full text emission if deltas were sent via item.updated
+        if (!itemsWithDeltas.has(item.id)) {
+          if (item.text) {
+            emitOutput(`[Thinking] ${item.text}\n`);
+            emitSegment({ type: 'thinking', content: item.text });
+          }
+        }
+        // Clean up trackers
+        itemTextTracker.delete(item.id);
+        itemsWithDeltas.delete(item.id);
+        break;
+      case 'command_execution': {
+        emitOutput(`$ ${item.command}\n`);
+        if (item.aggregated_output) {
+          emitOutput(item.aggregated_output);
+          if (!item.aggregated_output.endsWith('\n')) {
+            emitOutput('\n');
+          }
+        }
+        if (item.exit_code !== undefined && item.exit_code !== 0) {
+          emitOutput(`[exit code: ${item.exit_code}]\n`);
+        }
+        emitSegment({
+          type: 'command',
+          content: item.aggregated_output ?? '',
+          toolName: item.command,
+          exitCode: item.exit_code,
+          toolCallId: item.id,
+        });
+        break;
+      }
+      case 'file_change':
+        for (const change of item.changes) {
+          emitOutput(`[${change.kind}] ${change.path}\n`);
+          emitSegment({
+            type: 'file-change',
+            content: change.path,
+            changeKind: change.kind,
+            toolCallId: item.id,
+          });
+        }
+        break;
+      case 'mcp_tool_call':
+        if (item.error) {
+          emitOutput(
+            `[MCP Error] ${item.server}:${item.tool}: ${item.error}\n`,
+          );
+          emitSegment({
+            type: 'tool-result-error',
+            content: item.error,
+            toolCallId: item.id,
+          });
+        } else if (item.result) {
+          emitOutput(`[MCP Result] ${item.server}:${item.tool}\n`);
+          emitSegment({
+            type: 'tool-result',
+            content: item.result,
+            toolCallId: item.id,
+          });
+        } else {
+          // Completed with neither result nor error (e.g., cancelled/timed out)
+          emitOutput(
+            `[MCP] ${item.server}:${item.tool} (${
+              item.status || 'completed'
+            })\n`,
+          );
+          emitSegment({
+            type: 'tool-result',
+            content: `(${item.status || 'completed'})`,
+            toolCallId: item.id,
+          });
+        }
+        break;
+      case 'web_search':
+        emitOutput(`[Web Search] ${item.query}\n`);
+        emitSegment({
+          type: 'info',
+          content: `Web search: ${item.query}`,
+        });
+        break;
+      case 'todo_list': {
+        const formatted = item.items
+          .map((i) => `${i.completed ? '[x]' : '[ ]'} ${i.text}`)
+          .join('\n');
+        emitOutput(`[Todo List]\n${formatted}\n`);
+        emitSegment({
+          type: 'info',
+          content: `Todo list:\n${formatted}`,
+        });
+        break;
+      }
+      case 'error':
+        emitOutput(`[Error] ${item.message}\n`);
+        emitSegment({ type: 'error', content: item.message });
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** Emit usage statistics when a turn completes successfully. */
+  private handleTurnCompleted(
+    event: Extract<CodexThreadEvent, { type: 'turn.completed' }>,
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void,
+  ): void {
+    if (event.usage) {
+      const usageStr = `Usage: ${event.usage.input_tokens} input, ${event.usage.output_tokens} output tokens`;
+      emitOutput(`\n[${usageStr}]\n`);
+      emitSegment({ type: 'info', content: usageStr });
+    }
+  }
+
+  /** Emit error output when a turn fails. */
+  private handleTurnFailed(
+    event: Extract<CodexThreadEvent, { type: 'turn.failed' }>,
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void,
+  ): void {
+    emitOutput(`[Turn Failed] ${event.error.message}\n`);
+    emitSegment({
+      type: 'error',
+      content: `Turn Failed: ${event.error.message}`,
+    });
+  }
+
+  /** Emit error output for stream-level errors. */
+  private handleStreamError(
+    event: Extract<CodexThreadEvent, { type: 'error' }>,
+    emitOutput: (data: string) => void,
+    emitSegment: (segment: CliOutputSegment) => void,
+  ): void {
+    emitOutput(`[Stream Error] ${event.message}\n`);
+    emitSegment({ type: 'error', content: event.message });
   }
 }

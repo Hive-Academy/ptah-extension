@@ -22,6 +22,8 @@ import type {
   LicenseGetStatusResponse,
   LicenseSetKeyParams,
   LicenseSetKeyResponse,
+  LicenseClearKeyParams,
+  LicenseClearKeyResponse,
   LicenseTier,
 } from '@ptah-extension/shared';
 
@@ -48,7 +50,7 @@ export class LicenseRpcHandlers {
     @inject(TOKENS.LICENSE_SERVICE)
     private readonly licenseService: LicenseService,
     @inject(TOKENS.PLATFORM_COMMANDS)
-    private readonly platformCommands: IPlatformCommands
+    private readonly platformCommands: IPlatformCommands,
   ) {}
 
   /**
@@ -57,9 +59,10 @@ export class LicenseRpcHandlers {
   register(): void {
     this.registerGetStatus();
     this.registerSetKey();
+    this.registerClearKey();
 
     this.logger.debug('License RPC handlers registered', {
-      methods: ['license:getStatus', 'license:setKey'],
+      methods: ['license:getStatus', 'license:setKey', 'license:clearKey'],
     });
   }
 
@@ -103,7 +106,7 @@ export class LicenseRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: license:getStatus failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
 
         // TASK_2025_128: On error, check cached status to determine fallback.
@@ -194,17 +197,22 @@ export class LicenseRpcHandlers {
           } else {
             this.logger.warn('RPC: license:setKey - verification failed', {
               reason: newStatus.reason,
+              tier: newStatus.tier,
             });
+            // Include the actual reason so users and logs can diagnose the issue.
+            // Common reasons: 'not_found' (key unknown), 'expired', 'revoked', 'trial_ended'
+            const reasonDetail = newStatus.reason
+              ? ` (reason: ${newStatus.reason})`
+              : '';
             return {
               success: false,
-              error:
-                'License verification failed. Please check your key and try again.',
+              error: `License verification failed${reasonDetail}. Please check your key and try again.`,
             };
           }
         } catch (error) {
           this.logger.error(
             'RPC: license:setKey failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return {
             success: false,
@@ -214,8 +222,47 @@ export class LicenseRpcHandlers {
                 : 'Failed to verify license key',
           };
         }
-      }
+      },
     );
+  }
+
+  /**
+   * license:clearKey - Clear the license key and reload
+   *
+   * Called from the settings page logout button.
+   * Removes the key from SecretStorage and triggers a window reload.
+   */
+  private registerClearKey(): void {
+    this.rpcHandler.registerMethod<
+      LicenseClearKeyParams,
+      LicenseClearKeyResponse
+    >('license:clearKey', async () => {
+      try {
+        this.logger.debug('RPC: license:clearKey called');
+
+        await this.licenseService.clearLicenseKey();
+
+        this.logger.info('RPC: license:clearKey - license key removed');
+
+        // Schedule window reload to apply changes
+        // Delay allows the RPC response to reach the webview first
+        setTimeout(() => this.platformCommands.reloadWindow(), 1500);
+
+        return { success: true };
+      } catch (error) {
+        this.logger.error(
+          'RPC: license:clearKey failed',
+          error instanceof Error ? error : new Error(String(error)),
+        );
+        return {
+          success: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'Failed to clear license key',
+        };
+      }
+    });
   }
 
   /**
@@ -232,7 +279,7 @@ export class LicenseRpcHandlers {
    * @returns RPC response format for frontend
    */
   private mapLicenseStatusToResponse(
-    status: LicenseStatus
+    status: LicenseStatus,
   ): LicenseGetStatusResponse {
     // Determine if user has premium (Pro) features
     // Pro tier and Pro trial both have premium features

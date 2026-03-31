@@ -22,6 +22,8 @@ export * from './rpc/rpc-providers.types';
 export * from './rpc/rpc-setup.types';
 export * from './rpc/rpc-agents.types';
 export * from './rpc/rpc-misc.types';
+export * from './rpc/rpc-git.types';
+export * from './rpc/rpc-terminal.types';
 
 // ============================================================
 // Imports for RpcMethodRegistry (types used only in registry entries)
@@ -175,6 +177,24 @@ import type {
 } from './rpc/rpc-agents.types';
 
 import type {
+  GitInfoParams,
+  GitInfoResult,
+  GitWorktreesParams,
+  GitWorktreesResult,
+  GitAddWorktreeParams,
+  GitAddWorktreeResult,
+  GitRemoveWorktreeParams,
+  GitRemoveWorktreeResult,
+} from './rpc/rpc-git.types';
+
+import type {
+  TerminalCreateParams,
+  TerminalCreateResult,
+  TerminalKillParams,
+  TerminalKillResult,
+} from './rpc/rpc-terminal.types';
+
+import type {
   ContextGetAllFilesParams,
   ContextGetAllFilesResult,
   ContextGetFileSuggestionsParams,
@@ -189,6 +209,8 @@ import type {
   LicenseGetStatusResponse,
   LicenseSetKeyParams,
   LicenseSetKeyResponse,
+  LicenseClearKeyParams,
+  LicenseClearKeyResponse,
   CommandExecuteParams,
   CommandExecuteResponse,
   QualityGetAssessmentParams,
@@ -391,6 +413,10 @@ export interface RpcMethodRegistry {
   'license:setKey': {
     params: LicenseSetKeyParams;
     result: LicenseSetKeyResponse;
+  };
+  'license:clearKey': {
+    params: LicenseClearKeyParams;
+    result: LicenseClearKeyResponse;
   };
 
   // ---- Command Methods (TASK_2025_126) ----
@@ -686,6 +712,19 @@ export interface RpcMethodRegistry {
     };
   };
 
+  'editor:getDirectoryChildren': {
+    params: { dirPath: string };
+    result: {
+      success: boolean;
+      children: Array<{
+        name: string;
+        path: string;
+        type: 'file' | 'directory';
+      }>;
+      error?: string;
+    };
+  };
+
   // ---- Electron File Methods (TASK_2025_203) ----
   'file:read': {
     params: { path: string };
@@ -750,6 +789,51 @@ export interface RpcMethodRegistry {
       result?: { imported: string[]; skipped: string[]; errors: string[] };
     };
   };
+
+  // ---- Web Search Settings Methods (TASK_2025_235) ----
+  'webSearch:getApiKeyStatus': {
+    params: { provider: string };
+    result: { configured: boolean };
+  };
+  'webSearch:setApiKey': {
+    params: { provider: string; apiKey: string };
+    result: { success: boolean };
+  };
+  'webSearch:deleteApiKey': {
+    params: { provider: string };
+    result: { success: boolean };
+  };
+  'webSearch:test': {
+    params: Record<string, never>;
+    result: { success: boolean; provider: string; error?: string };
+  };
+  'webSearch:getConfig': {
+    params: Record<string, never>;
+    result: { provider: string; maxResults: number };
+  };
+  'webSearch:setConfig': {
+    params: { provider?: string; maxResults?: number };
+    result: { success: boolean };
+  };
+
+  // ---- Git Methods (TASK_2025_227) ----
+  'git:info': { params: GitInfoParams; result: GitInfoResult };
+  'git:worktrees': { params: GitWorktreesParams; result: GitWorktreesResult };
+  'git:addWorktree': {
+    params: GitAddWorktreeParams;
+    result: GitAddWorktreeResult;
+  };
+  'git:removeWorktree': {
+    params: GitRemoveWorktreeParams;
+    result: GitRemoveWorktreeResult;
+  };
+
+  // ---- Terminal Methods (TASK_2025_227) ----
+  'terminal:create': {
+    params: TerminalCreateParams;
+    result: TerminalCreateResult;
+  };
+  'terminal:kill': { params: TerminalKillParams; result: TerminalKillResult };
 }
 
 /**
@@ -830,6 +914,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // License Methods
   'license:getStatus',
   'license:setKey',
+  'license:clearKey',
 
   // Command Methods (TASK_2025_126)
   'command:execute',
@@ -914,6 +999,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'editor:openFile',
   'editor:saveFile',
   'editor:getFileTree',
+  'editor:getDirectoryChildren',
 
   // Electron File Methods (TASK_2025_203)
   'file:read',
@@ -931,6 +1017,24 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   // Electron Settings Methods (TASK_2025_210)
   'settings:export',
   'settings:import',
+
+  // Web Search Settings Methods (TASK_2025_235)
+  'webSearch:getApiKeyStatus',
+  'webSearch:setApiKey',
+  'webSearch:deleteApiKey',
+  'webSearch:test',
+  'webSearch:getConfig',
+  'webSearch:setConfig',
+
+  // Git Methods (TASK_2025_227)
+  'git:info',
+  'git:worktrees',
+  'git:addWorktree',
+  'git:removeWorktree',
+
+  // Terminal Methods (TASK_2025_227)
+  'terminal:create',
+  'terminal:kill',
 ] as const;
 
 /**

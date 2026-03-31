@@ -70,7 +70,8 @@ const AST_NODE_TYPES = {
 export class AstAnalysisService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
-    private readonly parserService: TreeSitterParserService
+    @inject(TOKENS.TREE_SITTER_PARSER_SERVICE)
+    private readonly parserService: TreeSitterParserService,
   ) {}
 
   /**
@@ -82,40 +83,49 @@ export class AstAnalysisService {
    * @param filePath Optional file path for logging
    * @returns A Result containing the extracted CodeInsights on success, or an Error on failure.
    */
-  analyzeSource(
+  async analyzeSource(
     content: string,
     language: SupportedLanguage,
-    filePath?: string
-  ): Result<CodeInsights, Error> {
+    filePath?: string,
+  ): Promise<Result<CodeInsights, Error>> {
     const logPath = filePath || '<inline>';
     this.logger.debug(
-      `AstAnalysisService.analyzeSource() - Analyzing ${logPath} using queries`
+      `AstAnalysisService.analyzeSource() - Analyzing ${logPath} using queries`,
     );
 
     try {
       // Extract functions using query
-      const functionsResult = this.parserService.queryFunctions(
+      const functionsResult = await this.parserService.queryFunctions(
         content,
-        language
+        language,
       );
       const functions: FunctionInfo[] = functionsResult.isOk()
         ? this.extractFunctionsFromMatches(functionsResult.value ?? [])
         : [];
 
       // Extract classes using query
-      const classesResult = this.parserService.queryClasses(content, language);
+      const classesResult = await this.parserService.queryClasses(
+        content,
+        language,
+      );
       const classes: ClassInfo[] = classesResult.isOk()
         ? this.extractClassesFromMatches(classesResult.value ?? [])
         : [];
 
       // Extract imports using query
-      const importsResult = this.parserService.queryImports(content, language);
+      const importsResult = await this.parserService.queryImports(
+        content,
+        language,
+      );
       const imports: ImportInfo[] = importsResult.isOk()
         ? this.extractImportsFromMatches(importsResult.value ?? [])
         : [];
 
       // Extract exports using query
-      const exportsResult = this.parserService.queryExports(content, language);
+      const exportsResult = await this.parserService.queryExports(
+        content,
+        language,
+      );
       const exports: ExportInfo[] = exportsResult.isOk()
         ? this.extractExportsFromMatches(exportsResult.value ?? [])
         : [];
@@ -129,7 +139,7 @@ export class AstAnalysisService {
 
       this.logger.debug(
         `AstAnalysisService.analyzeSource() - Found ${functions.length} functions, ` +
-          `${classes.length} classes, ${imports.length} imports, ${exports.length} exports in ${logPath}`
+          `${classes.length} classes, ${imports.length} imports, ${exports.length} exports in ${logPath}`,
       );
 
       return Result.ok(insights);
@@ -137,10 +147,10 @@ export class AstAnalysisService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `AstAnalysisService.analyzeSource() - Failed to analyze ${logPath}: ${errorMessage}`
+        `AstAnalysisService.analyzeSource() - Failed to analyze ${logPath}: ${errorMessage}`,
       );
       return Result.err(
-        new Error(`AST analysis failed for ${logPath}: ${errorMessage}`)
+        new Error(`AST analysis failed for ${logPath}: ${errorMessage}`),
       );
     }
   }
@@ -153,12 +163,12 @@ export class AstAnalysisService {
    * @param filePath The path of the file being analyzed.
    * @returns A Result containing the extracted CodeInsights on success, or an Error on failure.
    */
-  async analyzeAst(
+  analyzeAst(
     astData: GenericAstNode,
-    filePath: string
-  ): Promise<Result<CodeInsights, Error>> {
+    filePath: string,
+  ): Result<CodeInsights, Error> {
     this.logger.debug(
-      `AstAnalysisService.analyzeAst() - Analyzing ${filePath} using traversal`
+      `AstAnalysisService.analyzeAst() - Analyzing ${filePath} using traversal`,
     );
 
     try {
@@ -200,7 +210,7 @@ export class AstAnalysisService {
       };
 
       this.logger.debug(
-        `AstAnalysisService.analyzeAst() - Found ${functions.length} functions, ${classes.length} classes, ${imports.length} imports in ${filePath}`
+        `AstAnalysisService.analyzeAst() - Found ${functions.length} functions, ${classes.length} classes, ${imports.length} imports in ${filePath}`,
       );
 
       return Result.ok(insights);
@@ -208,10 +218,10 @@ export class AstAnalysisService {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       this.logger.error(
-        `AstAnalysisService.analyzeAst() - Failed to analyze ${filePath}: ${errorMessage}`
+        `AstAnalysisService.analyzeAst() - Failed to analyze ${filePath}: ${errorMessage}`,
       );
       return Result.err(
-        new Error(`AST analysis failed for ${filePath}: ${errorMessage}`)
+        new Error(`AST analysis failed for ${filePath}: ${errorMessage}`),
       );
     }
   }
@@ -489,7 +499,7 @@ export class AstAnalysisService {
   private traverseAst(
     node: GenericAstNode,
     visitor: (node: GenericAstNode, parent: GenericAstNode | null) => void,
-    parent: GenericAstNode | null = null
+    parent: GenericAstNode | null = null,
   ): void {
     visitor(node, parent);
     for (const child of node.children) {
@@ -529,7 +539,7 @@ export class AstAnalysisService {
    */
   private extractFunctionInfo(
     node: GenericAstNode,
-    parent: GenericAstNode | null
+    parent: GenericAstNode | null,
   ): FunctionInfo | null {
     let name = '<anonymous>';
 
@@ -559,7 +569,7 @@ export class AstAnalysisService {
       if (parent.type === AST_NODE_TYPES.VARIABLE_DECLARATOR) {
         const nameNode = this.findChildByType(
           parent,
-          AST_NODE_TYPES.IDENTIFIER
+          AST_NODE_TYPES.IDENTIFIER,
         );
         if (nameNode) {
           name = nameNode.text;
@@ -595,7 +605,7 @@ export class AstAnalysisService {
 
     const paramsNode = this.findChildByType(
       node,
-      AST_NODE_TYPES.FORMAL_PARAMETERS
+      AST_NODE_TYPES.FORMAL_PARAMETERS,
     );
     if (!paramsNode) {
       return parameters;
@@ -697,7 +707,7 @@ export class AstAnalysisService {
 
     const importClause = this.findChildByType(
       node,
-      AST_NODE_TYPES.IMPORT_CLAUSE
+      AST_NODE_TYPES.IMPORT_CLAUSE,
     );
     if (importClause) {
       for (const child of importClause.children) {
@@ -710,7 +720,7 @@ export class AstAnalysisService {
         if (child.type === 'namespace_import') {
           const nameNode = this.findChildByType(
             child,
-            AST_NODE_TYPES.IDENTIFIER
+            AST_NODE_TYPES.IDENTIFIER,
           );
           if (nameNode) {
             importedSymbols.push(`* as ${nameNode.text}`);
@@ -723,7 +733,7 @@ export class AstAnalysisService {
             if (specifier.type === AST_NODE_TYPES.IMPORT_SPECIFIER) {
               const nameNode = this.findChildByType(
                 specifier,
-                AST_NODE_TYPES.IDENTIFIER
+                AST_NODE_TYPES.IDENTIFIER,
               );
               if (nameNode) {
                 importedSymbols.push(nameNode.text);
@@ -747,7 +757,7 @@ export class AstAnalysisService {
    */
   private findChildByType(
     node: GenericAstNode,
-    type: string
+    type: string,
   ): GenericAstNode | null {
     for (const child of node.children) {
       if (child.type === type) {
@@ -763,7 +773,7 @@ export class AstAnalysisService {
   private findAllChildrenByType(
     node: GenericAstNode,
     type: string,
-    results: GenericAstNode[] = []
+    results: GenericAstNode[] = [],
   ): GenericAstNode[] {
     for (const child of node.children) {
       if (child.type === type) {

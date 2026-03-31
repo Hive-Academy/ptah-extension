@@ -13,7 +13,10 @@
 
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { PlatformType } from '@ptah-extension/platform-core';
 
@@ -32,6 +35,8 @@ import {
 import { ElectronOutputChannel } from './implementations/electron-output-channel';
 import { ElectronCommandRegistry } from './implementations/electron-command-registry';
 import { ElectronEditorProvider } from './implementations/electron-editor-provider';
+import { ElectronTokenCounter } from './implementations/electron-token-counter';
+import { ElectronDiagnosticsProvider } from './implementations/electron-diagnostics-provider';
 
 /**
  * Options for Electron platform registration.
@@ -55,7 +60,7 @@ export interface ElectronPlatformOptions {
   ipcMain?: {
     once(
       channel: string,
-      listener: (event: unknown, ...args: unknown[]) => void
+      listener: (event: unknown, ...args: unknown[]) => void,
     ): void;
   } | null;
   /** Initial workspace folders (from command line or recent) */
@@ -70,14 +75,14 @@ export interface ElectronPlatformOptions {
  */
 export function registerPlatformElectronServices(
   container: DependencyContainer,
-  options: ElectronPlatformOptions
+  options: ElectronPlatformOptions,
 ): void {
   // Compute workspace-scoped storage path from the first workspace folder
   const workspaceStoragePath = options.initialFolders?.[0]
     ? path.join(
         options.userDataPath,
         'workspace-storage',
-        encodeWorkspacePath(options.initialFolders[0])
+        encodeWorkspacePath(options.initialFolders[0]),
       )
     : path.join(options.userDataPath, 'workspace-storage', 'default');
 
@@ -101,7 +106,7 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.STATE_STORAGE, {
     useValue: new ElectronStateStorage(
       options.userDataPath,
-      'global-state.json'
+      'global-state.json',
     ),
   });
 
@@ -109,7 +114,7 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
     useValue: new ElectronStateStorage(
       workspaceStoragePath,
-      'workspace-state.json'
+      'workspace-state.json',
     ),
   });
 
@@ -117,7 +122,7 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.SECRET_STORAGE, {
     useValue: new ElectronSecretStorage(
       options.userDataPath,
-      options.safeStorage
+      options.safeStorage,
     ),
   });
 
@@ -125,7 +130,7 @@ export function registerPlatformElectronServices(
   container.register(PLATFORM_TOKENS.WORKSPACE_PROVIDER, {
     useValue: new ElectronWorkspaceProvider(
       options.userDataPath,
-      options.initialFolders
+      options.initialFolders,
     ),
   });
 
@@ -134,7 +139,7 @@ export function registerPlatformElectronServices(
     useValue: new ElectronUserInteraction(
       options.dialog,
       options.getWindow,
-      options.ipcMain
+      options.ipcMain,
     ),
   });
 
@@ -151,6 +156,21 @@ export function registerPlatformElectronServices(
   // Editor Provider
   container.register(PLATFORM_TOKENS.EDITOR_PROVIDER, {
     useValue: new ElectronEditorProvider(),
+  });
+
+  // Token Counter (uses gpt-tokenizer BPE tokenization)
+  container.register(PLATFORM_TOKENS.TOKEN_COUNTER, {
+    useValue: new ElectronTokenCounter(),
+  });
+
+  // Diagnostics Provider (returns empty — no live language server in Electron)
+  container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
+    useValue: new ElectronDiagnosticsProvider(),
+  });
+
+  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/ (TASK_2025_248)
+  container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
+    useValue: new ContentDownloadService(),
   });
 }
 

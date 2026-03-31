@@ -5,6 +5,7 @@
  * - Loading sessions list from backend (with pagination)
  * - Switching sessions via SDK resume flow
  * - Managing session UI state (tabs, loading indicators)
+ * - Per-workspace session caching for instant workspace switching
  *
  * Part of ChatStore refactoring (Facade pattern) - ChatStore delegates here.
  *
@@ -29,6 +30,17 @@ import { StreamingHandlerService } from './streaming-handler.service';
 import { AgentMonitorStore } from '../agent-monitor.store';
 import { createEmptyStreamingState } from '../chat.types';
 
+/**
+ * Cached session list state for a single workspace.
+ * Stored in a per-workspace map so switching between workspaces is instant.
+ */
+interface CachedSessionState {
+  sessions: readonly ChatSessionSummary[];
+  totalSessions: number;
+  hasMoreSessions: boolean;
+  sessionsOffset: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SessionLoaderService {
   private readonly claudeRpcService = inject(ClaudeRpcService);
@@ -49,12 +61,43 @@ export class SessionLoaderService {
   private readonly _isLoadingMoreSessions = signal(false);
   private readonly _resumableSubagents = signal<SubagentRecord[]>([]);
 
+  /**
+   * Set of sessionIds currently being loaded via switchSession() or
+   * refreshResumableSubagentsForSession(). Prevents duplicate chat:resume
+   * calls when the same session is requested while a load is already in
+   * progress (e.g., from restored-session effect firing alongside switchSession).
+   */
+  private readonly _inFlightSessions = new Set<string>();
+
   // Page size constant
   private static readonly SESSIONS_PAGE_SIZE = 30;
 
   // Debounce timer for coalescing rapid loadSessions() calls
   private loadSessionsTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly LOAD_SESSIONS_DEBOUNCE_MS = 300;
+
+  // ============================================================================
+  // PER-WORKSPACE SESSION CACHE
+  // ============================================================================
+
+  /**
+   * Per-workspace session list cache.
+   * Keyed by workspace folder path. Populated on load and updated on mutations.
+   * Enables instant workspace switching without backend RPC round-trips.
+   */
+  private readonly sessionCache = new Map<string, CachedSessionState>();
+
+  /** The workspace path whose sessions are currently displayed in the UI signals. */
+  private currentWorkspacePath: string | null = null;
+
+  /**
+   * Normalize a workspace path for use as a cache key.
+   * Converts backslashes to forward slashes for consistent lookups on Windows
+   * where paths may arrive as either `C:\foo` or `C:/foo` from different sources.
+   */
+  private static normalizeCacheKey(path: string): string {
+    return path.replace(/\\/g, '/');
+  }
 
   // ============================================================================
   // PUBLIC READONLY SIGNALS
@@ -98,8 +141,8 @@ export class SessionLoaderService {
         untracked(() =>
           this.refreshResumableSubagentsForSession(
             activeTab.claudeSessionId!,
-            activeTab.id
-          )
+            activeTab.id,
+          ),
         );
       }
     });
@@ -136,10 +179,17 @@ export class SessionLoaderService {
   /**
    * Internal: Perform the actual session list RPC call.
    * Preserves pagination by loading all items up to the current offset.
+   * Updates the per-workspace cache after a successful load.
+   *
+   * Uses currentWorkspacePath (set by switchWorkspace) with a fallback to
+   * vscodeService.config().workspaceRoot for backward compatibility (VS Code extension).
+   * After the RPC resolves, guards against stale responses: if the active
+   * workspace changed during the RPC, the result is discarded.
    */
   private async _loadSessionsImmediate(): Promise<void> {
     try {
-      const workspacePath = this.vscodeService.config().workspaceRoot;
+      const workspacePath =
+        this.currentWorkspacePath || this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
         console.warn('[SessionLoaderService] No workspace path available');
         return;
@@ -150,7 +200,7 @@ export class SessionLoaderService {
       const currentOffset = this._sessionsOffset();
       const limit = Math.max(
         SessionLoaderService.SESSIONS_PAGE_SIZE,
-        currentOffset
+        currentOffset,
       );
 
       const result = await this.claudeRpcService.call('session:list', {
@@ -159,15 +209,30 @@ export class SessionLoaderService {
         offset: 0,
       });
 
+      // Guard: if the active workspace changed while the RPC was in flight,
+      // discard the stale result to avoid overwriting the correct workspace's data.
+      const activeNow =
+        this.currentWorkspacePath || this.vscodeService.config().workspaceRoot;
+      if (
+        activeNow &&
+        SessionLoaderService.normalizeCacheKey(activeNow) !==
+          SessionLoaderService.normalizeCacheKey(workspacePath)
+      ) {
+        return;
+      }
+
       if (result.success && result.data) {
         this._sessions.set(result.data.sessions);
         this._totalSessions.set(result.data.total);
         this._hasMoreSessions.set(result.data.hasMore);
         this._sessionsOffset.set(result.data.sessions.length);
+
+        // Update cache for the active workspace
+        this.updateCache(workspacePath);
       } else {
         console.error(
           '[SessionLoaderService] Failed to load sessions:',
-          result.error
+          result.error,
         );
       }
     } catch (error) {
@@ -176,7 +241,8 @@ export class SessionLoaderService {
   }
 
   /**
-   * Load more sessions (pagination)
+   * Load more sessions (pagination).
+   * Updates the per-workspace cache after a successful load.
    */
   async loadMoreSessions(): Promise<void> {
     if (!this._hasMoreSessions() || this._isLoadingMoreSessions()) {
@@ -200,7 +266,7 @@ export class SessionLoaderService {
           workspacePath,
           limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
           offset: currentOffset,
-        }
+        },
       );
 
       if (success && data) {
@@ -209,16 +275,19 @@ export class SessionLoaderService {
         this._totalSessions.set(data.total);
         this._hasMoreSessions.set(data.hasMore);
         this._sessionsOffset.set(currentOffset + data.sessions.length);
+
+        // Update cache with the expanded session list
+        this.updateCache(workspacePath);
       } else {
         console.error(
           '[SessionLoaderService] Failed to load more sessions:',
-          error
+          error,
         );
       }
     } catch (error) {
       console.error(
         '[SessionLoaderService] Failed to load more sessions:',
-        error
+        error,
       );
     } finally {
       this._isLoadingMoreSessions.set(false);
@@ -231,13 +300,149 @@ export class SessionLoaderService {
 
   /**
    * Remove a session from the local list (UI only)
-   * Called after successful backend deletion to update UI state
+   * Called after successful backend deletion to update UI state.
+   * Also updates the per-workspace cache.
    */
   removeSessionFromList(sessionId: SessionId): void {
     this._sessions.update((current) =>
-      current.filter((s) => s.id !== sessionId)
+      current.filter((s) => s.id !== sessionId),
     );
     this._totalSessions.update((count) => Math.max(0, count - 1));
+
+    // Update cache for the active workspace
+    const workspacePath =
+      this.currentWorkspacePath || this.vscodeService.config().workspaceRoot;
+    if (workspacePath) {
+      this.updateCache(workspacePath);
+    }
+  }
+
+  // ============================================================================
+  // WORKSPACE SWITCHING (per-workspace session cache)
+  // ============================================================================
+
+  /**
+   * Switch the session list to a different workspace.
+   *
+   * Saves the current session state to the cache under the old workspace path,
+   * then either restores from cache (instant, no RPC) or loads from the backend
+   * if this workspace hasn't been visited yet.
+   *
+   * Called by WorkspaceCoordinatorService during workspace switch orchestration.
+   *
+   * @param newPath - The workspace folder path to switch to
+   */
+  switchWorkspace(newPath: string): void {
+    const normalizedNew = SessionLoaderService.normalizeCacheKey(newPath);
+
+    // No-op if already on this workspace
+    if (this.currentWorkspacePath === normalizedNew) return;
+
+    // Save current session state to cache under the old workspace path
+    if (this.currentWorkspacePath) {
+      this.updateCache(this.currentWorkspacePath);
+    }
+
+    this.currentWorkspacePath = normalizedNew;
+
+    // Check cache for the target workspace
+    const cached = this.sessionCache.get(normalizedNew);
+    if (cached) {
+      // Cache hit — restore instantly without RPC
+      this._sessions.set(cached.sessions);
+      this._totalSessions.set(cached.totalSessions);
+      this._hasMoreSessions.set(cached.hasMoreSessions);
+      this._sessionsOffset.set(cached.sessionsOffset);
+      return;
+    }
+
+    // Cache miss — clear signals and load from backend using explicit path
+    this._sessions.set([]);
+    this._totalSessions.set(0);
+    this._hasMoreSessions.set(false);
+    this._sessionsOffset.set(0);
+
+    // Pass the original (non-normalized) path to the RPC since the backend
+    // uses the raw path for filesystem lookups. The cache key is normalized.
+    this.loadSessionsForWorkspace(newPath).catch((err) => {
+      console.error(
+        '[SessionLoaderService] Failed to load sessions for workspace switch:',
+        err,
+      );
+    });
+  }
+
+  /**
+   * Remove cached session state for a workspace.
+   * Called when a workspace folder is removed from the layout.
+   */
+  removeWorkspaceCache(workspacePath: string): void {
+    this.sessionCache.delete(
+      SessionLoaderService.normalizeCacheKey(workspacePath),
+    );
+  }
+
+  // ============================================================================
+  // PRIVATE CACHE HELPERS
+  // ============================================================================
+
+  /**
+   * Snapshot current signal values into the cache for the given workspace path.
+   * The path is normalized before use as a cache key.
+   */
+  private updateCache(workspacePath: string): void {
+    this.sessionCache.set(
+      SessionLoaderService.normalizeCacheKey(workspacePath),
+      {
+        sessions: this._sessions(),
+        totalSessions: this._totalSessions(),
+        hasMoreSessions: this._hasMoreSessions(),
+        sessionsOffset: this._sessionsOffset(),
+      },
+    );
+  }
+
+  /**
+   * Load sessions from backend for a specific workspace path.
+   * Used during workspace switch when no cache exists.
+   * Uses the explicit path rather than reading from vscodeService.config()
+   * because the config may not have been updated yet during switch coordination.
+   */
+  private async loadSessionsForWorkspace(workspacePath: string): Promise<void> {
+    try {
+      const normalizedPath =
+        SessionLoaderService.normalizeCacheKey(workspacePath);
+
+      const result = await this.claudeRpcService.call('session:list', {
+        workspacePath,
+        limit: SessionLoaderService.SESSIONS_PAGE_SIZE,
+        offset: 0,
+      });
+
+      // Guard: if the user switched workspace again while this RPC was in flight,
+      // discard the stale result to avoid overwriting the correct workspace's data.
+      if (this.currentWorkspacePath !== normalizedPath) return;
+
+      if (result.success && result.data) {
+        this._sessions.set(result.data.sessions);
+        this._totalSessions.set(result.data.total);
+        this._hasMoreSessions.set(result.data.hasMore);
+        this._sessionsOffset.set(result.data.sessions.length);
+
+        // Cache the newly loaded data
+        this.updateCache(workspacePath);
+      } else {
+        console.error(
+          '[SessionLoaderService] Failed to load sessions for workspace:',
+          result.error,
+        );
+      }
+    } catch (error) {
+      console.error(
+        '[SessionLoaderService] Failed to load sessions for workspace:',
+        error,
+      );
+    }
   }
 
   // ============================================================================
@@ -254,7 +459,17 @@ export class SessionLoaderService {
    * like live streaming events, building the same execution tree.
    */
   async switchSession(sessionId: string): Promise<void> {
+    // Guard: prevent duplicate loads of the same session
+    if (this._inFlightSessions.has(sessionId)) {
+      console.debug(
+        '[SessionLoaderService] Skipping duplicate switchSession for:',
+        sessionId,
+      );
+      return;
+    }
+
     try {
+      this._inFlightSessions.add(sessionId);
       const workspacePath = this.vscodeService.config().workspaceRoot;
       if (!workspacePath) {
         console.warn('[SessionLoaderService] No workspace path available');
@@ -364,7 +579,7 @@ export class SessionLoaderService {
           this.streamingHandler.processStreamEvent(
             event as FlatStreamEventUnion,
             activeTabId,
-            sessionId
+            sessionId,
           );
         }
 
@@ -372,7 +587,7 @@ export class SessionLoaderService {
         // TASK_2025_103 FIX: Pass resumableSubagents so interrupted agents are marked
         this.streamingHandler.finalizeSessionHistory(
           activeTabId,
-          resumableSubagents
+          resumableSubagents,
         );
 
         this.sessionManager.setStatus('loaded');
@@ -414,7 +629,7 @@ export class SessionLoaderService {
       } else {
         console.error(
           '[SessionLoaderService] Failed to resume session:',
-          resumeResult.error || 'No messages or events found'
+          resumeResult.error || 'No messages or events found',
         );
         // Resume failed - revert to loaded state with empty messages
         this.tabManager.updateTab(activeTabId, {
@@ -430,6 +645,8 @@ export class SessionLoaderService {
       console.error('[SessionLoaderService] Failed to switch session:', error);
       // Clear stale resumable subagents from previous session on switch failure
       this._resumableSubagents.set([]);
+    } finally {
+      this._inFlightSessions.delete(sessionId);
     }
   }
 
@@ -462,7 +679,7 @@ export class SessionLoaderService {
     } catch (error) {
       console.warn(
         '[SessionLoaderService] Failed to restore CLI sessions:',
-        error
+        error,
       );
     }
   }
@@ -491,7 +708,7 @@ export class SessionLoaderService {
    */
   removeResumableSubagent(toolCallId: string): void {
     this._resumableSubagents.update((agents) =>
-      agents.filter((a) => a.toolCallId !== toolCallId)
+      agents.filter((a) => a.toolCallId !== toolCallId),
     );
   }
 
@@ -502,9 +719,15 @@ export class SessionLoaderService {
    */
   private async refreshResumableSubagentsForSession(
     sessionId: string,
-    tabId: string
+    tabId: string,
   ): Promise<void> {
+    // Skip if switchSession is already loading this session
+    if (this._inFlightSessions.has(sessionId)) {
+      return;
+    }
+
     try {
+      this._inFlightSessions.add(sessionId);
       const workspacePath = this.vscodeService.config().workspaceRoot;
       const result = await this.claudeRpcService.call('chat:resume', {
         sessionId: sessionId as SessionId,
@@ -517,14 +740,16 @@ export class SessionLoaderService {
         this._resumableSubagents.set(resumableSubagents);
         console.log(
           '[SessionLoaderService] Populated resumableSubagents for restored session',
-          { sessionId, count: resumableSubagents.length }
+          { sessionId, count: resumableSubagents.length },
         );
       }
     } catch (error) {
       console.warn(
         '[SessionLoaderService] Failed to check resumable subagents for restored session',
-        error
+        error,
       );
+    } finally {
+      this._inFlightSessions.delete(sessionId);
     }
   }
 

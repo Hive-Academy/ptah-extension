@@ -55,7 +55,12 @@ import {
   registerPlatformElectronServices,
   type ElectronPlatformOptions,
 } from '@ptah-extension/platform-electron';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  PtahFileSettingsManager,
+  FILE_BASED_SETTINGS_KEYS,
+  FILE_BASED_SETTINGS_DEFAULTS,
+} from '@ptah-extension/platform-core';
 import type {
   IOutputChannel,
   IStateStorage,
@@ -85,6 +90,11 @@ import {
 } from '@ptah-extension/agent-generation';
 import { registerLlmAbstractionServices } from '@ptah-extension/llm-abstraction';
 import { registerTemplateGenerationServices } from '@ptah-extension/template-generation';
+import {
+  registerVsCodeLmToolsServices,
+  BROWSER_CAPABILITIES_TOKEN,
+} from '@ptah-extension/vscode-lm-tools';
+import { ElectronBrowserCapabilities } from '../services/electron-browser-capabilities';
 
 // Electron-specific adapters (defined below)
 import {
@@ -107,9 +117,10 @@ import {
   ElectronModelDiscovery,
 } from '../services/platform';
 
-// Shared RPC handler classes (TASK_2025_203 Batch 5: all 16 shared handlers)
+// Shared RPC handler classes (TASK_2025_203 Batch 5: all 17 shared handlers)
 // These are platform-agnostic handlers that can be used in both VS Code and Electron.
 // TASK_2025_209: LlmRpcHandlers now included (rewritten to be platform-agnostic).
+// TASK_2025_241: WebSearchRpcHandlers added (web search settings management).
 import {
   SessionRpcHandlers,
   ChatRpcHandlers,
@@ -127,6 +138,7 @@ import {
   QualityRpcHandlers,
   ProviderRpcHandlers,
   LlmRpcHandlers,
+  WebSearchRpcHandlers,
 } from '@ptah-extension/rpc-handlers';
 
 // Electron-specific RPC handler classes (TASK_2025_203 Batch 5)
@@ -143,7 +155,18 @@ import {
   ElectronAgentRpcHandlers,
   ElectronSkillsShRpcHandlers,
   ElectronLayoutRpcHandlers,
+  ElectronGitRpcHandlers,
+  ElectronTerminalRpcHandlers,
 } from '../services/rpc/handlers';
+
+// Git info service (TASK_2025_227)
+import { GitInfoService } from '../services/git-info.service';
+
+// PTY manager service (TASK_2025_227)
+import { PtyManagerService } from '../services/pty-manager.service';
+
+// Centralized Electron DI tokens (TASK_2025_228)
+import { ELECTRON_TOKENS } from './electron-tokens';
 
 // Electron RPC Method Registration Service (TASK_2025_203 Batch 5)
 import { ElectronRpcMethodRegistrationService } from '../services/rpc/rpc-method-registration.service';
@@ -176,7 +199,7 @@ export class ElectronDIContainer {
     // OutputManager adapter: wraps the platform-electron IOutputChannel
     // Logger depends on OutputManager, so this must be registered first
     const outputChannel = container.resolve<IOutputChannel>(
-      PLATFORM_TOKENS.OUTPUT_CHANNEL
+      PLATFORM_TOKENS.OUTPUT_CHANNEL,
     );
     const outputManager = new ElectronOutputManagerAdapter(outputChannel);
     container.register(TOKENS.OUTPUT_MANAGER, { useValue: outputManager });
@@ -208,7 +231,7 @@ export class ElectronDIContainer {
     // Required by: AuthManager, SdkAgentAdapter, PtahCliRegistry, auth RPC handlers.
     container.registerSingleton(
       TOKENS.AUTH_SECRETS_SERVICE,
-      AuthSecretsService
+      AuthSecretsService,
     );
 
     // ========================================
@@ -222,25 +245,25 @@ export class ElectronDIContainer {
     // MessageValidatorService: Zod-based message validation
     container.registerSingleton(
       TOKENS.MESSAGE_VALIDATOR,
-      MessageValidatorService
+      MessageValidatorService,
     );
 
     // AgentSessionWatcherService: Real-time summary streaming (fs/events only)
     container.registerSingleton(
       TOKENS.AGENT_SESSION_WATCHER_SERVICE,
-      AgentSessionWatcherService
+      AgentSessionWatcherService,
     );
 
     // SubagentRegistryService: In-memory subagent lifecycle tracking
     container.registerSingleton(
       TOKENS.SUBAGENT_REGISTRY_SERVICE,
-      SubagentRegistryService
+      SubagentRegistryService,
     );
 
     // FeatureGateService: License tier feature gating
     container.registerSingleton(
       TOKENS.FEATURE_GATE_SERVICE,
-      FeatureGateService
+      FeatureGateService,
     );
 
     logger.info(
@@ -253,7 +276,7 @@ export class ElectronDIContainer {
           'SUBAGENT_REGISTRY_SERVICE',
           'FEATURE_GATE_SERVICE',
         ],
-      }
+      },
     );
 
     // ========================================
@@ -265,18 +288,18 @@ export class ElectronDIContainer {
     // registered in Phase 0 via platform-electron.
     try {
       const fileSystemProvider = container.resolve(
-        PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER
+        PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER,
       );
       container.register(TOKENS.FILE_SYSTEM_MANAGER, {
         useValue: fileSystemProvider,
       });
       logger.info(
-        '[Electron DI] FILE_SYSTEM_MANAGER shim registered (delegates to IFileSystemProvider)'
+        '[Electron DI] FILE_SYSTEM_MANAGER shim registered (delegates to IFileSystemProvider)',
       );
     } catch (error) {
       logger.error(
         '[Electron DI] Failed to register FILE_SYSTEM_MANAGER shim — workspace-intelligence services may fail',
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
     }
 
@@ -286,41 +309,72 @@ export class ElectronDIContainer {
     // ConfigManager wraps vscode.workspace.getConfiguration('ptah').
     // Services call config.get<T>(key) and config.update(key, value).
     // In Electron, we delegate to the workspace state storage.
+    //
+    // TASK_2025_247 Batch 3, Task 3.3: File-based settings routing.
+    // Keys in FILE_BASED_SETTINGS_KEYS are routed to PtahFileSettingsManager
+    // (~/.ptah/settings.json) instead of the workspace state storage.
     try {
       const configStorage = container.resolve<IStateStorage>(
-        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+        PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
+      );
+      const fileSettings = new PtahFileSettingsManager(
+        FILE_BASED_SETTINGS_DEFAULTS,
       );
       const configManagerShim = {
         get: <T>(key: string): T | undefined => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            return fileSettings.get<T>(key);
+          }
           return configStorage.get<T>(`ptah.${key}`);
         },
         getWithDefault: <T>(key: string, defaultValue: T): T => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
+          }
           const value = configStorage.get<T>(`ptah.${key}`);
           return value !== undefined ? value : defaultValue;
         },
         getTyped: <T>(key: string): T | undefined => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            return fileSettings.get<T>(key);
+          }
           return configStorage.get<T>(`ptah.${key}`);
         },
         getTypedWithDefault: <T>(
           key: string,
           _schema: unknown,
-          defaultValue: T
+          defaultValue: T,
         ): T => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
+          }
           const value = configStorage.get<T>(`ptah.${key}`);
           return value !== undefined ? value : defaultValue;
         },
         set: async <T>(key: string, value: T): Promise<void> => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            await fileSettings.set(key, value);
+            return;
+          }
           await configStorage.update(`ptah.${key}`, value);
         },
         setTyped: async <T>(key: string, value: T): Promise<void> => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            await fileSettings.set(key, value);
+            return;
+          }
           await configStorage.update(`ptah.${key}`, value);
         },
         update: async (key: string, value: unknown): Promise<void> => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            await fileSettings.set(key, value);
+            return;
+          }
           await configStorage.update(`ptah.${key}`, value);
         },
         watch: (
           _key: string,
-          _callback: (value: unknown) => void
+          _callback: (value: unknown) => void,
         ): { dispose: () => void } => ({
           dispose: () => {
             /* no-op: Electron has no vscode config change events */
@@ -336,7 +390,7 @@ export class ElectronDIContainer {
         useValue: configManagerShim,
       });
       logger.info(
-        '[Electron DI] CONFIG_MANAGER shim registered (delegates to workspace state storage)'
+        '[Electron DI] CONFIG_MANAGER shim registered (delegates to workspace state storage + file-based settings)',
       );
     } catch (error) {
       logger.error('[Electron DI] Failed to register CONFIG_MANAGER shim', {
@@ -351,10 +405,10 @@ export class ElectronDIContainer {
     // and secrets.get/store/delete. Provide a shim that delegates to platform abstractions.
     try {
       const globalState = container.resolve<IStateStorage>(
-        PLATFORM_TOKENS.STATE_STORAGE
+        PLATFORM_TOKENS.STATE_STORAGE,
       );
       const secretStorage = container.resolve<ISecretStorage>(
-        PLATFORM_TOKENS.SECRET_STORAGE
+        PLATFORM_TOKENS.SECRET_STORAGE,
       );
       const extensionContextShim = {
         globalState: {
@@ -396,12 +450,12 @@ export class ElectronDIContainer {
         useValue: extensionContextShim,
       });
       logger.info(
-        '[Electron DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)'
+        '[Electron DI] EXTENSION_CONTEXT shim registered (delegates to platform storage)',
       );
     } catch (error) {
       logger.error(
         '[Electron DI] Failed to register EXTENSION_CONTEXT shim — agent-sdk/llm services may fail',
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
     }
 
@@ -420,10 +474,10 @@ export class ElectronDIContainer {
     const defaultWorkspaceStoragePath = path.join(
       options.userDataPath,
       'workspace-storage',
-      'default'
+      'default',
     );
     const workspaceAwareStorage = new WorkspaceAwareStateStorage(
-      defaultWorkspaceStoragePath
+      defaultWorkspaceStoragePath,
     );
 
     // Override Phase 0's WORKSPACE_STATE_STORAGE with the workspace-aware proxy
@@ -433,7 +487,7 @@ export class ElectronDIContainer {
 
     const workspaceContextManager = new WorkspaceContextManager(
       options.userDataPath,
-      workspaceAwareStorage
+      workspaceAwareStorage,
     );
     container.register(TOKENS.WORKSPACE_CONTEXT_MANAGER, {
       useValue: workspaceContextManager,
@@ -453,7 +507,7 @@ export class ElectronDIContainer {
               () => {
                 logger.info(
                   '[Electron DI] Initial workspace created and activated',
-                  { path: initialPath }
+                  { path: initialPath },
                 );
               },
               (err: unknown) => {
@@ -462,14 +516,14 @@ export class ElectronDIContainer {
                   {
                     path: initialPath,
                     error: err instanceof Error ? err.message : String(err),
-                  }
+                  },
                 );
-              }
+              },
             );
           } else {
             logger.warn(
               '[Electron DI] Failed to create initial workspace — using default storage',
-              { path: initialPath, error: result.error }
+              { path: initialPath, error: result.error },
             );
           }
         },
@@ -479,14 +533,14 @@ export class ElectronDIContainer {
             {
               path: initialPath,
               error: err instanceof Error ? err.message : String(err),
-            }
+            },
           );
-        }
+        },
       );
     }
 
     logger.info(
-      '[Electron DI] WorkspaceAwareStateStorage and WorkspaceContextManager registered (TASK_2025_208)'
+      '[Electron DI] WorkspaceAwareStateStorage and WorkspaceContextManager registered (TASK_2025_208)',
     );
 
     // ========================================
@@ -497,7 +551,7 @@ export class ElectronDIContainer {
     registerWorkspaceIntelligenceServices(container, logger);
 
     // Phase 2.2: Agent SDK (Claude Agent SDK integration)
-    // NOTE: registerVsCodeLmToolsServices is SKIPPED (VS Code-specific MCP server)
+    // NOTE: registerVsCodeLmToolsServices is now called in Phase 4 (TASK_2025_226 decoupled it from VS Code)
     registerSdkServices(container, logger);
 
     // Phase 2.2.5: WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs (TASK_2025_214)
@@ -509,12 +563,12 @@ export class ElectronDIContainer {
       container.register(TOKENS.WEBVIEW_MESSAGE_HANDLER, { useValue: {} });
       container.register(TOKENS.WEBVIEW_HTML_GENERATOR, { useValue: {} });
       logger.info(
-        '[Electron DI] WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs registered (TASK_2025_214)'
+        '[Electron DI] WEBVIEW_MESSAGE_HANDLER and WEBVIEW_HTML_GENERATOR stubs registered (TASK_2025_214)',
       );
     } catch (error) {
       logger.error(
         '[Electron DI] Failed to register webview stubs for WizardWebviewLifecycleService',
-        { error: error instanceof Error ? error.message : String(error) }
+        { error: error instanceof Error ? error.message : String(error) },
       );
     }
 
@@ -529,7 +583,7 @@ export class ElectronDIContainer {
       useClass: ElectronSetupWizardService,
     });
     logger.info(
-      '[Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)'
+      '[Electron DI] ElectronSetupWizardService registered (overrides SetupWizardService) (TASK_2025_214)',
     );
 
     // Phase 2.4: Wire multi-phase analysis reader into EnhancedPromptsService
@@ -551,7 +605,7 @@ export class ElectronDIContainer {
     // Storage adapter (workspace-scoped state storage)
     // Maps TOKENS.STORAGE_SERVICE to the platform-electron workspace state storage
     const workspaceStateStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
     const storageAdapter = {
       get: <T>(key: string, defaultValue?: T): T | undefined => {
@@ -566,7 +620,7 @@ export class ElectronDIContainer {
 
     // Global state adapter (for pricing cache - uses global state storage)
     const globalStateStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.STATE_STORAGE
+      PLATFORM_TOKENS.STATE_STORAGE,
     );
     container.register(TOKENS.GLOBAL_STATE, { useValue: globalStateStorage });
 
@@ -620,7 +674,7 @@ export class ElectronDIContainer {
           `[Electron DI] Failed to register platform abstraction: ${name}`,
           {
             error: error instanceof Error ? error.message : String(error),
-          }
+          },
         );
       }
     }
@@ -629,37 +683,33 @@ export class ElectronDIContainer {
       '[Electron DI] Platform abstraction implementations registered (TASK_2025_203)',
       {
         services: registeredAbstractions,
-      }
+      },
     );
 
     // ========================================
-    // PHASE 4: CODE_EXECUTION_MCP stub (required by shared ChatRpcHandlers)
+    // PHASE 4: Code Execution MCP (TASK_2025_226: real library, no more shim)
     // ========================================
-    // ChatRpcHandlers injects TOKENS.CODE_EXECUTION_MCP for MCP server port detection.
-    // In Electron, the Code Execution MCP server is not available, so we provide a stub.
-    try {
-      container.register(TOKENS.CODE_EXECUTION_MCP, {
-        useValue: {
-          getPort: () => null,
-          ensureRegisteredForSubagents: () => {
-            /* no-op in Electron */
-          },
-        },
-      });
-      logger.info(
-        '[Electron DI] CODE_EXECUTION_MCP stub registered (Electron has no MCP server)'
-      );
-    } catch (error) {
-      logger.error('[Electron DI] Failed to register CODE_EXECUTION_MCP stub', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    // TASK_2025_226: Register the real vscode-lm-tools services instead of a stub.
+    // The library is now platform-agnostic:
+    //   - WebviewManager is optional (auto-resolved via container.isRegistered)
+    //   - IDE capabilities gracefully degrade (no VscodeIDECapabilities registered)
+    //   - Diagnostics use ElectronDiagnosticsProvider (registered in Phase 0)
+    //   - approval_prompt auto-allows when WebviewManager is absent
+    registerVsCodeLmToolsServices(container, logger);
+
+    // Phase 4.0.1: Browser capabilities (TASK_2025_244)
+    // ElectronBrowserCapabilities uses Electron's native BrowserWindow + webContents.debugger
+    // for CDP browser automation. Zero external dependencies.
+    container.register(BROWSER_CAPABILITIES_TOKEN, {
+      useValue: new ElectronBrowserCapabilities(),
+    });
 
     // ========================================
-    // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209)
+    // PHASE 4.1: Shared RPC Handler Classes (TASK_2025_203 Batch 5, TASK_2025_209, TASK_2025_241)
     // ========================================
-    // Register all 16 shared handler classes from @ptah-extension/rpc-handlers.
+    // Register all 17 shared handler classes from @ptah-extension/rpc-handlers.
     // TASK_2025_209: LlmRpcHandlers now included (rewritten to be platform-agnostic).
+    // TASK_2025_241: WebSearchRpcHandlers added (web search settings management).
     container.registerSingleton(SessionRpcHandlers);
     container.registerSingleton(ChatRpcHandlers);
     container.registerSingleton(ConfigRpcHandlers);
@@ -675,7 +725,7 @@ export class ElectronDIContainer {
           c.resolve(TOKENS.CONFIG_MANAGER),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c
+          c,
         ),
     });
     container.registerSingleton(LicenseRpcHandlers);
@@ -688,7 +738,7 @@ export class ElectronDIContainer {
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c
+          c,
         ),
     });
     container.registerSingleton(AutocompleteRpcHandlers);
@@ -707,7 +757,7 @@ export class ElectronDIContainer {
           c.resolve(SDK_TOKENS.SDK_PLUGIN_LOADER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
           c.resolve(TOKENS.SAVE_DIALOG_PROVIDER),
-          c
+          c,
         ),
     });
     container.registerSingleton(QualityRpcHandlers);
@@ -718,9 +768,11 @@ export class ElectronDIContainer {
         new LlmRpcHandlers(
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
-          c
+          c,
         ),
     });
+    // TASK_2025_241: WebSearchRpcHandlers - web search settings management (API keys, config, testing)
+    container.registerSingleton(WebSearchRpcHandlers);
 
     logger.info(
       '[Electron DI] Shared RPC handler classes registered (TASK_2025_203 Batch 5, TASK_2025_209)',
@@ -742,8 +794,9 @@ export class ElectronDIContainer {
           'QualityRpcHandlers',
           'ProviderRpcHandlers',
           'LlmRpcHandlers',
+          'WebSearchRpcHandlers',
         ],
-      }
+      },
     );
 
     // ========================================
@@ -759,7 +812,7 @@ export class ElectronDIContainer {
           c.resolve(TOKENS.RPC_HANDLER),
           c.resolve(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER),
           c.resolve(PLATFORM_TOKENS.WORKSPACE_PROVIDER),
-          c
+          c,
         ),
     });
     container.registerSingleton(ElectronFileRpcHandlers);
@@ -772,7 +825,7 @@ export class ElectronDIContainer {
         new ElectronConfigExtendedRpcHandlers(
           c.resolve(TOKENS.LOGGER),
           c.resolve(TOKENS.RPC_HANDLER),
-          c
+          c,
         ),
     });
     container.registerSingleton(ElectronCommandRpcHandlers);
@@ -781,6 +834,20 @@ export class ElectronDIContainer {
     container.registerSingleton(ElectronAgentRpcHandlers);
     container.registerSingleton(ElectronSkillsShRpcHandlers);
     container.registerSingleton(ElectronLayoutRpcHandlers);
+
+    // GitInfoService (TASK_2025_227): Plain class instantiated with logger
+    const gitInfoService = new GitInfoService(logger);
+    container.register(ELECTRON_TOKENS.GIT_INFO_SERVICE, {
+      useValue: gitInfoService,
+    });
+    container.registerSingleton(ElectronGitRpcHandlers);
+
+    // PtyManagerService (TASK_2025_227): Terminal PTY session management
+    const ptyManagerService = new PtyManagerService(logger);
+    container.register(ELECTRON_TOKENS.PTY_MANAGER_SERVICE, {
+      useValue: ptyManagerService,
+    });
+    container.registerSingleton(ElectronTerminalRpcHandlers);
 
     // Register the orchestrator itself
     container.registerSingleton(ElectronRpcMethodRegistrationService);
@@ -799,8 +866,10 @@ export class ElectronDIContainer {
           'ElectronAgentRpcHandlers',
           'ElectronSkillsShRpcHandlers',
           'ElectronLayoutRpcHandlers',
+          'ElectronGitRpcHandlers',
+          'ElectronTerminalRpcHandlers',
         ],
-      }
+      },
     );
 
     logger.info('[Electron DI] All services registered successfully');

@@ -52,7 +52,7 @@ export const COPILOT_OAUTH_SENTINEL = 'copilot-oauth';
 
 /**
  * Response from the Copilot token exchange endpoint.
- * Returned by `GET https://api.github.com/copilot_internal/v2/token`.
+ * Returned by the configured token exchange endpoint (see `ptah.provider.github-copilot.tokenExchangeUrl` setting).
  */
 export interface CopilotTokenResponse {
   /** The Copilot bearer token for API authentication */

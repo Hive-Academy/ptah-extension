@@ -10,6 +10,7 @@ import {
   inject,
   ChangeDetectionStrategy,
   signal,
+  computed,
   OnInit,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -21,11 +22,12 @@ import { ClaudeRpcService } from '@ptah-extension/core';
   standalone: true,
   imports: [LucideAngularModule, FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'mt-4 block' },
   template: `
-    <div class="border border-primary/30 rounded-md bg-primary/5">
+    <div class="border border-secondary/30 rounded-md bg-secondary/5">
       <div class="p-3">
         <div class="flex items-center gap-1.5 mb-2">
-          <lucide-angular [img]="PlugIcon" class="w-4 h-4 text-primary" />
+          <lucide-angular [img]="PlugIcon" class="w-4 h-4 text-secondary" />
           <h2 class="text-xs font-medium uppercase tracking-wide">
             MCP Server Port
           </h2>
@@ -51,9 +53,9 @@ import { ClaudeRpcService } from '@ptah-extension/core';
             [disabled]="isSaving() || !isDirty()"
           >
             @if (isSaving()) {
-            <span class="loading loading-spinner loading-xs"></span>
+              <span class="loading loading-spinner loading-xs"></span>
             } @else {
-            <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
+              <lucide-angular [img]="CheckIcon" class="w-3 h-3" />
             }
             <span>Save</span>
           </button>
@@ -61,14 +63,15 @@ import { ClaudeRpcService } from '@ptah-extension/core';
 
         <!-- Validation / status messages -->
         @if (validationError()) {
-        <div class="flex items-center gap-1 mt-1.5 text-error">
-          <lucide-angular [img]="AlertCircleIcon" class="w-3 h-3" />
-          <span class="text-[10px]">{{ validationError() }}</span>
-        </div>
-        } @if (saveSuccess()) {
-        <div class="text-[10px] text-success mt-1.5">
-          Port updated. Restart MCP server for changes to take effect.
-        </div>
+          <div class="flex items-center gap-1 mt-1.5 text-error">
+            <lucide-angular [img]="AlertCircleIcon" class="w-3 h-3" />
+            <span class="text-[10px]">{{ validationError() }}</span>
+          </div>
+        }
+        @if (saveSuccess()) {
+          <div class="text-[10px] text-success mt-1.5">
+            Port updated. Restart MCP server for changes to take effect.
+          </div>
         }
 
         <div class="text-[10px] text-base-content/40 mt-1.5">
@@ -88,7 +91,7 @@ export class McpPortConfigComponent implements OnInit {
   readonly portValue = signal<number>(51820);
   readonly savedPort = signal<number>(51820);
   readonly isSaving = signal(false);
-  readonly isDirty = signal(false);
+  readonly isDirty = computed(() => this.portValue() !== this.savedPort());
   readonly validationError = signal<string | null>(null);
   readonly saveSuccess = signal(false);
 
@@ -110,10 +113,11 @@ export class McpPortConfigComponent implements OnInit {
 
   onPortInput(value: number): void {
     this.portValue.set(value);
-    this.isDirty.set(value !== this.savedPort());
     this.saveSuccess.set(false);
 
-    if (value < 1024 || value > 65535) {
+    if (!Number.isFinite(value) || !Number.isInteger(value)) {
+      this.validationError.set('Port must be a valid integer');
+    } else if (value < 1024 || value > 65535) {
       this.validationError.set('Port must be between 1024 and 65535');
     } else {
       this.validationError.set(null);
@@ -122,6 +126,10 @@ export class McpPortConfigComponent implements OnInit {
 
   async savePort(): Promise<void> {
     const port = this.portValue();
+    if (!Number.isFinite(port) || !Number.isInteger(port)) {
+      this.validationError.set('Port must be a valid integer');
+      return;
+    }
     if (port < 1024 || port > 65535) {
       this.validationError.set('Port must be between 1024 and 65535');
       return;
@@ -137,7 +145,6 @@ export class McpPortConfigComponent implements OnInit {
       });
       if (result.isSuccess()) {
         this.savedPort.set(port);
-        this.isDirty.set(false);
         this.saveSuccess.set(true);
       } else {
         this.validationError.set(result.error ?? 'Failed to save port');

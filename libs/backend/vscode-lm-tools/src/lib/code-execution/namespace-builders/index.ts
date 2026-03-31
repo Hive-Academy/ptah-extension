@@ -35,7 +35,13 @@ export {
 } from './system-namespace.builders';
 
 // IDE namespace (lsp, editor, actions, testing)
-export { buildIDENamespace } from './ide-namespace.builder';
+export {
+  buildIDENamespace,
+  type IIDECapabilities,
+} from './ide-namespace.builder';
+// NOTE: VscodeIDECapabilities is NOT exported here to prevent the Electron bundler
+// from resolving ide-capabilities.vscode.ts (which imports `vscode` directly).
+// Import it from the subpath: '@ptah-extension/vscode-lm-tools/vscode'
 
 // Orchestration namespace (TASK_2025_111 - workflow state management)
 export {
@@ -48,3 +54,23 @@ export {
   buildAgentNamespace,
   type AgentNamespaceDependencies,
 } from './agent-namespace.builder';
+
+// Git namespace (TASK_2025_236 - worktree operations)
+export {
+  buildGitNamespace,
+  type GitNamespaceDependencies,
+} from './git-namespace.builder';
+
+// JSON namespace (TASK_2025_240 - JSON validation and repair)
+export {
+  buildJsonNamespace,
+  type JsonNamespaceDependencies,
+} from './json-namespace.builder';
+
+// Browser namespace (TASK_2025_244 - CDP browser integration)
+export {
+  buildBrowserNamespace,
+  type IBrowserCapabilities,
+  type BrowserNamespaceDependencies,
+  validateBrowserUrl,
+} from './browser-namespace.builder';

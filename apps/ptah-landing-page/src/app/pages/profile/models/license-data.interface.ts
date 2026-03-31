@@ -49,7 +49,7 @@ export interface LicenseData {
    * TASK_2025_128: Freemium model conversion
    * - 'community': Free tier (always valid, no subscription)
    * - 'pro': Paid Pro tier (active subscription)
-   * - 'trial_pro': Pro plan during 14-day trial
+   * - 'trial_pro': Pro plan during 30-day trial
    *
    */
   plan: 'community' | 'pro' | 'trial_pro';

@@ -84,9 +84,11 @@ export class DependencyGraphService {
   private symbolIndex: SymbolIndex | null = null;
 
   constructor(
+    @inject(TOKENS.AST_ANALYSIS_SERVICE)
     private readonly astAnalysis: AstAnalysisService,
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystem: FileSystemService,
-    @inject(TOKENS.LOGGER) private readonly logger: Logger
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
   ) {}
 
   /**
@@ -101,11 +103,11 @@ export class DependencyGraphService {
   async buildGraph(
     filePaths: string[],
     workspaceRoot: string,
-    tsconfigPaths?: Record<string, string[]>
+    tsconfigPaths?: Record<string, string[]>,
   ): Promise<DependencyGraph> {
     const startTime = Date.now();
     this.logger.info(
-      `DependencyGraphService.buildGraph() - Building graph for ${filePaths.length} files`
+      `DependencyGraphService.buildGraph() - Building graph for ${filePaths.length} files`,
     );
 
     const nodes = new Map<string, FileNode>();
@@ -126,7 +128,7 @@ export class DependencyGraphService {
 
       if (!language) {
         this.logger.debug(
-          `DependencyGraphService.buildGraph() - Skipping unsupported file: ${normalizedPath}`
+          `DependencyGraphService.buildGraph() - Skipping unsupported file: ${normalizedPath}`,
         );
         return;
       }
@@ -134,15 +136,15 @@ export class DependencyGraphService {
       try {
         const content = await this.fileSystem.readFile(filePath);
 
-        const analysisResult = this.astAnalysis.analyzeSource(
+        const analysisResult = await this.astAnalysis.analyzeSource(
           content,
           language,
-          normalizedPath
+          normalizedPath,
         );
 
         if (!analysisResult.isOk()) {
           this.logger.debug(
-            `DependencyGraphService.buildGraph() - Failed to analyze ${normalizedPath}: ${analysisResult.error?.message}`
+            `DependencyGraphService.buildGraph() - Failed to analyze ${normalizedPath}: ${analysisResult.error?.message}`,
           );
           return;
         }
@@ -165,7 +167,7 @@ export class DependencyGraphService {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
         this.logger.debug(
-          `DependencyGraphService.buildGraph() - Error reading ${normalizedPath}: ${errorMessage}`
+          `DependencyGraphService.buildGraph() - Error reading ${normalizedPath}: ${errorMessage}`,
         );
       }
     };
@@ -188,7 +190,7 @@ export class DependencyGraphService {
           filePath,
           normalizedRoot,
           knownFiles,
-          tsconfigPaths
+          tsconfigPaths,
         );
 
         if (resolvedPath) {
@@ -202,7 +204,7 @@ export class DependencyGraphService {
         } else {
           unresolvedCount++;
           this.logger.debug(
-            `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`
+            `DependencyGraphService.buildGraph() - Unresolved import '${imp.source}' in ${node.relativePath}`,
           );
         }
       }
@@ -225,8 +227,8 @@ export class DependencyGraphService {
     this.logger.info(
       `DependencyGraphService.buildGraph() - Graph built in ${elapsed}ms: ` +
         `${nodes.size} nodes, ${this.countEdges(
-          edges
-        )} edges, ${unresolvedCount} unresolved`
+          edges,
+        )} edges, ${unresolvedCount} unresolved`,
     );
 
     return graph;
@@ -354,7 +356,7 @@ export class DependencyGraphService {
     this.symbolIndex = null;
 
     this.logger.debug(
-      `DependencyGraphService.invalidateFile() - Invalidated ${normalizedPath}`
+      `DependencyGraphService.invalidateFile() - Invalidated ${normalizedPath}`,
     );
   }
 
@@ -376,7 +378,7 @@ export class DependencyGraphService {
     filePath: string,
     remainingDepth: number,
     visited: Set<string>,
-    result: string[]
+    result: string[],
   ): void {
     if (remainingDepth <= 0 || !this.graph) {
       return;
@@ -412,14 +414,14 @@ export class DependencyGraphService {
     importingFilePath: string,
     workspaceRoot: string,
     knownFiles: Set<string>,
-    tsconfigPaths?: Record<string, string[]>
+    tsconfigPaths?: Record<string, string[]>,
   ): string | null {
     // Case 1: Relative imports
     if (importSource.startsWith('.')) {
       return this.resolveRelativeImport(
         importSource,
         importingFilePath,
-        knownFiles
+        knownFiles,
       );
     }
 
@@ -429,7 +431,7 @@ export class DependencyGraphService {
         importSource,
         workspaceRoot,
         knownFiles,
-        tsconfigPaths
+        tsconfigPaths,
       );
       if (resolved) {
         return resolved;
@@ -446,7 +448,7 @@ export class DependencyGraphService {
   private resolveRelativeImport(
     importSource: string,
     importingFilePath: string,
-    knownFiles: Set<string>
+    knownFiles: Set<string>,
   ): string | null {
     const importDir = path.dirname(importingFilePath);
     const basePath = path.resolve(importDir, importSource).replace(/\\/g, '/');
@@ -484,7 +486,7 @@ export class DependencyGraphService {
     importSource: string,
     workspaceRoot: string,
     knownFiles: Set<string>,
-    tsconfigPaths: Record<string, string[]>
+    tsconfigPaths: Record<string, string[]>,
   ): string | null {
     for (const [pattern, mappings] of Object.entries(tsconfigPaths)) {
       const match = this.matchTsconfigPattern(importSource, pattern);
@@ -536,7 +538,7 @@ export class DependencyGraphService {
    */
   private matchTsconfigPattern(
     importSource: string,
-    pattern: string
+    pattern: string,
   ): string | null {
     const wildcardIndex = pattern.indexOf('*');
 
@@ -559,7 +561,7 @@ export class DependencyGraphService {
     // Extract the captured portion between prefix and suffix
     const captured = importSource.substring(
       prefix.length,
-      importSource.length - suffix.length
+      importSource.length - suffix.length,
     );
 
     return captured;

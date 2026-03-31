@@ -7,6 +7,7 @@
 
 import { injectable, inject } from 'tsyringe';
 import * as path from 'path';
+import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IFileSystemProvider,
@@ -66,15 +67,20 @@ export class WorkspaceIndexerService {
   private readonly defaultMaxFileSize = 1024 * 1024; // 1MB
 
   constructor(
+    @inject(TOKENS.FILE_SYSTEM_SERVICE)
     private readonly fileSystemService: FileSystemService,
+    @inject(TOKENS.PATTERN_MATCHER_SERVICE)
     private readonly patternMatcher: PatternMatcherService,
+    @inject(TOKENS.IGNORE_PATTERN_RESOLVER_SERVICE)
     private readonly ignoreResolver: IgnorePatternResolverService,
+    @inject(TOKENS.FILE_TYPE_CLASSIFIER_SERVICE)
     private readonly fileClassifier: FileTypeClassifierService,
+    @inject(TOKENS.TOKEN_COUNTER_SERVICE)
     private readonly tokenCounter: TokenCounterService,
     @inject(PLATFORM_TOKENS.FILE_SYSTEM_PROVIDER)
     private readonly fsProvider: IFileSystemProvider,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -86,7 +92,7 @@ export class WorkspaceIndexerService {
    */
   public async indexWorkspace(
     options: WorkspaceIndexOptions = {},
-    onProgress?: (progress: IndexingProgress) => void
+    onProgress?: (progress: IndexingProgress) => void,
   ): Promise<FileIndex> {
     const workspaceFolder =
       options.workspaceFolder ?? this.getDefaultWorkspaceFolder();
@@ -105,9 +111,8 @@ export class WorkspaceIndexerService {
     > = [];
 
     if (respectIgnoreFiles) {
-      parsedIgnoreFiles = await this.ignoreResolver.parseWorkspaceIgnoreFiles(
-        workspaceFolder
-      );
+      parsedIgnoreFiles =
+        await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceFolder);
       for (const ignoreFile of parsedIgnoreFiles) {
         ignoredPatterns.push(...ignoreFile.patterns.map((p) => p.pattern));
       }
@@ -121,7 +126,7 @@ export class WorkspaceIndexerService {
     // Discover all files
     const allFiles = await this.discoverFiles(
       workspaceFolder,
-      options.includePatterns
+      options.includePatterns,
     );
 
     // Filter files based on ignore patterns and size
@@ -135,7 +140,7 @@ export class WorkspaceIndexerService {
       if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
         const ignoreResult = await this.ignoreResolver.isIgnored(
           relativePath,
-          parsedIgnoreFiles
+          parsedIgnoreFiles,
         );
         if (ignoreResult.ignored) {
           continue; // Skip ignored files
@@ -146,7 +151,7 @@ export class WorkspaceIndexerService {
       if (options.excludePatterns && options.excludePatterns.length > 0) {
         const excluded = this.patternMatcher.matchFiles(
           [relativePath],
-          options.excludePatterns
+          options.excludePatterns,
         );
         if (excluded && excluded.length > 0) {
           continue; // Skip excluded files
@@ -221,7 +226,7 @@ export class WorkspaceIndexerService {
    * @yields Indexed files one at a time
    */
   public async *indexWorkspaceStream(
-    options: WorkspaceIndexOptions = {}
+    options: WorkspaceIndexOptions = {},
   ): AsyncGenerator<IndexedFile, void, undefined> {
     const workspaceFolder =
       options.workspaceFolder ?? this.getDefaultWorkspaceFolder();
@@ -239,15 +244,14 @@ export class WorkspaceIndexerService {
     > = [];
 
     if (respectIgnoreFiles) {
-      parsedIgnoreFiles = await this.ignoreResolver.parseWorkspaceIgnoreFiles(
-        workspaceFolder
-      );
+      parsedIgnoreFiles =
+        await this.ignoreResolver.parseWorkspaceIgnoreFiles(workspaceFolder);
     }
 
     // Discover and yield files one at a time
     const allFiles = await this.discoverFiles(
       workspaceFolder,
-      options.includePatterns
+      options.includePatterns,
     );
 
     for (const filePath of allFiles) {
@@ -257,7 +261,7 @@ export class WorkspaceIndexerService {
       if (respectIgnoreFiles && parsedIgnoreFiles.length > 0) {
         const ignoreResult = await this.ignoreResolver.isIgnored(
           relativePath,
-          parsedIgnoreFiles
+          parsedIgnoreFiles,
         );
         if (ignoreResult.ignored) {
           continue;
@@ -268,7 +272,7 @@ export class WorkspaceIndexerService {
       if (options.excludePatterns && options.excludePatterns.length > 0) {
         const excluded = this.patternMatcher.matchFiles(
           [relativePath],
-          options.excludePatterns
+          options.excludePatterns,
         );
         if (excluded && excluded.length > 0) {
           continue;
@@ -318,7 +322,7 @@ export class WorkspaceIndexerService {
    * @returns Estimated file count
    */
   public async getFileCount(
-    options: WorkspaceIndexOptions = {}
+    options: WorkspaceIndexOptions = {},
   ): Promise<number> {
     const workspaceFolder =
       options.workspaceFolder ?? this.getDefaultWorkspaceFolder();
@@ -329,7 +333,7 @@ export class WorkspaceIndexerService {
 
     const allFiles = await this.discoverFiles(
       workspaceFolder,
-      options.includePatterns
+      options.includePatterns,
     );
 
     return allFiles.length;
@@ -344,7 +348,7 @@ export class WorkspaceIndexerService {
    */
   private async discoverFiles(
     workspaceFolder: string,
-    includePatterns?: string[]
+    includePatterns?: string[],
   ): Promise<string[]> {
     // Use IFileSystemProvider's findFiles API for efficient file discovery
     const pattern = includePatterns?.length

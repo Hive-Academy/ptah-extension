@@ -74,41 +74,41 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
               <span class="ml-2 opacity-60">({{ agentCount() }})</span>
             </h2>
             @if (enhancedPromptsGenerated()) {
-            <div class="badge badge-success badge-sm gap-1">
-              <lucide-angular [img]="SparklesIcon" class="h-3 w-3" />
-              Enhanced
-            </div>
+              <div class="badge badge-success badge-sm gap-1">
+                <lucide-angular [img]="SparklesIcon" class="h-3 w-3" />
+                Enhanced
+              </div>
             }
           </div>
 
           <!-- Agent Tiles Grid -->
           @if (agentFiles().length > 0) {
-          <div
-            class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"
-          >
-            @for (file of agentFiles(); track file.id) {
             <div
-              class="card bg-base-200/50 hover:bg-base-200 shadow-sm hover:shadow-md transition-all"
+              class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4"
             >
-              <div class="card-body p-5 text-center">
-                <div class="flex justify-center mb-3">
-                  <div class="rounded-full bg-success/20 p-2">
-                    <lucide-angular
-                      [img]="CheckIcon"
-                      class="h-4 w-4 text-success"
-                    />
+              @for (file of agentFiles(); track file.id) {
+                <div
+                  class="card bg-base-200/50 hover:bg-base-200 shadow-sm hover:shadow-md transition-all"
+                >
+                  <div class="card-body p-5 text-center">
+                    <div class="flex justify-center mb-3">
+                      <div class="rounded-full bg-success/20 p-2">
+                        <lucide-angular
+                          [img]="CheckIcon"
+                          class="h-4 w-4 text-success"
+                        />
+                      </div>
+                    </div>
+                    <h3
+                      class="text-xs font-medium leading-snug opacity-90"
+                      [title]="file.name"
+                    >
+                      {{ formatAgentName(file.name) }}
+                    </h3>
                   </div>
                 </div>
-                <h3
-                  class="text-xs font-medium leading-snug opacity-90"
-                  [title]="file.name"
-                >
-                  {{ formatAgentName(file.name) }}
-                </h3>
-              </div>
+              }
             </div>
-            }
-          </div>
           }
         </div>
 
@@ -202,7 +202,7 @@ import { SetupWizardStateService } from '../services/setup-wizard-state.service'
                           <li>
                             Progress saved in
                             <code class="bg-base-300 px-1 py-0.5 rounded"
-                              >.claude/specs/</code
+                              >.ptah/specs/</code
                             >
                           </li>
                         </ul>
@@ -350,7 +350,7 @@ export class CompletionComponent {
    * Contains per-section customization failure messages.
    */
   protected readonly warnings = computed(
-    () => this.wizardState.completionData()?.warnings ?? []
+    () => this.wizardState.completionData()?.warnings ?? [],
   );
 
   /**
@@ -363,7 +363,7 @@ export class CompletionComponent {
    * Derived from completion data payload.
    */
   protected readonly enhancedPromptsUsed = computed(
-    () => this.wizardState.completionData()?.enhancedPromptsUsed ?? false
+    () => this.wizardState.completionData()?.enhancedPromptsUsed ?? false,
   );
 
   /**

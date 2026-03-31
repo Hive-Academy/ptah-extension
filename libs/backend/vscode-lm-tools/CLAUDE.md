@@ -4,7 +4,9 @@
 
 ## Purpose
 
-The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Protocol) server for Ptah API integration. It enables VS Code Language Models and Claude CLI to execute TypeScript/JavaScript code with access to Ptah extension APIs (workspace analysis, search, diagnostics, AI, files, and more). This library powers the `execute_code` MCP tool and system prompt generation.
+The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Protocol) server for Ptah API integration. It enables VS Code Language Models, Claude CLI, and Electron-hosted AI agents to execute TypeScript/JavaScript code with access to Ptah extension APIs (workspace analysis, search, diagnostics, AI, files, and more). This library powers the `execute_code` MCP tool and system prompt generation.
+
+**Platform support**: The MCP server runs on both **VS Code** and **Electron/standalone** platforms. VS Code-exclusive features (LSP, editor state, code actions) gracefully degrade on non-VS Code platforms. Only one file (`ide-capabilities.vscode.ts`) imports the `vscode` module directly, and it is conditionally loaded via DI.
 
 ## Boundaries
 
@@ -12,10 +14,11 @@ The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Pro
 
 - Code Execution MCP server implementation
 - Ptah API builder (namespace construction)
-- System prompt generation for MCP tools
+- System prompt generation for MCP tools (including platform-tailored prompts)
 - Permission prompt services for tool execution
 - VS Code Language Model API integration
 - Secure code execution sandboxing
+- Platform abstraction interfaces for IDE capabilities
 
 **Does NOT belong**:
 
@@ -23,81 +26,232 @@ The **vscode-lm-tools library** provides a Code Execution MCP (Model Context Pro
 - Workspace analysis implementation (belongs in `workspace-intelligence`)
 - VS Code API wrappers (belongs in `vscode-core`)
 - Agent generation logic (belongs in `agent-generation`)
+- Platform-core interfaces like `IDiagnosticsProvider`, `IWorkspaceProvider` (belongs in `platform-core`)
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────┐
-│     VS Code Language Model Tools & MCP Layer          │
-├──────────────────────────────────────────────────────┤
-│  CodeExecutionMCP (MCP Server)                       │
-│  ├─ execute_code tool implementation                 │
-│  ├─ Sandboxed code execution                         │
-│  ├─ Timeout management (5s-30s)                      │
-│  └─ Error handling & result serialization            │
-├──────────────────────────────────────────────────────┤
-│  PtahAPIBuilder (API Namespace Constructor)          │
-│  ├─ ptah.workspace   - Workspace operations          │
-│  ├─ ptah.search      - File search & relevance       │
-│  ├─ ptah.diagnostics - Problem detection             │
-│  └─ ptah.files       - File operations               │
-├──────────────────────────────────────────────────────┤
-│  Permission Management                               │
-│  └─ PermissionPromptService                          │
-│     ├─ User consent prompts                          │
-│     ├─ Permission caching                            │
-│     └─ Risk assessment                               │
-├──────────────────────────────────────────────────────┤
-│  System Prompt Generation                            │
-│  └─ PTAH_SYSTEM_PROMPT                               │
-│     ├─ Tool descriptions                             │
-│     ├─ API documentation                             │
-│     └─ Usage examples                                │
-└──────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│            MCP Server (Platform-Agnostic Core)            │
+│                                                           │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │  CodeExecutionMCP (MCP Server)                      │  │
+│  │  ├─ execute_code tool implementation                │  │
+│  │  ├─ Sandboxed code execution (timeout: 5s-30s)      │  │
+│  │  ├─ Tool filtering (hasIDECapabilities flag)        │  │
+│  │  └─ Optional WebviewManager (lazy DI resolution)    │  │
+│  ├─────────────────────────────────────────────────────┤  │
+│  │  PtahAPIBuilder (14 Namespace Constructor)          │  │
+│  │  ├─ ptah.workspace    - Workspace analysis          │  │
+│  │  ├─ ptah.search       - File search & relevance     │  │
+│  │  ├─ ptah.diagnostics  - via IDiagnosticsProvider    │  │
+│  │  ├─ ptah.files        - File operations             │  │
+│  │  ├─ ptah.context      - Token budget management     │  │
+│  │  ├─ ptah.project      - Monorepo detection          │  │
+│  │  ├─ ptah.relevance    - File scoring                │  │
+│  │  ├─ ptah.dependencies - Import graph                │  │
+│  │  ├─ ptah.ast          - Tree-sitter analysis        │  │
+│  │  ├─ ptah.ide          - via IIDECapabilities        │  │
+│  │  ├─ ptah.orchestration- Workflow state              │  │
+│  │  ├─ ptah.agent        - Agent orchestration         │  │
+│  │  ├─ ptah.git          - Git worktree operations     │  │
+│  │  ├─ ptah.json         - JSON validation & repair    │  │
+│  │  └─ ptah.webSearch    - Web search (multi-provider) │  │
+│  ├─────────────────────────────────────────────────────┤  │
+│  │  System Prompt Generation                           │  │
+│  │  ├─ PTAH_SYSTEM_PROMPT (static, full prompt)        │  │
+│  │  └─ buildPlatformSystemPrompt(hasIDE)               │  │
+│  │     └─ Strips VS Code-only tools for Electron       │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                           │
+│  ┌──────────────────────┐  ┌───────────────────────────┐  │
+│  │  Platform Injection  │  │  Permission Management    │  │
+│  │  Points              │  │  └─ PermissionPromptService│  │
+│  │  ├─ IDiagnostics-    │  │     ├─ User consent       │  │
+│  │  │  Provider         │  │     ├─ Permission caching  │  │
+│  │  ├─ IIDECapabilities │  │     └─ Risk assessment     │  │
+│  │  ├─ IWorkspace-      │  └───────────────────────────┘  │
+│  │  │  Provider         │                                 │
+│  │  └─ WebviewManager?  │                                 │
+│  └──────────────────────┘                                 │
+├───────────────────────────────────────────────────────────┤
+│  Platform-Specific Layer (conditionally loaded via DI)    │
+│                                                           │
+│  VS Code:                     Electron/Standalone:        │
+│  ├─ VscodeIDECapabilities     ├─ (no IIDECapabilities)   │
+│  │  └─ LSP, editor, actions   │  └─ graceful stubs       │
+│  ├─ VscodeDiagnosticsProvider ├─ ElectronDiagnostics-    │
+│  │  └─ vscode.languages.*    │    Provider (stub/[])     │
+│  ├─ WebviewManager present    ├─ No WebviewManager       │
+│  │  └─ approval_prompt UI     │  └─ auto-allow prompts   │
+│  └─ Full tool list            └─ Filtered tool list      │
+└───────────────────────────────────────────────────────────┘
 ```
+
+## Platform Abstractions
+
+The library uses three platform abstraction points to decouple from direct VS Code API usage. These enable the MCP server to run on both VS Code and Electron/standalone platforms.
+
+### IDiagnosticsProvider (from platform-core)
+
+**Replaces**: `vscode.languages.getDiagnostics()`, `vscode.DiagnosticSeverity`
+
+Defined in `@ptah-extension/platform-core`. Injected into `PtahAPIBuilder` via `PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER`. Used by `buildDiagnosticsNamespace()` in `core-namespace.builders.ts`.
+
+- **VS Code**: Wraps `vscode.languages.getDiagnostics()` with severity enum-to-string conversion
+- **Electron**: Returns empty array (no live language server); future enhancement could run `tsc --noEmit` and parse output
+
+```typescript
+interface IDiagnosticsProvider {
+  getDiagnostics(): Array<{
+    file: string;
+    diagnostics: Array<{
+      message: string;
+      line: number;
+      severity: 'error' | 'warning' | 'info' | 'hint';
+    }>;
+  }>;
+}
+```
+
+### IIDECapabilities (local interface)
+
+**Replaces**: `vscode.commands.executeCommand()` (LSP providers), `vscode.window.activeTextEditor`, `vscode.window.visibleTextEditors`, `vscode.workspace.textDocuments`, `vscode.Uri`, `vscode.Position`, `vscode.Range`, `vscode.CodeActionKind`
+
+Defined locally in `ide-namespace.builder.ts`. Implemented by `VscodeIDECapabilities` in `ide-capabilities.vscode.ts`. Resolved lazily via `IDE_CAPABILITIES_TOKEN` Symbol in `PtahAPIBuilder`.
+
+- **VS Code**: `VscodeIDECapabilities` wraps all VS Code LSP commands, editor state, and code actions
+- **Electron**: Token is NOT registered; `buildIDENamespace()` receives `undefined` and returns graceful degradation stubs (empty arrays, null, false)
+
+```typescript
+interface IIDECapabilities {
+  lsp: {
+    getDefinition(file, line, col): Promise<Location[]>;
+    getReferences(file, line, col): Promise<Location[]>;
+    getHover(file, line, col): Promise<HoverInfo | null>;
+    getTypeDefinition(file, line, col): Promise<Location[]>;
+    getSignatureHelp(file, line, col): Promise<SignatureHelp | null>;
+  };
+  editor: {
+    getActive(): Promise<ActiveEditorInfo | null>;
+    getOpenFiles(): Promise<string[]>;
+    getDirtyFiles(): Promise<string[]>;
+    getRecentFiles(limit?): Promise<string[]>;
+    getVisibleRange(): Promise<VisibleRange | null>;
+  };
+  actions: {
+    getAvailable(file, line): Promise<CodeAction[]>;
+    apply(file, line, actionTitle): Promise<boolean>;
+    rename(file, line, col, newName): Promise<boolean>;
+    organizeImports(file): Promise<boolean>;
+    fixAll(file, kind?): Promise<boolean>;
+  };
+}
+```
+
+### IWorkspaceProvider.getConfiguration() (from platform-core)
+
+**Replaces**: `vscode.workspace.getConfiguration('ptah').get<number>('mcpPort', 51820)`
+
+Used by `getConfiguredPort()` in `http-server.handler.ts` to read the MCP server port from platform configuration with a default fallback.
+
+- **VS Code**: Reads from VS Code settings (`settings.json`)
+- **Electron**: Returns default value (51820) since no VS Code settings system exists
+
+### WebviewManager (optional DI, from vscode-core)
+
+**Replaces**: Direct WebviewManager injection that would crash in Electron
+
+`CodeExecutionMCP` resolves `WebviewManager` lazily via `container.isRegistered(TOKENS.WEBVIEW_MANAGER)`. When absent (Electron), the `approval_prompt` tool auto-allows all requests instead of prompting the user through the webview UI.
+
+## MCP Tool Platform Availability
+
+| Tool                       | VS Code  | Electron         | Notes                                            |
+| -------------------------- | -------- | ---------------- | ------------------------------------------------ |
+| `execute_code`             | Yes      | Yes              | Full Ptah API access on both platforms           |
+| `approval_prompt`          | Yes (UI) | Yes (auto-allow) | Electron auto-allows since no webview UI         |
+| `ptah_workspace_analyze`   | Yes      | Yes              | Platform-agnostic via workspace-intelligence     |
+| `ptah_search_files`        | Yes      | Yes              | Platform-agnostic via workspace-intelligence     |
+| `ptah_get_diagnostics`     | Yes      | Yes              | Via `IDiagnosticsProvider` abstraction           |
+| `ptah_lsp_references`      | Yes      | **No**           | Requires VS Code LSP (executeReferenceProvider)  |
+| `ptah_lsp_definitions`     | Yes      | **No**           | Requires VS Code LSP (executeDefinitionProvider) |
+| `ptah_get_dirty_files`     | Yes      | **No**           | Requires VS Code editor state tracking           |
+| `ptah_count_tokens`        | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_spawn`         | Yes      | Yes              | Platform-agnostic CLI agent management           |
+| `ptah_agent_status`        | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_read`          | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_steer`         | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_stop`          | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_agent_list`          | Yes      | Yes              | Platform-agnostic                                |
+| `ptah_web_search`          | Yes      | Yes              | Requires Gemini CLI installed                    |
+| `ptah_git_worktree_list`   | Yes      | Yes              | Requires git on PATH                             |
+| `ptah_git_worktree_add`    | Yes      | Yes              | Requires git on PATH                             |
+| `ptah_git_worktree_remove` | Yes      | Yes              | Requires git on PATH                             |
+| `ptah_json_validate`       | Yes      | Yes              | Platform-agnostic via IFileSystemProvider        |
+
+**Filtering mechanism**: `CodeExecutionMCP` checks `container.isRegistered(IDE_CAPABILITIES_TOKEN)` at construction time. When `false`, it passes `hasIDECapabilities: false` to the protocol handler, which excludes `ptah_lsp_references`, `ptah_lsp_definitions`, and `ptah_get_dirty_files` from the `tools/list` response. The `buildPlatformSystemPrompt(false)` function similarly strips VS Code-only tool documentation from the system prompt sent to AI agents.
 
 ## Key Files
 
 ### MCP Server
 
-- `code-execution/code-execution-mcp.service.ts` - MCP server implementation with execute_code tool
+- `code-execution/code-execution-mcp.service.ts` - MCP server orchestrator with optional WebviewManager and IDE capability detection
 
 ### API Builder
 
-- `code-execution/ptah-api-builder.service.ts` - Constructs Ptah API namespaces for code execution
+- `code-execution/ptah-api-builder.service.ts` - Constructs 14 Ptah API namespaces; resolves IDE capabilities lazily via DI
 - `code-execution/types.ts` - PtahAPI type definitions
 
 ### System Prompt
 
-- `code-execution/ptah-system-prompt.constant.ts` - System prompt for MCP tool usage
+- `code-execution/ptah-system-prompt.constant.ts` - Static system prompt (`PTAH_SYSTEM_PROMPT`), token count (`PTAH_SYSTEM_PROMPT_TOKENS`), and platform-tailored prompt builder (`buildPlatformSystemPrompt`)
 
 ### Permission Management
 
 - `permission/permission-prompt.service.ts` - User permission prompts for tool execution
 
+### Platform Abstraction (TASK_2025_226)
+
+- `code-execution/namespace-builders/ide-capabilities.vscode.ts` - VS Code implementation of `IIDECapabilities` (the **only** file in this library that imports `vscode` directly)
+- `code-execution/namespace-builders/ide-namespace.builder.ts` - Defines `IIDECapabilities` interface; builds IDE namespace with graceful degradation stubs when capabilities are absent
+- `code-execution/namespace-builders/core-namespace.builders.ts` - Uses `IDiagnosticsProvider` (from platform-core) instead of direct `vscode.languages.getDiagnostics()`
+- `code-execution/mcp-handlers/http-server.handler.ts` - Uses `IWorkspaceProvider.getConfiguration()` instead of `vscode.workspace.getConfiguration()`
+- `code-execution/mcp-handlers/protocol-handlers.ts` - Conditional tool list filtering based on `hasIDECapabilities` flag
+- `code-execution/mcp-handlers/approval-prompt.handler.ts` - Auto-allows prompts when `WebviewManager` is absent (Electron)
+
 ## Dependencies
 
 **Internal**:
 
-- `@ptah-extension/shared` - Type definitions (Result, CorrelationId)
-- `@ptah-extension/vscode-core` - Logger, FileSystemManager
-- `@ptah-extension/workspace-intelligence` - Workspace analysis, context orchestration
+- `@ptah-extension/shared` - Type definitions (Result, CorrelationId, CliType)
+- `@ptah-extension/vscode-core` - Logger, FileSystemManager, TOKENS, WebviewManager (type only)
+- `@ptah-extension/platform-core` - `IWorkspaceProvider`, `IFileSystemProvider`, `IDiagnosticsProvider`, `IStateStorage`, `PLATFORM_TOKENS`
+- `@ptah-extension/workspace-intelligence` - Workspace analysis, context orchestration, tree-sitter, indexing
+- `@ptah-extension/llm-abstraction` - `AgentProcessManager`, `CliDetectionService`
 
 **External**:
 
-- `vscode` (^1.96.0) - VS Code Extension API, Language Model API
+- `vscode` (^1.96.0) - **Only imported in `ide-capabilities.vscode.ts`** (conditionally loaded via DI; not a hard dependency of the library core)
 - `tsyringe` (^4.10.0) - Dependency injection
-- `eventemitter3` (^5.0.1) - Event emitters
-- `rxjs` (^7.8.1) - Reactive programming
 - `minimatch` (^10.0.1) - Glob pattern matching
+- `json2md` - Markdown formatting for MCP responses
+
+**Note**: The `vscode` dependency is isolated to a single file (`ide-capabilities.vscode.ts`) which is only instantiated when `IDE_CAPABILITIES_TOKEN` is registered in the DI container (VS Code host). All other files in the library are platform-agnostic, importing only from `@ptah-extension/*` libraries and Node.js built-ins.
 
 ## Import Path
 
 ```typescript
-import { CodeExecutionMCP, PtahAPIBuilder, PermissionPromptService, PTAH_SYSTEM_PROMPT } from '@ptah-extension/vscode-lm-tools';
+// Core services
+import { CodeExecutionMCP, PtahAPIBuilder, IDE_CAPABILITIES_TOKEN, PermissionPromptService, registerVsCodeLmToolsServices } from '@ptah-extension/vscode-lm-tools';
+
+// System prompt (static + platform-tailored)
+import { PTAH_SYSTEM_PROMPT, PTAH_SYSTEM_PROMPT_TOKENS, buildPlatformSystemPrompt } from '@ptah-extension/vscode-lm-tools';
+
+// IDE capabilities (VS Code platform registration)
+import { VscodeIDECapabilities } from '@ptah-extension/vscode-lm-tools';
 
 // Type imports
-import type { PtahAPI } from '@ptah-extension/vscode-lm-tools';
+import type { PtahAPI, IIDECapabilities, ToolResultCallback } from '@ptah-extension/vscode-lm-tools';
 ```
 
 ## Commands
@@ -578,17 +732,39 @@ const files = await ptah.files.list('/src');
 - Workspace analysis for `ptah.workspace` namespace
 - File search for `ptah.search` namespace
 - Context orchestration for relevance ranking
+- Tree-sitter parsing for `ptah.ast` namespace
+- Context enrichment and dependency graph for `ptah.dependencies` namespace
+
+**Uses `@ptah-extension/platform-core`**:
+
+- `IDiagnosticsProvider` for `ptah.diagnostics` namespace
+- `IWorkspaceProvider` for configuration access and workspace root
+- `IFileSystemProvider` for platform-agnostic file system access
+- `IStateStorage` for workspace state persistence
 
 **Uses `@ptah-extension/vscode-core`**:
 
 - Logger for structured logging
 - FileSystemManager for `ptah.files` namespace
+- WebviewManager (optional, type only) for approval prompt UI
+- DI TOKENS for service registration
+
+**Uses `@ptah-extension/llm-abstraction`**:
+
+- AgentProcessManager for `ptah.agent` namespace
+- CliDetectionService for agent and web search capabilities
 
 **Consumed by `apps/ptah-extension-vscode`**:
 
-- MCP server registration
-- Permission prompt integration
-- System prompt for VS Code Language Model API
+- MCP server registration via `registerVsCodeLmToolsServices()`
+- `VscodeIDECapabilities` registered under `IDE_CAPABILITIES_TOKEN`
+- `PTAH_SYSTEM_PROMPT` / `buildPlatformSystemPrompt()` for AI agent context
+
+**Consumed by `apps/ptah-electron`**:
+
+- Same `registerVsCodeLmToolsServices()` registration (no shim needed)
+- IDE capabilities token is NOT registered, so IDE namespace returns graceful stubs
+- `buildPlatformSystemPrompt(false)` strips VS Code-only tool documentation
 
 ## Performance Characteristics
 
@@ -622,9 +798,27 @@ nx test vscode-lm-tools --testFile=code-execution-mcp.service.spec.ts
 
 ## File Paths Reference
 
+- **Entry Point**: `src/index.ts`
 - **MCP Server**: `src/lib/code-execution/code-execution-mcp.service.ts`
 - **API Builder**: `src/lib/code-execution/ptah-api-builder.service.ts`
 - **System Prompt**: `src/lib/code-execution/ptah-system-prompt.constant.ts`
 - **Permission**: `src/lib/permission/permission-prompt.service.ts`
 - **Types**: `src/lib/code-execution/types.ts`
-- **Entry Point**: `src/index.ts`
+- **DI Registration**: `src/lib/di/register.ts`
+- **IDE Capabilities (VS Code)**: `src/lib/code-execution/namespace-builders/ide-capabilities.vscode.ts`
+- **IDE Namespace Builder**: `src/lib/code-execution/namespace-builders/ide-namespace.builder.ts`
+- **Core Namespaces**: `src/lib/code-execution/namespace-builders/core-namespace.builders.ts`
+- **HTTP Server Handler**: `src/lib/code-execution/mcp-handlers/http-server.handler.ts`
+- **Protocol Handlers**: `src/lib/code-execution/mcp-handlers/protocol-handlers.ts`
+- **Approval Prompt**: `src/lib/code-execution/mcp-handlers/approval-prompt.handler.ts`
+- **Tool Descriptions**: `src/lib/code-execution/mcp-handlers/tool-description.builder.ts`
+- **Code Execution Engine**: `src/lib/code-execution/mcp-handlers/code-execution.engine.ts`
+- **MCP Response Formatter**: `src/lib/code-execution/mcp-handlers/mcp-response-formatter.ts`
+- **Analysis Namespaces**: `src/lib/code-execution/namespace-builders/analysis-namespace.builders.ts`
+- **AST Namespace**: `src/lib/code-execution/namespace-builders/ast-namespace.builder.ts`
+- **System Namespaces**: `src/lib/code-execution/namespace-builders/system-namespace.builders.ts`
+- **Orchestration Namespace**: `src/lib/code-execution/namespace-builders/orchestration-namespace.builder.ts`
+- **Agent Namespace**: `src/lib/code-execution/namespace-builders/agent-namespace.builder.ts`
+- **Git Namespace**: `src/lib/code-execution/namespace-builders/git-namespace.builder.ts`
+- **JSON Namespace**: `src/lib/code-execution/namespace-builders/json-namespace.builder.ts`
+- **Web Search Service**: `src/lib/code-execution/services/web-search.service.ts`

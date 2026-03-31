@@ -47,19 +47,9 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
       const basePath = this.getSkillsBasePath();
       await mkdir(basePath, { recursive: true });
 
-      // Clean up old ptah- prefixed skills before re-installing
-      // This handles migration from nested (ptah-{pluginId}/{skill}) to flat (ptah-{skill})
-      try {
-        const existingEntries = await readdir(basePath);
-        for (const entry of existingEntries) {
-          if (entry.startsWith('ptah-')) {
-            const entryPath = join(basePath, entry);
-            await rm(entryPath, { recursive: true, force: true });
-          }
-        }
-      } catch {
-        // Non-fatal: best-effort cleanup of old format
-      }
+      // Track which ptah- skill folders are installed in this run
+      // so we can remove stale ones afterwards without a delete-all gap
+      const installedFolders = new Set<string>();
 
       for (const pluginPath of pluginPaths) {
         try {
@@ -100,16 +90,17 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
                 skillSourcePath,
                 skillTargetPath,
                 0,
-                skillFolderName
+                skillFolderName,
               );
               skillCount += copied;
+              installedFolders.add(skillFolderName);
             } catch (skillError) {
               errors.push(
                 `Failed to copy skill ${skillDirName}: ${
                   skillError instanceof Error
                     ? skillError.message
                     : String(skillError)
-                }`
+                }`,
               );
             }
           }
@@ -120,9 +111,24 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
               pluginError instanceof Error
                 ? pluginError.message
                 : String(pluginError)
-            }`
+            }`,
           );
         }
+      }
+
+      // Remove stale ptah- skill folders that were NOT part of this install.
+      // This replaces the old delete-all-then-recreate approach which caused
+      // a race condition with Copilot's filesystem watcher (computeSkillDiscoveryInfo errors).
+      try {
+        const existingEntries = await readdir(basePath);
+        for (const entry of existingEntries) {
+          if (entry.startsWith('ptah-') && !installedFolders.has(entry)) {
+            const entryPath = join(basePath, entry);
+            await rm(entryPath, { recursive: true, force: true });
+          }
+        }
+      } catch {
+        // Non-fatal: best-effort cleanup of stale skills
       }
 
       // Sync command files from plugins (TASK_2025_201)
@@ -149,7 +155,7 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
 
   private async syncCommands(
     pluginPaths: string[],
-    errors: string[]
+    errors: string[],
   ): Promise<void> {
     const commandsDir = this.getCommandsBasePath();
     try {
@@ -184,7 +190,7 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
         try {
           const content = await readFile(
             join(commandsSourceDir, entry),
-            'utf8'
+            'utf8',
           );
           // Prefix with ptah- for cleanup identification
           const targetName = `ptah-${entry}`;
@@ -193,7 +199,7 @@ export class CopilotSkillInstaller implements ICliSkillInstaller {
           errors.push(
             `Failed to copy command ${entry}: ${
               err instanceof Error ? err.message : String(err)
-            }`
+            }`,
           );
         }
       }

@@ -823,6 +823,14 @@ export interface AnalysisStreamPayload {
   isError?: boolean;
   /** Timestamp */
   timestamp: number;
+  /**
+   * Optional flat stream event for ExecutionNode rendering pipeline.
+   * When present, the setup-wizard frontend accumulates these into a StreamingState
+   * and renders via ExecutionTreeBuilderService + ExecutionNodeComponent.
+   * Backward compatible: old payloads without this field still work.
+   * @see TASK_2025_229
+   */
+  flatEvent?: import('./execution-node.types').FlatStreamEventUnion;
 }
 
 /**
@@ -991,7 +999,7 @@ export type WizardMessage =
  * v2-only: represents multi-phase analysis slug directories.
  */
 export interface SavedAnalysisMetadata {
-  /** Slug directory name in .claude/analysis/ */
+  /** Slug directory name in .ptah/analysis/ */
   filename: string;
   /** ISO 8601 timestamp of when the analysis was saved */
   savedAt: string;

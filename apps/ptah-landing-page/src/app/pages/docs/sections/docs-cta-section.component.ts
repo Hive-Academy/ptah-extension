@@ -1,5 +1,5 @@
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import {
   ViewportAnimationDirective,
   ViewportAnimationConfig,
@@ -8,7 +8,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
 
 @Component({
   selector: 'ptah-docs-cta',
-  imports: [CommonModule, ViewportAnimationDirective, LucideAngularModule],
+  imports: [ViewportAnimationDirective, LucideAngularModule],
   template: `
     <section id="get-started" class="py-16 sm:py-24">
       <div class="max-w-4xl mx-auto text-center">
@@ -41,7 +41,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
             <span
               class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-base-100 border border-amber-400/50 text-xs font-bold text-amber-400 tracking-wide z-10 whitespace-nowrap"
             >
-              14 DAYS TRIAL
+              30 DAYS TRIAL
             </span>
             <div
               class="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-400/20 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors"
@@ -61,7 +61,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
               </p>
             </div>
             <a
-              href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
+              href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
               target="_blank"
               rel="noopener noreferrer"
               class="cta-glow-button block relative overflow-hidden w-full px-6 py-3 rounded-xl text-white font-semibold text-sm text-center"
@@ -77,7 +77,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
             <span
               class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-base-100 border border-amber-400/50 text-xs font-bold text-amber-400 tracking-wide z-10 whitespace-nowrap"
             >
-              14 DAYS TRIAL
+              30 DAYS TRIAL
             </span>
             <div
               class="w-14 h-14 rounded-xl bg-amber-500/10 border border-amber-400/20 flex items-center justify-center group-hover:bg-amber-500/20 transition-colors"
@@ -97,7 +97,7 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
               </p>
             </div>
             <a
-              href="https://github.com/Hive-Academy/ptah-app/releases/latest"
+              href="https://github.com/Hive-Academy/ptah-extension/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               class="cta-glow-button block relative overflow-hidden w-full px-6 py-3 rounded-xl text-white font-semibold text-sm text-center"
@@ -114,14 +114,14 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
           class="mt-10 flex flex-wrap justify-center gap-6"
         >
           @for (signal of trustSignals; track signal) {
-          <div class="flex items-center gap-2 text-base-content/60">
-            <lucide-angular
-              [img]="CheckIcon"
-              class="w-4 h-4 text-success"
-              aria-hidden="true"
-            />
-            <span class="text-sm font-medium">{{ signal }}</span>
-          </div>
+            <div class="flex items-center gap-2 text-base-content/60">
+              <lucide-angular
+                [img]="CheckIcon"
+                class="w-4 h-4 text-success"
+                aria-hidden="true"
+              />
+              <span class="text-sm font-medium">{{ signal }}</span>
+            </div>
           }
         </div>
       </div>
@@ -141,7 +141,8 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
           rgba(212, 175, 55, 0.15) 100%
         );
         border: 1px solid rgba(212, 175, 55, 0.3);
-        box-shadow: 0 0 15px rgba(212, 175, 55, 0.15),
+        box-shadow:
+          0 0 15px rgba(212, 175, 55, 0.15),
           0 0 30px rgba(212, 175, 55, 0.05),
           inset 0 1px 0 rgba(244, 212, 124, 0.1);
         transition: all 0.3s ease;
@@ -150,7 +151,8 @@ import { LucideAngularModule, Monitor, Download, Check } from 'lucide-angular';
       .cta-glow-button:hover {
         transform: translateY(-2px);
         border-color: rgba(212, 175, 55, 0.5);
-        box-shadow: 0 0 20px rgba(212, 175, 55, 0.3),
+        box-shadow:
+          0 0 20px rgba(212, 175, 55, 0.3),
           0 0 50px rgba(212, 175, 55, 0.1),
           inset 0 1px 0 rgba(244, 212, 124, 0.2);
       }

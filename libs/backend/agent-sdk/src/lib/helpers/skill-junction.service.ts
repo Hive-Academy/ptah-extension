@@ -1,8 +1,12 @@
 /**
  * Skill Junction Service (TASK_2025_201)
  *
- * Creates filesystem junctions from {workspace}/.claude/skills/{skillName}/
- * to {extensionPath}/assets/plugins/{pluginId}/skills/{skillName}/.
+ * Creates filesystem junctions from {workspace}/.ptah/skills/{skillName}/
+ * to {pluginsBasePath}/{pluginId}/skills/{skillName}/.
+ *
+ * Uses .ptah/ instead of .claude/ to avoid:
+ * - Skill/command duplication (SDK's plugins option already loads skills for Claude)
+ * - Polluting the user's .claude/ folder with extension-managed junctions
  *
  * This makes plugin skills discoverable by third-party AI providers (Codex, Copilot)
  * that search the workspace via MCP tools. Claude's native provider already resolves
@@ -61,15 +65,23 @@ export interface SkillJunctionResult {
 const IS_WINDOWS = process.platform === 'win32';
 
 /**
- * Manages workspace .claude/skills/ junctions pointing to extension plugin skill directories.
+ * Workspace subdirectory for Ptah-managed junctions.
+ * Uses .ptah/ instead of .claude/ to avoid:
+ * - Skill/command duplication (SDK's plugins option already loads skills for Claude)
+ * - Polluting the user's .claude/ folder with extension-managed content
+ */
+const PTAH_WORKSPACE_DIR = '.ptah';
+
+/**
+ * Manages workspace .ptah/skills/ junctions pointing to extension plugin skill directories.
  *
  * Uses a late-initialized singleton pattern: `initialize()` must be called from
- * main.ts after DI setup to provide the extension path. Workspace root is resolved
+ * main.ts after DI setup to provide the plugins base path. Workspace root is resolved
  * via the injected IWorkspaceProvider.
  */
 @injectable()
 export class SkillJunctionService {
-  private extensionPath: string | null = null;
+  private pluginsBasePath: string | null = null;
   private workspaceRoot: string | null = null;
 
   /** Track which junction paths we created, for cleanup */
@@ -81,18 +93,20 @@ export class SkillJunctionService {
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
-    private readonly workspaceProvider: IWorkspaceProvider
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
-   * Late initialization with extension path.
+   * Late initialization with plugins base path.
    * Must be called from main.ts after DI setup.
+   *
+   * @param pluginsBasePath - Absolute path to the plugins directory (~/.ptah/plugins/ from ContentDownloadService)
    */
-  initialize(extensionPath: string): void {
-    this.extensionPath = extensionPath;
+  initialize(pluginsBasePath: string): void {
+    this.pluginsBasePath = pluginsBasePath;
     this.workspaceRoot = this.workspaceProvider.getWorkspaceRoot() ?? null;
     this.logger.debug('[SkillJunctionService] Initialized', {
-      extensionPath,
+      pluginsBasePath,
       workspaceRoot: this.workspaceRoot,
     });
   }
@@ -108,7 +122,7 @@ export class SkillJunctionService {
    */
   activate(
     pluginPaths: string[],
-    getPluginPaths: () => string[]
+    getPluginPaths: () => string[],
   ): SkillJunctionResult {
     const result = this.createJunctions(pluginPaths);
     this.subscribeToWorkspaceChanges(getPluginPaths);
@@ -118,8 +132,8 @@ export class SkillJunctionService {
   /**
    * Create junctions for skills and copy command files from all enabled plugins.
    *
-   * Skills: Junctions in {workspace}/.claude/skills/{skillName}/ -> plugin skills dir
-   * Commands: Copies to {workspace}/.claude/commands/{commandName}.md (file symlinks
+   * Skills: Junctions in {workspace}/.ptah/skills/{skillName}/ -> plugin skills dir
+   * Commands: Copies to {workspace}/.ptah/commands/{commandName}.md (file symlinks
    *           require Developer Mode on Windows, so we copy instead)
    *
    * @param pluginPaths - Absolute paths to enabled plugin directories
@@ -135,29 +149,33 @@ export class SkillJunctionService {
 
     if (!this.workspaceRoot) {
       this.logger.debug(
-        '[SkillJunctionService] No workspace open, skipping junction creation'
+        '[SkillJunctionService] No workspace open, skipping junction creation',
       );
       return result;
     }
+
+    // One-time migration: remove orphaned junctions from old .claude/skills/ and .claude/commands/
+    // (previous versions created junctions there; we now use .ptah/ to avoid duplication)
+    this.migrateFromClaudeDir(result);
 
     // Build skills map: skillName -> source absolute path
     const skillsMap = this.buildSkillsMap(pluginPaths);
     if (skillsMap.size === 0) {
       this.logger.debug(
-        '[SkillJunctionService] No skills found in enabled plugins'
+        '[SkillJunctionService] No skills found in enabled plugins',
       );
       return result;
     }
 
-    // Ensure .claude/skills/ directory exists
-    const skillsDir = join(this.workspaceRoot, '.claude', 'skills');
+    // Ensure .ptah/skills/ directory exists
+    const skillsDir = join(this.workspaceRoot, PTAH_WORKSPACE_DIR, 'skills');
     try {
       mkdirSync(skillsDir, { recursive: true });
     } catch (error) {
       result.errors.push(
-        `Failed to create .claude/skills/ directory: ${
+        `Failed to create .ptah/skills/ directory: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return result;
     }
@@ -194,7 +212,7 @@ export class SkillJunctionService {
               if (resolvedStat.isDirectory()) {
                 this.logger.debug(
                   `[SkillJunctionService] Skipping ${skillName}: valid symlink already exists (likely SDK-created)`,
-                  { linkPath, existingTarget }
+                  { linkPath, existingTarget },
                 );
                 result.skipped++;
                 continue;
@@ -209,7 +227,7 @@ export class SkillJunctionService {
             // Real directory exists — DO NOT touch it (likely SDK-created via pluginPaths)
             this.logger.debug(
               `[SkillJunctionService] Skipping ${skillName}: real directory exists (likely SDK-created)`,
-              { linkPath }
+              { linkPath },
             );
             result.skipped++;
             continue;
@@ -217,7 +235,7 @@ export class SkillJunctionService {
             // Regular file or other entry — skip with clear message
             this.logger.debug(
               `[SkillJunctionService] Skipping ${skillName}: non-directory entry exists`,
-              { linkPath }
+              { linkPath },
             );
             result.skipped++;
             continue;
@@ -232,12 +250,12 @@ export class SkillJunctionService {
         result.errors.push(
           `Failed to create junction ${skillName}: ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
       }
     }
 
-    // Sync command files from plugins into .claude/commands/
+    // Sync command files from plugins into .ptah/commands/
     // Commands are individual .md files. On Unix: symlinked. On Windows: copied
     // (file symlinks require Developer Mode, unlike directory junctions).
     this.syncCommandFiles(pluginPaths, result);
@@ -264,7 +282,7 @@ export class SkillJunctionService {
       () => {
         try {
           this.logger.debug(
-            '[SkillJunctionService] Workspace folders changed, re-creating junctions'
+            '[SkillJunctionService] Workspace folders changed, re-creating junctions',
           );
 
           // Clean up old workspace junctions
@@ -281,10 +299,10 @@ export class SkillJunctionService {
         } catch (error) {
           this.logger.warn(
             '[SkillJunctionService] Failed to re-create junctions on workspace change',
-            { error: error instanceof Error ? error.message : String(error) }
+            { error: error instanceof Error ? error.message : String(error) },
           );
         }
-      }
+      },
     );
 
     this.workspaceFolderDisposer = () => disposable.dispose();
@@ -346,7 +364,7 @@ export class SkillJunctionService {
         if (skillsMap.has(entry)) {
           const pluginId = basename(pluginPath);
           this.logger.warn(
-            `[SkillJunctionService] Skill name collision: "${entry}" already registered, skipping from ${pluginId}`
+            `[SkillJunctionService] Skill name collision: "${entry}" already registered, skipping from ${pluginId}`,
           );
           continue;
         }
@@ -360,7 +378,12 @@ export class SkillJunctionService {
 
   /**
    * Sync command .md files from plugin commands/ directories into
-   * {workspace}/.claude/commands/.
+   * {workspace}/.ptah/commands/.
+   *
+   * These command files are for third-party provider discoverability via MCP
+   * workspace search only. Ptah's own CommandDiscoveryService discovers plugin
+   * commands directly via plugin paths (scanPluginDirectories), not from this
+   * directory. Claude's SDK loads commands via the plugins option.
    *
    * On Linux/macOS: creates file symlinks (no restrictions).
    * On Windows: copies files (file symlinks require Developer Mode,
@@ -370,15 +393,24 @@ export class SkillJunctionService {
    */
   private syncCommandFiles(
     pluginPaths: string[],
-    result: SkillJunctionResult
+    result: SkillJunctionResult,
   ): void {
     if (!this.workspaceRoot) return;
 
-    const commandsDir = join(this.workspaceRoot, '.claude', 'commands');
+    const commandsDir = join(
+      this.workspaceRoot,
+      PTAH_WORKSPACE_DIR,
+      'commands',
+    );
     try {
       mkdirSync(commandsDir, { recursive: true });
-    } catch {
-      return; // Can't create commands dir — non-fatal
+    } catch (error) {
+      result.errors.push(
+        `Failed to create .ptah/commands/ directory: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
     }
 
     // Clean up stale command files (from previously enabled but now disabled plugins)
@@ -453,7 +485,7 @@ export class SkillJunctionService {
                 if (resolvedStat.isFile()) {
                   this.logger.debug(
                     `[SkillJunctionService] Skipping command ${entry}: valid symlink already exists (likely SDK-created)`,
-                    { targetPath, existingTarget }
+                    { targetPath, existingTarget },
                   );
                   result.skipped++;
                   continue;
@@ -466,7 +498,7 @@ export class SkillJunctionService {
               // Real file exists that we didn't create — don't overwrite (likely SDK-created)
               this.logger.debug(
                 `[SkillJunctionService] Skipping command ${entry}: file already exists (likely SDK-created)`,
-                { targetPath }
+                { targetPath },
               );
               result.skipped++;
               continue;
@@ -489,7 +521,7 @@ export class SkillJunctionService {
           result.errors.push(
             `Failed to sync command ${entry}: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
         }
       }
@@ -497,12 +529,12 @@ export class SkillJunctionService {
   }
 
   /**
-   * Remove stale junctions from .claude/skills/ that point to extension paths
+   * Remove stale junctions from .ptah/skills/ that point to extension paths
    * but are no longer in the current skills map.
    */
   private removeStaleJunctions(
     skillsDir: string,
-    currentSkills: Map<string, string>
+    currentSkills: Map<string, string>,
   ): number {
     let removed = 0;
     let entries: string[];
@@ -528,12 +560,12 @@ export class SkillJunctionService {
         this.managedJunctions.delete(entryPath);
         removed++;
         this.logger.debug(
-          `[SkillJunctionService] Removed stale junction: ${entry}`
+          `[SkillJunctionService] Removed stale junction: ${entry}`,
         );
       } catch (error) {
         this.logger.warn(
           `[SkillJunctionService] Failed to remove stale junction: ${entry}`,
-          { error: error instanceof Error ? error.message : String(error) }
+          { error: error instanceof Error ? error.message : String(error) },
         );
       }
     }
@@ -542,21 +574,21 @@ export class SkillJunctionService {
   }
 
   /**
-   * Check if a path is a junction/symlink pointing to our extension's plugin assets.
-   * Uses extensionPath prefix match (not a generic substring) to avoid false positives
-   * with unrelated junctions that happen to contain 'assets/plugins' in their path.
+   * Check if a path is a junction/symlink pointing to our plugins base directory.
+   * Uses pluginsBasePath prefix match (not a generic substring) to avoid false positives
+   * with unrelated junctions that happen to contain 'plugins' in their path.
    */
   private isExtensionJunction(entryPath: string): boolean {
     try {
       const stat = lstatSync(entryPath);
       if (!stat.isSymbolicLink()) return false;
       const target = readlinkSync(entryPath);
-      if (this.extensionPath === null) return false;
+      if (this.pluginsBasePath === null) return false;
 
-      // Normalize and check that the target starts with our extension path
+      // Normalize and check that the target starts with our plugins base path
       const normalizedTarget = this.normalizePath(target);
-      const normalizedExtPath = this.normalizePath(this.extensionPath);
-      return normalizedTarget.startsWith(normalizedExtPath);
+      const normalizedPluginsPath = this.normalizePath(this.pluginsBasePath);
+      return normalizedTarget.startsWith(normalizedPluginsPath);
     } catch {
       return false;
     }
@@ -593,6 +625,81 @@ export class SkillJunctionService {
       }
     }
     this.managedJunctions.clear();
+  }
+
+  /**
+   * One-time migration: remove orphaned junctions/copies from old .claude/skills/
+   * and .claude/commands/ directories that were created by previous extension versions.
+   *
+   * Detects:
+   * - Symlinks/junctions pointing to current ~/.ptah/plugins (isExtensionJunction)
+   * - Symlinks/junctions pointing to the old extension install path (assets/plugins)
+   * - On Windows: copied .md command files (old versions copied instead of symlinking)
+   */
+  private migrateFromClaudeDir(result: SkillJunctionResult): void {
+    if (!this.workspaceRoot) return;
+
+    const oldSkillsDir = join(this.workspaceRoot, '.claude', 'skills');
+    const oldCommandsDir = join(this.workspaceRoot, '.claude', 'commands');
+
+    for (const dir of [oldSkillsDir, oldCommandsDir]) {
+      let entries: string[];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        continue; // Directory doesn't exist — nothing to migrate
+      }
+
+      for (const entry of entries) {
+        const entryPath = join(dir, entry);
+        if (
+          this.isExtensionJunction(entryPath) ||
+          this.isOldExtensionEntry(entryPath)
+        ) {
+          try {
+            unlinkSync(entryPath);
+            result.removed++;
+            this.logger.debug(
+              `[SkillJunctionService] Migrated old .claude/ entry: ${entry}`,
+            );
+          } catch {
+            // Non-fatal — old entry may be locked or already removed
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Detect entries created by old extension versions that pointed to
+   * the extension install path (e.g., .../assets/plugins/...) rather
+   * than ~/.ptah/plugins. Also detects Windows-copied .md command files
+   * that contain the Ptah plugin header marker.
+   */
+  private isOldExtensionEntry(entryPath: string): boolean {
+    try {
+      const stat = lstatSync(entryPath);
+
+      if (stat.isSymbolicLink()) {
+        // Old junctions pointed to the extension's assets/plugins/ directory
+        const target = this.normalizePath(readlinkSync(entryPath));
+        return (
+          target.includes('/assets/plugins/') ||
+          target.includes('/ptah-extension-vscode/') ||
+          target.includes('/ptah-extension/')
+        );
+      }
+
+      // On Windows, old command files were copied (not symlinked).
+      // Detect by checking if it's a small .md file in the commands dir.
+      if (IS_WINDOWS && stat.isFile() && basename(entryPath).endsWith('.md')) {
+        return true;
+      }
+
+      return false;
+    } catch {
+      return false;
+    }
   }
 
   /**

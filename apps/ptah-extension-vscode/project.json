@@ -7,40 +7,37 @@
   "targets": {
     "build": {
       "executor": "nx:noop",
-      "dependsOn": ["build-webpack", "post-build-copy"]
+      "dependsOn": ["build-esbuild", "post-build-copy"]
     },
-    "build-webpack": {
-      "executor": "@nx/webpack:webpack",
+    "build-esbuild": {
+      "executor": "@nx/esbuild:esbuild",
       "outputs": ["{options.outputPath}"],
       "defaultConfiguration": "production",
       "dependsOn": ["^build"],
       "options": {
-        "target": "node",
-        "compiler": "tsc",
         "outputPath": "dist/apps/ptah-extension-vscode",
         "main": "apps/ptah-extension-vscode/src/main.ts",
+        "outputFileName": "main.mjs",
         "tsConfig": "apps/ptah-extension-vscode/tsconfig.app.json",
-        "webpackConfig": "apps/ptah-extension-vscode/webpack.config.js",
+        "format": ["esm"],
+        "platform": "node",
+        "target": "node20",
+        "bundle": true,
+        "thirdParty": true,
+        "esbuildOptions": {
+          "outExtension": {
+            ".js": ".mjs"
+          },
+          "banner": {
+            "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
+          }
+        },
+        "external": ["vscode"],
         "assets": [
           {
             "glob": "**/*",
             "input": "apps/ptah-extension-vscode/src/assets",
             "output": "assets"
-          },
-          {
-            "glob": "**/*",
-            "input": "apps/ptah-extension-vscode/assets/plugins",
-            "output": "assets/plugins"
-          },
-          {
-            "glob": "**/*",
-            "input": "libs/backend/agent-generation/templates",
-            "output": "templates"
-          },
-          {
-            "glob": "cli.js",
-            "input": "node_modules/@anthropic-ai/claude-agent-sdk",
-            "output": "."
           },
           {
             "glob": "package.json",
@@ -51,26 +48,27 @@
       },
       "configurations": {
         "development": {
-          "mode": "development",
-          "optimization": false,
-          "sourceMap": true
+          "sourcemap": true,
+          "minify": false
         },
         "production": {
-          "mode": "production",
-          "optimization": true,
-          "sourceMap": false,
-          "extractLicenses": false
+          "sourcemap": false,
+          "minify": true
         }
       }
     },
     "post-build-copy": {
       "executor": "nx:run-commands",
-      "dependsOn": ["build-webpack", "ptah-extension-webview:build"],
+      "dependsOn": ["build-esbuild", "ptah-extension-webview:build"],
       "outputs": ["{workspaceRoot}/dist/apps/ptah-extension-vscode/webview"],
       "options": {
         "commands": [
           {
-            "command": "node -e \"const fs=require('fs'); fs.mkdirSync('dist/apps/ptah-extension-vscode/webview', {recursive:true}); fs.cpSync('dist/apps/ptah-extension-webview/browser', 'dist/apps/ptah-extension-vscode/webview/browser', {recursive:true})\"",
+            "command": "node scripts/copy-wasm.js dist/apps/ptah-extension-vscode",
+            "forwardAllArgs": false
+          },
+          {
+            "command": "node scripts/copy-webview.js",
             "forwardAllArgs": false
           }
         ],
@@ -88,14 +86,6 @@
           },
           {
             "command": "node -e \"const fs=require('fs'); fs.copyFileSync('README.md', 'dist/apps/ptah-extension-vscode/README.md')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE')) fs.copyFileSync('LICENSE', 'dist/apps/ptah-extension-vscode/LICENSE')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "cd dist/apps/ptah-extension-vscode && npm install --omit=dev --ignore-scripts 2>&1 || echo 'npm install completed'",
             "forwardAllArgs": false
           }
         ],

@@ -107,7 +107,7 @@ export class AgentMonitorStore implements OnDestroy {
   readonly shouldSuggestEditorPanel = computed(
     () =>
       this.isSidebar &&
-      Array.from(this._agents().values()).some((a) => a.status === 'running')
+      Array.from(this._agents().values()).some((a) => a.status === 'running'),
   );
 
   /**
@@ -133,31 +133,21 @@ export class AgentMonitorStore implements OnDestroy {
     const all = this.agents();
     const activeSessionId = this.tabManager.activeTab()?.claudeSessionId;
 
-    // Ptah-cli agents with a parentSessionId are orchestration subagents spawned
-    // via the ptah_agent_spawn MCP tool during an active session. Their output is
-    // rendered inline in the chat as ExecutionNode agent bubbles — showing them
-    // in the sidebar too creates confusing duplicate empty cards.
-    // User-initiated ptah-cli sessions go through chat:start, run in their own
-    // tab, and have no parentSessionId — those are NOT filtered.
-    const visible = all.filter(
-      (a) => !(a.cli === 'ptah-cli' && a.parentSessionId)
-    );
-
-    if (!activeSessionId) return visible;
-    return visible.filter(
-      (a) => !a.parentSessionId || a.parentSessionId === activeSessionId
+    if (!activeSessionId) return all;
+    return all.filter(
+      (a) => !a.parentSessionId || a.parentSessionId === activeSessionId,
     );
   });
 
   readonly hasRunningAgents = computed(() =>
-    this.agents().some((a) => a.status === 'running')
+    this.agents().some((a) => a.status === 'running'),
   );
 
   readonly agentCount = computed(() => this._agents().size);
 
   /** Agents that currently have a pending permission request (global — all tabs) */
   readonly pendingPermissions = computed(() =>
-    this.agents().filter((a) => a.permissionQueue.length > 0)
+    this.agents().filter((a) => a.permissionQueue.length > 0),
   );
 
   readonly panelOpen = computed(() => this._panelOpen());
@@ -183,7 +173,7 @@ export class AgentMonitorStore implements OnDestroy {
   /** Start or stop tick based on whether any agents are running */
   private syncTick(): void {
     const hasRunning = Array.from(this._agents().values()).some(
-      (a) => a.status === 'running'
+      (a) => a.status === 'running',
     );
     if (hasRunning) {
       this.startTick();
@@ -216,7 +206,7 @@ export class AgentMonitorStore implements OnDestroy {
   isAgentResumed(
     nodeId: string | undefined,
     toolCallId: string | undefined,
-    taskOrDescription: string
+    taskOrDescription: string,
   ): boolean {
     const resumedIds = this._resumedAgentNodeIds();
 
@@ -336,13 +326,13 @@ export class AgentMonitorStore implements OnDestroy {
       if (delta.stdoutDelta) {
         updated.stdout = capBuffer(
           updated.stdout + delta.stdoutDelta,
-          MAX_FRONTEND_BUFFER
+          MAX_FRONTEND_BUFFER,
         );
       }
       if (delta.stderrDelta) {
         updated.stderr = capBuffer(
           updated.stderr + delta.stderrDelta,
-          MAX_FRONTEND_BUFFER
+          MAX_FRONTEND_BUFFER,
         );
       }
       if (delta.segments && delta.segments.length > 0) {
@@ -508,7 +498,7 @@ export class AgentMonitorStore implements OnDestroy {
    */
   loadCliSessions(
     cliSessions: CliSessionReference[],
-    parentSessionId?: string
+    parentSessionId?: string,
   ): void {
     if (cliSessions.length === 0) return;
 
@@ -637,7 +627,7 @@ const LANDMARK_EVENT_TYPES = new Set([
  */
 function capStreamEvents(
   events: FlatStreamEventUnion[],
-  max: number
+  max: number,
 ): FlatStreamEventUnion[] {
   if (events.length <= max) return events;
 
@@ -663,7 +653,7 @@ function capStreamEvents(
 
   // Merge back in original order
   const merged = [...landmarks, ...keptDeltas].sort(
-    (a, b) => a.index - b.index
+    (a, b) => a.index - b.index,
   );
   return merged.map((m) => m.event);
 }

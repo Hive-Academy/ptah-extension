@@ -6,15 +6,14 @@
  *
  * Auth resolution priority:
  * 1. openai_api_key field (never expires, highest priority)
- * 2. OAuth tokens.access_token (refreshed proactively when stale)
+ * 2. OAuth tokens.access_token (read-only; when expired, user must run `codex login`)
  *
  * API endpoint depends on auth mode:
  * - ApiKey → https://api.openai.com/v1
- * - Chatgpt (OAuth) → https://chatgpt.com/backend-api/codex
+ * - OAuth → user-configured endpoint from settings
  *
- * OAuth token refresh is deduplicated to prevent race conditions
- * with single-use refresh tokens. Updated tokens are written atomically
- * (write to .tmp then rename) to avoid file corruption.
+ * TASK_2025_245: Removed all outbound OAuth refresh logic. Tokens are read-only.
+ * When an OAuth token expires, the user is directed to run `codex login`.
  *
  * Security: NEVER logs full tokens -- only length and first 4 characters.
  *
@@ -24,10 +23,12 @@
  */
 
 import { injectable, inject } from 'tsyringe';
-import { readFile, writeFile, rename } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { Logger, TOKENS } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type { ICodexAuthService, CodexAuthFile } from './codex-provider.types';
 
 // ---------------------------------------------------------------------------
@@ -37,30 +38,11 @@ import type { ICodexAuthService, CodexAuthFile } from './codex-provider.types';
 /** Path to the Codex auth file */
 const AUTH_FILE_PATH = join(homedir(), '.codex', 'auth.json');
 
-/** OAuth token refresh endpoint (same as Codex CLI uses) */
-const REFRESH_URL = 'https://auth.openai.com/oauth/token';
-
-/** OAuth client ID for Codex */
-const OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
-
-/** Max age (ms) before proactive refresh. OAuth tokens last ~1h; refresh at 50 min. */
+/** Max age (ms) before considering token stale. OAuth tokens last ~1h; consider stale at 50 min. */
 const TOKEN_MAX_AGE_MS = 50 * 60 * 1000;
 
 /** Default Codex API endpoint for API key auth mode */
 const DEFAULT_API_ENDPOINT_APIKEY = 'https://api.openai.com/v1';
-
-/** Default Codex API endpoint for ChatGPT OAuth auth mode */
-const DEFAULT_API_ENDPOINT_CHATGPT = 'https://chatgpt.com/backend-api/codex';
-
-/** Timeout for refresh requests */
-const REFRESH_TIMEOUT_MS = 10_000;
-
-/**
- * Safely describes a token for logging -- never exposes the full value.
- */
-function describeToken(token: string): string {
-  return `length=${token.length}, prefix=${token.substring(0, 4)}...`;
-}
 
 // ---------------------------------------------------------------------------
 // Service Implementation
@@ -68,9 +50,6 @@ function describeToken(token: string): string {
 
 @injectable()
 export class CodexAuthService implements ICodexAuthService {
-  /** Guard against concurrent refresh attempts (single-use refresh tokens) */
-  private refreshInFlight: Promise<string | null> | null = null;
-
   /** Cached auth file content to avoid repeated disk reads within short windows */
   private cachedAuth: CodexAuthFile | null = null;
   private cacheTimestamp = 0;
@@ -78,7 +57,11 @@ export class CodexAuthService implements ICodexAuthService {
   /** Cache TTL: re-read auth file at most every 5 seconds */
   private static readonly CACHE_TTL_MS = 5_000;
 
-  constructor(@inject(TOKENS.LOGGER) private readonly logger: Logger) {}
+  constructor(
+    @inject(TOKENS.LOGGER) private readonly logger: Logger,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
+  ) {}
 
   /**
    * Get the API key from the auth file, checking both snake_case and
@@ -87,6 +70,20 @@ export class CodexAuthService implements ICodexAuthService {
   private getApiKey(auth: CodexAuthFile): string | null {
     // Codex CLI writes snake_case; check both for safety
     return auth.openai_api_key || auth.OPENAI_API_KEY || null;
+  }
+
+  /**
+   * Read the Codex OAuth API endpoint from VS Code settings.
+   * Returns empty string when unconfigured (OAuth proxy disabled).
+   */
+  private getOAuthApiEndpoint(): string {
+    return (
+      this.workspaceProvider.getConfiguration<string>(
+        'ptah',
+        'provider.openai-codex.oauthApiEndpoint',
+        '',
+      ) ?? ''
+    );
   }
 
   /**
@@ -118,7 +115,7 @@ export class CodexAuthService implements ICodexAuthService {
     const token = await this.resolveAccessToken();
     if (!token) {
       throw new Error(
-        'Not authenticated with Codex. Run `codex login` to authenticate.'
+        'Not authenticated with Codex. Run `codex login` to authenticate.',
       );
     }
 
@@ -133,19 +130,16 @@ export class CodexAuthService implements ICodexAuthService {
    *
    * Resolution order:
    * 1. api_base_url from auth file (explicit override)
-   * 2. Auth mode-based default:
-   *    - API key → https://api.openai.com/v1
-   *    - ChatGPT OAuth → https://chatgpt.com/backend-api/codex
+   * 2. API key mode → https://api.openai.com/v1
+   * 3. OAuth mode → user-configured endpoint from settings
    */
   getApiEndpoint(): string {
-    // Use cached auth if fresh enough; fall back to default if unavailable.
-    // This is synchronous because the proxy calls it frequently and the
-    // cached value is almost always available after the first readAuthFile().
+    // Explicit override from auth file always wins
     if (this.cachedAuth?.api_base_url) {
       return this.cachedAuth.api_base_url;
     }
 
-    // Auth mode determines the default endpoint
+    // API key mode uses the public OpenAI API endpoint
     const authMode = this.cachedAuth?.auth_mode;
     if (
       authMode === 'ApiKey' ||
@@ -153,13 +147,27 @@ export class CodexAuthService implements ICodexAuthService {
     ) {
       return DEFAULT_API_ENDPOINT_APIKEY;
     }
-    // ChatGPT OAuth mode (default for `codex login`)
-    return DEFAULT_API_ENDPOINT_CHATGPT;
+
+    // OAuth mode: read endpoint from settings
+    const oauthEndpoint = this.getOAuthApiEndpoint();
+    if (!oauthEndpoint) {
+      this.logger.warn(
+        '[CodexAuth] OAuth API endpoint not configured. ' +
+          'Set "ptah.provider.openai-codex.oauthApiEndpoint" in settings, ' +
+          'or use API key mode instead.',
+      );
+      // Fall back to public endpoint (will likely fail for OAuth, but better than empty)
+      return DEFAULT_API_ENDPOINT_APIKEY;
+    }
+    return oauthEndpoint;
   }
 
   /**
    * Get the current Codex token status for auth UI display.
    * Used by auth status RPC to show warning badges in the UI.
+   *
+   * When `stale` is true, the OAuth token has expired and the user
+   * must run `codex login` to re-authenticate.
    */
   async getTokenStatus(): Promise<{ authenticated: boolean; stale: boolean }> {
     const auth = await this.readAuthFile();
@@ -192,45 +200,30 @@ export class CodexAuthService implements ICodexAuthService {
   }
 
   /**
-   * Proactively refresh OAuth tokens if they are stale.
-   * Called during extension startup and on auth failures.
+   * Check if credentials are available and not stale.
+   * Returns false if OAuth token needs re-login.
    *
-   * @returns true if tokens are fresh (or were successfully refreshed).
-   *          Returns false for API key auth (cannot refresh an API key).
+   * For API key mode, returns true (API keys don't expire).
+   * For OAuth mode, returns false if the token is stale (user must run `codex login`).
    */
   async ensureTokensFresh(): Promise<boolean> {
-    // Invalidate cache so we always read fresh data from disk.
-    // This is critical for 401 retry: without it, the cache serves the same
-    // stale token that caused the 401 in the first place.
-    this.cacheTimestamp = 0;
+    this.cacheTimestamp = 0; // Force re-read from disk
 
     try {
       const auth = await this.readAuthFile();
       if (!auth) return false;
 
-      // API keys cannot be refreshed. If the key is invalid/revoked, retrying
-      // with the same key is pointless. Return false so the proxy does not
-      // wastefully retry with the same bad key.
-      if (this.getApiKey(auth)) {
-        this.logger.warn(
-          '[CodexAuth] ensureTokensFresh called with API key auth -- API keys cannot be refreshed. ' +
-            'If you are seeing 401 errors, your API key may be invalid or revoked.'
-        );
-        return false;
-      }
+      // API keys never expire
+      if (this.getApiKey(auth)) return true;
 
-      // No tokens at all
-      if (!auth.tokens?.access_token || !auth.tokens.refresh_token) {
-        return false;
-      }
+      // OAuth tokens: check presence only (we don't refresh anymore)
+      if (!auth.tokens?.access_token) return false;
 
-      // Refresh if stale
       if (this.isTokenStale(auth.last_refresh)) {
-        this.logger.info(
-          '[CodexAuth] Token appears stale, refreshing proactively...'
+        this.logger.warn(
+          '[CodexAuth] OAuth token appears expired. Run `codex login` to re-authenticate.',
         );
-        const refreshed = await this.refreshAccessToken(auth);
-        return refreshed !== null;
+        return false;
       }
 
       return true;
@@ -238,7 +231,7 @@ export class CodexAuthService implements ICodexAuthService {
       this.logger.error(
         `[CodexAuth] ensureTokensFresh failed: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return false;
     }
@@ -251,7 +244,7 @@ export class CodexAuthService implements ICodexAuthService {
   /**
    * Resolve the best available access token.
    * API key takes priority over OAuth tokens.
-   * Proactively refreshes stale OAuth tokens.
+   * Warns if OAuth token looks stale but still returns it (let the API reject it).
    */
   private async resolveAccessToken(): Promise<string | null> {
     try {
@@ -260,19 +253,15 @@ export class CodexAuthService implements ICodexAuthService {
 
       // API key takes priority -- never expires
       const apiKey = this.getApiKey(auth);
-      if (apiKey) {
-        return apiKey;
-      }
+      if (apiKey) return apiKey;
 
       if (!auth.tokens?.access_token) return null;
 
-      // Proactively refresh if token looks stale
-      if (auth.tokens.refresh_token && this.isTokenStale(auth.last_refresh)) {
-        this.logger.info(
-          '[CodexAuth] Token stale, attempting refresh before use...'
+      // Warn if token looks stale (but still return it -- let the API reject it)
+      if (this.isTokenStale(auth.last_refresh)) {
+        this.logger.warn(
+          '[CodexAuth] OAuth token may be expired. If API calls fail, run `codex login` to re-authenticate.',
         );
-        const refreshed = await this.refreshAccessToken(auth);
-        if (refreshed) return refreshed;
       }
 
       return auth.tokens.access_token;
@@ -280,7 +269,7 @@ export class CodexAuthService implements ICodexAuthService {
       this.logger.error(
         `[CodexAuth] Failed to resolve access token: ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
       return null;
     }
@@ -316,13 +305,13 @@ export class CodexAuthService implements ICodexAuthService {
         (error as NodeJS.ErrnoException).code === 'ENOENT'
       ) {
         this.logger.debug(
-          '[CodexAuth] Auth file not found at ~/.codex/auth.json'
+          '[CodexAuth] Auth file not found at ~/.codex/auth.json',
         );
       } else {
         this.logger.warn(
           `[CodexAuth] Failed to read auth file: ${
             error instanceof Error ? error.message : String(error)
-          }`
+          }`,
         );
       }
       return null;
@@ -341,171 +330,5 @@ export class CodexAuthService implements ICodexAuthService {
     } catch {
       return true;
     }
-  }
-
-  /**
-   * Refresh the OAuth access token using the stored refresh token.
-   * Guards against concurrent refresh attempts (single-use refresh tokens).
-   * On success, writes updated tokens back to auth.json atomically.
-   */
-  private async refreshAccessToken(
-    auth: CodexAuthFile
-  ): Promise<string | null> {
-    if (!auth.tokens?.refresh_token) return null;
-
-    // Deduplicate concurrent refresh calls
-    if (this.refreshInFlight) {
-      this.logger.debug(
-        '[CodexAuth] Refresh already in flight, waiting for result...'
-      );
-      return this.refreshInFlight;
-    }
-
-    this.refreshInFlight = this.doRefreshAccessToken(auth);
-    try {
-      return await this.refreshInFlight;
-    } finally {
-      this.refreshInFlight = null;
-    }
-  }
-
-  /**
-   * Perform the actual OAuth token refresh.
-   * POST to https://auth.openai.com/oauth/token with the refresh token.
-   */
-  private async doRefreshAccessToken(
-    auth: CodexAuthFile
-  ): Promise<string | null> {
-    // Guard: verify tokens and refresh_token are present
-    const refreshToken = auth.tokens?.refresh_token;
-    if (!refreshToken) {
-      this.logger.warn(
-        '[CodexAuth] Cannot refresh: auth file has no refresh_token'
-      );
-      return null;
-    }
-
-    try {
-      this.logger.debug(
-        `[CodexAuth] Refreshing OAuth token (refresh_token: ${describeToken(
-          refreshToken
-        )})`
-      );
-
-      const response = await fetch(REFRESH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: refreshToken,
-          client_id: OAUTH_CLIENT_ID,
-        }).toString(),
-        signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
-      });
-
-      if (!response.ok) {
-        this.logger.warn(
-          `[CodexAuth] Token refresh failed: HTTP ${response.status}`
-        );
-        return null;
-      }
-
-      const body = (await response.json()) as {
-        access_token?: string;
-        refresh_token?: string;
-        id_token?: string;
-        expires_in?: number;
-      };
-
-      if (!body.access_token) {
-        this.logger.warn('[CodexAuth] Token refresh returned no access_token');
-        return null;
-      }
-
-      this.logger.info(
-        `[CodexAuth] Token refreshed successfully (new token: ${describeToken(
-          body.access_token
-        )})`
-      );
-
-      // Persist updated tokens atomically (write to .tmp, then rename)
-      const updated: CodexAuthFile = {
-        ...auth,
-        tokens: {
-          ...(auth.tokens ?? {}),
-          access_token: body.access_token,
-          ...(body.refresh_token && { refresh_token: body.refresh_token }),
-          ...(body.id_token && { id_token: body.id_token }),
-        },
-        last_refresh: new Date().toISOString(),
-      };
-
-      await this.writeAuthFileAtomic(updated);
-
-      // Update cache with fresh data
-      this.cachedAuth = updated;
-      this.cacheTimestamp = Date.now();
-
-      return body.access_token;
-    } catch (error) {
-      this.logger.error(
-        `[CodexAuth] Token refresh error: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-      return null;
-    }
-  }
-
-  /** Maximum number of retries for writing the auth file */
-  private static readonly WRITE_RETRY_COUNT = 3;
-
-  /**
-   * Write the auth file atomically using write-to-temp-then-rename.
-   * Retries up to 3 times on failure. If all retries fail, throws so the
-   * caller knows the refresh token was NOT persisted to disk.
-   *
-   * This is critical because OAuth refresh tokens are single-use: once
-   * consumed server-side, the old token on disk is invalid. If we fail
-   * to persist the new token, the user must re-authenticate via `codex login`.
-   */
-  private async writeAuthFileAtomic(auth: CodexAuthFile): Promise<void> {
-    const tmpPath = AUTH_FILE_PATH + '.tmp';
-    let lastError: unknown;
-
-    for (
-      let attempt = 1;
-      attempt <= CodexAuthService.WRITE_RETRY_COUNT;
-      attempt++
-    ) {
-      try {
-        await writeFile(tmpPath, JSON.stringify(auth, null, 2), 'utf-8');
-        await rename(tmpPath, AUTH_FILE_PATH);
-        this.logger.debug('[CodexAuth] Auth file updated atomically');
-        return;
-      } catch (error) {
-        lastError = error;
-        this.logger.warn(
-          `[CodexAuth] Auth file write attempt ${attempt}/${
-            CodexAuthService.WRITE_RETRY_COUNT
-          } failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    }
-
-    // All retries exhausted -- the refresh token was consumed server-side
-    // but NOT persisted to disk. The user will need to re-authenticate.
-    this.logger.error(
-      `[CodexAuth] CRITICAL: Failed to persist refreshed auth tokens after ${CodexAuthService.WRITE_RETRY_COUNT} attempts. ` +
-        'The OAuth refresh token was consumed but not saved to disk. ' +
-        'On next restart, authentication will fail. Run `codex login` to re-authenticate.'
-    );
-    throw new Error(
-      `Failed to write auth file after ${
-        CodexAuthService.WRITE_RETRY_COUNT
-      } attempts: ${
-        lastError instanceof Error ? lastError.message : String(lastError)
-      }`
-    );
   }
 }

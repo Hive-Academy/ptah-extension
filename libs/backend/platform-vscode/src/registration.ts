@@ -19,9 +19,14 @@ import { VscodeUserInteraction } from './implementations/vscode-user-interaction
 import { VscodeOutputChannel } from './implementations/vscode-output-channel';
 import { VscodeCommandRegistry } from './implementations/vscode-command-registry';
 import { VscodeEditorProvider } from './implementations/vscode-editor-provider';
+import { VscodeTokenCounter } from './implementations/vscode-token-counter';
+import { VscodeDiagnosticsProvider } from './implementations/vscode-diagnostics-provider';
 
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
-import { PlatformType } from '@ptah-extension/platform-core';
+import {
+  PlatformType,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 
 /**
  * Register all platform implementations in the DI container.
@@ -34,7 +39,7 @@ import { PlatformType } from '@ptah-extension/platform-core';
  */
 export function registerPlatformVscodeServices(
   container: DependencyContainer,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): void {
   // Platform Info
   const platformInfo: IPlatformInfo = {
@@ -58,7 +63,7 @@ export function registerPlatformVscodeServices(
   container.register(PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE, {
     useValue: new VscodeDiskStateStorage(
       context.storageUri?.fsPath ?? context.globalStorageUri.fsPath,
-      'workspace-state.json'
+      'workspace-state.json',
     ),
   });
 
@@ -99,4 +104,19 @@ export function registerPlatformVscodeServices(
     useValue: editorProvider,
   });
   context.subscriptions.push(editorProvider);
+
+  // Token Counter (uses VS Code LM API with gpt-tokenizer fallback)
+  container.register(PLATFORM_TOKENS.TOKEN_COUNTER, {
+    useValue: new VscodeTokenCounter(),
+  });
+
+  // Diagnostics Provider (wraps vscode.languages.getDiagnostics())
+  container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
+    useValue: new VscodeDiagnosticsProvider(),
+  });
+
+  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/ (TASK_2025_248)
+  container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
+    useValue: new ContentDownloadService(),
+  });
 }
