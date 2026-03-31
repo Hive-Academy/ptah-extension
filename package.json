@@ -99,7 +99,7 @@
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-webgl": "^0.18.0",
     "@xterm/xterm": "^5.5.0",
-    "axios": "^1.6.0",
+    "axios": "1.13.6",
     "chokidar": "^5.0.0",
     "chrome-launcher": "^1.2.1",
     "chrome-remote-interface": "^0.34.0",

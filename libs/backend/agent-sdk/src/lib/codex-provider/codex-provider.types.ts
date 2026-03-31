@@ -55,7 +55,7 @@ export interface CodexAuthFile {
 
 /**
  * Codex authentication service interface.
- * Handles file-based auth from ~/.codex/auth.json with proactive token refresh.
+ * Handles file-based auth from ~/.codex/auth.json.
  *
  * Unlike CopilotAuthService, Codex auth is managed externally via the `codex` CLI.
  * There is no login() method -- users must run `codex login` to authenticate.
@@ -65,9 +65,9 @@ export interface ICodexAuthService {
   isAuthenticated(): Promise<boolean>;
   /** Get HTTP headers required for Codex API requests */
   getHeaders(): Promise<Record<string, string>>;
-  /** Get the Codex API base endpoint URL */
+  /** Get the Codex API base endpoint URL (API key mode or user-configured OAuth endpoint) */
   getApiEndpoint(): string;
-  /** Proactively refresh OAuth tokens if they are stale */
+  /** Check if credentials are available and not stale. Returns false if OAuth token needs re-login. */
   ensureTokensFresh(): Promise<boolean>;
   /** Invalidate the in-memory auth file cache, forcing next read from disk */
   clearCache(): void;

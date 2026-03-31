@@ -100,48 +100,65 @@ interface PastedImage {
     EffortSelectorComponent,
   ],
   template: `
-    <div class="flex flex-col gap-2 p-4 bg-base-100 relative">
+    <div
+      class="flex flex-col gap-2 p-4 bg-base-100 relative"
+      (dragover)="handleDragOver($event)"
+      (dragleave)="handleDragLeave($event)"
+      (drop)="handleDrop($event)"
+    >
       <!-- Compaction overlay on input area -->
       @if (chatStore.isCompacting()) {
-      <div
-        class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-lg"
-      >
-        <div class="flex items-center gap-2 text-warning text-sm font-medium">
-          <span class="loading loading-spinner loading-sm"></span>
-          <span>Optimizing context...</span>
+        <div
+          class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/60 backdrop-blur-[1px] rounded-lg"
+        >
+          <div class="flex items-center gap-2 text-warning text-sm font-medium">
+            <span class="loading loading-spinner loading-sm"></span>
+            <span>Optimizing context...</span>
+          </div>
         </div>
-      </div>
+      }
+      <!-- Drop zone overlay -->
+      @if (isDraggingOver()) {
+        <div
+          class="absolute inset-0 z-10 flex items-center justify-center bg-primary/10 border-2 border-dashed border-primary rounded-lg pointer-events-none"
+        >
+          <div class="flex items-center gap-2 text-primary text-sm font-medium">
+            <lucide-angular [img]="ImageIconRef" class="w-5 h-5" />
+            <span>Drop image here</span>
+          </div>
+        </div>
       }
       <!-- File Tags + Image Thumbnails Row (above textarea) -->
       @if (selectedFiles().length > 0 || pastedImages().length > 0) {
-      <div class="flex flex-wrap gap-2">
-        @for (file of selectedFiles(); track file.path) {
-        <ptah-file-tag [file]="file" (removeFile)="removeFile(file.path)" />
-        } @for (img of pastedImages(); track img.id) {
-        <div class="relative group">
-          <div
-            class="w-16 h-16 rounded-lg border border-base-300 bg-cover bg-center"
-            [style.background-image]="'url(' + img.dataUrl + ')'"
-            [attr.aria-label]="img.name"
-            role="img"
-          ></div>
-          <button
-            class="absolute -top-1.5 -right-1.5 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
-            (click)="removePastedImage(img.id)"
-            type="button"
-          >
-            <lucide-angular [img]="XIcon" class="w-3 h-3" />
-          </button>
-          <div
-            class="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5"
-          >
-            <span class="text-[9px] text-white truncate block">{{
-              img.name
-            }}</span>
-          </div>
+        <div class="flex flex-wrap gap-2">
+          @for (file of selectedFiles(); track file.path) {
+            <ptah-file-tag [file]="file" (removeFile)="removeFile(file.path)" />
+          }
+          @for (img of pastedImages(); track img.id) {
+            <div class="relative group">
+              <div
+                class="w-16 h-16 rounded-lg border border-base-300 bg-cover bg-center"
+                [style.background-image]="'url(' + img.dataUrl + ')'"
+                [attr.aria-label]="img.name"
+                role="img"
+              ></div>
+              <button
+                class="absolute -top-1.5 -right-1.5 btn btn-circle btn-xs btn-error opacity-0 group-hover:opacity-100 transition-opacity"
+                (click)="removePastedImage(img.id)"
+                type="button"
+              >
+                <lucide-angular [img]="XIcon" class="w-3 h-3" />
+              </button>
+              <div
+                class="absolute bottom-0 left-0 right-0 bg-black/50 rounded-b-lg px-1 py-0.5"
+              >
+                <span class="text-[9px] text-white truncate block">{{
+                  img.name
+                }}</span>
+              </div>
+            </div>
+          }
         </div>
-        }
-      </div>
       }
 
       <!-- Input Row with Textarea and Send Button -->
@@ -188,14 +205,14 @@ interface PastedImage {
 
           <!-- File/Folder Suggestions Dropdown - positioned above textarea -->
           @if (showSuggestions() && textareaOrigin()) {
-          <ptah-unified-suggestions-dropdown
-            #suggestionsDropdown
-            [overlayOrigin]="textareaOrigin()!"
-            [suggestions]="filteredSuggestions()"
-            [isLoading]="isLoadingSuggestions()"
-            (suggestionSelected)="handleSuggestionSelected($event)"
-            (closed)="closeSuggestions()"
-          />
+            <ptah-unified-suggestions-dropdown
+              #suggestionsDropdown
+              [overlayOrigin]="textareaOrigin()!"
+              [suggestions]="filteredSuggestions()"
+              [isLoading]="isLoadingSuggestions()"
+              (suggestionSelected)="handleSuggestionSelected($event)"
+              (closed)="closeSuggestions()"
+            />
           }
         </div>
 
@@ -204,14 +221,14 @@ interface PastedImage {
           <!-- Stop Button (above send during streaming) -->
           <!-- TASK_2025_096 FIX: Use isActiveTabStreaming() which uses same signal as tab spinner -->
           @if (isActiveTabStreaming()) {
-          <button
-            class="btn btn-error btn-sm btn-square"
-            (click)="handleStop()"
-            title="Stop generating"
-            type="button"
-          >
-            <lucide-angular [img]="SquareIcon" class="w-4 h-4" />
-          </button>
+            <button
+              class="btn btn-error btn-sm btn-square"
+              (click)="handleStop()"
+              title="Stop generating"
+              type="button"
+            >
+              <lucide-angular [img]="SquareIcon" class="w-4 h-4" />
+            </button>
           }
           <!-- Send Button (always functional - queues message during streaming) -->
           <button
@@ -227,12 +244,12 @@ interface PastedImage {
 
       <!-- Queued Message Indicator -->
       @if (hasQueuedContent()) {
-      <div
-        class="flex items-center gap-2 px-2 py-1 bg-warning/10 rounded-lg text-warning text-xs"
-      >
-        <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
-        <span>Message queued - will send when response completes</span>
-      </div>
+        <div
+          class="flex items-center gap-2 px-2 py-1 bg-warning/10 rounded-lg text-warning text-xs"
+        >
+          <lucide-angular [img]="ClockIcon" class="w-3 h-3" />
+          <span>Message queued - will send when response completes</span>
+        </div>
       }
 
       <!-- Bottom Controls Row -->
@@ -243,12 +260,12 @@ interface PastedImage {
         >
           <!-- Auth Method Badge (TASK_2025_129 Batch 3) -->
           @if (authMethodLabel()) {
-          <div
-            class="badge badge-ghost badge-xs gap-1 opacity-70"
-            [title]="'Authenticated via ' + authMethodLabel()"
-          >
-            <span class="text-[10px]">{{ authMethodLabel() }}</span>
-          </div>
+            <div
+              class="badge badge-ghost badge-xs gap-1 opacity-70"
+              [title]="'Authenticated via ' + authMethodLabel()"
+            >
+              <span class="text-[10px]">{{ authMethodLabel() }}</span>
+            </div>
           }
 
           <!-- Model Selector Component -->
@@ -312,7 +329,7 @@ export class ChatInputComponent implements OnInit {
   });
 
   private readonly dropdownRef = viewChild<UnifiedSuggestionsDropdownComponent>(
-    'suggestionsDropdown'
+    'suggestionsDropdown',
   );
 
   // Lucide icons
@@ -340,6 +357,7 @@ export class ChatInputComponent implements OnInit {
   private readonly _currentQuery = signal(''); // Current search query after trigger
   private readonly _selectedFiles = signal<ChatFile[]>([]);
   private readonly _pastedImages = signal<PastedImage[]>([]);
+  private readonly _isDraggingOver = signal(false);
   private readonly _isLoadingSuggestions = signal(false);
 
   // Public signals
@@ -347,12 +365,14 @@ export class ChatInputComponent implements OnInit {
   readonly suggestionMode = this._suggestionMode.asReadonly();
   readonly selectedFiles = this._selectedFiles.asReadonly();
   readonly pastedImages = this._pastedImages.asReadonly();
+  readonly isDraggingOver = this._isDraggingOver.asReadonly();
   readonly isLoadingSuggestions = this._isLoadingSuggestions.asReadonly();
 
   // Computed
   readonly canSend = computed(
     () =>
-      this.currentMessage().trim().length > 0 || this._pastedImages().length > 0
+      this.currentMessage().trim().length > 0 ||
+      this._pastedImages().length > 0,
   );
 
   /**
@@ -410,7 +430,7 @@ export class ChatInputComponent implements OnInit {
         (c) =>
           c.type === 'command' &&
           (c.name.toLowerCase().includes(query) ||
-            (c.description && c.description.toLowerCase().includes(query)))
+            (c.description && c.description.toLowerCase().includes(query))),
       );
     }
 
@@ -461,6 +481,9 @@ export class ChatInputComponent implements OnInit {
 
           this._pastedImages.update((imgs) => [...imgs, pastedImage]);
         };
+        reader.onerror = () => {
+          console.warn('[ChatInput] Failed to read image file');
+        };
         reader.readAsDataURL(file);
       }
     }
@@ -471,6 +494,68 @@ export class ChatInputComponent implements OnInit {
    */
   removePastedImage(id: string): void {
     this._pastedImages.update((imgs) => imgs.filter((img) => img.id !== id));
+  }
+
+  /**
+   * Handle dragover - show drop zone for image files
+   */
+  handleDragOver(event: DragEvent): void {
+    const hasImages = Array.from(event.dataTransfer?.types ?? []).includes(
+      'Files',
+    );
+    if (hasImages) {
+      event.preventDefault();
+      event.stopPropagation();
+      this._isDraggingOver.set(true);
+    }
+  }
+
+  /**
+   * Handle dragleave - hide drop zone
+   */
+  handleDragLeave(event: DragEvent): void {
+    // Only hide when leaving the container (not when entering a child element)
+    const relatedTarget = event.relatedTarget as Node | null;
+    const container = event.currentTarget as HTMLElement;
+    if (!relatedTarget || !container.contains(relatedTarget)) {
+      this._isDraggingOver.set(false);
+    }
+  }
+
+  /**
+   * Handle drop - extract images from dropped files
+   */
+  handleDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this._isDraggingOver.set(false);
+
+    const files = event.dataTransfer?.files;
+    if (!files) return;
+
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) continue;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const base64 = dataUrl.split(',')[1];
+
+        const droppedImage: PastedImage = {
+          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          data: base64,
+          mediaType: file.type,
+          dataUrl,
+          name: file.name,
+        };
+
+        this._pastedImages.update((imgs) => [...imgs, droppedImage]);
+      };
+      reader.onerror = () => {
+        console.warn('[ChatInput] Failed to read image file');
+      };
+      reader.readAsDataURL(file);
+    }
   }
 
   // ============ DIRECTIVE EVENT HANDLERS ============
@@ -555,7 +640,7 @@ export class ChatInputComponent implements OnInit {
     } catch (error) {
       console.error(
         '[ChatInputComponent] Failed to fetch @ suggestions:',
-        error
+        error,
       );
     } finally {
       this._isLoadingSuggestions.set(false);
@@ -572,7 +657,7 @@ export class ChatInputComponent implements OnInit {
     } catch (error) {
       console.error(
         '[ChatInputComponent] Failed to fetch / suggestions:',
-        error
+        error,
       );
     } finally {
       this._isLoadingSuggestions.set(false);
@@ -655,7 +740,7 @@ export class ChatInputComponent implements OnInit {
    */
   removeFile(filePath: string): void {
     this._selectedFiles.update((files) =>
-      files.filter((f) => f.path !== filePath)
+      files.filter((f) => f.path !== filePath),
     );
   }
 
@@ -766,7 +851,7 @@ export class ChatInputComponent implements OnInit {
     if (this.showSuggestions() && dropdown) {
       if (
         ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Enter', 'Escape'].includes(
-          event.key
+          event.key,
         )
       ) {
         // Forward event to dropdown component
@@ -810,7 +895,7 @@ export class ChatInputComponent implements OnInit {
           files: filePaths.length > 0 ? filePaths : undefined,
           images: inlineImages.length > 0 ? inlineImages : undefined,
           effort: this.effortState.currentEffort(),
-        }
+        },
       );
 
       // Clear input, files, and images
@@ -854,7 +939,7 @@ export class ChatInputComponent implements OnInit {
         let label: string;
         if (authMethod === 'openrouter') {
           const provider = availableProviders?.find(
-            (p) => p.id === anthropicProviderId
+            (p) => p.id === anthropicProviderId,
           );
           label = provider?.name ?? 'Provider';
         } else if (authMethod === 'oauth') {
@@ -870,7 +955,7 @@ export class ChatInputComponent implements OnInit {
     } catch (error) {
       console.error(
         '[ChatInputComponent] Failed to fetch auth method label:',
-        error
+        error,
       );
     }
   }
@@ -888,7 +973,7 @@ export class ChatInputComponent implements OnInit {
         {
           currentLength: this._currentMessage().length,
           queueLength: content.length,
-        }
+        },
       );
       return;
     }
@@ -927,7 +1012,7 @@ export class ChatInputComponent implements OnInit {
             {
               restoreTabId: restoreData.tabId,
               activeTabId: activeTab?.id,
-            }
+            },
           );
         }
         // Clear signal after restoration (or rejection)
@@ -957,7 +1042,7 @@ export class ChatInputComponent implements OnInit {
           this._lastSessionId = currentSessionId;
         }
       },
-      { allowSignalWrites: true }
+      { allowSignalWrites: true },
     );
   }
 }

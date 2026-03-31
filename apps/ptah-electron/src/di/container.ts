@@ -55,7 +55,12 @@ import {
   registerPlatformElectronServices,
   type ElectronPlatformOptions,
 } from '@ptah-extension/platform-electron';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  PtahFileSettingsManager,
+  FILE_BASED_SETTINGS_KEYS,
+  FILE_BASED_SETTINGS_DEFAULTS,
+} from '@ptah-extension/platform-core';
 import type {
   IOutputChannel,
   IStateStorage,
@@ -304,19 +309,35 @@ export class ElectronDIContainer {
     // ConfigManager wraps vscode.workspace.getConfiguration('ptah').
     // Services call config.get<T>(key) and config.update(key, value).
     // In Electron, we delegate to the workspace state storage.
+    //
+    // TASK_2025_247 Batch 3, Task 3.3: File-based settings routing.
+    // Keys in FILE_BASED_SETTINGS_KEYS are routed to PtahFileSettingsManager
+    // (~/.ptah/settings.json) instead of the workspace state storage.
     try {
       const configStorage = container.resolve<IStateStorage>(
         PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
       );
+      const fileSettings = new PtahFileSettingsManager(
+        FILE_BASED_SETTINGS_DEFAULTS,
+      );
       const configManagerShim = {
         get: <T>(key: string): T | undefined => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            return fileSettings.get<T>(key);
+          }
           return configStorage.get<T>(`ptah.${key}`);
         },
         getWithDefault: <T>(key: string, defaultValue: T): T => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
+          }
           const value = configStorage.get<T>(`ptah.${key}`);
           return value !== undefined ? value : defaultValue;
         },
         getTyped: <T>(key: string): T | undefined => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            return fileSettings.get<T>(key);
+          }
           return configStorage.get<T>(`ptah.${key}`);
         },
         getTypedWithDefault: <T>(
@@ -324,16 +345,31 @@ export class ElectronDIContainer {
           _schema: unknown,
           defaultValue: T,
         ): T => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            return fileSettings.get<T>(key, defaultValue) ?? defaultValue;
+          }
           const value = configStorage.get<T>(`ptah.${key}`);
           return value !== undefined ? value : defaultValue;
         },
         set: async <T>(key: string, value: T): Promise<void> => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            await fileSettings.set(key, value);
+            return;
+          }
           await configStorage.update(`ptah.${key}`, value);
         },
         setTyped: async <T>(key: string, value: T): Promise<void> => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            await fileSettings.set(key, value);
+            return;
+          }
           await configStorage.update(`ptah.${key}`, value);
         },
         update: async (key: string, value: unknown): Promise<void> => {
+          if (FILE_BASED_SETTINGS_KEYS.has(key)) {
+            await fileSettings.set(key, value);
+            return;
+          }
           await configStorage.update(`ptah.${key}`, value);
         },
         watch: (
@@ -354,7 +390,7 @@ export class ElectronDIContainer {
         useValue: configManagerShim,
       });
       logger.info(
-        '[Electron DI] CONFIG_MANAGER shim registered (delegates to workspace state storage)',
+        '[Electron DI] CONFIG_MANAGER shim registered (delegates to workspace state storage + file-based settings)',
       );
     } catch (error) {
       logger.error('[Electron DI] Failed to register CONFIG_MANAGER shim', {

@@ -175,6 +175,13 @@ export class MessageBubbleComponent {
       .trim();
   });
 
+  /** Pre-computed image count label to avoid triple signal reads in template */
+  readonly imageCountLabel = computed(() => {
+    const count = this.message().imageCount;
+    if (!count) return '';
+    return `${count} ${count === 1 ? 'image' : 'images'}`;
+  });
+
   /**
    * Permission lookup function to pass to execution tree
    * Enables tool cards to check if they have pending permissions

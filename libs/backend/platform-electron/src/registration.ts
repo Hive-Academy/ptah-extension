@@ -13,7 +13,10 @@
 
 import * as path from 'path';
 import type { DependencyContainer } from 'tsyringe';
-import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import {
+  PLATFORM_TOKENS,
+  ContentDownloadService,
+} from '@ptah-extension/platform-core';
 import type { IPlatformInfo } from '@ptah-extension/platform-core';
 import { PlatformType } from '@ptah-extension/platform-core';
 
@@ -163,6 +166,11 @@ export function registerPlatformElectronServices(
   // Diagnostics Provider (returns empty — no live language server in Electron)
   container.register(PLATFORM_TOKENS.DIAGNOSTICS_PROVIDER, {
     useValue: new ElectronDiagnosticsProvider(),
+  });
+
+  // Content Download — downloads plugins/templates from GitHub to ~/.ptah/ (TASK_2025_248)
+  container.register(PLATFORM_TOKENS.CONTENT_DOWNLOAD, {
+    useValue: new ContentDownloadService(),
   });
 }
 
