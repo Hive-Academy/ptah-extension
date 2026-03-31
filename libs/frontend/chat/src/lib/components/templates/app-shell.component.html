@@ -302,9 +302,9 @@
         <div
           class="navbar bg-base-100 border-b border-base-300 min-h-[40px] px-2 gap-2"
         >
-          <!-- Sidebar toggle -->
+          <!-- Sidebar toggle (gold accent) -->
           <button
-            class="btn btn-ghost btn-xs gap-1"
+            class="btn btn-gold btn-xs gap-1"
             aria-label="Toggle sidebar"
             title="Sessions"
             (click)="toggleSidebar()"
@@ -349,39 +349,10 @@
               </button>
             }
 
-            <!-- Agent monitor toggle (always visible) -->
-            <button
-              class="btn btn-ghost btn-xs gap-1 relative"
-              aria-label="Toggle agent monitor"
-              title="Toggle agent monitor"
-              (click)="agentMonitorStore.togglePanel()"
-            >
-              <lucide-angular
-                [img]="
-                  agentMonitorStore.panelOpen()
-                    ? PanelRightCloseIcon
-                    : PanelRightOpenIcon
-                "
-                class="w-3.5 h-3.5"
-              />
-              <span class="icon-btn-label text-xs">Agents</span>
-              @if (agentMonitorStore.pendingPermissions().length > 0) {
-                <span
-                  class="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-warning rounded-full animate-pulse ring-2 ring-base-100"
-                ></span>
-              } @else if (agentMonitorStore.hasRunningAgents()) {
-                <span
-                  class="absolute top-0 right-0 w-2 h-2 bg-info rounded-full animate-pulse"
-                ></span>
-              } @else if (agentMonitorStore.agentCount() > 0) {
-                <span
-                  class="absolute top-0 right-0 w-1.5 h-1.5 bg-base-content/30 rounded-full"
-                ></span>
-              }
-            </button>
-
-            <!-- Divider between View controls and Session group -->
-            <div class="w-px h-4 bg-base-content/10"></div>
+            <!-- Divider between View controls and Session group (VS Code only — pop out button exists) -->
+            @if (!isElectron) {
+              <div class="w-px h-4 bg-base-content/10"></div>
+            }
 
             <!-- Group 2: Session -->
 
@@ -405,10 +376,10 @@
               [backdropClass]="'transparent'"
               (closed)="handleCancelSession()"
             >
-              <!-- Trigger: New Session button -->
+              <!-- Trigger: New Session button (gold accent) -->
               <button
                 trigger
-                class="btn btn-ghost btn-xs gap-1"
+                class="btn btn-gold btn-xs gap-1"
                 (click)="createNewSession()"
                 aria-label="New Session"
                 title="New Session"
@@ -506,6 +477,15 @@
 
       <!-- Right sidebar: Agent Monitor Panel -->
       <ptah-agent-monitor-panel />
+
+      <!-- Agents vertical tab (always visible — primary toggle for agent panel) -->
+      <ptah-sidebar-tab
+        label="Agents"
+        side="right"
+        [isOpen]="agentMonitorStore.panelOpen()"
+        [badgeType]="agentBadgeType()"
+        (toggled)="agentMonitorStore.togglePanel()"
+      />
     </div>
   }
 }

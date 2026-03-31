@@ -28,10 +28,6 @@ import {
 import { NgComponentOutlet, NgOptimizedImage } from '@angular/common';
 import {
   LucideAngularModule,
-  PanelLeft,
-  PanelLeftClose,
-  PanelRight,
-  PanelRightClose,
   Settings,
   BarChart3,
   Zap,
@@ -55,6 +51,7 @@ import { AppShellComponent } from './app-shell.component';
 import { ElectronWelcomeComponent } from './electron-welcome.component';
 import { WelcomeComponent } from './welcome.component';
 import { WorkspaceSidebarComponent } from '../organisms/workspace-sidebar.component';
+import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ElectronResizeHandleComponent } from '../atoms/electron-resize-handle.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
@@ -67,6 +64,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
     ElectronWelcomeComponent,
     WelcomeComponent,
     WorkspaceSidebarComponent,
+    SidebarTabComponent,
     ElectronResizeHandleComponent,
     NgComponentOutlet,
     ThemeToggleComponent,
@@ -188,41 +186,17 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
           >
         </div>
 
-        <!-- Workspace sidebar toggle (left-aligned, near the sidebar it controls) -->
-        @if (layout.hasWorkspaceFolders()) {
-          <div class="flex items-center no-drag ml-1">
-            <button
-              class="btn btn-ghost btn-xs gap-1"
-              [title]="
-                layout.workspaceSidebarVisible()
-                  ? 'Hide workspaces'
-                  : 'Show workspaces'
-              "
-              aria-label="Toggle workspace sidebar"
-              (click)="layout.toggleWorkspaceSidebar()"
-            >
-              <lucide-angular
-                [img]="
-                  layout.workspaceSidebarVisible()
-                    ? PanelLeftCloseIcon
-                    : PanelLeftIcon
-                "
-                class="w-3.5 h-3.5"
-              />
-              <span class="icon-btn-label text-xs">Workspaces</span>
-            </button>
-          </div>
-        }
+        <!-- Spacer (left) -->
+        <div class="flex-1"></div>
 
-        <!-- View tab pills (open views as switchable tabs) -->
+        <!-- View tab pills (centered in navbar) -->
         @if (appState.isLicensed() && layout.hasWorkspaceFolders()) {
-          <div class="flex items-center gap-0.5 no-drag ml-2">
+          <div class="flex items-center gap-1 no-drag">
             @for (view of appState.openViews(); track view) {
               <button
-                class="btn btn-xs gap-1 rounded-full px-2.5 h-6 min-h-0 no-drag transition-all duration-150"
-                [class.btn-primary]="appState.currentView() === view"
-                [class.btn-ghost]="appState.currentView() !== view"
-                [class.text-base-content/60]="appState.currentView() !== view"
+                class="btn btn-xs gap-1 rounded-full px-3 h-6 min-h-0 no-drag transition-all duration-150"
+                [class.view-pill-active]="appState.currentView() === view"
+                [class.view-pill-inactive]="appState.currentView() !== view"
                 [title]="getViewMeta(view).label"
                 (click)="appState.setCurrentView(view)"
               >
@@ -245,7 +219,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
           </div>
         }
 
-        <!-- Spacer -->
+        <!-- Spacer (right) -->
         <div class="flex-1"></div>
 
         <!-- Global actions (no-drag so buttons are clickable on macOS) -->
@@ -288,31 +262,6 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
               <span class="icon-btn-label text-xs">Settings</span>
             </button>
-
-            <!-- Editor panel toggle (only when workspace is open) -->
-            @if (layout.hasWorkspaceFolders()) {
-              <div class="w-px h-4 bg-base-content/10 mx-0.5"></div>
-              <button
-                class="btn btn-ghost btn-xs gap-1"
-                [title]="
-                  layout.editorPanelVisible()
-                    ? 'Hide editor panel'
-                    : 'Show editor panel'
-                "
-                aria-label="Toggle editor panel"
-                (click)="layout.toggleEditorPanel()"
-              >
-                <lucide-angular
-                  [img]="
-                    layout.editorPanelVisible()
-                      ? PanelRightCloseIcon
-                      : PanelRightIcon
-                  "
-                  class="w-3.5 h-3.5"
-                />
-                <span class="icon-btn-label text-xs">Editor</span>
-              </button>
-            }
           }
         </div>
       </div>
@@ -487,7 +436,17 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
           <!-- Workspace sidebar (toggleable) -->
           @if (layout.workspaceSidebarVisible()) {
             <ptah-workspace-sidebar [width]="layout.workspaceSidebarWidth()" />
+          }
 
+          <!-- Workspaces vertical tab (between sidebar and chat) -->
+          <ptah-sidebar-tab
+            label="Workspaces"
+            side="left"
+            [isOpen]="layout.workspaceSidebarVisible()"
+            (toggled)="layout.toggleWorkspaceSidebar()"
+          />
+
+          @if (layout.workspaceSidebarVisible()) {
             <!-- Resize handle: sidebar ↔ chat -->
             <ptah-electron-resize-handle
               [direction]="'left'"
@@ -525,6 +484,14 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               }
             </div>
           }
+
+          <!-- Editor vertical tab (always visible when folders exist) -->
+          <ptah-sidebar-tab
+            label="Editor"
+            side="right"
+            [isOpen]="layout.editorPanelVisible()"
+            (toggled)="layout.toggleEditorPanel()"
+          />
         </div>
       }
     </div>
@@ -553,10 +520,6 @@ export class ElectronShellComponent {
   }
 
   // Icons
-  readonly PanelLeftIcon = PanelLeft;
-  readonly PanelLeftCloseIcon = PanelLeftClose;
-  readonly PanelRightIcon = PanelRight;
-  readonly PanelRightCloseIcon = PanelRightClose;
   readonly SettingsIcon = Settings;
   readonly BarChart3Icon = BarChart3;
   readonly ZapIcon = Zap;
