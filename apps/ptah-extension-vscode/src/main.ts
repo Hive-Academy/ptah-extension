@@ -20,6 +20,7 @@ import {
 } from '@ptah-extension/agent-sdk';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
+import { VscodeWorkspaceProvider } from '@ptah-extension/platform-vscode';
 import { PtahExtension } from './core/ptah-extension';
 import { DIContainer } from './di/container';
 import { LicenseCommands } from './commands/license-commands';
@@ -531,6 +532,9 @@ export async function activate(
     DIContainer.setup(context);
     console.log('[Activate] Step 3: Full DI Container setup complete');
 
+    // ========================================
+    // STEP 3.5: MIGRATE FILE-BASED SETTINGS (TASK_2025_247)
+
     // Get logger from DI container
     console.log('[Activate] Step 4: Resolving Logger...');
     const logger = DIContainer.resolve<Logger>(TOKENS.LOGGER);
@@ -629,7 +633,7 @@ export async function activate(
     console.log('[Activate] Step 7.1.5: Plugin loader initialized');
 
     // Step 7.1.5.1: Create workspace skill junctions (TASK_2025_201)
-    // Project skill files from extension assets into workspace .claude/skills/ via junctions
+    // Project skill files from extension assets into workspace .ptah/skills/ via junctions
     // So third-party providers (Copilot, Codex) can find skills via MCP workspace search
     console.log(
       '[Activate] Step 7.1.5.1: Creating workspace skill junctions...',

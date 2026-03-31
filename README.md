@@ -140,15 +140,15 @@ Extend Ptah with skill plugins that add specialized agents, workflows, and code 
 
 ## Agent Orchestration
 
-Spawn **Gemini CLI**, **Codex**, and **GitHub Copilot** as headless background workers, or connect your own providers via Ptah CLI Agents. Primary agent delegates subtasks and checks back for results — a fire-and-check pattern for true multi-agent workflows.
+Spawn **Gemini CLI**, **OC (OpenAI Codex)**, and **GC (GitHub Copilot)** as headless background workers, or connect your own providers via Ptah CLI Agents. Primary agent delegates subtasks and checks back for results — a fire-and-check pattern for true multi-agent workflows.
 
 ### Built-in Agents (Auto-detected)
 
-| Agent              | Type | Description                                        |
-| ------------------ | ---- | -------------------------------------------------- |
-| **Gemini CLI**     | CLI  | Google Gemini models, non-interactive prompt mode  |
-| **Codex**          | SDK  | OpenAI models via Codex SDK, quiet mode            |
-| **GitHub Copilot** | SDK  | Native SDK integration with full permission bridge |
+| Agent          | Type | Description                                        |
+| -------------- | ---- | -------------------------------------------------- |
+| **Gemini CLI** | CLI  | Google Gemini models, non-interactive prompt mode  |
+| **OC**         | SDK  | OpenAI models via OC SDK, quiet mode               |
+| **GC**         | SDK  | Native SDK integration with full permission bridge |
 
 ### Ptah CLI Agents (User-configurable)
 

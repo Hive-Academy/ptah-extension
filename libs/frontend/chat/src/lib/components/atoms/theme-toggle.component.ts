@@ -1,10 +1,4 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  inject,
-  input,
-  booleanAttribute,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { LucideAngularModule, Sun, Moon } from 'lucide-angular';
 import { ThemeService } from '@ptah-extension/core';
 
@@ -31,9 +25,7 @@ import { ThemeService } from '@ptah-extension/core';
   template: `
     <button
       type="button"
-      class="btn btn-ghost btn-xs"
-      [class.btn-square]="!showLabel()"
-      [class.gap-1]="showLabel()"
+      class="btn btn-ghost btn-xs gap-1"
       (click)="toggle()"
       [attr.aria-label]="
         isDarkMode() ? 'Switch to light mode' : 'Switch to dark mode'
@@ -44,18 +36,15 @@ import { ThemeService } from '@ptah-extension/core';
         [img]="isDarkMode() ? SunIcon : MoonIcon"
         class="w-4 h-4"
       />
-      @if (showLabel()) {
-      <span class="text-xs">{{ isDarkMode() ? 'Light' : 'Dark' }}</span>
-      }
+      <span class="icon-btn-label text-xs">{{
+        isDarkMode() ? 'Light' : 'Dark'
+      }}</span>
     </button>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ThemeToggleComponent {
   private readonly themeService = inject(ThemeService);
-
-  /** When true, show text label next to icon (Electron desktop mode) */
-  readonly showLabel = input(false, { transform: booleanAttribute });
 
   /**
    * Signal indicating if dark mode is active

@@ -534,7 +534,7 @@ if (!gotLock) {
     // ========================================
     // PHASE 4.56: Skill Junction Activation (TASK_2025_214)
     // ========================================
-    // Initialize SkillJunctionService and create junctions in workspace .claude/skills/
+    // Initialize SkillJunctionService and create junctions in workspace .ptah/skills/
     // for enabled plugins. This makes plugin skills discoverable by third-party AI
     // providers (Copilot, Codex) via MCP workspace search.
     // Always call activate() even with zero plugins so the workspace change subscription

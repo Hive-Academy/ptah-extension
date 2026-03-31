@@ -176,7 +176,7 @@ export {
 
 // ============================================================
 // Skill Junction Service (TASK_2025_201)
-// Manages workspace .claude/skills/ junctions for third-party providers
+// Manages workspace .ptah/skills/ junctions for third-party providers
 // ============================================================
 export { SkillJunctionService, type SkillJunctionResult } from './lib/helpers';
 

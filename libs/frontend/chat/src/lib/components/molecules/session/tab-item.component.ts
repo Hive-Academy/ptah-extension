@@ -4,53 +4,47 @@ import {
   input,
   output,
 } from '@angular/core';
-import { NgClass } from '@angular/common';
 import { LucideAngularModule, X } from 'lucide-angular';
 import { TabState } from '../../../services/chat.types';
 
 /**
- * TabItemComponent - Individual tab in tab bar
+ * TabItemComponent - Chrome-style individual tab
+ *
+ * TASK_2025_248: Restyled with rounded-t-lg corners, CSS class-based
+ * active/inactive states (.tab-item-active, .tab-item-inactive),
+ * and a smaller hover-reveal close button.
  *
  * Complexity Level: 1 (Simple component)
  * Patterns: Signal-based inputs/outputs, DaisyUI styling
- *
- * Displays tab title (truncated if too long), streaming indicator
- * (DaisyUI spinner), close button, and active tab styling.
- *
- * NOTE: Streaming indicator uses dedicated `isStreaming` input from
- * TabManagerService.isTabStreaming() - completely isolated from tab.status
- * state machine. This is visual-only with zero side effects.
  */
 @Component({
   selector: 'ptah-tab-item',
   standalone: true,
-  imports: [LucideAngularModule, NgClass],
+  imports: [LucideAngularModule],
   template: `
     <div
-      class="group flex items-center gap-1 px-3 py-1.5 cursor-pointer border-r border-base-300 max-w-[200px] min-w-[100px]"
-      [ngClass]="{
-        'bg-base-100 border-b-2 border-b-primary': isActive(),
-        'bg-base-200 hover:bg-base-300': !isActive()
-      }"
+      class="group flex items-center gap-1.5 px-3 py-1.5 cursor-pointer rounded-t-lg max-w-[200px] min-w-[100px] transition-colors duration-150 select-none"
+      [class.tab-item-active]="isActive()"
+      [class.tab-item-inactive]="!isActive()"
       (click)="tabSelect.emit(tab().id)"
     >
       <!-- Streaming indicator (visual only - DaisyUI spinner) -->
       @if (isStreaming()) {
-      <span class="loading loading-spinner loading-xs text-primary"></span>
+        <span class="loading loading-spinner loading-xs text-primary"></span>
       }
 
       <!-- Tab title -->
-      <span class="truncate text-sm flex-1" [title]="tab().title">
+      <span class="truncate text-xs flex-1" [title]="tab().title">
         {{ tab().title || 'New Chat' }}
       </span>
 
-      <!-- Close button -->
+      <!-- Close button (hover-reveal) -->
       <button
-        class="btn btn-ghost btn-xs btn-square opacity-50 hover:opacity-100"
+        class="btn btn-ghost btn-xs btn-circle w-4 h-4 min-h-0 p-0 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
         (click)="onClose($event)"
-        [title]="'Close tab'"
+        title="Close tab"
       >
-        <lucide-angular [img]="XIcon" class="w-3 h-3" />
+        <lucide-angular [img]="XIcon" class="w-2.5 h-2.5" />
       </button>
     </div>
   `,

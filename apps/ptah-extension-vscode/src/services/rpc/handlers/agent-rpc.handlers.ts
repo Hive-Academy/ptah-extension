@@ -21,6 +21,8 @@ import {
   PtahCliRegistry,
   SessionMetadataStore,
 } from '@ptah-extension/agent-sdk';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import type {
   AgentOrchestrationConfig,
   AgentSetConfigParams,
@@ -35,6 +37,18 @@ import * as path from 'path';
 import * as os from 'os';
 
 /**
+ * Extended workspace provider interface that includes setConfiguration.
+ * This method is available on VscodeWorkspaceProvider at runtime but
+ * is not part of the IWorkspaceProvider interface contract.
+ *
+ * TASK_2025_247: Used for writing config values through the platform
+ * abstraction layer so file-based keys are routed to ~/.ptah/settings.json.
+ */
+interface IWorkspaceProviderWithSet extends IWorkspaceProvider {
+  setConfiguration(section: string, key: string, value: unknown): Promise<void>;
+}
+
+/**
  * RPC handlers for agent orchestration operations.
  *
  * TASK_2025_157: Agent Orchestration Settings UI
@@ -46,6 +60,8 @@ import * as os from 'os';
  */
 @injectable()
 export class AgentRpcHandlers {
+  private readonly workspaceProvider: IWorkspaceProviderWithSet;
+
   constructor(
     @inject(TOKENS.LOGGER) private readonly logger: Logger,
     @inject(TOKENS.RPC_HANDLER) private readonly rpcHandler: RpcHandler,
@@ -57,7 +73,13 @@ export class AgentRpcHandlers {
     private readonly agentProcessManager: AgentProcessManager,
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly sessionMetadataStore: SessionMetadataStore,
-  ) {}
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    workspaceProvider: IWorkspaceProvider,
+  ) {
+    // VscodeWorkspaceProvider has setConfiguration() at runtime.
+    // Cast to extended interface for type-safe access.
+    this.workspaceProvider = workspaceProvider as IWorkspaceProviderWithSet;
+  }
 
   /**
    * Register all agent orchestration RPC methods
@@ -72,9 +94,13 @@ export class AgentRpcHandlers {
     this.registerResumeCliSession(); // TASK_2025_173
 
     // Initialize Copilot auto-approve from saved config (default: true)
-    const copilotAutoApprove = vscode.workspace
-      .getConfiguration('ptah.agentOrchestration')
-      .get<boolean>('copilotAutoApprove', true);
+    // TASK_2025_247: Read via IWorkspaceProvider so file-based keys route to ~/.ptah/settings.json
+    const copilotAutoApprove =
+      this.workspaceProvider.getConfiguration<boolean>(
+        'ptah',
+        'agentOrchestration.copilotAutoApprove',
+        true,
+      ) ?? true;
     const copilotAdapter = this.cliDetection.getAdapter('copilot');
     if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
       const bridge = (
@@ -99,8 +125,11 @@ export class AgentRpcHandlers {
   /**
    * agent:getConfig - Get agent orchestration configuration
    *
-   * Reads VS Code settings and combines with CLI detection results.
+   * Reads settings via IWorkspaceProvider and combines with CLI detection results.
    * Uses cached detection results (fast after first call).
+   *
+   * TASK_2025_247: Refactored from direct vscode.workspace.getConfiguration()
+   * to use IWorkspaceProvider so file-based keys route to ~/.ptah/settings.json.
    */
   private registerGetConfig(): void {
     this.rpcHandler.registerMethod<void, AgentOrchestrationConfig>(
@@ -109,37 +138,44 @@ export class AgentRpcHandlers {
         try {
           this.logger.debug('RPC: agent:getConfig called');
 
-          const config = vscode.workspace.getConfiguration(
-            'ptah.agentOrchestration',
-          );
           const cliResults = await this.cliDetection.detectAll();
 
           // Merge Ptah CLI agents as CLI entries alongside gemini/codex/copilot
           const detectedClis = await this.mergePtahCliAgents(cliResults);
 
-          // Read MCP port from ptah namespace (separate from agentOrchestration)
-          const ptahConfig = vscode.workspace.getConfiguration('ptah');
+          // Helper to read agentOrchestration settings via IWorkspaceProvider.
+          // Uses flat key format: 'agentOrchestration.codexModel'
+          const getCfg = <T>(key: string, defaultValue: T): T =>
+            this.workspaceProvider.getConfiguration<T>(
+              'ptah',
+              `agentOrchestration.${key}`,
+              defaultValue,
+            ) ?? defaultValue;
 
           const result: AgentOrchestrationConfig = {
             detectedClis,
-            preferredAgentOrder:
-              config.get<string[]>('preferredAgentOrder', []) ?? [],
-            maxConcurrentAgents: config.get<number>('maxConcurrentAgents', 5),
-            geminiModel: config.get<string>('geminiModel', ''),
-            codexModel: config.get<string>('codexModel', ''),
-            copilotModel: config.get<string>('copilotModel', ''),
-            codexAutoApprove: config.get<boolean>('codexAutoApprove', true),
-            copilotAutoApprove: config.get<boolean>('copilotAutoApprove', true),
-            codexReasoningEffort: config.get<string>(
-              'codexReasoningEffort',
-              '',
-            ),
-            copilotReasoningEffort: config.get<string>(
+            // Non-file-based keys (stay in package.json)
+            preferredAgentOrder: getCfg<string[]>('preferredAgentOrder', []),
+            maxConcurrentAgents: getCfg<number>('maxConcurrentAgents', 5),
+            geminiModel: getCfg<string>('geminiModel', ''),
+            // File-based keys (routed to ~/.ptah/settings.json by VscodeWorkspaceProvider)
+            codexModel: getCfg<string>('codexModel', ''),
+            copilotModel: getCfg<string>('copilotModel', ''),
+            codexAutoApprove: getCfg<boolean>('codexAutoApprove', true),
+            copilotAutoApprove: getCfg<boolean>('copilotAutoApprove', true),
+            codexReasoningEffort: getCfg<string>('codexReasoningEffort', ''),
+            copilotReasoningEffort: getCfg<string>(
               'copilotReasoningEffort',
               '',
             ),
-            mcpPort: ptahConfig.get<number>('mcpPort', 51820),
-            disabledClis: config.get<string[]>('disabledClis', []),
+            disabledClis: getCfg<string[]>('disabledClis', []),
+            // MCP port is under ptah namespace (not agentOrchestration), non-file-based
+            mcpPort:
+              this.workspaceProvider.getConfiguration<number>(
+                'ptah',
+                'mcpPort',
+                51820,
+              ) ?? 51820,
           };
 
           this.logger.debug('RPC: agent:getConfig success', {
@@ -254,65 +290,60 @@ export class AgentRpcHandlers {
   }
 
   /**
-   * Perform the actual VS Code configuration updates for all provided params.
+   * Perform configuration updates for all provided params.
+   *
+   * TASK_2025_247: Refactored from direct vscode.workspace.getConfiguration()
+   * to use IWorkspaceProvider.setConfiguration() so file-based keys (codexModel,
+   * copilotModel, etc.) route to ~/.ptah/settings.json via PtahFileSettingsManager.
+   * Non-file-based keys (preferredAgentOrder, maxConcurrentAgents, etc.) continue
+   * to write to VS Code settings via the same IWorkspaceProvider (which delegates
+   * to vscode.workspace.getConfiguration for non-file-based keys).
    */
   private async doApplyConfigUpdates(
     params: AgentSetConfigParams,
   ): Promise<void> {
-    const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
+    // Helper for writing agentOrchestration settings via IWorkspaceProvider
+    const setCfg = async (key: string, value: unknown): Promise<void> => {
+      await this.workspaceProvider.setConfiguration(
+        'ptah',
+        `agentOrchestration.${key}`,
+        value,
+      );
+    };
 
+    // Non-file-based keys (stay in package.json / VS Code settings)
     if (params.preferredAgentOrder !== undefined) {
-      await config.update(
+      await setCfg(
         'preferredAgentOrder',
         params.preferredAgentOrder.length > 0
           ? params.preferredAgentOrder
           : undefined,
-        vscode.ConfigurationTarget.Global,
       );
     }
 
     if (params.maxConcurrentAgents !== undefined) {
       const clamped = Math.max(1, Math.min(10, params.maxConcurrentAgents));
-      await config.update(
-        'maxConcurrentAgents',
-        clamped,
-        vscode.ConfigurationTarget.Global,
-      );
+      await setCfg('maxConcurrentAgents', clamped);
     }
 
     if (params.geminiModel !== undefined) {
-      await config.update(
-        'geminiModel',
-        params.geminiModel || undefined,
-        vscode.ConfigurationTarget.Global,
-      );
+      await setCfg('geminiModel', params.geminiModel || undefined);
     }
 
+    // File-based keys (routed to ~/.ptah/settings.json by VscodeWorkspaceProvider)
     if (params.codexModel !== undefined) {
-      await config.update(
-        'codexModel',
-        params.codexModel || undefined,
-        vscode.ConfigurationTarget.Global,
-      );
+      await setCfg('codexModel', params.codexModel || undefined);
     }
 
     if (params.copilotModel !== undefined) {
-      await config.update(
-        'copilotModel',
-        params.copilotModel || undefined,
-        vscode.ConfigurationTarget.Global,
-      );
+      await setCfg('copilotModel', params.copilotModel || undefined);
     }
 
     // codexAutoApprove is ignored — Codex always runs in full-auto headless mode.
     // The SDK has no runtime permission hooks, so this config has no effect.
 
     if (params.copilotAutoApprove !== undefined) {
-      await config.update(
-        'copilotAutoApprove',
-        params.copilotAutoApprove,
-        vscode.ConfigurationTarget.Global,
-      );
+      await setCfg('copilotAutoApprove', params.copilotAutoApprove);
 
       // Sync to the live CopilotPermissionBridge
       const copilotAdapter = this.cliDetection.getAdapter('copilot');
@@ -325,37 +356,33 @@ export class AgentRpcHandlers {
     }
 
     if (params.codexReasoningEffort !== undefined) {
-      await config.update(
+      await setCfg(
         'codexReasoningEffort',
         params.codexReasoningEffort || undefined,
-        vscode.ConfigurationTarget.Global,
       );
     }
 
     if (params.copilotReasoningEffort !== undefined) {
-      await config.update(
+      await setCfg(
         'copilotReasoningEffort',
         params.copilotReasoningEffort || undefined,
-        vscode.ConfigurationTarget.Global,
       );
     }
 
     if (params.disabledClis !== undefined) {
-      await config.update(
+      await setCfg(
         'disabledClis',
         params.disabledClis.length > 0 ? params.disabledClis : undefined,
-        vscode.ConfigurationTarget.Global,
       );
     }
 
-    // MCP port lives under ptah namespace (not ptah.agentOrchestration)
+    // MCP port lives under ptah namespace (not ptah.agentOrchestration), non-file-based
     if (params.mcpPort !== undefined) {
       const clampedPort = Math.max(1024, Math.min(65535, params.mcpPort));
-      const ptahConfig = vscode.workspace.getConfiguration('ptah');
-      await ptahConfig.update(
+      await this.workspaceProvider.setConfiguration(
+        'ptah',
         'mcpPort',
         clampedPort,
-        vscode.ConfigurationTarget.Global,
       );
     }
   }

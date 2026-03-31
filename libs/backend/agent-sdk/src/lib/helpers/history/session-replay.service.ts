@@ -58,7 +58,7 @@ export class SessionReplayService {
     private readonly correlationService: AgentCorrelationService,
     @inject(SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY)
     private readonly eventFactory: HistoryEventFactory,
-    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv
+    @inject(SDK_TOKENS.SDK_AUTH_ENV) private readonly authEnv: AuthEnv,
   ) {}
 
   /**
@@ -78,7 +78,7 @@ export class SessionReplayService {
   replayToStreamEvents(
     sessionId: string,
     mainMessages: SessionHistoryMessage[],
-    agentSessions: AgentSessionData[]
+    agentSessions: AgentSessionData[],
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
     let eventIndex = 0;
@@ -94,7 +94,7 @@ export class SessionReplayService {
       ) {
         startIndex = i + 1;
         this.logger.info(
-          `[SessionReplay] Found compact_boundary at index ${i}, skipping ${startIndex} pre-compaction messages`
+          `[SessionReplay] Found compact_boundary at index ${i}, skipping ${startIndex} pre-compaction messages`,
         );
         break;
       }
@@ -111,7 +111,7 @@ export class SessionReplayService {
       this.correlationService.extractTaskToolUses(effectiveMessages);
     const taskToAgentMap = this.correlationService.correlateAgentsToTasks(
       taskToolUses,
-      agentDataMap
+      agentDataMap,
     );
     const allToolResults =
       this.correlationService.extractAllToolResults(effectiveMessages);
@@ -171,8 +171,8 @@ export class SessionReplayService {
               currentMessageId,
               eventIndex++,
               currentMessageTimestamp + messageSequence++ * 0.001,
-              currentMessageUsage // TASK_2025_098 FIX: Pass usage data for per-message stats
-            )
+              currentMessageUsage, // TASK_2025_098 FIX: Pass usage data for per-message stats
+            ),
           );
           currentMessageId = null;
           blockIndex = 0;
@@ -183,12 +183,19 @@ export class SessionReplayService {
         // Create user message events (user messages are self-contained, use local sequence)
         const messageId = msg.uuid || this.eventFactory.generateId();
         const content = this.eventFactory.extractTextContent(
-          msg.message.content
+          msg.message.content,
         );
         const timestamp = msg.timestamp
           ? new Date(msg.timestamp).getTime()
           : Date.now();
         let userSeq = 0;
+
+        // Count inline image content blocks for imageCount propagation
+        const imageCount = Array.isArray(msg.message.content)
+          ? (msg.message.content as ContentBlock[]).filter(
+              (b) => b.type === 'image',
+            ).length
+          : 0;
 
         events.push(
           this.eventFactory.createMessageStart(
@@ -196,8 +203,9 @@ export class SessionReplayService {
             messageId,
             'user',
             eventIndex++,
-            timestamp + userSeq++ * 0.001
-          )
+            timestamp + userSeq++ * 0.001,
+            imageCount > 0 ? imageCount : undefined,
+          ),
         );
         if (content) {
           events.push(
@@ -207,8 +215,8 @@ export class SessionReplayService {
               content,
               0,
               eventIndex++,
-              timestamp + userSeq++ * 0.001
-            )
+              timestamp + userSeq++ * 0.001,
+            ),
           );
         }
         events.push(
@@ -216,8 +224,8 @@ export class SessionReplayService {
             sessionId,
             messageId,
             eventIndex++,
-            timestamp + userSeq++ * 0.001
-          )
+            timestamp + userSeq++ * 0.001,
+          ),
         );
       } else if (msg.type === 'assistant' && msg.message?.content) {
         // Get message timestamp from JSONL
@@ -236,8 +244,8 @@ export class SessionReplayService {
               currentMessageId,
               'assistant',
               eventIndex++,
-              currentMessageTimestamp + messageSequence++ * 0.001
-            )
+              currentMessageTimestamp + messageSequence++ * 0.001,
+            ),
           );
         }
 
@@ -263,7 +271,7 @@ export class SessionReplayService {
                 output: tokenUsage.output,
                 cacheHit: tokenUsage.cacheRead,
                 cacheCreation: tokenUsage.cacheCreation,
-              }
+              },
             );
             // Accumulate usage (in case multiple assistant blocks per logical message)
             if (!currentMessageUsage) {
@@ -302,8 +310,8 @@ export class SessionReplayService {
                   block.text,
                   blockIndex++,
                   eventIndex++,
-                  currentMessageTimestamp + messageSequence++ * 0.001
-                )
+                  currentMessageTimestamp + messageSequence++ * 0.001,
+                ),
               );
             } else if (block.type === 'thinking' && block.thinking) {
               events.push(
@@ -313,8 +321,8 @@ export class SessionReplayService {
                   block.thinking,
                   blockIndex++,
                   eventIndex++,
-                  currentMessageTimestamp + messageSequence++ * 0.001
-                )
+                  currentMessageTimestamp + messageSequence++ * 0.001,
+                ),
               );
             } else if (block.type === 'tool_use') {
               const toolResult = block.id
@@ -333,8 +341,8 @@ export class SessionReplayService {
                     block.name || 'Agent',
                     block.input,
                     eventIndex++,
-                    currentMessageTimestamp + messageSequence++ * 0.001
-                  )
+                    currentMessageTimestamp + messageSequence++ * 0.001,
+                  ),
                 );
 
                 // Then create agent_start with parentToolUseId linking to the tool
@@ -355,8 +363,8 @@ export class SessionReplayService {
                     eventIndex++,
                     currentMessageTimestamp + messageSequence++ * 0.001,
                     toolCallId, // parentToolUseId - links to parent Task tool
-                    agentId ?? undefined // Real agentId from correlated agent file
-                  )
+                    agentId ?? undefined, // Real agentId from correlated agent file
+                  ),
                 );
 
                 // Add nested agent events if we have the agent data
@@ -369,7 +377,7 @@ export class SessionReplayService {
                     sessionId,
                     toolCallId,
                     agentData.executionMessages,
-                    currentMessageTimestamp + messageSequence++ * 0.001
+                    currentMessageTimestamp + messageSequence++ * 0.001,
                   );
                   messageSequence += nestedEvents.length;
                   events.push(...nestedEvents);
@@ -385,8 +393,8 @@ export class SessionReplayService {
                       toolResult.content,
                       toolResult.isError,
                       eventIndex++,
-                      currentMessageTimestamp + messageSequence++ * 0.001
-                    )
+                      currentMessageTimestamp + messageSequence++ * 0.001,
+                    ),
                   );
                 }
               } else {
@@ -399,8 +407,8 @@ export class SessionReplayService {
                     block.name || 'unknown',
                     block.input,
                     eventIndex++,
-                    currentMessageTimestamp + messageSequence++ * 0.001
-                  )
+                    currentMessageTimestamp + messageSequence++ * 0.001,
+                  ),
                 );
 
                 if (toolResult) {
@@ -412,8 +420,8 @@ export class SessionReplayService {
                       toolResult.content,
                       toolResult.isError,
                       eventIndex++,
-                      currentMessageTimestamp + messageSequence++ * 0.001
-                    )
+                      currentMessageTimestamp + messageSequence++ * 0.001,
+                    ),
                   );
                 }
               }
@@ -431,8 +439,8 @@ export class SessionReplayService {
           currentMessageId,
           eventIndex++,
           currentMessageTimestamp + messageSequence++ * 0.001,
-          currentMessageUsage // TASK_2025_098 FIX: Pass usage data for per-message stats
-        )
+          currentMessageUsage, // TASK_2025_098 FIX: Pass usage data for per-message stats
+        ),
       );
     }
 
@@ -460,7 +468,7 @@ export class SessionReplayService {
     sessionId: string,
     parentToolUseId: string,
     messages: SessionHistoryMessage[],
-    parentTimestamp: number
+    parentTimestamp: number,
   ): FlatStreamEventUnion[] {
     const events: FlatStreamEventUnion[] = [];
     let eventIndex = 0;
@@ -481,7 +489,7 @@ export class SessionReplayService {
       // agents are spawned in the same message block. Without this, the second agent's
       // events would overwrite the first agent's events (same messageId, different parentToolUseId).
       const agentMessageId = `agent_msg_${parentToolUseId}_${eventIndex}_${Math.floor(
-        parentTimestamp
+        parentTimestamp,
       )}`;
       const messageTimestamp = parentTimestamp + sequence++ * 0.0001;
       let blockIndex = 0;
@@ -493,8 +501,8 @@ export class SessionReplayService {
           agentMessageId,
           eventIndex++,
           messageTimestamp,
-          parentToolUseId
-        )
+          parentToolUseId,
+        ),
       );
 
       for (const block of content as ContentBlock[]) {
@@ -509,8 +517,8 @@ export class SessionReplayService {
               blockIndex++,
               eventIndex++,
               eventTimestamp,
-              parentToolUseId
-            )
+              parentToolUseId,
+            ),
           );
         } else if (block.type === 'tool_use') {
           const toolResult = block.id ? toolResults.get(block.id) : undefined;
@@ -525,8 +533,8 @@ export class SessionReplayService {
               block.input,
               eventIndex++,
               eventTimestamp,
-              parentToolUseId
-            )
+              parentToolUseId,
+            ),
           );
 
           if (toolResult) {
@@ -540,8 +548,8 @@ export class SessionReplayService {
                 toolResult.isError,
                 eventIndex++,
                 resultTimestamp,
-                parentToolUseId
-              )
+                parentToolUseId,
+              ),
             );
           }
         }
@@ -570,7 +578,7 @@ export class SessionReplayService {
                 output: tokenUsage.output,
                 cacheHit: tokenUsage.cacheRead,
                 cacheCreation: tokenUsage.cacheCreation,
-              }
+              },
             ),
           };
         }
@@ -585,8 +593,8 @@ export class SessionReplayService {
           eventIndex++,
           completeTimestamp,
           parentToolUseId,
-          agentMessageUsage // TASK_2025_098 FIX: Pass usage data for per-message stats
-        )
+          agentMessageUsage, // TASK_2025_098 FIX: Pass usage data for per-message stats
+        ),
       );
     }
 

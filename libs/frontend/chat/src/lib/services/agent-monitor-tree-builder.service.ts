@@ -64,7 +64,7 @@ export class AgentMonitorTreeBuilderService {
    */
   buildTree(
     agentId: string,
-    events: readonly FlatStreamEventUnion[]
+    events: readonly FlatStreamEventUnion[],
   ): ExecutionNode[] {
     const cached = this.eventCacheMap.get(agentId);
     if (cached && cached.count === events.length) {
@@ -97,7 +97,7 @@ export class AgentMonitorTreeBuilderService {
    */
   buildTreeFromSegments(
     agentId: string,
-    segments: readonly CliOutputSegment[]
+    segments: readonly CliOutputSegment[],
   ): ExecutionNode[] {
     const cached = this.segmentCacheMap.get(agentId);
     if (cached && cached.count === segments.length) {
@@ -117,7 +117,7 @@ export class AgentMonitorTreeBuilderService {
    * Returns a new tree if changes were made, or the same reference if not.
    */
   finalizeOrphanedTools(
-    nodes: readonly ExecutionNode[]
+    nodes: readonly ExecutionNode[],
   ): readonly ExecutionNode[] {
     let changed = false;
     const finalized = nodes.map((node) => {
@@ -169,7 +169,7 @@ export class AgentMonitorTreeBuilderService {
   // ─────────────────────────────────────────────────────────
 
   private buildTreeFromSegmentsInternal(
-    segments: readonly CliOutputSegment[]
+    segments: readonly CliOutputSegment[],
   ): ExecutionNode[] {
     if (segments.length === 0) return [];
 
@@ -197,7 +197,7 @@ export class AgentMonitorTreeBuilderService {
             type: 'text',
             status: 'complete',
             content: textBuffer,
-          })
+          }),
         );
       }
       textBuffer = '';
@@ -212,7 +212,7 @@ export class AgentMonitorTreeBuilderService {
             type: 'thinking',
             status: 'complete',
             content: thinkingBuffer,
-          })
+          }),
         );
       }
       thinkingBuffer = '';
@@ -247,8 +247,8 @@ export class AgentMonitorTreeBuilderService {
           const toolInput = segment.toolInput
             ? this.normalizeToolInput(segment.toolName ?? '', segment.toolInput)
             : segment.toolArgs
-            ? { __summary: segment.toolArgs }
-            : undefined;
+              ? { __summary: segment.toolArgs }
+              : undefined;
 
           const toolNode = createExecutionNode({
             id: `seg-tool-${i}`,
@@ -309,7 +309,7 @@ export class AgentMonitorTreeBuilderService {
                 type: 'text',
                 status: 'complete',
                 content: segment.content,
-              })
+              }),
             );
           }
           break;
@@ -325,7 +325,7 @@ export class AgentMonitorTreeBuilderService {
               status: 'complete',
               content: segment.content,
               error: segment.content,
-            })
+            }),
           );
           break;
         }
@@ -339,7 +339,7 @@ export class AgentMonitorTreeBuilderService {
               type: 'text',
               status: 'complete',
               content: segment.content,
-            })
+            }),
           );
           break;
         }
@@ -362,7 +362,7 @@ export class AgentMonitorTreeBuilderService {
    */
   private normalizeToolInput(
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
   ): Record<string, unknown> {
     const normalized = { ...input };
     const name = toolName.toLowerCase();
@@ -384,7 +384,7 @@ export class AgentMonitorTreeBuilderService {
   // ─────────────────────────────────────────────────────────
 
   private buildTreeInternal(
-    events: readonly FlatStreamEventUnion[]
+    events: readonly FlatStreamEventUnion[],
   ): ExecutionNode[] {
     if (events.length === 0) return [];
 
@@ -482,7 +482,7 @@ export class AgentMonitorTreeBuilderService {
         toolResults,
         agentStarts,
         messageStarts,
-        0
+        0,
       );
 
       // Skip empty messages
@@ -511,7 +511,7 @@ export class AgentMonitorTreeBuilderService {
     toolResults: Map<string, ToolResultEvent>,
     agentStarts: AgentStartEvent[],
     messageStarts: MessageStartEvent[],
-    depth: number
+    depth: number,
   ): ExecutionNode[] {
     const children: ExecutionNode[] = [];
 
@@ -527,7 +527,7 @@ export class AgentMonitorTreeBuilderService {
             content: text,
             children: [],
             startTime: messageTimestamp + blockIndex, // Order by block index
-          })
+          }),
         );
       }
     }
@@ -544,7 +544,7 @@ export class AgentMonitorTreeBuilderService {
             content: text,
             children: [],
             startTime: messageTimestamp + blockIndex,
-          })
+          }),
         );
       }
     }
@@ -566,7 +566,7 @@ export class AgentMonitorTreeBuilderService {
         textAccumulators,
         thinkingAccumulators,
         toolStarts,
-        depth
+        depth,
       );
       children.push(toolNode);
     }
@@ -588,7 +588,7 @@ export class AgentMonitorTreeBuilderService {
     textAccumulators: Map<string, string>,
     thinkingAccumulators: Map<string, string>,
     allToolStarts: ToolStartEvent[],
-    depth: number
+    depth: number,
   ): ExecutionNode {
     const resultEvent = toolResults.get(toolStart.toolCallId);
 
@@ -605,11 +605,19 @@ export class AgentMonitorTreeBuilderService {
           toolInput = parsed;
         }
       } catch {
-        // Parse failure -- show raw snippet
-        toolInput = {
-          __parseError: true,
-          __raw: inputString.substring(0, 100),
-        };
+        // Parse failure -- fall back to toolStart.toolInput if available
+        // (complete source provides parsed input even when accumulator has partial JSON)
+        if (
+          toolStart.toolInput &&
+          Object.keys(toolStart.toolInput).length > 0
+        ) {
+          toolInput = toolStart.toolInput;
+        } else {
+          toolInput = {
+            __parseError: true,
+            __raw: inputString.substring(0, 100),
+          };
+        }
       }
     } else if (inputString) {
       // Still streaming -- show raw snippet
@@ -638,7 +646,7 @@ export class AgentMonitorTreeBuilderService {
         allToolStarts,
         toolInputAccumulators,
         toolResults,
-        depth
+        depth,
       );
       if (agentNode) return agentNode;
       // Fall through to normal tool if no agent found
@@ -675,13 +683,13 @@ export class AgentMonitorTreeBuilderService {
     allToolStarts: ToolStartEvent[],
     toolInputAccumulators: Map<string, string>,
     toolResults: Map<string, ToolResultEvent>,
-    depth: number
+    depth: number,
   ): ExecutionNode | null {
     if (depth >= MAX_DEPTH) return null;
 
     // Find matching agent_start event
     let matchedAgent = agentStarts.find(
-      (as) => as.parentToolUseId === toolStart.toolCallId
+      (as) => as.parentToolUseId === toolStart.toolCallId,
     );
 
     // Fallback: match by agentType from tool input
@@ -723,7 +731,7 @@ export class AgentMonitorTreeBuilderService {
     // Find nested assistant messages (children of this agent)
     const agentMessageStarts = messageStarts.filter(
       (ms) =>
-        ms.parentToolUseId === toolStart.toolCallId && ms.role === 'assistant'
+        ms.parentToolUseId === toolStart.toolCallId && ms.role === 'assistant',
     );
 
     // Build children for the agent (from nested messages)
@@ -739,7 +747,7 @@ export class AgentMonitorTreeBuilderService {
         toolResults,
         agentStarts,
         messageStarts,
-        depth + 1
+        depth + 1,
       );
       // Unwrap message node -- agent shows content directly
       agentChildren.push(...msgChildren);

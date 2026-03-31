@@ -209,7 +209,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
                 "
                 class="w-3.5 h-3.5"
               />
-              <span class="text-xs">Workspaces</span>
+              <span class="icon-btn-label text-xs">Workspaces</span>
             </button>
           </div>
         }
@@ -258,13 +258,12 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
                 [trialDaysRemaining]="license.trialDaysRemaining"
                 [isCommunity]="license.isCommunity"
                 [reason]="license.reason"
-                [showLabel]="true"
               />
             }
           }
 
           <!-- Theme toggle (always available) -->
-          <ptah-theme-toggle [showLabel]="true" />
+          <ptah-theme-toggle />
 
           <!-- Dashboard & Settings (only when licensed) -->
           @if (appState.isLicensed()) {
@@ -276,7 +275,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               (click)="openDashboard()"
             >
               <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-              <span class="text-xs">Dashboard</span>
+              <span class="icon-btn-label text-xs">Dashboard</span>
             </button>
 
             <!-- Settings -->
@@ -287,7 +286,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
               (click)="openSettings()"
             >
               <lucide-angular [img]="SettingsIcon" class="w-3.5 h-3.5" />
-              <span class="text-xs">Settings</span>
+              <span class="icon-btn-label text-xs">Settings</span>
             </button>
 
             <!-- Editor panel toggle (only when workspace is open) -->
@@ -311,7 +310,7 @@ import { NotificationBellComponent } from '../molecules/notifications/notificati
                   "
                   class="w-3.5 h-3.5"
                 />
-                <span class="text-xs">Editor</span>
+                <span class="icon-btn-label text-xs">Editor</span>
               </button>
             }
           }

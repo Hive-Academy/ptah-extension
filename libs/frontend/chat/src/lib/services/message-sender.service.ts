@@ -288,6 +288,7 @@ export class MessageSenderService {
         role: 'user',
         rawContent: content,
         files,
+        ...(images && images.length > 0 ? { imageCount: images.length } : {}),
         sessionId: '' as SessionId, // Will be updated when session:id-resolved arrives
       });
 
@@ -445,6 +446,7 @@ export class MessageSenderService {
         role: 'user',
         rawContent: content,
         files,
+        ...(images && images.length > 0 ? { imageCount: images.length } : {}),
         sessionId,
       });
 

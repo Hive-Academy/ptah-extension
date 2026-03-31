@@ -27,6 +27,7 @@ import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IPlatformInfo,
   IUserInteraction,
+  IWorkspaceProvider,
 } from '@ptah-extension/platform-core';
 import type {
   ICopilotAuthService,
@@ -44,9 +45,6 @@ const TOKEN_REFRESH_BUFFER_SECONDS = 5 * 60;
 
 /** Default Copilot API endpoint */
 const DEFAULT_COPILOT_API_ENDPOINT = 'https://api.githubcopilot.com';
-
-/** Copilot token exchange endpoint */
-const COPILOT_TOKEN_URL = 'https://api.github.com/copilot_internal/v2/token';
 
 /**
  * Safely describes a token for logging — never exposes the full value.
@@ -73,6 +71,8 @@ export class CopilotAuthService implements ICopilotAuthService {
     private readonly platformInfo: IPlatformInfo,
     @inject(PLATFORM_TOKENS.USER_INTERACTION)
     private readonly userInteraction: IUserInteraction,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspaceProvider: IWorkspaceProvider,
   ) {}
 
   /**
@@ -164,19 +164,39 @@ export class CopilotAuthService implements ICopilotAuthService {
   /**
    * Execute the device code login flow, displaying the user code
    * via the platform-agnostic IUserInteraction service.
+   *
+   * Reads the GitHub OAuth client ID from settings. When empty,
+   * device code flow is skipped (expected default for VS Code which uses native auth).
    */
   private async executeDeviceCodeLogin(): Promise<string | null> {
+    const clientId =
+      this.workspaceProvider.getConfiguration<string>(
+        'ptah',
+        'provider.github-copilot.clientId',
+        '',
+      ) ?? '';
+
+    if (!clientId) {
+      this.logger.warn(
+        '[CopilotAuth] Device code client ID not configured. ' +
+          'Set "ptah.provider.github-copilot.clientId" in settings to enable device code flow.',
+      );
+      return null;
+    }
+
     const callbacks: DeviceCodeCallbacks = {
       onUserCode: (userCode, verificationUri) => {
-        // Show the user code to the user via platform-agnostic UI
-        this.userInteraction.showInformationMessage(
+        // Return value intentionally discarded: IUserInteraction has no clipboard
+        // method, so we cannot copy the code even if the user clicks "Copy Code".
+        // The button still serves as visual acknowledgement of the code display.
+        void this.userInteraction.showInformationMessage(
           `GitHub Copilot: Enter code ${userCode} at ${verificationUri}`,
           'Copy Code',
         );
       },
     };
 
-    return executeDeviceCodeFlow(this.logger, callbacks);
+    return executeDeviceCodeFlow(this.logger, callbacks, clientId);
   }
 
   /**
@@ -271,6 +291,15 @@ export class CopilotAuthService implements ICopilotAuthService {
    * @returns true if exchange succeeded
    */
   protected async exchangeToken(githubToken: string): Promise<boolean> {
+    const tokenUrl = this.getTokenExchangeUrl();
+    if (!tokenUrl) {
+      this.logger.warn(
+        '[CopilotAuth] Token exchange URL not configured. ' +
+          'Set "ptah.provider.github-copilot.tokenExchangeUrl" in settings to enable Copilot proxy.',
+      );
+      return false;
+    }
+
     this.logger.info(
       `[CopilotAuth] Exchanging GitHub token for Copilot bearer (${describeToken(githubToken)})`,
     );
@@ -278,7 +307,7 @@ export class CopilotAuthService implements ICopilotAuthService {
     try {
       const version = this.getExtensionVersion();
       const { data: tokenResponse } = await axios.get<CopilotTokenResponse>(
-        COPILOT_TOKEN_URL,
+        tokenUrl,
         {
           headers: {
             Authorization: `token ${githubToken}`,
@@ -296,8 +325,11 @@ export class CopilotAuthService implements ICopilotAuthService {
         return false;
       }
 
+      const settingsEndpoint = this.getApiEndpointSetting();
       const apiEndpoint =
-        tokenResponse.endpoints?.api ?? DEFAULT_COPILOT_API_ENDPOINT;
+        settingsEndpoint ||
+        tokenResponse.endpoints?.api ||
+        DEFAULT_COPILOT_API_ENDPOINT;
 
       this.authState = {
         githubToken,
@@ -345,6 +377,34 @@ export class CopilotAuthService implements ICopilotAuthService {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  /**
+   * Read the Copilot token exchange URL from VS Code settings.
+   * Returns empty string when unconfigured (proxy mode disabled).
+   */
+  private getTokenExchangeUrl(): string {
+    return (
+      this.workspaceProvider.getConfiguration<string>(
+        'ptah',
+        'provider.github-copilot.tokenExchangeUrl',
+        '',
+      ) ?? ''
+    );
+  }
+
+  /**
+   * Read the Copilot API endpoint override from VS Code settings.
+   * Returns empty string when unconfigured (use token response endpoint).
+   */
+  private getApiEndpointSetting(): string {
+    return (
+      this.workspaceProvider.getConfiguration<string>(
+        'ptah',
+        'provider.github-copilot.apiEndpoint',
+        '',
+      ) ?? ''
+    );
+  }
 
   /**
    * Check if the current bearer token is expired or expiring within the refresh buffer.
