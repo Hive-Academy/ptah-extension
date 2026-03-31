@@ -1,5 +1,5 @@
 {
-  "name": "ui",
+  "name": "@ptah-extension/ui",
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/frontend/ui/src",
   "prefix": "ptah",

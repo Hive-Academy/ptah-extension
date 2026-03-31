@@ -8,7 +8,7 @@ import {
   ElementRef,
   ChangeDetectionStrategy,
 } from '@angular/core';
-import { NgOptimizedImage } from '@angular/common';
+import { NgComponentOutlet, NgOptimizedImage } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import {
   LucideAngularModule,
@@ -19,8 +19,6 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelRightClose,
-  PanelRightOpen,
   Plus,
   Search,
   Settings,
@@ -35,9 +33,9 @@ import { TrialEndedModalComponent } from '../molecules/trial-billing/trial-ended
 import { SettingsComponent } from '../../settings/settings.component';
 import { WelcomeComponent } from './welcome.component';
 import { NativePopoverComponent } from '@ptah-extension/ui';
-import { WizardViewComponent } from '@ptah-extension/setup-wizard';
 import { AgentMonitorPanelComponent } from '../organisms/agent-monitor-panel.component';
 import { ResizeHandleComponent } from '../atoms/resize-handle.component';
+import { SidebarTabComponent } from '../atoms/sidebar-tab.component';
 import { ThemeToggleComponent } from '../atoms/theme-toggle.component';
 import { NotificationBellComponent } from '../molecules/notifications/notification-bell.component';
 import { SessionAnalyticsDashboardViewComponent } from '@ptah-extension/dashboard';
@@ -49,6 +47,7 @@ import {
   AppStateManager,
   VSCodeService,
   ClaudeRpcService,
+  WIZARD_VIEW_COMPONENT,
 } from '@ptah-extension/core';
 import type { ChatSessionSummary, SessionId } from '@ptah-extension/shared';
 import { ConfirmationDialogService } from '../../services/confirmation-dialog.service';
@@ -88,7 +87,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     ChatViewComponent,
     SettingsComponent,
     WelcomeComponent,
-    WizardViewComponent,
+    NgComponentOutlet,
     TabBarComponent,
     ConfirmationDialogComponent,
     TrialEndedModalComponent,
@@ -100,6 +99,7 @@ import { ConfirmationDialogService } from '../../services/confirmation-dialog.se
     NativePopoverComponent,
     AgentMonitorPanelComponent,
     ResizeHandleComponent,
+    SidebarTabComponent,
     SessionAnalyticsDashboardViewComponent,
   ],
   templateUrl: './app-shell.component.html',
@@ -120,6 +120,13 @@ export class AppShellComponent {
   // Expose currentView signal for template
   readonly currentView = this.appState.currentView;
 
+  /**
+   * WizardViewComponent provided via DI token — breaks circular dependency between chat and setup-wizard.
+   * Provided by the application bootstrapper (app.config.ts) so chat never imports setup-wizard directly.
+   */
+  readonly wizardComponent =
+    inject(WIZARD_VIEW_COMPONENT, { optional: true }) ?? null;
+
   // Sidebar state: default open in Electron (more space), hidden in VS Code sidebar
   private readonly _sidebarOpen = signal(this.vscodeService.isElectron);
   readonly sidebarOpen = this._sidebarOpen.asReadonly();
@@ -131,8 +138,6 @@ export class AppShellComponent {
   readonly MessageSquareIcon = MessageSquare;
   readonly PanelLeftCloseIcon = PanelLeftClose;
   readonly PanelLeftOpenIcon = PanelLeftOpen;
-  readonly PanelRightCloseIcon = PanelRightClose;
-  readonly PanelRightOpenIcon = PanelRightOpen;
   readonly PlusIcon = Plus;
   readonly SearchIcon = Search;
   readonly SettingsIcon = Settings;
@@ -140,6 +145,17 @@ export class AppShellComponent {
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
+
+  // Agent monitor badge type for the sidebar tab
+  readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
+    () => {
+      if (this.agentMonitorStore.pendingPermissions().length > 0)
+        return 'warning';
+      if (this.agentMonitorStore.hasRunningAgents()) return 'info';
+      if (this.agentMonitorStore.agentCount() > 0) return 'neutral';
+      return null;
+    },
+  );
 
   // Platform detection: in Electron, some icons move to the global navbar
   readonly isElectron = this.vscodeService.isElectron;
@@ -166,7 +182,7 @@ export class AppShellComponent {
     () =>
       this._searchQuery().length > 0 ||
       this._dateFrom().length > 0 ||
-      this._dateTo().length > 0
+      this._dateTo().length > 0,
   );
 
   readonly filteredSessions = computed(() => {
@@ -211,12 +227,12 @@ export class AppShellComponent {
 
   // TASK_2025_142: License reason for trial ended modal
   readonly licenseReason = computed(
-    () => this.chatStore.licenseStatus()?.reason
+    () => this.chatStore.licenseStatus()?.reason,
   );
 
   // ViewChild for session name input (programmatic focus)
   readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(
-    'sessionNameInputRef'
+    'sessionNameInputRef',
   );
 
   /**
@@ -508,7 +524,7 @@ export class AppShellComponent {
    */
   async deleteSession(
     event: Event,
-    session: ChatSessionSummary
+    session: ChatSessionSummary,
   ): Promise<void> {
     // Prevent click from propagating to session button
     event.stopPropagation();
@@ -528,7 +544,7 @@ export class AppShellComponent {
 
     try {
       const result = await this.rpcService.deleteSession(
-        session.id as SessionId
+        session.id as SessionId,
       );
 
       if (result.isSuccess() && result.data?.success) {
@@ -550,7 +566,7 @@ export class AppShellComponent {
       } else {
         console.error(
           '[AppShell] Failed to delete session:',
-          result.error || result.data?.error
+          result.error || result.data?.error,
         );
       }
     } catch (error) {

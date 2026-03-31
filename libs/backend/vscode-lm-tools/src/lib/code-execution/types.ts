@@ -2,7 +2,7 @@
  * Code Execution API Type Definitions
  *
  * Provides type-safe interfaces for the Ptah Code Execution MCP server.
- * Supports 12 namespaces exposing VS Code extension capabilities to Claude CLI.
+ * Supports 15 namespaces exposing VS Code extension capabilities to Claude CLI.
  *
  * TASK_2025_025: Expanded API surface for better Claude discoverability
  * TASK_2025_209: Removed AINamespace (ptah.ai) — obsolete, replaced by CLI tools + MCP agent spawn
@@ -28,7 +28,7 @@ import type {
 
 /**
  * Complete Ptah API surface exposed to executed TypeScript code
- * Provides 13 namespaces for comprehensive workspace intelligence
+ * Provides 15 namespaces for comprehensive workspace intelligence
  * TASK_2025_039: Enhanced with ide namespace for LSP and editor superpowers
  * TASK_2025_111: Added orchestration namespace for workflow state management
  */
@@ -56,19 +56,30 @@ export interface PtahAPI {
   // Agent orchestration namespace (TASK_2025_157)
   agent: AgentNamespace;
 
+  // Git worktree operations namespace (TASK_2025_236)
+  git: GitNamespace;
+
+  // JSON validation and repair namespace (TASK_2025_240)
+  json: JsonNamespace;
+
+  // Browser automation namespace (TASK_2025_244)
+  browser: BrowserNamespace;
+
   // Dependencies namespace (TASK_2025_182 - import-based dependency graph)
   dependencies: DependenciesNamespace;
 
-  // Web search namespace (TASK_2025_189)
+  // Web search namespace (TASK_2025_189, multi-provider TASK_2025_235)
   webSearch?: {
     search(
       query: string,
-      timeoutMs?: number
+      options?: { maxResults?: number; timeout?: number },
     ): Promise<{
       query: string;
       summary: string;
-      provider: 'gemini-cli';
+      provider: string;
       durationMs: number;
+      results: Array<{ title: string; url: string; snippet: string }>;
+      resultCount: number;
     }>;
   };
 
@@ -209,7 +220,7 @@ export interface FilesNamespace {
    * @returns Array of directory entries
    */
   list: (
-    directory: string
+    directory: string,
   ) => Promise<Array<{ name: string; type: 'file' | 'directory' }>>;
 }
 
@@ -273,8 +284,319 @@ export interface AgentNamespace {
    */
   waitFor: (
     agentId: string,
-    options?: { pollInterval?: number; timeout?: number }
+    options?: { pollInterval?: number; timeout?: number },
   ) => Promise<AgentProcessInfo>;
+}
+
+/**
+ * Git worktree operations namespace (TASK_2025_236)
+ * Provides list, add, and remove operations for git worktrees via CLI.
+ */
+export interface GitNamespace {
+  /**
+   * List all git worktrees in the current repository.
+   * Returns both the worktree list and any error that occurred,
+   * so the AI agent can distinguish "no worktrees" from "git error".
+   *
+   * @returns Object with worktrees array and optional error string
+   */
+  worktreeList(): Promise<{
+    worktrees: import('@ptah-extension/shared').GitWorktreeInfo[];
+    error?: string;
+  }>;
+
+  /**
+   * Create a new git worktree
+   * @param params - Branch name, optional path, and createBranch flag
+   * @returns Success status with worktree path or error
+   */
+  worktreeAdd(params: {
+    branch: string;
+    path?: string;
+    createBranch?: boolean;
+  }): Promise<{ success: boolean; worktreePath?: string; error?: string }>;
+
+  /**
+   * Remove a git worktree
+   * @param params - Worktree path and optional force flag
+   * @returns Success status or error
+   */
+  worktreeRemove(params: {
+    path: string;
+    force?: boolean;
+  }): Promise<{ success: boolean; error?: string }>;
+}
+
+// ========================================
+// JSON Namespace (TASK_2025_240)
+// ========================================
+
+/**
+ * JSON validation and repair namespace (TASK_2025_240)
+ * Validates JSON files written by AI agents, repairs common issues,
+ * and overwrites with clean JSON.
+ */
+export interface JsonNamespace {
+  /**
+   * Validate and repair a JSON file.
+   * Reads the file, extracts JSON from raw agent output (strips markdown fences,
+   * prose, fixes trailing commas, unquoted keys, etc.), validates against an
+   * optional schema, and overwrites the file with clean JSON.
+   *
+   * @param params - File path and optional schema
+   * @returns Validation result (success with cleaned JSON, or errors for self-correction)
+   */
+  validate(params: JsonValidateParams): Promise<JsonValidateResult>;
+}
+
+/**
+ * Parameters for ptah.json.validate()
+ */
+export interface JsonValidateParams {
+  /** Workspace-relative file path to the JSON file */
+  file: string;
+
+  /**
+   * Optional JSON Schema to validate against.
+   * An inline JSON Schema object for structural validation.
+   * Use { required: ["key1"], properties: { key1: { type: "string" } } } format.
+   */
+  schema?: Record<string, unknown>;
+}
+
+/**
+ * Result of JSON validation and repair.
+ * On success, the file has been overwritten with clean, formatted JSON.
+ * On failure, errors describe what went wrong so the agent can self-correct.
+ */
+export interface JsonValidateResult {
+  /** Whether validation and repair succeeded */
+  success: boolean;
+
+  /** The file path that was validated */
+  file: string;
+
+  /** Repairs applied (e.g., "stripped markdown fences", "fixed trailing commas") */
+  repairs: string[];
+
+  /** Validation errors (when success is false) */
+  errors: string[];
+
+  /** Whether the file was overwritten with clean JSON */
+  fileOverwritten: boolean;
+}
+
+// ========================================
+// Browser Namespace (TASK_2025_244)
+// ========================================
+
+/**
+ * Browser navigation result
+ */
+export interface BrowserNavigateResult {
+  /** Whether navigation succeeded */
+  success: boolean;
+  /** Final URL after navigation (may differ from requested due to redirects) */
+  url: string;
+  /** Page title after load */
+  title: string;
+  /** Error message if navigation failed */
+  error?: string;
+}
+
+/**
+ * Browser screenshot result
+ */
+export interface BrowserScreenshotResult {
+  /** Base64-encoded image data */
+  data: string;
+  /** Image format (png, jpeg, webp) */
+  format: string;
+  /** Error message if screenshot failed */
+  error?: string;
+}
+
+/**
+ * Browser JavaScript evaluation result
+ */
+export interface BrowserEvaluateResult {
+  /** Evaluated value (serialized) */
+  value: unknown;
+  /** JavaScript type of the result (string, number, object, etc.) */
+  type: string;
+  /** Error message if evaluation failed */
+  error?: string;
+}
+
+/**
+ * Browser click result
+ */
+export interface BrowserClickResult {
+  /** Whether click succeeded */
+  success: boolean;
+  /** Error message if click failed */
+  error?: string;
+}
+
+/**
+ * Browser type (text input) result
+ */
+export interface BrowserTypeResult {
+  /** Whether typing succeeded */
+  success: boolean;
+  /** Error message if typing failed */
+  error?: string;
+}
+
+/**
+ * Browser page content result
+ */
+export interface BrowserContentResult {
+  /** Outer HTML of the selected element or full page */
+  html: string;
+  /** Text content of the selected element or full page */
+  text: string;
+  /** Error message if content extraction failed */
+  error?: string;
+}
+
+/**
+ * Browser network request entry
+ */
+export interface BrowserNetworkRequestEntry {
+  /** Request URL */
+  url: string;
+  /** HTTP method (GET, POST, etc.) */
+  method: string;
+  /** HTTP response status code */
+  status: number;
+  /** Resource type (Document, Script, XHR, Fetch, etc.) */
+  type: string;
+  /** Response size in bytes (if available) */
+  size?: number;
+}
+
+/**
+ * Browser network monitoring result
+ */
+export interface BrowserNetworkResult {
+  /** Captured network requests */
+  requests: BrowserNetworkRequestEntry[];
+  /** Error message if monitoring failed */
+  error?: string;
+}
+
+/**
+ * Browser session status result
+ */
+export interface BrowserStatusResult {
+  /** Whether browser session is connected */
+  connected: boolean;
+  /** Current page URL (if connected) */
+  url?: string;
+  /** Current page title (if connected) */
+  title?: string;
+  /** Session uptime in milliseconds */
+  uptimeMs?: number;
+  /** Milliseconds until auto-close due to inactivity or max lifetime */
+  autoCloseInMs?: number;
+  /** Error message if status check failed */
+  error?: string;
+}
+
+/**
+ * Browser automation namespace (TASK_2025_244)
+ * Provides navigate, screenshot, evaluate, click, type, content read,
+ * network monitoring, and session management for AI agent browser automation.
+ */
+export interface BrowserNamespace {
+  /**
+   * Navigate to a URL and optionally wait for page load.
+   * URL is validated against a security blocklist before navigation.
+   * If no browser session exists, one is lazily created.
+   *
+   * @param params - Navigation parameters
+   * @returns Navigation result with URL and page title
+   */
+  navigate(params: {
+    url: string;
+    waitForLoad?: boolean;
+  }): Promise<BrowserNavigateResult>;
+
+  /**
+   * Capture a screenshot of the current page.
+   *
+   * @param params - Optional screenshot configuration
+   * @returns Screenshot result with base64-encoded image data
+   */
+  screenshot(params?: {
+    format?: 'png' | 'jpeg' | 'webp';
+    quality?: number;
+    fullPage?: boolean;
+  }): Promise<BrowserScreenshotResult>;
+
+  /**
+   * Execute JavaScript in the browser page context.
+   * Expression size is limited to 64KB and execution times out after 10 seconds.
+   *
+   * @param params - JavaScript expression to evaluate
+   * @returns Evaluation result with value and type
+   */
+  evaluate(params: {
+    expression: string;
+    returnByValue?: boolean;
+  }): Promise<BrowserEvaluateResult>;
+
+  /**
+   * Click an element identified by CSS selector.
+   * Uses Runtime.evaluate to call element.click() for reliability.
+   *
+   * @param params - CSS selector for the target element
+   * @returns Click result
+   */
+  click(params: { selector: string }): Promise<BrowserClickResult>;
+
+  /**
+   * Type text into an element identified by CSS selector.
+   * Focuses the element first, then uses Input.insertText for reliable input.
+   *
+   * @param params - CSS selector and text to type
+   * @returns Type result
+   */
+  type(params: { selector: string; text: string }): Promise<BrowserTypeResult>;
+
+  /**
+   * Get page content (HTML and text) for the full page or a specific element.
+   *
+   * @param params - Optional CSS selector (defaults to full page body)
+   * @returns Content result with HTML and text
+   */
+  getContent(params?: { selector?: string }): Promise<BrowserContentResult>;
+
+  /**
+   * Get recent network requests captured during the session.
+   * Network monitoring is read-only (passive capture via Network.enable).
+   *
+   * @param params - Optional limit on number of requests returned
+   * @returns Network result with captured requests
+   */
+  networkRequests(params?: { limit?: number }): Promise<BrowserNetworkResult>;
+
+  /**
+   * Close the browser session and release all resources.
+   * In Electron: detaches debugger and destroys BrowserWindow.
+   * In VS Code: closes CDP client and kills Chrome process.
+   *
+   * @returns Close result
+   */
+  close(): Promise<{ success: boolean; error?: string }>;
+
+  /**
+   * Get the current browser session status.
+   *
+   * @returns Status result with connection state, URL, title, and timing
+   */
+  status(): Promise<BrowserStatusResult>;
 }
 
 // ========================================
@@ -425,7 +747,7 @@ export interface ContextNamespace {
    */
   optimize: (
     query: string,
-    maxTokens?: number
+    maxTokens?: number,
   ) => Promise<OptimizedContextResult>;
 
   /**
@@ -441,7 +763,7 @@ export interface ContextNamespace {
    * @returns Recommended max tokens
    */
   getRecommendedBudget: (
-    projectType: 'monorepo' | 'library' | 'application' | 'unknown'
+    projectType: 'monorepo' | 'library' | 'application' | 'unknown',
   ) => number;
 
   /**
@@ -453,7 +775,7 @@ export interface ContextNamespace {
    */
   enrichFile: (
     filePath: string,
-    language?: string
+    language?: string,
   ) => Promise<StructuralSummaryResult>;
 }
 
@@ -470,7 +792,7 @@ export interface DependenciesNamespace {
    */
   buildGraph: (
     filePaths: string[],
-    workspaceRoot: string
+    workspaceRoot: string,
   ) => Promise<{
     nodeCount: number;
     edgeCount: number;
@@ -859,7 +1181,7 @@ export interface LSPNamespace {
   getDefinition: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<Location[]>;
 
   /**
@@ -872,7 +1194,7 @@ export interface LSPNamespace {
   getReferences: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<Location[]>;
 
   /**
@@ -885,7 +1207,7 @@ export interface LSPNamespace {
   getHover: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<HoverInfo | null>;
 
   /**
@@ -898,7 +1220,7 @@ export interface LSPNamespace {
   getTypeDefinition: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<Location[]>;
 
   /**
@@ -911,7 +1233,7 @@ export interface LSPNamespace {
   getSignatureHelp: (
     file: string,
     line: number,
-    col: number
+    col: number,
   ) => Promise<SignatureHelp | null>;
 }
 
@@ -994,7 +1316,7 @@ export interface ActionsNamespace {
     file: string,
     line: number,
     col: number,
-    newName: string
+    newName: string,
   ) => Promise<boolean>;
 
   /**
@@ -1308,7 +1630,7 @@ export interface OrchestrationCheckpoint {
 /**
  * Orchestration workflow state
  * Persists the complete state of an orchestration workflow for a task.
- * Stored in .claude/specs/TASK_XXX/.orchestration-state.json
+ * Stored in .ptah/specs/TASK_XXX/.orchestration-state.json
  */
 export interface OrchestrationState {
   /** Task identifier (e.g., "TASK_2025_111") */
@@ -1383,7 +1705,7 @@ export interface OrchestrationNamespace {
    */
   setState: (
     taskId: string,
-    state: Partial<OrchestrationState>
+    state: Partial<OrchestrationState>,
   ) => Promise<void>;
 
   /**

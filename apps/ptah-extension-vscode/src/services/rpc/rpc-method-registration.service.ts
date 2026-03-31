@@ -46,7 +46,7 @@ import * as vscode from 'vscode';
 // Shared handlers come from @ptah-extension/rpc-handlers via the barrel.
 // Tier 3 handlers (File, Command, Agent) are local VS Code-specific files.
 import {
-  // Shared handlers (16 total from @ptah-extension/rpc-handlers)
+  // Shared handlers (17 total from @ptah-extension/rpc-handlers)
   ChatRpcHandlers,
   SessionRpcHandlers,
   ContextRpcHandlers,
@@ -63,6 +63,7 @@ import {
   WizardGenerationRpcHandlers,
   PluginRpcHandlers,
   PtahCliRpcHandlers,
+  WebSearchRpcHandlers,
   // Tier 3 handlers (local, VS Code-specific)
   FileRpcHandlers,
   CommandRpcHandlers,
@@ -129,6 +130,8 @@ export class RpcMethodRegistrationService {
     private readonly ptahCliHandlers: PtahCliRpcHandlers, // TASK_2025_167
     @inject(SkillsShRpcHandlers)
     private readonly skillsShHandlers: SkillsShRpcHandlers, // TASK_2025_204
+    @inject(WebSearchRpcHandlers)
+    private readonly webSearchHandlers: WebSearchRpcHandlers, // TASK_2025_235
     @inject('DependencyContainer')
     private readonly container: DependencyContainer,
   ) {
@@ -138,6 +141,7 @@ export class RpcMethodRegistrationService {
     this.setupSessionIdResolvedCallback();
     this.setupResultStatsCallback();
     this.setupCompactionStartCallback();
+    this.setupWorktreeCallbacks(); // TASK_2025_236
     this.registerSetupAgentsCommand();
   }
 
@@ -166,6 +170,7 @@ export class RpcMethodRegistrationService {
     this.agentHandlers.register(); // TASK_2025_157
     this.ptahCliHandlers.register(); // TASK_2025_167
     this.skillsShHandlers.register(); // TASK_2025_204
+    this.webSearchHandlers.register(); // TASK_2025_235
 
     this.logger.info('RPC methods registered (SDK-only mode)', {
       methods: this.rpcHandler.getRegisteredMethods(),
@@ -184,6 +189,7 @@ export class RpcMethodRegistrationService {
       'editor:openFile',
       'editor:saveFile',
       'editor:getFileTree',
+      'editor:getDirectoryChildren',
       // Electron file methods (IFileSystemProvider-based)
       'file:read',
       'file:exists',
@@ -197,6 +203,16 @@ export class RpcMethodRegistrationService {
       // Electron settings export/import
       'settings:export',
       'settings:import',
+      // Electron git methods (TASK_2025_227)
+      'git:info',
+      'git:worktrees',
+      'git:addWorktree',
+      'git:removeWorktree',
+      // Electron terminal methods (TASK_2025_227)
+      'terminal:create',
+      'terminal:kill',
+      // Electron license extended
+      'license:clearKey',
     ];
     const verificationResult = verifyRpcRegistration(
       this.rpcHandler,
@@ -574,6 +590,52 @@ export class RpcMethodRegistrationService {
         .catch((error) => {
           this.logger.error(
             'Failed to send compaction event to webview',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    });
+  }
+
+  /**
+   * Setup callbacks to notify frontend when SDK creates or removes worktrees.
+   * TASK_2025_236: Worktree Integration
+   *
+   * Posts `git:worktreeChanged` push notifications to the webview so the frontend
+   * WorktreeService can refresh its worktree list and register new workspace folders.
+   */
+  private setupWorktreeCallbacks(): void {
+    this.sdkAdapter.setWorktreeCreatedCallback((data) => {
+      this.logger.info(
+        `[RPC] Worktree created: name=${data.name}, sessionId=${data.sessionId}`,
+      );
+
+      this.webviewManager
+        .broadcastMessage('git:worktreeChanged', {
+          action: 'created',
+          name: data.name,
+          path: data.cwd,
+        })
+        .catch((error) => {
+          this.logger.error(
+            'Failed to send git:worktreeChanged (created) to webview',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        });
+    });
+
+    this.sdkAdapter.setWorktreeRemovedCallback((data) => {
+      this.logger.info(
+        `[RPC] Worktree removed: path=${data.worktreePath}, sessionId=${data.sessionId}`,
+      );
+
+      this.webviewManager
+        .broadcastMessage('git:worktreeChanged', {
+          action: 'removed',
+          path: data.worktreePath,
+        })
+        .catch((error) => {
+          this.logger.error(
+            'Failed to send git:worktreeChanged (removed) to webview',
             error instanceof Error ? error : new Error(String(error)),
           );
         });

@@ -26,7 +26,11 @@ import type { RpcHandler } from '@ptah-extension/vscode-core';
 import { TOKENS } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type { IStateStorage } from '@ptah-extension/platform-core';
-import { MESSAGE_TYPES } from '@ptah-extension/shared';
+import {
+  MESSAGE_TYPES,
+  type ISdkPermissionHandler,
+} from '@ptah-extension/shared';
+import type { PtyManagerService } from '../services/pty-manager.service';
 
 /**
  * Callback type for obtaining the BrowserWindow's webContents.send method.
@@ -58,11 +62,12 @@ export class IpcBridge {
 
   constructor(
     private readonly container: DependencyContainer,
-    private readonly getWindow: GetWindowFn
+    private readonly getWindow: GetWindowFn,
+    private readonly ptyManager?: PtyManagerService,
   ) {
     this.rpcHandler = container.resolve<RpcHandler>(TOKENS.RPC_HANDLER);
     this.stateStorage = container.resolve<IStateStorage>(
-      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE
+      PLATFORM_TOKENS.WORKSPACE_STATE_STORAGE,
     );
   }
 
@@ -74,6 +79,7 @@ export class IpcBridge {
   initialize(): void {
     this.setupRpcHandler();
     this.setupStateHandlers();
+    this.setupTerminalHandlers();
     console.log('[IpcBridge] IPC listeners initialized');
   }
 
@@ -109,7 +115,7 @@ export class IpcBridge {
         // Validate message structure
         if (!message || typeof message !== 'object') {
           console.warn(
-            '[IpcBridge] Received invalid RPC message (not an object)'
+            '[IpcBridge] Received invalid RPC message (not an object)',
           );
           return;
         }
@@ -129,18 +135,12 @@ export class IpcBridge {
           '';
 
         if (!method) {
-          console.warn(
-            '[IpcBridge] Received RPC message without method field',
-            { messageType: msg['type'] }
-          );
-          // Send error response if we have a correlationId
-          if (correlationId) {
-            event.sender.send('to-renderer', {
-              type: MESSAGE_TYPES.RPC_RESPONSE,
-              correlationId,
-              success: false,
-              error: { message: 'Missing method field in RPC message' },
-            });
+          // Not an RPC call — check for fire-and-forget messages from the frontend.
+          // In VS Code these are handled by WebviewMessageHandlerService; in Electron
+          // they arrive on the same 'rpc' channel but without a method field.
+          const messageType = msg['type'] as string | undefined;
+          if (messageType) {
+            this.handleFireAndForgetMessage(messageType, msg);
           }
           return;
         }
@@ -168,7 +168,7 @@ export class IpcBridge {
           error instanceof Error ? error.message : String(error);
         console.error(
           '[IpcBridge] Unexpected error handling RPC message:',
-          errorMessage
+          errorMessage,
         );
 
         // Attempt to send error response
@@ -194,11 +194,111 @@ export class IpcBridge {
         } catch {
           // Last-resort: log and swallow to prevent cascading crashes
           console.error(
-            '[IpcBridge] Failed to send error response to renderer'
+            '[IpcBridge] Failed to send error response to renderer',
           );
         }
       }
     });
+  }
+
+  /**
+   * Handle fire-and-forget messages from the frontend.
+   *
+   * These are one-way messages that don't expect an RPC response.
+   * In VS Code, they're handled by WebviewMessageHandlerService's switch/case.
+   * In Electron, they arrive on the 'rpc' channel without a method field.
+   *
+   * Handled message types:
+   * - SDK_PERMISSION_RESPONSE: User approved/denied a permission prompt
+   * - ASK_USER_QUESTION_RESPONSE: User answered a clarifying question
+   */
+  private handleFireAndForgetMessage(
+    type: string,
+    msg: Record<string, unknown>,
+  ): void {
+    const SDK_PERMISSION_HANDLER = Symbol.for('SdkPermissionHandler');
+
+    switch (type) {
+      case MESSAGE_TYPES.SDK_PERMISSION_RESPONSE: {
+        // Frontend sends: { type, response: { id, decision, reason?, modifiedInput? } }
+        const response = (msg['response'] || msg['payload']) as
+          | {
+              id: string;
+              decision: string;
+              reason?: string;
+              modifiedInput?: Record<string, unknown>;
+            }
+          | undefined;
+        if (!response?.id) {
+          console.warn('[IpcBridge] SDK permission response missing payload');
+          return;
+        }
+        try {
+          if (this.container.isRegistered(SDK_PERMISSION_HANDLER)) {
+            const handler = this.container.resolve<ISdkPermissionHandler>(
+              SDK_PERMISSION_HANDLER,
+            );
+            handler.handleResponse(response.id, {
+              id: response.id,
+              decision: response.decision as
+                | 'allow'
+                | 'deny'
+                | 'deny_with_message'
+                | 'always_allow',
+              reason: response.reason,
+              modifiedInput: response.modifiedInput,
+            });
+            console.log('[IpcBridge] SDK permission response processed', {
+              id: response.id,
+              decision: response.decision,
+            });
+          }
+        } catch (error) {
+          console.error(
+            '[IpcBridge] Failed to process SDK permission response',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        break;
+      }
+
+      case MESSAGE_TYPES.ASK_USER_QUESTION_RESPONSE: {
+        const payload = msg['payload'] as
+          | { id: string; answers: Record<string, string> }
+          | undefined;
+        if (!payload) {
+          console.warn('[IpcBridge] AskUserQuestion response missing payload');
+          return;
+        }
+        try {
+          if (this.container.isRegistered(SDK_PERMISSION_HANDLER)) {
+            const handler = this.container.resolve<ISdkPermissionHandler>(
+              SDK_PERMISSION_HANDLER,
+            );
+            handler.handleQuestionResponse({
+              id: payload.id,
+              answers: payload.answers,
+            });
+            console.log('[IpcBridge] AskUserQuestion response processed', {
+              id: payload.id,
+            });
+          }
+        } catch (error) {
+          console.error(
+            '[IpcBridge] Failed to process AskUserQuestion response',
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        break;
+      }
+
+      default:
+        // Unknown message type — log for debugging but don't error
+        console.debug('[IpcBridge] Unhandled message type from renderer', {
+          type,
+        });
+        break;
+    }
   }
 
   /**
@@ -221,7 +321,7 @@ export class IpcBridge {
       } catch (error) {
         console.error(
           '[IpcBridge] Failed to get state:',
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
         event.returnValue = {};
       }
@@ -234,10 +334,59 @@ export class IpcBridge {
       } catch (error) {
         console.error(
           '[IpcBridge] Failed to set state:',
-          error instanceof Error ? error.message : String(error)
+          error instanceof Error ? error.message : String(error),
         );
       }
     });
+  }
+
+  /**
+   * Setup terminal binary IPC handlers (TASK_2025_227).
+   *
+   * Terminal data uses direct IPC channels for low-latency communication:
+   * - terminal:data-in  (renderer -> main): Keyboard input forwarded to PTY
+   * - terminal:resize    (renderer -> main): Terminal dimension changes
+   * - terminal:data-out  (main -> renderer): PTY output forwarded to xterm
+   * - terminal:exit      (main -> renderer): PTY process exit notification
+   *
+   * Only session lifecycle (terminal:create, terminal:kill) uses JSON RPC.
+   */
+  private setupTerminalHandlers(): void {
+    if (!this.ptyManager) return;
+
+    // Renderer -> Main: terminal keyboard input
+    ipcMain.on(
+      'terminal:data-in',
+      (_event: IpcMainEvent, id: string, data: string) => {
+        this.ptyManager!.write(id, data);
+      },
+    );
+
+    // Renderer -> Main: terminal resize
+    ipcMain.on(
+      'terminal:resize',
+      (_event: IpcMainEvent, id: string, cols: number, rows: number) => {
+        this.ptyManager!.resize(id, cols, rows);
+      },
+    );
+
+    // Main -> Renderer: PTY output data
+    this.ptyManager.onData((id: string, data: string) => {
+      const win = this.getWindow();
+      if (win) {
+        win.webContents.send('terminal:data-out', id, data);
+      }
+    });
+
+    // Main -> Renderer: PTY exit notification
+    this.ptyManager.onExit((id: string, exitCode: number) => {
+      const win = this.getWindow();
+      if (win) {
+        win.webContents.send('terminal:exit', id, exitCode);
+      }
+    });
+
+    console.log('[IpcBridge] Terminal IPC handlers initialized');
   }
 
   /**
@@ -247,6 +396,9 @@ export class IpcBridge {
     ipcMain.removeAllListeners('rpc');
     ipcMain.removeAllListeners('get-state');
     ipcMain.removeAllListeners('set-state');
+    ipcMain.removeAllListeners('terminal:data-in');
+    ipcMain.removeAllListeners('terminal:resize');
+    this.ptyManager?.disposeAll();
     console.log('[IpcBridge] IPC listeners disposed');
   }
 }

@@ -16,7 +16,7 @@ import { ClaudeRpcService } from '@ptah-extension/core';
  * Factory to create FileSuggestion test data
  */
 function createFileSuggestion(
-  overrides: Partial<FileSuggestion> = {}
+  overrides: Partial<FileSuggestion> = {},
 ): FileSuggestion {
   return {
     path: overrides.path ?? '/workspace/src/test.ts',
@@ -64,7 +64,7 @@ describe('FilePickerService', () => {
         createFileSuggestion({
           path: `/workspace/file-${i}.ts`,
           name: `file-${i}.ts`,
-        })
+        }),
       );
       // Access private signal to set test data
       (
@@ -85,7 +85,7 @@ describe('FilePickerService', () => {
         createFileSuggestion({
           path: `/workspace/file-${i}.ts`,
           name: `file-${i}.ts`,
-        })
+        }),
       );
       (
         service as unknown as {
@@ -105,7 +105,7 @@ describe('FilePickerService', () => {
         createFileSuggestion({
           path: `/workspace/file-${i}.ts`,
           name: `file-${i}.ts`,
-        })
+        }),
       );
       (
         service as unknown as {
@@ -147,7 +147,7 @@ describe('FilePickerService', () => {
         directory: '',
       }),
       createFileSuggestion({
-        path: '/workspace/.claude/specs/README.md',
+        path: '/workspace/.ptah/specs/README.md',
         name: 'README.md',
         directory: 'task-tracking',
       }),
@@ -415,7 +415,7 @@ describe('FilePickerService', () => {
           path: `/workspace/src/component-${i}.ts`,
           name: `component-${i}.ts`,
           directory: 'src',
-        })
+        }),
       );
       (
         service as unknown as {
@@ -504,7 +504,7 @@ describe('FilePickerService', () => {
           directory: '',
         }),
         createFileSuggestion({
-          path: '/workspace/.claude/specs/README.md',
+          path: '/workspace/.ptah/specs/README.md',
           name: 'README.md',
           directory: 'task-tracking',
         }),

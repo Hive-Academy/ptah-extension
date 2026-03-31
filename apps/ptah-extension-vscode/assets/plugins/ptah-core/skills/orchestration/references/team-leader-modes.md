@@ -30,7 +30,7 @@ Task({
   description: 'Decompose TASK_[ID] into batches',
   prompt: `You are team-leader in MODE 1: DECOMPOSITION for TASK_[ID].
 
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_[ID]
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_[ID]
 **User Request**: "[original request from context.md]"
 
 Read implementation-plan.md and create tasks.md with batched tasks.
@@ -157,16 +157,16 @@ Instead of (or alongside) invoking a single sub-agent developer for a batch, the
 ```
 # Team-leader spawns CLI agents for independent tasks in Batch 2
 agent1 = ptah_agent_spawn {
-  task: "Implement the AgentStatusBadge component following the spec in .claude/specs/TASK_2025_042/tasks.md Task 2.1. Use Angular standalone component with signals. Reference libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts for conventions.",
+  task: "Implement the AgentStatusBadge component following the spec in .ptah/specs/TASK_2025_042/tasks.md Task 2.1. Use Angular standalone component with signals. Reference libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts for conventions.",
   cli: "gemini",
-  taskFolder: "D:/projects/ptah-extension/.claude/specs/TASK_2025_042",
+  taskFolder: "D:/projects/ptah-extension/.ptah/specs/TASK_2025_042",
   files: ["libs/frontend/chat/src/lib/components/molecules/agent-card/agent-card.component.ts"]
 }
 
 agent2 = ptah_agent_spawn {
-  task: "Implement the AgentOutputPanel component following the spec in .claude/specs/TASK_2025_042/tasks.md Task 2.2. Use Angular standalone component with signals.",
+  task: "Implement the AgentOutputPanel component following the spec in .ptah/specs/TASK_2025_042/tasks.md Task 2.2. Use Angular standalone component with signals.",
   cli: "gemini",
-  taskFolder: "D:/projects/ptah-extension/.claude/specs/TASK_2025_042"
+  taskFolder: "D:/projects/ptah-extension/.ptah/specs/TASK_2025_042"
 }
 
 # Wait for both, read results, verify, then commit

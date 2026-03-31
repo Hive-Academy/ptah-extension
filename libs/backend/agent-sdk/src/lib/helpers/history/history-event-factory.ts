@@ -64,6 +64,7 @@ export class HistoryEventFactory {
    * @param role - Message role ('user' or 'assistant')
    * @param index - Event index for ID generation
    * @param timestamp - Event timestamp
+   * @param imageCount - Optional number of inline images (for user messages with images)
    * @returns MessageStartEvent
    */
   createMessageStart(
@@ -71,7 +72,8 @@ export class HistoryEventFactory {
     messageId: string,
     role: 'user' | 'assistant',
     index: number,
-    timestamp: number
+    timestamp: number,
+    imageCount?: number,
   ): MessageStartEvent {
     return {
       eventType: 'message_start',
@@ -81,6 +83,7 @@ export class HistoryEventFactory {
       role,
       timestamp,
       source: 'history',
+      ...(imageCount ? { imageCount } : {}),
     };
   }
 
@@ -99,7 +102,7 @@ export class HistoryEventFactory {
     messageId: string,
     index: number,
     timestamp: number,
-    usageData?: MessageUsageData
+    usageData?: MessageUsageData,
   ): MessageCompleteEvent {
     return {
       eventType: 'message_complete',
@@ -136,7 +139,7 @@ export class HistoryEventFactory {
     text: string,
     blockIndex: number,
     index: number,
-    timestamp: number
+    timestamp: number,
   ): TextDeltaEvent {
     return {
       eventType: 'text_delta',
@@ -167,7 +170,7 @@ export class HistoryEventFactory {
     thinking: string,
     blockIndex: number,
     index: number,
-    timestamp: number
+    timestamp: number,
   ): ThinkingDeltaEvent {
     return {
       eventType: 'thinking_delta',
@@ -204,7 +207,7 @@ export class HistoryEventFactory {
     toolName: string,
     toolInput: Record<string, unknown> | undefined,
     index: number,
-    timestamp: number
+    timestamp: number,
   ): ToolStartEvent {
     return {
       eventType: 'tool_start',
@@ -239,7 +242,7 @@ export class HistoryEventFactory {
     output: string,
     isError: boolean,
     index: number,
-    timestamp: number
+    timestamp: number,
   ): ToolResultEvent {
     return {
       eventType: 'tool_result',
@@ -278,7 +281,7 @@ export class HistoryEventFactory {
     index: number,
     timestamp: number,
     parentToolUseId?: string,
-    agentId?: string
+    agentId?: string,
   ): AgentStartEvent {
     let agentType = 'unknown';
     let agentDescription: string | undefined;
@@ -328,7 +331,7 @@ export class HistoryEventFactory {
     messageId: string,
     index: number,
     timestamp: number,
-    parentToolUseId: string
+    parentToolUseId: string,
   ): MessageStartEvent {
     return {
       eventType: 'message_start',
@@ -361,7 +364,7 @@ export class HistoryEventFactory {
     blockIndex: number,
     index: number,
     timestamp: number,
-    parentToolUseId: string
+    parentToolUseId: string,
   ): TextDeltaEvent {
     return {
       eventType: 'text_delta',
@@ -397,7 +400,7 @@ export class HistoryEventFactory {
     toolInput: Record<string, unknown> | undefined,
     index: number,
     timestamp: number,
-    parentToolUseId: string
+    parentToolUseId: string,
   ): ToolStartEvent {
     return {
       eventType: 'tool_start',
@@ -435,7 +438,7 @@ export class HistoryEventFactory {
     isError: boolean,
     index: number,
     timestamp: number,
-    parentToolUseId: string
+    parentToolUseId: string,
   ): ToolResultEvent {
     return {
       eventType: 'tool_result',
@@ -468,7 +471,7 @@ export class HistoryEventFactory {
     index: number,
     timestamp: number,
     parentToolUseId: string,
-    usageData?: MessageUsageData
+    usageData?: MessageUsageData,
   ): MessageCompleteEvent {
     return {
       eventType: 'message_complete',

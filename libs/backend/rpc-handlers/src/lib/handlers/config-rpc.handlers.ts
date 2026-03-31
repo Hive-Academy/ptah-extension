@@ -23,7 +23,6 @@ import {
   DEFAULT_PROVIDER_ID,
 } from '@ptah-extension/agent-sdk';
 import {
-  ClaudeModel,
   PermissionLevel,
   ConfigModelSwitchParams,
   ConfigModelSwitchResult,
@@ -54,7 +53,7 @@ export class ConfigRpcHandlers {
     @inject(SDK_TOKENS.SDK_PROVIDER_MODELS)
     private readonly providerModels: ProviderModelsService,
     @inject(SDK_TOKENS.SDK_PERMISSION_HANDLER)
-    private readonly permissionHandler: SdkPermissionHandler
+    private readonly permissionHandler: SdkPermissionHandler,
   ) {}
 
   /**
@@ -74,11 +73,11 @@ export class ConfigRpcHandlers {
     // even for sessions started before any toggle RPC is received
     const autopilotEnabled = this.configManager.getWithDefault<boolean>(
       'autopilot.enabled',
-      false
+      false,
     );
     const savedLevel = this.configManager.getWithDefault<PermissionLevel>(
       'autopilot.permissionLevel',
-      'ask'
+      'ask',
     );
     const effectiveLevel = autopilotEnabled ? savedLevel : 'ask';
     this.permissionHandler.setPermissionLevel(effectiveLevel);
@@ -129,7 +128,7 @@ export class ConfigRpcHandlers {
               'Failed to sync model to active session (config saved)',
               syncError instanceof Error
                 ? syncError
-                : new Error(String(syncError))
+                : new Error(String(syncError)),
             );
           }
         }
@@ -140,7 +139,7 @@ export class ConfigRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: config:model-switch failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -158,17 +157,17 @@ export class ConfigRpcHandlers {
           this.logger.debug('RPC: config:model-get called');
 
           const model =
-            this.configManager.get<ClaudeModel>('model.selected') || 'default';
+            this.configManager.get<string>('model.selected') || 'default';
 
           return { model };
         } catch (error) {
           this.logger.error(
             'RPC: config:model-get failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -190,8 +189,8 @@ export class ConfigRpcHandlers {
         ) {
           throw new Error(
             `Invalid permission level: ${permissionLevel}. Must be one of: ${validLevels.join(
-              ', '
-            )}`
+              ', ',
+            )}`,
           );
         }
 
@@ -205,14 +204,14 @@ export class ConfigRpcHandlers {
         if (enabled && permissionLevel === 'yolo') {
           this.logger.warn(
             'YOLO mode enabled - DANGEROUS: All permission prompts will be skipped',
-            { enabled, permissionLevel }
+            { enabled, permissionLevel },
           );
         }
 
         await this.configManager.set('autopilot.enabled', enabled);
         await this.configManager.set(
           'autopilot.permissionLevel',
-          permissionLevel
+          permissionLevel,
         );
 
         // Sync permission level to canUseTool callback (defense-in-depth)
@@ -243,7 +242,7 @@ export class ConfigRpcHandlers {
               'Failed to sync permission mode to active session (config saved)',
               syncError instanceof Error
                 ? syncError
-                : new Error(String(syncError))
+                : new Error(String(syncError)),
             );
           }
         }
@@ -257,7 +256,7 @@ export class ConfigRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: config:autopilot-toggle failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -276,28 +275,36 @@ export class ConfigRpcHandlers {
 
           const enabled = this.configManager.getWithDefault<boolean>(
             'autopilot.enabled',
-            false
+            false,
           );
           const permissionLevel =
             this.configManager.getWithDefault<PermissionLevel>(
               'autopilot.permissionLevel',
-              'ask'
+              'ask',
             );
 
           return { enabled, permissionLevel };
         } catch (error) {
           this.logger.error(
             'RPC: config:autopilot-get failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
   }
 
   /**
-   * config:models-list - Get available models with metadata (from SDK)
+   * config:models-list - Get available models with metadata
+   *
+   * TASK_2025_237: Merges two model sources:
+   * 1. SDK's supportedModels() — 3 tier slots (opus/sonnet/haiku) as recommended shortcuts
+   * 2. Anthropic /v1/models API — ALL available models for specific version selection
+   *
+   * SDK tier models appear first (as "latest" recommended options), followed by
+   * additional API models not already covered by a tier. The SDK accepts any model
+   * string in setModel(), so all models work regardless of source.
    */
   private registerModelsList(): void {
     this.rpcHandler.registerMethod<void, ConfigModelsListResult>(
@@ -310,13 +317,16 @@ export class ConfigRpcHandlers {
           const savedModel =
             this.configManager.get<string>('model.selected') || 'default';
 
-          // Fetch models dynamically from SDK
+          // Fetch SDK tier models (always available, 3 slots)
           const sdkModels = await this.sdkAdapter.getSupportedModels();
+
+          // Fetch API models in parallel (all available versions, non-blocking)
+          const apiModels = await this.sdkAdapter.getApiModels();
 
           // Check if an Anthropic-compatible provider is active and get tier overrides
           const authMethod = this.configManager.getWithDefault<string>(
             'authMethod',
-            'auto'
+            'auto',
           );
           let tierOverrides: ReturnType<
             ProviderModelsService['getModelTiers']
@@ -326,78 +336,49 @@ export class ConfigRpcHandlers {
               const activeProviderId =
                 this.configManager.getWithDefault<string>(
                   'anthropicProviderId',
-                  DEFAULT_PROVIDER_ID
+                  DEFAULT_PROVIDER_ID,
                 );
               tierOverrides =
                 this.providerModels.getModelTiers(activeProviderId);
             } catch (e) {
               this.logger.warn(
                 'Failed to read provider tier overrides',
-                e instanceof Error ? e : new Error(String(e))
+                e instanceof Error ? e : new Error(String(e)),
               );
             }
           }
 
-          // Transform to frontend format
-          // Use displayName for tier detection since SDK's 'default' value
-          // can change which tier it points to (was Sonnet, now Opus as of SDK 0.2.25+)
+          // --- Phase 1: Build SDK tier models (recommended shortcuts) ---
+          const sdkModelIds = new Set<string>();
           const models = sdkModels.map((m) => {
-            let providerModelId: string | null = null;
             const valueLower = m.value.toLowerCase();
             const displayLower = (m.displayName || '').toLowerCase();
             const descLower = (m.description || '').toLowerCase();
 
-            // Resolve SDK's 'default' tier to an explicit tier name.
-            // The SDK's query() API doesn't always resolve 'default' to the model
-            // advertised by supportedModels(). Using the explicit tier ('opus', 'sonnet')
-            // guarantees the correct model is used.
+            const tier = this.detectModelTier(
+              valueLower,
+              displayLower,
+              descLower,
+            );
+
+            // Resolve 'default' to explicit tier (SDK query() quirk)
             let resolvedValue = m.value;
-            if (valueLower === 'default') {
-              if (displayLower.includes('opus') || descLower.includes('opus')) {
-                resolvedValue = 'opus';
-              } else if (
-                displayLower.includes('sonnet') ||
-                descLower.includes('sonnet')
-              ) {
-                resolvedValue = 'sonnet';
-              } else if (
-                displayLower.includes('haiku') ||
-                descLower.includes('haiku')
-              ) {
-                resolvedValue = 'haiku';
-              }
+            if (valueLower === 'default' && tier) {
+              resolvedValue = tier;
               this.logger.info(
-                `Resolved SDK 'default' tier to '${resolvedValue}' based on description`,
-                {
-                  displayName: m.displayName,
-                  description: m.description,
-                }
+                `Resolved SDK 'default' tier to '${resolvedValue}'`,
+                { displayName: m.displayName },
               );
             }
 
-            if (tierOverrides) {
-              if (
-                (valueLower.includes('sonnet') ||
-                  displayLower.includes('sonnet')) &&
-                tierOverrides.sonnet
-              ) {
-                providerModelId = tierOverrides.sonnet;
-              } else if (
-                (valueLower.includes('opus') ||
-                  displayLower.includes('opus')) &&
-                tierOverrides.opus
-              ) {
-                providerModelId = tierOverrides.opus;
-              } else if (
-                (valueLower.includes('haiku') ||
-                  displayLower.includes('haiku')) &&
-                tierOverrides.haiku
-              ) {
-                providerModelId = tierOverrides.haiku;
-              }
+            sdkModelIds.add(resolvedValue);
+
+            // Apply provider tier overrides
+            let providerModelId: string | null = null;
+            if (tierOverrides && tier) {
+              providerModelId = tierOverrides[tier] ?? null;
             }
 
-            // When a provider model is mapped, show its pricing instead of Claude's
             const description = providerModelId
               ? getModelPricingDescription(providerModelId)
               : m.description;
@@ -412,23 +393,77 @@ export class ConfigRpcHandlers {
                 valueLower.includes('sonnet') ||
                 displayLower.includes('sonnet'),
               providerModelId,
+              tier,
             };
           });
 
-          this.logger.debug('RPC: config:models-list fetched from SDK', {
-            count: models.length,
+          // --- Phase 2: Add API models not already covered by SDK tiers ---
+          for (const apiModel of apiModels) {
+            // Skip if already represented by an SDK tier model
+            if (sdkModelIds.has(apiModel.id)) continue;
+
+            const idLower = apiModel.id.toLowerCase();
+            const nameLower = apiModel.displayName.toLowerCase();
+            const tier = this.detectModelTier(idLower, nameLower, '');
+
+            // Apply provider tier overrides
+            let providerModelId: string | null = null;
+            if (tierOverrides && tier) {
+              providerModelId = tierOverrides[tier] ?? null;
+            }
+
+            const description = providerModelId
+              ? getModelPricingDescription(providerModelId)
+              : getModelPricingDescription(apiModel.id);
+
+            models.push({
+              id: apiModel.id,
+              name: apiModel.displayName,
+              description,
+              apiName: apiModel.id,
+              isSelected: apiModel.id === savedModel,
+              isRecommended: false,
+              providerModelId,
+              tier,
+            });
+          }
+
+          this.logger.debug('RPC: config:models-list merged', {
+            sdkCount: sdkModels.length,
+            apiCount: apiModels.length,
+            totalCount: models.length,
+            modelIds: models.map((m) => m.id),
           });
 
           return { models };
         } catch (error) {
           this.logger.error(
             'RPC: config:models-list failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw error;
         }
-      }
+      },
     );
+  }
+
+  /**
+   * Detect which tier family a model belongs to based on its value and metadata.
+   * Used for provider override mapping — even full model IDs like
+   * 'claude-sonnet-4-5-20250514' belong to the 'sonnet' tier family.
+   *
+   * @returns The detected tier, or undefined for unrecognized models
+   */
+  private detectModelTier(
+    valueLower: string,
+    displayLower: string,
+    descLower: string,
+  ): 'opus' | 'sonnet' | 'haiku' | undefined {
+    const combined = `${valueLower} ${displayLower} ${descLower}`;
+    if (combined.includes('opus')) return 'opus';
+    if (combined.includes('sonnet')) return 'sonnet';
+    if (combined.includes('haiku')) return 'haiku';
+    return undefined;
   }
 
   /**
@@ -443,7 +478,7 @@ export class ConfigRpcHandlers {
         this.logger.debug('RPC: config:effort-get called');
         const effort = this.configManager.getWithDefault<string>(
           'reasoningEffort',
-          ''
+          '',
         );
         return {
           effort: (effort || undefined) as EffortLevel | undefined,
@@ -451,7 +486,7 @@ export class ConfigRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: config:effort-get failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -477,7 +512,7 @@ export class ConfigRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: config:effort-set failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         throw error;
       }
@@ -488,7 +523,7 @@ export class ConfigRpcHandlers {
    * Map frontend permission level to SDK permission mode
    */
   private mapPermissionToSdkMode(
-    level: PermissionLevel
+    level: PermissionLevel,
   ): 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' {
     const modeMap: Record<
       PermissionLevel,

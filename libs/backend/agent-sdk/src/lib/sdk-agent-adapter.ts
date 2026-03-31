@@ -43,9 +43,12 @@ import {
   StreamTransformer,
   SdkModuleLoader,
   SdkModelService,
+  type ApiModelEntry,
   type SessionIdResolvedCallback,
   type ResultStatsCallback,
   type CompactionStartCallback,
+  type WorktreeCreatedCallback,
+  type WorktreeRemovedCallback,
   type SlashCommandConfig,
 } from './helpers';
 import {
@@ -58,6 +61,8 @@ export type {
   SessionIdResolvedCallback,
   ResultStatsCallback,
   CompactionStartCallback,
+  WorktreeCreatedCallback,
+  WorktreeRemovedCallback,
 } from './helpers';
 
 /**
@@ -136,6 +141,18 @@ export class SdkAgentAdapter implements IAIProvider {
   private compactionStartCallback: CompactionStartCallback | null = null;
 
   /**
+   * Callback to notify when SDK creates a worktree (TASK_2025_236)
+   * Set by RpcMethodRegistrationService to send git:worktreeChanged events
+   */
+  private worktreeCreatedCallback: WorktreeCreatedCallback | null = null;
+
+  /**
+   * Callback to notify when SDK removes a worktree (TASK_2025_236)
+   * Set by RpcMethodRegistrationService to send git:worktreeChanged events
+   */
+  private worktreeRemovedCallback: WorktreeRemovedCallback | null = null;
+
+  /**
    * Create SDK Agent Adapter with all dependencies injected
    * TASK_2025_102: Reduced dependencies - query orchestration moved to SessionLifecycleManager
    */
@@ -159,7 +176,7 @@ export class SdkAgentAdapter implements IAIProvider {
     @inject(SDK_TOKENS.SDK_MODEL_SERVICE)
     private readonly modelService: SdkModelService,
     @inject(PLATFORM_TOKENS.PLATFORM_INFO)
-    private readonly platformInfo: IPlatformInfo
+    private readonly platformInfo: IPlatformInfo,
   ) {}
 
   /**
@@ -181,7 +198,7 @@ export class SdkAgentAdapter implements IAIProvider {
       // This ensures token changes are detected even when initial auth fails
       this.configWatcher.registerWatchers(async () => {
         this.logger.info(
-          '[SdkAgentAdapter] Config change detected, re-initializing...'
+          '[SdkAgentAdapter] Config change detected, re-initializing...',
         );
         // TASK_2025_175: disposeAllSessions is now async, await it
         await this.sessionLifecycle.disposeAllSessions();
@@ -194,9 +211,8 @@ export class SdkAgentAdapter implements IAIProvider {
       // TASK_2025_194: Auth runs before CLI detection so third-party providers
       // (Z.AI, OpenRouter) work even without Claude CLI installed.
       const authMethod = this.config.get<string>('authMethod') || 'auto';
-      const authResult = await this.authManager.configureAuthentication(
-        authMethod
-      );
+      const authResult =
+        await this.authManager.configureAuthentication(authMethod);
 
       if (!authResult.configured) {
         this.health = {
@@ -211,7 +227,7 @@ export class SdkAgentAdapter implements IAIProvider {
       // TASK_2025_194: CLI detection no longer gates initialization.
       // If CLI is not found, we fall back to the bundled cli.js shipped with the extension.
       this.logger.info(
-        '[SdkAgentAdapter] Detecting Claude CLI installation...'
+        '[SdkAgentAdapter] Detecting Claude CLI installation...',
       );
       const configuredPath = this.config.get<string>('claudeCliPath');
       if (configuredPath) {
@@ -232,19 +248,19 @@ export class SdkAgentAdapter implements IAIProvider {
         // Fall back to bundled cli.js shipped alongside the extension
         const bundledCliPath = path.join(
           this.platformInfo.extensionPath,
-          'cli.js'
+          'cli.js',
         );
         if (existsSync(bundledCliPath)) {
           this.cliJsPath = bundledCliPath;
           this.logger.info(
             '[SdkAgentAdapter] Claude CLI not found - using bundled cli.js fallback',
-            { bundledCliPath }
+            { bundledCliPath },
           );
         } else {
           this.cliJsPath = null;
           this.logger.error(
             '[SdkAgentAdapter] Bundled cli.js not found at expected path',
-            new Error(`cli.js missing at ${bundledCliPath}`)
+            new Error(`cli.js missing at ${bundledCliPath}`),
           );
         }
       }
@@ -274,7 +290,7 @@ export class SdkAgentAdapter implements IAIProvider {
           '[SdkAgentAdapter] Failed to set default model',
           modelError instanceof Error
             ? modelError
-            : new Error(String(modelError))
+            : new Error(String(modelError)),
         );
       }
 
@@ -303,7 +319,7 @@ export class SdkAgentAdapter implements IAIProvider {
     this.sessionLifecycle.disposeAllSessions().catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Error during session disposal',
-        err instanceof Error ? err : new Error(String(err))
+        err instanceof Error ? err : new Error(String(err)),
       );
     });
     this.authManager.clearAuthentication();
@@ -327,6 +343,19 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
+   * Get the resolved path to the Claude Code CLI executable (cli.js).
+   *
+   * TASK_2025_194: The SDK's default import.meta.url-based resolution bakes in
+   * the CI/build-time path which doesn't exist in production. This getter exposes
+   * the runtime-resolved path so InternalQueryService can pass it through.
+   *
+   * @returns Resolved cli.js path, or null if not yet initialized
+   */
+  getCliJsPath(): string | null {
+    return this.cliJsPath;
+  }
+
+  /**
    * Get supported models from SDK's native API
    * Delegates to SdkModelService for fetching and caching.
    *
@@ -342,6 +371,14 @@ export class SdkAgentAdapter implements IAIProvider {
    */
   async getDefaultModel(): Promise<string> {
     return this.modelService.getDefaultModel();
+  }
+
+  /**
+   * Get all available models from the Anthropic /v1/models API
+   * TASK_2025_237: Enables dynamic model discovery beyond SDK's 3 tier slots
+   */
+  async getApiModels(): Promise<ApiModelEntry[]> {
+    return this.modelService.fetchApiModels();
   }
 
   /**
@@ -394,11 +431,11 @@ export class SdkAgentAdapter implements IAIProvider {
        * Resolved by PluginLoaderService for premium users.
        */
       pluginPaths?: string[];
-    }
+    },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        'SdkAgentAdapter not initialized. Call initialize() first.'
+        'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }
 
@@ -413,13 +450,14 @@ export class SdkAgentAdapter implements IAIProvider {
 
     this.logger.info(
       `[SdkAgentAdapter] Starting NEW chat session for tab: ${tabId}`,
-      { isPremium, mcpServerRunning }
+      { isPremium, mcpServerRunning },
     );
 
     // TASK_2025_102: Delegate query execution to SessionLifecycleManager
     // TASK_2025_098: Pass compactionStartCallback for compaction notifications
     // TASK_2025_108: Pass isPremium and mcpServerRunning for premium feature gating (MCP + system prompt)
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
+    // TASK_2025_236: Pass worktree callbacks for worktree change notifications
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId: trackingId,
@@ -434,19 +472,21 @@ export class SdkAgentAdapter implements IAIProvider {
             }
           : undefined,
         onCompactionStart: this.compactionStartCallback || undefined,
+        onWorktreeCreated: this.worktreeCreatedCallback || undefined,
+        onWorktreeRemoved: this.worktreeRemovedCallback || undefined,
         isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
-      }
+      },
     );
 
     // Create callback that saves metadata AND notifies webview
     const sessionIdCallback = this.createSessionIdCallback(
       config?.projectPath || process.cwd(),
       config?.name || `Session ${new Date().toLocaleDateString()}`,
-      config?.tabId
+      config?.tabId,
     );
 
     // Return transformed stream
@@ -469,7 +509,7 @@ export class SdkAgentAdapter implements IAIProvider {
     this.sessionLifecycle.endSession(sessionId).catch((err) => {
       this.logger.warn(
         '[SdkAgentAdapter] Error ending session',
-        err instanceof Error ? err : new Error(String(err))
+        err instanceof Error ? err : new Error(String(err)),
       );
     });
   }
@@ -521,11 +561,11 @@ export class SdkAgentAdapter implements IAIProvider {
        * SESSION_STATS can be routed to the correct frontend tab.
        */
       tabId?: string;
-    }
+    },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        'SdkAgentAdapter not initialized. Call initialize() first.'
+        'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }
 
@@ -533,7 +573,7 @@ export class SdkAgentAdapter implements IAIProvider {
     const existingSession = this.sessionLifecycle.getActiveSession(sessionId);
     if (existingSession && existingSession.query) {
       this.logger.info(
-        `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`
+        `[SdkAgentAdapter] Session ${sessionId} already active, returning existing stream`,
       );
       return this.streamTransformer.transform({
         sdkQuery: existingSession.query,
@@ -562,24 +602,27 @@ export class SdkAgentAdapter implements IAIProvider {
     // TASK_2025_151: Pass enhancedPromptsContent for AI-generated system prompt
     // TASK_2025_153: Pass pluginPaths for session plugin loading
     // TASK_2025_194: Pass pathToClaudeCodeExecutable to override baked-in import.meta.url path
+    // TASK_2025_236: Pass worktree callbacks for worktree change notifications
     const { sdkQuery, initialModel } = await this.sessionLifecycle.executeQuery(
       {
         sessionId,
         sessionConfig: config,
         resumeSessionId: sessionId as string,
         onCompactionStart: this.compactionStartCallback || undefined,
+        onWorktreeCreated: this.worktreeCreatedCallback || undefined,
+        onWorktreeRemoved: this.worktreeRemovedCallback || undefined,
         isPremium,
         mcpServerRunning,
         enhancedPromptsContent,
         pluginPaths,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
-      }
+      },
     );
 
     // For resumed sessions, just update lastActiveAt (metadata already exists)
     const resumeCallback = async (
       tabId: string | undefined,
-      realSessionId: string
+      realSessionId: string,
     ) => {
       await this.metadataStore.touch(realSessionId);
 
@@ -628,14 +671,14 @@ export class SdkAgentAdapter implements IAIProvider {
   private createSessionIdCallback(
     workspaceId: string,
     sessionName: string,
-    tabId?: string
+    tabId?: string,
   ): (tabId: string | undefined, realSessionId: string) => void {
     return async (
       _tabIdFromCallback: string | undefined,
-      realSessionId: string
+      realSessionId: string,
     ) => {
       this.logger.info(
-        `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`
+        `[SdkAgentAdapter] Saving session metadata for ${realSessionId} (tabId: ${tabId})`,
       );
 
       // Save session metadata to persistent storage
@@ -681,19 +724,35 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
+   * Set callback for when SDK creates a worktree (TASK_2025_236)
+   * Called by RpcMethodRegistrationService to send git:worktreeChanged events to webview
+   */
+  setWorktreeCreatedCallback(callback: WorktreeCreatedCallback): void {
+    this.worktreeCreatedCallback = callback;
+  }
+
+  /**
+   * Set callback for when SDK removes a worktree (TASK_2025_236)
+   * Called by RpcMethodRegistrationService to send git:worktreeChanged events to webview
+   */
+  setWorktreeRemovedCallback(callback: WorktreeRemovedCallback): void {
+    this.worktreeRemovedCallback = callback;
+  }
+
+  /**
    * Send a message to an active session.
    * Delegates to SessionLifecycleManager.sendMessage()
    */
   async sendMessageToSession(
     sessionId: SessionId,
     content: string,
-    options?: AIMessageOptions
+    options?: AIMessageOptions,
   ): Promise<void> {
     return this.sessionLifecycle.sendMessage(
       sessionId,
       content,
       options?.files,
-      options?.images as { data: string; mediaType: string }[] | undefined
+      options?.images as { data: string; mediaType: string }[] | undefined,
     );
   }
 
@@ -707,17 +766,17 @@ export class SdkAgentAdapter implements IAIProvider {
   async executeSlashCommand(
     sessionId: SessionId,
     command: string,
-    config: SlashCommandConfig & { tabId?: string }
+    config: SlashCommandConfig & { tabId?: string },
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        'SdkAgentAdapter not initialized. Call initialize() first.'
+        'SdkAgentAdapter not initialized. Call initialize() first.',
       );
     }
 
     this.logger.info(
       `[SdkAgentAdapter] Executing slash command for session: ${sessionId}`,
-      { command: command.substring(0, 50) }
+      { command: command.substring(0, 50) },
     );
 
     const { sdkQuery, initialModel } =
@@ -728,6 +787,8 @@ export class SdkAgentAdapter implements IAIProvider {
         enhancedPromptsContent: config.enhancedPromptsContent,
         pluginPaths: config.pluginPaths,
         onCompactionStart: this.compactionStartCallback || undefined,
+        onWorktreeCreated: this.worktreeCreatedCallback || undefined,
+        onWorktreeRemoved: this.worktreeRemovedCallback || undefined,
         pathToClaudeCodeExecutable: this.cliJsPath || undefined,
       });
 
@@ -764,7 +825,7 @@ export class SdkAgentAdapter implements IAIProvider {
       | 'plan'
       | 'default'
       | 'acceptEdits'
-      | 'bypassPermissions'
+      | 'bypassPermissions',
   ): Promise<void> {
     return this.sessionLifecycle.setSessionPermissionLevel(sessionId, level);
   }

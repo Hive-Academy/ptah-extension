@@ -3,19 +3,15 @@
  *
  * Provides workspace analysis, file search, and diagnostics.
  * These are the foundational namespaces for codebase exploration.
- *
- * APPROVED EXCEPTION: This file retains `import * as vscode from 'vscode'`
- * because buildDiagnosticsNamespace() uses vscode.languages.getDiagnostics()
- * and vscode.DiagnosticSeverity. These are VS Code-specific IDE APIs
- * with no platform-core equivalent. The buildWorkspaceNamespace() and
- * buildSearchNamespace() functions are already platform-agnostic (use injected services).
+ * All functions are platform-agnostic — diagnostics use IDiagnosticsProvider
+ * injected from platform-core (VS Code or Electron implementation).
  */
 
-import * as vscode from 'vscode';
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
 } from '@ptah-extension/workspace-intelligence';
+import type { IDiagnosticsProvider } from '@ptah-extension/platform-core';
 import { CorrelationId } from '@ptah-extension/shared';
 import {
   WorkspaceNamespace,
@@ -37,7 +33,7 @@ export interface CoreNamespaceDependencies {
  * Delegates to WorkspaceAnalyzerService
  */
 export function buildWorkspaceNamespace(
-  deps: CoreNamespaceDependencies
+  deps: CoreNamespaceDependencies,
 ): WorkspaceNamespace {
   const { workspaceAnalyzer } = deps;
 
@@ -67,7 +63,7 @@ export function buildWorkspaceNamespace(
  * Delegates to ContextOrchestrationService
  */
 export function buildSearchNamespace(
-  deps: CoreNamespaceDependencies
+  deps: CoreNamespaceDependencies,
 ): SearchNamespace {
   const { contextOrchestration } = deps;
 
@@ -106,74 +102,58 @@ export function buildSearchNamespace(
 
 /**
  * Build diagnostics namespace
- * Uses VS Code's language diagnostics API
+ * Delegates to IDiagnosticsProvider for platform-agnostic diagnostics access
  */
-export function buildDiagnosticsNamespace(): DiagnosticsNamespace {
+export function buildDiagnosticsNamespace(
+  diagnosticsProvider: IDiagnosticsProvider,
+): DiagnosticsNamespace {
   return {
     getErrors: async () => {
-      return getDiagnosticsByLevel(vscode.DiagnosticSeverity.Error);
+      const fileDiagnostics = diagnosticsProvider.getDiagnostics();
+      const errors: DiagnosticInfo[] = [];
+      for (const entry of fileDiagnostics) {
+        errors.push(
+          ...entry.diagnostics
+            .filter((d) => d.severity === 'error')
+            .map((d) => ({
+              file: entry.file,
+              message: d.message,
+              line: d.line,
+            })),
+        );
+      }
+      return errors;
     },
     getWarnings: async () => {
-      return getDiagnosticsByLevel(vscode.DiagnosticSeverity.Warning);
+      const fileDiagnostics = diagnosticsProvider.getDiagnostics();
+      const warnings: DiagnosticInfo[] = [];
+      for (const entry of fileDiagnostics) {
+        warnings.push(
+          ...entry.diagnostics
+            .filter((d) => d.severity === 'warning')
+            .map((d) => ({
+              file: entry.file,
+              message: d.message,
+              line: d.line,
+            })),
+        );
+      }
+      return warnings;
     },
     getAll: async () => {
-      const diagnostics = vscode.languages.getDiagnostics();
+      const fileDiagnostics = diagnosticsProvider.getDiagnostics();
       const all: DiagnosticInfo[] = [];
-      for (const [uri, diags] of diagnostics) {
+      for (const entry of fileDiagnostics) {
         all.push(
-          ...diags.map((d) => ({
-            file: uri.fsPath,
+          ...entry.diagnostics.map((d) => ({
+            file: entry.file,
             message: d.message,
-            line: d.range.start.line,
-            severity: severityToString(d.severity),
-          }))
+            line: d.line,
+            severity: d.severity,
+          })),
         );
       }
       return all;
     },
   };
-}
-
-// ========================================
-// Helper Functions
-// ========================================
-
-/**
- * Convert VS Code DiagnosticSeverity enum to string
- */
-function severityToString(severity: vscode.DiagnosticSeverity): string {
-  switch (severity) {
-    case vscode.DiagnosticSeverity.Error:
-      return 'error';
-    case vscode.DiagnosticSeverity.Warning:
-      return 'warning';
-    case vscode.DiagnosticSeverity.Information:
-      return 'info';
-    case vscode.DiagnosticSeverity.Hint:
-      return 'hint';
-    default:
-      return 'unknown';
-  }
-}
-
-/**
- * Get diagnostics filtered by severity level
- */
-function getDiagnosticsByLevel(
-  severity: vscode.DiagnosticSeverity
-): DiagnosticInfo[] {
-  const diagnostics = vscode.languages.getDiagnostics();
-  const filtered: DiagnosticInfo[] = [];
-  for (const [uri, diags] of diagnostics) {
-    filtered.push(
-      ...diags
-        .filter((d) => d.severity === severity)
-        .map((d) => ({
-          file: uri.fsPath,
-          message: d.message,
-          line: d.range.start.line,
-        }))
-    );
-  }
-  return filtered;
 }

@@ -50,14 +50,14 @@ import {
           [viewportConfig]="subheadlineConfig"
           class="text-base sm:text-lg md:text-xl text-base-content/70 mb-8 sm:mb-10 md:mb-12 max-w-2xl mx-auto"
         >
-          14 days free. No credit card required. Works with OpenAI, Claude,
+          30 days free. No credit card required. Works with OpenAI, Claude,
           GitHub Copilot, and more.
         </p>
 
         <!-- Primary CTA Button with pulse animation via CSS keyframes -->
         <div viewportAnimation [viewportConfig]="primaryCtaConfig">
           <a
-            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode"
+            href="https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra"
             target="_blank"
             rel="noopener noreferrer"
             class="cta-button inline-block px-8 py-4 text-base sm:px-10 sm:py-5 sm:text-lg md:px-12 md:py-6 md:text-xl font-bold rounded-xl
@@ -125,7 +125,7 @@ export class CTASectionComponent {
    * Trust signals displayed with staggered fadeIn animations
    */
   public readonly trustSignals = [
-    '14-Day Free Trial',
+    '30-Day Free Trial',
     'No Credit Card Required',
     'Cancel Anytime',
   ];

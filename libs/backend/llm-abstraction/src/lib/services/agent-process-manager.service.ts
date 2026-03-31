@@ -12,7 +12,6 @@
 import { injectable, inject } from 'tsyringe';
 import { execFile, ChildProcess } from 'child_process';
 import { promisify } from 'util';
-import * as vscode from 'vscode';
 import { EventEmitter } from 'eventemitter3';
 import axios from 'axios';
 import {
@@ -21,6 +20,8 @@ import {
   LicenseService,
   SubagentRegistryService,
 } from '@ptah-extension/vscode-core';
+import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
+import type { IWorkspaceProvider } from '@ptah-extension/platform-core';
 import {
   AgentId,
   AgentStatus,
@@ -152,9 +153,12 @@ export class AgentProcessManager {
     if (cli !== 'codex' && cli !== 'copilot') return undefined;
     const effortKey =
       cli === 'codex' ? 'codexReasoningEffort' : 'copilotReasoningEffort';
-    const effort = vscode.workspace
-      .getConfiguration('ptah.agentOrchestration')
-      .get<string>(effortKey, '');
+    const effort =
+      this.workspace.getConfiguration<string>(
+        'ptah.agentOrchestration',
+        effortKey,
+        '',
+      ) ?? '';
     return effort || undefined;
   }
 
@@ -162,9 +166,11 @@ export class AgentProcessManager {
     // Codex always runs in full-auto headless mode (SDK has no permission hooks)
     if (cli === 'codex') return undefined;
     if (cli !== 'copilot') return undefined;
-    return vscode.workspace
-      .getConfiguration('ptah.agentOrchestration')
-      .get<boolean>('copilotAutoApprove', true);
+    return this.workspace.getConfiguration<boolean>(
+      'ptah.agentOrchestration',
+      'copilotAutoApprove',
+      true,
+    );
   }
 
   /** Cached MCP health check result (30s TTL) to avoid repeated HTTP calls on rapid spawns */
@@ -182,6 +188,8 @@ export class AgentProcessManager {
     private readonly licenseService: LicenseService,
     @inject(TOKENS.SUBAGENT_REGISTRY_SERVICE)
     private readonly subagentRegistry: SubagentRegistryService,
+    @inject(PLATFORM_TOKENS.WORKSPACE_PROVIDER)
+    private readonly workspace: IWorkspaceProvider,
   ) {
     this.logger.info('[AgentProcessManager] Initialized');
   }
@@ -230,7 +238,7 @@ export class AgentProcessManager {
     });
 
     // Determine which CLI to use
-    const cli = request.cli ?? (await this.getDefaultCli());
+    const cli = request.cli ?? (await this.getPreferredCli());
     if (!cli) {
       throw new Error(
         'No CLI agent available. Install Gemini CLI (`npm install -g @google/gemini-cli`) ' +
@@ -309,16 +317,18 @@ export class AgentProcessManager {
       !cliModel &&
       (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
     ) {
-      const agentConfig = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration',
-      );
       const configKey =
         cli === 'gemini'
           ? 'geminiModel'
           : cli === 'codex'
             ? 'codexModel'
             : 'copilotModel';
-      const configuredModel = agentConfig.get<string>(configKey, '');
+      const configuredModel =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          configKey,
+          '',
+        ) ?? '';
       if (configuredModel) {
         cliModel = configuredModel;
       }
@@ -460,16 +470,18 @@ export class AgentProcessManager {
       !resolvedModel &&
       (cli === 'gemini' || cli === 'codex' || cli === 'copilot')
     ) {
-      const agentConfig = vscode.workspace.getConfiguration(
-        'ptah.agentOrchestration',
-      );
       const configKey =
         cli === 'gemini'
           ? 'geminiModel'
           : cli === 'codex'
             ? 'codexModel'
             : 'copilotModel';
-      const configuredModel = agentConfig.get<string>(configKey, '');
+      const configuredModel =
+        this.workspace.getConfiguration<string>(
+          'ptah.agentOrchestration',
+          configKey,
+          '',
+        ) ?? '';
       if (configuredModel) {
         resolvedModel = configuredModel;
       }
@@ -1320,67 +1332,94 @@ export class AgentProcessManager {
   }
 
   private getMaxConcurrentAgents(): number {
-    const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
-    return config.get<number>('maxConcurrentAgents', 5);
+    return (
+      this.workspace.getConfiguration<number>(
+        'ptah.agentOrchestration',
+        'maxConcurrentAgents',
+        5,
+      ) ?? 5
+    );
   }
 
-  private async getDefaultCli(): Promise<CliType | null> {
-    // Check user preference first
-    const config = vscode.workspace.getConfiguration('ptah.agentOrchestration');
-    const preferred = config.get<string>('defaultCli');
-    this.logger.debug('[AgentProcessManager] getDefaultCli: user preference', {
-      preferred: preferred ?? 'none (auto-detect)',
-    });
+  private async getPreferredCli(): Promise<CliType | null> {
+    // Known system CLI types (not Ptah CLI IDs)
+    const systemCliTypes = new Set<string>(['gemini', 'codex', 'copilot']);
 
-    if (preferred) {
-      // Validate preferred CLI is a known adapter
-      const adapter = this.cliDetection.getAdapter(preferred as CliType);
+    // Read disabled CLIs to exclude them from selection
+    const disabledClis = new Set(
+      this.workspace.getConfiguration<string[]>(
+        'ptah.agentOrchestration',
+        'disabledClis',
+        [],
+      ) ?? [],
+    );
+
+    // Read user's preferred agent order
+    const preferredOrder =
+      this.workspace.getConfiguration<string[]>(
+        'ptah.agentOrchestration',
+        'preferredAgentOrder',
+        [],
+      ) ?? [];
+    this.logger.debug(
+      '[AgentProcessManager] getPreferredCli: preferred order',
+      {
+        order:
+          preferredOrder.length > 0
+            ? preferredOrder.join(', ')
+            : 'none (auto-detect)',
+        disabled: disabledClis.size > 0 ? [...disabledClis].join(', ') : 'none',
+      },
+    );
+
+    // Iterate preferred list and return first installed, enabled system CLI
+    for (const entry of preferredOrder) {
+      // Skip Ptah CLI IDs — they are handled by the namespace builder, not here
+      if (!systemCliTypes.has(entry)) {
+        continue;
+      }
+      // Skip disabled CLIs
+      if (disabledClis.has(entry)) {
+        continue;
+      }
+
+      const adapter = this.cliDetection.getAdapter(entry as CliType);
       if (adapter) {
         const detection = await this.cliDetection.getDetection(
-          preferred as CliType,
+          entry as CliType,
         );
         if (detection?.installed) {
           this.logger.info(
-            '[AgentProcessManager] getDefaultCli: using user-preferred CLI',
-            { cli: preferred },
+            '[AgentProcessManager] getPreferredCli: using preferred CLI',
+            { cli: entry },
           );
-          return preferred as CliType;
+          return entry as CliType;
         }
         this.logger.warn(
-          '[AgentProcessManager] getDefaultCli: preferred CLI not installed, falling back',
-          { preferred, installed: detection?.installed },
+          '[AgentProcessManager] getPreferredCli: preferred CLI not installed, trying next',
+          { preferred: entry, installed: detection?.installed },
         );
       }
     }
 
-    // Auto-detect: prefer gemini > codex > copilot among headless CLI agents
+    // Fallback: auto-detect first installed CLI that is not disabled
     const installed = await this.cliDetection.getInstalledClis();
-    this.logger.debug('[AgentProcessManager] getDefaultCli: installed CLIs', {
-      count: installed.length,
-      clis: installed.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
-    });
+    const enabled = installed.filter((c) => !disabledClis.has(c.cli));
+    this.logger.debug(
+      '[AgentProcessManager] getPreferredCli: auto-detect installed CLIs',
+      {
+        count: enabled.length,
+        clis: enabled.map((c) => `${c.cli}${c.installed ? ' ✓' : ' ✗'}`),
+      },
+    );
 
-    if (installed.length === 0) return null;
+    if (enabled.length === 0) return null;
 
-    // Prefer gemini, then codex, then copilot, then fall back to first available
-    const gemini = installed.find((c) => c.cli === 'gemini');
-    if (gemini) return 'gemini';
-
-    const codex = installed.find((c) => c.cli === 'codex');
-    if (codex) return 'codex';
-
-    const copilot = installed.find((c) => c.cli === 'copilot');
-    if (copilot) return 'copilot';
-
-    return installed[0].cli;
+    return enabled[0].cli;
   }
 
   private getWorkspaceRoot(): string {
-    const folders = vscode.workspace.workspaceFolders;
-    if (folders && folders.length > 0) {
-      return folders[0].uri.fsPath;
-    }
-    return process.cwd();
+    return this.workspace.getWorkspaceRoot() ?? process.cwd();
   }
 
   /**
@@ -1460,9 +1499,9 @@ export class AgentProcessManager {
       }
 
       // Check 2: Is MCP server running? Use cached health check result if fresh.
-      const configuredPort = vscode.workspace
-        .getConfiguration('ptah')
-        .get<number>('mcpPort', 51820);
+      const configuredPort =
+        this.workspace.getConfiguration<number>('ptah', 'mcpPort', 51820) ??
+        51820;
 
       if (
         this.mcpHealthCache &&

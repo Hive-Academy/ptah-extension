@@ -34,6 +34,19 @@ import {
   buildAgentListTool,
   buildAgentStopTool,
   buildWebSearchTool,
+  buildWorktreeListTool,
+  buildWorktreeAddTool,
+  buildWorktreeRemoveTool,
+  buildJsonValidateTool,
+  buildBrowserNavigateTool,
+  buildBrowserScreenshotTool,
+  buildBrowserEvaluateTool,
+  buildBrowserClickTool,
+  buildBrowserTypeTool,
+  buildBrowserContentTool,
+  buildBrowserNetworkTool,
+  buildBrowserCloseTool,
+  buildBrowserStatusTool,
 } from './tool-description.builder';
 import { executeCode, serializeResult } from './code-execution.engine';
 import { handleApprovalPrompt } from './approval-prompt.handler';
@@ -52,6 +65,19 @@ import {
   formatAgentStop,
   formatAgentList,
   formatWebSearch,
+  formatWorktreeList,
+  formatWorktreeAdd,
+  formatWorktreeRemove,
+  formatJsonValidate,
+  formatBrowserNavigate,
+  formatBrowserScreenshot,
+  formatBrowserEvaluate,
+  formatBrowserClick,
+  formatBrowserType,
+  formatBrowserContent,
+  formatBrowserNetwork,
+  formatBrowserClose,
+  formatBrowserStatus,
 } from './mcp-response-formatter';
 
 /**
@@ -61,18 +87,26 @@ import {
 export type ToolResultCallback = (
   toolCallId: string,
   content: string,
-  isError: boolean
+  isError: boolean,
 ) => void;
 
 /**
- * Dependencies for protocol handlers
+ * Dependencies for protocol handlers.
+ *
+ * webviewManager is optional: present in VS Code for user approval prompts,
+ * absent in Electron where approval_prompt auto-allows (no webview UI).
+ *
+ * hasIDECapabilities indicates whether the host platform supports VS Code-exclusive
+ * IDE features (LSP, editor state, code actions). When false (Electron), tools that
+ * depend on these capabilities are excluded from the tools/list response.
  */
 export interface ProtocolHandlerDependencies {
   ptahAPI: PtahAPI;
   permissionPromptService: PermissionPromptService;
-  webviewManager: WebviewManager;
+  webviewManager?: WebviewManager;
   logger: Logger;
   onToolResult?: ToolResultCallback;
+  hasIDECapabilities?: boolean;
 }
 
 /**
@@ -81,7 +115,7 @@ export interface ProtocolHandlerDependencies {
  */
 export async function handleMCPRequest(
   request: MCPRequest,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
   const { logger } = deps;
 
@@ -95,7 +129,7 @@ export async function handleMCPRequest(
         return handleInitialize(request, logger);
 
       case 'tools/list':
-        return handleToolsList(request);
+        return handleToolsList(request, deps);
 
       case 'tools/call':
         return await handleToolsCall(request, deps);
@@ -104,7 +138,7 @@ export async function handleMCPRequest(
         return createErrorResponse(
           request.id,
           -32601,
-          `Method not found: ${request.method}`
+          `Method not found: ${request.method}`,
         );
     }
   } catch (error) {
@@ -114,7 +148,7 @@ export async function handleMCPRequest(
 
     logger.error(
       `MCP request failed: ${request.method}`,
-      error instanceof Error ? error : new Error(String(error))
+      error instanceof Error ? error : new Error(String(error)),
     );
 
     return createErrorResponse(request.id, -32603, errorMessage, errorStack);
@@ -148,36 +182,69 @@ function handleInitialize(request: MCPRequest, logger: Logger): MCPResponse {
 
 /**
  * Handle tools/list request
- * Returns all available tools: individual ptah_* tools, execute_code, and approval_prompt
+ * Returns available tools, conditionally excluding VS Code-only tools on non-IDE platforms.
+ *
+ * VS Code-only tools (excluded when hasIDECapabilities is false):
+ * - ptah_lsp_references: Requires VS Code LSP executeReferenceProvider
+ * - ptah_lsp_definitions: Requires VS Code LSP executeDefinitionProvider
+ * - ptah_get_dirty_files: Requires VS Code editor state (unsaved file tracking)
+ *
+ * Platform-agnostic tools (always included):
+ * - ptah_get_diagnostics: Uses IDiagnosticsProvider abstraction (works on both platforms)
+ * - All other ptah_* tools, execute_code, approval_prompt
  */
-function handleToolsList(request: MCPRequest): MCPResponse {
+function handleToolsList(
+  request: MCPRequest,
+  deps: ProtocolHandlerDependencies,
+): MCPResponse {
+  const tools = [
+    // Individual first-class tools (simple params, high discoverability)
+    buildWorkspaceAnalyzeTool(),
+    buildSearchFilesTool(),
+    buildGetDiagnosticsTool(),
+    // VS Code-only IDE tools — excluded on platforms without IDE capabilities (e.g. Electron)
+    ...(deps.hasIDECapabilities === true
+      ? [
+          buildLspReferencesTool(),
+          buildLspDefinitionsTool(),
+          buildGetDirtyFilesTool(),
+        ]
+      : []),
+    buildCountTokensTool(),
+    // Agent orchestration tools (TASK_2025_157)
+    buildAgentSpawnTool(),
+    buildAgentStatusTool(),
+    buildAgentReadTool(),
+    buildAgentSteerTool(),
+    buildAgentStopTool(),
+    buildAgentListTool(),
+    // Web search tool (TASK_2025_189)
+    buildWebSearchTool(),
+    // Git worktree tools (TASK_2025_236)
+    buildWorktreeListTool(),
+    buildWorktreeAddTool(),
+    buildWorktreeRemoveTool(),
+    // JSON validation tool (TASK_2025_240)
+    buildJsonValidateTool(),
+    // Browser automation tools (TASK_2025_244)
+    buildBrowserNavigateTool(),
+    buildBrowserScreenshotTool(),
+    buildBrowserEvaluateTool(),
+    buildBrowserClickTool(),
+    buildBrowserTypeTool(),
+    buildBrowserContentTool(),
+    buildBrowserNetworkTool(),
+    buildBrowserCloseTool(),
+    buildBrowserStatusTool(),
+    // Power-user tools
+    buildExecuteCodeTool(),
+    buildApprovalPromptTool(),
+  ];
+
   return {
     jsonrpc: '2.0',
     id: request.id,
-    result: {
-      tools: [
-        // Individual first-class tools (simple params, high discoverability)
-        buildWorkspaceAnalyzeTool(),
-        buildSearchFilesTool(),
-        buildGetDiagnosticsTool(),
-        buildLspReferencesTool(),
-        buildLspDefinitionsTool(),
-        buildGetDirtyFilesTool(),
-        buildCountTokensTool(),
-        // Agent orchestration tools (TASK_2025_157)
-        buildAgentSpawnTool(),
-        buildAgentStatusTool(),
-        buildAgentReadTool(),
-        buildAgentSteerTool(),
-        buildAgentStopTool(),
-        buildAgentListTool(),
-        // Web search tool (TASK_2025_189)
-        buildWebSearchTool(),
-        // Power-user tools
-        buildExecuteCodeTool(),
-        buildApprovalPromptTool(),
-      ],
-    },
+    result: { tools },
   };
 }
 
@@ -187,7 +254,7 @@ function handleToolsList(request: MCPRequest): MCPResponse {
  */
 async function handleToolsCall(
   request: MCPRequest,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
   const params = request.params as
     | { name: string; arguments?: Record<string, unknown> }
@@ -199,7 +266,7 @@ async function handleToolsCall(
     name,
     args || {},
     request,
-    deps
+    deps,
   );
   if (individualResult) return individualResult;
 
@@ -207,11 +274,38 @@ async function handleToolsCall(
     return await handleExecuteCodeCall(
       request,
       args as unknown as ExecuteCodeParams,
-      deps
+      deps,
     );
   }
 
   if (name === 'approval_prompt') {
+    // When WebviewManager is absent (Electron), auto-allow all approval prompts.
+    // Electron has no webview UI for user interaction, so permissions are granted automatically.
+    if (!deps.webviewManager) {
+      const approvalParams = args as unknown as ApprovalPromptParams;
+      deps.logger.info(
+        'approval_prompt auto-allowed (no WebviewManager — Electron mode)',
+        {
+          tool: approvalParams.tool_name,
+        },
+      );
+      return {
+        jsonrpc: '2.0',
+        id: request.id,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                behavior: 'allow',
+                updatedInput: approvalParams.input,
+              }),
+            },
+          ],
+        },
+      };
+    }
+
     return await handleApprovalPrompt(
       request,
       args as unknown as ApprovalPromptParams,
@@ -219,7 +313,7 @@ async function handleToolsCall(
         permissionPromptService: deps.permissionPromptService,
         webviewManager: deps.webviewManager,
         logger: deps.logger,
-      }
+      },
     );
   }
 
@@ -235,7 +329,7 @@ async function handleIndividualTool(
   name: string,
   args: Record<string, unknown>,
   request: MCPRequest,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse | null> {
   const { ptahAPI, logger } = deps;
 
@@ -246,7 +340,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatWorkspaceAnalysis(result),
-          deps
+          deps,
         );
       }
 
@@ -256,7 +350,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatSearchFiles(files),
-          deps
+          deps,
         );
       }
 
@@ -273,7 +367,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatDiagnostics(result),
-          deps
+          deps,
         );
       }
 
@@ -287,7 +381,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatLspReferences(refs),
-          deps
+          deps,
         );
       }
 
@@ -301,7 +395,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatLspDefinitions(defs),
-          deps
+          deps,
         );
       }
 
@@ -310,7 +404,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatDirtyFiles(dirtyFiles),
-          deps
+          deps,
         );
       }
 
@@ -321,7 +415,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatTokenCount({ file, tokens: tokenCount }),
-          deps
+          deps,
         );
       }
 
@@ -417,7 +511,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentSpawn(result),
-          deps
+          deps,
         );
       }
 
@@ -427,7 +521,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentStatus(result),
-          deps
+          deps,
         );
       }
 
@@ -440,7 +534,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentRead(result),
-          deps
+          deps,
         );
       }
 
@@ -453,7 +547,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentSteer({ agentId, steered: true }),
-          deps
+          deps,
         );
       }
 
@@ -463,7 +557,7 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentStop(result),
-          deps
+          deps,
         );
       }
 
@@ -473,12 +567,16 @@ async function handleIndividualTool(
         return createToolSuccessResponse(
           request,
           formatAgentList(agents),
-          deps
+          deps,
         );
       }
 
       case 'ptah_web_search': {
-        const { query, timeout } = args as { query: string; timeout?: number };
+        const { query, maxResults, timeout } = args as {
+          query: string;
+          maxResults?: number;
+          timeout?: number;
+        };
         if (!deps.ptahAPI.webSearch) {
           return {
             jsonrpc: '2.0',
@@ -494,11 +592,366 @@ async function handleIndividualTool(
             },
           };
         }
-        const result = await deps.ptahAPI.webSearch.search(query, timeout);
+        const result = await deps.ptahAPI.webSearch.search(query, {
+          maxResults,
+          timeout,
+        });
         return createToolSuccessResponse(
           request,
           formatWebSearch(result),
-          deps
+          deps,
+        );
+      }
+
+      // Git worktree tools (TASK_2025_236)
+      case 'ptah_git_worktree_list': {
+        const result = await ptahAPI.git.worktreeList();
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeList(result),
+          deps,
+        );
+      }
+
+      case 'ptah_git_worktree_add': {
+        const { branch, path, createBranch } = args as {
+          branch: string;
+          path?: string;
+          createBranch?: boolean;
+        };
+
+        // Validate required branch parameter
+        if (!branch || typeof branch !== 'string' || !branch.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "branch" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const addResult = await ptahAPI.git.worktreeAdd({
+          branch: branch.trim(),
+          path: path && typeof path === 'string' ? path.trim() : undefined,
+          createBranch,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeAdd(addResult),
+          deps,
+        );
+      }
+
+      case 'ptah_git_worktree_remove': {
+        const { path: worktreePath, force } = args as {
+          path: string;
+          force?: boolean;
+        };
+
+        // Validate required path parameter
+        if (
+          !worktreePath ||
+          typeof worktreePath !== 'string' ||
+          !worktreePath.trim()
+        ) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "path" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const removeResult = await ptahAPI.git.worktreeRemove({
+          path: worktreePath.trim(),
+          force,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatWorktreeRemove(removeResult),
+          deps,
+        );
+      }
+
+      // JSON validation tool (TASK_2025_240)
+      case 'ptah_json_validate': {
+        const { file, schema } = args as {
+          file: string;
+          schema?: Record<string, unknown>;
+        };
+
+        // Validate required file parameter
+        if (!file || typeof file !== 'string' || !file.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "file" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const jsonResult = await ptahAPI.json.validate({
+          file: file.trim(),
+          schema,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatJsonValidate(jsonResult),
+          deps,
+        );
+      }
+
+      // Browser automation tools (TASK_2025_244)
+      case 'ptah_browser_navigate': {
+        const { url, waitForLoad } = args as {
+          url: string;
+          waitForLoad?: boolean;
+        };
+
+        if (!url || typeof url !== 'string' || !url.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "url" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const navResult = await ptahAPI.browser.navigate({
+          url: url.trim(),
+          waitForLoad,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserNavigate(navResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_screenshot': {
+        const { format, quality, fullPage } = args as {
+          format?: 'png' | 'jpeg' | 'webp';
+          quality?: number;
+          fullPage?: boolean;
+        };
+        const screenshotResult = await ptahAPI.browser.screenshot({
+          format,
+          quality,
+          fullPage,
+        });
+
+        // Return as MCP image content type so the AI model can visually inspect
+        if (screenshotResult.data && !screenshotResult.error) {
+          const mimeType =
+            screenshotResult.format === 'jpeg'
+              ? 'image/jpeg'
+              : screenshotResult.format === 'webp'
+                ? 'image/webp'
+                : 'image/png';
+
+          const text = formatBrowserScreenshot(screenshotResult);
+          deps.onToolResult?.(request.id.toString(), text, false);
+
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'image',
+                  data: screenshotResult.data,
+                  mimeType,
+                },
+                {
+                  type: 'text',
+                  text: `Screenshot captured (${screenshotResult.format}, ~${Math.round((screenshotResult.data.length * 3) / 4 / 1024)}KB)`,
+                },
+              ],
+            },
+          };
+        }
+
+        // Error case — return as text
+        return createToolSuccessResponse(
+          request,
+          formatBrowserScreenshot(screenshotResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_evaluate': {
+        const { expression } = args as { expression: string };
+
+        if (!expression || typeof expression !== 'string') {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "expression" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const evalResult = await ptahAPI.browser.evaluate({
+          expression,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserEvaluate(evalResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_click': {
+        const { selector } = args as { selector: string };
+
+        if (!selector || typeof selector !== 'string' || !selector.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "selector" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const clickResult = await ptahAPI.browser.click({
+          selector: selector.trim(),
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserClick(clickResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_type': {
+        const { selector, text } = args as {
+          selector: string;
+          text: string;
+        };
+
+        if (!selector || typeof selector !== 'string' || !selector.trim()) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "selector" is required and must be a non-empty string.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+        if (text === undefined || text === null) {
+          return {
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: 'Error: "text" is required.',
+                },
+              ],
+              isError: true,
+            },
+          };
+        }
+
+        const typeResult = await ptahAPI.browser.type({
+          selector: selector.trim(),
+          text: String(text),
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserType(typeResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_content': {
+        const { selector } = args as { selector?: string };
+        const contentResult = await ptahAPI.browser.getContent(
+          selector ? { selector } : undefined,
+        );
+        return createToolSuccessResponse(
+          request,
+          formatBrowserContent(contentResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_network': {
+        const { limit } = args as { limit?: number };
+        const networkResult = await ptahAPI.browser.networkRequests({
+          limit,
+        });
+        return createToolSuccessResponse(
+          request,
+          formatBrowserNetwork(networkResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_close': {
+        const closeResult = await ptahAPI.browser.close();
+        return createToolSuccessResponse(
+          request,
+          formatBrowserClose(closeResult),
+          deps,
+        );
+      }
+
+      case 'ptah_browser_status': {
+        const statusResult = await ptahAPI.browser.status();
+        return createToolSuccessResponse(
+          request,
+          formatBrowserStatus(statusResult),
+          deps,
         );
       }
 
@@ -510,7 +963,7 @@ async function handleIndividualTool(
       error instanceof Error ? error.message : 'Unknown error';
     logger.error(
       `Individual tool ${name} failed: ${errorMessage}`,
-      error instanceof Error ? error : new Error(String(error))
+      error instanceof Error ? error : new Error(String(error)),
     );
 
     deps.onToolResult?.(request.id.toString(), errorMessage, true);
@@ -534,7 +987,7 @@ async function handleIndividualTool(
 function createToolSuccessResponse(
   request: MCPRequest,
   text: string,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): MCPResponse {
   deps.onToolResult?.(request.id.toString(), text, false);
   return {
@@ -555,7 +1008,7 @@ function createToolSuccessResponse(
 async function handleExecuteCodeCall(
   request: MCPRequest,
   params: ExecuteCodeParams,
-  deps: ProtocolHandlerDependencies
+  deps: ProtocolHandlerDependencies,
 ): Promise<MCPResponse> {
   const { code, timeout = 15000 } = params;
   const { ptahAPI, logger } = deps;
@@ -675,7 +1128,7 @@ function createErrorResponse(
   id: string | number,
   code: number,
   message: string,
-  data?: string
+  data?: string,
 ): MCPResponse {
   return {
     jsonrpc: '2.0',

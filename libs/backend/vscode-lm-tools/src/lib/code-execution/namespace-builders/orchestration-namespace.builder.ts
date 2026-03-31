@@ -73,13 +73,13 @@ const PHASE_CHECKPOINTS: Record<OrchestrationPhase, string | null> = {
 
 /**
  * Build orchestration namespace for state management
- * Persists workflow state to .claude/specs/TASK_XXX/.orchestration-state.json
+ * Persists workflow state to .ptah/specs/TASK_XXX/.orchestration-state.json
  *
  * @param deps - Dependencies including workspace root
  * @returns OrchestrationNamespace with getState, setState, and getNextAction methods
  */
 export function buildOrchestrationNamespace(
-  deps: OrchestrationNamespaceDependencies
+  deps: OrchestrationNamespaceDependencies,
 ): OrchestrationNamespace {
   const { workspaceRoot } = deps;
 
@@ -91,7 +91,7 @@ export function buildOrchestrationNamespace(
       workspaceRoot,
       'task-tracking',
       taskId,
-      '.orchestration-state.json'
+      '.orchestration-state.json',
     );
   };
 
@@ -99,7 +99,7 @@ export function buildOrchestrationNamespace(
    * Read orchestration state from file
    */
   const readStateFile = async (
-    taskId: string
+    taskId: string,
   ): Promise<OrchestrationState | null> => {
     const statePath = getStatePath(taskId);
 
@@ -145,7 +145,7 @@ export function buildOrchestrationNamespace(
    */
   const getNextPhase = (
     currentPhase: OrchestrationPhase,
-    strategy: string
+    strategy: string,
   ): OrchestrationPhase | null => {
     const sequence =
       STRATEGY_PHASE_SEQUENCE[strategy] || STRATEGY_PHASE_SEQUENCE['FEATURE'];
@@ -164,7 +164,7 @@ export function buildOrchestrationNamespace(
    */
   const checkPhaseRequirementsMet = async (
     taskId: string,
-    phase: OrchestrationPhase
+    phase: OrchestrationPhase,
   ): Promise<boolean> => {
     const taskFolder = path.join(workspaceRoot, 'task-tracking', taskId);
 
@@ -204,7 +204,7 @@ export function buildOrchestrationNamespace(
      */
     setState: async (
       taskId: string,
-      partialState: Partial<OrchestrationState>
+      partialState: Partial<OrchestrationState>,
     ): Promise<void> => {
       // Read existing state or create default
       const existing =
@@ -282,7 +282,7 @@ export function buildOrchestrationNamespace(
       // Check if phase requirements are met to proceed
       const requirementsMet = await checkPhaseRequirementsMet(
         taskId,
-        state.phase
+        state.phase,
       );
 
       if (!requirementsMet) {

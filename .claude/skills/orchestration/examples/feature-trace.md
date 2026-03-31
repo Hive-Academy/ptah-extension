@@ -51,7 +51,7 @@ Task({
   description: 'Create requirements for TASK_2025_045',
   prompt: `You are project-manager for TASK_2025_045.
 
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
 **User Request**: "Add real-time collaboration support with WebSocket connections for live cursor sharing"
 
 Analyze the request and create comprehensive requirements.
@@ -112,7 +112,7 @@ Summary:
 - WebSocket-based architecture
 - Out of scope: voice/video, conflict resolution
 
-Document: .claude/specs/TASK_2025_045/task-description.md
+Document: .ptah/specs/TASK_2025_045/task-description.md
 
 Reply "APPROVED" to proceed OR provide feedback for revision.
 ```
@@ -141,7 +141,7 @@ Task({
   description: 'Research WebSocket options for TASK_2025_045',
   prompt: `You are researcher-expert for TASK_2025_045.
 
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
 **Research Questions**:
 1. Best WebSocket library for VS Code extension context
 2. Cursor synchronization protocol patterns (CRDT vs OT vs simple broadcast)
@@ -189,7 +189,7 @@ Task({
   description: 'Design implementation for TASK_2025_045',
   prompt: `You are software-architect for TASK_2025_045.
 
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
 **Requirements**: Read task-description.md
 **Research**: Read research-report.md
 
@@ -258,7 +258,7 @@ Summary:
 - WebSocket-based architecture using `ws` library
 - 50ms debounce for cursor updates
 
-Document: .claude/specs/TASK_2025_045/implementation-plan.md
+Document: .ptah/specs/TASK_2025_045/implementation-plan.md
 
 Reply "APPROVED" to proceed OR provide feedback for revision.
 ```
@@ -278,7 +278,7 @@ Task({
   prompt: `You are team-leader for TASK_2025_045.
 
 **MODE**: 1 - DECOMPOSITION
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
 **Implementation Plan**: Read implementation-plan.md
 
 Break down the implementation into atomic, batchable tasks.
@@ -327,7 +327,7 @@ Task({
   description: 'Implement Batch 1 for TASK_2025_045',
   prompt: `You are backend-developer for TASK_2025_045.
 
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
 **Tasks**: Read tasks.md, find Batch 1 (IN PROGRESS)
 
 Implement all tasks in Batch 1. Update status to IMPLEMENTED when done.
@@ -358,7 +358,7 @@ Task({
   prompt: `You are team-leader for TASK_2025_045.
 
 **MODE**: 2 - VERIFY + ASSIGN
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
 **Developer Report**: Backend developer completed Batch 1
 
 Verify implementation, create commit, assign next batch.
@@ -400,7 +400,7 @@ Task({
   prompt: `You are team-leader for TASK_2025_045.
 
 **MODE**: 3 - COMPLETION
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
 
 All batches complete. Perform final verification.
 See team-leader.md for MODE 3 instructions.`,
@@ -532,7 +532,7 @@ Task({
   description: 'Analyze future improvements for TASK_2025_045',
   prompt: `You are modernization-detector for TASK_2025_045.
 
-**Task Folder**: D:/projects/ptah-extension/.claude/specs/TASK_2025_045
+**Task Folder**: D:/projects/ptah-extension/.ptah/specs/TASK_2025_045
 **Changes**: Review tasks.md for what was implemented
 
 Identify opportunities for future improvements.

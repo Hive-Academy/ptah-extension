@@ -72,8 +72,8 @@ interface GeminiStreamEvent {
 export class GeminiCliAdapter implements CliAdapter {
   readonly name = 'gemini' as const;
   readonly displayName = 'Gemini CLI';
-  /** Gemini runs as an external CLI process — cannot access VS Code internal APIs exposed by Ptah MCP server */
-  readonly supportsMcp = false;
+  /** MCP is configured via ~/.gemini/settings.json before each spawn */
+  readonly supportsMcp = true;
 
   async detect(): Promise<CliDetectionResult> {
     try {
@@ -88,7 +88,7 @@ export class GeminiCliAdapter implements CliAdapter {
         const { stdout: versionOutput } = await execFileAsync(
           binaryPath,
           ['--version'],
-          { timeout: 5000 }
+          { timeout: 5000 },
         );
         version = versionOutput.trim().split('\n')[0];
       } catch {
@@ -187,7 +187,7 @@ export class GeminiCliAdapter implements CliAdapter {
       await writeFile(
         trustedPath,
         JSON.stringify(trustedFolders, null, 2),
-        'utf8'
+        'utf8',
       );
     } catch {
       // Non-fatal — worst case, --yolo flag handles it
@@ -195,12 +195,45 @@ export class GeminiCliAdapter implements CliAdapter {
   }
 
   /**
-   * Remove stale ptah MCP entry from ~/.gemini/settings.json.
-   * Prior versions wrote this entry via configureMcpServer(); Gemini cannot
-   * use VS Code internal APIs so the entry causes connection errors/hangs.
+   * Configure Ptah MCP server in ~/.gemini/settings.json.
+   * Gemini CLI reads MCP config from this file at startup.
+   * Uses httpUrl (Streamable HTTP transport) since our MCP server
+   * is a standard HTTP POST JSON-RPC endpoint.
    * Non-fatal: errors are silently caught.
    */
-  private async cleanupStaleMcpEntry(): Promise<void> {
+  private async configureMcpServer(port: number): Promise<void> {
+    try {
+      const geminiDir = join(homedir(), '.gemini');
+      const settingsPath = join(geminiDir, 'settings.json');
+
+      let settings: Record<string, unknown> = {};
+      try {
+        const content = await readFile(settingsPath, 'utf8');
+        settings = JSON.parse(content) as Record<string, unknown>;
+      } catch {
+        // File doesn't exist or invalid JSON — start fresh
+      }
+
+      const mcpServers =
+        (settings['mcpServers'] as Record<string, unknown>) || {};
+      mcpServers['ptah'] = {
+        httpUrl: `http://localhost:${port}`,
+      };
+      settings['mcpServers'] = mcpServers;
+
+      await mkdir(geminiDir, { recursive: true });
+      await writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    } catch {
+      // Non-fatal — MCP tools won't be available but agent still runs
+    }
+  }
+
+  /**
+   * Remove ptah MCP entry from ~/.gemini/settings.json.
+   * Called after process exits to avoid stale port references.
+   * Non-fatal: errors are silently caught.
+   */
+  private async cleanupMcpEntry(): Promise<void> {
     try {
       const settingsPath = join(homedir(), '.gemini', 'settings.json');
       const content = await readFile(settingsPath, 'utf8');
@@ -208,7 +241,7 @@ export class GeminiCliAdapter implements CliAdapter {
       const mcpServers = settings['mcpServers'] as
         | Record<string, unknown>
         | undefined;
-      if (!mcpServers?.['ptah']) return; // Nothing to clean up
+      if (!mcpServers?.['ptah']) return;
 
       delete mcpServers['ptah'];
       if (Object.keys(mcpServers).length === 0) {
@@ -243,11 +276,11 @@ export class GeminiCliAdapter implements CliAdapter {
       await this.ensureFolderTrusted(options.workingDirectory);
     }
 
-    // Skip Ptah MCP server — unlike Copilot/Codex which use in-process SDKs,
-    // Gemini runs as an external CLI process that cannot access VS Code internal
-    // APIs (workspace, diagnostics, symbols, etc.) exposed by our MCP server.
-    // Clean up any stale ptah entry from ~/.gemini/settings.json left by prior versions.
-    await this.cleanupStaleMcpEntry();
+    // Configure Ptah MCP server in ~/.gemini/settings.json before spawning.
+    // Gemini CLI reads MCP config from this file at startup.
+    if (options.mcpPort) {
+      await this.configureMcpServer(options.mcpPort);
+    }
 
     // Handle system prompt via Gemini's native mechanism (GEMINI_SYSTEM_MD env var).
     // Prefers full systemPrompt (premium prompt harness) over projectGuidance.
@@ -370,7 +403,7 @@ export class GeminiCliAdapter implements CliAdapter {
     //   short continuation prompt that tells it to pick up where it left off.
     if (options.resumeSessionId) {
       child.stdin?.write(
-        'Continue working on the previous task. Pick up where you left off.\n'
+        'Continue working on the previous task. Pick up where you left off.\n',
       );
     } else {
       child.stdin?.write(taskPrompt + '\n');
@@ -432,7 +465,7 @@ export class GeminiCliAdapter implements CliAdapter {
       // Classify: error keywords → error segment, otherwise info
       const isError =
         /\b(error|fail(ed)?|exception|denied|unauthorized|refused|timeout|abort|crash|panic|fatal)\b/i.test(
-          cleaned
+          cleaned,
         );
       emitSegment({ type: isError ? 'error' : 'info', content: cleaned });
     });
@@ -446,7 +479,7 @@ export class GeminiCliAdapter implements CliAdapter {
           const sessionId = this.handleJsonLine(
             lineBuf.trim(),
             emitOutput,
-            emitSegment
+            emitSegment,
           );
           if (sessionId) {
             capturedSessionId = sessionId;
@@ -467,17 +500,21 @@ export class GeminiCliAdapter implements CliAdapter {
       });
     });
 
-    // Clean up the temporary system prompt file after the process exits
-    if (systemPromptTmpPath) {
-      const tmpFile = systemPromptTmpPath;
-      done.then(() => {
+    // Clean up temporary resources after the process exits
+    done.then(() => {
+      // Remove temp system prompt file
+      if (systemPromptTmpPath) {
         try {
-          unlinkSync(tmpFile);
+          unlinkSync(systemPromptTmpPath);
         } catch {
           // Ignore — file may already be deleted
         }
-      });
-    }
+      }
+      // Remove ptah MCP entry to avoid stale port references
+      if (options.mcpPort) {
+        this.cleanupMcpEntry();
+      }
+    });
 
     return {
       abort: abortController,
@@ -495,7 +532,7 @@ export class GeminiCliAdapter implements CliAdapter {
   private handleJsonLine(
     line: string,
     emitOutput: (data: string) => void,
-    emitSegment: (segment: CliOutputSegment) => void
+    emitSegment: (segment: CliOutputSegment) => void,
   ): string | undefined {
     let event: GeminiStreamEvent;
     try {
@@ -577,7 +614,7 @@ export class GeminiCliAdapter implements CliAdapter {
               ? ` (${event.status})`
               : '';
           emitOutput(
-            `\n<details><summary>Tool result${status}</summary>\n\n\`\`\`\n${output}\n\`\`\`\n</details>\n\n`
+            `\n<details><summary>Tool result${status}</summary>\n\n\`\`\`\n${output}\n\`\`\`\n</details>\n\n`,
           );
           emitSegment({
             type: isError ? 'tool-result-error' : 'tool-result',
@@ -593,7 +630,7 @@ export class GeminiCliAdapter implements CliAdapter {
           emitOutput(
             `\n**Error${event.code ? ` (${event.code})` : ''}:** ${
               event.message
-            }\n`
+            }\n`,
           );
           emitSegment({
             type: 'error',
@@ -633,7 +670,7 @@ export class GeminiCliAdapter implements CliAdapter {
    */
   private summarizeToolInput(
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
   ): string {
     switch (toolName) {
       case 'read_file':
@@ -656,7 +693,7 @@ export class GeminiCliAdapter implements CliAdapter {
       default: {
         // Generic: show first string value
         const firstStr = Object.entries(input).find(
-          ([, v]) => typeof v === 'string'
+          ([, v]) => typeof v === 'string',
         );
         return firstStr
           ? `${firstStr[0]}: "${String(firstStr[1]).substring(0, 60)}"`

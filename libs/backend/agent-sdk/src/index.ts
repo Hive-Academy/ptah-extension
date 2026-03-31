@@ -176,7 +176,7 @@ export {
 
 // ============================================================
 // Skill Junction Service (TASK_2025_201)
-// Manages workspace .claude/skills/ junctions for third-party providers
+// Manages workspace .ptah/skills/ junctions for third-party providers
 // ============================================================
 export { SkillJunctionService, type SkillJunctionResult } from './lib/helpers';
 
@@ -193,14 +193,20 @@ export type { PtahCliPremiumConfig } from './lib/ptah-cli';
 // ============================================================
 export {
   CopilotAuthService,
+  VscodeCopilotAuthService,
   CopilotTranslationProxy,
   COPILOT_PROVIDER_ENTRY,
   COPILOT_DEFAULT_TIERS,
+  readCopilotToken,
+  getCopilotHostsPath,
+  getCopilotAppsPath,
+  writeCopilotToken,
 } from './lib/copilot-provider';
 export type {
   ICopilotAuthService,
   ICopilotTranslationProxy,
   CopilotAuthState,
+  CopilotHostsFile,
 } from './lib/copilot-provider';
 
 // ============================================================

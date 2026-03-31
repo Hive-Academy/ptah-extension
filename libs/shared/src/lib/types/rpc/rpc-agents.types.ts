@@ -70,12 +70,10 @@ export interface SkillDetectionResult {
 export interface AgentOrchestrationConfig {
   /** Detected CLI agents (Gemini, Codex, Copilot) */
   detectedClis: import('../agent-process.types').CliDetectionResult[];
-  /** Default CLI to use (null = auto-detect) */
-  defaultCli: import('../agent-process.types').CliType | null;
+  /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */
+  preferredAgentOrder: string[];
   /** Maximum concurrent agents (1-10) */
   maxConcurrentAgents: number;
-  /** Default timeout in minutes */
-  defaultTimeout: number;
   /** Per-CLI model: Gemini CLI model (empty string = CLI default) */
   geminiModel: string;
   /** Per-CLI model: Codex model (empty string = CLI default) */
@@ -92,6 +90,8 @@ export interface AgentOrchestrationConfig {
   copilotAutoApprove: boolean;
   /** MCP server port (default: 51820) */
   mcpPort: number;
+  /** CLI types that are disabled by the user (e.g., ['gemini', 'copilot']). Empty array means all enabled. */
+  disabledClis: string[];
 }
 
 /** CLI model option for agent:listCliModels */
@@ -111,12 +111,10 @@ export interface AgentListCliModelsResult {
 
 /** Parameters for agent:setConfig RPC method */
 export interface AgentSetConfigParams {
-  /** Default CLI to use (null = auto-detect) */
-  defaultCli?: import('../agent-process.types').CliType | null;
+  /** User's preferred agent order for spawning. First available agent is used. Includes both CLI types and Ptah CLI IDs. */
+  preferredAgentOrder?: string[];
   /** Maximum concurrent agents (1-10) */
   maxConcurrentAgents?: number;
-  /** Default timeout in minutes */
-  defaultTimeout?: number;
   /** Gemini CLI model override (empty string = CLI default) */
   geminiModel?: string;
   /** Codex model override (empty string = CLI default) */
@@ -133,6 +131,8 @@ export interface AgentSetConfigParams {
   copilotReasoningEffort?: string;
   /** MCP server port (1024-65535, default: 51820) */
   mcpPort?: number;
+  /** CLI types to disable (e.g., ['gemini', 'copilot']). Empty array enables all. */
+  disabledClis?: string[];
 }
 
 // ============================================================

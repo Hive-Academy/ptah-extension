@@ -156,6 +156,9 @@ export class PtahCliAdapter implements IAIProvider {
   private readonly compactionHookHandler?: CompactionHookHandler;
   private readonly compactionConfigProvider?: CompactionConfigProvider;
 
+  /** TASK_2025_194: Cached CLI js path for pathToClaudeCodeExecutable */
+  private resolvedCliJsPath: string | null = null;
+
   /**
    * Create a PtahCliAdapter for a specific provider configuration.
    *
@@ -178,7 +181,7 @@ export class PtahCliAdapter implements IAIProvider {
     permissionHandler: SdkPermissionHandler,
     subagentHookHandler?: SubagentHookHandler,
     compactionHookHandler?: CompactionHookHandler,
-    compactionConfigProvider?: CompactionConfigProvider
+    compactionConfigProvider?: CompactionConfigProvider,
   ) {
     this.config = config;
     this.apiKey = apiKey;
@@ -230,7 +233,7 @@ export class PtahCliAdapter implements IAIProvider {
   async initialize(): Promise<boolean> {
     try {
       this.logger.info(
-        `[PtahCliAdapter] Initializing adapter for "${this.config.name}" (provider: ${this.config.providerId})`
+        `[PtahCliAdapter] Initializing adapter for "${this.config.name}" (provider: ${this.config.providerId})`,
       );
 
       // Step 1: Look up provider definition
@@ -281,6 +284,9 @@ export class PtahCliAdapter implements IAIProvider {
         uptime: Date.now(),
       };
 
+      // TASK_2025_194: Resolve CLI js path for pathToClaudeCodeExecutable
+      this.resolvedCliJsPath = await this.moduleLoader.getCliJsPath();
+
       this.logger.info(
         `[PtahCliAdapter] Initialized successfully for "${this.config.name}"`,
         {
@@ -290,7 +296,8 @@ export class PtahCliAdapter implements IAIProvider {
           sonnetModel: this.authEnv.ANTHROPIC_DEFAULT_SONNET_MODEL ?? 'default',
           opusModel: this.authEnv.ANTHROPIC_DEFAULT_OPUS_MODEL ?? 'default',
           haikuModel: this.authEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL ?? 'default',
-        }
+          cliJsPath: this.resolvedCliJsPath ?? 'NOT_FOUND',
+        },
       );
 
       return true;
@@ -299,7 +306,7 @@ export class PtahCliAdapter implements IAIProvider {
         error instanceof Error ? error : new Error(String(error));
       this.logger.error(
         `[PtahCliAdapter] Initialization failed for "${this.config.name}"`,
-        errorObj
+        errorObj,
       );
       this.health = {
         status: 'error' as ProviderStatus,
@@ -322,11 +329,11 @@ export class PtahCliAdapter implements IAIProvider {
       name?: string;
       prompt?: string;
       files?: string[];
-    } & PtahCliPremiumConfig
+    } & PtahCliPremiumConfig,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        `PtahCliAdapter "${this.config.name}" not initialized. Call initialize() first.`
+        `PtahCliAdapter "${this.config.name}" not initialized. Call initialize() first.`,
       );
     }
 
@@ -335,7 +342,7 @@ export class PtahCliAdapter implements IAIProvider {
 
     this.logger.info(
       `[PtahCliAdapter] Starting chat session for tab: ${tabId}`,
-      { agentName: this.config.name, providerId: this.config.providerId }
+      { agentName: this.config.name, providerId: this.config.providerId },
     );
 
     // Determine the model to use
@@ -367,7 +374,7 @@ export class PtahCliAdapter implements IAIProvider {
     // Create user message stream
     const userMessageStream = this.createUserMessageStream(
       trackingId,
-      abortController
+      abortController,
     );
 
     // Build query options with isolated AuthEnv + premium capabilities
@@ -398,7 +405,7 @@ export class PtahCliAdapter implements IAIProvider {
 
     this.logger.info(
       `[PtahCliAdapter] Query started for session: ${trackingId}`,
-      { model }
+      { model },
     );
 
     // Return transformed stream
@@ -410,11 +417,11 @@ export class PtahCliAdapter implements IAIProvider {
    */
   async resumeSession(
     sessionId: SessionId,
-    config?: AISessionConfig & { tabId?: string } & PtahCliPremiumConfig
+    config?: AISessionConfig & { tabId?: string } & PtahCliPremiumConfig,
   ): Promise<AsyncIterable<FlatStreamEventUnion>> {
     if (!this.initialized) {
       throw new Error(
-        `PtahCliAdapter "${this.config.name}" not initialized. Call initialize() first.`
+        `PtahCliAdapter "${this.config.name}" not initialized. Call initialize() first.`,
       );
     }
 
@@ -422,12 +429,12 @@ export class PtahCliAdapter implements IAIProvider {
     const existingSession = this.activeSessions.get(sessionId as string);
     if (existingSession && existingSession.query) {
       this.logger.info(
-        `[PtahCliAdapter] Session ${sessionId} already active, returning existing stream`
+        `[PtahCliAdapter] Session ${sessionId} already active, returning existing stream`,
       );
       return this.createTransformedStream(
         existingSession.query,
         sessionId,
-        existingSession.currentModel
+        existingSession.currentModel,
       );
     }
 
@@ -457,7 +464,7 @@ export class PtahCliAdapter implements IAIProvider {
     // Create user message stream
     const userMessageStream = this.createUserMessageStream(
       sessionId,
-      abortController
+      abortController,
     );
 
     // Build query options with resume + premium capabilities
@@ -497,7 +504,7 @@ export class PtahCliAdapter implements IAIProvider {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
       this.logger.warn(
-        `[PtahCliAdapter] Cannot end session - not found: ${sessionId}`
+        `[PtahCliAdapter] Cannot end session - not found: ${sessionId}`,
       );
       return;
     }
@@ -509,7 +516,7 @@ export class PtahCliAdapter implements IAIProvider {
       session.query.interrupt().catch((err) => {
         this.logger.debug(
           `[PtahCliAdapter] Interrupt cleanup for session ${sessionId}`,
-          err
+          err,
         );
       });
     }
@@ -529,7 +536,7 @@ export class PtahCliAdapter implements IAIProvider {
   async sendMessageToSession(
     sessionId: SessionId,
     content: string,
-    options?: AIMessageOptions
+    options?: AIMessageOptions,
   ): Promise<void> {
     const session = this.activeSessions.get(sessionId as string);
     if (!session) {
@@ -574,7 +581,7 @@ export class PtahCliAdapter implements IAIProvider {
    */
   async reset(): Promise<void> {
     this.logger.info(
-      `[PtahCliAdapter] Resetting adapter "${this.config.name}"...`
+      `[PtahCliAdapter] Resetting adapter "${this.config.name}"...`,
     );
     this.dispose();
     await this.initialize();
@@ -585,7 +592,7 @@ export class PtahCliAdapter implements IAIProvider {
    */
   dispose(): void {
     this.logger.info(
-      `[PtahCliAdapter] Disposing adapter "${this.config.name}"...`
+      `[PtahCliAdapter] Disposing adapter "${this.config.name}"...`,
     );
 
     for (const [sessionId, session] of this.activeSessions.entries()) {
@@ -595,7 +602,7 @@ export class PtahCliAdapter implements IAIProvider {
         session.query.interrupt().catch((err) => {
           this.logger.debug(
             `[PtahCliAdapter] Interrupt cleanup for session ${sessionId}`,
-            err
+            err,
           );
         });
       }
@@ -633,7 +640,7 @@ export class PtahCliAdapter implements IAIProvider {
    */
   private createSdkUserMessage(
     content: string,
-    files?: readonly string[] | string[]
+    files?: readonly string[] | string[],
   ): SDKUserMessage {
     const textContent: UserMessageContent = [{ type: 'text', text: content }];
 
@@ -660,7 +667,7 @@ export class PtahCliAdapter implements IAIProvider {
    */
   private createUserMessageStream(
     sessionId: SessionId,
-    abortController: AbortController
+    abortController: AbortController,
   ): AsyncIterable<SDKUserMessage> {
     const activeSessions = this.activeSessions;
     const logger = this.logger;
@@ -671,7 +678,7 @@ export class PtahCliAdapter implements IAIProvider {
           const session = activeSessions.get(sessionId as string);
           if (!session) {
             logger.warn(
-              `[PtahCliAdapter] Session ${sessionId} not found - ending stream`
+              `[PtahCliAdapter] Session ${sessionId} not found - ending stream`,
             );
             return;
           }
@@ -681,7 +688,7 @@ export class PtahCliAdapter implements IAIProvider {
             const message = session.messageQueue.shift();
             if (message) {
               logger.debug(
-                `[PtahCliAdapter] Yielding message (${session.messageQueue.length} remaining)`
+                `[PtahCliAdapter] Yielding message (${session.messageQueue.length} remaining)`,
               );
               yield message;
             }
@@ -698,7 +705,7 @@ export class PtahCliAdapter implements IAIProvider {
               if (!currentSession) {
                 abortController.signal.removeEventListener(
                   'abort',
-                  abortHandler
+                  abortHandler,
                 );
                 resolve('aborted');
                 return;
@@ -708,7 +715,7 @@ export class PtahCliAdapter implements IAIProvider {
               if (currentSession.messageQueue.length > 0) {
                 abortController.signal.removeEventListener(
                   'abort',
-                  abortHandler
+                  abortHandler,
                 );
                 resolve('message');
                 return;
@@ -718,16 +725,16 @@ export class PtahCliAdapter implements IAIProvider {
               currentSession.resolveNext = () => {
                 abortController.signal.removeEventListener(
                   'abort',
-                  abortHandler
+                  abortHandler,
                 );
                 resolve('message');
               };
-            }
+            },
           );
 
           if (waitResult === 'aborted') {
             logger.debug(
-              `[PtahCliAdapter] Stream ended for ${sessionId}: aborted`
+              `[PtahCliAdapter] Stream ended for ${sessionId}: aborted`,
             );
             return;
           }
@@ -788,8 +795,8 @@ export class PtahCliAdapter implements IAIProvider {
       permLevel === 'yolo'
         ? 'bypassPermissions'
         : permLevel === 'auto-edit'
-        ? 'acceptEdits'
-        : 'default';
+          ? 'acceptEdits'
+          : 'default';
     const useBypass = sdkPermMode === 'bypassPermissions';
     const canUseTool = useBypass
       ? undefined
@@ -831,14 +838,14 @@ export class PtahCliAdapter implements IAIProvider {
       if (this.subagentHookHandler) {
         const subagentHooks = this.subagentHookHandler.createHooks(
           cwd,
-          sessionId
+          sessionId,
         );
         Object.assign(hooks, subagentHooks);
       }
       if (this.compactionHookHandler) {
         const compactionHooks = this.compactionHookHandler.createHooks(
           sessionId ?? '',
-          onCompactionStart
+          onCompactionStart,
         );
         Object.assign(hooks, compactionHooks);
       }
@@ -900,7 +907,7 @@ export class PtahCliAdapter implements IAIProvider {
         env: buildSafeEnv(this.authEnv),
         stderr: (data: string) => {
           this.logger.error(
-            `[PtahCliAdapter] CLI stderr (${this.config.name}): ${data}`
+            `[PtahCliAdapter] CLI stderr (${this.config.name}): ${data}`,
           );
         },
         hooks,
@@ -909,6 +916,10 @@ export class PtahCliAdapter implements IAIProvider {
         // TASK_2025_184: Reasoning configuration passthrough
         thinking,
         effort,
+        // TASK_2025_194: Override the SDK's baked-in import.meta.url path.
+        // Without this, the subprocess resolves to the build-time path
+        // causing "process exited with code 1" in production.
+        pathToClaudeCodeExecutable: this.resolvedCliJsPath ?? undefined,
       },
     };
   }
@@ -923,7 +934,7 @@ export class PtahCliAdapter implements IAIProvider {
   private createTransformedStream(
     sdkQuery: AsyncIterable<SDKMessage>,
     sessionId: SessionId,
-    initialModel: string
+    initialModel: string,
   ): AsyncIterable<FlatStreamEventUnion> {
     const logger = this.logger;
     const messageTransformer = this.messageTransformer;
@@ -944,7 +955,7 @@ export class PtahCliAdapter implements IAIProvider {
               const realSessionId = sdkMessage.session_id;
               effectiveSessionId = realSessionId as SessionId;
               logger.info(
-                `[PtahCliAdapter] Real session ID resolved: ${realSessionId}`
+                `[PtahCliAdapter] Real session ID resolved: ${realSessionId}`,
               );
             }
 
@@ -952,7 +963,7 @@ export class PtahCliAdapter implements IAIProvider {
             if (isResultMessage(sdkMessage)) {
               const resolvedModel = resolveActualModelForPricing(
                 initialModel,
-                authEnv
+                authEnv,
               );
               const totalCost = calculateMessageCost(resolvedModel, {
                 input: sdkMessage.usage.input_tokens,
@@ -963,10 +974,10 @@ export class PtahCliAdapter implements IAIProvider {
               });
               logger.info(
                 `[PtahCliAdapter] Result stats: cost=$${totalCost.toFixed(
-                  4
+                  4,
                 )}, ` +
                   `tokens=${sdkMessage.usage.input_tokens}in/${sdkMessage.usage.output_tokens}out, ` +
-                  `duration=${sdkMessage.duration_ms}ms`
+                  `duration=${sdkMessage.duration_ms}ms`,
               );
             }
 
@@ -979,7 +990,7 @@ export class PtahCliAdapter implements IAIProvider {
             ) {
               const flatEvents = messageTransformer.transform(
                 sdkMessage,
-                effectiveSessionId
+                effectiveSessionId,
               );
 
               for (const event of flatEvents) {
@@ -990,7 +1001,7 @@ export class PtahCliAdapter implements IAIProvider {
           }
 
           logger.info(
-            `[PtahCliAdapter] Stream ended for ${sessionId}: ${sdkMessageCount} SDK messages, ${yieldedEventCount} events yielded`
+            `[PtahCliAdapter] Stream ended for ${sessionId}: ${sdkMessageCount} SDK messages, ${yieldedEventCount} events yielded`,
           );
         } catch (error) {
           const errorObj =
@@ -1006,12 +1017,12 @@ export class PtahCliAdapter implements IAIProvider {
 
           if (isUserAbort) {
             logger.info(
-              `[PtahCliAdapter] Session ${sessionId} aborted by user`
+              `[PtahCliAdapter] Session ${sessionId} aborted by user`,
             );
           } else {
             logger.error(
               `[PtahCliAdapter] Session ${sessionId} error: ${errorObj.message}`,
-              errorObj
+              errorObj,
             );
 
             // Check for auth errors
@@ -1025,7 +1036,7 @@ export class PtahCliAdapter implements IAIProvider {
 
             if (isAuthError) {
               logger.error(
-                `[PtahCliAdapter] AUTHENTICATION ERROR for "${initialModel}" - check API key configuration`
+                `[PtahCliAdapter] AUTHENTICATION ERROR for "${initialModel}" - check API key configuration`,
               );
             }
           }

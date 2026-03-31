@@ -7,7 +7,7 @@ on:
       - 'docs/**'
       - '.vscode/**'
       - '.claude/**'
-      - 'LICENSE'
+      - 'LICENSE.md'
       - '.do/**'
 
 # Cancel in-progress runs for the same branch/PR — only the latest push matters

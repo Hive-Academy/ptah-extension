@@ -40,6 +40,8 @@ import {
   // Compaction configuration and hooks (TASK_2025_098)
   CompactionConfigProvider,
   CompactionHookHandler,
+  // Worktree hook handler (TASK_2025_236)
+  WorktreeHookHandler,
   // Slash command interceptor (TASK_2025_184)
   SlashCommandInterceptor,
 } from '../helpers';
@@ -81,7 +83,7 @@ import { ProviderModelsService } from '../provider-models.service';
  */
 export function registerSdkServices(
   container: DependencyContainer,
-  logger: Logger
+  logger: Logger,
 ): void {
   logger.info('[AgentSDK] Registering SDK services...');
 
@@ -95,7 +97,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_METADATA_STORE,
     { useClass: SessionMetadataStore },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Shared mutable AuthEnv singleton (TASK_2025_164)
@@ -106,7 +108,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SESSION_IMPORTER,
     { useClass: SessionImporterService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -117,35 +119,35 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_HISTORY_EVENT_FACTORY,
     { useClass: HistoryEventFactory },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // JSONL reader - file I/O operations for session files
   container.register(
     SDK_TOKENS.SDK_JSONL_READER,
     { useClass: JsonlReaderService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Agent correlation - correlates agents to Task tool_uses
   container.register(
     SDK_TOKENS.SDK_AGENT_CORRELATION,
     { useClass: AgentCorrelationService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Session replay - orchestrates JSONL to event conversion
   container.register(
     SDK_TOKENS.SDK_SESSION_REPLAY,
     { useClass: SessionReplayService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Session history reader (facade) - reads JSONL files and converts to stream events
   container.register(
     SDK_TOKENS.SDK_SESSION_HISTORY_READER,
     { useClass: SessionHistoryReaderService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -156,63 +158,63 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PERMISSION_HANDLER,
     { useClass: SdkPermissionHandler },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Message transformer - no special deps
   container.register(
     SDK_TOKENS.SDK_MESSAGE_TRANSFORMER,
     { useClass: SdkMessageTransformer },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // CLI detector - no DI deps (plain class)
   container.register(
     SDK_TOKENS.SDK_CLI_DETECTOR,
     { useClass: ClaudeCliDetector },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Auth manager - depends on Logger, ConfigManager
   container.register(
     SDK_TOKENS.SDK_AUTH_MANAGER,
     { useClass: AuthManager },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Config watcher - depends on Logger, ConfigManager
   container.register(
     SDK_TOKENS.SDK_CONFIG_WATCHER,
     { useClass: ConfigWatcher },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Session lifecycle manager - depends on Logger only (runtime session tracking)
   container.register(
     SDK_TOKENS.SDK_SESSION_LIFECYCLE_MANAGER,
     { useClass: SessionLifecycleManager },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Stream transformer - depends on Logger, SdkMessageTransformer (no storage - SDK persists natively)
   container.register(
     SDK_TOKENS.SDK_STREAM_TRANSFORMER,
     { useClass: StreamTransformer },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Attachment processor (images + text) - depends on Logger
   container.register(
     SDK_TOKENS.SDK_ATTACHMENT_PROCESSOR,
     { useClass: AttachmentProcessorService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Provider models service - depends on Logger, ConfigManager (TASK_2025_091 Phase 2, generalized TASK_2025_132)
   container.register(
     SDK_TOKENS.SDK_PROVIDER_MODELS,
     { useClass: ProviderModelsService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Subagent hook handler - depends on Logger, AgentSessionWatcherService (TASK_2025_099)
@@ -220,7 +222,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SUBAGENT_HOOK_HANDLER,
     { useClass: SubagentHookHandler },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Compaction config provider - depends on Logger, ConfigManager (TASK_2025_098)
@@ -228,7 +230,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COMPACTION_CONFIG_PROVIDER,
     { useClass: CompactionConfigProvider },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Compaction hook handler - depends on Logger (TASK_2025_098)
@@ -236,35 +238,43 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COMPACTION_HOOK_HANDLER,
     { useClass: CompactionHookHandler },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
+  );
+
+  // Worktree hook handler - depends on Logger (TASK_2025_236)
+  // Handles SDK WorktreeCreate/WorktreeRemove hooks and notifies via callback
+  container.register(
+    SDK_TOKENS.SDK_WORKTREE_HOOK_HANDLER,
+    { useClass: WorktreeHookHandler },
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // SDK module loader - caches SDK query function (TASK_2025_102)
   container.register(
     SDK_TOKENS.SDK_MODULE_LOADER,
     { useClass: SdkModuleLoader },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // SDK model service - fetches and caches supported models (TASK_2025_102)
   container.register(
     SDK_TOKENS.SDK_MODEL_SERVICE,
     { useClass: SdkModelService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Message factory - creates SDK user messages with attachments (TASK_2025_102)
   container.register(
     SDK_TOKENS.SDK_MESSAGE_FACTORY,
     { useClass: SdkMessageFactory },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Query options builder - constructs SDK query config (TASK_2025_102)
   container.register(
     SDK_TOKENS.SDK_QUERY_OPTIONS_BUILDER,
     { useClass: SdkQueryOptionsBuilder },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -276,7 +286,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PROMPT_DESIGNER_AGENT,
     { useClass: PromptDesignerAgent },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Prompt Cache Service - smart caching with file-based invalidation (Batch 3)
@@ -284,7 +294,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PROMPT_CACHE_SERVICE,
     { useClass: PromptCacheService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // Enhanced Prompts Service - orchestrates the Enhanced Prompts feature (Batch 4)
@@ -292,7 +302,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_ENHANCED_PROMPTS_SERVICE,
     { useClass: EnhancedPromptsService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -305,7 +315,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_INTERNAL_QUERY_SERVICE,
     { useClass: InternalQueryService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -315,18 +325,18 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PLUGIN_LOADER,
     { useClass: PluginLoaderService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
   // Skill Junction Service (TASK_2025_201)
-  // Manages workspace .claude/skills/ junctions to plugin skill directories
+  // Manages workspace .ptah/skills/ junctions to plugin skill directories
   // So third-party providers (Codex, Copilot) can find skills via MCP search
   // ============================================================
   container.register(
     SDK_TOKENS.SDK_SKILL_JUNCTION,
     { useClass: SkillJunctionService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -336,13 +346,13 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SETTINGS_EXPORT,
     { useClass: SettingsExportService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   container.register(
     SDK_TOKENS.SDK_SETTINGS_IMPORT,
     { useClass: SettingsImportService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -352,19 +362,19 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_PTAH_CLI_CONFIG_PERSISTENCE,
     { useClass: PtahCliConfigPersistence },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   container.register(
     SDK_TOKENS.SDK_PTAH_CLI_SPAWN_OPTIONS,
     { useClass: PtahCliSpawnOptions },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   container.register(
     SDK_TOKENS.SDK_PTAH_CLI_REGISTRY,
     { useClass: PtahCliRegistry },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -374,7 +384,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_SLASH_COMMAND_INTERCEPTOR,
     { useClass: SlashCommandInterceptor },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -386,13 +396,13 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_COPILOT_AUTH,
     { useClass: CopilotAuthService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   container.register(
     SDK_TOKENS.SDK_COPILOT_PROXY,
     { useClass: CopilotTranslationProxy },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -404,13 +414,13 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_CODEX_AUTH,
     { useClass: CodexAuthService },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   container.register(
     SDK_TOKENS.SDK_CODEX_PROXY,
     { useClass: CodexTranslationProxy },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   // ============================================================
@@ -422,7 +432,7 @@ export function registerSdkServices(
   container.register(
     SDK_TOKENS.SDK_AGENT_ADAPTER,
     { useClass: SdkAgentAdapter },
-    { lifecycle: Lifecycle.Singleton }
+    { lifecycle: Lifecycle.Singleton },
   );
 
   logger.info('[AgentSDK] SDK services registered successfully', {

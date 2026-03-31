@@ -38,4 +38,13 @@ export const PLATFORM_TOKENS = {
 
   /** IPlatformInfo — platform type, extension path, storage paths */
   PLATFORM_INFO: Symbol.for('PlatformInfo'),
+
+  /** ITokenCounter — platform-agnostic token counting */
+  TOKEN_COUNTER: Symbol.for('PlatformTokenCounter'),
+
+  /** IDiagnosticsProvider — workspace diagnostics (errors, warnings) */
+  DIAGNOSTICS_PROVIDER: Symbol.for('PlatformDiagnosticsProvider'),
+
+  /** ContentDownloadService — downloads plugins/templates from GitHub (TASK_2025_248) */
+  CONTENT_DOWNLOAD: Symbol.for('PlatformContentDownload'),
 } as const;

@@ -152,6 +152,29 @@ export const EventEmitter = class {
   }
 };
 
+export const ViewColumn = {
+  One: 1,
+  Two: 2,
+  Three: 3,
+  Active: -1,
+  Beside: -2,
+};
+
+export const StatusBarAlignment = {
+  Left: 1,
+  Right: 2,
+};
+
+export const lm = {
+  selectChatModels: async () => [],
+};
+
+export const extensions = {
+  getExtension: () => undefined,
+};
+
+export const version = '0.0.0';
+
 // Re-export internal names as the vscode API surface names
 // `import * as vscode from 'vscode'` will see vscode.window, vscode.workspace, etc.
 export { vscodeWindow as window, vscodeWorkspace as workspace };

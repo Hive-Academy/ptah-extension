@@ -32,30 +32,12 @@
             "js": "import { createRequire } from 'module'; const require = createRequire(import.meta.url);"
           }
         },
-        "external": [
-          "vscode",
-          "@anthropic-ai/claude-agent-sdk",
-          "@github/copilot-sdk",
-          "@openai/codex-sdk",
-          "tree-sitter",
-          "tree-sitter-javascript",
-          "tree-sitter-typescript"
-        ],
+        "external": ["vscode"],
         "assets": [
           {
             "glob": "**/*",
             "input": "apps/ptah-extension-vscode/src/assets",
             "output": "assets"
-          },
-          {
-            "glob": "**/*",
-            "input": "apps/ptah-extension-vscode/assets/plugins",
-            "output": "assets/plugins"
-          },
-          {
-            "glob": "**/*",
-            "input": "libs/backend/agent-generation/templates",
-            "output": "templates"
           },
           {
             "glob": "package.json",
@@ -82,6 +64,10 @@
       "options": {
         "commands": [
           {
+            "command": "node scripts/copy-wasm.js dist/apps/ptah-extension-vscode",
+            "forwardAllArgs": false
+          },
+          {
             "command": "node scripts/copy-webview.js",
             "forwardAllArgs": false
           }
@@ -100,14 +86,6 @@
           },
           {
             "command": "node -e \"const fs=require('fs'); fs.copyFileSync('README.md', 'dist/apps/ptah-extension-vscode/README.md')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "node -e \"const fs=require('fs'); if(fs.existsSync('LICENSE')) fs.copyFileSync('LICENSE', 'dist/apps/ptah-extension-vscode/LICENSE')\"",
-            "forwardAllArgs": false
-          },
-          {
-            "command": "cd dist/apps/ptah-extension-vscode && npm install --omit=dev --ignore-scripts 2>&1 || echo 'npm install completed'",
             "forwardAllArgs": false
           }
         ],

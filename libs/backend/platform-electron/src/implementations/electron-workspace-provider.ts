@@ -10,6 +10,12 @@
  * TASK_2025_208 Batch 1, Task 1.2: Added workspace lifecycle methods
  * (addFolder, removeFolder, setActiveFolder, getActiveFolder) so the
  * RPC handler can use typed calls instead of duck-typing.
+ *
+ * TASK_2025_247 Batch 3, Task 3.2: File-based settings routing.
+ * Keys in FILE_BASED_SETTINGS_KEYS are transparently routed to
+ * PtahFileSettingsManager (~/.ptah/settings.json) instead of the
+ * per-app config.json file. This keeps trademarked terms out of
+ * package.json contributes.configuration.
  */
 
 import * as fs from 'fs';
@@ -20,7 +26,12 @@ import type {
   IEvent,
   ConfigurationChangeEvent,
 } from '@ptah-extension/platform-core';
-import { createEvent } from '@ptah-extension/platform-core';
+import {
+  createEvent,
+  PtahFileSettingsManager,
+  FILE_BASED_SETTINGS_KEYS,
+  FILE_BASED_SETTINGS_DEFAULTS,
+} from '@ptah-extension/platform-core';
 
 export class ElectronWorkspaceProvider implements IWorkspaceProvider {
   public readonly onDidChangeConfiguration: IEvent<ConfigurationChangeEvent>;
@@ -29,12 +40,18 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
   private readonly fireConfigChange: (data: ConfigurationChangeEvent) => void;
   private readonly fireFoldersChange: (data: void) => void;
 
+  private readonly fileSettings: PtahFileSettingsManager;
+
   private folders: string[] = [];
   private activeFolder: string | undefined;
   private config: Record<string, Record<string, unknown>> = {};
   private readonly configFilePath: string;
 
   constructor(globalStoragePath: string, initialFolders?: string[]) {
+    this.fileSettings = new PtahFileSettingsManager(
+      FILE_BASED_SETTINGS_DEFAULTS,
+    );
+
     const [configEvent, fireConfig] = createEvent<ConfigurationChangeEvent>();
     this.onDidChangeConfiguration = configEvent;
     this.fireConfigChange = fireConfig;
@@ -67,8 +84,12 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
   getConfiguration<T>(
     section: string,
     key: string,
-    defaultValue?: T
+    defaultValue?: T,
   ): T | undefined {
+    // Route file-based settings to PtahFileSettingsManager
+    if (section === 'ptah' && FILE_BASED_SETTINGS_KEYS.has(key)) {
+      return this.fileSettings.get<T>(key, defaultValue);
+    }
     const sectionConfig = this.config[section];
     if (!sectionConfig) return defaultValue;
     const value = sectionConfig[key];
@@ -85,7 +106,7 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
     if (
       this.activeFolder &&
       !this.folders.some(
-        (f) => path.resolve(f) === path.resolve(this.activeFolder!)
+        (f) => path.resolve(f) === path.resolve(this.activeFolder!),
       )
     ) {
       this.activeFolder = this.folders[0];
@@ -104,7 +125,7 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
 
     // Deduplicate: check if already present (by resolved path)
     const alreadyExists = this.folders.some(
-      (existing) => path.resolve(existing) === resolved
+      (existing) => path.resolve(existing) === resolved,
     );
     if (alreadyExists) {
       return;
@@ -131,7 +152,7 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
   removeFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
     const index = this.folders.findIndex(
-      (existing) => path.resolve(existing) === resolved
+      (existing) => path.resolve(existing) === resolved,
     );
 
     if (index === -1) {
@@ -158,7 +179,7 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
   setActiveFolder(folderPath: string): void {
     const resolved = path.resolve(folderPath);
     const exists = this.folders.some(
-      (existing) => path.resolve(existing) === resolved
+      (existing) => path.resolve(existing) === resolved,
     );
 
     if (!exists) {
@@ -181,20 +202,37 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
   /**
    * Update a configuration value.
    * Fires onDidChangeConfiguration event.
+   *
+   * TASK_2025_247: File-based keys route to PtahFileSettingsManager.
    */
   async setConfiguration(
     section: string,
     key: string,
-    value: unknown
+    value: unknown,
   ): Promise<void> {
+    // Route file-based settings to PtahFileSettingsManager
+    if (section === 'ptah' && FILE_BASED_SETTINGS_KEYS.has(key)) {
+      await this.fileSettings.set(key, value);
+      const fullKey = `${section}.${key}`;
+      this.fireConfigChange({
+        affectsConfiguration: (s: string) =>
+          fullKey === s ||
+          fullKey.startsWith(s + '.') ||
+          s.startsWith(fullKey + '.'),
+      });
+      return;
+    }
     if (!this.config[section]) {
       this.config[section] = {};
     }
     this.config[section][key] = value;
     await this.persistConfig();
+    const configFullKey = `${section}.${key}`;
     this.fireConfigChange({
       affectsConfiguration: (s: string) =>
-        s === section || s === `${section}.${key}`,
+        configFullKey === s ||
+        configFullKey.startsWith(s + '.') ||
+        s.startsWith(configFullKey + '.'),
     });
   }
 
@@ -214,7 +252,7 @@ export class ElectronWorkspaceProvider implements IWorkspaceProvider {
     await fsPromises.writeFile(
       this.configFilePath,
       JSON.stringify(this.config, null, 2),
-      'utf-8'
+      'utf-8',
     );
   }
 }

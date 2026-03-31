@@ -2,7 +2,7 @@
 
 **Updated Pricing Strategy:**
 
-- **Free Trial**: 14 days, all features, no credit card (handled by backend)
+- **Free Trial**: 30 days, all features, no credit card (handled by backend)
 - **Pro Monthly**: $8/month subscription
 - **Pro Yearly**: $80/year subscription (save ~17%)
 
@@ -74,7 +74,7 @@
    - **Billing Interval**: `monthly` (1 month)
    - **Amount**: `8.00`
    - **Currency**: `USD`
-   - **Trial Period**: `14 days` (free trial)
+   - **Trial Period**: `30 days` (free trial)
 4. Click **"Create Price"**
 5. **Copy the Price ID**: `pri_XXXXX`
 
@@ -87,7 +87,7 @@
    - **Billing Interval**: `yearly` (12 months)
    - **Amount**: `80.00`
    - **Currency**: `USD`
-   - **Trial Period**: `14 days` (free trial)
+   - **Trial Period**: `30 days` (free trial)
 3. Click **"Create Price"**
 4. **Copy the Price ID**: `pri_YYYYY`
 
@@ -123,14 +123,12 @@ To offer $5/month for the first 3 months:
 1. Navigate to **Developer Tools** → **Webhooks**
 2. Click **"New Destination"**
 3. Configure:
-
    - **Name**: Ptah License Server
    - **URL**: `https://your-domain.com/webhooks/paddle`
      - Local testing: `https://abc123.ngrok.io/webhooks/paddle`
    - **Description**: Subscription lifecycle events
 
 4. **Select Events** (critical):
-
    - ✅ `subscription.created`
    - ✅ `subscription.activated` (PRIMARY)
    - ✅ `subscription.updated`
@@ -268,10 +266,10 @@ ngrok http 3000
 
 | Plan                 | Price        | Trial   | Paddle Config                        |
 | -------------------- | ------------ | ------- | ------------------------------------ |
-| **Free Trial**       | $0           | 14 days | Handled by backend, no Paddle        |
-| **Pro Monthly**      | $8/month     | 14 days | Price ID: `pri_MONTHLY`              |
-| **Pro Yearly**       | $80/year     | 14 days | Price ID: `pri_YEARLY`               |
-| **Promo (Optional)** | $5/month × 3 | 14 days | Discount code or promotional pricing |
+| **Free Trial**       | $0           | 30 days | Handled by backend, no Paddle        |
+| **Pro Monthly**      | $8/month     | 30 days | Price ID: `pri_MONTHLY`              |
+| **Pro Yearly**       | $80/year     | 30 days | Price ID: `pri_YEARLY`               |
+| **Promo (Optional)** | $5/month × 3 | 30 days | Discount code or promotional pricing |
 
 ---
 

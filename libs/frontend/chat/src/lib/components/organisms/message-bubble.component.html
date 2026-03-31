@@ -1,147 +1,203 @@
 @if (message().role === 'assistant') {
-<!-- Assistant message (left-aligned) -->
-<div class="chat chat-start group">
-  <!-- Avatar with Ptah icon + streaming ring -->
-  <div class="chat-image avatar">
-    <div
-      class="w-6 h-6 rounded-full overflow-hidden transition-all duration-300"
-      [class.streaming-avatar-glow]="isStreaming()"
-    >
-      <img
-        [ngSrc]="ptahIconUri"
-        alt="Claude"
-        width="24"
-        height="24"
-        class="w-full h-full object-cover"
-      />
-    </div>
-  </div>
-
-  <!-- Header -->
-  <div class="chat-header text-xs text-base-content/70 mb-1">
-    Claude
-    <time
-      class="ml-2 opacity-60"
-      [attr.datetime]="formatDateTime(message().timestamp)"
-    >
-      {{ formatTime(message().timestamp) }}
-    </time>
-  </div>
-
-  <!-- Message bubble - uses base-300 for theme-aware background -->
-  <div
-    class="chat-bubble bg-base-300 text-base-content shadow-card max-w-[95%] md:max-w-[98%] lg:max-w-[95%]"
-  >
-    @if (message().streamingState) {
-    <!-- ExecutionNode recursive tree with streaming state -->
-    <!-- TASK_2025_109: resumeRequested removed - now uses context injection -->
-    <ptah-execution-node
-      [node]="message().streamingState!"
-      [isStreaming]="isStreaming()"
-      [getPermissionForTool]="getPermissionForTool"
-      (permissionResponded)="onPermissionResponse($event)"
-    />
-    } @else {
-    <!-- Fallback text content - removed prose-invert for theme compatibility -->
-    <markdown
-      [data]="message().rawContent || ''"
-      class="prose prose-sm max-w-none"
-    />
-    @if (isStreaming()) {
-    <ptah-typing-cursor colorClass="text-base-content/70" />
-    } }
-  </div>
-
-  <!-- Metadata badges + Action buttons + Streaming quotes (single row) -->
-  <div class="chat-footer flex gap-2 mt-1 items-center w-full">
-    <!-- Left side: Copy action button (hover reveal) -->
-    <div
-      class="flex gap-1 items-center opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200"
-    >
-      <ptah-copy-button [message]="message()" />
-    </div>
-
-    <!-- Center: Metadata badges (always visible when data exists) -->
-    <!-- TASK_2025_100 FIX: Always show stats when available, don't hide during streaming -->
-    @if (message().tokens || message().cost !== undefined || message().duration
-    !== undefined) {
-    <div class="flex gap-1.5 items-center text-base-content/70">
-      @if (message().tokens) {
-      <ptah-token-badge
-        [count]="message().tokens!.input + message().tokens!.output"
-      />
-      } @if (message().cost !== undefined) {
-      <ptah-cost-badge [cost]="message().cost!" />
-      } @if (message().duration !== undefined) {
-      <ptah-duration-badge [durationMs]="message().duration!" />
-      }
-    </div>
-    }
-
-    <!-- Streaming quotes (only during streaming) -->
-    @if (isStreaming()) {
-    <ptah-streaming-quotes />
-    }
-  </div>
-</div>
-} @else {
-<!-- User message (right-aligned) -->
-<div class="chat chat-end">
-  <!-- Avatar with User icon
-  <div class="chat-image avatar">
-    <div class="w-8 h-8 rounded-full overflow-hidden">
-      <img
-        [ngSrc]="ptahUserIconUri"
-        alt="You"
-        width="32"
-        height="32"
-        class="w-full h-full object-cover"
-      />
-    </div>
-  </div>-->
-
-  <!-- Header -->
-  <div class="chat-header text-xs text-base-content/70 mb-1">
-    <time
-      class="mr-2 opacity-60"
-      [attr.datetime]="formatDateTime(message().timestamp)"
-    >
-      {{ formatTime(message().timestamp) }}
-    </time>
-    You
-  </div>
-
-  <!-- Message bubble - user messages use primary color -->
-  <div
-    class="chat-bubble chat-bubble-primary bg-primary text-primary-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
-  >
-    <markdown
-      [data]="userDisplayContent()"
-      class="prose prose-sm max-w-none [&_*]:text-primary-content"
-    />
-  </div>
-
-  <!-- File attachments indicator -->
-  @if (message().files && message().files!.length > 0) {
-  <div class="chat-footer mt-1.5">
-    <div class="flex flex-wrap gap-1.5 items-center">
-      <lucide-angular
-        [img]="PaperclipIcon"
-        class="w-3 h-3 text-base-content/50"
-      />
-      @for (filePath of message().files; track filePath) {
+  <!-- Assistant message (left-aligned) -->
+  <div class="chat chat-start group">
+    <!-- Avatar with Ptah icon + streaming ring -->
+    <div class="chat-image avatar">
       <div
-        class="badge badge-sm bg-base-200/80 text-base-content/70 gap-1 py-2.5"
-        [title]="filePath"
+        class="w-6 h-6 rounded-full overflow-hidden transition-all duration-300"
+        [class.streaming-avatar-glow]="isStreaming()"
       >
-        <lucide-angular [img]="getFileIcon(filePath)" class="w-3 h-3" />
-        <span class="text-xs max-w-[120px] truncate">{{
-          getFileName(filePath)
-        }}</span>
+        <img
+          [ngSrc]="ptahIconUri"
+          alt="Claude"
+          width="24"
+          height="24"
+          class="w-full h-full object-cover"
+        />
       </div>
+    </div>
+
+    <!-- Header -->
+    <div class="chat-header text-xs text-base-content/70 mb-1">
+      Claude
+      <time
+        class="ml-2 opacity-60"
+        [attr.datetime]="formatDateTime(message().timestamp)"
+      >
+        {{ formatTime(message().timestamp) }}
+      </time>
+    </div>
+
+    <!-- Message bubble - uses base-300 for theme-aware background -->
+    <div
+      class="chat-bubble bg-base-300 text-base-content shadow-card max-w-[95%] md:max-w-[98%] lg:max-w-[95%]"
+    >
+      <!-- Collapsible Header (only for completed assistant messages) -->
+      @if (messageSummary(); as summary) {
+        @if (!isStreaming()) {
+          <button
+            type="button"
+            class="w-full flex items-center gap-2 text-left py-1 -mt-1 mb-1 hover:bg-base-200/30 rounded transition-colors"
+            (click)="toggleCollapse()"
+            [attr.aria-expanded]="!isCollapsed()"
+            [attr.aria-label]="
+              isCollapsed() ? 'Expand message' : 'Collapse message'
+            "
+          >
+            <lucide-angular
+              [img]="isCollapsed() ? ChevronRightIcon : ChevronDownIcon"
+              class="w-3.5 h-3.5 text-base-content/50 flex-shrink-0"
+            />
+            <span class="flex-1 text-xs text-base-content/70 truncate min-w-0">
+              {{ summary.title }}
+            </span>
+            @if (summary.toolCount > 0) {
+              <span class="badge badge-ghost badge-xs text-[9px] flex-shrink-0">
+                {{ summary.toolCount }} tools
+              </span>
+            }
+            @if (summary.filesChanged > 0) {
+              <span class="badge badge-ghost badge-xs text-[9px] flex-shrink-0">
+                {{ summary.filesChanged }} files
+              </span>
+            }
+          </button>
+        }
+      }
+
+      <!-- Collapsible Content: Full ExecutionNode tree or markdown -->
+      @if (!isCollapsed()) {
+        @if (message().streamingState) {
+          <!-- ExecutionNode recursive tree with streaming state -->
+          <ptah-execution-node
+            [node]="message().streamingState!"
+            [isStreaming]="isStreaming()"
+            [getPermissionForTool]="getPermissionForTool"
+            (permissionResponded)="onPermissionResponse($event)"
+          />
+        } @else {
+          <!-- Fallback text content -->
+          <markdown
+            [data]="message().rawContent || ''"
+            class="prose prose-sm max-w-none"
+          />
+          @if (isStreaming()) {
+            <ptah-typing-cursor colorClass="text-base-content/70" />
+          }
+        }
+      }
+
+      <!-- Collapsed state: show cost/duration badges inline (only when data exists) -->
+      @if (
+        isCollapsed() && hasCollapsedFooterData() && messageSummary();
+        as summary
+      ) {
+        <div class="flex gap-1.5 items-center text-base-content/70 py-0.5">
+          @if (summary.cost !== undefined && summary.cost > 0) {
+            <ptah-cost-badge [cost]="summary.cost" />
+          }
+          @if (summary.duration !== undefined) {
+            <ptah-duration-badge [durationMs]="summary.duration" />
+          }
+        </div>
+      }
+    </div>
+
+    <!-- Metadata badges + Action buttons + Streaming quotes (single row) -->
+    <div class="chat-footer flex gap-2 mt-1 items-center w-full">
+      <!-- Left side: Copy action button (hover reveal) -->
+      <div
+        class="flex gap-1 items-center opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity duration-200"
+      >
+        <ptah-copy-button [message]="message()" />
+      </div>
+
+      <!-- Center: Metadata badges (always visible when data exists) -->
+      @if (
+        message().tokens ||
+        message().cost !== undefined ||
+        message().duration !== undefined
+      ) {
+        <div class="flex gap-1.5 items-center text-base-content/70">
+          @if (message().tokens) {
+            <ptah-token-badge
+              [count]="message().tokens!.input + message().tokens!.output"
+            />
+          }
+          @if (message().cost !== undefined) {
+            <ptah-cost-badge [cost]="message().cost!" />
+          }
+          @if (message().duration !== undefined) {
+            <ptah-duration-badge [durationMs]="message().duration!" />
+          }
+        </div>
+      }
+
+      <!-- Streaming quotes (only during streaming) -->
+      @if (isStreaming()) {
+        <ptah-streaming-quotes />
       }
     </div>
   </div>
-  }
-</div>
+} @else {
+  <!-- User message (right-aligned) -->
+  <div class="chat chat-end">
+    <!-- Header -->
+    <div class="chat-header text-xs text-base-content/70 mb-1">
+      <time
+        class="mr-2 opacity-60"
+        [attr.datetime]="formatDateTime(message().timestamp)"
+      >
+        {{ formatTime(message().timestamp) }}
+      </time>
+      You
+    </div>
+
+    <!-- Message bubble - user messages use primary color -->
+    <div
+      class="chat-bubble chat-bubble-primary bg-primary text-primary-content shadow-card max-w-[85%] md:max-w-[90%] lg:max-w-[85%]"
+    >
+      <markdown
+        [data]="userDisplayContent()"
+        class="prose prose-sm max-w-none [&_*]:text-primary-content"
+      />
+    </div>
+
+    <!-- File attachments indicator -->
+    @if (message().files && message().files!.length > 0) {
+      <div class="chat-footer mt-1.5">
+        <div class="flex flex-wrap gap-1.5 items-center">
+          <lucide-angular
+            [img]="PaperclipIcon"
+            class="w-3 h-3 text-base-content/50"
+          />
+          @for (filePath of message().files; track filePath) {
+            <div
+              class="badge badge-sm bg-base-200/80 text-base-content/70 gap-1 py-2.5"
+              [title]="filePath"
+            >
+              <lucide-angular [img]="getFileIcon(filePath)" class="w-3 h-3" />
+              <span class="text-xs max-w-[120px] truncate">{{
+                getFileName(filePath)
+              }}</span>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Image attachment indicator -->
+    @if (imageCountLabel(); as label) {
+      <div class="chat-footer" [class.mt-1.5]="!message().files?.length">
+        <div class="flex items-center gap-1.5">
+          <div
+            class="badge badge-sm bg-base-200/80 text-base-content/70 gap-1 py-2.5"
+          >
+            <lucide-angular [img]="ImageIcon" class="w-3 h-3" />
+            <span class="text-xs">{{ label }}</span>
+          </div>
+        </div>
+      </div>
+    }
+  </div>
 }

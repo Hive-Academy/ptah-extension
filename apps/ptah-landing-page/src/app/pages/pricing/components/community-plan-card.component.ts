@@ -48,62 +48,62 @@ import {
       <!-- Badge -->
       <div aria-live="polite" aria-atomic="true">
         @if (isCurrentPlan()) {
-        <div
-          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+          <div
+            class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                    bg-success rounded-full
                    text-xs font-bold text-success-content uppercase tracking-wider
                    shadow-lg shadow-success/30 flex items-center gap-1.5"
-        >
-          <lucide-angular
-            [img]="CrownIcon"
-            class="w-3 h-3"
-            aria-hidden="true"
-          />
-          Current Plan
-        </div>
+          >
+            <lucide-angular
+              [img]="CrownIcon"
+              class="w-3 h-3"
+              aria-hidden="true"
+            />
+            Current Plan
+          </div>
         } @else if (isProUser()) {
-        <div
-          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+          <div
+            class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                    bg-base-300 rounded-full
                    text-xs font-bold text-base-content/60 uppercase tracking-wider"
-        >
-          Included in Pro
-        </div>
+          >
+            Included in Pro
+          </div>
         } @else {
-        <div
-          class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
+          <div
+            class="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1
                    bg-gradient-to-r from-green-500 to-emerald-500 rounded-full
                    text-xs font-bold text-white uppercase tracking-wider
                    shadow-lg shadow-green-500/30"
-        >
-          Free Forever
-        </div>
+          >
+            Free Forever
+          </div>
         }
       </div>
 
       <!-- Trial Ended Alert (TASK_2025_143) -->
       @if (isTrialEnded()) {
-      <div
-        class="mt-4 p-3 rounded-lg bg-warning/10 border border-warning/30"
-        role="alert"
-      >
-        <div class="flex items-start gap-2">
-          <lucide-angular
-            [img]="ClockIcon"
-            class="w-4 h-4 text-warning flex-shrink-0 mt-0.5"
-            aria-hidden="true"
-          />
-          <div class="flex-1">
-            <p class="text-sm font-medium text-warning">
-              Your Pro Trial Has Ended
-            </p>
-            <p class="text-xs text-base-content/70 mt-1">
-              You're now on the Community plan. Upgrade to Pro to unlock
-              advanced features like MCP servers and workspace intelligence.
-            </p>
+        <div
+          class="mt-4 p-3 rounded-lg bg-warning/10 border border-warning/30"
+          role="alert"
+        >
+          <div class="flex items-start gap-2">
+            <lucide-angular
+              [img]="ClockIcon"
+              class="w-4 h-4 text-warning flex-shrink-0 mt-0.5"
+              aria-hidden="true"
+            />
+            <div class="flex-1">
+              <p class="text-sm font-medium text-warning">
+                Your Pro Trial Has Ended
+              </p>
+              <p class="text-xs text-base-content/70 mt-1">
+                You're now on the Community plan. Upgrade to Pro to unlock
+                advanced features like MCP servers and workspace intelligence.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
       }
 
       <!-- Plan Header -->
@@ -140,14 +140,14 @@ import {
         </h4>
         <ul class="space-y-2.5">
           @for (feature of plan().standoutFeatures; track feature) {
-          <li class="flex items-start gap-2.5">
-            <lucide-angular
-              [img]="CheckIcon"
-              class="flex-shrink-0 w-4 h-4 text-green-400 mt-0.5"
-              aria-hidden="true"
-            />
-            <span class="text-sm text-base-content/80">{{ feature }}</span>
-          </li>
+            <li class="flex items-start gap-2.5">
+              <lucide-angular
+                [img]="CheckIcon"
+                class="flex-shrink-0 w-4 h-4 text-green-400 mt-0.5"
+                aria-hidden="true"
+              />
+              <span class="text-sm text-base-content/80">{{ feature }}</span>
+            </li>
           }
         </ul>
       </div>
@@ -162,14 +162,14 @@ import {
         (click)="handleClick()"
       >
         @if (isProUser()) {
-        <span>Included in Your Plan</span>
+          <span>Included in Your Plan</span>
         } @else {
-        <lucide-angular
-          [img]="DownloadIcon"
-          class="w-4 h-4"
-          aria-hidden="true"
-        />
-        <span>{{ plan().ctaText }}</span>
+          <lucide-angular
+            [img]="DownloadIcon"
+            class="w-4 h-4"
+            aria-hidden="true"
+          />
+          <span>{{ plan().ctaText }}</span>
         }
       </button>
     </div>
@@ -198,7 +198,7 @@ export class CommunityPlanCardComponent {
 
   /** Subscription context from parent (null for unauthenticated users) */
   public readonly subscriptionContext = input<PlanSubscriptionContext | null>(
-    null
+    null,
   );
 
   /**
@@ -272,8 +272,8 @@ export class CommunityPlanCardComponent {
 
     // Open VS Code marketplace
     window.open(
-      'https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-extension-vscode',
-      '_blank'
+      'https://marketplace.visualstudio.com/items?itemName=ptah-extensions.ptah-coding-orchestra',
+      '_blank',
     );
   }
 }

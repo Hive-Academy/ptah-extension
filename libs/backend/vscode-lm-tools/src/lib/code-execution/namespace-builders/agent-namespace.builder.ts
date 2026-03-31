@@ -68,7 +68,7 @@ interface PtahCliRegistryLike {
       projectGuidance?: string;
       workingDirectory?: string;
       resumeSessionId?: string;
-    }
+    },
   ): Promise<{ handle: SdkHandle; agentName: string } | SpawnAgentFailure>;
 }
 
@@ -90,13 +90,17 @@ export interface AgentNamespaceDependencies {
   getPluginPaths?: () => Promise<string[] | undefined>;
   /** Lazy resolver for PtahCliRegistry (avoids hard dependency on agent-sdk) */
   getPtahCliRegistry?: () => PtahCliRegistryLike | undefined;
+  /** Returns CLI types that are disabled by the user. Called at spawn/list time to filter out disabled agents. */
+  getDisabledClis?: () => string[];
+  /** Returns the user's preferred agent order for sorting list() results. */
+  getPreferredAgentOrder?: () => string[];
 }
 
 /**
  * Build the agent namespace for ptah.agent.*
  */
 export function buildAgentNamespace(
-  deps: AgentNamespaceDependencies
+  deps: AgentNamespaceDependencies,
 ): AgentNamespace {
   const {
     agentProcessManager,
@@ -107,6 +111,8 @@ export function buildAgentNamespace(
     getSystemPrompt,
     getPluginPaths,
     getPtahCliRegistry,
+    getDisabledClis,
+    getPreferredAgentOrder,
   } = deps;
 
   return {
@@ -120,7 +126,7 @@ export function buildAgentNamespace(
         const registry = getPtahCliRegistry?.();
         if (!registry) {
           throw new Error(
-            'Ptah CLI registry not available. Ptah CLI agents require the Agent SDK.'
+            'Ptah CLI registry not available. Ptah CLI agents require the Agent SDK.',
           );
         }
 
@@ -136,12 +142,12 @@ export function buildAgentNamespace(
             projectGuidance,
             workingDirectory,
             resumeSessionId: request.resumeSessionId,
-          }
+          },
         );
         if ('status' in result) {
           throw new Error(
             `Ptah CLI agent spawn failed: ${result.message}. ` +
-              'Use ptah_agent_list to see available agents.'
+              'Use ptah_agent_list to see available agents.',
           );
         }
 
@@ -155,6 +161,18 @@ export function buildAgentNamespace(
           ptahCliId: request.ptahCliId,
           timeout: request.timeout,
         });
+      }
+
+      // Check if the requested CLI type is disabled by the user
+      if (request.cli) {
+        const disabledClis = getDisabledClis?.() ?? [];
+        if (disabledClis.includes(request.cli)) {
+          throw new Error(
+            `CLI agent '${request.cli}' is disabled. ` +
+              'Enable it in Agent Orchestration settings or use a different CLI. ' +
+              'Use ptah_agent_list to see available agents.',
+          );
+        }
       }
 
       const [systemPrompt, pluginPaths] = await Promise.all([
@@ -192,36 +210,74 @@ export function buildAgentNamespace(
       // Merge CLI agents with Ptah CLI agents
       const cliResults = await cliDetectionService.detectAll();
 
+      // Filter out disabled CLIs
+      const disabledClis = getDisabledClis?.() ?? [];
+      const enabledCliResults =
+        disabledClis.length > 0
+          ? cliResults.filter((c) => !disabledClis.includes(c.cli))
+          : cliResults;
+
       const registry = getPtahCliRegistry?.();
+      let merged: CliDetectionResult[];
       if (!registry) {
-        return cliResults;
+        merged = enabledCliResults;
+      } else {
+        try {
+          const ptahCliAgents = await registry.listAgents();
+          const ptahCliResults: CliDetectionResult[] = ptahCliAgents
+            .filter((a) => a.enabled && a.hasApiKey)
+            .map((a) => ({
+              cli: 'ptah-cli' as const,
+              installed: true,
+              supportsSteer: false,
+              ptahCliId: a.id,
+              ptahCliName: a.name,
+              providerName: a.providerName,
+            }));
+
+          merged = [...enabledCliResults, ...ptahCliResults];
+        } catch {
+          // If listing Ptah CLI agents fails, still return CLI agents
+          merged = enabledCliResults;
+        }
       }
 
-      try {
-        const ptahCliAgents = await registry.listAgents();
-        const ptahCliResults: CliDetectionResult[] = ptahCliAgents
-          .filter((a) => a.enabled && a.hasApiKey)
-          .map((a) => ({
-            cli: 'ptah-cli' as const,
-            installed: true,
-            supportsSteer: false,
-            ptahCliId: a.id,
-            ptahCliName: a.name,
-            providerName: a.providerName,
-          }));
+      // Sort by preferred agent order and add preferredRank
+      const preferredOrder = getPreferredAgentOrder?.() ?? [];
+      if (preferredOrder.length > 0) {
+        // Build a lookup: entry identifier -> 1-based rank
+        const rankMap = new Map<string, number>();
+        preferredOrder.forEach((entry, idx) => rankMap.set(entry, idx + 1));
 
-        return [...cliResults, ...ptahCliResults];
-      } catch {
-        // If listing Ptah CLI agents fails, still return CLI agents
-        return cliResults;
+        // Determine the identifier for a CLI result (ptahCliId for Ptah CLI agents, cli type for system CLIs)
+        const getIdentifier = (r: CliDetectionResult): string =>
+          r.cli === 'ptah-cli' && r.ptahCliId ? r.ptahCliId : r.cli;
+
+        // Sort: preferred agents first (by rank), then unranked agents
+        merged.sort((a, b) => {
+          const rankA =
+            rankMap.get(getIdentifier(a)) ?? Number.MAX_SAFE_INTEGER;
+          const rankB =
+            rankMap.get(getIdentifier(b)) ?? Number.MAX_SAFE_INTEGER;
+          return rankA - rankB;
+        });
+
+        // Add preferredRank to each result
+        return merged.map((r) => ({
+          ...r,
+          preferredRank: rankMap.get(getIdentifier(r)) ?? 0,
+        }));
       }
+
+      // No preferred order — return as-is with preferredRank: 0
+      return merged.map((r) => ({ ...r, preferredRank: 0 }));
     },
 
     waitFor: async (agentId, options?) => {
       const pollInterval = options?.pollInterval ?? 2000;
       const timeout = Math.min(
         options?.timeout ?? MAX_WAIT_TIMEOUT,
-        MAX_WAIT_TIMEOUT
+        MAX_WAIT_TIMEOUT,
       );
       const startTime = Date.now();
 
@@ -238,7 +294,7 @@ export function buildAgentNamespace(
         const check = () => {
           try {
             const status = agentProcessManager.getStatus(
-              agentId
+              agentId,
             ) as AgentProcessInfo;
             if (status.status !== 'running') {
               cleanup();
@@ -251,8 +307,8 @@ export function buildAgentNamespace(
               cleanup();
               reject(
                 new Error(
-                  `waitFor timed out after ${timeout}ms for agent ${agentId}`
-                )
+                  `waitFor timed out after ${timeout}ms for agent ${agentId}`,
+                ),
               );
               return;
             }

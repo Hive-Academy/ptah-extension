@@ -37,9 +37,6 @@
           "@openai/codex-sdk",
           "reflect-metadata",
           "tsyringe",
-          "tree-sitter",
-          "tree-sitter-javascript",
-          "tree-sitter-typescript",
           "async-mutex",
           "cross-spawn",
           "eventemitter3",
@@ -57,7 +54,8 @@
           "fast-glob",
           "p-limit",
           "p-queue",
-          "axios"
+          "axios",
+          "node-pty"
         ],
         "assets": [
           {
@@ -121,12 +119,21 @@
       }
     },
     "build": {
-      "executor": "nx:noop",
+      "executor": "nx:run-commands",
       "dependsOn": [
         "build-main",
         "build-preload",
         "ptah-extension-webview:build"
-      ]
+      ],
+      "options": {
+        "commands": [
+          {
+            "command": "node scripts/copy-wasm.js dist/apps/ptah-electron",
+            "forwardAllArgs": false
+          }
+        ],
+        "parallel": false
+      }
     },
     "build-dev": {
       "executor": "nx:run-commands",
@@ -152,6 +159,7 @@
       "options": {
         "commands": [
           "nx build-dev ptah-electron",
+          "node scripts/copy-wasm.js dist/apps/ptah-electron",
           "nx copy-renderer ptah-electron",
           "node apps/ptah-electron/scripts/launch.js"
         ],

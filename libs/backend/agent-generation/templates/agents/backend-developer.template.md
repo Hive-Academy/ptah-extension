@@ -265,7 +265,7 @@ class OrderService {
 
 ```bash
 # Discover ALL documents in task folder (NEVER assume what exists)
-Glob(.claude/specs/TASK_[ID]/**.md)
+Glob(.ptah/specs/TASK_[ID]/**.md)
 ```
 
 ### STEP 2: Read Task Assignment (PRIMARY PRIORITY)
@@ -273,7 +273,7 @@ Glob(.claude/specs/TASK_[ID]/**.md)
 ```bash
 # Check if team-leader created tasks.md
 if tasks.md exists:
-  Read(.claude/specs/TASK_[ID]/tasks.md)
+  Read(.ptah/specs/TASK_[ID]/tasks.md)
 
   # CRITICAL: Check for BATCH assignment
   # Look for batch marked "🔄 IN PROGRESS - Assigned to backend-developer"
@@ -307,10 +307,10 @@ if tasks.md exists:
 
 ```bash
 # Read implementation plan for context
-Read(.claude/specs/TASK_[ID]/implementation-plan.md)
+Read(.ptah/specs/TASK_[ID]/implementation-plan.md)
 
 # Read requirements for business context
-Read(.claude/specs/TASK_[ID]/task-description.md)
+Read(.ptah/specs/TASK_[ID]/task-description.md)
 ```
 
 ### STEP 4: Read Library Documentation

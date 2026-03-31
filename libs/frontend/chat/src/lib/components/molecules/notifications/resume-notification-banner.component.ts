@@ -31,72 +31,87 @@ import type { SubagentRecord } from '@ptah-extension/shared';
   imports: [LucideAngularModule],
   template: `
     @if (resumableSubagents().length > 0 && !dismissed()) {
-    <div
-      class="relative bg-base-300/30 rounded border border-warning/40"
-      role="alert"
-      aria-label="Interrupted agents that can be resumed"
-    >
-      <!-- Header row - compact, matching permission card style -->
-      <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
-        <lucide-angular
-          [img]="PlayCircleIcon"
-          class="w-3 h-3 text-warning flex-shrink-0"
-          aria-hidden="true"
-        />
-        <span class="font-semibold text-base-content/80">Interrupted</span>
-        <span class="badge badge-xs badge-warning font-mono px-1.5">
-          {{ resumableSubagents().length }}
-        </span>
-        <span class="flex-1"></span>
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0"
-          (click)="onDismiss()"
-          title="Dismiss"
-          aria-label="Dismiss interrupted agents notification"
-        >
-          <lucide-angular [img]="XIcon" class="w-3 h-3 opacity-50" />
-        </button>
-      </div>
-
-      <!-- Agent list - separated by subtle divider -->
-      @for (agent of resumableSubagents(); track agent.toolCallId) {
       <div
-        class="flex items-center gap-1.5 px-2 py-1.5 border-t border-base-300/30 bg-base-100/20"
+        class="relative bg-base-300/30 rounded border border-warning/40"
+        role="alert"
+        aria-label="Interrupted agents that can be resumed"
       >
-        <span
-          class="badge badge-xs font-mono px-1.5 badge-warning badge-outline"
-        >
-          {{ agent.agentType }}
-        </span>
-        <span
-          class="text-[10px] text-base-content/50 font-mono truncate max-w-[8ch]"
-          [title]="agent.agentId"
-        >
-          {{ agent.agentId }}
-        </span>
-        <span class="text-[10px] text-base-content/40">
-          {{ getTimeSince(agent.interruptedAt) }}
-        </span>
-        <span class="flex-1"></span>
-        <button
-          type="button"
-          class="btn btn-xs btn-primary gap-0.5 px-2"
-          (click)="onResume(agent)"
-          [attr.aria-label]="
-            'Resume ' + agent.agentType + ' agent ' + agent.agentId
-          "
-        >
+        <!-- Header row - compact, matching permission card style -->
+        <div class="py-1.5 px-2 flex items-center gap-1.5 text-[11px]">
           <lucide-angular
             [img]="PlayCircleIcon"
-            class="w-3 h-3"
+            class="w-3 h-3 text-warning flex-shrink-0"
             aria-hidden="true"
           />
-          Resume
-        </button>
+          <span class="font-semibold text-base-content/80">Interrupted</span>
+          <span class="badge badge-xs badge-warning font-mono px-1.5">
+            {{ resumableSubagents().length }}
+          </span>
+          <span class="flex-1"></span>
+          @if (resumableSubagents().length > 1) {
+            <button
+              type="button"
+              class="btn btn-xs btn-primary gap-0.5 px-2"
+              (click)="onResumeAll()"
+              aria-label="Resume all interrupted agents"
+            >
+              <lucide-angular
+                [img]="PlayCircleIcon"
+                class="w-3 h-3"
+                aria-hidden="true"
+              />
+              Resume All
+            </button>
+          }
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs btn-square h-5 w-5 min-h-0"
+            (click)="onDismiss()"
+            title="Dismiss"
+            aria-label="Dismiss interrupted agents notification"
+          >
+            <lucide-angular [img]="XIcon" class="w-3 h-3 opacity-50" />
+          </button>
+        </div>
+
+        <!-- Agent list - separated by subtle divider -->
+        @for (agent of resumableSubagents(); track agent.toolCallId) {
+          <div
+            class="flex items-center gap-1.5 px-2 py-1.5 border-t border-base-300/30 bg-base-100/20"
+          >
+            <span
+              class="badge badge-xs font-mono px-1.5 badge-warning badge-outline"
+            >
+              {{ agent.agentType }}
+            </span>
+            <span
+              class="text-[10px] text-base-content/50 font-mono truncate max-w-[8ch]"
+              [title]="agent.agentId"
+            >
+              {{ agent.agentId }}
+            </span>
+            <span class="text-[10px] text-base-content/40">
+              {{ getTimeSince(agent.interruptedAt) }}
+            </span>
+            <span class="flex-1"></span>
+            <button
+              type="button"
+              class="btn btn-xs btn-primary gap-0.5 px-2"
+              (click)="onResume(agent)"
+              [attr.aria-label]="
+                'Resume ' + agent.agentType + ' agent ' + agent.agentId
+              "
+            >
+              <lucide-angular
+                [img]="PlayCircleIcon"
+                class="w-3 h-3"
+                aria-hidden="true"
+              />
+              Resume
+            </button>
+          </div>
+        }
       </div>
-      }
-    </div>
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -140,6 +155,12 @@ export class ResumeNotificationBannerComponent {
   readonly resumeRequested = output<SubagentRecord>();
 
   /**
+   * Emits all agents when user clicks "Resume All".
+   * The parent handler should build a single combined prompt for all agents.
+   */
+  readonly resumeAllRequested = output<SubagentRecord[]>();
+
+  /**
    * Icons
    */
   protected readonly PlayCircleIcon = PlayCircle;
@@ -156,6 +177,13 @@ export class ResumeNotificationBannerComponent {
    */
   protected onResume(agent: SubagentRecord): void {
     this.resumeRequested.emit(agent);
+  }
+
+  /**
+   * Handle "Resume All" button click — emits all agents at once
+   */
+  protected onResumeAll(): void {
+    this.resumeAllRequested.emit([...this.resumableSubagents()]);
   }
 
   /**

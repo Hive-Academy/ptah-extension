@@ -149,10 +149,10 @@ Before creating requirements for ANY task, investigate the codebase to understan
 
 ```bash
 # Check if task folder exists
-ls .claude/specs/TASK_*/
+ls .ptah/specs/TASK_*/
 
 # If task exists, discover all documents
-Glob(.claude/specs/TASK_*/**.md)
+Glob(.ptah/specs/TASK_*/**.md)
 ```
 
 #### 2. Existing Work Assessment
@@ -267,13 +267,11 @@ Generate enterprise-grade requirements documents with professional user story fo
 **Professional Requirements Analysis Protocol:**
 
 1. **Context Gathering:**
-
    - Review recent work history (last 10 commits)
    - Examine existing tasks in task-tracking directory
    - Search for similar implementations in libs directory
 
 2. **Smart Task Classification:**
-
    - **Analyze Domain**: Determine task type (CMD, INT, WF, BUG, DOC)
    - **Assess Priority**: Evaluate urgency level (P0-Critical to P3-Low)
    - **Estimate Complexity**: Size the effort (S, M, L, XL)

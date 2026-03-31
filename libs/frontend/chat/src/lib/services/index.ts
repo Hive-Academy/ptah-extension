@@ -16,11 +16,13 @@ export { ExecutionTreeBuilderService } from './execution-tree-builder.service';
 export { SessionManager } from './session-manager.service';
 
 // Chat types - Shared interfaces for ChatStore refactoring
-export type {
-  NodeMaps,
-  SessionStatus,
-  SessionState,
-  SessionLoadResult,
+export {
+  createEmptyStreamingState,
+  type StreamingState,
+  type NodeMaps,
+  type SessionStatus,
+  type SessionState,
+  type SessionLoadResult,
 } from './chat.types';
 
 // ConfirmationDialogService - Custom confirmation dialog for VS Code webview

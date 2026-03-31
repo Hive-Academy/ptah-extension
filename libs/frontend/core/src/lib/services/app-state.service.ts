@@ -51,12 +51,12 @@ export class AppStateManager implements MessageHandler {
     ];
     if (view && validViews.includes(view as ViewType)) {
       console.log(
-        `[AppStateManager] Backend requested view switch to: ${view}`
+        `[AppStateManager] Backend requested view switch to: ${view}`,
       );
       this.handleViewSwitch(view as ViewType);
     } else {
       console.warn(
-        `[AppStateManager] switchView received with invalid or missing view: ${view}`
+        `[AppStateManager] switchView received with invalid or missing view: ${view}`,
       );
     }
   }
@@ -69,6 +69,8 @@ export class AppStateManager implements MessageHandler {
   private readonly _isConnected = signal(true);
   /** License status - controls access to premium features and RPC calls */
   private readonly _isLicensed = signal(true);
+  /** Tracks which views are currently "open" as tab pills (Electron navbar). Chat is always present. */
+  private readonly _openViews = signal<Set<ViewType>>(new Set(['chat']));
 
   constructor() {
     this.initializeState();
@@ -82,6 +84,10 @@ export class AppStateManager implements MessageHandler {
   readonly isConnected = this._isConnected.asReadonly();
   /** Whether the user has a valid license - controls RPC access */
   readonly isLicensed = this._isLicensed.asReadonly();
+  /** Open views as an array for template iteration. Excludes 'welcome' (license gate, not a tab). */
+  readonly openViews = computed(() =>
+    Array.from(this._openViews()).filter((v) => v !== 'welcome'),
+  );
 
   // Computed signals
   // TASK_2025_126: Added welcome view check to prevent license bypass
@@ -166,15 +172,52 @@ export class AppStateManager implements MessageHandler {
     console.log(
       `[AppStateManager] Initializing with view: ${initialView}, isLicensed: ${isLicensed}, workspace: ${
         workspaceRoot || 'none'
-      }`
+      }`,
     );
     this._currentView.set(initialView);
+    if (initialView !== 'chat' && initialView !== 'welcome') {
+      this._openViews.update((views) => {
+        const next = new Set(views);
+        next.add(initialView);
+        return next;
+      });
+    }
   }
 
   // State update methods
   setCurrentView(view: ViewType): void {
     if (this.canSwitchViews()) {
+      this._openViews.update((views) => {
+        const next = new Set(views);
+        next.add(view);
+        return next;
+      });
       this._currentView.set(view);
+    }
+  }
+
+  /** Open a view as a tab pill and switch to it. Respects canSwitchViews() guard. */
+  openView(view: ViewType): void {
+    if (this.canSwitchViews()) {
+      this._openViews.update((views) => {
+        const next = new Set(views);
+        next.add(view);
+        return next;
+      });
+      this._currentView.set(view);
+    }
+  }
+
+  /** Close a view tab pill. Chat can never be closed. Falls back to chat if closing the active view. */
+  closeView(view: ViewType): void {
+    if (view === 'chat') return;
+    this._openViews.update((views) => {
+      const next = new Set(views);
+      next.delete(view);
+      return next;
+    });
+    if (this._currentView() === view) {
+      this._currentView.set('chat');
     }
   }
 
@@ -210,6 +253,11 @@ export class AppStateManager implements MessageHandler {
   }
 
   handleViewSwitch(view: ViewType): void {
+    this._openViews.update((views) => {
+      const next = new Set(views);
+      next.add(view);
+      return next;
+    });
     this._currentView.set(view);
   }
 

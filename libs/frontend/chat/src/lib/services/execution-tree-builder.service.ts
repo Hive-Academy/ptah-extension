@@ -117,7 +117,7 @@ export class ExecutionTreeBuilderService {
    */
   buildTree(
     streamingState: StreamingState,
-    cacheKey = 'default'
+    cacheKey = 'default',
   ): ExecutionNode[] {
     // PERFORMANCE: Calculate state fingerprint for cache validation
     // These values change when new events arrive or accumulators update
@@ -178,7 +178,7 @@ export class ExecutionTreeBuilderService {
       // Check if this message is nested (has parentToolUseId)
       const msgStartEvent = this.findMessageStartEvent(
         streamingState,
-        messageId
+        messageId,
       );
       if (msgStartEvent?.parentToolUseId) {
         // Skip nested messages - they'll be rendered inside agent bubbles
@@ -271,7 +271,7 @@ export class ExecutionTreeBuilderService {
   private buildMessageNode(
     messageId: string,
     state: StreamingState,
-    depth = 0
+    depth = 0,
   ): ExecutionNode | null {
     // Use pre-indexed events for O(1) lookup (TASK_2025_084 Batch 1 Task 1.2)
     // TASK_2025_087: Defensive check - eventsByMessage might not be a Map if loaded from localStorage
@@ -289,14 +289,14 @@ export class ExecutionTreeBuilderService {
 
     // Find message_start event
     const startEvent = sortedEvents.find(
-      (e) => e.eventType === 'message_start'
+      (e) => e.eventType === 'message_start',
     ) as MessageStartEvent | undefined;
 
     if (!startEvent) return null;
 
     // Find message_complete event (may not exist if streaming)
     const completeEvent = sortedEvents.find(
-      (e) => e.eventType === 'message_complete'
+      (e) => e.eventType === 'message_complete',
     ) as MessageCompleteEvent | undefined;
 
     // Build children
@@ -326,7 +326,7 @@ export class ExecutionTreeBuilderService {
   private buildMessageChildren(
     messageId: string,
     state: StreamingState,
-    depth: number
+    depth: number,
   ): ExecutionNode[] {
     const children: ExecutionNode[] = [];
 
@@ -352,7 +352,7 @@ export class ExecutionTreeBuilderService {
    */
   private collectTextBlocks(
     messageId: string,
-    state: StreamingState
+    state: StreamingState,
   ): ExecutionNode[] {
     const blocks: ExecutionNode[] = [];
 
@@ -367,7 +367,7 @@ export class ExecutionTreeBuilderService {
         // Find first text_delta event for this block to get timestamp
         const firstDelta = messageEvents.find(
           (e) =>
-            e.eventType === 'text_delta' && (e.blockIndex ?? 0) === blockIndex
+            e.eventType === 'text_delta' && (e.blockIndex ?? 0) === blockIndex,
         );
 
         blocks.push(
@@ -378,7 +378,7 @@ export class ExecutionTreeBuilderService {
             content: accumulatedText,
             children: [],
             startTime: firstDelta?.timestamp || Date.now(),
-          })
+          }),
         );
       }
     }
@@ -399,7 +399,7 @@ export class ExecutionTreeBuilderService {
    */
   private collectThinkingBlocks(
     messageId: string,
-    state: StreamingState
+    state: StreamingState,
   ): ExecutionNode[] {
     const blocks: ExecutionNode[] = [];
 
@@ -414,7 +414,7 @@ export class ExecutionTreeBuilderService {
         const firstDelta = messageEvents.find(
           (e) =>
             e.eventType === 'thinking_delta' &&
-            (e.blockIndex ?? 0) === blockIndex
+            (e.blockIndex ?? 0) === blockIndex,
         );
 
         blocks.push(
@@ -425,7 +425,7 @@ export class ExecutionTreeBuilderService {
             content: accumulatedText,
             children: [],
             startTime: firstDelta?.timestamp || Date.now(),
-          })
+          }),
         );
       }
     }
@@ -448,7 +448,7 @@ export class ExecutionTreeBuilderService {
   private collectTools(
     messageId: string,
     state: StreamingState,
-    depth: number
+    depth: number,
   ): ExecutionNode[] {
     const tools: ExecutionNode[] = [];
 
@@ -508,7 +508,7 @@ export class ExecutionTreeBuilderService {
         let agentStarts = [...state.events.values()].filter(
           (e) =>
             e.eventType === 'agent_start' &&
-            e.parentToolUseId === toolStart.toolCallId
+            e.parentToolUseId === toolStart.toolCallId,
         ) as AgentStartEvent[];
 
         // TASK_2025_128 FIX: Fallback - match by agentType when ID matching fails.
@@ -518,7 +518,7 @@ export class ExecutionTreeBuilderService {
           const inputKey = `${toolStart.toolCallId}-input`;
           const inputString = state.toolInputAccumulators.get(inputKey) || '';
           const typeMatch = inputString.match(
-            /"subagent_type"\s*:\s*"([^"]+)"/
+            /"subagent_type"\s*:\s*"([^"]+)"/,
           );
 
           if (typeMatch) {
@@ -526,7 +526,7 @@ export class ExecutionTreeBuilderService {
             agentStarts = [...state.events.values()].filter(
               (e) =>
                 e.eventType === 'agent_start' &&
-                (e as AgentStartEvent).agentType === agentType
+                (e as AgentStartEvent).agentType === agentType,
             ) as AgentStartEvent[];
 
             // BUGFIX: Sort by timestamp proximity to the tool_start.
@@ -538,7 +538,7 @@ export class ExecutionTreeBuilderService {
             agentStarts.sort(
               (a, b) =>
                 Math.abs(a.timestamp - toolStart.timestamp) -
-                Math.abs(b.timestamp - toolStart.timestamp)
+                Math.abs(b.timestamp - toolStart.timestamp),
             );
           }
         }
@@ -576,7 +576,7 @@ export class ExecutionTreeBuilderService {
               matchedAgent,
               toolStart.toolCallId,
               state,
-              depth
+              depth,
             );
             if (agentNode) {
               tools.push(agentNode);
@@ -590,7 +590,7 @@ export class ExecutionTreeBuilderService {
             {
               toolCallId: toolStart.toolCallId,
               toolSource: toolStart.source,
-            }
+            },
           );
           // TASK_2025_099 FIX: Create streaming agent placeholder when no agent_start yet.
           // During streaming, agent_start events only arrive when the complete message comes.
@@ -598,7 +598,7 @@ export class ExecutionTreeBuilderService {
           const toolResult = [...state.events.values()].find(
             (e) =>
               e.eventType === 'tool_result' &&
-              (e as ToolResultEvent).toolCallId === toolStart.toolCallId
+              (e as ToolResultEvent).toolCallId === toolStart.toolCallId,
           );
 
           // Only create placeholder if tool is still streaming (no result yet)
@@ -619,7 +619,7 @@ export class ExecutionTreeBuilderService {
 
             // Try to extract subagent_type from partial JSON
             const typeMatch = inputString.match(
-              /"subagent_type"\s*:\s*"([^"]+)"/
+              /"subagent_type"\s*:\s*"([^"]+)"/,
             );
             if (typeMatch) {
               agentType = typeMatch[1];
@@ -627,7 +627,7 @@ export class ExecutionTreeBuilderService {
 
             // Try to extract description from partial JSON
             const descMatch = inputString.match(
-              /"description"\s*:\s*"([^"]+)"/
+              /"description"\s*:\s*"([^"]+)"/,
             );
             if (descMatch) {
               agentDescription = descMatch[1];
@@ -641,7 +641,7 @@ export class ExecutionTreeBuilderService {
               (e) =>
                 e.eventType === 'message_start' &&
                 e.parentToolUseId === toolStart.toolCallId &&
-                (e as MessageStartEvent).role === 'assistant'
+                (e as MessageStartEvent).role === 'assistant',
             ) as MessageStartEvent[];
 
             const agentChildren: ExecutionNode[] = [];
@@ -649,7 +649,7 @@ export class ExecutionTreeBuilderService {
               const messageNode = this.buildMessageNode(
                 msgStart.messageId,
                 state,
-                depth + 1
+                depth + 1,
               );
               if (messageNode) {
                 // Unwrap message node - agent shows its content directly
@@ -714,7 +714,7 @@ export class ExecutionTreeBuilderService {
                 `agent-placeholder-${toolStart.toolCallId}`,
                 toolStart.timestamp,
                 placeholderContentBlocks,
-                agentChildren
+                agentChildren,
               );
             } else if (
               placeholderSummaryContent &&
@@ -739,7 +739,7 @@ export class ExecutionTreeBuilderService {
             // TASK_2025_132: Aggregate stats from child message events for this placeholder agent
             const placeholderStats = this.aggregateAgentStats(
               toolStart.toolCallId,
-              state
+              state,
             );
 
             const isPlaceholderBackground =
@@ -792,7 +792,7 @@ export class ExecutionTreeBuilderService {
     agentStart: AgentStartEvent,
     toolCallId: string,
     state: StreamingState,
-    depth: number
+    depth: number,
   ): ExecutionNode | null {
     // Early exit if max depth exceeded
     if (depth >= MAX_DEPTH) {
@@ -802,7 +802,7 @@ export class ExecutionTreeBuilderService {
           toolCallId,
           depth,
           maxDepth: MAX_DEPTH,
-        }
+        },
       );
       return null;
     }
@@ -815,7 +815,7 @@ export class ExecutionTreeBuilderService {
       (e) =>
         e.eventType === 'message_start' &&
         e.parentToolUseId === toolCallId &&
-        (e as MessageStartEvent).role === 'assistant'
+        (e as MessageStartEvent).role === 'assistant',
     ) as MessageStartEvent[];
 
     // Build children for the agent node (the nested message content)
@@ -825,7 +825,7 @@ export class ExecutionTreeBuilderService {
       const messageNode = this.buildMessageNode(
         msgStart.messageId,
         state,
-        depth + 1
+        depth + 1,
       );
       if (messageNode) {
         // Unwrap message node - agent shows its content directly
@@ -892,7 +892,7 @@ export class ExecutionTreeBuilderService {
         agentStart.id,
         agentStart.timestamp,
         contentBlocks,
-        agentChildren
+        agentChildren,
       );
     } else if (summaryContent && summaryContent.trim()) {
       // Fallback: Use legacy summaryContent as single text node at beginning
@@ -921,7 +921,7 @@ export class ExecutionTreeBuilderService {
     const hasTaskToolResult = [...state.events.values()].some(
       (e) =>
         e.eventType === 'tool_result' &&
-        (e as ToolResultEvent).toolCallId === toolCallId
+        (e as ToolResultEvent).toolCallId === toolCallId,
     );
 
     // Create the AGENT node
@@ -969,7 +969,7 @@ export class ExecutionTreeBuilderService {
       toolUseId?: string;
       toolName?: string;
     }>,
-    toolChildren: ExecutionNode[]
+    toolChildren: ExecutionNode[],
   ): ExecutionNode[] {
     const result: ExecutionNode[] = [];
     let textIndex = 0;
@@ -1008,7 +1008,7 @@ export class ExecutionTreeBuilderService {
           // Skip the tool_ref, the tool will be added from remaining tools
           console.debug(
             '[ExecutionTreeBuilder] tool_ref not found in toolChildren:',
-            { toolUseId: block.toolUseId, toolName: block.toolName }
+            { toolUseId: block.toolUseId, toolName: block.toolName },
           );
         }
       }
@@ -1054,7 +1054,7 @@ export class ExecutionTreeBuilderService {
    */
   private aggregateAgentStats(
     toolCallId: string,
-    state: StreamingState
+    state: StreamingState,
   ): {
     agentModel?: string;
     tokenUsage?: { input: number; output: number };
@@ -1164,12 +1164,12 @@ export class ExecutionTreeBuilderService {
   private buildToolNode(
     toolStart: ToolStartEvent,
     state: StreamingState,
-    depth = 0
+    depth = 0,
   ): ExecutionNode {
     // Find tool result FIRST - we only parse input when tool is complete
     const resultEvent = [...state.events.values()].find(
       (e) =>
-        e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId
+        e.eventType === 'tool_result' && e.toolCallId === toolStart.toolCallId,
     ) as ToolResultEvent | undefined;
 
     // Get accumulated input
@@ -1186,8 +1186,17 @@ export class ExecutionTreeBuilderService {
       const result = this.parseToolInput(inputString);
       if (result.success) {
         toolInput = result.data;
+      } else if (
+        toolStart.toolInput &&
+        Object.keys(toolStart.toolInput).length > 0
+      ) {
+        // FIX: Accumulator has partial/corrupt JSON (e.g., streaming deltas were
+        // interrupted when the 'complete' event replaced the 'stream' tool_start).
+        // The 'complete' source tool_start carries the fully-parsed toolInput —
+        // use it instead of showing a parse error.
+        toolInput = toolStart.toolInput;
       } else {
-        // CRITICAL FIX: Preserve parse error for UI display instead of silent failure
+        // No fallback available — preserve parse error for UI display
         toolInput = {
           __parseError: result.error,
           __raw: result.raw,
@@ -1205,7 +1214,7 @@ export class ExecutionTreeBuilderService {
               toolCallId: toolStart.toolCallId,
               error: result.error,
               raw: result.raw?.substring(0, 100), // Log first 100 chars
-            }
+            },
           );
         }
       }
@@ -1258,7 +1267,7 @@ export class ExecutionTreeBuilderService {
   private buildToolChildren(
     toolCallId: string,
     state: StreamingState,
-    depth = 0
+    depth = 0,
   ): ExecutionNode[] {
     // Early exit if max depth exceeded
     if (depth >= MAX_DEPTH) {
@@ -1268,7 +1277,7 @@ export class ExecutionTreeBuilderService {
           toolCallId,
           depth,
           maxDepth: MAX_DEPTH,
-        }
+        },
       );
       return [];
     }
@@ -1277,7 +1286,7 @@ export class ExecutionTreeBuilderService {
 
     // Find all agent_start events where parentToolUseId = toolCallId
     const agentStarts = [...state.events.values()].filter(
-      (e) => e.eventType === 'agent_start' && e.parentToolUseId === toolCallId
+      (e) => e.eventType === 'agent_start' && e.parentToolUseId === toolCallId,
     ) as AgentStartEvent[];
 
     // For each agent, create an AGENT node containing its messages
@@ -1290,7 +1299,7 @@ export class ExecutionTreeBuilderService {
         (e) =>
           e.eventType === 'message_start' &&
           e.parentToolUseId === toolCallId &&
-          (e as MessageStartEvent).role === 'assistant'
+          (e as MessageStartEvent).role === 'assistant',
       ) as MessageStartEvent[];
 
       // Build children for the agent node (the nested message content)
@@ -1300,7 +1309,7 @@ export class ExecutionTreeBuilderService {
         const messageNode = this.buildMessageNode(
           msgStart.messageId,
           state,
-          depth + 1
+          depth + 1,
         );
 
         if (messageNode) {
@@ -1365,7 +1374,7 @@ export class ExecutionTreeBuilderService {
           agentStart.id,
           agentStart.timestamp,
           contentBlocks,
-          agentChildren
+          agentChildren,
         );
       } else if (agentSummaryContent && agentSummaryContent.trim()) {
         // Fallback: Use legacy summaryContent as single text node at beginning
@@ -1392,7 +1401,7 @@ export class ExecutionTreeBuilderService {
       const hasAgentToolResult = [...state.events.values()].some(
         (e) =>
           e.eventType === 'tool_result' &&
-          (e as ToolResultEvent).toolCallId === toolCallId
+          (e as ToolResultEvent).toolCallId === toolCallId,
       );
 
       // Create the AGENT node from agent_start event
@@ -1434,7 +1443,7 @@ export class ExecutionTreeBuilderService {
    */
   private findMessageStartEvent(
     state: StreamingState,
-    messageId: string
+    messageId: string,
   ): MessageStartEvent | undefined {
     const messageEvents = state.eventsByMessage.get(messageId);
     if (!messageEvents) return undefined;
