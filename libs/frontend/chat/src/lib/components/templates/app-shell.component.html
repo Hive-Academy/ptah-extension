@@ -52,9 +52,9 @@
   <!-- Chat (default): Sidebar + Header + Chat layout -->
   @default {
     <div class="flex h-full">
-      <!-- Session Sidebar (always visible, fixed width) -->
+      <!-- Session Sidebar (toggleable width, no border — tab provides visual edge) -->
       <aside
-        class="flex flex-col bg-base-200 border-r border-base-content/5 transition-all duration-300"
+        class="flex flex-col bg-base-200 transition-all duration-300"
         [class.w-0]="!sidebarOpen()"
         [class.w-56]="sidebarOpen()"
         [class.overflow-hidden]="!sidebarOpen()"
@@ -296,27 +296,35 @@
         </div>
       </aside>
 
+      <!-- Sessions vertical tab (always visible — primary toggle for session panel) -->
+      <ptah-sidebar-tab
+        label="Sessions"
+        side="left"
+        [isOpen]="sidebarOpen()"
+        [size]="isElectron ? 'default' : 'sm'"
+        (toggled)="toggleSidebar()"
+      />
+
       <!-- Main Content -->
       <div class="flex-1 flex flex-col min-w-0">
         <!-- Header -->
         <div
           class="navbar bg-base-100 border-b border-base-300 min-h-[40px] px-2 gap-2"
         >
-          <!-- Sidebar toggle (gold accent) -->
-          <button
-            class="btn btn-gold btn-xs gap-1"
-            aria-label="Toggle sidebar"
-            title="Sessions"
-            (click)="toggleSidebar()"
-          >
-            <lucide-angular
-              [img]="sidebarOpen() ? PanelLeftCloseIcon : PanelLeftOpenIcon"
-              class="w-4 h-4"
-            />
-            <span class="icon-btn-label text-xs">Sessions</span>
-          </button>
+          <!-- Dashboard (gold accent, VS Code only — Electron has it in global navbar) -->
+          @if (!isElectron) {
+            <button
+              class="btn btn-gold btn-xs gap-1"
+              aria-label="Dashboard"
+              title="Session Analytics"
+              (click)="openDashboard()"
+            >
+              <lucide-angular [img]="BarChart3Icon" class="w-4 h-4" />
+              <span class="icon-btn-label text-xs">Dashboard</span>
+            </button>
+          }
 
-          <!-- Tab bar (relocated from below) -->
+          <!-- Tab bar -->
           <div class="flex-1 min-w-0">
             <ptah-tab-bar />
           </div>
@@ -440,17 +448,6 @@
               <!-- Theme toggle -->
               <ptah-theme-toggle />
 
-              <!-- Dashboard -->
-              <button
-                class="btn btn-ghost btn-xs gap-1"
-                aria-label="Dashboard"
-                title="Session Analytics"
-                (click)="openDashboard()"
-              >
-                <lucide-angular [img]="BarChart3Icon" class="w-3.5 h-3.5" />
-                <span class="icon-btn-label text-xs">Dashboard</span>
-              </button>
-
               <button
                 class="btn btn-ghost btn-xs gap-1"
                 aria-label="Settings"
@@ -484,6 +481,7 @@
         side="right"
         [isOpen]="agentMonitorStore.panelOpen()"
         [badgeType]="agentBadgeType()"
+        [size]="isElectron ? 'default' : 'sm'"
         (toggled)="agentMonitorStore.togglePanel()"
       />
     </div>

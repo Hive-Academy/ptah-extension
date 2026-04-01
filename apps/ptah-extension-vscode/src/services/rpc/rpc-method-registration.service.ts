@@ -802,53 +802,63 @@ export class RpcMethodRegistrationService {
    * Register VS Code command for launching setup wizard
    */
   private registerSetupAgentsCommand(): void {
-    this.commandManager.registerCommand({
-      id: 'ptah.setupAgents',
-      title: 'Setup Ptah Agents',
-      category: 'Ptah',
-      handler: async () => {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    try {
+      this.commandManager.registerCommand({
+        id: 'ptah.setupAgents',
+        title: 'Setup Ptah Agents',
+        category: 'Ptah',
+        handler: async () => {
+          const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 
-        if (!workspaceFolder) {
-          vscode.window.showErrorMessage(
-            'No workspace open. Please open a folder first.',
-          );
-          return;
-        }
-
-        try {
-          const setupWizardService = this.container.resolve(
-            AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
-          ) as {
-            launchWizard: (workspacePath: string) => Promise<{
-              isErr?: () => boolean;
-              error?: { message: string };
-            }>;
-          };
-
-          const result = await setupWizardService.launchWizard(
-            workspaceFolder.uri.fsPath,
-          );
-
-          if (result.isErr && result.isErr()) {
+          if (!workspaceFolder) {
             vscode.window.showErrorMessage(
-              `Failed to launch setup wizard: ${result.error?.message}`,
+              'No workspace open. Please open a folder first.',
+            );
+            return;
+          }
+
+          try {
+            const setupWizardService = this.container.resolve(
+              AGENT_GENERATION_TOKENS.SETUP_WIZARD_SERVICE,
+            ) as {
+              launchWizard: (workspacePath: string) => Promise<{
+                isErr?: () => boolean;
+                error?: { message: string };
+              }>;
+            };
+
+            const result = await setupWizardService.launchWizard(
+              workspaceFolder.uri.fsPath,
+            );
+
+            if (result.isErr && result.isErr()) {
+              vscode.window.showErrorMessage(
+                `Failed to launch setup wizard: ${result.error?.message}`,
+              );
+            }
+          } catch (error) {
+            this.logger.error(
+              'Failed to launch setup wizard',
+              error instanceof Error ? error : new Error(String(error)),
+            );
+            vscode.window.showErrorMessage(
+              `Failed to launch setup wizard: ${
+                error instanceof Error ? error.message : 'Unknown error'
+              }`,
             );
           }
-        } catch (error) {
-          this.logger.error(
-            'Failed to launch setup wizard',
-            error instanceof Error ? error : new Error(String(error)),
-          );
-          vscode.window.showErrorMessage(
-            `Failed to launch setup wizard: ${
-              error instanceof Error ? error.message : 'Unknown error'
-            }`,
-          );
-        }
-      },
-    });
+        },
+      });
 
-    this.logger.info('Setup agents command registered');
+      this.logger.info('Setup agents command registered');
+    } catch (error) {
+      // Command may already be registered by another instance of the extension
+      // (e.g., marketplace version running alongside dev build). Log and continue
+      // instead of crashing activation.
+      this.logger.warn(
+        'Setup agents command registration skipped (likely already registered)',
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
   }
 }

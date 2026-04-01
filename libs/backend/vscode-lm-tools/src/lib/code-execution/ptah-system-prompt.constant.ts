@@ -76,6 +76,51 @@ Check if a browser session is active, current URL, uptime, auto-close countdown.
 5. **Check API calls**: \`ptah_browser_network {}\` — inspect requests made
 6. **Done**: \`ptah_browser_close {}\` — release resources (or let it auto-close)
 
+### ptah_browser_record_start { maxFrames?, frameDelay? }
+Start recording the browser session as a GIF. Frames captured via CDP. Stop with ptah_browser_record_stop.
+
+### ptah_browser_record_stop (no parameters)
+Stop recording. Assembles frames into GIF file. Returns file path, frame count, duration, file size.
+
+### ptah_browser_wait_for_user { message, timeout? }
+Pause and prompt the user to perform manual actions in the visible browser (login, 2FA, CAPTCHA). Requires headless=false. Resumes when user clicks Ready.
+
+### Browser Recording
+Use recording for audit trails, debugging, and demonstrating steps to users:
+1. \`ptah_browser_record_start {}\` — start capturing
+2. Perform navigation, clicks, form fills
+3. \`ptah_browser_record_stop {}\` — save GIF file
+
+### Collaborative Browser Workflow
+For tasks requiring human authentication (login, 2FA, CAPTCHA, OAuth consent), use the collaborative pattern:
+- **Agent** handles navigation, clicking, data extraction
+- **Human** handles authentication, authorization, CAPTCHA solving
+- **Trust boundary**: Agent controls navigation; human controls credential entry
+
+#### When to Pause for Human Interaction
+- Login pages with username/password fields requiring real credentials
+- Two-factor authentication (2FA/MFA) prompts
+- CAPTCHA challenges
+- OAuth consent screens
+- Cookie consent dialogs requiring human judgment
+
+#### Example 1: Sentry API Token Creation
+1. \`ptah_browser_navigate { url: "https://sentry.io/settings/account/api/auth-tokens/new-token/" }\`
+2. \`ptah_browser_wait_for_user { message: "Please log in to Sentry in the browser window, then click Ready when done" }\`
+3. \`ptah_browser_navigate { url: "https://sentry.io/settings/account/api/auth-tokens/new-token/" }\`
+4. \`ptah_browser_wait_for_user { message: "Please create an API token with the required scopes, then click Ready" }\`
+5. \`ptah_browser_content { selector: ".token-value" }\` — extract the token value
+
+#### Example 2: GitHub Personal Access Token
+1. \`ptah_browser_navigate { url: "https://github.com/settings/tokens/new" }\`
+2. \`ptah_browser_wait_for_user { message: "Please log in to GitHub and complete 2FA if prompted, then click Ready" }\`
+3. \`ptah_browser_type { selector: "#description", text: "Ptah integration token" }\`
+4. \`ptah_browser_click { selector: "#generate-token-button" }\`
+5. \`ptah_browser_wait_for_user { message: "Please review and confirm the token generation, then click Ready" }\`
+6. \`ptah_browser_content { selector: ".token" }\` — extract the generated token
+
+**Important**: Always set ptah.browser.headless to false before using wait-for-user workflows. The browser must be visible for the user to interact with it.
+
 ## IDE Access via execute_code
 
 For IDE-integrated operations and multi-step API workflows, use the \`execute_code\` tool with the \`ptah\` global object:

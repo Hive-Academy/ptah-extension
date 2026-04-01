@@ -24,6 +24,7 @@ export type {
 export { ConfigManager } from './config';
 export type {
   ConfigurationChangeEvent,
+  IFileSettingsStore,
   ConfigWatcher,
   ConfigurationSchema,
   ConfigUpdateOptions,
