@@ -42,7 +42,8 @@ COPY apps/ptah-license-server ./apps/ptah-license-server/
 COPY libs ./libs/
 
 # Install ALL dependencies (including devDependencies for build)
-RUN npm ci
+# --ignore-scripts: skip native module compilation (e.g., node-pty is Electron-only)
+RUN npm ci --ignore-scripts
 
 # Generate Prisma client
 RUN cd apps/ptah-license-server && npx prisma generate
