@@ -506,4 +506,35 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.networkEntries = [];
     this.pendingResponses.clear();
   }
+
+  // Recording methods (TASK_2025_254) - Full implementation in Batch 4
+  async startRecording(_options?: {
+    maxFrames?: number;
+    frameDelay?: number;
+  }): Promise<{ success: boolean; error?: string }> {
+    return {
+      success: false,
+      error:
+        'Recording not yet implemented for Electron. Coming in TASK_2025_254 Batch 4.',
+    };
+  }
+
+  async stopRecording(): Promise<{
+    filePath: string;
+    frameCount: number;
+    durationMs: number;
+    fileSizeBytes: number;
+    truncated: boolean;
+    error?: string;
+  }> {
+    return {
+      filePath: '',
+      frameCount: 0,
+      durationMs: 0,
+      fileSizeBytes: 0,
+      truncated: false,
+      error:
+        'Recording not yet implemented for Electron. Coming in TASK_2025_254 Batch 4.',
+    };
+  }
 }

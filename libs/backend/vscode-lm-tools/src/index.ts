@@ -11,7 +11,12 @@ export {
   BROWSER_CAPABILITIES_TOKEN,
 } from './lib/code-execution/ptah-api-builder.service';
 export { CodeExecutionMCP } from './lib/code-execution/code-execution-mcp.service';
-export type { PtahAPI } from './lib/code-execution/types';
+export type {
+  PtahAPI,
+  BrowserRecordStartResult,
+  BrowserRecordStopResult,
+  BrowserWaitForUserResult,
+} from './lib/code-execution/types';
 
 // IDE capabilities exports (TASK_2025_226 - platform decoupling)
 export type { IIDECapabilities } from './lib/code-execution/namespace-builders/ide-namespace.builder';
@@ -43,6 +48,9 @@ export type {
 // Browser capabilities exports (TASK_2025_244)
 export type { IBrowserCapabilities } from './lib/code-execution/namespace-builders/browser-namespace.builder';
 export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
+
+// Screen Recorder Service export (TASK_2025_254 - Batch 2 will create the file)
+// export { ScreenRecorderService } from './lib/code-execution/services/screen-recorder.service';
 
 // DI registration exports (TASK_2025_071 Batch 2A)
 export { registerVsCodeLmToolsServices } from './lib/di';

@@ -22,6 +22,9 @@ import type {
   BrowserContentResult,
   BrowserNetworkResult,
   BrowserStatusResult,
+  BrowserRecordStartResult,
+  BrowserRecordStopResult,
+  BrowserWaitForUserResult,
 } from '../types';
 
 // ========================================
@@ -91,6 +94,29 @@ export interface IBrowserCapabilities {
   }>;
 
   isConnected(): boolean;
+
+  // Recording methods (TASK_2025_254)
+
+  /** Start recording browser session frames for GIF assembly */
+  startRecording(options?: {
+    maxFrames?: number;
+    frameDelay?: number;
+  }): Promise<{ success: boolean; error?: string }>;
+
+  /** Stop recording and assemble captured frames into a GIF file */
+  stopRecording(): Promise<{
+    filePath: string;
+    frameCount: number;
+    durationMs: number;
+    fileSizeBytes: number;
+    truncated: boolean;
+    error?: string;
+  }>;
+
+  /** Pause inactivity timer (during wait-for-user). Optional -- only needed for TASK_2025_254. */
+  pauseInactivityTimer?(): void;
+  /** Resume inactivity timer (after wait-for-user). Optional -- only needed for TASK_2025_254. */
+  resumeInactivityTimer?(): void;
 }
 
 // ========================================
@@ -167,6 +193,20 @@ const BROWSER_NOT_AVAILABLE_MSG =
 export interface BrowserNamespaceDependencies {
   capabilities?: IBrowserCapabilities;
   getAllowLocalhost?: () => boolean;
+  /** Returns whether the browser should run in headless mode (TASK_2025_254) */
+  getHeadless?: () => boolean;
+  /** Returns the recording output directory path (TASK_2025_254) */
+  getRecordingDir?: () => string;
+  /**
+   * Wait-for-user implementation (TASK_2025_254).
+   * In VS Code: uses WebviewManager + PermissionPromptService.
+   * In Electron: uses dialog.showMessageBox.
+   * Returns { ready, reason?, waitDurationMs }.
+   */
+  waitForUser?: (params: {
+    message: string;
+    timeout?: number;
+  }) => Promise<BrowserWaitForUserResult>;
 }
 
 // ========================================
@@ -188,13 +228,18 @@ export interface BrowserNamespaceDependencies {
 export function buildBrowserNamespace(
   deps: BrowserNamespaceDependencies,
 ): BrowserNamespace {
-  const { capabilities, getAllowLocalhost } = deps;
+  const { capabilities, getAllowLocalhost, getHeadless, waitForUser } = deps;
 
   if (!capabilities) {
     return buildGracefulBrowserNamespace();
   }
 
-  return buildCapabilityBackedBrowserNamespace(capabilities, getAllowLocalhost);
+  return buildCapabilityBackedBrowserNamespace(
+    capabilities,
+    getAllowLocalhost,
+    getHeadless,
+    waitForUser,
+  );
 }
 
 // ========================================
@@ -204,6 +249,11 @@ export function buildBrowserNamespace(
 function buildCapabilityBackedBrowserNamespace(
   capabilities: IBrowserCapabilities,
   getAllowLocalhost?: () => boolean,
+  getHeadless?: () => boolean,
+  waitForUser?: (params: {
+    message: string;
+    timeout?: number;
+  }) => Promise<BrowserWaitForUserResult>,
 ): BrowserNamespace {
   return {
     navigate: async (params): Promise<BrowserNavigateResult> => {
@@ -346,6 +396,72 @@ function buildCapabilityBackedBrowserNamespace(
         };
       }
     },
+
+    recordStart: async (params): Promise<BrowserRecordStartResult> => {
+      try {
+        return await capabilities.startRecording(params);
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+
+    recordStop: async (): Promise<BrowserRecordStopResult> => {
+      try {
+        return await capabilities.stopRecording();
+      } catch (error) {
+        return {
+          filePath: '',
+          frameCount: 0,
+          durationMs: 0,
+          fileSizeBytes: 0,
+          truncated: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+
+    waitForUser: async (params): Promise<BrowserWaitForUserResult> => {
+      // Require visible mode
+      const headless = getHeadless?.() ?? true;
+      if (headless) {
+        return {
+          ready: false,
+          waitDurationMs: 0,
+          error:
+            'Wait-for-user requires visible browser mode. Set ptah.browser.headless to false in settings.',
+        };
+      }
+
+      // Require active session
+      if (!capabilities.isConnected()) {
+        return {
+          ready: false,
+          waitDurationMs: 0,
+          error: 'No active browser session. Navigate to a page first.',
+        };
+      }
+
+      // Delegate to platform-specific implementation
+      if (!waitForUser) {
+        return {
+          ready: false,
+          waitDurationMs: 0,
+          error: 'Wait-for-user not available on this platform.',
+        };
+      }
+
+      // Pause inactivity timer during user interaction
+      capabilities.pauseInactivityTimer?.();
+      try {
+        return await waitForUser(params);
+      } finally {
+        // Resume inactivity timer after user interaction completes
+        capabilities.resumeInactivityTimer?.();
+      }
+    },
   };
 }
 
@@ -394,6 +510,23 @@ function buildGracefulBrowserNamespace(): BrowserNamespace {
     }),
     status: async () => ({
       connected: false,
+    }),
+    recordStart: async () => ({
+      success: false,
+      error: BROWSER_NOT_AVAILABLE_MSG,
+    }),
+    recordStop: async () => ({
+      filePath: '',
+      frameCount: 0,
+      durationMs: 0,
+      fileSizeBytes: 0,
+      truncated: false,
+      error: BROWSER_NOT_AVAILABLE_MSG,
+    }),
+    waitForUser: async () => ({
+      ready: false,
+      waitDurationMs: 0,
+      error: BROWSER_NOT_AVAILABLE_MSG,
     }),
   };
 }
