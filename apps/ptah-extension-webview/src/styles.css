@@ -1377,14 +1377,16 @@ Hide button text labels in narrow containers, show in wide containers.
 Usage: <span class="icon-btn-label">Label</span> inside a .btn
 ============================================================================ */
 
+/* Default: hide labels (icon-only in narrow containers like VS Code panels) */
 .icon-btn-label {
-  display: inline;
+  display: none;
   white-space: nowrap;
 }
 
-@container (max-width: 449px) {
+/* Wide containers (>=700px, e.g. Electron desktop): show labels */
+@container (min-width: 700px) {
   .icon-btn-label {
-    display: none;
+    display: inline;
   }
 }
 
