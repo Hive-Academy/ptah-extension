@@ -29,8 +29,7 @@
           "@nestjs/microservices",
           "@nestjs/websockets",
           "@nestjs/platform-socket.io",
-          "@sentry/nestjs",
-          "@sentry/node"
+          "@sentry/nestjs"
         ],
         "assets": [
           {
