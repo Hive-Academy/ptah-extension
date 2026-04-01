@@ -36,8 +36,6 @@ COPY nx.json tsconfig.base.json ./
 # Copy the license server project configuration
 COPY apps/ptah-license-server/project.json ./apps/ptah-license-server/
 COPY apps/ptah-license-server/tsconfig*.json ./apps/ptah-license-server/
-COPY apps/ptah-license-server/webpack.config.js ./apps/ptah-license-server/
-
 # Copy Prisma schema and config for client generation
 # prisma.config.ts is required for Prisma 7 CLI commands (generate, migrate)
 # IMPORTANT: prisma.config.ts must be at the app root, not inside prisma/ directory
