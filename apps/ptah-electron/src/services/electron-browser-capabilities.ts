@@ -1,15 +1,18 @@
 /**
  * Electron Browser Capabilities
  * TASK_2025_244: CDP browser integration using Electron's native BrowserWindow
+ * TASK_2025_254: Visible mode, screen recording, inactivity timer control
  *
- * Uses a dedicated hidden BrowserWindow with webContents.debugger for CDP access.
+ * Uses a dedicated BrowserWindow with webContents.debugger for CDP access.
  * Zero external dependencies — leverages Electron's built-in Chromium engine.
  *
- * Session lifecycle: 5-min inactivity timeout, 30-min max lifetime, auto-cleanup.
+ * Session lifecycle: 5-min inactivity timeout (headless) / 15-min (visible),
+ * 30-min max lifetime, auto-cleanup.
  */
 
 import { BrowserWindow } from 'electron';
 import type { IBrowserCapabilities } from '@ptah-extension/vscode-lm-tools';
+import { ScreenRecorderService } from '@ptah-extension/vscode-lm-tools';
 
 /** Network request entry stored in ring buffer */
 interface NetworkEntry {
@@ -20,7 +23,8 @@ interface NetworkEntry {
   size?: number;
 }
 
-const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (headless)
+const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TASK_2025_254)
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
 
@@ -37,6 +41,18 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   >();
   /** Concurrency guard — prevents duplicate session creation from parallel calls */
   private sessionPromise: Promise<void> | null = null;
+
+  /** Recording service (TASK_2025_254) */
+  private recorder: ScreenRecorderService | null = null;
+  /** Whether current session is headless (TASK_2025_254) */
+  private _headless = true;
+  /** Inactivity timer paused flag (TASK_2025_254) */
+  private _inactivityPaused = false;
+
+  constructor(
+    private readonly getHeadless: () => boolean = () => true,
+    private readonly getRecordingDir: () => string = () => '',
+  ) {}
 
   async navigate(
     url: string,
@@ -285,7 +301,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   }
 
   async close(): Promise<void> {
-    this.cleanup();
+    await this.cleanup();
   }
 
   async status(): Promise<{
@@ -294,6 +310,8 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     title?: string;
     uptimeMs?: number;
     autoCloseInMs?: number;
+    headless?: boolean;
+    recording?: boolean;
   }> {
     if (!this.connected || !this.window || this.window.isDestroyed()) {
       return { connected: false };
@@ -310,6 +328,8 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       title: this.window.webContents.getTitle(),
       uptimeMs,
       autoCloseInMs,
+      headless: this._headless,
+      recording: this.recorder?.isRecording() ?? false,
     };
   }
 
@@ -320,8 +340,8 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   /**
    * Clean up resources. Call on app shutdown.
    */
-  dispose(): void {
-    this.cleanup();
+  async dispose(): Promise<void> {
+    await this.cleanup();
   }
 
   // ========================================
@@ -349,11 +369,14 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
 
   private async createSession(): Promise<void> {
     // Clean up any stale state from a crashed session (auto-reconnect)
-    this.cleanup();
+    await this.cleanup();
 
-    // Create a hidden BrowserWindow with strict sandbox security
+    // Read headless setting at session creation time (TASK_2025_254)
+    this._headless = this.getHeadless();
+
+    // Create BrowserWindow — visible when not headless (TASK_2025_254)
     this.window = new BrowserWindow({
-      show: false,
+      show: !this._headless,
       width: 1280,
       height: 720,
       webPreferences: {
@@ -470,18 +493,76 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
         this.pendingResponses.delete(requestId);
       }
     }
+
+    // TASK_2025_254: Handle screencast frames for recording
+    if (method === 'Page.screencastFrame') {
+      const data = params.data as string;
+      const sessionId = params.sessionId as number;
+
+      // Acknowledge frame immediately to avoid backpressure
+      this.sendCDP('Page.screencastFrameAck', { sessionId }).catch(
+        (_ackError: unknown) => {
+          // Intentionally swallowed: ack failures are non-critical
+        },
+      );
+
+      // Add frame data to ring buffer
+      this.recorder?.addFrame(data);
+    }
   }
 
   private resetInactivityTimer(): void {
+    // TASK_2025_254: Skip reset if timer is paused during wait-for-user
+    if (this._inactivityPaused) return;
+
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
+
+    // TASK_2025_254: Use longer timeout for visible mode
+    const timeout = this._headless
+      ? INACTIVITY_TIMEOUT_MS
+      : VISIBLE_INACTIVITY_TIMEOUT_MS;
+
     this.inactivityTimer = setTimeout(() => {
       this.cleanup();
-    }, INACTIVITY_TIMEOUT_MS);
+    }, timeout);
   }
 
-  private cleanup(): void {
+  /**
+   * Pause the inactivity timer. Used during wait-for-user interactions
+   * to prevent the session from closing while the user is active.
+   * (TASK_2025_254)
+   */
+  pauseInactivityTimer(): void {
+    this._inactivityPaused = true;
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+      this.inactivityTimer = null;
+    }
+  }
+
+  /**
+   * Resume the inactivity timer after a wait-for-user interaction completes.
+   * (TASK_2025_254)
+   */
+  resumeInactivityTimer(): void {
+    this._inactivityPaused = false;
+    this.resetInactivityTimer();
+  }
+
+  private async cleanup(): Promise<void> {
+    // TASK_2025_254: Stop recording if active (best-effort GIF save)
+    if (this.recorder?.isRecording()) {
+      try {
+        const recordingDir = this.getRecordingDir();
+        await this.recorder.stopRecording(recordingDir || undefined);
+      } catch {
+        // Best-effort: don't let recording cleanup failure block session cleanup
+      }
+    }
+    this.recorder = null;
+
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
       this.inactivityTimer = null;
@@ -507,16 +588,47 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.pendingResponses.clear();
   }
 
-  // Recording methods (TASK_2025_254) - Full implementation in Batch 4
-  async startRecording(_options?: {
+  // Recording methods (TASK_2025_254)
+
+  async startRecording(options?: {
     maxFrames?: number;
     frameDelay?: number;
   }): Promise<{ success: boolean; error?: string }> {
-    return {
-      success: false,
-      error:
-        'Recording not yet implemented for Electron. Coming in TASK_2025_254 Batch 4.',
-    };
+    if (this.recorder?.isRecording()) {
+      return {
+        success: false,
+        error:
+          'Recording already in progress. Stop the current recording first.',
+      };
+    }
+
+    try {
+      await this.ensureSession();
+      this.resetInactivityTimer();
+
+      // Initialize recorder
+      this.recorder = new ScreenRecorderService();
+      const startResult = this.recorder.startRecording(options);
+      if (!startResult.success) {
+        return startResult;
+      }
+
+      // Start CDP screencast via Electron debugger
+      await this.sendCDP('Page.startScreencast', {
+        format: 'jpeg',
+        quality: 60,
+        maxWidth: 1280,
+        maxHeight: 720,
+        everyNthFrame: 3,
+      });
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async stopRecording(): Promise<{
@@ -527,14 +639,39 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     truncated: boolean;
     error?: string;
   }> {
-    return {
-      filePath: '',
-      frameCount: 0,
-      durationMs: 0,
-      fileSizeBytes: 0,
-      truncated: false,
-      error:
-        'Recording not yet implemented for Electron. Coming in TASK_2025_254 Batch 4.',
-    };
+    if (!this.recorder?.isRecording()) {
+      return {
+        filePath: '',
+        frameCount: 0,
+        durationMs: 0,
+        fileSizeBytes: 0,
+        truncated: false,
+        error: 'No recording in progress.',
+      };
+    }
+
+    try {
+      // Stop CDP screencast
+      if (this.connected && this.window && !this.window.isDestroyed()) {
+        await this.sendCDP('Page.stopScreencast', {}).catch(
+          (_stopError: unknown) => {
+            // Intentionally swallowed: screencast may already be stopped
+          },
+        );
+      }
+
+      // Assemble GIF
+      const recordingDir = this.getRecordingDir();
+      return await this.recorder.stopRecording(recordingDir || undefined);
+    } catch (error) {
+      return {
+        filePath: '',
+        frameCount: 0,
+        durationMs: 0,
+        fileSizeBytes: 0,
+        truncated: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }
