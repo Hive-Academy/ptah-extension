@@ -90,6 +90,8 @@ async function loadJpeg(): Promise<JpegModule> {
 
 async function loadGifenc(): Promise<GifencModule> {
   if (!gifencModule) {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore -- gifenc has no bundled types; d.ts exists locally but not visible to all consuming tsconfigs
     gifencModule = (await import('gifenc')) as unknown as GifencModule;
   }
   return gifencModule;
