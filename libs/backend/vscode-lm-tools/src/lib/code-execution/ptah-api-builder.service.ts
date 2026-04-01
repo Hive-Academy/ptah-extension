@@ -710,15 +710,30 @@ export class PtahAPIBuilder {
         );
 
         // 4. Race between user response and timeout
-        const timeoutPromise = new Promise<'timeout'>((resolve) =>
-          setTimeout(() => resolve('timeout'), timeoutMs),
-        );
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeoutPromise = new Promise<'timeout'>((resolve) => {
+          timeoutId = setTimeout(() => resolve('timeout'), timeoutMs);
+        });
 
         const result = await Promise.race([responsePromise, timeoutPromise]);
+
+        // Always clear the timeout to prevent timer leak
+        if (timeoutId !== undefined) {
+          clearTimeout(timeoutId);
+        }
 
         const waitDurationMs = Date.now() - startTime;
 
         if (result === 'timeout') {
+          // Best-effort cleanup of the pending resolver to avoid stale prompts
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (permissionService as any).removePendingResolver?.(
+              permissionRequest.id,
+            );
+          } catch {
+            // Method may not exist — harmless
+          }
           logger.info('Wait-for-user timed out', {
             timeoutMs,
             waitDurationMs,

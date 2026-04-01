@@ -91,6 +91,8 @@ export interface IBrowserCapabilities {
     title?: string;
     uptimeMs?: number;
     autoCloseInMs?: number;
+    headless?: boolean;
+    recording?: boolean;
   }>;
 
   isConnected(): boolean;
@@ -424,23 +426,25 @@ function buildCapabilityBackedBrowserNamespace(
     },
 
     waitForUser: async (params): Promise<BrowserWaitForUserResult> => {
-      // Require visible mode
-      const headless = getHeadless?.() ?? true;
-      if (headless) {
-        return {
-          ready: false,
-          waitDurationMs: 0,
-          error:
-            'Wait-for-user requires visible browser mode. Set ptah.browser.headless to false in settings.',
-        };
-      }
-
       // Require active session
       if (!capabilities.isConnected()) {
         return {
           ready: false,
           waitDurationMs: 0,
           error: 'No active browser session. Navigate to a page first.',
+        };
+      }
+
+      // Check the session's actual headless state (not the live config setting,
+      // which may have changed after session creation)
+      const statusResult = await capabilities.status();
+      const isHeadless = statusResult.headless ?? getHeadless?.() ?? true;
+      if (isHeadless) {
+        return {
+          ready: false,
+          waitDurationMs: 0,
+          error:
+            'Wait-for-user requires visible browser mode. Set ptah.browser.headless to false in settings and restart the browser session.',
         };
       }
 

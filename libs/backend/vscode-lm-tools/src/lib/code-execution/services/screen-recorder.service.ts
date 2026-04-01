@@ -252,28 +252,50 @@ export class ScreenRecorderService {
       const gif = gifenc.GIFEncoder();
 
       // Process each frame: decode JPEG -> quantize -> apply palette -> write frame
+      // Per-frame try/catch: skip corrupt frames rather than losing the entire recording
+      let skippedFrames = 0;
       for (const frame of recordingState.frames) {
-        const jpegBytes = Buffer.from(frame.data, 'base64');
-        const decoded = jpeg.decode(jpegBytes, {
-          useTArray: true,
-          formatAsRGBA: true,
-          maxResolutionInMP: 100, // Allow up to 100MP to handle 1280x720 safely
-        });
+        try {
+          const jpegBytes = Buffer.from(frame.data, 'base64');
+          const decoded = jpeg.decode(jpegBytes, {
+            useTArray: true,
+            formatAsRGBA: true,
+            maxResolutionInMP: 100, // Allow up to 100MP to handle 1280x720 safely
+          });
 
-        const rgba = decoded.data;
-        const { width, height } = decoded;
+          const rgba = decoded.data;
+          const { width, height } = decoded;
 
-        // Quantize RGBA to a 256-color palette for this frame
-        const palette = gifenc.quantize(rgba, GIF_QUANTIZE_MAX_COLORS);
+          // Quantize RGBA to a 256-color palette for this frame
+          const palette = gifenc.quantize(rgba, GIF_QUANTIZE_MAX_COLORS);
 
-        // Map each pixel to the nearest palette index
-        const indexedPixels = gifenc.applyPalette(rgba, palette);
+          // Map each pixel to the nearest palette index
+          const indexedPixels = gifenc.applyPalette(rgba, palette);
 
-        // Write frame with per-frame palette and configured delay
-        gif.writeFrame(indexedPixels, width, height, {
-          palette,
-          delay: recordingState.frameDelay,
-        });
+          // Write frame with per-frame palette and configured delay
+          gif.writeFrame(indexedPixels, width, height, {
+            palette,
+            delay: recordingState.frameDelay,
+          });
+        } catch {
+          // Skip corrupt frame — one bad JPEG should not kill the entire recording
+          skippedFrames++;
+        }
+        // Release base64 data after processing to reduce memory pressure
+        frame.data = '';
+      }
+
+      // If all frames were corrupt, fail gracefully
+      const validFrameCount = frameCount - skippedFrames;
+      if (validFrameCount === 0) {
+        return {
+          filePath: '',
+          frameCount,
+          durationMs,
+          fileSizeBytes: 0,
+          truncated: recordingState.truncated,
+          error: `All ${frameCount} frames were corrupt and could not be decoded.`,
+        };
       }
 
       // Finalize the GIF stream
