@@ -172,10 +172,24 @@ export class ScreenRecorderService {
       };
     }
 
+    // Validate and clamp maxFrames: must be positive, finite, max 10000
+    let maxFrames = options?.maxFrames ?? DEFAULT_MAX_FRAMES;
+    if (!Number.isFinite(maxFrames) || maxFrames <= 0) {
+      maxFrames = DEFAULT_MAX_FRAMES;
+    }
+    maxFrames = Math.min(Math.floor(maxFrames), 10000);
+
+    // Validate and clamp frameDelay: must be positive, finite, range [10, 60000]
+    let frameDelay = options?.frameDelay ?? DEFAULT_FRAME_DELAY;
+    if (!Number.isFinite(frameDelay) || frameDelay <= 0) {
+      frameDelay = DEFAULT_FRAME_DELAY;
+    }
+    frameDelay = Math.max(10, Math.min(Math.floor(frameDelay), 60000));
+
     this.state = {
       frames: [],
-      maxFrames: options?.maxFrames ?? DEFAULT_MAX_FRAMES,
-      frameDelay: options?.frameDelay ?? DEFAULT_FRAME_DELAY,
+      maxFrames,
+      frameDelay,
       startedAt: Date.now(),
       truncated: false,
     };
@@ -312,15 +326,16 @@ export class ScreenRecorderService {
       const filename = `ptah-recording-${timestamp}.gif`;
       const filePath = path.join(resolvedDir, filename);
 
-      // Write the GIF file
-      fs.writeFileSync(filePath, gifBytes);
+      // Write the GIF file (async to avoid blocking the event loop)
+      await fs.promises.writeFile(filePath, gifBytes);
 
       // Set restrictive file permissions on non-Windows platforms
       if (process.platform !== 'win32') {
-        fs.chmodSync(filePath, 0o600);
+        await fs.promises.chmod(filePath, 0o600);
       }
 
-      const fileSizeBytes = fs.statSync(filePath).size;
+      const fileStat = await fs.promises.stat(filePath);
+      const fileSizeBytes = fileStat.size;
 
       return {
         filePath,
@@ -347,24 +362,27 @@ export class ScreenRecorderService {
    * Falls back to os.tmpdir() if creation fails or path is empty.
    */
   private resolveOutputDir(outputDir?: string): string {
-    const tmpDir = os.tmpdir();
+    const tmpDir = path.resolve(os.tmpdir());
 
     if (!outputDir || outputDir.trim() === '') {
       return tmpDir;
     }
 
+    // Normalize to absolute path
+    const resolved = path.resolve(outputDir);
+
     try {
-      if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir, { recursive: true });
+      if (!fs.existsSync(resolved)) {
+        fs.mkdirSync(resolved, { recursive: true });
       }
 
       // Verify the directory is actually a directory
-      const stat = fs.statSync(outputDir);
+      const stat = fs.statSync(resolved);
       if (!stat.isDirectory()) {
         return tmpDir;
       }
 
-      return outputDir;
+      return resolved;
     } catch {
       // Fall back to temp directory if we cannot create or access the target
       return tmpDir;

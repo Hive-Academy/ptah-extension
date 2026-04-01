@@ -720,15 +720,8 @@ export class PtahAPIBuilder {
         const waitDurationMs = Date.now() - startTime;
 
         if (result === 'timeout') {
-          // Best-effort cleanup of the pending resolver to avoid stale prompts
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (permissionService as any).removePendingResolver?.(
-              permissionRequest.id,
-            );
-          } catch {
-            // Method may not exist — harmless
-          }
+          // Cleanup the pending resolver to avoid stale prompts
+          permissionService.removePendingResolver(permissionRequest.id);
           logger.info('Wait-for-user timed out', {
             timeoutMs,
             waitDurationMs,

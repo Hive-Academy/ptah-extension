@@ -131,6 +131,20 @@ export class ConfigManager {
    * @throws Error if validation fails
    */
   getTyped<T>(key: string, schema: z.ZodSchema<T>): T {
+    // Route file-based settings to PtahFileSettingsManager (~/.ptah/settings.json)
+    if (this.isFileBased(key)) {
+      const value = this.fileStore!.get(key);
+      try {
+        return schema.parse(value);
+      } catch (error) {
+        throw new Error(
+          `Configuration validation failed for key "${key}": ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
     const config = vscode.workspace.getConfiguration(this.configNamespace);
     const value = config.get(key);
 
