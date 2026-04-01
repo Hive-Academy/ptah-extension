@@ -27,6 +27,7 @@
 
 import { injectable, inject, container } from 'tsyringe';
 import { TOKENS, Logger, FileSystemManager } from '@ptah-extension/vscode-core';
+import type { WebviewManager } from '@ptah-extension/vscode-core';
 import { PLATFORM_TOKENS } from '@ptah-extension/platform-core';
 import type {
   IWorkspaceProvider,
@@ -34,6 +35,7 @@ import type {
   IDiagnosticsProvider,
   ISecretStorage,
 } from '@ptah-extension/platform-core';
+import { MESSAGE_TYPES, type PermissionResponse } from '@ptah-extension/shared';
 import {
   WorkspaceAnalyzerService,
   ContextOrchestrationService,
@@ -49,7 +51,8 @@ import {
   ContextEnrichmentService,
   DependencyGraphService,
 } from '@ptah-extension/workspace-intelligence';
-import { PtahAPI } from './types';
+import type { PtahAPI, BrowserWaitForUserResult } from './types';
+import type { PermissionPromptService } from '../permission/permission-prompt.service';
 import { WebSearchService } from './services/web-search.service';
 import {
   // Core namespace builders
@@ -501,6 +504,21 @@ export class PtahAPIBuilder {
               'allowLocalhost',
               false,
             ) ?? false,
+          // TASK_2025_254: New config accessors for headless mode and recording dir
+          getHeadless: () =>
+            this.workspaceProvider.getConfiguration<boolean>(
+              'ptah.browser',
+              'headless',
+              true,
+            ) ?? true,
+          getRecordingDir: () =>
+            this.workspaceProvider.getConfiguration<string>(
+              'ptah.browser',
+              'recordingDir',
+              '',
+            ) ?? '',
+          // TASK_2025_254: Wait-for-user handler (VS Code only, undefined in Electron)
+          waitForUser: this.buildWaitForUserHandler(),
         }),
       ),
 
@@ -617,5 +635,141 @@ export class PtahAPIBuilder {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * Build the wait-for-user handler for browser automation (TASK_2025_254).
+   *
+   * In VS Code, this uses WebviewManager + PermissionPromptService to prompt the user
+   * via the webview UI (same pattern as approval_prompt in approval-prompt.handler.ts).
+   *
+   * In Electron, WebviewManager is not registered, so this returns undefined.
+   * The Electron DI container provides its own waitForUser via dialog.showMessageBox.
+   *
+   * @returns Wait-for-user async handler, or undefined when WebviewManager is absent
+   */
+  private buildWaitForUserHandler():
+    | ((params: {
+        message: string;
+        timeout?: number;
+      }) => Promise<BrowserWaitForUserResult>)
+    | undefined {
+    // Guard: WebviewManager is only available in VS Code
+    if (!container.isRegistered(TOKENS.WEBVIEW_MANAGER)) {
+      return undefined;
+    }
+
+    let webviewManager: WebviewManager;
+    let permissionService: PermissionPromptService;
+
+    try {
+      webviewManager = container.resolve<WebviewManager>(
+        TOKENS.WEBVIEW_MANAGER,
+      );
+      permissionService = container.resolve<PermissionPromptService>(
+        TOKENS.PERMISSION_PROMPT_SERVICE,
+      );
+    } catch {
+      return undefined;
+    }
+
+    const logger = this.logger;
+
+    return async (params: {
+      message: string;
+      timeout?: number;
+    }): Promise<BrowserWaitForUserResult> => {
+      const startTime = Date.now();
+      const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+      const timeoutMs = params.timeout ?? DEFAULT_TIMEOUT_MS;
+
+      try {
+        // 1. Create a permission request using the established pattern
+        //    (mirrors approval-prompt.handler.ts flow)
+        const permissionRequest = permissionService.createRequest({
+          tool_name: 'browser_wait_for_user',
+          input: { message: params.message } as Readonly<
+            Record<string, unknown>
+          >,
+        });
+
+        // 2. Create Promise that will be resolved when user responds
+        const responsePromise = new Promise<PermissionResponse>((resolve) => {
+          permissionService.setPendingResolver(
+            permissionRequest.id,
+            resolve,
+            permissionRequest,
+          );
+        });
+
+        // 3. Send permission request to webview via WebviewManager
+        await webviewManager.sendMessage(
+          'ptah.main',
+          MESSAGE_TYPES.PERMISSION_REQUEST,
+          permissionRequest,
+        );
+
+        // 4. Race between user response and timeout
+        const timeoutPromise = new Promise<'timeout'>((resolve) =>
+          setTimeout(() => resolve('timeout'), timeoutMs),
+        );
+
+        const result = await Promise.race([responsePromise, timeoutPromise]);
+
+        const waitDurationMs = Date.now() - startTime;
+
+        if (result === 'timeout') {
+          logger.info('Wait-for-user timed out', {
+            timeoutMs,
+            waitDurationMs,
+          });
+          return {
+            ready: false,
+            reason: `Timed out after ${Math.round(timeoutMs / 1000)}s waiting for user`,
+            waitDurationMs,
+          };
+        }
+
+        // User responded
+        const response = result as PermissionResponse;
+        if (
+          response.decision === 'allow' ||
+          response.decision === 'always_allow'
+        ) {
+          logger.info('Wait-for-user: user signaled ready', {
+            id: response.id,
+            waitDurationMs,
+          });
+          return {
+            ready: true,
+            waitDurationMs,
+          };
+        } else {
+          logger.info('Wait-for-user: user cancelled', {
+            id: response.id,
+            reason: response.reason,
+            waitDurationMs,
+          });
+          return {
+            ready: false,
+            reason: response.reason || 'User cancelled the wait',
+            waitDurationMs,
+          };
+        }
+      } catch (error) {
+        const waitDurationMs = Date.now() - startTime;
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        logger.error('Wait-for-user handler failed', {
+          error: errorMessage,
+          waitDurationMs,
+        });
+        return {
+          ready: false,
+          waitDurationMs,
+          error: `Wait-for-user failed: ${errorMessage}`,
+        };
+      }
+    };
   }
 }
