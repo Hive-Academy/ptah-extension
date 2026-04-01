@@ -61,6 +61,8 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
 
   /** Recording service (TASK_2025_254) */
   private recorder: ScreenRecorderService | null = null;
+  /** Whether the screencast frame listener has been registered on the current CDP client */
+  private screencastListenerRegistered = false;
   /** Whether current session is headless (TASK_2025_254) */
   private _headless = true;
   /** Inactivity timer paused flag (TASK_2025_254) */
@@ -590,6 +592,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     }
 
     this._connected = false;
+    this.screencastListenerRegistered = false;
     this.startedAt = null;
     this.networkEntries = [];
     this.pendingResponses.clear();
@@ -630,24 +633,31 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         everyNthFrame: 3,
       });
 
-      // Listen for frames — use domain method pattern consistent with Network handlers above
-      Page.screencastFrame(
-        (params: {
-          data: string;
-          metadata: { timestamp: number };
-          sessionId: number;
-        }) => {
-          // Acknowledge frame immediately to avoid backpressure
-          Page.screencastFrameAck({ sessionId: params.sessionId }).catch(
-            (_ackError: unknown) => {
-              // Intentionally swallowed: ack failures are non-critical
-            },
-          );
+      // Register the frame listener only once per CDP session to prevent accumulation
+      // across start/stop recording cycles. The listener checks isRecording() to
+      // avoid processing frames when recording is inactive.
+      if (!this.screencastListenerRegistered) {
+        Page.screencastFrame(
+          (params: {
+            data: string;
+            metadata: { timestamp: number };
+            sessionId: number;
+          }) => {
+            // Acknowledge frame immediately to avoid backpressure
+            Page.screencastFrameAck({ sessionId: params.sessionId }).catch(
+              (_ackError: unknown) => {
+                // Intentionally swallowed: ack failures are non-critical
+              },
+            );
 
-          // Add frame data to ring buffer
-          this.recorder?.addFrame(params.data);
-        },
-      );
+            // Only buffer frames when actively recording
+            if (this.recorder?.isRecording()) {
+              this.recorder.addFrame(params.data);
+            }
+          },
+        );
+        this.screencastListenerRegistered = true;
+      }
 
       return { success: true };
     } catch (error) {

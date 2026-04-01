@@ -197,8 +197,7 @@ export interface BrowserNamespaceDependencies {
   getAllowLocalhost?: () => boolean;
   /** Returns whether the browser should run in headless mode (TASK_2025_254) */
   getHeadless?: () => boolean;
-  /** Returns the recording output directory path (TASK_2025_254) */
-  getRecordingDir?: () => string;
+  // Note: recordingDir is configured via the capabilities constructor, not here.
   /**
    * Wait-for-user implementation (TASK_2025_254).
    * In VS Code: uses WebviewManager + PermissionPromptService.

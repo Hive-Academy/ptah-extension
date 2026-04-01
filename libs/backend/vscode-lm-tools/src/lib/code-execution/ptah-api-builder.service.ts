@@ -504,19 +504,14 @@ export class PtahAPIBuilder {
               'allowLocalhost',
               false,
             ) ?? false,
-          // TASK_2025_254: New config accessors for headless mode and recording dir
+          // TASK_2025_254: Headless mode config accessor
           getHeadless: () =>
             this.workspaceProvider.getConfiguration<boolean>(
               'ptah.browser',
               'headless',
               true,
             ) ?? true,
-          getRecordingDir: () =>
-            this.workspaceProvider.getConfiguration<string>(
-              'ptah.browser',
-              'recordingDir',
-              '',
-            ) ?? '',
+          // Note: recordingDir is configured via capabilities constructor, not namespace deps
           // TASK_2025_254: Wait-for-user handler (VS Code only, undefined in Electron)
           waitForUser: this.buildWaitForUserHandler(),
         }),
