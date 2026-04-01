@@ -31,7 +31,7 @@ export class AnalysisStorageService {
    * Get the .ptah/analysis/ directory path for a workspace.
    */
   getAnalysisDir(workspacePath: string): string {
-    return join(workspacePath, '.claude', 'analysis');
+    return join(workspacePath, '.ptah', 'analysis');
   }
 
   /**
