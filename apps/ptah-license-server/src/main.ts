@@ -87,6 +87,9 @@ async function bootstrap() {
     exclude: ['webhooks/paddle', 'webhooks/paddle/{*path}'],
   });
 
+  // Flush Sentry events on graceful shutdown (SIGTERM from Docker)
+  app.enableShutdownHooks();
+
   // Start the server
   const port = configService.get<number>('PORT') || 3000;
   await app.listen(port);

@@ -1,14 +1,12 @@
+/* eslint-disable no-console */
 /**
- * Sentry Instrumentation - MUST be imported before all other modules
+ * Sentry Instrumentation - MUST be imported before all other modules.
+ * Initializes Sentry for error tracking and performance monitoring.
  *
- * This file initializes Sentry for error tracking and performance monitoring.
- * It must be the very first import in main.ts to ensure all modules are
- * properly instrumented.
- *
- * Configuration:
- * - SENTRY_DSN: Required in production, optional in development
- * - NODE_ENV: Controls environment tag and sample rates
- * - Gracefully skips initialization when SENTRY_DSN is not set (dev mode)
+ * Environment variables:
+ * - SENTRY_DSN: Required in production, skip initialization when absent
+ * - SENTRY_TRACES_SAMPLE_RATE: Override trace sampling (default: 1.0 prod, 0.1 dev)
+ * - SENTRY_SEND_PII: Set to "false" to disable PII collection (default: true)
  *
  * @see https://docs.sentry.io/platforms/javascript/guides/nestjs/
  */
@@ -20,25 +18,22 @@ const environment = process.env['NODE_ENV'] || 'development';
 const isProduction = environment === 'production';
 
 if (dsn) {
+  const tracesSampleRate = parseFloat(
+    process.env['SENTRY_TRACES_SAMPLE_RATE'] || (isProduction ? '1.0' : '0.1'),
+  );
+  const sendDefaultPii = process.env['SENTRY_SEND_PII'] !== 'false';
+
   Sentry.init({
     dsn,
     environment,
-
-    // Performance monitoring: capture 100% of transactions in production
-    // since this is a low-traffic license server. Reduce if traffic grows.
-    tracesSampleRate: isProduction ? 1.0 : 0.1,
-
-    // Send default PII (IP addresses, user details) for better debugging
-    // in production. Disable if GDPR compliance requires it.
-    sendDefaultPii: true,
+    tracesSampleRate,
+    sendDefaultPii,
   });
 
-  // eslint-disable-next-line no-console
   console.log(
     `[Sentry] Initialized for environment: ${environment} (DSN configured)`,
   );
 } else {
-  // eslint-disable-next-line no-console
   console.log(
     '[Sentry] Skipping initialization - SENTRY_DSN not set (expected in development)',
   );
