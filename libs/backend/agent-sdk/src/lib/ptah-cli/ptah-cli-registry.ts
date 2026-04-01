@@ -569,6 +569,10 @@ export class PtahCliRegistry {
       {
         cwd,
         resumeSessionId: options?.resumeSessionId ?? null,
+        isPremium: assembly.isPremium,
+        pluginCount: assembly.plugins?.length ?? 0,
+        mcpEnabled: Object.keys(assembly.mcpServers).length > 0,
+        hasSystemPrompt: !!assembly.systemPromptContent,
       },
     );
 

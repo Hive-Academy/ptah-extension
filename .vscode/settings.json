@@ -1,1 +1,4 @@
-{}
+{
+  "ptah.authMethod": "oauth",
+  "ptah.model.selected": "opus"
+}

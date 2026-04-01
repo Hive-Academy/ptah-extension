@@ -30,14 +30,32 @@ export interface ConfigurationChangeEvent {
 }
 
 /**
+ * Minimal interface for file-based settings storage.
+ * Decouples ConfigManager (vscode-core) from PtahFileSettingsManager (platform-core).
+ */
+export interface IFileSettingsStore {
+  get<T>(key: string, defaultValue?: T): T | undefined;
+  set(key: string, value: unknown): Promise<void>;
+}
+
+/**
  * ConfigManager service for type-safe configuration management
  * Manages VS Code extension settings with validation and change notifications
+ *
+ * TASK_2025_247: File-based settings routing.
+ * Keys in fileBasedKeys are routed to the IFileSettingsStore (~/.ptah/settings.json)
+ * instead of VS Code's workspace configuration. Call setFileSettingsStore() after
+ * construction to enable routing.
  */
 @injectable()
 export class ConfigManager {
   private readonly configNamespace = 'ptah';
   private readonly watchers: Map<string, ConfigWatcher> = new Map();
   private readonly configListener: vscode.Disposable;
+
+  /** File-based settings routing (set via setFileSettingsStore) */
+  private fileStore: IFileSettingsStore | null = null;
+  private fileBasedKeys: Set<string> | null = null;
 
   constructor() {
     // Setup configuration change listener
@@ -49,6 +67,30 @@ export class ConfigManager {
   }
 
   /**
+   * Configure file-based settings routing.
+   * Keys in the provided Set are routed to the IFileSettingsStore
+   * (~/.ptah/settings.json) instead of VS Code workspace configuration.
+   *
+   * Call this after construction once both ConfigManager and the file
+   * settings store are available in the DI container.
+   */
+  setFileSettingsStore(keys: Set<string>, store: IFileSettingsStore): void {
+    this.fileBasedKeys = keys;
+    this.fileStore = store;
+  }
+
+  /**
+   * Check if a key should be routed to file-based storage.
+   */
+  private isFileBased(key: string): boolean {
+    return !!(
+      this.fileBasedKeys &&
+      this.fileStore &&
+      this.fileBasedKeys.has(key)
+    );
+  }
+
+  /**
    * Get configuration value with type safety
    * Returns undefined if key doesn't exist
    *
@@ -56,6 +98,9 @@ export class ConfigManager {
    * @returns Configuration value or undefined
    */
   get<T>(key: string): T | undefined {
+    if (this.isFileBased(key)) {
+      return this.fileStore!.get<T>(key);
+    }
     const config = vscode.workspace.getConfiguration(this.configNamespace);
     return config.get<T>(key);
   }
@@ -69,6 +114,9 @@ export class ConfigManager {
    * @returns Configuration value or default
    */
   getWithDefault<T>(key: string, defaultValue: T): T {
+    if (this.isFileBased(key)) {
+      return this.fileStore!.get<T>(key, defaultValue) ?? defaultValue;
+    }
     const config = vscode.workspace.getConfiguration(this.configNamespace);
     return config.get<T>(key, defaultValue);
   }
@@ -92,7 +140,7 @@ export class ConfigManager {
       throw new Error(
         `Configuration validation failed for key "${key}": ${
           error instanceof Error ? error.message : String(error)
-        }`
+        }`,
       );
     }
   }
@@ -109,7 +157,7 @@ export class ConfigManager {
   getTypedWithDefault<T>(
     key: string,
     schema: z.ZodSchema<T>,
-    defaultValue: T
+    defaultValue: T,
   ): T {
     try {
       return this.getTyped(key, schema);
@@ -129,8 +177,19 @@ export class ConfigManager {
   async set<T>(
     key: string,
     value: T,
-    options?: ConfigUpdateOptions
+    options?: ConfigUpdateOptions,
   ): Promise<void> {
+    // Route file-based settings to PtahFileSettingsManager (~/.ptah/settings.json)
+    if (this.isFileBased(key)) {
+      await this.fileStore!.set(key, value);
+      // Manually notify watchers since VS Code won't fire a change event
+      const watcher = this.watchers.get(key);
+      if (watcher) {
+        watcher.callback(value);
+      }
+      return;
+    }
+
     const target = options?.target || vscode.ConfigurationTarget.Workspace;
     const config = vscode.workspace.getConfiguration(this.configNamespace);
 
@@ -155,7 +214,7 @@ export class ConfigManager {
     key: string,
     value: T,
     schema: z.ZodSchema<T>,
-    options?: ConfigUpdateOptions
+    options?: ConfigUpdateOptions,
   ): Promise<void> {
     // Validate value
     const validatedValue = schema.parse(value);
@@ -205,7 +264,7 @@ export class ConfigManager {
   watchTyped<T>(
     key: string,
     schema: z.ZodSchema<T>,
-    callback: (value: T) => void
+    callback: (value: T) => void,
   ): vscode.Disposable {
     return this.watch(key, (value) => {
       try {
@@ -285,7 +344,7 @@ export class ConfigManager {
    * @param event - VS Code configuration change event
    */
   private handleConfigurationChange(
-    event: vscode.ConfigurationChangeEvent
+    event: vscode.ConfigurationChangeEvent,
   ): void {
     // Notify watchers for affected keys
     for (const [key, watcher] of this.watchers.entries()) {

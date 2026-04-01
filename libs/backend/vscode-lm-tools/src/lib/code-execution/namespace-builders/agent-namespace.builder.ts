@@ -160,6 +160,7 @@ export function buildAgentNamespace(
           ptahCliName: result.agentName,
           ptahCliId: request.ptahCliId,
           timeout: request.timeout,
+          resumeSessionId: request.resumeSessionId,
         });
       }
 

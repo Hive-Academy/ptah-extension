@@ -246,10 +246,13 @@ export class AgentMonitorStore implements OnDestroy {
     this._agents.update((map) => {
       const next = new Map(map);
 
-      // If this is a resumed agent, replace the old card in-place
-      // instead of creating a new one (avoids flicker and duplicate cards)
-      if (info.resumedFromAgentId && next.has(info.resumedFromAgentId)) {
-        const oldCard = next.get(info.resumedFromAgentId)!;
+      // Strategy 1: Replace by resumedFromAgentId (explicit resume from sidebar button)
+      // Strategy 2: Replace by cliSessionId (MCP-triggered respawn during session resume —
+      //   resumedFromAgentId is unavailable because the MCP spawn path doesn't know the old card ID)
+      const oldCardEntry = this.findReplacementCard(next, info);
+
+      if (oldCardEntry) {
+        const [oldId, oldCard] = oldCardEntry;
 
         // TASK_2025_211: Track this agent as resumed so inline bubbles can
         // show 'Resumed' badge instead of 'Interrupted'.
@@ -260,7 +263,7 @@ export class AgentMonitorStore implements OnDestroy {
             return next;
           });
         }
-        next.delete(info.resumedFromAgentId);
+        next.delete(oldId);
         next.set(info.agentId, {
           agentId: info.agentId,
           cli: info.cli,
@@ -463,6 +466,39 @@ export class AgentMonitorStore implements OnDestroy {
 
       return next;
     });
+  }
+
+  /**
+   * Find an existing agent card that the new agent should replace.
+   *
+   * Strategy 1: Match by resumedFromAgentId (explicit resume from sidebar button).
+   * Strategy 2: Match by cliSessionId (MCP-triggered respawn during session resume —
+   *   the MCP spawn path doesn't know the old card's agentId, but the same CLI session
+   *   ID is reused). Only matches non-running agents in the same parent session.
+   */
+  private findReplacementCard(
+    map: Map<string, MonitoredAgent>,
+    info: AgentProcessInfo,
+  ): [string, MonitoredAgent] | null {
+    // Strategy 1: explicit resumedFromAgentId
+    if (info.resumedFromAgentId && map.has(info.resumedFromAgentId)) {
+      return [info.resumedFromAgentId, map.get(info.resumedFromAgentId)!];
+    }
+
+    // Strategy 2: match by cliSessionId within the same parent session
+    if (info.cliSessionId) {
+      for (const [id, agent] of map) {
+        if (
+          agent.cliSessionId === info.cliSessionId &&
+          agent.parentSessionId === info.parentSessionId &&
+          agent.status !== 'running'
+        ) {
+          return [id, agent];
+        }
+      }
+    }
+
+    return null;
   }
 
   /**
