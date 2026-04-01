@@ -49,8 +49,8 @@ export type {
 export type { IBrowserCapabilities } from './lib/code-execution/namespace-builders/browser-namespace.builder';
 export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
 
-// Screen Recorder Service export (TASK_2025_254 - Batch 2 will create the file)
-// export { ScreenRecorderService } from './lib/code-execution/services/screen-recorder.service';
+// Screen Recorder Service export (TASK_2025_254)
+export { ScreenRecorderService } from './lib/code-execution/services/screen-recorder.service';
 
 // DI registration exports (TASK_2025_071 Batch 2A)
 export { registerVsCodeLmToolsServices } from './lib/di';
