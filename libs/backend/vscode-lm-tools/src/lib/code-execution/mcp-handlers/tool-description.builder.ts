@@ -843,6 +843,89 @@ export function buildBrowserStatusTool(): MCPToolDefinition {
   };
 }
 
+// ========================================
+// Browser Enhancement MCP Tools (TASK_2025_254)
+// ========================================
+
+/**
+ * Build the ptah_browser_record_start tool definition
+ * Start recording the browser session as a GIF
+ */
+export function buildBrowserRecordStartTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_record_start',
+    description:
+      'Start recording the browser session as a GIF. Captures frames via CDP Page.startScreencast. ' +
+      'A browser session is lazily initialized if none exists. ' +
+      'Stop recording with ptah_browser_record_stop to get the GIF file.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        maxFrames: {
+          type: 'number',
+          description:
+            'Maximum frames to capture before ring buffer wraps (default: 500, ~2.5 minutes)',
+        },
+        frameDelay: {
+          type: 'number',
+          description:
+            'Delay between frames in milliseconds for GIF playback (default: 200ms = ~5fps)',
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Build the ptah_browser_record_stop tool definition
+ * Stop recording and return the GIF file path
+ */
+export function buildBrowserRecordStopTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_record_stop',
+    description:
+      'Stop recording the browser session. Assembles captured frames into an animated GIF file. ' +
+      'Returns the file path, frame count, duration, and file size.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  };
+}
+
+/**
+ * Build the ptah_browser_wait_for_user tool definition
+ * Pause agent and prompt user to perform manual actions in visible browser
+ */
+export function buildBrowserWaitForUserTool(): MCPToolDefinition {
+  return {
+    name: 'ptah_browser_wait_for_user',
+    description:
+      'Pause the agent and prompt the user to perform manual actions in the visible browser window ' +
+      '(e.g., login, 2FA, CAPTCHA). The agent resumes when the user clicks Ready. ' +
+      'Requires visible browser mode (ptah.browser.headless = false). ' +
+      'The browser session inactivity timer is paused during the wait.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description:
+            'Message shown to the user explaining what action to take ' +
+            '(e.g., "Please log in to GitHub in the browser window, then click Ready when done")',
+        },
+        timeout: {
+          type: 'number',
+          description:
+            'Maximum time to wait in milliseconds (default: 300000 = 5 minutes)',
+        },
+      },
+      required: ['message'],
+    },
+    annotations: { idempotentHint: false },
+  };
+}
+
 /**
  * Build comprehensive execute_code tool description with full API reference.
  * Uses progressive disclosure: top namespaces inline, rest via ptah.help().
