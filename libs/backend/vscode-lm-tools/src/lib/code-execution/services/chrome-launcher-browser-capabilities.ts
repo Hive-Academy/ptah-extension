@@ -5,10 +5,12 @@
  * Launches a Chrome instance with --remote-debugging-port and connects via CDP.
  * Used in VS Code (or any non-Electron platform) where Electron BrowserWindow is unavailable.
  *
- * Session lifecycle: 5-min inactivity timeout, 30-min max lifetime, auto-cleanup.
+ * Session lifecycle: 5-min inactivity timeout (headless) / 15-min (visible),
+ * 30-min max lifetime, auto-cleanup.
  */
 
 import type { IBrowserCapabilities } from '../namespace-builders/browser-namespace.builder';
+import { ScreenRecorderService } from './screen-recorder.service';
 
 // Dynamic imports to avoid bundling issues when this module isn't used (e.g., Electron)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -35,7 +37,8 @@ interface NetworkEntry {
   size?: number;
 }
 
-const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (headless)
+const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TASK_2025_254)
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
 
@@ -55,6 +58,18 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   >();
   /** Concurrency guard — prevents duplicate session creation from parallel calls */
   private sessionPromise: Promise<void> | null = null;
+
+  /** Recording service (TASK_2025_254) */
+  private recorder: ScreenRecorderService | null = null;
+  /** Whether current session is headless (TASK_2025_254) */
+  private _headless = true;
+  /** Inactivity timer paused flag (TASK_2025_254) */
+  private _inactivityPaused = false;
+
+  constructor(
+    private readonly getHeadless: () => boolean = () => true,
+    private readonly getRecordingDir: () => string = () => '',
+  ) {}
 
   async navigate(
     url: string,
@@ -305,6 +320,8 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     title?: string;
     uptimeMs?: number;
     autoCloseInMs?: number;
+    headless?: boolean;
+    recording?: boolean;
   }> {
     if (!this._connected || !this.client) {
       return { connected: false };
@@ -334,6 +351,8 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         title: pageInfo.title,
         uptimeMs,
         autoCloseInMs,
+        headless: this._headless,
+        recording: this.recorder?.isRecording() ?? false,
       };
     } catch {
       return { connected: false };
@@ -386,18 +405,27 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       );
     }
 
+    // Read headless setting at session creation time (TASK_2025_254)
+    this._headless = this.getHeadless();
+
     // Launch Chrome with remote debugging
     try {
+      const chromeFlags = [
+        '--disable-gpu',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-extensions',
+        '--disable-translate',
+        '--disable-background-networking',
+      ];
+
+      // Conditionally include --headless (TASK_2025_254)
+      if (this._headless) {
+        chromeFlags.unshift('--headless');
+      }
+
       this.chrome = await launchChrome({
-        chromeFlags: [
-          '--headless',
-          '--disable-gpu',
-          '--no-first-run',
-          '--no-default-browser-check',
-          '--disable-extensions',
-          '--disable-translate',
-          '--disable-background-networking',
-        ],
+        chromeFlags,
         // Let chrome-launcher pick an available port
         port: 0,
       });
@@ -483,15 +511,57 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   }
 
   private resetInactivityTimer(): void {
+    // TASK_2025_254: Skip reset if timer is paused during wait-for-user
+    if (this._inactivityPaused) return;
+
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
     }
+
+    // TASK_2025_254: Use longer timeout for visible mode
+    const timeout = this._headless
+      ? INACTIVITY_TIMEOUT_MS
+      : VISIBLE_INACTIVITY_TIMEOUT_MS;
+
     this.inactivityTimer = setTimeout(() => {
       this.cleanup();
-    }, INACTIVITY_TIMEOUT_MS);
+    }, timeout);
+  }
+
+  /**
+   * Pause the inactivity timer. Used during wait-for-user interactions
+   * to prevent the session from closing while the user is active.
+   * (TASK_2025_254)
+   */
+  pauseInactivityTimer(): void {
+    this._inactivityPaused = true;
+    if (this.inactivityTimer) {
+      clearTimeout(this.inactivityTimer);
+      this.inactivityTimer = null;
+    }
+  }
+
+  /**
+   * Resume the inactivity timer after a wait-for-user interaction completes.
+   * (TASK_2025_254)
+   */
+  resumeInactivityTimer(): void {
+    this._inactivityPaused = false;
+    this.resetInactivityTimer();
   }
 
   private async cleanup(): Promise<void> {
+    // TASK_2025_254: Stop recording if active (best-effort GIF save)
+    if (this.recorder?.isRecording()) {
+      try {
+        const recordingDir = this.getRecordingDir();
+        await this.recorder.stopRecording(recordingDir || undefined);
+      } catch {
+        // Best-effort: don't let recording cleanup failure block session cleanup
+      }
+    }
+    this.recorder = null;
+
     if (this.inactivityTimer) {
       clearTimeout(this.inactivityTimer);
       this.inactivityTimer = null;
@@ -525,16 +595,67 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     this.pendingResponses.clear();
   }
 
-  // Recording methods (TASK_2025_254) - Full implementation in Batch 3
-  async startRecording(_options?: {
+  // Recording methods (TASK_2025_254)
+
+  async startRecording(options?: {
     maxFrames?: number;
     frameDelay?: number;
   }): Promise<{ success: boolean; error?: string }> {
-    return {
-      success: false,
-      error:
-        'Recording not yet implemented for Chrome Launcher. Coming in TASK_2025_254 Batch 3.',
-    };
+    if (this.recorder?.isRecording()) {
+      return {
+        success: false,
+        error:
+          'Recording already in progress. Stop the current recording first.',
+      };
+    }
+
+    try {
+      await this.ensureSession();
+      this.resetInactivityTimer();
+
+      // Initialize recorder
+      this.recorder = new ScreenRecorderService();
+      const startResult = this.recorder.startRecording(options);
+      if (!startResult.success) {
+        return startResult;
+      }
+
+      // Start CDP screencast
+      const { Page } = this.client;
+      await Page.startScreencast({
+        format: 'jpeg',
+        quality: 60,
+        maxWidth: 1280,
+        maxHeight: 720,
+        everyNthFrame: 3,
+      });
+
+      // Listen for frames — use domain method pattern consistent with Network handlers above
+      Page.screencastFrame(
+        (params: {
+          data: string;
+          metadata: { timestamp: number };
+          sessionId: number;
+        }) => {
+          // Acknowledge frame immediately to avoid backpressure
+          Page.screencastFrameAck({ sessionId: params.sessionId }).catch(
+            (_ackError: unknown) => {
+              // Intentionally swallowed: ack failures are non-critical
+            },
+          );
+
+          // Add frame data to ring buffer
+          this.recorder?.addFrame(params.data);
+        },
+      );
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async stopRecording(): Promise<{
@@ -545,14 +666,38 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     truncated: boolean;
     error?: string;
   }> {
-    return {
-      filePath: '',
-      frameCount: 0,
-      durationMs: 0,
-      fileSizeBytes: 0,
-      truncated: false,
-      error:
-        'Recording not yet implemented for Chrome Launcher. Coming in TASK_2025_254 Batch 3.',
-    };
+    if (!this.recorder?.isRecording()) {
+      return {
+        filePath: '',
+        frameCount: 0,
+        durationMs: 0,
+        fileSizeBytes: 0,
+        truncated: false,
+        error: 'No recording in progress.',
+      };
+    }
+
+    try {
+      // Stop CDP screencast
+      if (this._connected && this.client) {
+        const { Page } = this.client;
+        await Page.stopScreencast().catch((_stopError: unknown) => {
+          // Intentionally swallowed: screencast may already be stopped
+        });
+      }
+
+      // Assemble GIF
+      const recordingDir = this.getRecordingDir();
+      return await this.recorder.stopRecording(recordingDir || undefined);
+    } catch (error) {
+      return {
+        filePath: '',
+        frameCount: 0,
+        durationMs: 0,
+        fileSizeBytes: 0,
+        truncated: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }
