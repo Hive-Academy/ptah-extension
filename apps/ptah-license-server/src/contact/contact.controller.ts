@@ -1,4 +1,12 @@
-import { Controller, Post, Body, UseGuards, Req, Logger } from '@nestjs/common';
+import {
+  Controller,
+  Inject,
+  Post,
+  Body,
+  UseGuards,
+  Req,
+  Logger,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../app/auth/guards/jwt-auth.guard';
@@ -9,14 +17,16 @@ import { ContactMessageDto } from './dto/contact-message.dto';
 export class ContactController {
   private readonly logger = new Logger(ContactController.name);
 
-  constructor(private readonly contactService: ContactService) {}
+  constructor(
+    @Inject(ContactService) private readonly contactService: ContactService,
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard)
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   async sendMessage(
     @Body() body: ContactMessageDto,
-    @Req() req: Request
+    @Req() req: Request,
   ): Promise<{ success: boolean; message: string }> {
     const user = req.user as { email: string; userId?: string; id?: string };
 

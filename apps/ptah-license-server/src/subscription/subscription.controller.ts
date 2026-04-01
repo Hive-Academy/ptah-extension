@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  Inject,
   Post,
   Body,
   Req,
@@ -38,7 +39,10 @@ import {
  */
 @Controller('v1/subscriptions')
 export class SubscriptionController {
-  constructor(private readonly subscriptionService: SubscriptionService) {}
+  constructor(
+    @Inject(SubscriptionService)
+    private readonly subscriptionService: SubscriptionService,
+  ) {}
 
   /**
    * Get current user's subscription status
@@ -102,7 +106,7 @@ export class SubscriptionController {
   @HttpCode(HttpStatus.OK)
   async validateCheckout(
     @Req() req: Request,
-    @Body() dto: ValidateCheckoutDto
+    @Body() dto: ValidateCheckoutDto,
   ): Promise<ValidateCheckoutResponseDto> {
     const user = req.user as { id: string; email: string };
     return this.subscriptionService.validateCheckout(user.id, dto.priceId);
@@ -174,7 +178,7 @@ export class SubscriptionController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async createPortalSession(
-    @Req() req: Request
+    @Req() req: Request,
   ): Promise<PortalSessionResponseDto | PortalSessionErrorDto> {
     const user = req.user as { id: string; email: string };
     return this.subscriptionService.createPortalSession(user.id);
@@ -201,7 +205,7 @@ export class SubscriptionController {
   @Get('checkout-info')
   @UseGuards(JwtAuthGuard)
   async getCheckoutInfo(
-    @Req() req: Request
+    @Req() req: Request,
   ): Promise<{ email: string; paddleCustomerId?: string }> {
     const user = req.user as { id: string; email: string };
     return this.subscriptionService.getCheckoutInfo(user.id);

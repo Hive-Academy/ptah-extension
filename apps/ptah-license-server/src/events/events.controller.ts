@@ -48,10 +48,10 @@ export class EventsController implements OnModuleDestroy {
   private readonly heartbeatInterval: number;
 
   constructor(
-    private readonly eventsService: EventsService,
+    @Inject(EventsService) private readonly eventsService: EventsService,
     @Inject(TicketService)
     private readonly ticketService: TicketService,
-    private readonly configService: ConfigService
+    @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
     // Configure heartbeat interval from env or default to 30 seconds
     this.heartbeatInterval =
@@ -76,11 +76,11 @@ export class EventsController implements OnModuleDestroy {
    */
   @Sse('subscribe')
   async subscribe(
-    @Query('ticket') ticket: string
+    @Query('ticket') ticket: string,
   ): Promise<Observable<MessageEvent<string>>> {
     if (!ticket) {
       throw new UnauthorizedException(
-        'Authentication ticket is required. Obtain one from POST /auth/stream/ticket'
+        'Authentication ticket is required. Obtain one from POST /auth/stream/ticket',
       );
     }
 
@@ -89,7 +89,7 @@ export class EventsController implements OnModuleDestroy {
 
     if (!ticketData) {
       throw new UnauthorizedException(
-        'Invalid or expired ticket. Please obtain a new one from POST /auth/stream/ticket'
+        'Invalid or expired ticket. Please obtain a new one from POST /auth/stream/ticket',
       );
     }
 
@@ -129,8 +129,8 @@ export class EventsController implements OnModuleDestroy {
               data: { serverTime: new Date().toISOString() },
             }),
             type: 'heartbeat',
-          } as MessageEvent<string>)
-      )
+          }) as MessageEvent<string>,
+      ),
     );
 
     // User-specific event stream
@@ -146,12 +146,12 @@ export class EventsController implements OnModuleDestroy {
       // Heartbeat stream
       heartbeat$,
       // User events
-      userEvents$
+      userEvents$,
     ).pipe(
       finalize(() => {
         this.eventsService.trackClientDisconnection(email);
         this.logger.log(`SSE connection closed for: ${email}`);
-      })
+      }),
     );
   }
 

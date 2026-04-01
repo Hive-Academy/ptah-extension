@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { EventsService } from '../../events/events.service';
 import {
@@ -25,7 +25,9 @@ import {
 export class SubscriptionEventListener {
   private readonly logger = new Logger(SubscriptionEventListener.name);
 
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    @Inject(EventsService) private readonly eventsService: EventsService,
+  ) {}
 
   /**
    * Handle license updated event
@@ -34,7 +36,7 @@ export class SubscriptionEventListener {
   @OnEvent(SUBSCRIPTION_EVENTS.LICENSE_UPDATED)
   handleLicenseUpdated(event: LicenseUpdatedEvent): void {
     this.logger.debug(
-      `License updated for ${event.email}: ${event.plan} (${event.status})`
+      `License updated for ${event.email}: ${event.plan} (${event.status})`,
     );
 
     try {
@@ -49,7 +51,7 @@ export class SubscriptionEventListener {
       this.logger.error(
         `Failed to emit SSE for license update: ${
           error instanceof Error ? error.message : 'Unknown error'
-        }`
+        }`,
       );
     }
   }
@@ -61,7 +63,7 @@ export class SubscriptionEventListener {
   @OnEvent(SUBSCRIPTION_EVENTS.STATUS_CHANGED)
   handleStatusChanged(event: SubscriptionStatusChangedEvent): void {
     this.logger.debug(
-      `Subscription status changed for ${event.email}: ${event.status}`
+      `Subscription status changed for ${event.email}: ${event.status}`,
     );
 
     try {
@@ -74,7 +76,7 @@ export class SubscriptionEventListener {
       this.logger.error(
         `Failed to emit SSE for status change: ${
           error instanceof Error ? error.message : 'Unknown error'
-        }`
+        }`,
       );
     }
   }
@@ -89,7 +91,7 @@ export class SubscriptionEventListener {
       `Reconciliation completed for user ${event.userId}: ` +
         `subscription=${event.changes.subscriptionUpdated}, ` +
         `license=${event.changes.licenseUpdated}, ` +
-        `status: ${event.changes.statusBefore} -> ${event.changes.statusAfter}`
+        `status: ${event.changes.statusBefore} -> ${event.changes.statusAfter}`,
     );
 
     // Could add additional notifications here:

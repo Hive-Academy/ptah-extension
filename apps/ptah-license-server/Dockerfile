@@ -26,9 +26,8 @@ FROM node:20-alpine AS builder
 # Set working directory to monorepo root
 WORKDIR /app
 
-# Install system dependencies required by Prisma and native node modules
-# python3, make, g++: required for @sentry/profiling-node native compilation
-RUN apk add --no-cache openssl libc6-compat python3 make g++
+# Install system dependencies required by Prisma
+RUN apk add --no-cache openssl libc6-compat
 
 # Copy package files for dependency installation
 COPY package.json package-lock.json ./
@@ -46,11 +45,6 @@ COPY libs ./libs/
 # --ignore-scripts: skip native module compilation (e.g., node-pty is Electron-only)
 RUN npm ci --ignore-scripts
 
-# Rebuild only Sentry profiling native bindings (node-gyp)
-# This is needed because --ignore-scripts skips native compilation for all packages,
-# but @sentry/profiling-node requires compiled native addons for CPU profiling.
-RUN cd node_modules/@sentry/profiling-node && npm run build || true
-
 # Generate Prisma client
 RUN cd apps/ptah-license-server && npx prisma generate
 
@@ -64,9 +58,8 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Install system dependencies required by Prisma and Sentry profiling native bindings
-# python3, make, g++: required for @sentry/profiling-node native compilation
-RUN apk add --no-cache openssl libc6-compat python3 make g++
+# Install system dependencies required by Prisma
+RUN apk add --no-cache openssl libc6-compat
 
 # Copy generated package.json from build output
 # NxAppWebpackPlugin generates this with only required dependencies
@@ -78,7 +71,7 @@ COPY package-lock.json ./root-package-lock.json
 
 # Install production dependencies
 # Note: We add the external packages that esbuild excludes but are needed at runtime
-# @sentry/nestjs + @sentry/profiling-node: error tracking and CPU profiling (TASK_2025_251)
+# @sentry/nestjs: error tracking and performance monitoring (TASK_2025_251)
 RUN npm install --omit=dev \
     @workos-inc/node \
     @nestjs/config \
@@ -87,8 +80,7 @@ RUN npm install --omit=dev \
     resend \
     pg \
     prisma \
-    @sentry/nestjs \
-    @sentry/profiling-node
+    @sentry/nestjs
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image

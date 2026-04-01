@@ -17,10 +17,13 @@
 
 import { Module } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
-import {
-  SentryGlobalFilter,
-  SentryModule as SentrySdkModule,
-} from '@sentry/nestjs/setup';
+
+// Use require() for @sentry/nestjs/setup because the tsconfig uses
+// moduleResolution: "node" which can't resolve package.json "exports" subpaths.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { SentryGlobalFilter, SentryModule: SentrySdkModule } =
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  require('@sentry/nestjs/setup');
 
 @Module({
   imports: [SentrySdkModule.forRoot()],

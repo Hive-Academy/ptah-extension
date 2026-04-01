@@ -25,9 +25,9 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
 
   constructor(
-    private readonly config: ConfigService,
+    @Inject(ConfigService) private readonly config: ConfigService,
     @Inject(RESEND_MAIL_SERVICE)
-    private readonly mailService: ResendMailService
+    private readonly mailService: ResendMailService,
   ) {
     this.logger.log('Email service initialized with Resend');
   }
@@ -106,7 +106,7 @@ export class EmailService {
       html: string;
       replyTo?: string;
     },
-    attempts: number
+    attempts: number,
   ): Promise<void> {
     for (let i = 0; i < attempts; i++) {
       try {
@@ -121,7 +121,7 @@ export class EmailService {
 
         if (i === attempts - 1) {
           this.logger.error(
-            `Email send failed after ${attempts} attempts: ${errorMessage}`
+            `Email send failed after ${attempts} attempts: ${errorMessage}`,
           );
           throw error;
         }
@@ -130,7 +130,7 @@ export class EmailService {
         this.logger.warn(
           `Email send attempt ${
             i + 1
-          } failed, retrying in ${delayMs}ms: ${errorMessage}`
+          } failed, retrying in ${delayMs}ms: ${errorMessage}`,
         );
         await this.sleep(delayMs);
       }

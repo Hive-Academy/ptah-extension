@@ -1,5 +1,6 @@
 import {
   Controller,
+  Inject,
   Post,
   Headers,
   UnauthorizedException,
@@ -33,14 +34,15 @@ export class TrialReminderController {
   private readonly adminSecret: string | undefined;
 
   constructor(
+    @Inject(TrialReminderService)
     private readonly trialReminderService: TrialReminderService,
-    private readonly configService: ConfigService
+    @Inject(ConfigService) private readonly configService: ConfigService,
   ) {
     this.adminSecret = this.configService.get<string>('ADMIN_SECRET');
 
     if (!this.adminSecret) {
       this.logger.warn(
-        'ADMIN_SECRET not set - admin endpoints will be disabled'
+        'ADMIN_SECRET not set - admin endpoints will be disabled',
       );
     }
   }
@@ -67,12 +69,12 @@ export class TrialReminderController {
   @Post('trigger')
   @HttpCode(HttpStatus.OK)
   async triggerCronJob(
-    @Headers('x-admin-secret') adminSecret: string
+    @Headers('x-admin-secret') adminSecret: string,
   ): Promise<{ success: boolean; message: string }> {
     // Validate admin secret
     if (!this.adminSecret) {
       throw new UnauthorizedException(
-        'Admin endpoints are disabled (ADMIN_SECRET not configured)'
+        'Admin endpoints are disabled (ADMIN_SECRET not configured)',
       );
     }
 

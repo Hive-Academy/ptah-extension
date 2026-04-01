@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   CanActivate,
   ExecutionContext,
@@ -23,7 +24,7 @@ import { createHash, timingSafeEqual } from 'crypto';
  */
 @Injectable()
 export class AdminApiKeyGuard implements CanActivate {
-  constructor(private readonly config: ConfigService) {}
+  constructor(@Inject(ConfigService) private readonly config: ConfigService) {}
 
   /**
    * Compute SHA-256 hash of a string.
@@ -59,7 +60,7 @@ export class AdminApiKeyGuard implements CanActivate {
 
     if (!validApiKey) {
       throw new UnauthorizedException(
-        'Server configuration error: ADMIN_API_KEY not set'
+        'Server configuration error: ADMIN_API_KEY not set',
       );
     }
 

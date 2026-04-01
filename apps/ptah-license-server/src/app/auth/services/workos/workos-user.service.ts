@@ -52,9 +52,9 @@ export class WorkosUserService {
   private readonly clientId: string;
 
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(WORKOS_CLIENT)
-    private readonly workos: WorkOSClient
+    private readonly workos: WorkOSClient,
   ) {
     this.clientId = this.configService.get<string>('WORKOS_CLIENT_ID') || '';
     if (!this.clientId) {
@@ -69,7 +69,7 @@ export class WorkosUserService {
    */
   async authenticateWithPassword(
     email: string,
-    password: string
+    password: string,
   ): Promise<AuthenticationSuccess | EmailVerificationRequired> {
     this.ensureClientId();
 
@@ -92,7 +92,7 @@ export class WorkosUserService {
    */
   async authenticateWithCode(
     code: string,
-    codeVerifier: string
+    codeVerifier: string,
   ): Promise<AuthenticationSuccess> {
     this.ensureClientId();
 
@@ -108,10 +108,10 @@ export class WorkosUserService {
     } catch (error) {
       this.logger.error(
         'Code authentication failed:',
-        this.extractErrorMessage(error)
+        this.extractErrorMessage(error),
       );
       throw new UnauthorizedException(
-        'Authentication failed. Please try again.'
+        'Authentication failed. Please try again.',
       );
     }
   }
@@ -123,7 +123,7 @@ export class WorkosUserService {
     email: string,
     password: string,
     firstName?: string,
-    lastName?: string
+    lastName?: string,
   ): Promise<User> {
     try {
       const user = await this.workos.userManagement.createUser({
@@ -167,10 +167,10 @@ export class WorkosUserService {
       this.logger.log(`Verification email sent to user: ${userId}`);
     } catch (error) {
       this.logger.warn(
-        `Failed to send verification email: ${this.extractErrorMessage(error)}`
+        `Failed to send verification email: ${this.extractErrorMessage(error)}`,
       );
       throw new BadRequestException(
-        'Failed to send verification code. Please try again.'
+        'Failed to send verification code. Please try again.',
       );
     }
   }
@@ -184,7 +184,7 @@ export class WorkosUserService {
       return response.data?.[0] || null;
     } catch (error) {
       this.logger.warn(
-        `Failed to find user by email: ${this.extractErrorMessage(error)}`
+        `Failed to find user by email: ${this.extractErrorMessage(error)}`,
       );
       return null;
     }
@@ -196,7 +196,7 @@ export class WorkosUserService {
   getAuthorizationUrl(
     redirectUri: string,
     state: string,
-    codeChallenge: string
+    codeChallenge: string,
   ): string {
     this.ensureClientId();
 
@@ -217,7 +217,7 @@ export class WorkosUserService {
     provider: 'github' | 'google',
     redirectUri: string,
     state: string,
-    codeChallenge: string
+    codeChallenge: string,
   ): string {
     this.ensureClientId();
 
@@ -252,7 +252,7 @@ export class WorkosUserService {
    */
   private async handleAuthError(
     error: unknown,
-    email: string
+    email: string,
   ): Promise<EmailVerificationRequired> {
     const workosError = this.parseWorkOSError(error);
     const errorMessage = this.extractErrorMessage(error);
@@ -290,7 +290,7 @@ export class WorkosUserService {
    */
   private isEmailVerificationRequired(
     error: WorkOSError | null,
-    message: string
+    message: string,
   ): boolean {
     // Check error code first (most reliable)
     if (error?.code) {
@@ -337,14 +337,14 @@ export class WorkosUserService {
     // Check for duplicate email
     if (this.isDuplicateEmailError(workosError, errorMessage)) {
       throw new ConflictException(
-        'A user with this email already exists. Please sign in instead.'
+        'A user with this email already exists. Please sign in instead.',
       );
     }
 
     // Check for password strength
     if (this.isPasswordStrengthError(workosError, errorMessage)) {
       throw new BadRequestException(
-        'Password does not meet strength requirements.'
+        'Password does not meet strength requirements.',
       );
     }
 
@@ -359,23 +359,23 @@ export class WorkosUserService {
     const errorCode = workosError?.code || workosError?.errors?.[0]?.code || '';
 
     this.logger.error(
-      `Email verification failed: ${this.extractErrorMessage(error)}`
+      `Email verification failed: ${this.extractErrorMessage(error)}`,
     );
 
     if (errorCode.includes('expired')) {
       throw new BadRequestException(
-        'Verification code has expired. Please request a new one.'
+        'Verification code has expired. Please request a new one.',
       );
     }
 
     if (errorCode.includes('invalid')) {
       throw new BadRequestException(
-        'Invalid verification code. Please check and try again.'
+        'Invalid verification code. Please check and try again.',
       );
     }
 
     throw new BadRequestException(
-      'Email verification failed. Please try again.'
+      'Email verification failed. Please try again.',
     );
   }
 
@@ -384,7 +384,7 @@ export class WorkosUserService {
    */
   private isDuplicateEmailError(
     error: WorkOSError | null,
-    message: string
+    message: string,
   ): boolean {
     const duplicateCodes = ['email_not_available', 'user_exists', 'duplicate'];
     const code = error?.code || error?.errors?.[0]?.code || '';
@@ -408,7 +408,7 @@ export class WorkosUserService {
    */
   private isPasswordStrengthError(
     error: WorkOSError | null,
-    message: string
+    message: string,
   ): boolean {
     const code = error?.code || error?.errors?.[0]?.code || '';
     if (code.toLowerCase().includes('password')) {
