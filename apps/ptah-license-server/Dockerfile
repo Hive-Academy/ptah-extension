@@ -26,8 +26,9 @@ FROM node:20-alpine AS builder
 # Set working directory to monorepo root
 WORKDIR /app
 
-# Install system dependencies required by Prisma
-RUN apk add --no-cache openssl libc6-compat
+# Install system dependencies required by Prisma and native node modules
+# python3, make, g++: required for @sentry/profiling-node native compilation
+RUN apk add --no-cache openssl libc6-compat python3 make g++
 
 # Copy package files for dependency installation
 COPY package.json package-lock.json ./
@@ -45,6 +46,11 @@ COPY libs ./libs/
 # --ignore-scripts: skip native module compilation (e.g., node-pty is Electron-only)
 RUN npm ci --ignore-scripts
 
+# Rebuild only Sentry profiling native bindings (node-gyp)
+# This is needed because --ignore-scripts skips native compilation for all packages,
+# but @sentry/profiling-node requires compiled native addons for CPU profiling.
+RUN cd node_modules/@sentry/profiling-node && npm run build || true
+
 # Generate Prisma client
 RUN cd apps/ptah-license-server && npx prisma generate
 
@@ -58,8 +64,9 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Install system dependencies required by Prisma
-RUN apk add --no-cache openssl libc6-compat
+# Install system dependencies required by Prisma and Sentry profiling native bindings
+# python3, make, g++: required for @sentry/profiling-node native compilation
+RUN apk add --no-cache openssl libc6-compat python3 make g++
 
 # Copy generated package.json from build output
 # NxAppWebpackPlugin generates this with only required dependencies
@@ -70,7 +77,8 @@ COPY --from=builder /app/dist/apps/ptah-license-server/package-lock.json ./
 COPY package-lock.json ./root-package-lock.json
 
 # Install production dependencies
-# Note: We add the external packages that webpack excludes but are needed at runtime
+# Note: We add the external packages that esbuild excludes but are needed at runtime
+# @sentry/nestjs + @sentry/profiling-node: error tracking and CPU profiling (TASK_2025_251)
 RUN npm install --omit=dev \
     @workos-inc/node \
     @nestjs/config \
@@ -78,7 +86,9 @@ RUN npm install --omit=dev \
     @paddle/paddle-node-sdk \
     resend \
     pg \
-    prisma
+    prisma \
+    @sentry/nestjs \
+    @sentry/profiling-node
 
 # -----------------------------------------------------------------------------
 # Stage 3: Production - Minimal runtime image
@@ -124,6 +134,10 @@ EXPOSE 3000
 ENV NODE_ENV=production
 ENV PORT=3000
 
+# Sentry DSN for error tracking (set via docker-compose or deployment config)
+# When empty, Sentry initialization is skipped gracefully
+ENV SENTRY_DSN=""
+
 # Memory optimization for 512MB container
 ENV NODE_OPTIONS="--max-old-space-size=450"
 
@@ -133,4 +147,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 
 # Run migrations and start server
 # Note: Prisma migrate deploy is safe for production (only applies pending migrations)
-CMD ["sh", "-c", "npx prisma migrate deploy && node main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && node main.cjs"]
