@@ -3,11 +3,16 @@
  *
  * This is the main bootstrap file for the license server API.
  * Configures:
+ * - Sentry error tracking and performance monitoring (must be first import)
  * - Raw body parsing for webhook signature verification (Paddle)
  * - Cookie parsing for PKCE state management (WorkOS OAuth)
  * - CORS for cross-origin requests
  * - Global API prefix
  */
+
+// IMPORTANT: Sentry instrumentation MUST be imported before all other modules
+// to ensure proper monkey-patching of Node.js internals and framework hooks.
+import './instrument';
 
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -40,7 +45,7 @@ async function bootstrap() {
     helmet({
       contentSecurityPolicy: false, // API server, not serving HTML
       crossOriginEmbedderPolicy: false, // Allow API consumption from any origin (CORS handles this)
-    })
+    }),
   );
 
   // Configure cookie-parser middleware for PKCE state cookie management
@@ -56,7 +61,7 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-    })
+    }),
   );
 
   // Get ConfigService for environment variables
@@ -88,10 +93,10 @@ async function bootstrap() {
 
   const nodeEnv = configService.get<string>('NODE_ENV') || 'development';
   Logger.log(
-    `Application is running on: http://localhost:${port}/${globalPrefix}`
+    `Application is running on: http://localhost:${port}/${globalPrefix}`,
   );
   Logger.log(
-    `Webhook endpoint available at: http://localhost:${port}/webhooks/paddle`
+    `Webhook endpoint available at: http://localhost:${port}/webhooks/paddle`,
   );
   Logger.log(`Environment: ${nodeEnv}`);
 }

@@ -31,7 +31,10 @@
           "pg",
           "@nestjs/microservices",
           "@nestjs/websockets",
-          "@nestjs/platform-socket.io"
+          "@nestjs/platform-socket.io",
+          "@sentry/nestjs",
+          "@sentry/profiling-node",
+          "@sentry/node"
         ],
         "assets": [
           {
