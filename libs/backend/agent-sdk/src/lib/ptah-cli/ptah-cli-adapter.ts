@@ -767,7 +767,15 @@ export class PtahCliAdapter implements IAIProvider {
   }): {
     prompt: AsyncIterable<SDKUserMessage>;
     options: SdkQueryOptions;
+    /** TASK_2025_255: Populate after spawn to route CLI agent permissions to agent monitor panel */
+    setAgentId: (id: string) => void;
   } {
+    // TASK_2025_255: Create mutable holder for agentId.
+    // For interactive sessions the agentId is not typically available (no
+    // AgentProcessManager spawn), so the resolver returns undefined and
+    // permissions fall back to the existing main agent flow.
+    const agentIdHolder: { value?: string } = {};
+
     const {
       userMessageStream,
       abortController,
@@ -800,7 +808,21 @@ export class PtahCliAdapter implements IAIProvider {
     const useBypass = sdkPermMode === 'bypassPermissions';
     const canUseTool = useBypass
       ? undefined
-      : this.permissionHandler.createCallback(sessionId);
+      : this.permissionHandler.createCallback(
+          sessionId,
+          () => agentIdHolder.value,
+        );
+
+    this.logger.info(
+      '[PtahCliAdapter] Permission config for interactive session',
+      {
+        permLevel,
+        sdkPermMode,
+        useBypass,
+        hasCanUseTool: !!canUseTool,
+        sessionId,
+      },
+    );
 
     // Build system prompt with full premium capabilities
     const activeProviderId = getActiveProviderId(this.authEnv);
@@ -920,6 +942,12 @@ export class PtahCliAdapter implements IAIProvider {
         // Without this, the subprocess resolves to the build-time path
         // causing "process exited with code 1" in production.
         pathToClaudeCodeExecutable: this.resolvedCliJsPath ?? undefined,
+      },
+      // TASK_2025_255: Expose setAgentId for callers to populate after spawn.
+      // For interactive sessions this is typically never called (no spawn step),
+      // so the resolver returns undefined and permissions use the main agent flow.
+      setAgentId: (agentId: string) => {
+        agentIdHolder.value = agentId;
       },
     };
   }

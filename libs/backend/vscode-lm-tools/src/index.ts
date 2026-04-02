@@ -46,7 +46,10 @@ export type {
 } from './lib/code-execution/services/web-search-provider.interface';
 
 // Browser capabilities exports (TASK_2025_244)
-export type { IBrowserCapabilities } from './lib/code-execution/namespace-builders/browser-namespace.builder';
+export type {
+  IBrowserCapabilities,
+  BrowserSessionOptions,
+} from './lib/code-execution/namespace-builders/browser-namespace.builder';
 export { ChromeLauncherBrowserCapabilities } from './lib/code-execution/services/chrome-launcher-browser-capabilities';
 
 // Screen Recorder Service export (TASK_2025_254)

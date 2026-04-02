@@ -19,6 +19,7 @@
     "chrome-launcher": "^1.2.1",
     "chrome-remote-interface": "^0.34.0",
     "jpeg-js": "^0.4.4",
-    "gifenc": "^1.0.3"
+    "gifenc": "^1.0.3",
+    "cross-spawn": "^7.0.6"
   }
 }

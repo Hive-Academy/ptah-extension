@@ -3,14 +3,13 @@
  * TASK_2025_236: Git worktree MCP tools for AI agent access
  *
  * Provides worktreeList, worktreeAdd, worktreeRemove methods for managing
- * git worktrees via the CLI. Uses child_process.execFile WITHOUT shell: true
- * to prevent command injection. On Windows, uses 'git.cmd' as the executable
- * since git is distributed as a .cmd wrapper.
+ * git worktrees via the CLI. Uses cross-spawn for cross-platform compatibility
+ * (handles Windows .cmd wrappers automatically without shell: true).
  *
  * Pattern: namespace-builders/agent-namespace.builder.ts
  */
 
-import { execFile } from 'child_process';
+import crossSpawn from 'cross-spawn';
 import * as path from 'path';
 import type { GitNamespace } from '../types';
 import {
@@ -21,18 +20,32 @@ import {
 const GIT_TIMEOUT_MS = 10_000;
 
 /**
+ * Callback for worktree change notifications.
+ * Fired after a worktree is successfully added or removed via the MCP tool,
+ * so the frontend can refresh its worktree list and file explorer.
+ */
+export type WorktreeChangeCallback = (event: {
+  action: 'created' | 'removed';
+  worktreePath?: string;
+  branch?: string;
+}) => void;
+
+/**
  * Dependencies required to build the git namespace.
  * workspaceRoot is the absolute path to the current workspace directory.
  */
 export interface GitNamespaceDependencies {
   workspaceRoot: string;
+  /** Optional callback fired after worktree add/remove to notify frontend */
+  onWorktreeChanged?: WorktreeChangeCallback;
 }
 
 /**
  * Build the git namespace with worktree operations.
  *
- * All git commands are executed via child_process.execFile with a 10-second timeout.
- * On Windows, 'git.cmd' is used as the executable (shell: false to prevent injection).
+ * All git commands are executed via cross-spawn with a 10-second timeout.
+ * cross-spawn handles Windows .cmd wrappers automatically, preventing
+ * EINVAL/ENOENT errors without needing shell: true.
  *
  * @param deps - Dependencies containing the workspace root path
  * @returns GitNamespace with worktreeList, worktreeAdd, worktreeRemove methods
@@ -40,56 +53,62 @@ export interface GitNamespaceDependencies {
 export function buildGitNamespace(
   deps: GitNamespaceDependencies,
 ): GitNamespace {
-  const { workspaceRoot } = deps;
-
-  /**
-   * Platform-specific git executable.
-   * On Windows, git is distributed as a .cmd wrapper, so we must use 'git.cmd'
-   * when NOT using shell: true. This avoids ENOENT errors on Windows while
-   * keeping shell: false to prevent command injection.
-   *
-   * @see apps/ptah-electron/src/services/git-info.service.ts for the cross-spawn pattern
-   */
-  const gitExecutable = process.platform === 'win32' ? 'git.cmd' : 'git';
+  const { workspaceRoot, onWorktreeChanged } = deps;
 
   /**
    * Execute a git command and return stdout/stderr/exitCode.
-   * Uses execFile WITHOUT shell: true to prevent command injection from
-   * AI-provided branch names and paths. On Windows, 'git.cmd' is used
-   * as the executable to handle the .cmd wrapper.
+   * Uses cross-spawn which handles Windows .cmd wrappers automatically,
+   * preventing EINVAL errors while keeping command injection safety
+   * (no shell: true needed).
+   *
+   * @see apps/ptah-electron/src/services/git-info.service.ts for the same pattern
    */
   function execGit(
     args: string[],
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve, reject) => {
-      execFile(
-        gitExecutable,
-        args,
-        {
-          cwd: workspaceRoot,
-          timeout: GIT_TIMEOUT_MS,
-          maxBuffer: 1024 * 1024, // 1MB buffer for large worktree lists
-        },
-        (error, stdout, stderr) => {
-          if (error && 'killed' in error && error.killed) {
-            reject(
-              new Error(`git ${args[0]} timed out after ${GIT_TIMEOUT_MS}ms`),
-            );
-            return;
-          }
+      const child = crossSpawn('git', args, {
+        cwd: workspaceRoot,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
-          // execFile treats non-zero exit codes as errors,
-          // but we want to handle them gracefully.
-          // Node.js ExecFileException uses string codes (e.g. 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'),
-          // so we simply use exit code 1 as fallback when error is truthy.
-          const exitCode = error ? 1 : 0;
-          resolve({
-            stdout: typeof stdout === 'string' ? stdout : '',
-            stderr: typeof stderr === 'string' ? stderr : '',
-            exitCode,
-          });
-        },
-      );
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          child.kill('SIGTERM');
+          reject(
+            new Error(`git ${args[0]} timed out after ${GIT_TIMEOUT_MS}ms`),
+          );
+        }
+      }, GIT_TIMEOUT_MS);
+
+      child.stdout?.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+
+      child.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      child.on('close', (code: number | null) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          resolve({ stdout, stderr, exitCode: code ?? 1 });
+        }
+      });
+
+      child.on('error', (error: Error) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          reject(error);
+        }
+      });
     });
   }
 
@@ -143,6 +162,19 @@ export function buildGitNamespace(
           };
         }
 
+        // Notify frontend about the new worktree so it can refresh UI
+        if (onWorktreeChanged) {
+          try {
+            onWorktreeChanged({
+              action: 'created',
+              worktreePath,
+              branch: params.branch,
+            });
+          } catch {
+            // Notification failure should never break worktree creation
+          }
+        }
+
         return { success: true, worktreePath };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -168,6 +200,18 @@ export function buildGitNamespace(
             success: false,
             error: stderr.trim() || 'Failed to remove worktree',
           };
+        }
+
+        // Notify frontend about the removal so it can refresh UI
+        if (onWorktreeChanged) {
+          try {
+            onWorktreeChanged({
+              action: 'removed',
+              worktreePath: params.path,
+            });
+          } catch {
+            // Notification failure should never break worktree removal
+          }
         }
 
         return { success: true };

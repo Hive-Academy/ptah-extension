@@ -36,7 +36,7 @@ export class RpcResult<T> {
      * - 'LICENSE_REQUIRED': No valid license (subscription expired or not found)
      * - 'PRO_TIER_REQUIRED': Pro subscription required for this feature
      */
-    public readonly errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED'
+    public readonly errorCode?: 'LICENSE_REQUIRED' | 'PRO_TIER_REQUIRED',
   ) {}
 
   /**
@@ -171,18 +171,18 @@ export class ClaudeRpcService implements MessageHandler {
   async call<T extends RpcMethodName>(
     method: T,
     params: RpcMethodParams<T>,
-    options?: RpcCallOptions
+    options?: RpcCallOptions,
   ): Promise<RpcResult<RpcMethodResult<T>>> {
     // Check license before making RPC call
     if (!this.isMethodAllowed(method)) {
       console.warn(
-        `[ClaudeRpcService] RPC blocked - method "${method}" requires license`
+        `[ClaudeRpcService] RPC blocked - method "${method}" requires license`,
       );
       return new RpcResult<RpcMethodResult<T>>(
         false,
         undefined,
         `License required: ${method}`,
-        'LICENSE_REQUIRED'
+        'LICENSE_REQUIRED',
       );
     }
 
@@ -194,7 +194,7 @@ export class ClaudeRpcService implements MessageHandler {
       // The map stores callbacks as RpcResponse<unknown> for type erasure;
       // at call-site we know the concrete type so the cast is safe.
       this.pendingCalls.set(correlationId, ((
-        response: RpcResponse<RpcMethodResult<T>>
+        response: RpcResponse<RpcMethodResult<T>>,
       ) => {
         this.pendingCalls.delete(correlationId);
         clearTimeout(timer);
@@ -206,8 +206,8 @@ export class ClaudeRpcService implements MessageHandler {
             response.success,
             response.data,
             errorStr,
-            response.errorCode
-          )
+            response.errorCode,
+          ),
         );
       }) as (response: RpcResponse<unknown>) => void);
 
@@ -220,8 +220,8 @@ export class ClaudeRpcService implements MessageHandler {
             new RpcResult<RpcMethodResult<T>>(
               false,
               undefined,
-              `RPC timeout: ${method}`
-            )
+              `RPC timeout: ${method}`,
+            ),
           );
         }
       }, timeout);
@@ -239,7 +239,7 @@ export class ClaudeRpcService implements MessageHandler {
    * Backend may send error as a string or as { message: string } depending on code path.
    */
   private normalizeError(
-    error: string | { message: string } | undefined
+    error: string | { message: string } | undefined,
   ): string | undefined {
     if (error === undefined) return undefined;
     if (typeof error === 'string') return error;
@@ -290,10 +290,10 @@ export class ClaudeRpcService implements MessageHandler {
   async listSessions(
     workspacePath: string,
     limit?: number,
-    offset?: number
+    offset?: number,
   ): Promise<RpcResult<SessionListResult>> {
     console.log(
-      '🔵 [ClaudeRpcService] listSessions() called - Sending RPC request...'
+      '🔵 [ClaudeRpcService] listSessions() called - Sending RPC request...',
     );
     const result = await this.call('session:list', {
       workspacePath,
@@ -315,7 +315,7 @@ export class ClaudeRpcService implements MessageHandler {
    * @returns Session with messages
    */
   async loadSession(
-    sessionId: SessionId
+    sessionId: SessionId,
   ): Promise<RpcResult<SessionLoadResult>> {
     return this.call('session:load', { sessionId });
   }
@@ -328,7 +328,7 @@ export class ClaudeRpcService implements MessageHandler {
    */
   async openFile(
     path: string,
-    line?: number
+    line?: number,
   ): Promise<RpcResult<FileOpenResult>> {
     return this.call('file:open', { path, line });
   }
@@ -339,10 +339,10 @@ export class ClaudeRpcService implements MessageHandler {
    * @returns Promise with success status
    */
   async deleteSession(
-    sessionId: SessionId
+    sessionId: SessionId,
   ): Promise<RpcResult<{ success: boolean; error?: string }>> {
     console.log(
-      '🗑️ [ClaudeRpcService] deleteSession() called - Sending RPC request...'
+      '🗑️ [ClaudeRpcService] deleteSession() called - Sending RPC request...',
     );
     const result = await this.call('session:delete', { sessionId });
     console.log('✅ [ClaudeRpcService] deleteSession() response:', {
@@ -350,6 +350,19 @@ export class ClaudeRpcService implements MessageHandler {
       error: result.error,
     });
     return result;
+  }
+
+  /**
+   * Rename a chat session
+   * @param sessionId - Session ID to rename
+   * @param name - New session name
+   * @returns Promise with success status
+   */
+  async renameSession(
+    sessionId: SessionId,
+    name: string,
+  ): Promise<RpcResult<{ success: boolean; error?: string }>> {
+    return this.call('session:rename', { sessionId, name });
   }
 
   // ============================================================================
@@ -367,7 +380,7 @@ export class ClaudeRpcService implements MessageHandler {
    */
   async querySubagents(): Promise<RpcResult<SubagentQueryResult>> {
     console.log(
-      '🔍 [ClaudeRpcService] querySubagents() called - Sending RPC request...'
+      '🔍 [ClaudeRpcService] querySubagents() called - Sending RPC request...',
     );
     const result = await this.call('chat:subagent-query', {});
     console.log('✅ [ClaudeRpcService] querySubagents() response:', {

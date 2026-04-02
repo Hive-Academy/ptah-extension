@@ -80,6 +80,16 @@ export class AgentMonitorStore implements OnDestroy {
   private _expandOrder = 0;
 
   /**
+   * Buffer for permission requests that arrive before the agent spawn event.
+   * Keyed by agentId. Replayed in onAgentSpawned() when the agent card is created.
+   * Prevents silent permission loss due to message ordering (TASK_2025_255).
+   */
+  private _pendingPermissionBuffer = new Map<
+    string,
+    AgentPermissionRequest[]
+  >();
+
+  /**
    * TASK_2025_211: Tracks agent descriptions (tasks) that have been resumed.
    * Used by inline-agent-bubble to upgrade 'interrupted' → 'resumed' visuals.
    * Key: `${parentSessionId}::${task}` for scoped matching (CLI agent case).
@@ -310,6 +320,20 @@ export class AgentMonitorStore implements OnDestroy {
       return next;
     });
 
+    // TASK_2025_255: Replay any buffered permission requests that arrived before spawn.
+    const buffered = this._pendingPermissionBuffer.get(info.agentId);
+    if (buffered && buffered.length > 0) {
+      this._pendingPermissionBuffer.delete(info.agentId);
+      console.log(
+        '[AgentMonitorStore] Replaying buffered permissions:',
+        info.agentId,
+        buffered.length,
+      );
+      for (const req of buffered) {
+        this.onPermissionRequest(req);
+      }
+    }
+
     // Auto-open panel on 0→1 agent transition (unless user explicitly closed)
     if (!hadAgents && !this._userExplicitlyClosed) {
       this._panelOpen.set(true);
@@ -404,11 +428,23 @@ export class AgentMonitorStore implements OnDestroy {
     this.syncTick();
   }
 
-  /** Handle incoming permission request from Copilot SDK agent */
+  /** Handle incoming permission request from CLI agent (Copilot SDK or Ptah CLI) */
   onPermissionRequest(request: AgentPermissionRequest): void {
     this._agents.update((map) => {
       const agent = map.get(request.agentId);
-      if (!agent) return map;
+      if (!agent) {
+        // Agent not yet in store (spawn event hasn't arrived yet).
+        // Buffer the request — it will be replayed in onAgentSpawned().
+        // TASK_2025_255: Prevents silent permission loss from message ordering.
+        console.warn(
+          '[AgentMonitorStore] Permission buffered — agent not yet spawned:',
+          request.agentId,
+        );
+        const buf = this._pendingPermissionBuffer.get(request.agentId) ?? [];
+        buf.push(request);
+        this._pendingPermissionBuffer.set(request.agentId, buf);
+        return map;
+      }
       const next = new Map(map);
 
       // Auto-expand the card so the user can see and respond to the permission

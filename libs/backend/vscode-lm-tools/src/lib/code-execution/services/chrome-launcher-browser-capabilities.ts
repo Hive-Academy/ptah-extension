@@ -9,7 +9,10 @@
  * 30-min max lifetime, auto-cleanup.
  */
 
-import type { IBrowserCapabilities } from '../namespace-builders/browser-namespace.builder';
+import type {
+  IBrowserCapabilities,
+  BrowserSessionOptions,
+} from '../namespace-builders/browser-namespace.builder';
 import { ScreenRecorderService } from './screen-recorder.service';
 
 // Dynamic imports to avoid bundling issues when this module isn't used (e.g., Electron)
@@ -42,6 +45,9 @@ const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TA
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
 
+/** Default viewport dimensions (desktop) */
+const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
+
 export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private chrome: any = null; // chrome-launcher instance
@@ -63,15 +69,20 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
   private recorder: ScreenRecorderService | null = null;
   /** Whether the screencast frame listener has been registered on the current CDP client */
   private screencastListenerRegistered = false;
-  /** Whether current session is headless (TASK_2025_254) */
-  private _headless = true;
+  /** Whether current session is headless — agent-controlled, default false (visible) */
+  private _headless = false;
+  /** Current viewport dimensions — agent-controlled, default 1920x1080 (desktop) */
+  private _viewport = { ...DEFAULT_VIEWPORT };
+  /** Pending session options set by configureSession(), consumed by createSession() */
+  private _pendingOptions: BrowserSessionOptions = {};
   /** Inactivity timer paused flag (TASK_2025_254) */
   private _inactivityPaused = false;
 
-  constructor(
-    private readonly getHeadless: () => boolean = () => true,
-    private readonly getRecordingDir: () => string = () => '',
-  ) {}
+  constructor(private readonly getRecordingDir: () => string = () => '') {}
+
+  configureSession(options: BrowserSessionOptions): void {
+    this._pendingOptions = { ...this._pendingOptions, ...options };
+  }
 
   async navigate(
     url: string,
@@ -324,6 +335,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     autoCloseInMs?: number;
     headless?: boolean;
     recording?: boolean;
+    viewport?: { width: number; height: number };
   }> {
     if (!this._connected || !this.client) {
       return { connected: false };
@@ -355,6 +367,7 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         autoCloseInMs,
         headless: this._headless,
         recording: this.recorder?.isRecording() ?? false,
+        viewport: { ...this._viewport },
       };
     } catch {
       return { connected: false };
@@ -407,8 +420,12 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
       );
     }
 
-    // Read headless setting at session creation time (TASK_2025_254)
-    this._headless = this.getHeadless();
+    // Consume pending session options (agent-controlled headless + viewport)
+    this._headless = this._pendingOptions.headless ?? false;
+    this._viewport = this._pendingOptions.viewport
+      ? { ...this._pendingOptions.viewport }
+      : { ...DEFAULT_VIEWPORT };
+    this._pendingOptions = {};
 
     // Launch Chrome with remote debugging
     try {
@@ -419,9 +436,10 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
         '--disable-extensions',
         '--disable-translate',
         '--disable-background-networking',
+        `--window-size=${this._viewport.width},${this._viewport.height}`,
       ];
 
-      // Conditionally include --headless (TASK_2025_254)
+      // Conditionally include --headless
       if (this._headless) {
         chromeFlags.unshift('--headless');
       }
@@ -450,10 +468,18 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     }
 
     // Enable CDP domains
-    const { Page, Network, Runtime } = this.client;
+    const { Page, Network, Runtime, Emulation } = this.client;
     await Page.enable();
     await Network.enable();
     await Runtime.enable();
+
+    // Set viewport via CDP Emulation (works in both headless and visible modes)
+    await Emulation.setDeviceMetricsOverride({
+      width: this._viewport.width,
+      height: this._viewport.height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
 
     // Set up network monitoring
     this.networkEntries = [];

@@ -46,9 +46,10 @@ export class ElectronWebviewManagerAdapter {
   async sendMessage(
     _viewType: string,
     type: string,
-    payload: unknown
-  ): Promise<void> {
+    payload: unknown,
+  ): Promise<boolean> {
     this.ipcBridge.sendToRenderer({ type, payload });
+    return true;
   }
 
   /**

@@ -734,9 +734,11 @@ async function handleIndividualTool(
 
       // Browser automation tools (TASK_2025_244)
       case 'ptah_browser_navigate': {
-        const { url, waitForLoad } = args as {
+        const { url, waitForLoad, headless, viewport } = args as {
           url: string;
           waitForLoad?: boolean;
+          headless?: boolean;
+          viewport?: { width: number; height: number };
         };
 
         if (!url || typeof url !== 'string' || !url.trim()) {
@@ -758,6 +760,8 @@ async function handleIndividualTool(
         const navResult = await ptahAPI.browser.navigate({
           url: url.trim(),
           waitForLoad,
+          headless,
+          viewport,
         });
         return createToolSuccessResponse(
           request,
