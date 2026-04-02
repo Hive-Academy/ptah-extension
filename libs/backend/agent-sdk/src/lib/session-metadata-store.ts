@@ -401,19 +401,22 @@ export class SessionMetadataStore {
   }
 
   /**
-   * Rename session
+   * Rename session.
+   * Serialized through writeQueue to prevent lost updates from concurrent writes.
    */
   async rename(sessionId: string, newName: string): Promise<void> {
-    const metadata = await this.get(sessionId);
-    if (metadata) {
-      await this.save({
-        ...metadata,
-        name: newName,
-      });
-      this.logger.info(
-        `[SessionMetadataStore] Renamed session ${sessionId} to "${newName}"`,
-      );
-    }
+    return this.enqueueWrite(async () => {
+      const metadata = await this.get(sessionId);
+      if (metadata) {
+        await this._saveInternal({
+          ...metadata,
+          name: newName,
+        });
+        this.logger.info(
+          `[SessionMetadataStore] Renamed session ${sessionId} to "${newName}"`,
+        );
+      }
+    });
   }
 
   /**

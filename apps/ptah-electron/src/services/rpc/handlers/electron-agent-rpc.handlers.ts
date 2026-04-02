@@ -14,7 +14,7 @@
  * (IStateStorage, IWorkspaceProvider) instead of VS Code APIs.
  */
 
-import { injectable, inject } from 'tsyringe';
+import { injectable, inject, container } from 'tsyringe';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -44,6 +44,8 @@ import type {
   CliDetectionResult,
   CliType,
   SpawnAgentResult,
+  ISdkPermissionHandler,
+  PermissionResponse,
 } from '@ptah-extension/shared';
 
 @injectable()
@@ -338,6 +340,17 @@ export class ElectronAgentRpcHandlers {
     );
   }
 
+  /**
+   * agent:permissionResponse - Route user's permission decision to handlers
+   *
+   * Tries both:
+   * 1. SdkPermissionHandler (Ptah CLI agent permissions) - via lazy container resolution
+   * 2. CopilotPermissionBridge (Copilot SDK permissions) - via CLI adapter
+   *
+   * Both handlers silently ignore unknown requestIds, so trying both is safe.
+   *
+   * TASK_2025_255: Extended to also route to SdkPermissionHandler for Ptah CLI agents
+   */
   private registerPermissionResponse(): void {
     this.rpcHandler.registerMethod<
       AgentPermissionDecision,
@@ -349,16 +362,41 @@ export class ElectronAgentRpcHandlers {
           decision: params.decision,
         });
 
+        let handled = false;
+
+        // Try SdkPermissionHandler first (handles Ptah CLI agent permissions)
+        // Uses lazy container resolution (same pattern as webview-message-handler.service.ts:464)
+        if (container.isRegistered(SDK_TOKENS.SDK_PERMISSION_HANDLER)) {
+          const permissionHandler = container.resolve<ISdkPermissionHandler>(
+            SDK_TOKENS.SDK_PERMISSION_HANDLER,
+          );
+          const response: PermissionResponse = {
+            id: params.requestId,
+            decision: params.decision,
+            reason: params.reason,
+          };
+          permissionHandler.handleResponse(params.requestId, response);
+          handled = true;
+        }
+
+        // Also try Copilot bridge (existing flow, idempotent for unknown requestIds)
         const copilotAdapter = this.cliDetection.getAdapter('copilot');
         if (copilotAdapter && 'permissionBridge' in copilotAdapter) {
           const bridge = (
             copilotAdapter as { permissionBridge: CopilotPermissionBridge }
           ).permissionBridge;
           bridge.resolvePermission(params.requestId, params);
+          handled = true;
+        }
+
+        if (handled) {
           return { success: true };
         }
 
-        return { success: false, error: 'Copilot SDK adapter not active' };
+        return {
+          success: false,
+          error: 'No permission handler available (neither SDK nor Copilot)',
+        };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -547,16 +585,24 @@ export class ElectronAgentRpcHandlers {
       });
     }
 
-    return this.agentProcessManager.spawnFromSdkHandle(spawnResult.handle, {
-      task: params.task,
-      cli: 'ptah-cli',
-      workingDirectory: workspaceRoot,
-      parentSessionId: params.parentSessionId,
-      ptahCliName: spawnResult.agentName,
-      ptahCliId: params.ptahCliId,
-      resumedFromAgentId: params.previousAgentId,
-      resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
-    });
+    const result = await this.agentProcessManager.spawnFromSdkHandle(
+      spawnResult.handle,
+      {
+        task: params.task,
+        cli: 'ptah-cli',
+        workingDirectory: workspaceRoot,
+        parentSessionId: params.parentSessionId,
+        ptahCliName: spawnResult.agentName,
+        ptahCliId: params.ptahCliId,
+        resumedFromAgentId: params.previousAgentId,
+        resumeSessionId: sessionFileExists ? params.cliSessionId : undefined,
+      },
+    );
+
+    // TASK_2025_255: Wire agentId so CLI permission requests route to agent monitor panel
+    spawnResult.setAgentId(result.agentId);
+
+    return result;
   }
 
   private async resolveDefaultPtahCliId(): Promise<string | undefined> {

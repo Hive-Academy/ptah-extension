@@ -11,7 +11,10 @@
  */
 
 import { BrowserWindow } from 'electron';
-import type { IBrowserCapabilities } from '@ptah-extension/vscode-lm-tools';
+import type {
+  IBrowserCapabilities,
+  BrowserSessionOptions,
+} from '@ptah-extension/vscode-lm-tools';
 import { ScreenRecorderService } from '@ptah-extension/vscode-lm-tools';
 
 /** Network request entry stored in ring buffer */
@@ -27,6 +30,9 @@ const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes (headless)
 const VISIBLE_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes (visible, TASK_2025_254)
 const MAX_LIFETIME_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_NETWORK_ENTRIES = 500;
+
+/** Default viewport dimensions (desktop) */
+const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 
 export class ElectronBrowserCapabilities implements IBrowserCapabilities {
   private window: BrowserWindow | null = null;
@@ -44,15 +50,20 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
 
   /** Recording service (TASK_2025_254) */
   private recorder: ScreenRecorderService | null = null;
-  /** Whether current session is headless (TASK_2025_254) */
-  private _headless = true;
+  /** Whether current session is headless — agent-controlled, default false (visible) */
+  private _headless = false;
+  /** Current viewport dimensions — agent-controlled, default 1920x1080 (desktop) */
+  private _viewport = { ...DEFAULT_VIEWPORT };
+  /** Pending session options set by configureSession(), consumed by createSession() */
+  private _pendingOptions: BrowserSessionOptions = {};
   /** Inactivity timer paused flag (TASK_2025_254) */
   private _inactivityPaused = false;
 
-  constructor(
-    private readonly getHeadless: () => boolean = () => true,
-    private readonly getRecordingDir: () => string = () => '',
-  ) {}
+  constructor(private readonly getRecordingDir: () => string = () => '') {}
+
+  configureSession(options: BrowserSessionOptions): void {
+    this._pendingOptions = { ...this._pendingOptions, ...options };
+  }
 
   async navigate(
     url: string,
@@ -312,6 +323,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     autoCloseInMs?: number;
     headless?: boolean;
     recording?: boolean;
+    viewport?: { width: number; height: number };
   }> {
     if (!this.connected || !this.window || this.window.isDestroyed()) {
       return { connected: false };
@@ -330,6 +342,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
       autoCloseInMs,
       headless: this._headless,
       recording: this.recorder?.isRecording() ?? false,
+      viewport: { ...this._viewport },
     };
   }
 
@@ -371,14 +384,18 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     // Clean up any stale state from a crashed session (auto-reconnect)
     await this.cleanup();
 
-    // Read headless setting at session creation time (TASK_2025_254)
-    this._headless = this.getHeadless();
+    // Consume pending session options (agent-controlled headless + viewport)
+    this._headless = this._pendingOptions.headless ?? false;
+    this._viewport = this._pendingOptions.viewport
+      ? { ...this._pendingOptions.viewport }
+      : { ...DEFAULT_VIEWPORT };
+    this._pendingOptions = {};
 
-    // Create BrowserWindow — visible when not headless (TASK_2025_254)
+    // Create BrowserWindow — visible when not headless
     this.window = new BrowserWindow({
       show: !this._headless,
-      width: 1280,
-      height: 720,
+      width: this._viewport.width,
+      height: this._viewport.height,
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
@@ -402,6 +419,14 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     await this.sendCDP('Page.enable', {});
     await this.sendCDP('Network.enable', {});
     await this.sendCDP('Runtime.enable', {});
+
+    // Set viewport via CDP Emulation (matches ChromeLauncherBrowserCapabilities behavior)
+    await this.sendCDP('Emulation.setDeviceMetricsOverride', {
+      width: this._viewport.width,
+      height: this._viewport.height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
 
     // Set up network monitoring
     this.networkEntries = [];
@@ -586,6 +611,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.startedAt = null;
     this.networkEntries = [];
     this.pendingResponses.clear();
+    this._pendingOptions = {};
   }
 
   // Recording methods (TASK_2025_254)

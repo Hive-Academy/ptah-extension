@@ -318,6 +318,27 @@ export class SessionLoaderService {
   }
 
   // ============================================================================
+  // SESSION RENAME
+  // ============================================================================
+
+  /**
+   * Update a session's name in the local list (UI only)
+   * Called after successful backend rename to update UI state.
+   */
+  updateSessionName(sessionId: SessionId, name: string): void {
+    this._sessions.update((current) =>
+      current.map((s) => (s.id === sessionId ? { ...s, name } : s)),
+    );
+
+    // Update cache for the active workspace
+    const workspacePath =
+      this.currentWorkspacePath || this.vscodeService.config().workspaceRoot;
+    if (workspacePath) {
+      this.updateCache(workspacePath);
+    }
+  }
+
+  // ============================================================================
   // WORKSPACE SWITCHING (per-workspace session cache)
   // ============================================================================
 

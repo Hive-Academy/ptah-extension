@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ExternalLink,
   MessageSquare,
+  Pencil,
   Plus,
   Search,
   Settings,
@@ -137,10 +138,15 @@ export class AppShellComponent {
   readonly PlusIcon = Plus;
   readonly SearchIcon = Search;
   readonly SettingsIcon = Settings;
+  readonly PencilIcon = Pencil;
   readonly Trash2Icon = Trash2;
   readonly XIcon = X;
   readonly ExternalLinkIcon = ExternalLink;
   readonly BarChart3Icon = BarChart3;
+
+  // Inline edit state for session renaming
+  readonly editingSessionId = signal<string | null>(null);
+  readonly editingSessionName = signal('');
 
   // Agent monitor badge type for the sidebar tab
   readonly agentBadgeType = computed<'warning' | 'info' | 'neutral' | null>(
@@ -230,6 +236,10 @@ export class AppShellComponent {
   readonly sessionNameInputRef = viewChild<ElementRef<HTMLInputElement>>(
     'sessionNameInputRef',
   );
+
+  // ViewChild for inline session rename input
+  readonly editSessionInput =
+    viewChild<ElementRef<HTMLInputElement>>('editSessionInput');
 
   /**
    * TASK_2025_194: Flag to ensure auth redirect check runs only once.
@@ -518,6 +528,74 @@ export class AppShellComponent {
    * Delete session from storage (TASK_2025_086)
    * Shows confirmation dialog before deleting
    */
+  /**
+   * Start inline editing of a session name
+   */
+  startEditingSession(event: Event, session: ChatSessionSummary): void {
+    event.stopPropagation();
+    this.editingSessionId.set(session.id);
+    this.editingSessionName.set(session.name || '');
+    // Programmatic focus — HTML autofocus doesn't work on dynamically rendered elements
+    setTimeout(() => this.editSessionInput()?.nativeElement.focus(), 0);
+  }
+
+  /**
+   * Cancel inline editing
+   */
+  cancelEditingSession(): void {
+    this.editingSessionId.set(null);
+    this.editingSessionName.set('');
+  }
+
+  /**
+   * Save the edited session name via RPC.
+   * Guarded against double-fire (Enter + blur).
+   */
+  async saveSessionName(
+    event: Event,
+    session: ChatSessionSummary,
+  ): Promise<void> {
+    event.stopPropagation();
+
+    // Guard: skip if already saved/cancelled (prevents Enter + blur double-fire)
+    if (this.editingSessionId() !== session.id) {
+      return;
+    }
+
+    const newName = this.editingSessionName().trim();
+    if (!newName || newName === (session.name || '')) {
+      this.cancelEditingSession();
+      return;
+    }
+
+    // Clear edit state immediately to prevent double-fire
+    this.cancelEditingSession();
+
+    try {
+      const result = await this.rpcService.renameSession(
+        session.id as SessionId,
+        newName,
+      );
+
+      if (result.isSuccess() && result.data?.success) {
+        this.chatStore.updateSessionName(session.id as SessionId, newName);
+
+        // Update open tab title if this session has one
+        const tab = this.tabManager.findTabBySessionId(session.id);
+        if (tab) {
+          this.tabManager.updateTab(tab.id, { title: newName });
+        }
+      } else {
+        console.error(
+          '[AppShell] Failed to rename session:',
+          result.error || result.data?.error,
+        );
+      }
+    } catch (error) {
+      console.error('[AppShell] Error renaming session:', error);
+    }
+  }
+
   async deleteSession(
     event: Event,
     session: ChatSessionSummary,
