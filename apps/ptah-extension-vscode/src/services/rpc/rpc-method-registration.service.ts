@@ -37,6 +37,7 @@ import {
   AgentProcessInfo,
   AgentOutputDelta,
   CliSessionReference,
+  parseWorktreeList,
 } from '@ptah-extension/shared';
 import type { AgentPermissionRequest } from '@ptah-extension/shared';
 import { AGENT_GENERATION_TOKENS } from '@ptah-extension/agent-generation';
@@ -604,16 +605,45 @@ export class RpcMethodRegistrationService {
    * WorktreeService can refresh its worktree list and register new workspace folders.
    */
   private setupWorktreeCallbacks(): void {
-    this.sdkAdapter.setWorktreeCreatedCallback((data) => {
+    this.sdkAdapter.setWorktreeCreatedCallback(async (data) => {
       this.logger.info(
         `[RPC] Worktree created: name=${data.name}, sessionId=${data.sessionId}`,
       );
+
+      // Resolve the actual worktree path by listing worktrees and matching by branch name.
+      // The SDK hook only provides branch name + session cwd, not the worktree path.
+      let worktreePath: string | undefined;
+      try {
+        const crossSpawn = await import('cross-spawn');
+        const child = crossSpawn.default(
+          'git',
+          ['worktree', 'list', '--porcelain'],
+          {
+            cwd: data.cwd,
+            stdio: ['pipe', 'pipe', 'pipe'],
+          },
+        );
+        const chunks: Buffer[] = [];
+        child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
+        await new Promise<void>((resolve) =>
+          child.on('close', () => resolve()),
+        );
+        const output = Buffer.concat(chunks).toString();
+        const worktrees = parseWorktreeList(output);
+        const match = worktrees.find((w) => w.branch === data.name);
+        worktreePath = match?.path;
+      } catch (err) {
+        this.logger.warn(
+          '[RPC] Failed to resolve worktree path for notification',
+          err instanceof Error ? err : new Error(String(err)),
+        );
+      }
 
       this.webviewManager
         .broadcastMessage('git:worktreeChanged', {
           action: 'created',
           name: data.name,
-          path: data.cwd,
+          path: worktreePath,
         })
         .catch((error) => {
           this.logger.error(

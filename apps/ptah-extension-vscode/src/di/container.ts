@@ -428,16 +428,11 @@ export class DIContainer {
 
     // TASK_2025_244: Register browser capabilities for PtahAPIBuilder.
     // ChromeLauncherBrowserCapabilities uses chrome-launcher + chrome-remote-interface
-    // to launch and control a headless Chrome for browser automation tools.
-    // TASK_2025_254: Pass config accessors for headless mode and recording directory.
+    // to launch and control Chrome for browser automation tools.
+    // Headless/viewport are agent-controlled via ptah_browser_navigate params.
     container.register(BROWSER_CAPABILITIES_TOKEN, {
       useValue: new ChromeLauncherBrowserCapabilities(
-        // getHeadless (TASK_2025_254)
-        () =>
-          vscode.workspace
-            .getConfiguration('ptah.browser')
-            .get<boolean>('headless', true) ?? true,
-        // getRecordingDir (TASK_2025_254)
+        // getRecordingDir
         () =>
           vscode.workspace
             .getConfiguration('ptah.browser')

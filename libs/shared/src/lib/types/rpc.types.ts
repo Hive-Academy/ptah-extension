@@ -57,6 +57,8 @@ import type {
   SessionLoadResult,
   SessionDeleteParams,
   SessionDeleteResult,
+  SessionRenameParams,
+  SessionRenameResult,
   SessionValidateParams,
   SessionValidateResult,
   SessionCliSessionsParams,
@@ -260,6 +262,10 @@ export interface RpcMethodRegistry {
   'session:delete': {
     params: SessionDeleteParams;
     result: SessionDeleteResult;
+  };
+  'session:rename': {
+    params: SessionRenameParams;
+    result: SessionRenameResult;
   };
   'session:validate': {
     params: SessionValidateParams;
@@ -863,6 +869,7 @@ export const RPC_METHOD_NAMES: RpcMethodName[] = [
   'session:list',
   'session:load',
   'session:delete',
+  'session:rename',
   'session:validate',
   'session:cli-sessions',
   'session:stats-batch',

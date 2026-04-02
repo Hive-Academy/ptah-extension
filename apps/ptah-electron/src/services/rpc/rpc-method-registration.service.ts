@@ -77,6 +77,8 @@ import {
   ElectronGitRpcHandlers,
   ElectronTerminalRpcHandlers,
 } from './handlers';
+import { ELECTRON_TOKENS } from '../../di/electron-tokens';
+import type { GitInfoService } from '../git-info.service';
 
 /**
  * Orchestrates RPC method registration across all domain handlers.
@@ -378,13 +380,36 @@ export class ElectronRpcMethodRegistrationService {
       });
 
       // 4. WORKTREE callbacks — git worktree create/remove notifications
-      sdkAdapter.setWorktreeCreatedCallback((data) => {
+      // Resolve GitInfoService lazily to query git for the actual worktree path
+      // (the SDK hook only provides branch name + session cwd, not the worktree path)
+      sdkAdapter.setWorktreeCreatedCallback(async (data) => {
         this.logger.info(`[Electron RPC] Worktree created: name=${data.name}`);
+
+        // Find the actual worktree path by listing worktrees and matching by branch name
+        let worktreePath: string | undefined;
+        try {
+          if (container.isRegistered(ELECTRON_TOKENS.GIT_INFO_SERVICE)) {
+            const gitInfo = container.resolve<GitInfoService>(
+              ELECTRON_TOKENS.GIT_INFO_SERVICE,
+            );
+            const worktrees = await gitInfo.getWorktrees(data.cwd);
+            // parseWorktreeList() already strips refs/heads/ prefix,
+            // so exact match on branch name is sufficient
+            const match = worktrees.find((w) => w.branch === data.name);
+            worktreePath = match?.path;
+          }
+        } catch (err) {
+          this.logger.warn(
+            '[Electron RPC] Failed to resolve worktree path, falling back to name-based path',
+            { error: err instanceof Error ? err.message : String(err) },
+          );
+        }
+
         webviewManager
           .broadcastMessage('git:worktreeChanged', {
             action: 'created',
             name: data.name,
-            path: data.cwd,
+            path: worktreePath,
           })
           .catch((error) => {
             this.logger.error(

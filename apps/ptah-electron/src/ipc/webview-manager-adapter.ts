@@ -14,8 +14,8 @@
  * webContents.send('to-renderer', message).
  *
  * The interface contract expected by consumers (from the VS Code app):
- *   sendMessage(viewType: string, type: string, payload: unknown): Promise<void>
- *   broadcastMessage(type: string, payload: unknown): Promise<void>
+ *   sendMessage(viewType: string, type: string, payload: unknown): Promise<boolean>
+ *   broadcastMessage(type: string, payload: unknown): Promise<boolean>
  */
 
 import type { IpcBridge } from './ipc-bridge';
@@ -46,9 +46,10 @@ export class ElectronWebviewManagerAdapter {
   async sendMessage(
     _viewType: string,
     type: string,
-    payload: unknown
-  ): Promise<void> {
+    payload: unknown,
+  ): Promise<boolean> {
     this.ipcBridge.sendToRenderer({ type, payload });
+    return true;
   }
 
   /**

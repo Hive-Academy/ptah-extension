@@ -391,6 +391,17 @@ export interface JsonValidateResult {
 // ========================================
 
 /**
+ * Viewport dimensions in pixels.
+ * Used across browser session configuration, status reporting, and tool schemas.
+ */
+export interface ViewportDimensions {
+  /** Width in pixels (must be a positive integer, max 7680) */
+  width: number;
+  /** Height in pixels (must be a positive integer, max 7680) */
+  height: number;
+}
+
+/**
  * Browser navigation result
  */
 export interface BrowserNavigateResult {
@@ -502,10 +513,12 @@ export interface BrowserStatusResult {
   autoCloseInMs?: number;
   /** Error message if status check failed */
   error?: string;
-  /** Whether the current session is running in headless mode (TASK_2025_254) */
+  /** Whether the current session is running in headless mode */
   headless?: boolean;
-  /** Whether recording is currently active (TASK_2025_254) */
+  /** Whether recording is currently active */
   recording?: boolean;
+  /** Current viewport dimensions */
+  viewport?: ViewportDimensions;
 }
 
 // ========================================
@@ -565,12 +578,19 @@ export interface BrowserNamespace {
    * URL is validated against a security blocklist before navigation.
    * If no browser session exists, one is lazily created.
    *
-   * @param params - Navigation parameters
+   * Session options (headless, viewport) only take effect when creating a new session.
+   * If a session already exists, they are stored for the next session creation.
+   *
+   * @param params - Navigation parameters and optional session configuration
    * @returns Navigation result with URL and page title
    */
   navigate(params: {
     url: string;
     waitForLoad?: boolean;
+    /** Run browser in headless mode (default: false — visible browser window) */
+    headless?: boolean;
+    /** Viewport dimensions (default: 1920x1080 — desktop). Common presets: desktop 1920x1080, tablet 768x1024, mobile 375x812 */
+    viewport?: ViewportDimensions;
   }): Promise<BrowserNavigateResult>;
 
   /**

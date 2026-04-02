@@ -1,7 +1,8 @@
 /**
  * Session RPC Handlers
  *
- * Handles session-related RPC methods: session:list, session:load, session:delete, session:validate
+ * Handles session-related RPC methods: session:list, session:load, session:delete, session:rename,
+ * session:validate, session:cli-sessions, session:stats-batch
  * Uses SessionMetadataStore for lightweight UI metadata.
  * SDK handles message persistence natively to ~/.claude/projects/{sessionId}.jsonl
  *
@@ -23,6 +24,8 @@ import {
   SessionLoadParams,
   SessionLoadResult,
   CliSessionReference,
+  SessionRenameParams,
+  SessionRenameResult,
   SessionStatsBatchParams,
   SessionStatsBatchResult,
   SessionStatsEntry,
@@ -47,7 +50,7 @@ export class SessionRpcHandlers {
     @inject(SDK_TOKENS.SDK_SESSION_METADATA_STORE)
     private readonly metadataStore: SessionMetadataStore,
     @inject(SDK_TOKENS.SDK_SESSION_HISTORY_READER)
-    private readonly historyReader: SessionHistoryReaderService
+    private readonly historyReader: SessionHistoryReaderService,
   ) {}
 
   /**
@@ -57,6 +60,7 @@ export class SessionRpcHandlers {
     this.registerSessionList();
     this.registerSessionLoad();
     this.registerSessionDelete();
+    this.registerSessionRename();
     this.registerSessionValidate();
     this.registerSessionCliSessions();
     this.registerSessionStatsBatch();
@@ -66,6 +70,7 @@ export class SessionRpcHandlers {
         'session:list',
         'session:load',
         'session:delete',
+        'session:rename',
         'session:validate',
         'session:cli-sessions',
         'session:stats-batch',
@@ -90,9 +95,8 @@ export class SessionRpcHandlers {
           });
 
           // Get session metadata for workspace
-          const allSessions = await this.metadataStore.getForWorkspace(
-            workspacePath
-          );
+          const allSessions =
+            await this.metadataStore.getForWorkspace(workspacePath);
 
           // Already sorted by lastActiveAt in metadataStore
           const total = allSessions.length;
@@ -123,15 +127,15 @@ export class SessionRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: session:list failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw new Error(
             `Failed to list sessions: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
         }
-      }
+      },
     );
   }
 
@@ -167,7 +171,7 @@ export class SessionRpcHandlers {
             'RPC: session:load validated - call chat:resume next',
             {
               sessionId,
-            }
+            },
           );
 
           // Return empty arrays - actual messages loaded via chat:resume
@@ -179,15 +183,15 @@ export class SessionRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: session:load failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           throw new Error(
             `Failed to load session: ${
               error instanceof Error ? error.message : String(error)
-            }`
+            }`,
           );
         }
-      }
+      },
     );
   }
 
@@ -218,7 +222,7 @@ export class SessionRpcHandlers {
         } else {
           this.logger.warn(
             'RPC: session:delete - no workspace path in metadata, skipping file deletion',
-            { sessionId }
+            { sessionId },
           );
         }
 
@@ -228,7 +232,7 @@ export class SessionRpcHandlers {
       } catch (error) {
         this.logger.error(
           'RPC: session:delete failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return {
           success: false,
@@ -236,6 +240,54 @@ export class SessionRpcHandlers {
         };
       }
     });
+  }
+
+  /**
+   * session:rename - Rename session metadata
+   */
+  private registerSessionRename(): void {
+    this.rpcHandler.registerMethod<SessionRenameParams, SessionRenameResult>(
+      'session:rename',
+      async (params: SessionRenameParams) => {
+        try {
+          const { sessionId, name } = params;
+          const trimmedName = name.trim();
+
+          if (!trimmedName || trimmedName.length > 200) {
+            return {
+              success: false,
+              error: 'Session name must be between 1 and 200 characters',
+            };
+          }
+
+          this.logger.info('RPC: session:rename called', {
+            sessionId,
+            name: trimmedName,
+          });
+
+          // Verify session exists before renaming
+          const metadata = await this.metadataStore.get(sessionId as string);
+          if (!metadata) {
+            return { success: false, error: 'Session not found' };
+          }
+
+          await this.metadataStore.rename(sessionId as string, trimmedName);
+
+          this.logger.info('RPC: session:rename succeeded', { sessionId });
+
+          return { success: true };
+        } catch (error) {
+          this.logger.error(
+            'RPC: session:rename failed',
+            error instanceof Error ? error : new Error(String(error)),
+          );
+          return {
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      },
+    );
   }
 
   /**
@@ -249,17 +301,17 @@ export class SessionRpcHandlers {
    */
   private async deleteSessionFiles(
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<void> {
     const sessionFilePath = await this.findSessionFile(
       sessionId,
-      workspacePath
+      workspacePath,
     );
 
     if (!sessionFilePath) {
       this.logger.debug(
         'RPC: session:delete - JSONL file not found on disk (already deleted or never created)',
-        { sessionId }
+        { sessionId },
       );
       return;
     }
@@ -320,7 +372,7 @@ export class SessionRpcHandlers {
       try {
         const allFiles = await fs.readdir(sessionsDir);
         const agentFiles = allFiles.filter(
-          (f) => f.startsWith('agent-') && f.endsWith('.jsonl')
+          (f) => f.startsWith('agent-') && f.endsWith('.jsonl'),
         );
         for (const file of agentFiles) {
           const filePath = path.join(sessionsDir, file);
@@ -380,7 +432,7 @@ export class SessionRpcHandlers {
 
           const filePath = await this.findSessionFile(
             sessionId as string,
-            workspacePath
+            workspacePath,
           );
 
           if (filePath) {
@@ -398,11 +450,11 @@ export class SessionRpcHandlers {
         } catch (error) {
           this.logger.error(
             'RPC: session:validate failed',
-            error instanceof Error ? error : new Error(String(error))
+            error instanceof Error ? error : new Error(String(error)),
           );
           return { exists: false };
         }
-      }
+      },
     );
   }
 
@@ -429,14 +481,14 @@ export class SessionRpcHandlers {
         // CLI sessions. Real ptah-cli CLI sessions persisted by
         // persistCliSessionReference() always have a ptahCliId set.
         const cliSessions = raw.filter(
-          (ref) => ref.cli !== 'ptah-cli' || ref.ptahCliId
+          (ref) => ref.cli !== 'ptah-cli' || ref.ptahCliId,
         );
 
         return { cliSessions };
       } catch (error) {
         this.logger.error(
           'RPC: session:cli-sessions failed',
-          error instanceof Error ? error : new Error(String(error))
+          error instanceof Error ? error : new Error(String(error)),
         );
         return { cliSessions: [] };
       }
@@ -475,7 +527,7 @@ export class SessionRpcHandlers {
             try {
               const { stats } = await this.historyReader.readSessionHistory(
                 sessionId,
-                workspacePath
+                workspacePath,
               );
 
               // Get CLI agent types from metadata (gemini, codex, copilot, ptah-cli)
@@ -531,7 +583,7 @@ export class SessionRpcHandlers {
                 status: 'error' as const,
               };
             }
-          })
+          }),
         );
 
         for (let j = 0; j < results.length; j++) {
@@ -551,7 +603,7 @@ export class SessionRpcHandlers {
                   },
                   messageCount: 0,
                   status: 'error' as const,
-                }
+                },
           );
         }
       }
@@ -575,7 +627,7 @@ export class SessionRpcHandlers {
    */
   private async findSessionFile(
     sessionId: string,
-    workspacePath: string
+    workspacePath: string,
   ): Promise<string | null> {
     const homeDir = os.homedir();
     const projectsDir = path.join(homeDir, '.claude', 'projects');
@@ -612,7 +664,7 @@ export class SessionRpcHandlers {
         sessionDir = dirs.find(
           (d) =>
             d.toLowerCase().includes(workspaceName.toLowerCase()) ||
-            normalize(d).includes(normalize(workspaceName))
+            normalize(d).includes(normalize(workspaceName)),
         );
       }
     }
@@ -624,7 +676,7 @@ export class SessionRpcHandlers {
     const sessionFilePath = path.join(
       projectsDir,
       sessionDir,
-      `${sessionId}.jsonl`
+      `${sessionId}.jsonl`,
     );
 
     try {

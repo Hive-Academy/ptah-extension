@@ -38,6 +38,7 @@ import {
   isExitPlanModeToolInput,
   MESSAGE_TYPES,
   UNKNOWN_AGENT_TOOL_CALL_ID,
+  type AgentPermissionRequest,
   type QuestionItem,
   type PermissionRequest,
   type PermissionResponse,
@@ -159,7 +160,7 @@ interface WebviewManager {
     viewType: string,
     type: string,
     payload: T,
-  ): Promise<void>;
+  ): Promise<boolean>;
 }
 
 /**
@@ -296,8 +297,21 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   /**
    * Send permission request to webview
    * TASK_2025_092: Replaced external emitter pattern with direct webview messaging
+   * TASK_2025_255: When cliAgentResolver returns an agentId, routes to agent monitor panel
    */
-  private sendPermissionRequest(payload: PermissionRequest): void {
+  private sendPermissionRequest(
+    payload: PermissionRequest,
+    cliAgentResolver?: () => string | undefined,
+  ): void {
+    // TASK_2025_255: Check if this is a CLI agent permission request.
+    // When the resolver returns an agentId, route to the agent monitor panel
+    // (same path as Copilot SDK permissions) instead of the chat UI badge.
+    const cliAgentId = cliAgentResolver?.();
+    if (cliAgentId) {
+      this.sendCliAgentPermissionRequest(payload, cliAgentId);
+      return;
+    }
+
     this.logger.info(`[SdkPermissionHandler] Permission event emitter called`, {
       payloadId: payload.id,
       payloadToolName: payload.toolName,
@@ -327,11 +341,37 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
 
     this.webviewManager
       .sendMessage('ptah.main', MESSAGE_TYPES.PERMISSION_REQUEST, payload)
-      .then(() => {
-        this.logger.info(
-          `[SdkPermissionHandler] Permission event sent to webview`,
-          { requestId: payload.id },
-        );
+      .then((delivered) => {
+        if (delivered) {
+          this.logger.info(
+            `[SdkPermissionHandler] Permission event sent to webview`,
+            { requestId: payload.id, sessionId: payload.sessionId },
+          );
+        } else {
+          // CRITICAL: sendMessage returns false when the webview isn't found.
+          // Without this check, the pending request hangs forever — the agent
+          // blocks indefinitely waiting for a response that will never come.
+          this.logger.warn(
+            `[SdkPermissionHandler] Permission event NOT delivered — webview "ptah.main" not found. ` +
+              `Denying to prevent permanent hang.`,
+            {
+              requestId: payload.id,
+              toolName: payload.toolName,
+              sessionId: payload.sessionId,
+            },
+          );
+          const pending = this.pendingRequests.get(payload.id);
+          if (pending) {
+            this.pendingRequests.delete(payload.id);
+            this.pendingRequestContext.delete(payload.id);
+            pending.resolve({
+              id: payload.id,
+              decision: 'deny',
+              reason:
+                'Permission request could not be delivered to UI (webview not available)',
+            });
+          }
+        }
       })
       .catch((error) => {
         this.logger.error(
@@ -354,6 +394,107 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
   }
 
   /**
+   * Send CLI agent permission request to agent monitor panel.
+   *
+   * Converts PermissionRequest to AgentPermissionRequest and broadcasts via
+   * AGENT_MONITOR_PERMISSION_REQUEST (same message type as Copilot permissions).
+   * This routes CLI agent permissions through the agent monitor panel instead
+   * of the broken chat UI badge.
+   *
+   * TASK_2025_255: Unified CLI agent permission channel
+   */
+  private sendCliAgentPermissionRequest(
+    payload: PermissionRequest,
+    agentId: string,
+  ): void {
+    if (!this.webviewManager) {
+      // Electron fallback: auto-approve (same as main agent path)
+      this.logger.warn(
+        `[SdkPermissionHandler] No WebviewManager available (Electron) — auto-resolving CLI agent permission`,
+        { requestId: payload.id, toolName: payload.toolName, agentId },
+      );
+      const pending = this.pendingRequests.get(payload.id);
+      if (pending) {
+        this.pendingRequests.delete(payload.id);
+        this.pendingRequestContext.delete(payload.id);
+        pending.resolve({
+          id: payload.id,
+          decision: 'allow',
+          reason: 'Auto-approved: no webview UI available (Electron)',
+        });
+      }
+      return;
+    }
+
+    // Convert PermissionRequest -> AgentPermissionRequest
+    let toolArgs: string;
+    try {
+      toolArgs = JSON.stringify(payload.toolInput);
+    } catch {
+      toolArgs = '[unable to serialize tool input]';
+    }
+
+    const agentPermissionRequest: AgentPermissionRequest = {
+      requestId: payload.id,
+      agentId,
+      kind: 'tool',
+      toolName: payload.toolName,
+      toolArgs,
+      description: payload.description,
+      timestamp: payload.timestamp,
+      timeoutAt: payload.timeoutAt,
+    };
+
+    this.webviewManager
+      .sendMessage(
+        'ptah.main',
+        MESSAGE_TYPES.AGENT_MONITOR_PERMISSION_REQUEST,
+        agentPermissionRequest,
+      )
+      .then((delivered) => {
+        if (delivered) {
+          this.logger.info(
+            `[SdkPermissionHandler] CLI agent permission sent to agent monitor panel`,
+            { requestId: payload.id, agentId, toolName: payload.toolName },
+          );
+        } else {
+          // Deny on delivery failure (same safety as main agent path)
+          this.logger.warn(
+            `[SdkPermissionHandler] CLI agent permission NOT delivered — denying to prevent permanent hang`,
+            { requestId: payload.id, agentId, toolName: payload.toolName },
+          );
+          const pending = this.pendingRequests.get(payload.id);
+          if (pending) {
+            this.pendingRequests.delete(payload.id);
+            this.pendingRequestContext.delete(payload.id);
+            pending.resolve({
+              id: payload.id,
+              decision: 'deny',
+              reason:
+                'Permission request could not be delivered to UI (webview not available)',
+            });
+          }
+        }
+      })
+      .catch((error) => {
+        this.logger.error(
+          '[SdkPermissionHandler] Failed to send CLI agent permission',
+          { error, requestId: payload.id, agentId },
+        );
+        const pending = this.pendingRequests.get(payload.id);
+        if (pending) {
+          this.pendingRequests.delete(payload.id);
+          this.pendingRequestContext.delete(payload.id);
+          pending.resolve({
+            id: payload.id,
+            decision: 'deny',
+            reason: 'Failed to send permission request to UI',
+          });
+        }
+      });
+  }
+
+  /**
    * Create canUseTool callback for SDK query
    *
    * Returns a function matching SDK's CanUseTool signature that:
@@ -362,7 +503,10 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    * 3. Requests user approval for MCP tools (can execute arbitrary code)
    * 4. Denies unknown tools (fail-safe)
    */
-  createCallback(sessionId?: string): CanUseTool {
+  createCallback(
+    sessionId?: string,
+    cliAgentResolver?: () => string | undefined,
+  ): CanUseTool {
     return async (
       toolName: string,
       input: Record<string, unknown>,
@@ -530,6 +674,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           sessionId,
           options.agentID,
           options.signal,
+          cliAgentResolver,
         );
       }
 
@@ -545,6 +690,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           sessionId,
           options.agentID,
           options.signal,
+          cliAgentResolver,
         );
       }
 
@@ -571,6 +717,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
           sessionId,
           options.agentID,
           options.signal,
+          cliAgentResolver,
         );
       }
 
@@ -586,6 +733,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
         sessionId,
         options.agentID,
         options.signal,
+        cliAgentResolver,
       );
     };
   }
@@ -602,6 +750,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
    * @param sessionId - Session ID for routing to correct tab
    * @param agentID - Sub-agent's short hex ID from SDK (if tool runs inside a subagent)
    * @param signal - AbortSignal from SDK for cancellation on session abort
+   * @param cliAgentResolver - Optional resolver for CLI agent ID; routes to agent monitor panel when defined
    */
   private async requestUserPermission(
     toolName: string,
@@ -610,6 +759,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     sessionId?: string,
     agentID?: string,
     signal?: AbortSignal,
+    cliAgentResolver?: () => string | undefined,
   ): Promise<PermissionResult> {
     // TASK_2025_097: Timing diagnostics - capture start time for latency measurement
     const startTime = Date.now();
@@ -677,7 +827,7 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
       },
     );
 
-    this.sendPermissionRequest(request);
+    this.sendPermissionRequest(request, cliAgentResolver);
 
     // TASK_2025_097: Log emit latency for timing diagnostics
     this.logger.info(`[SdkPermissionHandler] Permission request emitted`, {
