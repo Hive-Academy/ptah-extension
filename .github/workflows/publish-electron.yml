@@ -186,7 +186,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: electron-${{ matrix.os }}
-          path: dist/release/
+          path: |
+            dist/release/
+            !dist/release/win-unpacked/
+            !dist/release/linux-unpacked/
+            !dist/release/mac/
+            !dist/release/mac-arm64/
           retention-days: 30
 
   release:
@@ -261,7 +266,7 @@ jobs:
           draft: false
           generate_release_notes: true
           files: |
-            artifacts/**/*.exe
+            artifacts/**/Ptah*.exe
             artifacts/**/*.dmg
             artifacts/**/*.zip
             artifacts/**/*.AppImage
