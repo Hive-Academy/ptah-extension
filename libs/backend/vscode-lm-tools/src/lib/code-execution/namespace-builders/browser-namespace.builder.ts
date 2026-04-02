@@ -25,6 +25,7 @@ import type {
   BrowserRecordStartResult,
   BrowserRecordStopResult,
   BrowserWaitForUserResult,
+  ViewportDimensions,
 } from '../types';
 
 // ========================================
@@ -44,7 +45,29 @@ import type {
  * In standalone/fallback mode, this interface is NOT provided, and
  * buildBrowserNamespace() returns graceful degradation stubs instead.
  */
+/**
+ * Session options that the agent can configure before a browser session is created.
+ * These only take effect when creating a NEW session — if a session already exists,
+ * they are stored for the next session creation.
+ */
+export interface BrowserSessionOptions {
+  /** Whether to run in headless mode (default: false — visible browser) */
+  headless?: boolean;
+  /** Viewport dimensions (default: 1920x1080 — desktop) */
+  viewport?: ViewportDimensions;
+}
+
 export interface IBrowserCapabilities {
+  /**
+   * Configure session options for the next browser session creation.
+   * These options are consumed by ensureSession()/createSession() when
+   * a new session is lazily started (e.g., on first navigate call).
+   *
+   * If a session already exists, the options are stored and will apply
+   * when the current session is closed and a new one is created.
+   */
+  configureSession(options: BrowserSessionOptions): void;
+
   navigate(
     url: string,
     waitForLoad?: boolean,
@@ -93,6 +116,7 @@ export interface IBrowserCapabilities {
     autoCloseInMs?: number;
     headless?: boolean;
     recording?: boolean;
+    viewport?: ViewportDimensions;
   }>;
 
   isConnected(): boolean;
@@ -195,9 +219,8 @@ const BROWSER_NOT_AVAILABLE_MSG =
 export interface BrowserNamespaceDependencies {
   capabilities?: IBrowserCapabilities;
   getAllowLocalhost?: () => boolean;
-  /** Returns whether the browser should run in headless mode (TASK_2025_254) */
-  getHeadless?: () => boolean;
   // Note: recordingDir is configured via the capabilities constructor, not here.
+  // Note: headless and viewport are agent-controlled via navigate params, not settings.
   /**
    * Wait-for-user implementation (TASK_2025_254).
    * In VS Code: uses WebviewManager + PermissionPromptService.
@@ -229,7 +252,7 @@ export interface BrowserNamespaceDependencies {
 export function buildBrowserNamespace(
   deps: BrowserNamespaceDependencies,
 ): BrowserNamespace {
-  const { capabilities, getAllowLocalhost, getHeadless, waitForUser } = deps;
+  const { capabilities, getAllowLocalhost, waitForUser } = deps;
 
   if (!capabilities) {
     return buildGracefulBrowserNamespace();
@@ -238,7 +261,6 @@ export function buildBrowserNamespace(
   return buildCapabilityBackedBrowserNamespace(
     capabilities,
     getAllowLocalhost,
-    getHeadless,
     waitForUser,
   );
 }
@@ -250,7 +272,6 @@ export function buildBrowserNamespace(
 function buildCapabilityBackedBrowserNamespace(
   capabilities: IBrowserCapabilities,
   getAllowLocalhost?: () => boolean,
-  getHeadless?: () => boolean,
   waitForUser?: (params: {
     message: string;
     timeout?: number;
@@ -270,7 +291,37 @@ function buildCapabilityBackedBrowserNamespace(
         };
       }
 
+      // Validate viewport dimensions if provided
+      if (params.viewport) {
+        const { width, height } = params.viewport;
+        if (
+          !Number.isInteger(width) ||
+          !Number.isInteger(height) ||
+          width < 1 ||
+          height < 1 ||
+          width > 7680 ||
+          height > 7680
+        ) {
+          return {
+            success: false,
+            url: params.url,
+            title: '',
+            error:
+              'Invalid viewport dimensions. Width and height must be positive integers between 1 and 7680.',
+          };
+        }
+      }
+
       try {
+        // Pass agent-controlled session options (headless, viewport) to capabilities.
+        // These only take effect when creating a NEW session.
+        if (params.headless !== undefined || params.viewport) {
+          capabilities.configureSession({
+            ...(params.headless !== undefined && { headless: params.headless }),
+            ...(params.viewport && { viewport: params.viewport }),
+          });
+        }
+
         return await capabilities.navigate(
           params.url,
           params.waitForLoad ?? true,
@@ -434,16 +485,14 @@ function buildCapabilityBackedBrowserNamespace(
         };
       }
 
-      // Check the session's actual headless state (not the live config setting,
-      // which may have changed after session creation)
+      // Check the session's actual headless state
       const statusResult = await capabilities.status();
-      const isHeadless = statusResult.headless ?? getHeadless?.() ?? true;
-      if (isHeadless) {
+      if (statusResult.headless) {
         return {
           ready: false,
           waitDurationMs: 0,
           error:
-            'Wait-for-user requires visible browser mode. Set ptah.browser.headless to false in settings and restart the browser session.',
+            'Wait-for-user requires visible browser mode. Close the current session and start a new one with headless=false in ptah_browser_navigate.',
         };
       }
 

@@ -278,11 +278,6 @@
           "default": false,
           "description": "Allow AI agent browser automation to access localhost URLs (127.0.0.1, 0.0.0.0, [::1]). Enable for local dev server testing."
         },
-        "ptah.browser.headless": {
-          "type": "boolean",
-          "default": true,
-          "description": "When true (default), the browser runs in headless mode. Set to false to show the browser window for interactive workflows (login, 2FA, CAPTCHAs)."
-        },
         "ptah.browser.recordingDir": {
           "type": "string",
           "default": "",

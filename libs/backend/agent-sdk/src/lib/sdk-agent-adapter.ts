@@ -804,6 +804,18 @@ export class SdkAgentAdapter implements IAIProvider {
   }
 
   /**
+   * Interrupt the current assistant turn without ending the session.
+   * The session remains active for continued use.
+   * Used when the user sends a message during autopilot execution.
+   */
+  async interruptCurrentTurn(sessionId: SessionId): Promise<boolean> {
+    this.logger.info(
+      `[SdkAgentAdapter] Interrupting current turn: ${sessionId}`,
+    );
+    return this.sessionLifecycle.interruptCurrentTurn(sessionId);
+  }
+
+  /**
    * Interrupt active session
    * Delegates to SessionLifecycleManager.endSession() which handles abort and cleanup
    */

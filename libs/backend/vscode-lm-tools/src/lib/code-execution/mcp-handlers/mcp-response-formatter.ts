@@ -1124,6 +1124,9 @@ export function formatBrowserStatus(result: BrowserStatusResult): string {
     if (result.headless !== undefined) {
       statusText += `  \n**Mode:** ${result.headless ? 'Headless' : 'Visible'}`;
     }
+    if (result.viewport) {
+      statusText += `  \n**Viewport:** ${result.viewport.width}x${result.viewport.height}`;
+    }
     if (result.recording !== undefined) {
       statusText += `  \n**Recording:** ${result.recording ? 'Active' : 'Inactive'}`;
     }

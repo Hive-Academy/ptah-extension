@@ -62,6 +62,20 @@ export interface SessionDeleteResult {
   error?: string;
 }
 
+/** Parameters for session:rename RPC method */
+export interface SessionRenameParams {
+  /** Session ID to rename */
+  sessionId: SessionId;
+  /** New session name */
+  name: string;
+}
+
+/** Response from session:rename RPC method */
+export interface SessionRenameResult {
+  success: boolean;
+  error?: string;
+}
+
 /** Parameters for session:validate RPC method */
 export interface SessionValidateParams {
   /** Session ID to validate */

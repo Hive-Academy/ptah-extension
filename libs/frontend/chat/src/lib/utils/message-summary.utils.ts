@@ -7,6 +7,8 @@ import type { ExecutionNode } from '@ptah-extension/shared';
 export interface MessageSummary {
   /** First ~80 chars of agent's text response, truncated at word boundary */
   readonly title: string;
+  /** Longer excerpt (~300 chars) for card-like collapsed display, null when title covers full text */
+  readonly description: string | null;
   /** Count of unique file paths referenced in tool calls */
   readonly filesChanged: number;
   /** Total number of tool invocations */
@@ -51,10 +53,10 @@ const FILE_PATH_KEYS = ['file_path', 'notebook_path', 'filePath'] as const;
  */
 function walkNode(
   node: ExecutionNode,
-  state: { title: string; files: Set<string>; toolCount: number },
+  state: { rawText: string; files: Set<string>; toolCount: number },
 ): void {
-  if (node.type === 'text' && !state.title && node.content) {
-    state.title = truncateAtWordBoundary(node.content, 80);
+  if (node.type === 'text' && !state.rawText && node.content) {
+    state.rawText = node.content.replace(/\s+/g, ' ').trim();
   }
 
   if (node.type === 'tool') {
@@ -93,14 +95,18 @@ export function extractMessageSummary(
   messageCost?: number,
   messageDuration?: number,
 ): MessageSummary {
-  const state = { title: '', files: new Set<string>(), toolCount: 0 };
+  const state = { rawText: '', files: new Set<string>(), toolCount: 0 };
 
   if (rootNode) {
     walkNode(rootNode, state);
   }
 
+  const rawText = state.rawText;
+
   return {
-    title: state.title || 'Assistant response',
+    title: rawText ? truncateAtWordBoundary(rawText, 80) : 'Assistant response',
+    description:
+      rawText.length > 80 ? truncateAtWordBoundary(rawText, 300) : null,
     filesChanged: state.files.size,
     toolCount: state.toolCount,
     cost: messageCost,

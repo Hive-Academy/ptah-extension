@@ -165,7 +165,7 @@ export class ChatStore {
 
   // License status signal (TASK_2025_142)
   private readonly _licenseStatus = signal<LicenseGetStatusResponse | null>(
-    null
+    null,
   );
   readonly licenseStatus = this._licenseStatus.asReadonly();
 
@@ -204,10 +204,10 @@ export class ChatStore {
 
   // Computed from active tab (delegated to TabManager)
   readonly currentSessionId = computed(
-    () => this.tabManager.activeTab()?.claudeSessionId ?? null
+    () => this.tabManager.activeTab()?.claudeSessionId ?? null,
   );
   readonly messages = computed(
-    () => this.tabManager.activeTab()?.messages ?? []
+    () => this.tabManager.activeTab()?.messages ?? [],
   );
   /**
    * PERFORMANCE OPTIMIZATION: Computed signal for current execution tree
@@ -257,7 +257,7 @@ export class ChatStore {
    * Used by SessionStatsSummaryComponent to display cost/tokens without recalculation
    */
   readonly preloadedStats = computed(
-    () => this.tabManager.activeTab()?.preloadedStats ?? null
+    () => this.tabManager.activeTab()?.preloadedStats ?? null,
   );
 
   /**
@@ -266,7 +266,7 @@ export class ChatStore {
    * Used by SessionStatsSummaryComponent to display context usage
    */
   readonly liveModelStats = computed(
-    () => this.tabManager.activeTab()?.liveModelStats ?? null
+    () => this.tabManager.activeTab()?.liveModelStats ?? null,
   );
 
   /**
@@ -274,7 +274,7 @@ export class ChatStore {
    * Contains all models used in the session with their individual cost/token stats.
    */
   readonly modelUsageList = computed(
-    () => this.tabManager.activeTab()?.modelUsageList ?? null
+    () => this.tabManager.activeTab()?.modelUsageList ?? null,
   );
 
   /**
@@ -282,7 +282,7 @@ export class ChatStore {
    * Delegates to PermissionHandlerService
    */
   getPermissionForTool(
-    toolCallId: string | undefined
+    toolCallId: string | undefined,
   ): PermissionRequest | null {
     return this.permissionHandler.getPermissionForTool(toolCallId);
   }
@@ -369,12 +369,21 @@ export class ChatStore {
   }
 
   /**
+   * Update a session's name in the local list (UI only)
+   * Called after successful backend rename to update UI state
+   * Delegates to SessionLoaderService
+   */
+  updateSessionName(sessionId: SessionId, name: string): void {
+    return this.sessionLoader.updateSessionName(sessionId, name);
+  }
+
+  /**
    * Send a message - automatically determines whether to start new or continue
    * Delegates to MessageSenderService (TASK_2025_054 Batch 3 - eliminates callback indirection)
    */
   async sendMessage(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): Promise<void> {
     return this.messageSender.send(content, options);
   }
@@ -386,7 +395,7 @@ export class ChatStore {
    */
   async sendOrQueueMessage(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): Promise<void> {
     // Check if streaming via active tab status
     const activeTab = this.tabManager.activeTab();
@@ -408,7 +417,7 @@ export class ChatStore {
         }
         console.log(
           '[ChatStore] Auto-denied permissions on message send:',
-          activePermissions.length
+          activePermissions.length,
         );
       }
 
@@ -487,7 +496,7 @@ export class ChatStore {
       try {
         const result = await this._claudeRpcService.call(
           'license:getStatus',
-          {} as Record<string, never>
+          {} as Record<string, never>,
         );
 
         if (result.isSuccess()) {
@@ -498,7 +507,7 @@ export class ChatStore {
           if (attempt === retries) {
             console.error(
               '[ChatStore] Failed to fetch license status after retries:',
-              result.error
+              result.error,
             );
             this._licenseStatus.set(null);
           }
@@ -507,7 +516,7 @@ export class ChatStore {
         if (attempt === retries) {
           console.error(
             '[ChatStore] Error fetching license status after retries:',
-            error
+            error,
           );
           this._licenseStatus.set(null);
         } else {
@@ -559,7 +568,7 @@ export class ChatStore {
       this._isCompacting.set(false);
       this.compactionTimeoutId = null;
       console.warn(
-        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost'
+        '[ChatStore] Compaction safety timeout reached — compaction_complete event may have been lost',
       );
     }, ChatStore.COMPACTION_SAFETY_TIMEOUT_MS);
   }
@@ -625,7 +634,7 @@ export class ChatStore {
     if (!activeTab?.streamingState) {
       console.warn(
         '[ChatStore] No active tab with streamingState for summary chunk:',
-        { toolUseId, agentId }
+        { toolUseId, agentId },
       );
       return;
     }
@@ -717,7 +726,7 @@ export class ChatStore {
    */
   private async sendQueuedMessage(
     tabId: string,
-    content: string
+    content: string,
   ): Promise<void> {
     try {
       console.log('[ChatStore] sendQueuedMessage: clearing queue and sending');
@@ -738,11 +747,11 @@ export class ChatStore {
       // Pass files from stored options (effort is set at session config level, not per-message for continue).
       await this.conversation.continueConversation(
         content,
-        queuedOptions?.files
+        queuedOptions?.files,
       );
 
       console.log(
-        '[ChatStore] sendQueuedMessage: queued message sent successfully'
+        '[ChatStore] sendQueuedMessage: queued message sent successfully',
       );
     } catch (error) {
       console.error('[ChatStore] sendQueuedMessage failed:', error);
@@ -766,12 +775,12 @@ export class ChatStore {
   processStreamEvent(
     event: FlatStreamEventUnion,
     tabId?: string,
-    sessionId?: string
+    sessionId?: string,
   ): void {
     const result = this.streamingHandler.processStreamEvent(
       event,
       tabId,
-      sessionId
+      sessionId,
     );
 
     // Handle compaction complete: dismiss banner, reset tree, clear finalized messages
@@ -884,7 +893,7 @@ export class ChatStore {
    */
   public queueOrAppendMessage(
     content: string,
-    options?: SendMessageOptions
+    options?: SendMessageOptions,
   ): void {
     this.conversation.queueOrAppendMessage(content, options);
   }
@@ -949,7 +958,7 @@ export class ChatStore {
         stats.modelUsage.length === 1
           ? stats.modelUsage[0]
           : stats.modelUsage.reduce((best, current) =>
-              current.outputTokens > best.outputTokens ? current : best
+              current.outputTokens > best.outputTokens ? current : best,
             );
       // Context usage = input + output tokens only.
       // Cache-read tokens are NOT included: they represent prompt cache hits (a billing/perf metric)
@@ -1048,7 +1057,7 @@ export class ChatStore {
     // SESSION_STATS (from type=result) is the authoritative completion signal.
     console.log(
       '[ChatStore] chat:complete received (no-op, streaming managed by SESSION_STATS):',
-      data
+      data,
     );
   }
 
@@ -1101,7 +1110,7 @@ export class ChatStore {
     this.sessionLoader.loadSessions().catch((err) => {
       console.warn(
         '[ChatStore] Failed to refresh sessions after ID resolved:',
-        err
+        err,
       );
     });
   }

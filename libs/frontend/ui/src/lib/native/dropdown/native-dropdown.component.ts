@@ -46,7 +46,6 @@ import {
   inject,
   effect,
   OnDestroy,
-  HostListener,
 } from '@angular/core';
 import { Placement } from '@floating-ui/dom';
 import { FloatingUIService } from '../shared';
@@ -70,27 +69,27 @@ import { FloatingUIService } from '../shared';
 
     <!-- Dropdown panel (conditionally rendered) -->
     @if (isOpen()) {
-    <!-- Backdrop for click-outside detection -->
-    @if (hasBackdrop()) {
-    <div
-      class="fixed inset-0 z-40"
-      [class]="backdropClass() === 'dark' ? 'bg-black/20' : ''"
-      (click)="handleBackdropClick()"
-      tabindex="-1"
-      role="presentation"
-      aria-hidden="true"
-    ></div>
-    }
+      <!-- Backdrop for click-outside detection -->
+      @if (hasBackdrop()) {
+        <div
+          class="fixed inset-0 z-40"
+          [class]="backdropClass() === 'dark' ? 'bg-black/20' : ''"
+          (click)="handleBackdropClick()"
+          tabindex="-1"
+          role="presentation"
+          aria-hidden="true"
+        ></div>
+      }
 
-    <!-- Floating content - starts hidden until positioned -->
-    <div
-      #floatingRef
-      class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg z-50"
-      style="visibility: hidden;"
-      role="listbox"
-    >
-      <ng-content select="[content]" />
-    </div>
+      <!-- Floating content - starts hidden until positioned -->
+      <div
+        #floatingRef
+        class="dropdown-panel bg-base-200 border border-base-300 rounded-lg shadow-lg z-50"
+        style="visibility: hidden;"
+        role="listbox"
+      >
+        <ng-content select="[content]" />
+      </div>
     }
   `,
   styles: [
@@ -101,6 +100,7 @@ import { FloatingUIService } from '../shared';
       }
     `,
   ],
+  host: { '(document:click)': 'onDocumentClick($event)' },
 })
 export class NativeDropdownComponent implements OnDestroy {
   private readonly floatingUI = inject(FloatingUIService);
@@ -225,7 +225,6 @@ export class NativeDropdownComponent implements OnDestroy {
    * Handle outside clicks when hasBackdrop is false.
    * Closes dropdown if click is outside trigger and floating panel.
    */
-  @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
     if (!this.isOpen() || this.hasBackdrop()) return;
 

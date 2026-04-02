@@ -71,6 +71,7 @@ export {
 export {
   buildBrowserNamespace,
   type IBrowserCapabilities,
+  type BrowserSessionOptions,
   type BrowserNamespaceDependencies,
   validateBrowserUrl,
 } from './browser-namespace.builder';

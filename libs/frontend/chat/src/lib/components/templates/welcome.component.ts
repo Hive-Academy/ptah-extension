@@ -116,7 +116,7 @@ export class WelcomeComponent implements OnInit {
       case 'trial_ended':
         return 'Subscribe to Pro for premium features.';
       default:
-        return 'Create your account and start a 15-day free trial of premium features. No credit card required.';
+        return 'Create your account and start a 30-day free trial of premium features. No credit card required.';
     }
   });
 

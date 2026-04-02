@@ -310,6 +310,79 @@ export class SessionLifecycleManager {
   }
 
   /**
+   * Interrupt the current assistant turn without ending the session.
+   *
+   * Unlike endSession(), this does NOT abort the session or clean up resources.
+   * The session remains active for continued use — the user's follow-up message
+   * will start a new turn.
+   *
+   * Used when the user sends a message during autopilot (yolo/auto-edit) execution.
+   * In these modes, tool calls are auto-approved, so the user has no checkpoint to
+   * stop the agent. Calling interrupt() forces the SDK to stop the current turn,
+   * ensuring the user's message is processed in a new turn.
+   *
+   * @param sessionId - Session whose current turn should be interrupted
+   * @returns true if interrupt was called, false if session/query not found
+   */
+  async interruptCurrentTurn(sessionId: SessionId): Promise<boolean> {
+    let session = this.activeSessions.get(sessionId as string);
+
+    // Reverse lookup: frontend may send real SDK UUID but activeSessions is keyed by tab ID.
+    // Same pattern as endSession() and setSessionModel().
+    if (!session) {
+      for (const [tabId, realId] of this.tabIdToRealId.entries()) {
+        if (realId === (sessionId as string)) {
+          session = this.activeSessions.get(tabId);
+          if (session) {
+            sessionId = tabId as SessionId;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!session?.query) {
+      this.logger.warn(
+        `[SessionLifecycle] Cannot interrupt turn - session or query not found: ${sessionId}`,
+      );
+      return false;
+    }
+
+    this.logger.info(
+      `[SessionLifecycle] Interrupting current turn for session: ${sessionId}`,
+    );
+
+    try {
+      let timedOut = false;
+      await Promise.race([
+        session.query.interrupt(),
+        new Promise<void>((resolve) =>
+          setTimeout(() => {
+            timedOut = true;
+            resolve();
+          }, 3000),
+        ),
+      ]);
+      if (timedOut) {
+        this.logger.warn(
+          `[SessionLifecycle] Turn interrupt timed out (3s) for session: ${sessionId}`,
+        );
+      } else {
+        this.logger.info(
+          `[SessionLifecycle] Turn interrupt completed for session: ${sessionId}`,
+        );
+      }
+      return !timedOut;
+    } catch (err) {
+      this.logger.warn(
+        `[SessionLifecycle] Turn interrupt failed for session ${sessionId}`,
+        err instanceof Error ? err : new Error(String(err)),
+      );
+      return false;
+    }
+  }
+
+  /**
    * End session and cleanup
    * TASK_2025_102: Now calls cleanupPendingPermissions to prevent unhandled promise rejections
    * TASK_2025_103: Now marks all running subagents as interrupted before session removal

@@ -629,7 +629,8 @@ export function buildBrowserNavigateTool(): MCPToolDefinition {
     description:
       'Navigate the browser to a URL. Lazily starts a browser session if none exists. ' +
       'Returns the final URL and page title after load. Only http/https URLs are allowed. ' +
-      'Localhost is blocked by default (enable via ptah.browser.allowLocalhost setting).',
+      'Localhost is blocked by default (enable via ptah.browser.allowLocalhost setting). ' +
+      'You can control headless mode and viewport size — these take effect when creating a new session.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -641,6 +642,34 @@ export function buildBrowserNavigateTool(): MCPToolDefinition {
           type: 'boolean',
           description:
             'Wait for the page load event before returning (default: true)',
+        },
+        headless: {
+          type: 'boolean',
+          description:
+            'Run browser in headless mode — no visible window (default: false). ' +
+            'Set to true for background scraping/testing. Set to false (default) for visual verification ' +
+            'or when the user needs to interact (login, 2FA, CAPTCHA).',
+        },
+        viewport: {
+          type: 'object',
+          description:
+            'Browser viewport dimensions (default: 1920x1080 desktop). ' +
+            'Common presets: desktop 1920x1080, tablet 768x1024, mobile 375x812.',
+          properties: {
+            width: {
+              type: 'integer',
+              description: 'Viewport width in pixels',
+              minimum: 1,
+              maximum: 7680,
+            },
+            height: {
+              type: 'integer',
+              description: 'Viewport height in pixels',
+              minimum: 1,
+              maximum: 7680,
+            },
+          },
+          required: ['width', 'height'],
         },
       },
       required: ['url'],
@@ -834,7 +863,8 @@ export function buildBrowserStatusTool(): MCPToolDefinition {
     name: 'ptah_browser_status',
     description:
       'Get the current browser session status. Returns whether a session is active, the current URL, ' +
-      'page title, uptime, and time until auto-close. Use to check if a browser session exists before starting one.',
+      'page title, uptime, time until auto-close, headless mode, and viewport dimensions. ' +
+      'Use to check if a browser session exists before starting one.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -903,7 +933,7 @@ export function buildBrowserWaitForUserTool(): MCPToolDefinition {
     description:
       'Pause the agent and prompt the user to perform manual actions in the visible browser window ' +
       '(e.g., login, 2FA, CAPTCHA). The agent resumes when the user clicks Ready. ' +
-      'Requires visible browser mode (ptah.browser.headless = false). ' +
+      'Requires visible browser mode (headless must be false when starting the session via ptah_browser_navigate). ' +
       'The browser session inactivity timer is paused during the wait.',
     inputSchema: {
       type: 'object',
