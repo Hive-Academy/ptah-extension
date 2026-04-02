@@ -229,9 +229,11 @@ export class GitStatusBarComponent {
   /** Close the worktree dropdown when clicking outside the component. */
   @HostListener('document:click', ['$event'])
   onDocumentClick(event: MouseEvent): void {
+    const target = event.target;
     if (
       this.showWorktreeList() &&
-      !this.elementRef.nativeElement.contains(event.target)
+      target instanceof Node &&
+      !this.elementRef.nativeElement.contains(target)
     ) {
       this.showWorktreeList.set(false);
     }

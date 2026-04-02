@@ -427,12 +427,19 @@ export class SdkPermissionHandler implements ISdkPermissionHandler {
     }
 
     // Convert PermissionRequest -> AgentPermissionRequest
+    let toolArgs: string;
+    try {
+      toolArgs = JSON.stringify(payload.toolInput);
+    } catch {
+      toolArgs = '[unable to serialize tool input]';
+    }
+
     const agentPermissionRequest: AgentPermissionRequest = {
       requestId: payload.id,
       agentId,
       kind: 'tool',
       toolName: payload.toolName,
-      toolArgs: JSON.stringify(payload.toolInput),
+      toolArgs,
       description: payload.description,
       timestamp: payload.timestamp,
       timeoutAt: payload.timeoutAt,

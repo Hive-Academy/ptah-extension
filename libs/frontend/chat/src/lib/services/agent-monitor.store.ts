@@ -164,6 +164,7 @@ export class AgentMonitorStore implements OnDestroy {
 
   ngOnDestroy(): void {
     this.stopTick();
+    this._pendingPermissionBuffer.clear();
   }
 
   private startTick(): void {
