@@ -738,7 +738,7 @@ async function handleIndividualTool(
           url: string;
           waitForLoad?: boolean;
           headless?: boolean;
-          viewport?: { width: number; height: number };
+          viewport?: { width: number; height: number }; // MCP JSON input; validated in namespace builder
         };
 
         if (!url || typeof url !== 'string' || !url.trim()) {

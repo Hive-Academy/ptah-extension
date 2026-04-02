@@ -656,10 +656,17 @@ export function buildBrowserNavigateTool(): MCPToolDefinition {
             'Browser viewport dimensions (default: 1920x1080 desktop). ' +
             'Common presets: desktop 1920x1080, tablet 768x1024, mobile 375x812.',
           properties: {
-            width: { type: 'number', description: 'Viewport width in pixels' },
+            width: {
+              type: 'integer',
+              description: 'Viewport width in pixels',
+              minimum: 1,
+              maximum: 7680,
+            },
             height: {
-              type: 'number',
+              type: 'integer',
               description: 'Viewport height in pixels',
+              minimum: 1,
+              maximum: 7680,
             },
           },
           required: ['width', 'height'],

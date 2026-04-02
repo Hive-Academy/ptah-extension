@@ -420,6 +420,14 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     await this.sendCDP('Network.enable', {});
     await this.sendCDP('Runtime.enable', {});
 
+    // Set viewport via CDP Emulation (matches ChromeLauncherBrowserCapabilities behavior)
+    await this.sendCDP('Emulation.setDeviceMetricsOverride', {
+      width: this._viewport.width,
+      height: this._viewport.height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+
     // Set up network monitoring
     this.networkEntries = [];
     this.pendingResponses.clear();
@@ -603,6 +611,7 @@ export class ElectronBrowserCapabilities implements IBrowserCapabilities {
     this.startedAt = null;
     this.networkEntries = [];
     this.pendingResponses.clear();
+    this._pendingOptions = {};
   }
 
   // Recording methods (TASK_2025_254)

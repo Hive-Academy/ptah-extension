@@ -620,6 +620,8 @@ export class ChromeLauncherBrowserCapabilities implements IBrowserCapabilities {
     this._connected = false;
     this.screencastListenerRegistered = false;
     this.startedAt = null;
+    this._pendingOptions = {};
+    this._inactivityPaused = false;
     this.networkEntries = [];
     this.pendingResponses.clear();
   }

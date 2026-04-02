@@ -391,6 +391,17 @@ export interface JsonValidateResult {
 // ========================================
 
 /**
+ * Viewport dimensions in pixels.
+ * Used across browser session configuration, status reporting, and tool schemas.
+ */
+export interface ViewportDimensions {
+  /** Width in pixels (must be a positive integer, max 7680) */
+  width: number;
+  /** Height in pixels (must be a positive integer, max 7680) */
+  height: number;
+}
+
+/**
  * Browser navigation result
  */
 export interface BrowserNavigateResult {
@@ -507,7 +518,7 @@ export interface BrowserStatusResult {
   /** Whether recording is currently active */
   recording?: boolean;
   /** Current viewport dimensions */
-  viewport?: { width: number; height: number };
+  viewport?: ViewportDimensions;
 }
 
 // ========================================
@@ -579,7 +590,7 @@ export interface BrowserNamespace {
     /** Run browser in headless mode (default: false — visible browser window) */
     headless?: boolean;
     /** Viewport dimensions (default: 1920x1080 — desktop). Common presets: desktop 1920x1080, tablet 768x1024, mobile 375x812 */
-    viewport?: { width: number; height: number };
+    viewport?: ViewportDimensions;
   }): Promise<BrowserNavigateResult>;
 
   /**

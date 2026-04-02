@@ -25,6 +25,7 @@ import type {
   BrowserRecordStartResult,
   BrowserRecordStopResult,
   BrowserWaitForUserResult,
+  ViewportDimensions,
 } from '../types';
 
 // ========================================
@@ -53,7 +54,7 @@ export interface BrowserSessionOptions {
   /** Whether to run in headless mode (default: false — visible browser) */
   headless?: boolean;
   /** Viewport dimensions (default: 1920x1080 — desktop) */
-  viewport?: { width: number; height: number };
+  viewport?: ViewportDimensions;
 }
 
 export interface IBrowserCapabilities {
@@ -115,7 +116,7 @@ export interface IBrowserCapabilities {
     autoCloseInMs?: number;
     headless?: boolean;
     recording?: boolean;
-    viewport?: { width: number; height: number };
+    viewport?: ViewportDimensions;
   }>;
 
   isConnected(): boolean;
@@ -290,18 +291,35 @@ function buildCapabilityBackedBrowserNamespace(
         };
       }
 
+      // Validate viewport dimensions if provided
+      if (params.viewport) {
+        const { width, height } = params.viewport;
+        if (
+          !Number.isInteger(width) ||
+          !Number.isInteger(height) ||
+          width < 1 ||
+          height < 1 ||
+          width > 7680 ||
+          height > 7680
+        ) {
+          return {
+            success: false,
+            url: params.url,
+            title: '',
+            error:
+              'Invalid viewport dimensions. Width and height must be positive integers between 1 and 7680.',
+          };
+        }
+      }
+
       try {
         // Pass agent-controlled session options (headless, viewport) to capabilities.
         // These only take effect when creating a NEW session.
-        const sessionOptions: BrowserSessionOptions = {};
-        if (params.headless !== undefined) {
-          sessionOptions.headless = params.headless;
-        }
-        if (params.viewport) {
-          sessionOptions.viewport = params.viewport;
-        }
-        if (Object.keys(sessionOptions).length > 0) {
-          capabilities.configureSession(sessionOptions);
+        if (params.headless !== undefined || params.viewport) {
+          capabilities.configureSession({
+            ...(params.headless !== undefined && { headless: params.headless }),
+            ...(params.viewport && { viewport: params.viewport }),
+          });
         }
 
         return await capabilities.navigate(
